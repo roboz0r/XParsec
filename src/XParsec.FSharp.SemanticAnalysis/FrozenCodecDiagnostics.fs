@@ -252,9 +252,9 @@ module FrozenCodecDiagnostics =
             w.Write 10uy
             w.Write ty
             w.Write constraintName
-        | Kind.TraitNotSupported(receiver, noun, name) ->
+        | Kind.TraitNotSupported(supportTy, noun, name) ->
             w.Write 11uy
-            w.Write receiver
+            w.Write supportTy
             writeMemberNoun w noun
             w.Write name
         | Kind.UpcastUnrelated(source, target) ->
@@ -400,9 +400,9 @@ module FrozenCodecDiagnostics =
             let ty = r.ReadString()
             Kind.ConstraintNotSupported(ty, r.ReadString())
         | 11uy ->
-            let receiver = r.ReadString()
+            let supportTy = r.ReadString()
             let noun = readMemberNoun r
-            Kind.TraitNotSupported(receiver, noun, r.ReadString())
+            Kind.TraitNotSupported(supportTy, noun, r.ReadString())
         | 12uy ->
             let source = r.ReadString()
             Kind.UpcastUnrelated(source, r.ReadString())

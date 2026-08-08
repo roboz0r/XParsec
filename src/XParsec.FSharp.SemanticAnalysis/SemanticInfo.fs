@@ -251,8 +251,8 @@ and [<Struct>] SemanticConstraint =
         DeclKey: NodeKey
     }
 
-/// A `receiver.X` access parked on a still-free receiver: `ResultTv` is the access's own
-/// metavar, unified with `X`'s type once `receiver` resolves.
+/// An `objArg.X` access parked on a still-free object argument: `ResultTv` is the access's
+/// own metavar, unified with `X`'s type once `objArg` resolves.
 and [<NoEquality; NoComparison>] DeferredMemberAccess =
     {
         MemberName: string

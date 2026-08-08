@@ -20,6 +20,6 @@ module DynamicOperators =
     /// <c>dynamic</c>, so <c>x?a?b</c> stays dynamic unless the context pins it.</summary>
     val inline (?): target: dynamic -> name: string -> ^TResult when default ^TResult: dynamic
 
-    /// <summary>Dynamic member set on a <c>dynamic</c> receiver — <c>x?foo &lt;- v</c>.
+    /// <summary>Dynamic member set on a <c>dynamic</c> value — <c>x?foo &lt;- v</c>.
     /// Emits the computed-member assignment <c>x["foo"] = v</c>.</summary>
     val inline (?<-): target: dynamic -> name: string -> value: ^TValue -> unit

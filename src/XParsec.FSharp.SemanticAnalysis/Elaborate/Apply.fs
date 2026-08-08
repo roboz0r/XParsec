@@ -181,7 +181,7 @@ module internal ElaborateApply =
                     | _ -> ValueNone
 
             // A tuple-VALUED argument opens to one expression per declared parameter,
-            // and the receiver binds ahead of it.
+            // and the object argument binds ahead of it.
             let opened, fnT, argT =
                 match openTupledMemberArg ctx fnT argT with
                 | ValueSome o -> o.Binds, o.Fn, o.Arg
@@ -195,7 +195,7 @@ module internal ElaborateApply =
             wrapOpenedBinds opened (TExpr.App(fnT, argT, ty, tok))
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
-    /// member-trait call. `TExpr.TraitCall` carries ONE receiver, the LEFT operand, so
+    /// member-trait call. `TExpr.TraitCall` carries ONE support type, the LEFT operand, so
     /// a right-operand-only member (`int * Vector -> Vector`) does NOT resolve.
     let translateStaticMemberInvocation
         (translateExpr: TranslateExpr)
@@ -218,9 +218,9 @@ module internal ElaborateApply =
         let args = peelOneArg (translateExpr ctx) argExpr
         // Substitution at expansion rewrites `^T1` to the concrete nominal, and this
         // node to a `StaticMethodCall`.
-        let receiverTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
+        let supportTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
 
-        TExpr.TraitCall(receiverTy, memberName, args, ty, tok)
+        TExpr.TraitCall(supportTy, memberName, args, ty, tok)
 
     let translateInfix
         (translateExpr: TranslateExpr)

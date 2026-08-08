@@ -19,7 +19,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //   * the constructed value used in a *pinning* context (bound / annotated) vs a
 //     *non-pinning* one (an argument to a generic-parameter sink like `raise`)
 //   * single-arg / multi-arg / nullary / generic constructors
-//   * external instance-method chains off a freshly-constructed receiver
+//   * external instance-method chains off a freshly-constructed object argument
 
 let private errorsOf (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
@@ -142,7 +142,7 @@ let tests =
                 ]
 
             // ---- External instance-method chains --------------------------------
-            // A fluent chain off a freshly-constructed external receiver. The overload
+            // A fluent chain off a freshly-constructed external object argument. The overload
             // pick must consult call-site arg types; otherwise `Append(string)` grabs
             // `Append(char[], int, int)` ("string vs TyTuple").
             testList

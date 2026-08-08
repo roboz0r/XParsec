@@ -290,7 +290,7 @@ module UnificationInferOverload =
         | ps, _ -> ps
 
     /// The member's value-parameter types AT THE CALL SITE: its declaring typars
-    /// substituted from the receiver's `args`, its own method typars freshened per call
+    /// substituted from the object argument's `args`, its own method typars freshened per call
     /// (so the trial matcher binds them like external `openSignature`'s method vars).
     let userMemberParams
         (ctx: PassContext)

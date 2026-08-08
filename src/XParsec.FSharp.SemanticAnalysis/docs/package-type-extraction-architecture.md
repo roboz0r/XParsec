@@ -56,7 +56,7 @@ package read access to its dependencies' already-built type shapes.
 │   │   ctx.AmbientShapes <- ambientShapes                        │ │
 │   │   walk .fsi files → extractSymbols → translateType          │ │
 │   │                                                             │ │
-│   │   nominal head:                                             │ │
+│   │   nominal tyCtor:                                           │ │
 │   │     resolveTypeName ──Error──▶ bake  TyUnknown name         │ │
 │   │            │ Ok compiled                                    │ │
 │   │            ▼                                                │ │

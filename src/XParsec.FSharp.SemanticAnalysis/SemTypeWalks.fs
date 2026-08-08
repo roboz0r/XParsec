@@ -223,7 +223,7 @@ module FrozenType =
 [<AutoOpen>]
 module SemTypePatterns =
 
-    /// A member-bearing nominal — class, union OR record — as `(declaring key, receiver
+    /// A member-bearing nominal — class, union OR record — as `(declaring key, its type
     /// args)`; NOT `TyEnum` (niladic) or `TyConst` (an intrinsic). An arm where the
     /// kind forks must precede this one. Does NOT zonk: match an already-resolved type.
     [<return: Struct>]

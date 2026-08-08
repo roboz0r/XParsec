@@ -10,13 +10,13 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // NameResolution — the one resolve-once layer — resolves an expression-position
 // external TYPE identity (opens-aware, longest-type-prefix) ONCE and stamps its
 // `SymbolKey` in `Resolution.ResolvedType`, keyed by the applied function's `NodeKey`.
-// Unification's `tryExternalTypeReceiver` / `splitExternalStaticPrefix` /
+// Unification's `tryExternalTypeQualifier` / `splitExternalStaticPrefix` /
 // `tryInferExternalCtorApp` READ that stamp and do a key-addressed store-view
 // member/ctor lookup instead of re-running `OpenScope.tryQualify` + a string
 // provider lookup at inference time. A MISSED stamp is a resolution failure (the
 // consumer no longer re-resolves), so these tests assert the stamp is present at
 // the three representative expression positions: a static member on a named type,
-// an external ctor-sugar application, and a generic external-type static receiver.
+// an external ctor-sugar application, and a generic external-type static qualifier.
 
 /// A provider that knows two external classes in namespace `Tests` (auto-opened via
 /// `AmbientOpenPrefixes`, as the real prelude opens the package namespace): a
@@ -47,22 +47,22 @@ let private isExternalTypeName (ctx: PassContext) (nameKey: NodeKey) : bool =
     | ValueSome(TypeRefVerdict.ExternalType _) -> true
     | _ -> false
 
-let private isStaticReceiver (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
-    ctx.Resolution.ExternalStaticReceiver.ContainsKey(CstKeys.ofExpr e)
+let private isStaticQualifier (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
+    ctx.Resolution.ExternalStaticQualifier.ContainsKey(CstKeys.ofExpr e)
 
 [<Tests>]
 let tests =
     testList
         "ExternalTypeKeyStamp"
         [
-            // A folded static-member LongIdent: the receiver PREFIX (`Widget`) is
-            // stamped in the DEDICATED receiver table (not `ResolvedType`, so a ctor-app
+            // A folded static-member LongIdent: the qualifier PREFIX (`Widget`) is
+            // stamped in the DEDICATED qualifier table (not `ResolvedType`, so a ctor-app
             // consumer never mistakes it for a constructible type);
             // `splitExternalStaticPrefix` reads it and looks the member up by key.
-            test "static-member receiver prefix is stamped" {
+            test "static-member qualifier prefix is stamped" {
                 let ctx, file = analyse "let x = Widget.Make"
                 let e = firstBindingExpr file
-                Expect.isTrue (isStaticReceiver ctx e) "Widget.Make receiver prefix key stamped"
+                Expect.isTrue (isStaticQualifier ctx e) "Widget.Make qualifier prefix key stamped"
                 Expect.isFalse (isStamped ctx e) "a static-member node is NOT a whole-name ResolvedType stamp"
             }
 
@@ -80,10 +80,10 @@ let tests =
                 Expect.isTrue (isStamped ctx fn) "Widget ctor-sugar type key stamped"
             }
 
-            // A generic external-type static receiver (`Box<int>.Empty`): NameResolution's
-            // `Expr.TypeApp` visit stamps the receiver name at its exact arity;
-            // `tryExternalTypeReceiver` reads it.
-            test "generic static receiver name is stamped" {
+            // A generic external-type static qualifier (`Box<int>.Empty`): NameResolution's
+            // `Expr.TypeApp` visit stamps the qualifier name at its exact arity;
+            // `tryExternalTypeQualifier` reads it.
+            test "generic static qualifier name is stamped" {
                 let ctx, file = analyse "let e = Box<int>.Empty"
 
                 let fn =
@@ -91,7 +91,7 @@ let tests =
                     | Expr.DotLookup(expr = Expr.TypeApp(expr = h)) -> h
                     | other -> failwithf "expected a DotLookup on a TypeApp, got %A" other
 
-                Expect.isTrue (isStamped ctx fn) "Box<int> receiver type key stamped"
+                Expect.isTrue (isStamped ctx fn) "Box<int> qualifier type key stamped"
             }
 
             // The `new T(…)` type: the written type `t` is a `Type` node, so it
@@ -131,7 +131,7 @@ let tests =
                 let ctx, file = analyse "let x = Unknown.Member"
                 let e = firstBindingExpr file
                 Expect.isFalse (isStamped ctx e) "unknown name is not a ResolvedType stamp"
-                Expect.isFalse (isStaticReceiver ctx e) "unknown name is not a receiver-prefix stamp"
+                Expect.isFalse (isStaticQualifier ctx e) "unknown name is not a qualifier-prefix stamp"
             }
 
             // THE CLASSIFICATION RULE, pinned. A written name is classified against the

@@ -45,7 +45,7 @@ type ILInstr =
     /// `unit` is a zero-field struct, so `ldloca; initobj; ldloc` yields the value.
     | Initobj of EntityHandle
     /// `constrained. <type>` — prefix on the next `callvirt`, dispatching a value-type
-    /// receiver (managed pointer) without boxing. Net 0 (the `callvirt` adjusts).
+    /// `this` pointer (managed pointer) without boxing. Net 0 (the `callvirt` adjusts).
     | Constrained of EntityHandle
     /// `newarr <elem>` — allocate a 1-D zero-based array of `elem`; pops the
     /// element count, pushes the array reference (net 0).

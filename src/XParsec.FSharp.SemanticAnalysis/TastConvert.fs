@@ -103,7 +103,8 @@ module TastConvert =
             TExprG.StaticOptimization(EqArray.map (clause f fTok) clauses, pe def, f ty, tk tok)
         | TExprG.Upcast(src, ty, tok) -> TExprG.Upcast(pe src, f ty, tk tok)
         | TExprG.Downcast(src, ty, tok) -> TExprG.Downcast(pe src, f ty, tk tok)
-        | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tk tok)
+        | TExprG.TraitCall(supportTy, n, args, ty, tok) ->
+            TExprG.TraitCall(f supportTy, n, EqArray.map pe args, f ty, tk tok)
         | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tk tok)
         // The `spec` index is domain-free: the table it indexes is remapped whole alongside
         // the tree. An `origin` is a file IDENTITY, not a position, so `tk` never sees it.

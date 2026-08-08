@@ -79,7 +79,7 @@ let tests =
                 assertStamped "GetArrayLength" "let f (a: int[]) : int = a.Length"
             }
 
-            test "array length on a non-ident receiver (DotLookup) stamps GetArrayLength" {
+            test "array length on a non-ident object argument (DotLookup) stamps GetArrayLength" {
                 assertStamped "GetArrayLength" "let f () : int = [| 1; 2; 3 |].Length"
             }
 

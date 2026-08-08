@@ -260,13 +260,13 @@ module EmitCall =
             foldInvoke recur env b sm.ResultTy rest
 
         | TastAccessor.EExternalMember em when em.Storage = MemberStorage.Method ->
-            let receiver = em.Receiver
+            let objArg = em.ObjArg
             let key = em.Key
             let name = em.MemberName
             let memberTy = typeOfExpr fn
             // A .NET method is tupled — `m(a, b)` is ONE application to `(a, b)` — so the
             // call consumes a single argument, opened to the declared width.
-            let isStatic = ValueOption.isNone receiver
+            let isStatic = ValueOption.isNone objArg
             let argCount = SymbolKeyOps.memberArity "Emit: external member call" key
 
             let argList, rest =
@@ -274,16 +274,16 @@ module EmitCall =
                 | first :: more -> ValueSome first, more
                 | [] -> ValueNone, []
 
-            // An instance method on an unboxed value-type receiver (`Span<char>`, any
+            // An instance method on an unboxed value-type object arg (`Span<char>`, any
             // external struct) is reached by address + non-virtual `call`; by value +
             // `callvirt` the verifier rejects, and a ref struct cannot even be boxed.
-            let receiverIsStruct =
-                match receiver with
+            let objArgIsStruct =
+                match objArg with
                 | ValueSome r -> isValueType env (typeOfExpr r)
                 | ValueNone -> false
 
-            match receiver with
-            | ValueSome r when receiverIsStruct ->
+            match objArg with
+            | ValueSome r when objArgIsStruct ->
                 match r with
                 | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
                 | _ ->
@@ -303,7 +303,7 @@ module EmitCall =
                     |> List.length
 
             let handle =
-                match receiver with
+                match objArg with
                 | ValueSome r -> externalInstanceMemberRef env key (typeOfExpr r) false (memberTy)
                 | ValueNone -> env.Provider.ExternalMemberRef(key, false, true, memberTy)
 
@@ -331,7 +331,7 @@ module EmitCall =
 
             let resultCount = if returnsVoid then 0 else 1
 
-            if isStatic || receiverIsStruct then
+            if isStatic || objArgIsStruct then
                 b.Add(ILInstr.Call(handle, total, resultCount))
             else
                 b.Add(ILInstr.Callvirt(handle, total, resultCount))

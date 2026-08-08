@@ -224,7 +224,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint a field `MemberRef` for an external public field (`String.Empty`) — read via
     /// `ldfld`/`ldsfld`, not a `get_X` accessor. The parent instantiation comes from `declTy`
-    /// when the access has a receiver, else it is recovered from the use-site `memberTy`.
+    /// when the access has an object argument, else it is recovered from the use-site `memberTy`.
     let externalFieldRef (key: SymbolKey) (declTy: FrozenType voption) (memberTy: FrozenType) : EntityHandle =
         let mk = SymbolKeyOps.asMemberKey "ClrProvider: external field ref" key
         let declKey, fieldName = mk.Decl, mk.Name

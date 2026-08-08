@@ -46,9 +46,9 @@ module internal ElaborateAccess =
             let valuePartial = TyFun(valTy, ty)
             let idxPartial = TyFun(idxTy, valuePartial)
 
-            // An index-signature receiver writes through `SetIndex` (the `$0[$1] = $2`
-            // bracket), every other receiver through `SetArray` (`stelem`) — the same
-            // receiver classification the read branch makes.
+            // An index-signature object argument writes through `SetIndex` (the `$0[$1] = $2`
+            // bracket), every other through `SetArray` (`stelem`) — the same
+            // classification the read branch makes.
             let setName =
                 match Unification.zonk ctx.Store arrTy with
                 | TyClass(clsKey, _) when
@@ -72,17 +72,17 @@ module internal ElaborateAccess =
             // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v). The chain
             // peels into FieldGet for the intermediate segments and a final
             // FieldSet for the assigned slot.
-            let receiverIdents = li.Idents
-            let lastIdx = receiverIdents.Length - 1
+            let segments = li.Idents
+            let lastIdx = segments.Length - 1
 
             // The chain's NodeKey, required by `fieldStep` for its array-length lookup.
-            // A read-only `.Length` can never be an assignment-receiver segment, so
+            // A read-only `.Length` can never be an assigned segment, so
             // here it is only ever passed through.
             let liKey =
                 NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
-            let receiverChain =
-                let anchorIdent = receiverIdents.[0]
+            let objChain =
+                let anchorIdent = segments.[0]
                 let anchorKey = NodeKey.ofToken anchorIdent NodeKind.ExprIdent
                 let anchorBinding = ctx.Bindings.Binding.TryGetValue anchorKey
 
@@ -102,7 +102,7 @@ module internal ElaborateAccess =
                 // Field reads for the intermediate segments; the assigned slot is the
                 // final one, handled by the `FieldSet` below.
                 for i = 1 to lastIdx - 1 do
-                    let segName = ctx.NameOf receiverIdents.[i]
+                    let segName = ctx.NameOf segments.[i]
 
                     let stepTy =
                         match recoverFieldStepTy ctx currTy segName with
@@ -114,13 +114,13 @@ module internal ElaborateAccess =
 
                 curr
 
-            let lastName = ctx.NameOf receiverIdents.[lastIdx]
-            TExpr.FieldSet(receiverChain, lastName, translateExpr ctx right, ty, tok)
-        // `recv?name <- v` → `(?<-) recv "name" v` → the `op_DynamicAssignment` body
-        // `$0[$1] = $2` splices to `recv["name"] = v`. The name is a compile-time
+            let lastName = ctx.NameOf segments.[lastIdx]
+            TExpr.FieldSet(objChain, lastName, translateExpr ctx right, ty, tok)
+        // `x?name <- v` → `(?<-) x "name" v` → the `op_DynamicAssignment` body
+        // `$0[$1] = $2` splices to `x["name"] = v`. The name is a compile-time
         // string literal (the ident text), NOT a value reference.
         | Expr.DynamicLookup(expr = r; ident = idTok) ->
-            let recvTy = typeOfKey ctx (CstKeys.ofExpr r)
+            let objArgTy = typeOfKey ctx (CstKeys.ofExpr r)
             let valTy = typeOfKey ctx (CstKeys.ofExpr right)
 
             let nameLit =
@@ -132,15 +132,15 @@ module internal ElaborateAccess =
             let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
 
             let opExpr =
-                TExpr.External(OperatorData.OpDynamicAssignment, opKey, TyFun(recvTy, namePartial), tok)
+                TExpr.External(OperatorData.OpDynamicAssignment, opKey, TyFun(objArgTy, namePartial), tok)
 
             let app1 = TExpr.App(opExpr, translateExpr ctx r, namePartial, tok)
             let app2 = TExpr.App(app1, nameLit, valuePartial, tok)
             TExpr.App(app2, translateExpr ctx right, ty, tok)
         | _ -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty, tok)
 
-    /// Single-segment `r.X` read on a *project-local* receiver (the external
-    /// receiver forms peel off in the dispatcher first).
+    /// Single-segment `r.X` read on a *project-local* object argument (the
+    /// external forms peel off in the dispatcher first).
     let translateDotLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -151,7 +151,7 @@ module internal ElaborateAccess =
         (tok: SyntaxToken)
         : TExpr =
         let rTy = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r))
-        let receiver = translateExpr ctx r
+        let objArg = translateExpr ctx r
 
         // A record exposes BOTH fields and instance-member properties by dot-access, so
         // — unlike a class/union, whose `.X` is always a member — the decision is made
@@ -161,23 +161,23 @@ module internal ElaborateAccess =
             match tryNominalMemberByKey ctx recKey memberName with
             | ValueSome(declKey, _) ->
                 let key = LocalSymbolKey.ofProperty declKey memberName
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
-            | ValueNone -> TExpr.FieldGet(receiver, memberName, ty, tok)
-        // A class/union receiver's `.X` is always a member — a `PropertyGet` (a
+                TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
+            | ValueNone -> TExpr.FieldGet(objArg, memberName, ty, tok)
+        // A class/union object argument's `.X` is always a member — a `PropertyGet` (a
         // method-as-value keeps the shape; codegen eta-expands).
         | TyNominal(nominalKey, _) ->
             let key = LocalSymbolKey.ofProperty nominalKey memberName
 
-            TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
+            TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
         // `(expr).Length` on a rank-1 array desugars to the core `GetArrayLength`
         // inline function (`ldlen`); the LongIdent-chain form mirrors this.
         | TyArray _ when memberName = "Length" ->
             let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(rTy, ty), tok), receiver, ty, tok)
-        | _ -> TExpr.FieldGet(receiver, memberName, ty, tok)
+            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(rTy, ty), tok), objArg, ty, tok)
+        | _ -> TExpr.FieldGet(objArg, memberName, ty, tok)
 
-    /// `recv?name` → `(?) recv "name"` → the `op_Dynamic` body `$0[$1]` splices to
-    /// `recv["name"]`. The name is a compile-time string literal (the ident text),
+    /// `x?name` → `(?) x "name"` → the `op_Dynamic` body `$0[$1]` splices to
+    /// `x["name"]`. The name is a compile-time string literal (the ident text),
     /// NOT a value reference.
     let translateDynamicLookup
         (translateExpr: TranslateExpr)
@@ -188,7 +188,7 @@ module internal ElaborateAccess =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let recvTy = typeOfKey ctx (CstKeys.ofExpr r)
+        let objArgTy = typeOfKey ctx (CstKeys.ofExpr r)
 
         let nameLit =
             TExpr.Const(TConstValue.String(ctx.NameOf idTok), ctx.Intrinsics.String, tok)
@@ -197,7 +197,7 @@ module internal ElaborateAccess =
         let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
 
         let opExpr =
-            TExpr.External(OperatorData.OpDynamic, opKey, TyFun(recvTy, partialTy), tok)
+            TExpr.External(OperatorData.OpDynamic, opKey, TyFun(objArgTy, partialTy), tok)
 
         let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
         TExpr.App(app1, nameLit, ty, tok)
@@ -267,8 +267,8 @@ module internal ElaborateAccess =
             let partialTy = TyFun(idxTy, ty)
             let getTy = TyFun(arrTy, partialTy)
 
-            // A `string` receiver lowers through `GetString`, an index-signature
-            // receiver (an external type carrying `{ [k: K]: V }`) through `GetIndex`,
+            // A `string` object argument lowers through `GetString`, an index-signature
+            // one (an external type carrying `{ [k: K]: V }`) through `GetIndex`,
             // every other through `GetArray`. Only WHETHER, never WHICH entry matched.
             let getName =
                 match Unification.zonk ctx.Store arrTy with

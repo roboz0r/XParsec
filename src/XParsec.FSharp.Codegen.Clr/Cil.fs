@@ -47,7 +47,7 @@ module Cil =
         il.Encoder.LoadLocal(n)
         il.Adjust 1
 
-    /// Managed pointer to local slot `n` — the receiver for a value-type instance
+    /// Managed pointer to local slot `n` — the `this` pointer for a value-type instance
     /// call, or the target of an in-place `initobj` / `.ctor`.
     let emitLdloca (il: Il) (n: int) : unit =
         il.Encoder.LoadLocalAddress(n)
@@ -130,14 +130,14 @@ module Cil =
         il.Adjust -1
 
     /// SRM has no `Callvirt` helper, so the opcode + token go out by hand. `argc`
-    /// includes the receiver.
+    /// includes the `this` pointer.
     let emitCallvirt (il: Il) (m: EntityHandle) (argc: int) (pushes: int) : unit =
         il.Encoder.OpCode(ILOpCode.Callvirt)
         il.Encoder.Token(m)
         il.Adjust(pushes - argc)
 
     /// `constrained. <type>` — prefix making the following `callvirt` dispatch on a
-    /// value-type receiver (a managed pointer) without boxing. Net 0: a prefix emits
+    /// value-type `this` pointer (a managed pointer) without boxing. Net 0: a prefix emits
     /// no operand traffic of its own, the paired `callvirt` does the adjust.
     let emitConstrained (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Constrained)

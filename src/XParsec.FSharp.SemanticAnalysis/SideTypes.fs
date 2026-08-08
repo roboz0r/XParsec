@@ -79,7 +79,7 @@ type ForInEnumeratorG<'ty> =
     | Interface
     /// The duck-typed path: the source exposes a parameterless `GetEnumerator()` returning
     /// a concrete `E` with `MoveNext(): bool` and `Current`, *without* implementing
-    /// `IEnumerable<'T>`. `isValueType` is `E`'s, selecting the non-boxing receiver walk.
+    /// `IEnumerable<'T>`. `isValueType` is `E`'s, selecting the non-boxing object-argument walk.
     | Pattern of
         enumeratorTy: 'ty *
         getEnumerator: ForInGetEnumG<'ty> *

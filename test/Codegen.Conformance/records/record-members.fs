@@ -1,5 +1,5 @@
 // A record with INSTANCE members — a method (`Sum`, `AddN n`) and a property
-// (`Doubled`) — reached by dot-access. Instance-member dispatch on a record receiver
+// (`Doubled`) — reached by dot-access. Instance-member dispatch on a record object argument
 // resolves on the same nominal-member path as a class or union; a field read (`v.X`)
 // still lowers to a plain field access, so both forms must agree across the backends.
 type Vec =

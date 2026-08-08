@@ -15,9 +15,9 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 // handler observed. Everything runs against a hand-authored stateful runtime under Node.
 //
 // The new machinery this exercises (vs plain member calls): a Vesper lambda flowing as an argument INTO a
-// native `receiver.member(args)` call, with the lambda's parameter type inferred from the
+// native `objArg.member(args)` call, with the lambda's parameter type inferred from the
 // manifest member's function-typed parameter (`handler: int -> unit`), and the lambda body
-// itself making a further native member call on a captured receiver.
+// itself making a further native member call on a captured object argument.
 
 // ─── Hand-built manifest (no JSON round-trip); builders from `SchemaDsl` ────────
 
@@ -120,7 +120,7 @@ let tests =
                 let js = emitBus program
 
                 // The on/emit calls must be NATIVE prototype methods, not mangled
-                // receiver-first free-fn imports.
+                // type-prefixed free-fn imports.
                 Expect.isTrue (js.Contains ".on(") (sprintf "expected a native `.on(` call, got:\n%s" js)
                 Expect.isTrue (js.Contains ".emit(") (sprintf "expected a native `.emit(` call, got:\n%s" js)
                 Expect.isFalse (js.Contains "Bus__") (sprintf "unexpected mangled member import in:\n%s" js)

@@ -95,7 +95,7 @@ module internal ElaborateClassMembers =
         let classTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
         // `base` is in scope only when the class has an `inherit` clause; an instance
-        // member then carries the shared `BaseKey` so a `base.M(...)` receiver resolves.
+        // member then carries the shared `BaseKey` so a `base.M(...)` object argument resolves.
         let baseKey =
             if info.BaseType.IsSome then
                 ValueSome info.BaseKey

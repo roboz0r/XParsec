@@ -199,7 +199,7 @@ module UnificationEngineCore =
         }
 
     /// Walk a class's `inherit` chain for a NON-STATIC `memberName`, instantiated against
-    /// the receiver's `args`. `BaseType` is written in the DERIVED class's typar scope, so
+    /// the object argument's `args`. `BaseType` is written in the DERIVED class's typar scope, so
     /// applying `TypeParams ↦ args` to it threads the derived args up to the parent.
     let tryClassChainMemberDecl
         (ctx: PassContext)
@@ -383,12 +383,12 @@ module UnificationEngineCore =
     /// The external `(SymbolKey, typeArgs)` surfaces a provider member lookup keys on, MOST
     /// SPECIFIC FIRST: an intrinsic `TyConst` publishes its own contract surface, then the
     /// platform type's (`"hello".TryCopyTo` reaching `System.String`). Empty for a local class.
-    let externalReceiverKeys (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) list =
+    let externalSurfaceKeys (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) list =
         match resolveStep ctx.Store ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             [ struct (SymbolKey.Type clsKey, typeArgs) ]
         // A structural constructor (`'T []` / `byref`) reprs as the IL artefact `"!0[]"`,
-        // not a nominal receiver key — decline before the `TyConst` arm mis-routes onto it.
+        // not a nominal surface key — decline before the `TyConst` arm mis-routes onto it.
         | TyStructuralCtor -> []
         | TyConst(key, typeArgs) ->
             let name = SymbolKeyOps.intrinsicName key
@@ -518,12 +518,12 @@ module UnificationEngineCore =
 
         walk (HashSet<SymbolKey>()) src
 
-    /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `receiver`, paired
-    /// with the supertype's args as reached from the receiver (`[int]` for a `Child :
-    /// Base<int>`). SUPERTYPES ONLY — the caller resolves the receiver's own members first.
+    /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `objArgTy`, paired
+    /// with the supertype's args as reached from it (`[int]` for a `Child :
+    /// Base<int>`). SUPERTYPES ONLY — the caller resolves its own members first.
     let tryExternalInheritedMember
         (ctx: PassContext)
-        (receiver: SemType)
+        (objArgTy: SemType)
         (memberName: string)
         : struct (ExternalMember * EqArray<SemType>) voption =
         // A node's direct supertypes: its interfaces, then its declared base type.
@@ -558,7 +558,7 @@ module UnificationEngineCore =
                         // remaining siblings, so a nearer ancestor's member wins.
                         | _ -> walk (rest @ supertypesOf node)
 
-        walk (supertypesOf receiver)
+        walk (supertypesOf objArgTy)
 
     /// How a `SemType` is NAMED to a user in a diagnostic. An unpinned typar prints as the
     /// anonymous `'a`. Zonks first, so no caller has to remember to.

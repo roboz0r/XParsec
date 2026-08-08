@@ -7,14 +7,14 @@ open EmitTypes
 open EmitLower
 
 /// Member/field handle resolution: the mono-vs-generic handle decision, the
-/// nominal-receiver destructure, and the per-shape `resolve*` lookups over them.
+/// nominal object-arg destructure, and the per-shape `resolve*` lookups over them.
 module EmitResolve =
     /// `[a; b]` and `r` → `FTFun(a, FTFun(b, r))`.
     let curriedFun (args: FrozenType list) (ret: FrozenType) : FrozenType =
         List.foldBack (fun a acc -> FTFun(a, acc)) args ret
 
     /// A member handle on a user type: the member's own `Def` token for a
-    /// monomorphic type, or a `MemberRef` on the receiver's instantiated
+    /// monomorphic type, or a `MemberRef` on the object argument's instantiated
     /// `TypeSpec` for a generic one (`List<int>::Cons`, `Box<int>::Value`).
     let memberRef
         (env: EmitEnv)
@@ -29,11 +29,11 @@ module EmitResolve =
         else
             env.Provider.UserGenericMemberRef(key, tyArgs, kind)
 
-    /// Destructure a nominal receiver type into its `(TypeKey, tyArgs)`, failing for a
+    /// Destructure a nominal type into its `(TypeKey, tyArgs)`, failing for a
     /// non-nominal one. `what` names the construct being emitted, and is quoted in the
     /// diagnostic (`"RecordCons"`, `"field 'X' access"`, …).
     let nominalShape (what: string) (ty: FrozenType) : TypeKey * FrozenType list =
-        match receiverShape ty with
+        match objArgShape ty with
         | ValueSome(k, xs) -> k, xs
         | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
 
@@ -54,7 +54,7 @@ module EmitResolve =
         env.Provider.RecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
 
     /// Pick the interface template a project-local class implements matching `ifaceKey`,
-    /// instantiated at THIS receiver (`FTTypar(Declaring, i) := classArgs.[i]`).
+    /// instantiated at THIS object argument (`FTTypar(Declaring, i) := classArgs.[i]`).
     /// Direct-declared interfaces only — no walk of base classes or transitive interfaces.
     let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match nominal with
@@ -128,17 +128,17 @@ module EmitResolve =
                 | Some m -> m
                 | None -> List.head multi
 
-    /// Resolve the member-call handle for an instance access on `receiverTy`
+    /// Resolve the member-call handle for an instance access on `objArgTy`
     /// (`List<int>::get_Head`), plus the `EmittedMember` whose `MethodTyparCount` + signature a
     /// generic-instance-method site mints its `MethodSpec` from. `argTys` pick the overload.
     let resolveInstanceMember
         (env: EmitEnv)
-        (receiverTy: FrozenType)
+        (objArgTy: FrozenType)
         (name: string)
         (argTys: FrozenType list)
         : EntityHandle * EmittedMember =
-        // Project-local receivers only — an external one goes to `externalInstanceMemberRef`.
-        let key, tyArgs = nominalShape (sprintf "member '%s' access" name) receiverTy
+        // Project-local types only — an external one goes to `externalInstanceMemberRef`.
+        let key, tyArgs = nominalShape (sprintf "member '%s' access" name) objArgTy
 
         // The member-key registry read, identical across every emitted-nominal kind: pick
         // the overload by argument types, then mint the `Def`-token or generic `MemberRef`.
@@ -171,20 +171,20 @@ module EmitResolve =
                 match env.Records.TryGetValue(SymbolKey.Type key) with
                 | true, r -> fromMembers "record" r.Typars r.Members
                 | false, _ ->
-                    // An interface-typed receiver (`(x :> IFace).M()`) resolves to the
-                    // abstract slot, dispatched `callvirt` (an interface is not a value
+                    // An interface-typed object argument (`(x :> IFace).M()`) resolves to
+                    // the abstract slot, dispatched `callvirt` (an interface is not a value
                     // type). Same member-table shape as a class.
                     match env.Interfaces.TryGetValue(SymbolKey.Type key) with
                     | true, iface -> fromMembers "interface" iface.Typars iface.Members
-                    | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
+                    | false, _ -> failwithf "Emit: no emitted type carrying members for object argument '%A'" key
 
     /// Member handle for an instance access on an EXTERNAL (referenced-package) type. A
-    /// union/record receiver routes through `ExternalMemberRefOn`, which reads the parent
+    /// union/record object argument routes through `ExternalMemberRefOn`, reading the parent
     /// `TypeSpec` off it — `"Vesper.Option"` carries no `` `1 ``, so its arity is unrecoverable.
     let externalInstanceMemberRef
         (env: EmitEnv)
         (key: SymbolKey)
-        (receiverTy: FrozenType)
+        (objArgTy: FrozenType)
         (isProperty: bool)
         (memberTy: FrozenType)
         : EntityHandle =
@@ -198,14 +198,14 @@ module EmitResolve =
 
         let declKey = SymbolKeyOps.declTypeKeyOf "Emit: external instance member" key
 
-        match receiverTy with
+        match objArgTy with
         | FTUnion _
-        | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
-        // A generic external class receiver (`ResizeArray<int>`) carries its instantiation in
-        // its own args, which signature recovery cannot get from `Count: int`. Gated on
-        // declKey = rKey since the parent IS the receiver — wrong for an inherited member.
+        | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
+        // A generic external class object arg (`ResizeArray<int>`) carries its instantiation
+        // in its own args, which signature recovery cannot get from `Count: int`. Gated on
+        // declKey = rKey since the parent IS the object argument — wrong for an inherited one.
         | FTClass(rKey, args) when args.Length > 0 && declKey = rKey ->
-            env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
+            env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
     /// The static-member equivalent; `argTys` (empty for a property get) and `resultTy` recover
@@ -230,7 +230,7 @@ module EmitResolve =
             let declaringTypars =
                 [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
-            match receiverShape resultTy with
+            match objArgShape resultTy with
             | ValueSome(rk, rargs) when rk = key && List.length rargs = List.length typars -> rargs
             | _ when List.isEmpty typars -> declaringTypars
             | _ ->
@@ -320,11 +320,11 @@ module EmitResolve =
                 | false, _ -> failwithf "Emit: struct enum '%A' has no emitted case '%s'" declKey name
         | false, _ -> ValueNone
 
-    /// Resolve a field by name on a record / class receiver: the field's `Def` token for a
-    /// monomorphic type, a `MemberRef` on the receiver's instantiated `TypeSpec` for a generic
+    /// Resolve a field by name on a record / class object arg: the field's `Def` token for a
+    /// monomorphic type, a `MemberRef` on its instantiated `TypeSpec` for a generic
     /// one (`Box<int>::Value`). A class reaches here via elaboration's `FieldGet(this, name)`.
-    let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
-        let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) receiverTy
+    let resolveRecordField (env: EmitEnv) (objArgTy: FrozenType) (fieldName: string) : EntityHandle =
+        let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) objArgTy
 
         match env.Records.TryGetValue(SymbolKey.Type key) with
         | true, r ->

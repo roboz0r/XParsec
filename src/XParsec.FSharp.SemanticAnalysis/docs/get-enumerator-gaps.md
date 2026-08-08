@@ -103,12 +103,12 @@ separate case per source/enumerator combination:
   `EmittedInterface` registry, routed through `EmitResolve.memberRef` so a generic
   interface lands on the instantiated `TypeSpec`).
 
-  Receiver/dispatch in the shared emitter turns on three flags, not one:
-  - a **value-type** `E` addresses the receiver (`ldloca`) and dispatches `E`'s own
+  Object-argument/dispatch in the shared emitter turns on three flags, not one:
+  - a **value-type** `E` addresses the object argument (`ldloca`) and dispatches `E`'s own
     `MoveNext` / `Current` with a **direct `call`** — *not* `constrained. callvirt`,
     which mis-dispatches a non-virtual struct `MethodDef` against an uninitialised
-    receiver;
-  - a **typar** `E` (`MembersViaConstrained`) also addresses the receiver, but *does*
+    `this`;
+  - a **typar** `E` (`MembersViaConstrained`) also addresses the object argument, but *does*
     use `constrained. <E> callvirt` — the JIT then dispatches a struct typar by address
     (no box) and a class typar by reference. So `constrained.` is not reserved for
     `Dispose`; it is the correct form for a typar, and the wrong form for a concrete

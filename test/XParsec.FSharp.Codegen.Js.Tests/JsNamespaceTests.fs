@@ -116,7 +116,7 @@ let tests =
                     (sprintf "the wire home `es2015` must not leak into the output, got:\n%s" js)
             }
 
-            test "(b) member access on a mounted global type resolves and emits a native receiver.member call" {
+            test "(b) member access on a mounted global type resolves and emits a native objArg.member call" {
                 // `w.ping()` on the `Js.Widget` value resolves through the provider
                 // (`MemberLowering.AttachedNative`) and lowers to `w.ping()` — still no import.
                 let js = emitGlobal es2015Contract "let w = new Js.Widget()\nw.ping()\n"

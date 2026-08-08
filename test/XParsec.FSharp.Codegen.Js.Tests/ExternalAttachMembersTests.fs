@@ -8,8 +8,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // TS provider: an instance-member call on an external TS-manifest object
-// lowers to a NATIVE `receiver.member(args)` — the object has genuine prototype/own
-// methods, NOT the receiver-first `$Box_get`-style free-fn import Vesper's OWN runtimes
+// lowers to a NATIVE `objArg.member(args)` — the object has genuine prototype/own
+// methods, NOT the type-prefixed `$Box_get`-style free-fn import Vesper's OWN runtimes
 // emit (a tree-shaking optimisation). The signal is `MemberLowering.AttachedNative`,
 // which `TsManifestProvider` stamps on every real Interface/Class shape; EmitJs reads it
 // through the declaring type's shape.
@@ -54,7 +54,7 @@ let private boxContract = contractTs boxManifest
 
 // A hand-authored runtime whose factory returns a STATEFUL object: state lives in
 // `this._v` and every method reads/writes `this`, so a lowering that detached the
-// method from its receiver would observe the wrong (or undefined) `this`.
+// method from its object argument would observe the wrong (or undefined) `this`.
 let private boxRuntime =
     String.concat
         "\n"
@@ -97,13 +97,13 @@ let tests =
     testList
         "ExternalAttachMembers"
         [
-            test "instance member calls lower to NATIVE receiver.member(args), no mangled import" {
+            test "instance member calls lower to NATIVE objArg.member(args), no mangled import" {
                 // `b.set(5)` / `b.get()` must be genuine object methods on the runtime the
                 // factory returns — NOT the mangled `$Box__get` free-fn import.
                 // `set` (unit) is bound to a named `u`: a BARE `b.set(5)` mid-sequence is a
                 // front-end parse gap (`Expr.Missing`) and a top-level `let _ =` is not an
                 // emit-supported declaration — both unrelated to native member calls. A named unit binding
-                // runs the call for its effect and emits as `const u = recv.set(5)`.
+                // runs the call for its effect and emits as `const u = objArg.set(5)`.
                 let program =
                     String.concat "\n" [ "let b = makeBox()"; "let u = b.set(5)"; "let result = b.get()"; "" ]
 
@@ -112,7 +112,7 @@ let tests =
                 Expect.isTrue (js.Contains ".set(") (sprintf "expected a native `.set(` call, got:\n%s" js)
                 Expect.isTrue (js.Contains ".get(") (sprintf "expected a native `.get(` call, got:\n%s" js)
 
-                // The receiver-first free-fn form Vesper's own runtimes use must be ABSENT
+                // The type-prefixed free-fn form Vesper's own runtimes use must be ABSENT
                 // for a native manifest member: no `Box__get` / `Box__set` mangled export.
                 Expect.isFalse (js.Contains "Box__") (sprintf "unexpected mangled member import in:\n%s" js)
 
@@ -127,11 +127,13 @@ let tests =
                     "5"
             }
 
-            test "a zero-arg method emits recv.get() with the lone unit dropped" {
+            test "a zero-arg method emits objArg.get() with the lone unit dropped" {
                 let js =
                     emitBox (String.concat "\n" [ "let b = makeBox()"; "let result = b.get()"; "" ])
-                // The `()` argument has no JS value — `recv.get()`, never `recv.get(undefined)`.
-                Expect.isTrue (js.Contains ".get()") (sprintf "expected `recv.get()` (lone unit dropped), got:\n%s" js)
+                // The `()` argument has no JS value — `objArg.get()`, never `objArg.get(undefined)`.
+                Expect.isTrue
+                    (js.Contains ".get()")
+                    (sprintf "expected `objArg.get()` (lone unit dropped), got:\n%s" js)
             }
 
             test "a method extracted as a VALUE eta-wraps (this bound at call) and runs" {
@@ -192,7 +194,7 @@ let tests =
                     "31"
             }
 
-            test "a Property member lowers to a plain receiver.prop READ (no call)" {
+            test "a Property member lowers to a plain objArg.prop READ (no call)" {
                 // A manifest Property is a JS data property — `b.value` is a member READ,
                 // not the zero-arg-method shape a local interface-impl property emits.
                 let js =

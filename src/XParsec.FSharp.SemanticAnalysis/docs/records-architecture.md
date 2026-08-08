@@ -30,7 +30,7 @@ type Box<'T> = { Value: 'T }
 let p = { X = 1; Y = 2 }            //  p : Point
 let b = { Value = 1 }              //  b : Box<int>
 
-// Field access — driven by the receiver's type.
+// Field access — driven by the object argument's type.
 let xCoord = p.X                   //  xCoord : int
 
 // Field assignment — allowed because Y is mutable; p.X <- 5 diagnoses.
@@ -113,7 +113,7 @@ Storage lives on `PassContextTypes` (`PassContext.fs`):
 ### `TypeStore.Pda` (deferred dot-access)
 
 The deferred-resolution channel for field access on a not-yet-pinned
-receiver. A `r.X` whose receiver types to a free TyVar parks a
+object argument. A `r.X` whose object argument types to a free TyVar parks a
 `DeferredMemberAccess` (member name, use-site key, result TyVar) under the
 root's representative id in the store's `Pda` table (a `BoundTable`, formerly
 the on-node `TypeVar.PendingDotAccess` slot). When `unify` later links that
@@ -179,7 +179,7 @@ both of which carry a `TyRecord` arm) likewise treat records identically.
   initialiser against the (instantiated) declared field type; returns
   `TyRecord(info.Key, args)` with fresh typar instantiation (`:916`).
 - **Field access** — the `Expr.DotLookup` arm (`:73`). Types the
-  receiver; on `TyRecord` looks the field up and returns its instantiated
+  object argument; on `TyRecord` looks the field up and returns its instantiated
   type; on a free `TyVar` parks a `DeferredMemberAccess` on the root
   (`:1086`) and returns the result TyVar; otherwise diagnoses.
 - **Clone** — `inferRecordClone` (`:918`). Resolves the source to
@@ -208,7 +208,7 @@ record. `translateType` (`Translate.fs`) maps a `Type.NamedType` to
 
 `isAllocation` returns `true` for `TyRecord _` (`:172`) — a record
 literal mints a composite region that outlives each field initialiser's
-region, the same shape as a tuple. `TExpr.FieldGet` shares the receiver's
+region, the same shape as a tuple. `TExpr.FieldGet` shares the object argument's
 region (`:366`): field reads and the record itself live together. This is
 coarser than the plan's per-mutable-field cell regions but sound — a
 mutable field's escape is tracked at record granularity. The escaping-
@@ -221,11 +221,11 @@ sees it.
 Two diagnostics:
 
 - **Assignment to an immutable field** (`:89`, `:130`). An `r.X <- v`
-  whose receiver zonks to a `TyRecord` whose field `X` has
+  whose object argument zonks to a `TyRecord` whose field `X` has
   `IsMutable = false` diagnoses "Cannot assign to immutable field 'X'".
 - **Unresolved dot access** — `checkUnresolvedDotAccesses` (`:150`).
   After unification, walks every TyVar root with a non-empty
-  `PendingDotAccess` (the receiver type never pinned to a record/class)
+  `PendingDotAccess` (the object-argument type never pinned to a record/class)
   and emits one diagnostic per pending access (`:157`).
 
 Non-Ident, non-`DotLookup` LHSes (array slot, deeper dotted access) stay
@@ -239,8 +239,8 @@ Four `TExpr` cases and one `TPat`:
 // Tast.fs
 | RecordCons  of fields: EqArray<string * TExprG<'ty>> * ty: 'ty        // :142
 | RecordClone of source: TExprG<'ty> * overrides: EqArray<string * TExprG<'ty>> * ty: 'ty   // :147
-| FieldGet    of receiver: TExprG<'ty> * fieldName: string * ty: 'ty    // :150
-| FieldSet    of receiver: TExprG<'ty> * fieldName: string * value: TExprG<'ty> * ty: 'ty   // :153
+| FieldGet    of objArg: TExprG<'ty> * fieldName: string * ty: 'ty    // :150
+| FieldSet    of objArg: TExprG<'ty> * fieldName: string * value: TExprG<'ty> * ty: 'ty   // :153
 // TPat
 | Record of fields: EqArray<string * TPatG<'ty>> * ty: 'ty             // :46
 ```
@@ -288,7 +288,7 @@ above plus the `TyRecord` arms. The cross-cutting pieces:
   (enumerable → `[Symbol.iterator]`, eq/comp/hash → `Symbol.for("vesper.*")`,
   a plain local interface → an attached method); no new emission shape (unlike
   the union's base/case split). A call *through* a local interface slot
-  (`(r :> ILocal).M()`) lowers to `receiver.M(args)` (the attached method) via
+  (`(r :> ILocal).M()`) lowers to `objArg.M(args)` (the attached method) via
   `WalkCtx.LocalInterfaces`, not the free `<Type>__M` form — a local interface
   emits no free function.
 

@@ -55,7 +55,7 @@ module Validation =
         match core with
         | _ when isMultiSegLocalChain ->
             // `r.X <- v`, parsed as one multi-segment LongIdent: the penultimate
-            // receiver's type drives the last segment's mutability. Only the 2-segment
+            // object argument's type drives the last segment's mutability. Only the 2-segment
             // form reports; `r.A.X <- v` would need the intermediate field types.
             let li =
                 match core with
@@ -91,7 +91,7 @@ module Validation =
             | ValueSome rb when not rb.IsMutable -> ctx.Report(coreTok, Kind.Message "assignment to immutable binding")
             | _ -> ()
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            // Free TyVar receivers (unresolved record) skip silently; the
+            // A free TyVar object argument (unresolved record) skips silently; the
             // deferred-field-access check surfaces those.
             let rKey = CstKeys.ofExpr r
 
@@ -129,7 +129,7 @@ module Validation =
                         d.Use.Tok,
                         Kind.Message(
                             sprintf
-                                "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
+                                "Cannot resolve member '%s': object-argument type was never constrained to a record or class type"
                                 d.MemberName
                         )
                     )

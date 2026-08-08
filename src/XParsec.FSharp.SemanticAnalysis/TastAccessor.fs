@@ -141,11 +141,7 @@ module TastAccessor =
         | ExprPayload.ExternalMember p ->
             ValueSome
                 {
-                    Receiver =
-                        (if p.HasReceiver then
-                             ValueSome(exprChild e 0)
-                         else
-                             ValueNone)
+                    ObjArg = (if p.HasObjArg then ValueSome(exprChild e 0) else ValueNone)
                     Key = p.Key
                     MemberName = p.MemberName
                     Storage = p.Storage
@@ -290,7 +286,7 @@ module TastAccessor =
         | ExprPayload.FieldGet fieldName ->
             ValueSome
                 {
-                    Receiver = exprChild e 0
+                    ObjArg = exprChild e 0
                     FieldName = fieldName
                 }
         | _ -> ValueNone
@@ -304,7 +300,7 @@ module TastAccessor =
         | ExprPayload.FieldSet fieldName ->
             ValueSome
                 {
-                    Receiver = exprChild e 0
+                    ObjArg = exprChild e 0
                     FieldName = fieldName
                     Value = exprChild e 1
                 }
@@ -347,7 +343,7 @@ module TastAccessor =
         | ExprPayload.PropertyGet p ->
             ValueSome
                 {
-                    Receiver = exprChild e 0
+                    ObjArg = exprChild e 0
                     Key = p.Key
                     Via = p.Via
                 }
@@ -364,7 +360,7 @@ module TastAccessor =
 
             ValueSome
                 {
-                    Receiver = es.[0]
+                    ObjArg = es.[0]
                     Key = p.Key
                     Via = p.Via
                     Args = EqArray.ofArray es.[1..]
@@ -602,7 +598,7 @@ module TastAccessor =
         | _ -> ValueNone
 
     /// The compiled member name an SRTP `TraitCall` dispatches on (`op_Addition`); its
-    /// receiver is a `FrozenType` and its operands are the `exprChildren`.
+    /// support type is a `FrozenType` and its operands are the `exprChildren`.
     let exprTraitCallMemberName (e: ExprId) : string =
         expect "TastAccessor.exprTraitCallMemberName: not a TraitCall node" (|ETraitCallMemberName|_|) e
 
@@ -913,9 +909,9 @@ module TastAccessor =
     let mintLet (pattern: PatId) (value: ExprId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr body.Pool ty tok [| value.Id; body.Id |] [| pattern.Id |] ExprPayload.Let
 
-    /// `receiver.Key args` — an instance call on a project-local member.
+    /// `objArg.Key args` — an instance call on a project-local member.
     let mintMethodCall
-        (receiver: ExprId)
+        (objArg: ExprId)
         (key: SymbolKey)
         (via: CallVia<FrozenType>)
         (args: ExprId[])
@@ -923,10 +919,10 @@ module TastAccessor =
         (tok: Anchor)
         : ExprId =
         mintExpr
-            receiver.Pool
+            objArg.Pool
             ty
             tok
-            (Array.append [| receiver.Id |] (args |> Array.map (fun a -> a.Id)))
+            (Array.append [| objArg.Id |] (args |> Array.map (fun a -> a.Id)))
             [||]
             (ExprPayload.MethodCall {| Key = key; Via = via |})
 

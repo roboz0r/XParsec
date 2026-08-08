@@ -37,7 +37,7 @@ let tests =
                 Expect.stringContains src "class Box {" "the class emits"
                 Expect.stringContains src "constructor(value)" "positional ctor over the ctor param"
                 Expect.stringContains src "this.value = value;" "ctor stores the field under its source name"
-                // Regular members are FREE receiver-first functions (tree-shaking).
+                // Regular members are FREE type-prefixed functions (tree-shaking).
                 Expect.stringContains src "const Box__get_Value = (" "instance property → free function"
                 Expect.stringContains src "const Box__Plus = (" "instance method → free function"
                 // Instantiation is `new Box(...)`.

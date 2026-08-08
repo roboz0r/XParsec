@@ -29,7 +29,7 @@ let forInTests =
                 // `List<int>` takes the duck-typed struct path (C# precedence: its
                 // pattern `GetEnumerator()` returning the value-type `List<int>.Enumerator`
                 // wins over the boxing `IEnumerable<int>` interface), so this also
-                // guards the value-receiver loop on the empty case (zero iterations +
+                // guards the value-typed loop on the empty case (zero iterations +
                 // struct `Dispose` in the finally).
                 let src =
                     String.concat
@@ -281,9 +281,9 @@ let forInTests =
             // / `Current` are ordinary (non-virtual) instance methods on `E`, so the
             // call is a plain `call`, *not* `constrained. callvirt`: a
             // `constrained. callvirt` to a non-virtual struct `MethodDef`
-            // mis-dispatches against an uninitialised receiver (the walk never
+            // mis-dispatches against an uninitialised `this` (the walk never
             // advances, infinite-loops). `MoveNext`'s mutation to `this.Cur` must
-            // persist across iterations through the by-address receiver, so a wrong
+            // persist across iterations through the by-address `this`, so a wrong
             // (by-value-copy) walk would loop forever — the run-to-`done` assertion is
             // the guard.
             test "for-in over a user duck-typed struct enumerator walks it by address without boxing" {
@@ -407,7 +407,7 @@ let forInTests =
 
             // The for-in *source* is itself a
             // `[<Struct>]`. `GetEnumerator` is a method call on a value, so the source
-            // must be addressed (`ldloca`) the same way the enumerator receiver is —
+            // must be addressed (`ldloca`) the same way the enumerator`s `this` is —
             // not pushed by value and `callvirt`-ed (malformed IL on a value type).
             // The seq module's `MapSeq`/`ArraySeq` are exactly this shape, so this is
             // the minimal isolation case that forces the fix. The struct `Counter`'s

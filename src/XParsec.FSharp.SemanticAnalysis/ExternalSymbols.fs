@@ -275,10 +275,11 @@ type ExternalMember =
 /// HOW an external type's instance-member CALLS lower on the JS backend.
 type MemberLowering =
     /// Members live ON the object as prototype/own methods — native
-    /// `receiver.member(args)` calls. F#/Fable's `[<AttachMembers>]`.
+    /// `x.member(args)` calls. F#/Fable's `[<AttachMembers>]`.
     | AttachedNative
-    /// Members compile to receiver-first FREE FUNCTIONS, for tree-shaking. The DEFAULT.
-    | ReceiverFirst
+    /// Members compile to FREE FUNCTIONS named `<Type>__<member>`, taking the object
+    /// argument first, for tree-shaking. The DEFAULT.
+    | TypePrefixed
     /// A SYNTHETIC grouping type with no runtime existence: bare module-level exports
     /// collected under one type, so `Util.format(x)` erases at JS emit to `format(x)`.
     | ErasedBare
@@ -288,8 +289,8 @@ type ExternalClassFlags =
         IsSealed: bool
         IsAbstract: bool
         AllowNullLiteral: bool
-        /// `true` for a .NET value type (`struct`) — codegen emits a value receiver
-        /// (`ldloca` + `constrained.`) rather than reference `callvirt`.
+        /// `true` for a .NET value type (`struct`) — codegen emits a value-type `this`
+        /// pointer (`ldloca` + `constrained.`) rather than reference `callvirt`.
         IsValueType: bool
         MemberLowering: MemberLowering
         /// A GLOBAL (ambient) type the JS runtime provides (`Map`, `Set`, `Promise`) —
@@ -306,7 +307,7 @@ type ExternalClassFlags =
             IsAbstract = false
             AllowNullLiteral = false
             IsValueType = false
-            MemberLowering = MemberLowering.ReceiverFirst
+            MemberLowering = MemberLowering.TypePrefixed
             Global = false
             ImportForm = ImportForm.Named
         }

@@ -357,7 +357,7 @@ module internal TsManifestTranslate =
         // TS `any` → the opaque `dynamic` intrinsic; its only capability is the `?` operator.
         | Schema.TypeRef.Dynamic -> FTConst(RuntimeNames.dynamicKey, EqArray.empty)
         // An anonymous shape freezes to a hash-keyed ERASING nominal: its members resolve and
-        // lower to native `receiver.x` reads while NOTHING is emitted for the type. A bare
+        // lower to native `objArg.x` reads while NOTHING is emitted for the type. A bare
         // `{ [k: K]: V }` counts — its index is its content; with neither, it stays opaque.
         | Schema.TypeRef.Structural(printed, fields, index) ->
             match fields, index with

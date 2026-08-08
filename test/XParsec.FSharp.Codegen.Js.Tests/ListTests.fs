@@ -177,7 +177,7 @@ let tests =
 
             test "the generated module exports the type's members as lifted free functions" {
                 // `list.fsi` declares them on `List<'T>`; a union's augmentation members emit
-                // receiver-first, so a use site resolves to these names or to nothing at all.
+                // type-prefixed, so a use site resolves to these names or to nothing at all.
                 let src = generated.Value
 
                 for name in [ "Length"; "IsEmpty"; "Head"; "Tail" ] do

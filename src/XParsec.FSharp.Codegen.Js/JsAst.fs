@@ -108,7 +108,7 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `for (let <var> = <init>; <var> <= <limit>; <var>++) { … }` — the F# `for i = a to b do`
     /// counted loop. `<limit>` is re-read each iteration, so it must be a binding, not a call.
     | For of var: string * init: JsExpr * limit: JsExpr * body: JsStatement list
-    /// `for (const <bound variable> of <source>) { … }` — the F# `for x in source do`. JS drives the
+    /// `for (const <boundVar> of <source>) { … }` — the F# `for x in source do`. JS drives the
     /// source's own `Symbol.iterator`, so no MoveNext/Current plumbing is emitted.
     | ForOf of boundVar: string * source: JsExpr * body: JsStatement list
     /// `return <e>;`
@@ -120,7 +120,7 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `this.<field> = <value>;` — a constructor's field store.
     | FieldStore of field: string * value: JsExpr
     /// `[export ]class <name> { constructor(…) { … } <methods…> }` — a record's or class's
-    /// emitted class. `methods` are attached instance methods, receiver bound to JS `this`
+    /// emitted class. `methods` are attached instance methods, bound to JS `this`
     /// (a record passes `[]`).
     | Class of name: string * ctor: JsCtor * methods: JsClassMethod list * export: bool
     /// `[export ]class <baseName>` carrying `tag`, `cases()` and a `$type` getter returning

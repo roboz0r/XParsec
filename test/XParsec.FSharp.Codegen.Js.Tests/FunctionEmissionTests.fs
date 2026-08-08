@@ -28,11 +28,11 @@ let tests =
         "Codegen.Js Function Emission"
         [
             // A `Fun` IS its own callable in JS, so `f.Invoke` unapplied can only pass the
-            // receiver through when the two have the SAME parameter shape. They do at the
+            // object argument through when the two have the SAME parameter shape. They do at the
             // curried arity and nowhere above it: an escaped member is one TUPLED parameter,
             // while a flat `Fun` is an N-positional arrow.
 
-            test "an unapplied curried `Fun.Invoke` is the receiver itself" {
+            test "an unapplied curried `Fun.Invoke` is the object argument itself" {
                 Expect.equal
                     (emitJs "let use1 (f: Fun<int, int>) =\n    let g = f.Invoke\n    g 5\n")
                     "const use1 = (f) => ((g) => g(5))(f);\n"

@@ -71,9 +71,9 @@ module internal ElaborateIdents =
             | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
             | ValueNone -> TExpr.External(ctx.NameOf anchorIdent, ValueNone, anchorTy, tok)
 
-        // The chain's *last* segment may be a property read on a typar receiver constrained
+        // The chain's *last* segment may be a property read on a typar object argument constrained
         // to an interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator<'T>`).
-        // The receiver never grounds to a nominal, so a plain field step would be bogus.
+        // It never grounds to a nominal, so a plain field step would be bogus.
         let liKey =
             NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
@@ -82,7 +82,7 @@ module internal ElaborateIdents =
 
         for i = 1 to li.Idents.Length - 1 do
             let segName = ctx.NameOf li.Idents.[i]
-            // An intermediate step recovers its own declared type from the receiver, so
+            // An intermediate step recovers its own declared type from the object argument, so
             // `xs.Tail.Head` keeps `xs.Tail : Lst<_>` rather than collapsing to the chain's
             // final type. The last step is the only one that uses `finalTy`.
             let stepTy =
@@ -95,23 +95,23 @@ module internal ElaborateIdents =
 
             // `PropertyGet` for a class/union member, `FieldGet` otherwise. The last segment
             // of an external instance access (`e.Current`) is a keyed `TExpr.ExternalMember`
-            // against the receiver built so far, not a project-local field.
+            // against the object argument built so far, not a project-local field.
             curr <-
                 match lastExternal with
                 | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
                     TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.Storage, stepTy, tok)
                 | _ ->
                     // The entry is keyed by the chain's first token, which `this.Source` (the
-                    // receiver prefix of `this.Source.MoveNext()`) shares with the full chain.
-                    // Requiring a typar receiver separates the two: `'E` vs the class.
-                    let isTyparRecv =
+                    // object argument of `this.Source.MoveNext()`) shares with the full chain.
+                    // Requiring a typar object argument separates the two: `'E` vs the class.
+                    let isTyparObjArg =
                         match Unification.zonk ctx.Store currTy with
                         | TyTypar _
                         | TyVar _ -> true
                         | _ -> false
 
                     match
-                        (if i = li.Idents.Length - 1 && isTyparRecv then
+                        (if i = li.Idents.Length - 1 && isTyparObjArg then
                              ctx.Resolution.TyparInterfaceCall.TryGetValue liKey
                          else
                              ValueNone)

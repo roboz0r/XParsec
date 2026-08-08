@@ -30,7 +30,7 @@ is the signal to reconsider — not before.
 ## Deferred: disjunctive dispatch — lands via deferral on the existing read-only filter
 
 The arithmetic bodies are 3-typar (`^T1 -> ^T2 -> ^T3`, faithful to the `.fsi`) but the
-trait call is **left-biased**: `TExpr.TraitCall` carries a single `receiver`, set to the
+trait call is **left-biased**: `TExpr.TraitCall` carries a single `supportTy`, set to the
 left operand's type. So `Vector + int` (nominal left) resolves; `int + Vector` does not —
 it errors in `Engine.dischargeSrtpBounds` (`Engine.fs:1005`), which fires eagerly on whichever
 participant links first and, for a primitive `^T1`, manufactures a homogeneous `t*t -> t`
@@ -39,7 +39,7 @@ bug — eager dispatch — not a missing mechanism.**
 
 The fix is **deferral, not speculation.** Suspend the bound until its whole support set is
 ground (F#'s `SupportOfMemberConstraintIsFullySolved`), then collect `op_Addition`
-candidates from the support *set* — widen the single `receiver` to a candidate set, the
+candidates from the support *set* — widen the single `supportTy` to a candidate set, the
 small half (~8 mechanical walker sites; neither backend has a `TraitCall` arm) — and pick
 among them **read-only**, exactly as method-overload resolution already does via the
 scratch-substitution matcher `matchTypes` (`InferOverload.fs:86`) + the `unifyAppliedSig`

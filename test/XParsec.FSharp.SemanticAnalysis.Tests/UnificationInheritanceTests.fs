@@ -199,7 +199,7 @@ let tests =
                 // withdrawn. Upcasting a `Base<int, string>` value to the interface it
                 // declares drives the subtype walk (`tryUpcastWitness` →
                 // `subtypeInterfacesOf`) onto the arity-2 host. Resolving its
-                // `interface … with` impls must key on the receiver's `SymbolKey`, not a
+                // `interface … with` impls must key on the object argument's `SymbolKey`, not a
                 // bare-name strip — a bare read misses the withdrawn alias, finds no
                 // witness, and diagnoses a spurious upcast failure.
                 let input =

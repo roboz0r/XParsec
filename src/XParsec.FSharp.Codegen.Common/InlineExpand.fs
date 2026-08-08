@@ -91,7 +91,7 @@ module InlineExpand =
         | Producer of OriginFile
 
     /// The state of ONE entry-body copy. Per copy, not per expansion: an entry reached from
-    /// inside another entry's body takes its own, so the two copies' bound variables cannot collide;
+    /// inside another entry's body takes its own, so the two copies' variables cannot collide;
     /// that inner edge's arguments, written in the OUTER body, are copied under the outer one.
     type private Copy =
         {
@@ -99,9 +99,9 @@ module InlineExpand =
             /// one file's tokens, so a producer's node sitting in the consuming file's tree
             /// must be readable against that file. Where it came from is `NodeOrigin`.
             At: Anchor
-            /// This copy's own bound variables, old → new. A bound variable not in it is FREE in the body — a
-            /// reference to the consuming scope — and passes through: a use is always lexically
-            /// inside its bound variable, so a pre-order copy has bound it first.
+            /// This copy's own bound variables, old → new. One not in it is FREE in the body —
+            /// a reference to the consuming scope — and passes through: a use is always
+            /// lexically inside the scope binding it, so a pre-order copy has bound it first.
             BoundVars: Dictionary<BoundVarId, BoundVarId>
         }
 
@@ -114,7 +114,7 @@ module InlineExpand =
 
     /// One entry the walk is currently INSIDE, and the site the material that called it was
     /// walked at. They pop together: a `CallerExpr`'s subtree is the CALLER's, so keeping the
-    /// site would leave its bound variable references naming the uncopied body's bound variables.
+    /// site would leave its `Var` references naming the uncopied body's bound variables.
     [<NoEquality; NoComparison>]
     type private Entered =
         {
@@ -141,8 +141,8 @@ module InlineExpand =
             Derivation.authored derived source result
             result
 
-        // The copy's own bound variable for `b`, minting one on first sight. A `Var` reference resolves
-        // through the same table, so a bound variable and its references cannot name different slots.
+        // The copy's own bound variable for `b`, minting one on first sight. A `Var` reference
+        // resolves through the same table, so a variable and its uses cannot name different slots.
         let bind (copy: Copy) (b: BoundVarId) : BoundVarId =
             let fresh = TastPoolBuilder.mintBoundVar pool
             copy.BoundVars.[b] <- fresh
@@ -222,9 +222,9 @@ module InlineExpand =
             (copy: Copy)
             (e: TastAccessor.ExprId)
             : TastAccessor.ExprId =
-            // EVERY bound variable this node introduces is bound before any child is copied: a use is
-            // lexically inside its bound variable, so a child copied first would rewire its reference
-            // through a binding that does not exist yet. A `ForTo` carries its var on the payload.
+            // EVERY variable this node introduces is bound before any child is copied: a use is
+            // lexically inside the scope binding it, so a child copied first would rewire its
+            // reference through a slot that does not exist yet. `ForTo` carries its var on the payload.
             let pats =
                 TastAccessor.exprPatChildren e |> Array.map (fun p -> (copyPat copy p).Id)
 
@@ -237,8 +237,7 @@ module InlineExpand =
                 TastAccessor.exprChildren e
                 |> Array.map (fun c -> (go domain entered (Copied copy) c).Id)
 
-            // The payload's own positions move with the node; its loop variable is the bound variable
-            // taken above.
+            // The payload's own positions move with the node; its loop variable is the one bound above.
             let payload (p: ExprPayload) : ExprPayload =
                 match ExprPayload.mapToks (fun _ -> copy.At) p, loopVar with
                 | ExprPayload.ForTo ft, ValueSome v -> ExprPayload.ForTo {| ft with Var = v |}

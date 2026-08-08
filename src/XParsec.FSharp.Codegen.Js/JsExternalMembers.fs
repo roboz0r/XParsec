@@ -9,18 +9,18 @@ open JsEmitHelpers
 /// HOW an `ExternalMember` lowers. ONE verdict for both the unapplied member reference
 /// and the applied call, so a new lowering is a case here plus an arm at each.
 type MemberDispatch =
-    /// The receiver IS the callable: `f.Invoke(a)` is `f(a)`.
+    /// The object argument IS the callable: `f.Invoke(a)` is `f(a)`.
     | Application
-    /// A native data property: `recv.prop`.
+    /// A native data property: `objArg.prop`.
     | NativeData
-    /// A prototype/own method: `recv.member(args)`, eta-wrapped when unapplied.
+    /// A prototype/own method: `objArg.member(args)`, eta-wrapped when unapplied.
     | AttachedMethod
-    /// Vesper compiles those as zero-arg methods, so the read is the call: `recv.prop()`.
+    /// Vesper compiles those as zero-arg methods, so the read is the call: `objArg.prop()`.
     | InterfaceProperty
     /// A synthetic grouping type with no runtime existence: the bare module export.
     | ErasedBare of ImportForm
-    /// The receiver-first `<Type>__<member>` import Vesper's own runtimes export.
-    | MangledImport
+    /// The type-prefixed `<Type>__<member>` import Vesper's own runtimes export.
+    | TypePrefixedImport
 
 /// The EXTERNAL-member lowering cluster. Each function that must lower a sub-expression takes
 /// a `build` callback, which keeps it out of the `buildExpr` mutual-recursion group.
@@ -41,8 +41,8 @@ module JsExternalMembers =
         | ExprShape.ExternalMember ->
             let em = TastAccessor.exprExternalMember e
 
-            match em.Receiver with
-            | ValueSome recv -> ValueSome(struct (recv, em))
+            match em.ObjArg with
+            | ValueSome objArg -> ValueSome(struct (objArg, em))
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
@@ -87,7 +87,7 @@ module JsExternalMembers =
             MemberDispatch.Application
         else
             match classShapeOf provider declKey with
-            | ValueNone -> MemberDispatch.MangledImport
+            | ValueNone -> MemberDispatch.TypePrefixedImport
             | ValueSome shape ->
                 match shape.Flags.MemberLowering with
                 | MemberLowering.ErasedBare -> MemberDispatch.ErasedBare shape.Flags.ImportForm
@@ -98,12 +98,12 @@ module JsExternalMembers =
                     else
                         MemberDispatch.AttachedMethod
                 // An interface has no runtime existence on JS, so its impls attach to the class.
-                | MemberLowering.ReceiverFirst when shape.IsInterface ->
+                | MemberLowering.TypePrefixed when shape.IsInterface ->
                     if storage.IsValueMember then
                         MemberDispatch.InterfaceProperty
                     else
                         MemberDispatch.AttachedMethod
-                | MemberLowering.ReceiverFirst -> MemberDispatch.MangledImport
+                | MemberLowering.TypePrefixed -> MemberDispatch.TypePrefixedImport
 
     /// Walk a type's `inherit` chain to the `exn` root and resolve its `(# "Error" #)` repr to
     /// the native runtime class name. `ValueNone` if it is no `exn` subtype.
@@ -147,14 +147,14 @@ module JsExternalMembers =
     let memberArgCount (key: SymbolKey) (memberName: string) : int =
         SymbolKeyOps.memberArity (sprintf "EmitJs: attached member '%s'" memberName) key
 
-    /// `recv.<member>` — a manifest Property read IS this bare Member node (a JS DATA
+    /// `objArg.<member>` — a manifest Property read IS this bare Member node (a JS DATA
     /// property, not a zero-arg call); the call forms wrap it.
-    let attachedMember (recvJs: JsExpr) (memberName: string) (loc: JsLoc voption) : JsExpr =
-        JsExpr.Member(recvJs, JsExpr.Identifier(memberName, ValueNone), false, loc)
+    let attachedMember (objArgJs: JsExpr) (memberName: string) (loc: JsLoc voption) : JsExpr =
+        JsExpr.Member(objArgJs, JsExpr.Identifier(memberName, ValueNone), false, loc)
 
-    /// `recv.<member>(args…)`, so every applied-call site builds the identical node.
-    let attachedCall (recvJs: JsExpr) (memberName: string) (args: JsExpr list) (loc: JsLoc voption) : JsExpr =
-        JsExpr.Call(attachedMember recvJs memberName loc, args, loc)
+    /// `objArg.<member>(args…)`, so every applied-call site builds the identical node.
+    let attachedCall (objArgJs: JsExpr) (memberName: string) (args: JsExpr list) (loc: JsLoc voption) : JsExpr =
+        JsExpr.Call(attachedMember objArgJs memberName loc, args, loc)
 
     /// The eta-wrap's SINGLE parameter forwarded to the member's positional arguments: dropped
     /// at 0, straight through at 1, spread element-wise for a tupled ≥2. `argVar` has no
@@ -169,8 +169,8 @@ module JsExternalMembers =
 
     // ---- The lowerings ---------------------------------------------------------
 
-    /// A function dispatching on the receiver folds every applied argument into ONE
-    /// `receiver.member(args)`. The member is tupled, so it consumes the FIRST argument as its
+    /// A function dispatching on the object argument folds every applied argument into ONE
+    /// `objArg.member(args)`. The member is tupled, so it consumes the FIRST argument as its
     /// argument list, at the key's `argSig` width; residual application folds on as unary calls.
     let tryAttachedCall
         (provider: IExternalSymbolProvider)
@@ -181,8 +181,8 @@ module JsExternalMembers =
         (loc: JsLoc voption)
         : JsExpr voption =
         match fn with
-        | InstanceExternalMember(recv, em) ->
-            // ONE argument plan for both receiver-dispatched shapes; only the callee differs.
+        | InstanceExternalMember(objArg, em) ->
+            // ONE argument plan for both object-argument-dispatched shapes; only the callee differs.
             let saturate (callee: JsExpr -> JsExpr list -> JsExpr) : JsExpr voption =
                 match appArgs with
                 | (argExpr, _, _) :: rest ->
@@ -193,62 +193,63 @@ module JsExternalMembers =
                             argExpr
                         |> JsFlatFns.renderFlatSteps pool build
 
-                    // A spill hoists the argument out of the call, so the receiver hoists
+                    // A spill hoists the argument out of the call, so the object argument hoists
                     // ahead of it or the two swap evaluation order.
-                    let recvJs, spills =
+                    let objArgJs, spills =
                         match argSpills with
-                        | [] -> build recv, []
+                        | [] -> build objArg, []
                         | _ ->
-                            let tmp = freshTemp pool "_recv"
-                            JsExpr.Identifier(tmp, ValueNone), (tmp, build recv) :: argSpills
+                            let tmp = freshTemp pool "_objArg"
+                            JsExpr.Identifier(tmp, ValueNone), (tmp, build objArg) :: argSpills
 
                     rest
-                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) (callee recvJs args)
+                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) (callee objArgJs args)
                     |> fun folded -> JsFlatFns.wrapSpills spills folded loc
                     |> ValueSome
                 | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 argument
 
             match dispatchOf provider (declKey em.Key) em.Storage with
-            | MemberDispatch.Application -> saturate (fun recvJs args -> JsExpr.Call(recvJs, args, loc))
-            | MemberDispatch.AttachedMethod -> saturate (fun recvJs args -> attachedCall recvJs em.MemberName args loc)
+            | MemberDispatch.Application -> saturate (fun objArgJs args -> JsExpr.Call(objArgJs, args, loc))
+            | MemberDispatch.AttachedMethod ->
+                saturate (fun objArgJs args -> attachedCall objArgJs em.MemberName args loc)
             | MemberDispatch.NativeData
             | MemberDispatch.InterfaceProperty
             | MemberDispatch.ErasedBare _
-            | MemberDispatch.MangledImport -> ValueNone
+            | MemberDispatch.TypePrefixedImport -> ValueNone
         | _ -> ValueNone
 
-    /// An external member escaping as a VALUE: the receiver spills to a temp unless it is a
-    /// trivial `Var`, and a tupled member escapes as a ONE-parameter `arg -> ret`.
+    /// An external member escaping as a VALUE: the object argument spills to a temp unless it is
+    /// a trivial `Var`, and a tupled member escapes as a ONE-parameter `arg -> ret`.
     let private etaWrapMember
         (build: TastAccessor.ExprId -> JsExpr)
-        (recv: TastAccessor.ExprId)
+        (objArg: TastAccessor.ExprId)
         (argCount: int)
         (callee: JsExpr -> JsExpr list -> JsExpr)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
         : JsExpr =
-        let recvJs, spill =
-            match TastAccessor.exprKind recv with
-            | ExprShape.Var -> build recv, ValueNone
+        let objArgJs, spill =
+            match TastAccessor.exprKind objArg with
+            | ExprShape.Var -> build objArg, ValueNone
             | _ ->
-                let tmp = freshTemp pool "_recv"
-                JsExpr.Identifier(tmp, ValueNone), ValueSome(tmp, build recv)
+                let tmp = freshTemp pool "_objArg"
+                JsExpr.Identifier(tmp, ValueNone), ValueSome(tmp, build objArg)
 
         let argName = freshTemp pool "_a"
         let argVar = JsExpr.Identifier(argName, ValueNone)
 
         let arrow =
-            JsExpr.Arrow([ argName ], JsFnBody.Expr(callee recvJs (attachedForwardArgs argVar argCount)), loc)
+            JsExpr.Arrow([ argName ], JsFnBody.Expr(callee objArgJs (attachedForwardArgs argVar argCount)), loc)
 
         match spill with
         | ValueNone -> arrow
         | ValueSome(name, value) -> JsExpr.Call(JsExpr.Arrow([ name ], JsFnBody.Expr arrow, ValueNone), [ value ], loc)
 
     /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
-    /// eta-wrap so `this` binds at the eventual call — a detached `recv.member` loses it.
+    /// eta-wrap so `this` binds at the eventual call — a detached `objArg.member` loses it.
     let etaWrapAttachedMethod
         (build: TastAccessor.ExprId -> JsExpr)
-        (recv: TastAccessor.ExprId)
+        (objArg: TastAccessor.ExprId)
         (key: SymbolKey)
         (memberName: string)
         (pool: PoolBuilder)
@@ -256,25 +257,26 @@ module JsExternalMembers =
         : JsExpr =
         etaWrapMember
             build
-            recv
+            objArg
             (memberArgCount key memberName)
-            (fun recvJs args -> JsExpr.Call(attachedMember recvJs memberName ValueNone, args, loc))
+            (fun objArgJs args -> JsExpr.Call(attachedMember objArgJs memberName ValueNone, args, loc))
             pool
             loc
 
-    /// A receiver-dispatching member as a VALUE (`let g = f.Invoke`). At ONE parameter the
-    /// receiver already has that shape; the flat `Fun` arities are N-POSITIONAL, so they wrap.
+    /// A member dispatching on its object argument as a VALUE (`let g = f.Invoke`). At ONE
+    /// parameter it already has that shape; the flat `Fun` arities are N-POSITIONAL, so they wrap.
     let etaWrapApplication
         (build: TastAccessor.ExprId -> JsExpr)
-        (recv: TastAccessor.ExprId)
+        (objArg: TastAccessor.ExprId)
         (key: SymbolKey)
         (memberName: string)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
         : JsExpr =
         match memberArgCount key memberName with
-        | 1 -> build recv
-        | argCount -> etaWrapMember build recv argCount (fun recvJs args -> JsExpr.Call(recvJs, args, loc)) pool loc
+        | 1 -> build objArg
+        | argCount ->
+            etaWrapMember build objArg argCount (fun objArgJs args -> JsExpr.Call(objArgJs, args, loc)) pool loc
 
     /// ERASE: the declaring type is a synthetic grouping with no runtime existence, so the
     /// callee is the BARE member name — the real export — not an external static's mangled one.
@@ -311,12 +313,12 @@ module JsExternalMembers =
         (imports: JsImports)
         (build: TastAccessor.ExprId -> JsExpr)
         (declKey: TypeKey)
-        (receiver: TastAccessor.ExprId voption)
+        (objArg: TastAccessor.ExprId voption)
         (memberName: string)
         (isProperty: bool)
         (loc: JsLoc voption)
         : JsExpr =
-        let isStatic = ValueOption.isNone receiver
+        let isStatic = ValueOption.isNone objArg
 
         // The JS export identifier is mangled from the type's name, which carries no arity.
         let (DisplayName declName) = SymbolKeyOps.typeSimpleName declKey
@@ -327,6 +329,6 @@ module JsExternalMembers =
 
         let local = JsImports.addMemberRef imports home exportName
 
-        match receiver with
+        match objArg with
         | ValueSome r -> JsExpr.Call(JsExpr.Identifier(local, ValueNone), [ build r ], loc)
         | ValueNone -> JsExpr.Identifier(local, loc)

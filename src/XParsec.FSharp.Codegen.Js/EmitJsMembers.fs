@@ -6,19 +6,19 @@ open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
 
-/// A type's members: free receiver-first functions, and the class methods a capability
+/// A type's members: free type-prefixed functions, and the class methods a capability
 /// impl becomes.
 module EmitJsMembers =
 
-    /// `const r = this;` — binds the receiver name a member body or a class preamble's
+    /// `const r = this;` — binds the object-argument name a member body or a class preamble's
     /// entries already use. Empty when that name is already `this`.
     let thisAlias (ctx: WalkCtx) (k: BoundVarKeyG<BoundVarId>) : JsStatement list =
-        let recvName = boundVarNameOf ctx.Pool (BoundVarKey.identity k)
+        let objArgName = boundVarNameOf ctx.Pool (BoundVarKey.identity k)
 
-        if recvName = "this" then
+        if objArgName = "this" then
             []
         else
-            [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+            [ JsStatement.Const(objArgName, JsExpr.Identifier("this", ValueNone)) ]
 
     /// `thisAlias` for a member — empty when the member is static.
     let thisBinding (ctx: WalkCtx) (m: TastAccessor.TypeMember) : JsStatement list =
@@ -26,7 +26,7 @@ module EmitJsMembers =
         | ValueSome k -> thisAlias ctx k
         | ValueNone -> []
 
-    /// Emit a plain (non-generator) ATTACHED instance method: receiver bound to JS `this`, the
+    /// Emit a plain (non-generator) ATTACHED instance method: bound to JS `this`, the
     /// member's params curried-free, body returned. The runtimes dispatch on a REGISTRY SYMBOL,
     /// never a named method — `eq` calls `a[Symbol.for("vesper.equality")](b)` — so a capability
     /// impl's slot IS its member body, and only `key` tells the slots apart.
@@ -96,9 +96,9 @@ module EmitJsMembers =
         : JsClassMethod =
         emitPlainMethod buildExpr ctx (JsMethodKey.Computed(registrySymbol registryName)) m
 
-    /// Emit a record/union member as a free, curried, receiver-first top-level function:
+    /// Emit a record/union member as a free, curried, type-prefixed top-level function:
     /// `member this.Foo a b` → `<Type>__Foo = (this$) => (a) => (b) => <body>`.
-    /// Static members drop the receiver; a static property emits as a plain value binding.
+    /// Static members drop the object argument; a static property emits as a plain value binding.
     let emitMemberFn
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
@@ -108,7 +108,7 @@ module EmitJsMembers =
         let isProperty = (m.Kind = TMemberKind.Property)
         let name = JsExternalMembers.mangledName typeName m.IsStatic isProperty m.Name
 
-        let receiverNames =
+        let objArgNames =
             if m.IsStatic then
                 []
             else
@@ -119,7 +119,7 @@ module EmitJsMembers =
         let paramNames =
             [ for (pk, _) in m.Params -> boundVarNameOf ctx.Pool (BoundVarKey.identity pk) ]
 
-        let allNames = receiverNames @ paramNames
+        let allNames = objArgNames @ paramNames
         let body = buildExpr ctx m.Body
 
         let init =

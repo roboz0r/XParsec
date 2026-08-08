@@ -16,7 +16,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 //   Gap 1 — interface→interface supertype ASSIGNABILITY at the foreign-arg seam:
 //           passing a `Child` where a super-interface `Base<int>` is expected.
 //   Gap 2 — inherited MEMBER READS: reading a member declared on a base interface off a
-//           subtype receiver.
+//           subtype object argument.
 //
 // Both must resolve DIRECTLY (Child extends Base) AND TRANSITIVELY (grandparent, via an
 // intermediate interface with no members of the target).
@@ -56,14 +56,14 @@ let private provider: IExternalSymbolProvider = stackTs manifest
 
 let private analyse (input: string) : Diagnostic list = analyseWith provider input
 
-// ─── E2E: an inherited member READ lowers to native `receiver.member` and runs ──
+// ─── E2E: an inherited member READ lowers to native `objArg.member` and runs ────
 
 /// `chainlib`: a non-generic two-deep chain through an EMPTY intermediate interface,
 ///   interface Base { value: int; describe(): string }
 ///   interface Mid extends Base {}          // no own members — a pure relay
 ///   interface Leaf extends Mid { tag: int }
 /// with `makeLeaf(): Leaf`. Reading `leaf.value` / `leaf.describe()` off a `Leaf` must
-/// resolve through the grandparent `Base` and lower to a native `receiver.member`.
+/// resolve through the grandparent `Base` and lower to a native `objArg.member`.
 let private chainManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -183,10 +183,10 @@ let tests =
             }
 
             // ── E2E: transitively-inherited read lowers native and round-trips ─────
-            test "an inherited member READ lowers to native receiver.member and runs under Node" {
+            test "an inherited member READ lowers to native objArg.member and runs under Node" {
                 // `leaf.value` is declared on `Base`, reached from `Leaf` THROUGH the empty
                 // `Mid` — the transitive inherited-member walk. It must lower to a plain
-                // `receiver.value` (the declaring `Base` interface is AttachedNative), never a
+                // `objArg.value` (the declaring `Base` interface is AttachedNative), never a
                 // mangled `Base__value` free-fn import.
                 let program =
                     String.concat "\n" [ "let leaf = makeLeaf()"; "let result = leaf.value"; "" ]

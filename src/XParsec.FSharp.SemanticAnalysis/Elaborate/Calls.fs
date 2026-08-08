@@ -27,11 +27,11 @@ module internal ElaborateCalls =
         }
 
     /// `w.M t` ⟶ `let r = w in let (a, b) = t in r.M(a, b)`. `t` binds once, so it is
-    /// evaluated once; the receiver binds FIRST, since an instance member evaluates it
+    /// evaluated once; the object argument binds FIRST, since an instance member evaluates it
     /// before its argument and the argument's `let` would otherwise hoist above it.
     let openTupledMemberArg (ctx: PassContext) (fn: TExpr) (arg: TExpr) : OpenedTupledCall voption =
         match fn with
-        | TExpr.ExternalMember(receiver, key, name, MemberStorage.Method, memberTy, memberTok) ->
+        | TExpr.ExternalMember(objArg, key, name, MemberStorage.Method, memberTy, memberTok) ->
             let arity = SymbolKeyOps.memberArity (sprintf "Elaborate: member '%s'" name) key
 
             let argTy = Unification.zonk ctx.Store (TastWalk.exprTy arg)
@@ -51,8 +51,8 @@ module internal ElaborateCalls =
                         argTok
                     )
 
-                let recvBind, fn' =
-                    match receiver with
+                let objArgBind, fn' =
+                    match objArg with
                     | ValueSome r ->
                         let rKey = ctx.NewSynthBoundVar()
                         let rTy = TastWalk.exprTy r
@@ -70,7 +70,7 @@ module internal ElaborateCalls =
 
                 ValueSome
                     {
-                        Binds = recvBind @ [ tuplePat, arg ]
+                        Binds = objArgBind @ [ tuplePat, arg ]
                         Fn = fn'
                         Arg =
                             TExpr.Tuple(
@@ -89,11 +89,11 @@ module internal ElaborateCalls =
             binds
             call
 
-    /// A `base.M(...)` / `base.X` receiver translates to a `TExpr.Var` whose binding
+    /// A `base.M(...)` / `base.X` object argument translates to a `TExpr.Var` whose binding
     /// site is some class's `BaseKey`; that must dispatch non-virtually, so an
     /// `override` calling `base.M()` does not recurse into itself.
-    let viaOfReceiver (ctx: PassContext) (receiver: TExpr) : CallVia<SemType> =
-        match receiver with
+    let viaOfObjArg (ctx: PassContext) (objArg: TExpr) : CallVia<SemType> =
+        match objArg with
         | TExpr.Var(bindingSite, _, _) ->
             let mutable isBase = false
 
@@ -133,7 +133,7 @@ module internal ElaborateCalls =
     let mkMethodCall
         (ctx: PassContext)
         (callKey: NodeKey)
-        (receiver: TExpr)
+        (objArg: TExpr)
         (declKey: TypeKey)
         (memberName: string)
         (args: EqArray<TExpr>)
@@ -144,13 +144,13 @@ module internal ElaborateCalls =
             match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
             | ValueSome frozen -> ValueSome frozen
             | ValueNone ->
-                // External overload discrimination reads the receiver's declaring-type args
+                // External overload discrimination reads the object argument's declaring-type args
                 // and the ground operand element types; a non-ground operand declines to the
                 // best-by-arity single inside the minter.
                 let operands =
                     LocalMemberKeys.externalOperands
                         ctx.Store
-                        (LocalMemberKeys.nominalArgs ctx.Store (TastWalk.exprTy receiver))
+                        (LocalMemberKeys.nominalArgs ctx.Store (TastWalk.exprTy objArg))
                         [ for a in args -> TastWalk.exprTy a ]
 
                 LocalMemberKeys.totalMemberKey ctx declKey memberName operands
@@ -158,7 +158,7 @@ module internal ElaborateCalls =
         match key with
         | ValueSome key ->
             let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args
-            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
+            TExpr.MethodCall(objArg, key, viaOfObjArg ctx objArg, argsList, ty, tok)
         | ValueNone ->
             // Post-inference a miss is an internal invariant break, not mis-typed source.
             ctx.Report(
@@ -168,12 +168,12 @@ module internal ElaborateCalls =
 
             TExpr.Null(ty, tok)
 
-    /// Instance `MethodCall` dispatched through an *interface* the receiver's typar is
-    /// coerced to (`'T :> IFace`); `CallVia.Interface` tells codegen to emit
-    /// `constrained. <receiver-typar> callvirt`.
+    /// Instance `MethodCall` dispatched through an *interface* the object argument's typar
+    /// is coerced to (`'T :> IFace`); `CallVia.Interface` tells codegen to emit
+    /// `constrained. <typar> callvirt`.
     let mkInterfaceMethodCall
         (ctx: PassContext)
-        (receiver: TExpr)
+        (objArg: TExpr)
         (ifaceKey: TypeKey)
         (ifaceArgs: EqArray<SemType>)
         (memberName: string)
@@ -192,7 +192,7 @@ module internal ElaborateCalls =
         match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with
         | ValueSome key ->
             let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx ifaceKey memberName) args
-            TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
+            TExpr.MethodCall(objArg, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
         | ValueNone ->
             ctx.Report(
                 tok,
@@ -211,7 +211,7 @@ module internal ElaborateCalls =
         (tok: SyntaxToken)
         : TExpr =
         // A folded / type-qualified static call names a non-generic declaring type (generics
-        // need `<>`, handled at the receiver), so it carries no declaring-type args; the
+        // need `<>`, handled at the qualifier), so it carries no declaring-type args; the
         // operand element types alone discriminate a same-arity overload (e.g. an operator).
         let operands =
             LocalMemberKeys.externalOperands ctx.Store [||] [ for a in args -> TastWalk.exprTy a ]
@@ -237,10 +237,10 @@ module internal ElaborateCalls =
         : TExpr =
         TExpr.UnionCons(caseName, wrapObjArgsEq ctx.Store (unionCaseFieldTys ctx ty caseName) args, ty, tok)
 
-    /// Recover segment `segName`'s declared type from receiver type `recvTy` — a record
-    /// field, or a union / class instance-member return type — instantiated at the
-    /// receiver's type arguments. `ValueNone` if it is not a known nominal's member.
-    let recoverFieldStepTy (ctx: PassContext) (recvTy: SemType) (segName: string) : SemType voption =
+    /// Recover segment `segName`'s declared type from object-argument type `objArgTy` — a
+    /// record field, or a union / class instance-member return type — instantiated at its
+    /// own type arguments. `ValueNone` if it is not a known nominal's member.
+    let recoverFieldStepTy (ctx: PassContext) (objArgTy: SemType) (segName: string) : SemType voption =
         let memberTy (typeParams, args) (members: TypeMemberInfo[]) =
             members
             |> Array.tryPick (fun m ->
@@ -251,7 +251,7 @@ module internal ElaborateCalls =
             )
 
         let resolved =
-            match Unification.zonk ctx.Store recvTy with
+            match Unification.zonk ctx.Store objArgTy with
             | TyRecord(recKey, args) ->
                 match TypeRegistry.tryRecordByKey ctx.Types recKey with
                 | ValueSome info ->
@@ -279,7 +279,7 @@ module internal ElaborateCalls =
                 | ValueSome info ->
                     // A `this.x` chain segment may be a `val` field or a primary-ctor
                     // parameter, not a member — members-only would fall back to the
-                    // chain's FINAL type, typing `this.stack.IsEmpty`'s receiver `bool`.
+                    // chain's FINAL type, typing `this.stack.IsEmpty`'s object argument `bool`.
                     let fieldTy =
                         Seq.append
                             (info.InstanceFields |> Seq.map (fun f -> f.Name, f.Type))
@@ -301,14 +301,14 @@ module internal ElaborateCalls =
         | Some t -> ValueSome(Unification.zonk ctx.Store t)
         | None -> ValueNone
 
-    /// One `receiver.seg` access node: `PropertyGet` for a class / union member,
+    /// One `objArg.seg` access node: `PropertyGet` for a class / union member,
     /// `FieldGet` otherwise. `chainKey` is the enclosing `LongIdent` chain's key,
     /// under which Unification stamped the `arr.Length` intrinsic read below.
     let fieldStep
         (ctx: PassContext)
         (chainKey: NodeKey)
-        (receiver: TExpr)
-        (recvTy: SemType)
+        (objArg: TExpr)
+        (objArgTy: SemType)
         (segName: string)
         (stepTy: SemType)
         (tok: SyntaxToken)
@@ -322,18 +322,18 @@ module internal ElaborateCalls =
             match tryNominalMemberByKey ctx typeKey segName with
             | ValueSome(declKey, _) ->
                 let key = LocalSymbolKey.ofProperty declKey segName
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
-            | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
+                TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, stepTy, tok)
+            | ValueNone -> TExpr.FieldGet(objArg, segName, stepTy, tok)
 
-        match Unification.zonk ctx.Store recvTy with
+        match Unification.zonk ctx.Store objArgTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
                 let key = LocalSymbolKey.ofProperty info.TypeKey segName
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
+                TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, stepTy, tok)
             | _ ->
                 // An *inherited* member (`node.Key` where `Key` is on the parent
-                // `SetTree`): upcast the receiver to the declaring ancestor so
+                // `SetTree`): upcast the object argument to the declaring ancestor so
                 // codegen resolves `get_<seg>` on the class that emits it.
                 match Unification.tryClassChainMemberDecl ctx clsKey args segName with
                 | ValueSome cm ->
@@ -341,13 +341,13 @@ module internal ElaborateCalls =
                         LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store cm.DeclaringTy) segName
 
                     TExpr.PropertyGet(
-                        TExpr.Upcast(receiver, cm.DeclaringTy, TastWalk.exprTok receiver),
+                        TExpr.Upcast(objArg, cm.DeclaringTy, TastWalk.exprTok objArg),
                         key,
-                        viaOfReceiver ctx receiver,
+                        viaOfObjArg ctx objArg,
                         stepTy,
                         tok
                     )
-                | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
+                | ValueNone -> TExpr.FieldGet(objArg, segName, stepTy, tok)
         // `TyClass` matched above, so this catches only union and record.
         | TyNominal(nominalKey, _) -> flatNominalStep nominalKey
         // `arr.Length` on a rank-1 array desugars to the core `GetArrayLength` inline
@@ -355,5 +355,5 @@ module internal ElaborateCalls =
         // a local, not a `DotLookup`, so this arm is the one that fires.
         | TyArray _ when segName = "Length" ->
             let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue chainKey
-            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)
-        | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
+            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(objArgTy, stepTy), tok), objArg, stepTy, tok)
+        | _ -> TExpr.FieldGet(objArg, segName, stepTy, tok)

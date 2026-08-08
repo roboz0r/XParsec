@@ -59,9 +59,9 @@ module EmitJsCapabilities =
 
     let symbolDispose: JsExpr = nativeSymbol "dispose"
 
-    /// `recv[Symbol.dispose]()` — a COMPUTED member access, no args.
-    let disposeSlotCall (recv: JsExpr) (loc: JsLoc voption) : JsExpr =
-        JsExpr.Call(JsExpr.Member(recv, symbolDispose, true, loc), [], loc)
+    /// `objArg[Symbol.dispose]()` — a COMPUTED member access, no args.
+    let disposeSlotCall (objArg: JsExpr) (loc: JsLoc voption) : JsExpr =
+        JsExpr.Call(JsExpr.Member(objArg, symbolDispose, true, loc), [], loc)
 
     /// The runtime entry behind `seq<'T>.GetEnumerator()`: a JS source's only enumerable surface
     /// is `Symbol.iterator`, so nothing exists to call and this adapter holds the state the split
@@ -85,14 +85,14 @@ module EmitJsCapabilities =
         : (JsExpr -> JsLoc voption -> JsExpr) voption =
         match capabilityOf caps declKey with
         | ValueSome JsCapability.Iteration ->
-            ValueSome(fun recv loc ->
+            ValueSome(fun objArg loc ->
                 let adapter =
                     JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
 
-                JsExpr.Call(adapter, [ recv ], loc)
+                JsExpr.Call(adapter, [ objArg ], loc)
             )
         | ValueSome JsCapability.Cursor ->
-            ValueSome(fun recv loc -> JsExternalMembers.attachedCall recv memberName [] loc)
+            ValueSome(fun objArg loc -> JsExternalMembers.attachedCall objArg memberName [] loc)
         | ValueSome JsCapability.Disposal -> ValueSome disposeSlotCall
         // `=` reaches equality/comparison through structural equality, never a member call, so
         // these keep the ordinary external-member lowering.
@@ -109,9 +109,9 @@ module EmitJsCapabilities =
         (e: TastAccessor.ExprId)
         : struct (TastAccessor.ExprId * (JsExpr -> JsLoc voption -> JsExpr)) voption =
         match e with
-        | JsExternalMembers.InstanceExternalMember(recv, em) when em.Storage.IsValueMember ->
+        | JsExternalMembers.InstanceExternalMember(objArg, em) when em.Storage.IsValueMember ->
             tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
-            |> ValueOption.map (fun emit -> struct (recv, emit))
+            |> ValueOption.map (fun emit -> struct (objArg, emit))
         | _ -> ValueNone
 
     /// The APPLIED form — `e.MoveNext()` — folded into the same zero-arg access. The `unit`
@@ -126,11 +126,11 @@ module EmitJsCapabilities =
         (loc: JsLoc voption)
         : JsExpr voption =
         match fn, appArgs with
-        | JsExternalMembers.InstanceExternalMember(recv, em), [ (arg, _, _) ] when
+        | JsExternalMembers.InstanceExternalMember(objArg, em), [ (arg, _, _) ] when
             em.Storage = MemberStorage.Method
             && TastAccessor.exprKind arg = ExprShape.Const
             && TastAccessor.exprConstValue arg = TConstValue.Unit
             ->
             tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
-            |> ValueOption.map (fun emit -> emit (build recv) loc)
+            |> ValueOption.map (fun emit -> emit (build objArg) loc)
         | _ -> ValueNone

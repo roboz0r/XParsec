@@ -87,7 +87,7 @@ type CallVia<'ty> =
     /// `base.M(…)` / `base.X`: targets the PARENT's slot non-virtually (`call`), so an
     /// `override` doesn't recurse into itself.
     | Base
-    /// Constrained dispatch on a typar receiver coerced to an interface (`'T :> IFace`):
+    /// Constrained dispatch on a typar object argument coerced to an interface (`'T :> IFace`):
     /// `constrained. <typar> callvirt <iface-slot>`. `ifaceArgs` is the interface's own
     /// instantiation (`'U,'E` in `'T :> IStructSeq<'U,'E>`); empty for a non-generic interface.
     | Interface of ifaceArgs: EqArray<'ty>
@@ -204,12 +204,12 @@ type TExprG<'ty, 'tok, 'id> =
         overrides: EqArray<string * TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
-    /// `r.X` — `receiver` types as a `TyRecord`, `ty` as the field's declared type.
-    | FieldGet of receiver: TExprG<'ty, 'tok, 'id> * fieldName: string * ty: 'ty * tok: 'tok
-    /// `r.X <- v` — `ty` is unit. `receiver` types as a `TyRecord` whose field `fieldName`
+    /// `r.X` — `objArg` types as a `TyRecord`, `ty` as the field's declared type.
+    | FieldGet of objArg: TExprG<'ty, 'tok, 'id> * fieldName: string * ty: 'ty * tok: 'tok
+    /// `r.X <- v` — `ty` is unit. `objArg` types as a `TyRecord` whose field `fieldName`
     /// is mutable; assigning an immutable one is a reported error, not a shape.
     | FieldSet of
-        receiver: TExprG<'ty, 'tok, 'id> *
+        objArg: TExprG<'ty, 'tok, 'id> *
         fieldName: string *
         value: TExprG<'ty, 'tok, 'id> *
         ty: 'ty *
@@ -225,14 +225,14 @@ type TExprG<'ty, 'tok, 'id> =
     /// `r.M(args)`. `args` is the per-parameter list (peeled as for `New`); `ty` is the
     /// method's declared return type; `key` is a `SymbolKey.Member`.
     | MethodCall of
-        receiver: TExprG<'ty, 'tok, 'id> *
+        objArg: TExprG<'ty, 'tok, 'id> *
         key: SymbolKey *
         via: CallVia<'ty> *
         args: EqArray<TExprG<'ty, 'tok, 'id>> *
         ty: 'ty *
         tok: 'tok
-    | PropertyGet of receiver: TExprG<'ty, 'tok, 'id> * key: SymbolKey * via: CallVia<'ty> * ty: 'ty * tok: 'tok
-    /// Same arg-peeling as `MethodCall`; no receiver.
+    | PropertyGet of objArg: TExprG<'ty, 'tok, 'id> * key: SymbolKey * via: CallVia<'ty> * ty: 'ty * tok: 'tok
+    /// Same arg-peeling as `MethodCall`; no object argument.
     | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     | StaticPropertyGet of key: SymbolKey * ty: 'ty * tok: 'tok
     /// Read of a class-level `static let` backing field: `ldsfld` against the class's
@@ -243,11 +243,11 @@ type TExprG<'ty, 'tok, 'id> =
     /// the store analogue of `StaticFieldGet`. `ty` is the FIELD's type; the store itself
     /// results in unit.
     | StaticFieldSet of declKey: SymbolKey * fieldName: string * value: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
-    /// Member access on an EXTERNAL type. `receiver` is `ValueNone` for a static member
+    /// Member access on an EXTERNAL type. `objArg` is `ValueNone` for a static member
     /// (`EqualityComparer<int>.Default`), `ValueSome` for an instance one. `storage` splits
     /// field (`ldfld`) from property (`call get_X`) from method value, whose `ty` is curried.
     | ExternalMember of
-        receiver: TExprG<'ty, 'tok, 'id> voption *
+        objArg: TExprG<'ty, 'tok, 'id> voption *
         key: SymbolKey *
         memberName: string *
         storage: MemberStorage *
@@ -285,9 +285,9 @@ type TExprG<'ty, 'tok, 'id> =
     /// `e :? T` type test. `testTy` is the tested-against type `T`; `ty` is always `bool`.
     | TypeTest of source: TExprG<'ty, 'tok, 'id> * testTy: 'ty * ty: 'ty * tok: 'tok
     /// SRTP member-trait call `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))`.
-    /// `receiver` is the LEFT operand's type ONLY — a member declared solely on the right one
+    /// `supportTy` is the LEFT operand's type ONLY — a member declared solely on the right one
     /// never resolves. Inline expansion rewrites this to a `StaticMethodCall` on a nominal.
-    | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    | TraitCall of supportTy: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// A call to the `spec`-th entry of the file's specialization table, applied to `args`.
     /// The body stays in the table, so N call sites are one entry and N edges. `origin`/`tok`
     /// are the CALL SITE's; `args` are positional against the entry's SURVIVING parameters.

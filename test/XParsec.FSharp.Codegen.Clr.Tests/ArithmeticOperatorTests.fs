@@ -359,7 +359,7 @@ let tests =
             // A user-written SRTP trait call is ordinary source (`pStaticMemberInvocation`
             // is an alternative of `pParen`, ungated), so a LOCAL `let inline` can carry
             // one — and a local inline is spliced by the same pass through the same
-            // `Inline.inlineExpand`. When the receiver is a primitive it cannot dispatch,
+            // `Inline.inlineExpand`. When the support type is a primitive it cannot dispatch,
             // and the surviving `TraitCall` has no arm in EITHER backend: unreported, it
             // is an emitter `failwithf`, not a compile error. So the report lives in the
             // one expansion entry point every path goes through.

@@ -229,8 +229,8 @@ type Kind =
     | UnresolvedQualifiedName of name: string
     | OperatorFormQualifiedName of firstSegment: string
     | ConstraintNotSupported of ty: string * constraintName: string
-    /// An inline body's trait call the receiver cannot answer.
-    | TraitNotSupported of receiver: string * noun: MemberNoun * name: string
+    /// An inline body's trait call the support type cannot answer.
+    | TraitNotSupported of supportTy: string * noun: MemberNoun * name: string
 
     // ── Casts and type tests ───────────────────────────────────────────────────
     | UpcastUnrelated of source: string * target: string
@@ -401,8 +401,8 @@ module Kind =
             sprintf "Operator-form qualified names not yet resolved (starting at '%s')" firstSegment
         | Kind.ConstraintNotSupported(ty, constraintName) ->
             sprintf "The type '%s' does not support the '%s' constraint" ty constraintName
-        | Kind.TraitNotSupported(receiver, noun, name) ->
-            sprintf "The type '%s' does not support the %s '%s'" receiver (MemberNoun.word noun) name
+        | Kind.TraitNotSupported(supportTy, noun, name) ->
+            sprintf "The type '%s' does not support the %s '%s'" supportTy (MemberNoun.word noun) name
         | Kind.UpcastUnrelated(source, target) ->
             sprintf "Cannot upcast type '%s' to '%s' — no inheritance relationship" source target
         | Kind.DowncastUnrelated(source, target) ->

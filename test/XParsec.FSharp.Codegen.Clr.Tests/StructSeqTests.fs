@@ -26,9 +26,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //      recognised (`Resolve.(|ClassChainMethod|_|)` + the ElaborateExpr `App` arms);
 //      previously it mis-typed the trailing method as a property and lowered the
 //      call's `()` to a spurious `Vesper.Fun::Invoke`.
-//   2. Codegen: a struct-typed *field* receiver is addressed in place via `ldflda`
-//      (`EmitMember.loadStructReceiverAddr`), so a mutating member call persists
-//      rather than mutating a spilled copy.
+//   2. Codegen: a struct-typed *field* object argument is addressed in place via
+//      `ldflda`, so a mutating member call persists rather than mutating a spilled copy.
 
 [<Tests>]
 let structSeqTests =
@@ -619,7 +618,7 @@ let structSeqTests =
             // member body — `constrained. !TFunc callvirt` with no box. This is the
             // combination the struct-seq `'TFunc` flip rests on, and the one the landed
             // external-dispatch test did NOT cover (it used a concrete `Fun<int,int>` +
-            // a *parameter* receiver). Proves the library can thread `'TFunc` by hand
+            // a *parameter* object argument). Proves the library can thread `'TFunc` by hand
             // (mirroring its explicit `'S`/`'E` typars) with no new compiler pass.
             test "generic struct field 'TFunc :> Fun<'T,'U> dispatches this.F.Invoke via constrained callvirt" {
                 let _, artifact = compileSourceData "StructFieldTFuncDispatch"
@@ -641,11 +640,11 @@ let structSeqTests =
 
             // A member call on a value whose type is a generic
             // typar constrained to a project-local interface (`'T :> IGetVal`).
-            // The receiver is a bare TyVar carrying a `Coercion` constraint; resolution
+            // The object argument is a bare TyVar carrying a `Coercion` constraint; resolution
             // looks the member up through the interface's members and mints a
             // `CallVia.Interface` node, and codegen emits `constrained. <typar> callvirt`
             // so it RUNS end-to-end.
-            test "typar receiver constrained to a local interface dispatches via constrained callvirt" {
+            test "typar object argument constrained to a local interface dispatches via constrained callvirt" {
                 let _, artifact = compileSourceData "TyparInterfaceDispatch"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -807,7 +806,7 @@ let structSeqTests =
 
             // `for y in s` over a GENERIC typar source
             // (`'S :> ISeq`) whose `GetEnumerator` is reached through a project-local
-            // *custom* (non-`IEnumerable`) interface. The source receiver is a typar, so
+            // *custom* (non-`IEnumerable`) interface. The source object argument is a typar, so
             // `GetEnumerator` must dispatch via `constrained. !S callvirt ISeq::GetEnumerator`.
             // The enumerator `E` is here a CONCRETE struct exposing public pattern
             // `MoveNext`/`Current`, so the loop body stays the existing by-address struct
@@ -1112,7 +1111,7 @@ let structSeqTests =
             //      `'S :> IStructSeq<'T,'E>` bound by walking the (already value-
             //      struct-instantiated) `'S` arg's seq impl, so the `constrained.
             //      callvirt GetEnumerator` token's nested `'TFunc` is the
-            //      `<closure>$` value-struct and matches the receiver's impl. No
+            //      `<closure>$` value-struct and matches the object argument's impl. No
             //      type-equality rewrite (the old `rewriteClosureLeaves` is gone).
             test "SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
                 let tast, artifact = compileSourceData "StructSeqSourceLambdaPipeline"
@@ -1242,7 +1241,7 @@ let structSeqTests =
             // is genuinely generic over `'E`, each `fold` instantiation carries its own
             // enumerator via the normal `MethodSpec`, and the collision-prone for-in
             // type-equality rewrite (which raised `EntryPointNotFoundException` on the
-            // doubly-nested `MapSeq<MapSeq<…>,…>` receiver) is gone — no shared baked body
+            // doubly-nested `MapSeq<MapSeq<…>,…>` object argument) is gone — no shared baked body
             // to disambiguate. The closure identity rides through `'S`'s rewritten arg, so
             // the two same-typed `int->int` maps stay distinct.
             test "multi-map chain lowers each closure to its OWN value-struct slot" {

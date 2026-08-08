@@ -181,7 +181,7 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// Instance members only; `ValueNone` for a static member.
         ThisKey: BoundVarKeyG<'id> voption
         /// The synthetic `base` bound variable of the declaring class; `ValueNone` for a static or
-        /// union member, or a class with no `inherit`. A `base.M(…)` receiver loads as the
+        /// union member, or a class with no `inherit`. A `base.M(…)` object argument loads as the
         /// same `ldarg.0` as `this`; `CallVia.Base` is what makes the dispatch non-virtual.
         BaseKey: BoundVarKeyG<'id> voption
         ThisTy: 'ty
@@ -363,7 +363,7 @@ module BoundVarKey =
     let ofInterned (id: BoundVarId) : BoundVarKeyG<BoundVarId> = BoundVar id
 
     /// Every bound variable a TYPE DECLARATION introduces with no pattern node to introduce it. A
-    /// member body names its receiver and parameters by `TExpr.Var`, but those definition
+    /// member body names `this` and its parameters by `TExpr.Var`, but those definition
     /// sites are key SLOTS on the shape, which a walk over PATTERNS alone never reaches.
     let ofTypeDecl (td: TTypeDeclG<'ty, 'tok, 'id, 'body>) : BoundVarKeyG<'id> seq =
         let ofMember (m: TTypeMemberG<'ty, 'id, 'body>) =

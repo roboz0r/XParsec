@@ -83,7 +83,7 @@ module InlineReduction =
         }
 
     /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
-    /// the arguments an ANSWER needs it in — for an `ExternalMember` that includes the receiver,
+    /// the arguments an ANSWER needs it in — for an `ExternalMember` that includes the object argument,
     /// at curried position 0, which the application it was reached through never held.
     [<NoEquality; NoComparison>]
     type internal PendingCall =
@@ -150,7 +150,7 @@ module InlineReduction =
             }
 
     /// An applied FUNCTION that names a cross-file symbol — a plain `External`, or the dotted
-    /// `ExternalMember` that `x.get_Item(2)` lowers to, whose receiver is a FIELD of the
+    /// `ExternalMember` that `x.get_Item(2)` lowers to, whose object argument is a FIELD of the
     /// function rather than an applied argument and so must be prepended at curried position 0.
     [<NoEquality; NoComparison>]
     type internal ExternalFunction =
@@ -176,13 +176,13 @@ module InlineReduction =
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type internal AppliedFunction =
         /// A function with an inline body, and the arguments its parameters are peeled against —
-        /// for a member the receiver leads, so this is not the list the application was written with.
+        /// for a member the object argument leads, so this is not the list the application was written with.
         | Template of id: TemplateId * body: TemplateBody * args: (TExpr * SemType * SyntaxToken) list
         /// A saturated use of an inline-first lambda parameter: the bound lambda is spliced at
         /// this use, so its closure never exists.
         | Fused of FusedLambda
         /// Nothing to expand; the function survives its application. A THUNK because the surviving
-        /// function is walked for a member (whose receiver nothing else walks) and must NOT be for a
+        /// function is walked for a member (whose object argument nothing else walks) and must NOT be for a
         /// plain `External` — walking one etas it into the closure this call is the saturation of.
         | Opaque of rebuiltFn: (unit -> TExpr)
 

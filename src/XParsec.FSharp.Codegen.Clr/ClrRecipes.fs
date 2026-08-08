@@ -268,11 +268,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The seq-interface witness for a referenced-package nominal receiver: pick the shape's
-    /// `FrozenInterfaces` template matching `ifaceKey` and instantiate it at this receiver
+    /// The seq-interface witness for a referenced-package nominal type: pick the shape's
+    /// `FrozenInterfaces` template matching `ifaceKey` and instantiate it at this object arg
     /// (`FTTypar(Declaring, i) := args.[i]`). Direct-declared interfaces only.
-    let tryExternalInterfaceWitness (receiver: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
-        match receiver with
+    let tryExternalInterfaceWitness (objArgTy: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
+        match objArgTy with
         | FTClass(rKey, rArgs)
         | FTUnion(rKey, rArgs)
         | FTRecord(rKey, rArgs) ->

@@ -112,7 +112,7 @@ let structTests =
 
             test "a method call on an unboxed struct local dispatches by address" {
                 // `p.Sum()` on a `let`-bound struct value needs
-                // the receiver *address* (`ldloca` + `constrained. callvirt`), not a
+                // the `this` *pointer* (`ldloca` + `constrained. callvirt`), not a
                 // by-value `callvirt` (invalid IL on an unboxed value type).
                 let _, artifact = compileSourceData "StructUnboxedCall"
 
@@ -134,7 +134,7 @@ let structTests =
             }
 
             test "a mutating method on an unboxed struct local persists (in-place addressing)" {
-                // This only passes if the receiver is addressed in place (`ldloca`
+                // This only passes if `this` is addressed in place (`ldloca`
                 // the slot) — a spill-to-temp copy per call would mutate a throwaway
                 // and `Get()` would read the un-mutated original.
                 let _, artifact = compileSourceData "StructUnboxedMutate"
@@ -457,9 +457,9 @@ let structTests =
             // A chained property access `this.field.Prop` where `field` is a
             // `val`/ctor-param instance field: `recoverFieldStepTy` must scan val
             // fields (not just members) when resolving intermediate chain types,
-            // otherwise the receiver gets the final property's type instead of the
+            // otherwise the object argument gets the final property's type instead of the
             // field's type.
-            test "a chained property on a struct val field types the receiver as the field, not the property" {
+            test "a chained property on a struct val field types the object argument as the field, not the property" {
                 let _, artifact = compileSourceData "StructFieldChainProp"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -531,7 +531,7 @@ let structTests =
             }
 
             // `Span<char>` passed as a by-value argument: the member-ref parent for a
-            // Span parameter must encode `VALUETYPE`, not just the receiver/field/return.
+            // Span parameter must encode `VALUETYPE`, not just the object argument/field/return.
             test "Span<char> by-value args — string.CopyTo, span CopyTo, Fill, ToString, TryCopyTo" {
                 runsDataLines [ "ab---cd"; "ab---cdab"; "true"; "false" ] "span-byval-args"
             }
@@ -580,9 +580,8 @@ let structTests =
 
             // Every body mutates `this` through self-calls (`AppendFormatted` →
             // `AppendLiteral` → `GrowThenCopyString` → `Grow` → `GrowCore`). These
-            // only persist because struct self-calls address `this` in place
-            // (`EmitMember.loadStructReceiverAddr`); a defensive copy per call would
-            // lose each mutation.
+            // only persist because struct self-calls address `this` in place; a
+            // defensive copy per call would lose each mutation.
             test "struct formatter core — literal, generic hole, grow, string sink" {
                 runsDataLines [ "x=42, pi=3.14"; "400" ] "formatter-core-selfcall-grow"
             }
@@ -596,10 +595,10 @@ let structTests =
             }
 
             // External instance method overload resolution on a variable/property
-            // receiver: `w.Write("hi")` parses with `fn = LongIdent [w; Write]`
+            // object argument: `w.Write("hi")` parses with `fn = LongIdent [w; Write]`
             // (the parser folds the dot). This must go through `pickBestOverload`,
             // not the single-pick field walk (which would grab the widest overload).
-            test "external instance overload pick on a folded-LongIdent receiver" {
+            test "external instance overload pick on a folded-LongIdent object argument" {
                 runsDataLines [ "hi" ] "external-instance-overload-folded-longident"
             }
 

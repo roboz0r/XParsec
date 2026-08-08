@@ -65,7 +65,7 @@ let tests =
                 Expect.isEmpty (errors tast) "no type errors through the metadata-backed provider"
 
                 // `GetHashCode 5` is `App(ExternalMember(GetHashCode), 5)`; the
-                // GetHashCode access's receiver is the `Default` static access.
+                // GetHashCode access's object argument is the `Default` static access.
                 let value =
                     match tast.Decls with
                     | EqList [ TDecl.Let(value = v) ] -> v
@@ -119,7 +119,7 @@ let tests =
                             "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
-                    // The `Default` static property — receiver dropped (ValueNone),
+                    // The `Default` static property — object argument dropped (ValueNone),
                     // typed EqualityComparer<int>, empty argSig.
                     match inner with
                     | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, defTy, _) ->
@@ -149,7 +149,7 @@ let tests =
 
                             Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
                         | other -> failtestf "unexpected Default key %A" other
-                    | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
+                    | other -> failtestf "expected a static `Default` ExternalMember object argument, got %A" other
                 | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
             }
 
@@ -260,7 +260,7 @@ let tests =
 
                     match inner with
                     | TExpr.ExternalMember(ValueNone, _, "Default", MemberStorage.Property, _, _) -> ()
-                    | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
+                    | other -> failtestf "expected a static `Default` ExternalMember object argument, got %A" other
                 | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
             }
 
@@ -324,27 +324,29 @@ let tests =
 
             // `translateType` external-type resolution: a *type annotation* naming an external type used to land as
             // an opaque `TyConst` (single-segment, args dropped) or a fresh `TyVar`
-            // (multi-segment) — only static-member *receivers* resolved
-            // (`tryExternalTypeReceiver`). Now `translateType` probes the provider too,
-            // so the annotated type is the same external `TyClass` the receiver carries
-            // and the two unify.
-            test "a type annotation resolves an external type — short form unifies with the receiver" {
+            // (multi-segment) — only static-member *qualifiers* resolved
+            // (`tryExternalTypeQualifier`). Now `translateType` probes the provider too,
+            // so the annotated type is the same external `TyClass` the object argument
+            // carries and the two unify.
+            test "a type annotation resolves an external type — short form unifies with the object argument" {
                 // Vesper.Core supplies the `int` intrinsic the `EqualityComparer<int>` type
                 // ARGUMENT names; the `EqualityComparer` name itself resolves through the
                 // metadata leaf either way.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 // The annotation `EqualityComparer<int>` must unify with the resolved
-                // `Default` receiver type. Before the fix the single-segment annotation
+                // `Default` object-argument type. Before the fix the single-segment annotation
                 // dropped its args to `TyConst("EqualityComparer", _)`, which clashes with
-                // the receiver's `TyClass` → a spurious type error; an empty error list
+                // the object argument's `TyClass` → a spurious type error; an empty error list
                 // is the decisive observable.
                 let tast =
                     analyseWith
                         provider
                         "open System.Collections.Generic\nlet d : EqualityComparer<int> = EqualityComparer<int>.Default"
 
-                Expect.isEmpty (errors tast) "the annotated external type unifies with the resolved Default receiver"
+                Expect.isEmpty
+                    (errors tast)
+                    "the annotated external type unifies with the resolved Default object argument"
             }
 
             test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
@@ -433,29 +435,29 @@ let tests =
             }
 
             // The destructuring Elaborate synthesises for a tuple-VALUED argument must not
-            // reorder the call: an instance member evaluates its RECEIVER first, and the
-            // argument exactly once. Both operands announce themselves, so the printed
+            // reorder the call: an instance member evaluates its OBJECT ARGUMENT first, and
+            // the argument exactly once. Both operands announce themselves, so the printed
             // order IS the evaluation order and a duplicated argument would say `A` twice.
-            test "an instance member keeps receiver-before-argument order over a tuple VALUE" {
+            test "an instance member keeps object-argument-before-argument order over a tuple VALUE" {
                 let src =
                     String.concat
                         "\n"
                         [
                             "open System.Text"
-                            "let recv () : StringBuilder ="
+                            "let objArg () : StringBuilder ="
                             "    printfn \"R\""
                             "    StringBuilder(\"xy\")"
                             "let arg () : string * string ="
                             "    printfn \"A\""
                             "    (\"x\", \"z\")"
-                            "printfn \"%s\" ((recv ()).Replace(arg ()).ToString())"
+                            "printfn \"%s\" ((objArg ()).Replace(arg ()).ToString())"
                         ]
 
                 let _, artifact = compileSource "P4ExternalTupleValueOrder" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Replace("\r", "").Trim()) "R\nA\nzy" "receiver, then argument, then `zy`"
+                Expect.equal (output.Replace("\r", "").Trim()) "R\nA\nzy" "object argument, then argument, then `zy`"
             }
 
             // The short-name form (under its `open`) emits and runs identically —
@@ -472,7 +474,7 @@ let tests =
             }
 
             // Non-generic external static access. `System.Console.Out` folds into a single LongIdent (no `<>` to
-            // keep a `TypeApp` receiver), so the generic DotLookup arm never sees it;
+            // keep a `TypeApp` prefix), so the generic DotLookup arm never sees it;
             // `tryExternalStaticLongIdent` recovers the type-prefix / static-member
             // split, types it, and freezes a keyed `TExpr.ExternalMember`.
             test "non-generic external static property resolves + freezes carrying its key" {

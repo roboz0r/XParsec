@@ -582,7 +582,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                             | Some m -> [| m |]
                             | None -> [||]
 
-                    // The receiver's type plus what it inherits members from, most-derived
+                    // The object arg's type plus what it inherits members from, most-derived
                     // first: a class or struct walks its base chain to `System.Object`; an
                     // interface walks its base interfaces, then `Object`, appended by hand.
                     let candidates =

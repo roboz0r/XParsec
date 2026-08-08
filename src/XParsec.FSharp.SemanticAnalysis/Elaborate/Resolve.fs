@@ -90,7 +90,7 @@ module internal ElaborateResolve =
                     | TyNominal(typeKey, _) ->
                         let memberName = ctx.NameOf li.Idents.[1]
 
-                        // By the arity-qualified key: an arity-overloaded receiver
+                        // By the arity-qualified key: an arity-overloaded type
                         // (`Fun`2`/`Fun`3`) does not resolve by bare name, so a bare lookup
                         // would miss and `f.Invoke(a, b)` mis-lower to a function application.
                         match tryNominalMemberByKey ctx typeKey memberName with
@@ -226,7 +226,7 @@ module internal ElaborateResolve =
         | _ -> ValueNone
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its instance methods.
-    /// Returns the receiver expr and resolved member name, so the `App` and
+    /// Returns the object-argument expr and resolved member name, so the `App` and
     /// `HighPrecedenceApp` invocation arms share one guard.
     [<return: Struct>]
     let (|InstanceMethodCall|_|)
@@ -245,38 +245,38 @@ module internal ElaborateResolve =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The receiver type a folded LongIdent chain's prefix segments `[1 .. n-2]` land on:
+    /// The object-argument type a folded LongIdent chain's prefix segments `[1 .. n-2]` land on:
     /// the anchor segment's bound type walked one field / property step at a time. `ValueNone`
     /// if the anchor is not a local binding or any step cannot be typed.
-    let private tryChainReceiverTy (ctx: PassContext) (li: LongIdent<SyntaxToken>) : SemType voption =
+    let private tryChainObjArgTy (ctx: PassContext) (li: LongIdent<SyntaxToken>) : SemType voption =
         let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
         match ctx.Bindings.Binding.TryGetValue anchorKey with
         | ValueNone -> ValueNone
         | ValueSome rb ->
-            let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
+            let mutable objArgTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
             let mutable ok = true
 
             for i in 1 .. li.Idents.Length - 2 do
                 if ok then
-                    match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
-                    | ValueSome t -> recvTy <- Unification.zonk ctx.Store t
+                    match recoverFieldStepTy ctx objArgTy (ctx.NameOf li.Idents.[i]) with
+                    | ValueSome t -> objArgTy <- Unification.zonk ctx.Store t
                     | ValueNone -> ok <- false
 
-            if ok then ValueSome recvTy else ValueNone
+            if ok then ValueSome objArgTy else ValueNone
 
-    /// The receiver chain of a folded member call: the same LongIdent with its
+    /// The object-argument chain of a folded member call: the same LongIdent with its
     /// trailing member segment (and the dot before it) dropped, so the caller rebuilds
-    /// the receiver via `translateLongIdentFieldChain`.
+    /// the object argument via `translateLongIdentFieldChain`.
     let private chainPrefix (li: LongIdent<SyntaxToken>) : LongIdent<SyntaxToken> =
         {
             Idents = li.Idents.RemoveAt(li.Idents.Length - 1)
             Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
         }
 
-    /// `r.f.…g.M(args)` — a method call whose receiver is a *multi-segment* folded chain:
+    /// `r.f.…g.M(args)` — a method call whose object argument is a *multi-segment* folded chain:
     /// `this.Source.MoveNext` arrives as one `LongIdent[this; Source; MoveNext]`. Returns the
-    /// prefix (the receiver chain, last segment dropped), the receiver type and the method.
+    /// prefix (the chain, last segment dropped), the object-argument type and the method.
     [<return: Struct>]
     let (|ClassChainMethod|_|)
         (ctx: PassContext)
@@ -288,16 +288,17 @@ module internal ElaborateResolve =
             // 2-segment `var.M(args)` is `ClassTailMethod`; this is the 3+ case.
             ValueNone
         else
-            match tryChainReceiverTy ctx li with
-            | ValueSome(TyNominal(typeKey, _) as recvTy) ->
+            match tryChainObjArgTy ctx li with
+            | ValueSome(TyNominal(typeKey, _) as objArgTy) ->
                 let memberName = ctx.NameOf li.Idents.[n - 1]
 
                 match tryNominalMemberByKey ctx typeKey memberName with
-                | ValueSome(_, m) when m.Kind = ClassMemberKind.Method -> ValueSome(chainPrefix li, recvTy, memberName)
+                | ValueSome(_, m) when m.Kind = ClassMemberKind.Method ->
+                    ValueSome(chainPrefix li, objArgTy, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
 
-    /// `r.…M(args)` whose receiver type is a generic typar coerced to a project-local
+    /// `r.…M(args)` whose object-argument type is a generic typar coerced to a project-local
     /// interface (`'T :> IFace`), which never grounds to a nominal. The interface's `TypeKey`
     /// was recorded in `TyparInterfaceCall`; returns it alongside `ClassChainMethod`'s shape.
     [<return: Struct>]
@@ -313,11 +314,11 @@ module internal ElaborateResolve =
             match ctx.Resolution.TyparInterfaceCall.TryGetValue key with
             | ValueNone -> ValueNone
             | ValueSome(ifaceKey, ifaceArgs) ->
-                match tryChainReceiverTy ctx li with
+                match tryChainObjArgTy ctx li with
                 | ValueNone -> ValueNone
-                | ValueSome recvTy ->
+                | ValueSome objArgTy ->
                     let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                    ValueSome(chainPrefix li, recvTy, ifaceKey, ifaceArgs, memberName)
+                    ValueSome(chainPrefix li, objArgTy, ifaceKey, ifaceArgs, memberName)
 
     /// The `ResolvedExternalMember` Unification recorded for this node, if any.
     [<return: Struct>]

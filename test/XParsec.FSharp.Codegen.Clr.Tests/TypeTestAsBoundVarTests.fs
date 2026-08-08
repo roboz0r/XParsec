@@ -5,9 +5,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Regression probes for two `structural-printer.clr.fs` workarounds that were needed
 // against 2026-06 codegen but have since been fixed (many `:? T as x` arms in a
-// member body; a module `let` read from a member), and for the interface-receiver
-// member-resolution shapes the printer relies on — including a `System.Object`-
-// inherited member on an interface receiver, which needed the CLR metadata
+// member body; a module `let` read from a member), and for the member-resolution
+// shapes on an interface-typed object argument the printer relies on — including a
+// `System.Object`-inherited member on one, which needed the CLR metadata
 // provider to walk through to `Object` (MetadataSymbols.computeMembers). Every
 // probe is expected to PASS; a failure means a regression.
 
@@ -136,12 +136,12 @@ let tests =
             }
 
             // A `System.Object`-inherited member (`ToString`/`Equals`/`GetHashCode`)
-            // on an interface-typed receiver. These are inherited, not declared on
+            // on an interface-typed object argument. These are inherited, not declared on
             // the interface, so the CLR metadata provider must walk through to
             // `System.Object` to surface them (MetadataSymbols.computeMembers). On a
             // string boxed as `obj` the `IEnumerable` arm fires and `xs.ToString()`
             // returns the string itself.
-            test "Object-inherited member on an interface receiver resolves (IEnumerable.ToString)" {
+            test "Object-inherited member on an interface object argument resolves (IEnumerable.ToString)" {
                 runsSelfHost
                     "abc"
                     (String.concat
@@ -161,12 +161,12 @@ let tests =
                         ])
             }
 
-            // An `Object`-inherited member on an external CLASS receiver. On the CLR
+            // An `Object`-inherited member on an external CLASS object argument. On the CLR
             // every class inherits `Equals`/`GetHashCode`/`ToString` from `Object`, so
             // the provider walks the class's base chain (which terminates at `Object`).
             // `StringBuilder` does not override `Equals`, so `sb.Equals(sb)` resolves to
             // `Object.Equals` — reference-equal, hence true.
-            test "Object-inherited member on an external class receiver resolves (StringBuilder.Equals)" {
+            test "Object-inherited member on an external class object argument resolves (StringBuilder.Equals)" {
                 runsSelfHost
                     "true"
                     (String.concat
@@ -178,11 +178,11 @@ let tests =
                         ])
             }
 
-            // An INTERMEDIATE-base member on an external class receiver: `Message` is
+            // An INTERMEDIATE-base member on an external class object argument: `Message` is
             // declared on `System.Exception`, not on `ArgumentException`, so resolving
             // `e.Message` needs the base-chain walk (ArgumentException -> SystemException
             // -> Exception), not just `Object`.
-            test "intermediate-base member on an external class receiver resolves (Exception.Message)" {
+            test "intermediate-base member on an external class object argument resolves (Exception.Message)" {
                 runsSelfHost
                     "boom"
                     (String.concat "\n" [ "let e = System.ArgumentException(\"boom\")"; "printfn \"%s\" e.Message" ])

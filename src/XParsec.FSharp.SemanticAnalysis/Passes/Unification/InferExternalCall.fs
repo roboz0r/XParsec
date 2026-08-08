@@ -135,23 +135,23 @@ module internal UnificationInferExternalCall =
 
             [ for kv in seed -> kv.Key, kv.Value ]
 
-    /// The receiver type + member name of an instance call. `w.Write(arg)` parses with
+    /// The object-argument type + member name of an instance call. `w.Write(arg)` parses with
     /// `fn = LongIdent [w; Write]` (the parser folds the dot after a plain identifier), so the
     /// anchor must be a local BINDING — `TextWriter.Synchronized` is the static probe's job.
-    let private receiverMemberOf
+    let private objArgMemberOf
         (infer: Infer)
         (ctx: PassContext)
         (fn: Expr<SyntaxToken>)
         : struct (SemType * string) voption =
         match fn with
-        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            ValueSome(struct (infer ctx recv, ctx.NameOf li.Idents.[0]))
+        | Expr.DotLookup(expr = objArg; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            ValueSome(struct (infer ctx objArg, ctx.NameOf li.Idents.[0]))
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length >= 2
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
-            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.siteOfExpr fn) li
-            ValueSome(struct (recvTy, ctx.NameOf li.Idents.[li.Idents.Length - 1]))
+            let objArgTy = inferLongIdentPrefix ctx (CstKeys.siteOfExpr fn) li
+            ValueSome(struct (objArgTy, ctx.NameOf li.Idents.[li.Idents.Length - 1]))
         | _ -> ValueNone
 
     /// Commit an applied `arg -> result` chain against a resolved member signature: each
@@ -254,7 +254,7 @@ module internal UnificationInferExternalCall =
                     )
 
     /// Call-site overload resolution for an external *instance* method call (`sb.Append("x")`),
-    /// keyed off a call whose receiver infers to a ground external `TyClass`. Needed because
+    /// keyed off a call whose object argument infers to a ground external `TyClass`. Needed because
     /// the single-pick path takes an arbitrary overload — `Append(char[], int, int)` for one `string`.
     and tryInferExternalInstanceMethodCall
         (infer: Infer)
@@ -263,11 +263,11 @@ module internal UnificationInferExternalCall =
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
-        // Declines on a non-external receiver, a 0/1-overload member, or no unique best.
-        let resolveOn (recvTy: SemType) (memberName: string) : SemType voption =
-            // TODO(perf): `infer` is not memoised, so on the *decline* path the receiver
-            // is inferred here and then again by the fallback's `infer ctx fn`. Thread the
-            // receiver `SemType` out of the probe if a fluent chain shows it up.
+        // Declines on a non-external object argument, a 0/1-overload member, or no unique best.
+        let resolveOn (objArgTy: SemType) (memberName: string) : SemType voption =
+            // TODO(perf): `infer` is not memoised, so on the *decline* path the object argument
+            // is inferred here and then again by the fallback's `infer ctx fn`. Thread its
+            // `SemType` out of the probe if a fluent chain shows it up.
             let onSurface (struct (declKey, typeArgs)) =
                 match
                     ctx.Provider.TryLookupMembers(declKey, memberName)
@@ -276,7 +276,7 @@ module internal UnificationInferExternalCall =
                 | [||] -> None
                 | candidates -> Some(struct (typeArgs, candidates))
 
-            match externalReceiverKeys ctx recvTy |> List.tryPick onSurface with
+            match externalSurfaceKeys ctx objArgTy |> List.tryPick onSurface with
             | None -> ValueNone
             | Some(typeArgs, candidates) ->
                 if candidates.Length <= 1 then
@@ -295,12 +295,12 @@ module internal UnificationInferExternalCall =
                     // No unique best: decline rather than error, leaving the single-pick path.
                     | ValueNone -> ValueNone
 
-        match receiverMemberOf infer ctx fn with
-        | ValueSome(struct (recvTy, memberName)) -> resolveOn recvTy memberName
+        match objArgMemberOf infer ctx fn with
+        | ValueSome(struct (objArgTy, memberName)) -> resolveOn objArgTy memberName
         | ValueNone -> ValueNone
 
     /// Call-site overload resolution for a project-LOCAL instance method call (`p.Show(1)`),
-    /// when the receiver is a local class / union / record whose member name has >1 candidate.
+    /// when the object argument is a local class / union / record whose member name has >1 candidate.
     /// A winner's frozen `SymbolKey` is recorded so Elaborate resolves it by identity.
     and tryInferLocalInstanceMethodCall
         (infer: Infer)
@@ -311,9 +311,9 @@ module internal UnificationInferExternalCall =
         : SemType voption =
         // `ValueNone` for anything but a project-local class / union / record.
         let localHost
-            (recvTy: SemType)
+            (objArgTy: SemType)
             : struct (TypeKey * EqArray<string * TyVarId> * EqArray<SemType> * TypeMemberInfo[]) voption =
-            match resolveStep ctx.Store recvTy with
+            match resolveStep ctx.Store objArgTy with
             | TyClass(hostKey, args) ->
                 match TypeRegistry.tryClassByKey ctx.Types hostKey with
                 | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
@@ -348,8 +348,8 @@ module internal UnificationInferExternalCall =
 
             ps |> List.map one |> String.concat ", "
 
-        let resolveOn (recvTy: SemType) (memberName: string) : SemType voption =
-            match localHost recvTy with
+        let resolveOn (objArgTy: SemType) (memberName: string) : SemType voption =
+            match localHost objArgTy with
             | ValueNone -> ValueNone
             | ValueSome(struct (declKey, typeParams, args, members)) ->
                 let argTy = infer ctx argExpr
@@ -401,8 +401,8 @@ module internal UnificationInferExternalCall =
 
                     ValueSome resultTy
 
-        match receiverMemberOf infer ctx fn with
-        | ValueSome(struct (recvTy, memberName)) -> resolveOn recvTy memberName
+        match objArgMemberOf infer ctx fn with
+        | ValueSome(struct (objArgTy, memberName)) -> resolveOn objArgTy memberName
         | ValueNone -> ValueNone
 
     /// Permit an external method call that omits a suffix of the member's *trailing optional*

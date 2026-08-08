@@ -214,7 +214,7 @@ let tests =
 
             test "CompareTo(object) returns 1 for a null argument (null sorts first)" {
                 // brainstorm-comparison §5.3: null sorts first, so the
-                // receiver compares positive against it.
+                // object argument compares positive against it.
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 

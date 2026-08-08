@@ -276,12 +276,12 @@ canonical values match."
 
 ### `TastExpr.fs:317` — `TraitCall` can only search the LEFT operand's support set
 
-It carries a single `receiver: 'ty`, so F#'s `(^T1 or ^T2)` cannot be honoured: a member
+It carries a single `supportTy: 'ty`, so F#'s `(^T1 or ^T2)` cannot be honoured: a member
 declared solely on the right operand — `static member (+) (i: int, v: Vector)` — is
 unreachable. The exemplar the deleted TODO named is
 `let inline lerp c p t = t * c + p * (GenericOne - c)` applied at
 `lerp 0.1f Vector2.Zero Vector2.One`, which needs `Vector2.op_Multiply` for `float32 * Vector2`.
-Carrying a candidate SET rather than one receiver is the stated fix. The single-receiver shape
+Carrying a candidate SET rather than one support type is the stated fix. The single-support-type shape
 is verified; the `applyDefaults` failure path the TODO described is not.
 
 ## Open: the function-type / `Fun` nominal relation
@@ -525,12 +525,12 @@ One `SideTable<TypeKey>` written from three unrelated meanings:
 
 - **declaration identity** — `TypeRegistration.fs:746`, `:902`, `:959`, at `declSite.Key`;
 - **type-position annotation use site** — `Translate.fs:450` (union), `:455` (enum), at the anchor's `Key`;
-- **expression-position type name, and separately a static-receiver PREFIX** — three writers in
+- **expression-position type name, and separately a static-qualifier PREFIX** — three writers in
   `Scope.fs` alone (post-sweep lines): `:111` a single-ident bare class as a ctor-sugar application, `:490`
-  a whole dotted name as a ctor-sugar application, and `:603` a `TypeApp` receiver of ANY shape at exact
-  arity. The last is the awkward one: `:603` stamps `ResolvedType` on the receiver key and `:607`
-  stamps `ExternalStaticReceiver` on that SAME key, so a ctor-app consumer reading `ResolvedType`
-  can be handed a receiver prefix rather than a constructible type.
+  a whole dotted name as a ctor-sugar application, and `:603` a `TypeApp` prefix of ANY shape at exact
+  arity. The last is the awkward one: `:603` stamps `ResolvedType` on the prefix key and `:607`
+  stamps `ExternalStaticQualifier` on that SAME key, so a ctor-app consumer reading `ResolvedType`
+  can be handed a qualifier prefix rather than a constructible type.
 
 Nothing in the type separates the three. Splitting them deletes the 19 lines of prose that
 existed to warn the consumer, and would also remove the need for the (false, now deleted)
@@ -650,7 +650,7 @@ reported the signature-side field as having no production reader; that is wrong,
 are the sync point. Deriving the member field rather than storing it is still an option, but
 nothing is out of sync today.
 
-### `PassContext.fs:200` — `ExternalStaticReceiver`'s payload shape is a writer-side promise
+### `PassContext.fs:200` — `ExternalStaticQualifier`'s payload shape is a writer-side promise
 
 A `SideTable<SymbolKey>`; nothing in the type says the key names a static-member-bearing shape.
 The three writers (`Passes/NameResolution/Scope.fs:679`, `:687`, `:816`) all gate on
@@ -815,7 +815,7 @@ invariant the code does not hold.
 
 ### `TastExpr.fs:210` — `Range.step` is the sole reference `option` in the TAST
 
-Every other optional child is a struct `voption` — `ExternalMember.receiver` (`:271`),
+Every other optional child is a struct `voption` — `ExternalMember.objArg` (`:271`),
 `FormatSegG.DynHole.Width`/`Precision`, `ExprRow.VarBoundVar`. This one forces `Some`/`None`
 handling and is the only `Option.iter` in either walker (`TastWalk.fs:422-438`, `:830`).
 
@@ -1265,7 +1265,7 @@ would collapse all four, and would put the `li.Idents.[li.Idents.Length - 1]` re
 
 ### `Elaborate/Resolve.fs:90` — `tryLongIdentClassTail` zonks the same `TyVar` twice
 
-The receiver type is computed as `Unification.zonk ctx.Store (TyVar tv)` in the match scrutinee
+The object-argument type is computed as `Unification.zonk ctx.Store (TyVar tv)` in the match scrutinee
 (`:90`) and again, identically, when building the result (`:98`). Binding the first result and
 matching on it returns the same value with one traversal, and removes the possibility of the two
 reads drifting if the second is ever edited.
@@ -1283,11 +1283,11 @@ explicit input record (the tables read) and returned output record (the tables w
 ### `Passes/Validation.fs:56`, `:93` — the record-field mutability check is written twice
 
 `checkAssignment`'s multi-segment `LongIdent` arm (`:56-91`) and its `DotLookup` arm (`:93-112`) run
-the same five steps against different receivers: look the receiver's `TypeVar` up, `Unification.zonk`
+the same five steps against different object arguments: look the object argument's `TypeVar` up, `Unification.zonk`
 it, require `TyRecord(recKey, _)`, `TypeRegistry.tryRecordByKey` + `Array.tryFind` on `Name`, and
-report `Kind.ImmutableFieldAssignment` when `not field.IsMutable`. Only how the receiver key and the
+report `Kind.ImmutableFieldAssignment` when `not field.IsMutable`. Only how the object-argument key and the
 field token are obtained differs (`li.Idents.[0]`/`[1]` versus `CstKeys.ofExpr r`/`li.Idents.[0]`). A
-`checkFieldIsMutable (ctx) (recvKey: NodeKey) (fieldTok: SyntaxToken)` helper collapses both, and
+`checkFieldIsMutable (ctx) (objArgKey: NodeKey) (fieldTok: SyntaxToken)` helper collapses both, and
 gives the deferred deeper-chain case (`r.A.X <- v`) one place to grow into.
 
 ### `Passes/Desugar.fs:95` — the type-body traversal is a third hand-rolled copy
@@ -1318,7 +1318,7 @@ would carry the qualifier that the qualified arm currently filters on AFTER the 
 ### `Elaborate/ObjArgs.fs:169` — `unionCaseFieldTys` returns `[]` for an external union, so `obj` case fields are never boxed
 
 Its sibling `recordFieldTy` (`:148`) grew an external arm that reads provider field shapes and
-instantiates them at the receiver's args, precisely so `wrapObjArg` boxes an `obj`-typed field
+instantiates them at the object argument's args, precisely so `wrapObjArg` boxes an `obj`-typed field
 of a cross-file record. `unionCaseFieldTys` immediately below still has only a `LocalUnion` arm
 and a `| _ -> []`, so a value flowing into an explicitly `obj`-typed field of an EXTERNAL union
 case gets no box. Since inference coerces into such a slot (`InferCtor`'s `unifyArg`), this is
@@ -1331,7 +1331,7 @@ the record half of that claim is false and has been deleted.
 `getArrayIndex` (`:433`), `getStringIndex` (`:453`) and the `GetIndex` arm of `tryIndexSignature`
 (`:550-562`) are the same eight lines three times: match a `ctx.CoreAccess.Value.*` accessor,
 `IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)`, mint a fresh result var, `unify` the
-`instantiateSymbol`'d scheme against `TyFun(recvTy, TyFun(idxTy, resultTy))`, return the var.
+`instantiateSymbol`'d scheme against `TyFun(objArgTy, TyFun(idxTy, resultTy))`, return the var.
 Only the accessor and the `IntrinsicNotInScope` string differ. A helper taking the accessor and
 its diagnostic name removes two copies; `resolveFieldStep`'s `GetArrayLength` arm (`:386`) is a
 fourth instance differing only in arity (`TyFun(rTy, resultTy)`).
@@ -1347,7 +1347,7 @@ node key stamped; the indexer copy hard-codes `Storage = MemberStorage.Method` a
 `OptionalDefaults = []`. A constructor taking `(m, signature)` would make the two overrides
 explicit instead of leaving a reader to diff four literals.
 
-### `InferRecordAccess.fs:629` — `inferLongIdentReceiverPrefix` differs from `inferLongIdentFieldChain` by one loop bound
+### `InferRecordAccess.fs:629` — `inferLongIdentPrefix` differs from `inferLongIdentFieldChain` by one loop bound
 
 Both (`:610` and `:629`) read `li.Idents.[0]`, look the anchor up in `ctx.Bindings.Binding`, fall
 back to a fresh var, and fold `resolveFieldStep` across the remaining segments. The only
@@ -1418,13 +1418,14 @@ TConstValue`, would make the two readings distinct instead of relying on a case 
 legitimate meaning — and would delete the three-line disclaimer now sitting on the `Unit` arm.
 The CLR-side fill happens never to mint `Unit`, so nothing is currently mis-lowered.
 
-### `Elaborate/Calls.fs:109` — `viaOfReceiver` scans every class on every instance access
+### `Elaborate/Calls.fs:109` — `viaOfObjArg` scans every class on every instance access
 
 To decide `CallVia.Base` vs `CallVia.Self` it walks all of `ctx.Types.Class` comparing
-`BoundVarKey.identity kv.Value.BaseKey` against the receiver's binding site, and the loop has no
-early exit — the `not isBase` guard only skips the comparison, it still iterates the remainder.
-The information wanted is a set of base-boundVar `NodeKey`s, which could be built once per file
-and consulted in O(1); or the `base` receiver could carry its own `TExpr` case so the question
+`BoundVarKey.identity kv.Value.BaseKey` against the object argument's binding site, and the loop
+has no early exit — the `not isBase` guard only skips the comparison, it still iterates the
+remainder. The information wanted is a set of base-boundVar `NodeKey`s, which could be built once
+per file and consulted in O(1); or the `base` object argument could carry its own `TExpr` case so
+the question
 never has to be re-derived from a `Var`. Recorded because the six-line header justifying the
 cost (citing a "gap doc" no reader of this repo can open) was cut to three by the sweep.
 
@@ -1433,7 +1434,7 @@ cost (citing a "gap doc" no reader of this repo can open) was cut to three by th
 `translateAssignment`'s LongIdent arm mints `liKey` purely to satisfy `fieldStep`'s signature:
 the key exists only so the `TyArray _ when segName = "Length"` arm can read
 `ctx.Resolution.IntrinsicKey`, and a read-only `.Length` can never be an intermediate segment of
-an assignment RECEIVER, so the value is dead on this path. Splitting the array-length arm out of
+an assignment OBJECT ARGUMENT, so the value is dead on this path. Splitting the array-length arm out of
 `fieldStep`, or taking the resolved intrinsic key as a `voption` the caller supplies only when it
 has one, removes the unusable parameter and the three lines now explaining it.
 
@@ -1450,7 +1451,7 @@ unrepresentable and delete the eight-line header the sweep cut to three.
 
 ### `Elaborate/Apply.fs:224` — SRTP trait calls search the left operand only
 
-`TExpr.TraitCall` carries one receiver type, so `translateStaticMemberInvocation` takes
+`TExpr.TraitCall` carries one support type, so `translateStaticMemberInvocation` takes
 `args.[0]`'s type and the `(^T1 or ^T2)` support set is never searched on the right. A member
 declared only on the right operand — the `int * Vector -> Vector` scalar-prefix multiply shape —
 therefore does not resolve, and the failure surfaces at inline expansion as a declined trait
@@ -1691,7 +1692,7 @@ means nothing. An `EqArray<string * TyVarId>` plus a separate `int` cannot enfor
 reading — a type splitting the declared prefix from the implicit tail would settle which one is
 true and remove the need for the sentence.
 
-### `PassContext.fs:155` — `ExternalStaticReceiver` / `ExternalUnionRecordQualifier` are `SymbolKey` sinks that only ever hold a `TypeKey`
+### `PassContext.fs:155` — `ExternalStaticQualifier` / `ExternalUnionRecordQualifier` are `SymbolKey` sinks that only ever hold a `TypeKey`
 
 Every writer of both tables wraps a type key on the way in: `Scope.fs:501/526` call
 `SymbolKeyOps.externalTypeKey`, which exists only to `SymbolKey.Type` the result of

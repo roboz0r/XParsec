@@ -170,7 +170,7 @@ module EmitTypes =
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
             /// The implemented-interface TEMPLATES, each written over THIS class's
             /// declaring typars (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for
-            /// instantiation at a receiver. Direct impls only — no base-class recursion.
+            /// instantiation at an object argument. Direct impls only — no base recursion.
             Interfaces: FrozenType list
         }
 
@@ -194,7 +194,7 @@ module EmitTypes =
     type EmittedEnum = { Repr: EmittedEnumRepr }
 
     /// An interface emitted into this assembly. Only `Members` matters at use sites: a call
-    /// on an interface-typed receiver resolves the member here and `callvirt`s its slot.
+    /// on an interface-typed object arg resolves the member here and `callvirt`s its slot.
     /// There is no ctor or field to carry. `Typars` empty ⇒ monomorphic.
     type EmittedInterface =
         {
@@ -355,7 +355,7 @@ module EmitTypes =
         }
 
     /// A `Var` bound to an addressable local slot in `env` → its slot index. The shared
-    /// "is this an addressable local?" test in front of struct-receiver addressing, the
+    /// "is this an addressable local?" test in front of struct object-arg addressing, the
     /// `&`-address-of intrinsic, and the struct-argument spill — each fails over its own way.
     [<return: Struct>]
     let (|LocalSlot|_|) (env: EmitEnv) (e: TastAccessor.ExprId) : int voption =

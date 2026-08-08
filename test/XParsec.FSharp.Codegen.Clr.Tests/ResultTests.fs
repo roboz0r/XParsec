@@ -40,7 +40,7 @@ let private resultAsm: Lazy<Assembly> =
 let private intTy = typeof<int>
 let private strTy = typeof<string>
 
-/// `Vesper.Result`2` closed over <int, string> — the receiver type for the case
+/// `Vesper.Result`2` closed over <int, string> — the object-argument type for the case
 /// factories. (The `[<CompiledName("FSharpResult`2")>]` on the contract is a
 /// C#-interop alias the backend does not apply to the emitted type name, same as
 /// `Vesper.Option`1` carries `FSharpOption`1`.)
@@ -298,7 +298,7 @@ let frontEndTests =
                     "let x : Result<int, string> = Result.Ok 5\nlet y : Result<int, string> = Result.Error \"e\""
             }
 
-            // `match` binds each case's field at the receiver's instantiation.
+            // `match` binds each case's field at the object argument's instantiation.
             test "match Ok x binds x : int; Error e binds e : string" {
                 typeChecksResult
                     "let f (r: Result<int, string>) : int =\n    match r with\n    | Ok x -> x\n    | Error _ -> 0"

@@ -27,7 +27,7 @@ module EmitLoops =
             IsValueType: bool
             Disposable: bool
             // Select `constrained. <Source> callvirt` over a by-address `call` for
-            // `GetEnumerator`. Read only when the source receiver is addressed.
+            // `GetEnumerator`. Read only when the source is addressed.
             GetEnumeratorViaInterface: bool
             // The source is a generic typar reached through a custom seq interface.
             GetEnumViaConstrained: bool
@@ -124,9 +124,9 @@ module EmitLoops =
 
         let enumSlot = b.Local loop.EnumeratorTy
 
-        // Receiver for a member call on `E`: a struct or a constrained typar by address
+        // Object argument for a member call on `E`: a struct or constrained typar by address
         // (`ldloca`), a reference enumerator by value (`ldloc`).
-        let loadEnumReceiver () =
+        let loadEnumObjArg () =
             if loop.IsValueType || loop.MembersViaConstrained then
                 b.Add(ILInstr.Ldloca enumSlot)
             else
@@ -144,7 +144,7 @@ module EmitLoops =
 
         let sourceTy = typeOfExpr source
 
-        // The `GetEnumerator` receiver is spilled and addressed for a value-type source
+        // The `GetEnumerator` object arg is spilled and addressed for a value-type source
         // (a method call on a value) and for a constrained-typar source — an `FTTypar`
         // is not statically a value type, but `constrained. callvirt` needs its address.
         if EmitPattern.isValueType env sourceTy || loop.GetEnumViaConstrained then
@@ -173,11 +173,11 @@ module EmitLoops =
             b.Add ILInstr.Try
 
         b.Add(ILInstr.Mark loopStart)
-        loadEnumReceiver ()
+        loadEnumObjArg ()
         callEnumMember loop.MoveNext
         b.Add(ILInstr.Brfalse loopEnd)
         // `x = e.Current`, then the unit-typed body whose value is discarded.
-        loadEnumReceiver ()
+        loadEnumObjArg ()
         callEnumMember loop.Current
         b.Add(ILInstr.Stloc xSlot)
         bindPattern env b xSlot pat
@@ -195,7 +195,7 @@ module EmitLoops =
             if loop.IsValueType then
                 // A struct value is never null, and `brfalse` on a value is invalid IL,
                 // so dispose unconditionally. `IDisposable.Dispose` returns a real
-                // `void`, so the callvirt consumes only the receiver — nothing to pop.
+                // `void`, so the callvirt consumes only the object arg — nothing to pop.
                 b.Add(ILInstr.Ldloca enumSlot)
 
                 match constrainedTok with

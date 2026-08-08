@@ -64,7 +64,7 @@ workaround for two front-end gaps, both of which the idiomatic spelling
    (`Expr.fs:281`); `inferTypeApp` treats explicit args on a
    non-nominal result (a bare typar `'T`) as a documented no-op
    (`InferTypeOps.fs:30-58`); and Freeze has no arm for a *value*
-   `TypeApp` — only the `TypeAppStaticMember` class-receiver arms
+   `TypeApp` — only the `TypeAppStaticMember` class-qualifier arms
    (`ElaborateExpr.fs:183,307`) — so `defaultof<'T>` hits the `failwith`
    fallthrough.
 

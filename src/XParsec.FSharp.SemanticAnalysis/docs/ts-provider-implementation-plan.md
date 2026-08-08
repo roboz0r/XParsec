@@ -278,7 +278,7 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
   `tryNonClassMemberHost`/`…Decl` seams + `IntrinsicAbbrevInfo` host, `SideTables.fs`) reusing the
   union/record `this`-first host-member path; CONSUMER capture (VesperLib invariant lifted → Class +
   `CapabilityFace`); member-keyed harvest/store (`SymbolProviders.harvestMemberBody` + `buildContractCached`).
-- `1f7222bb` **1c** — the `TExpr.ExternalMember` splice arm (`InlineExpansion.fs`; receiver prepended to
+- `1f7222bb` **1c** — the `TExpr.ExternalMember` splice arm (`InlineExpansion.fs`; object argument prepended to
   the arguments, splice-vs-call fork on `TryLookupInlineBody`) + end-to-end emit fixture (`fixtures/widget/`).
 - `d2d890bf` **1d** — key the harvest store by `SymbolKeyOps.qualifiedName tdecl.Key` (namespaced types work).
 - `0fbec4d0` **2a** — array `arr.[i]` READ via a `get_Item` member on `'T[]` (JS), byte-identical, with a
@@ -338,7 +338,7 @@ doesn't cover or can't express. Indexers (`array`/`string` `get_Item`/`set_Item`
 first consumer. (Distinct from W8: `Vesper.Fun` is a compiler-known INTERFACE with an `abstract Invoke`
 and a call-site lowering decision — not a concrete inline-bodied intrinsic member. The two are
 independent; W9 does not subsume it and need not precede it.) Significant effort, but it DELETES more
-than it adds — the receiver-classification ladder, the parallel index-sig seam, the
+than it adds — the object-argument-classification ladder, the parallel index-sig seam, the
 `.Length` special-cases, and the `GetArray`/`Get*` free-function intrinsics all collapse into one
 member-resolution + one member-inline-splice path. Keeps [[feedback_dynamic_intrinsics_over_du_cases]]
 (no SemType case) and [[feedback_codegen_js_owns_assignability]] (splice-vs-call is backend lowering).
@@ -363,7 +363,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
   registered inline body splices via the SAME `reduceApplication` / `ParamAttrs` / `expandExternalAt`
   path the `TExpr.External` arm uses (`InlineExpansion.fs:589`). A member with NO inline body (a real
   CLR `get_Item` runtime method) stays a real call — so the splice-vs-call fork is simply "does this
-  member carry an inline body", uniform for every receiver.
+  member carry an inline body", uniform for every object argument.
 - Both `x.[i]` (indexer sugar) and dotted `x.get_Item(2)` resolve the SAME member and hit the SAME
   splice — so `get_Item` stays nameable (the FSI-confirmed F# semantics) with no divergence.
 
@@ -404,12 +404,12 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
      only agreement-safe choice). Isolation: `TryLookupInlineBody(mem.Key).IsSome` from a real loaded
      `widget` package.
 3. **Resolution** (`InferRecordAccess.fs`) — `inferIndexedLookup` resolves `get_Item`/`set_Item` via
-   `TryLookupMember` on the receiver INCLUDING the array/string intrinsic; add the write mirror
+   `TryLookupMember` on the object argument INCLUDING the array/string intrinsic; add the write mirror
    `inferIndexedSet` (`set_Item`; no `set_Item` resolution exists in source today — external CLR indexer
    writes land as a free byproduct); element type pinned from the member signature. **Load-bearing
    question — RESOLVED (spike, 2026-07-05): ROUTABLE with a local change, no gate relaxation.**
-   `EngineCore.fs:500`'s `isStructuralConstructorName → ValueNone` (in `tryExternalReceiver`, the
-   receiver→provider-key mapper) is a routing DEFAULT, not a block, and must STAY closed — relaxing it
+   `EngineCore.fs:500`'s `isStructuralConstructorName → ValueNone` (in `externalSurfaceKeys`, the
+   object-argument→provider-key mapper) is a routing DEFAULT, not a block, and must STAY closed — relaxing it
    would mis-map `"[]"` to the IL repr `"!0[]"` (line 502) and hand the provider the wrong key. Instead
    the indexer path keys the lookup DIRECTLY on `arrayName 1`: an array is a `TyConst` (not `TyClass`),
    so it misses the `TyClass`-only external guard at `InferRecordAccess.fs:631` and falls to the `_` arm
@@ -419,7 +419,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
    re-`infer`s the LHS through `inferIndexedLookup` — no write resolution). Optionally route `arr.Length`
    through `TryLookupMember(arrayName 1, "get_Length")` at `resolveFieldStep` line 440 to retire the
    hardcoded branch. **The ONE precondition:** key AGREEMENT — capture stores members under the
-   arity-suffixed compiled name (`arityName "[]" 1 = "[]``1"`), but a `TyConst` receiver's key is the bare
+   arity-suffixed compiled name (`arityName "[]" 1 = "[]``1"`), but a `TyConst` surface's key is the bare
    `"[]"`. W9 must make both sides agree on `"[]"` (either key the array's members under `"[]"`, deviating
    from the default `compiled` keying, or translate `TyConst("[]")` → `"[]``1"` at the lookup). Ordinal,
    no normalization, so once aligned `TryLookupMember("[]", "get_Item")` hits.
@@ -439,7 +439,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
    `get_Item` → `get_Chars` on CLR / native `s[i]` on JS by hand, not by attribute.
 
 **Net deletion >> addition** (the user's expectation): one member-resolution + one member-inline-splice
-arm REPLACE the receiver-classification ladder, the parallel index-sig facet, the `.Length`
+arm REPLACE the object-argument-classification ladder, the parallel index-sig facet, the `.Length`
 special-cases, and the free-function indexer intrinsics — and the enabling primitive (concrete inline
 members on intrinsics) is reusable platform-binding surface well beyond indexers.
 

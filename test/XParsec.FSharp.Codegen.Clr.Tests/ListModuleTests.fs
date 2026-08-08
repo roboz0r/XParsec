@@ -51,8 +51,8 @@ let private consInt (h: int) (t: obj) : obj =
     listOfInt.Value.GetMethod("Cons").Invoke(null, [| box h; t |])
 
 /// Read an instance member (`get_IsEmpty` / `get_Head` / `get_Tail`) off a list.
-let private instanceGet (name: string) (receiver: obj) : obj =
-    listOfInt.Value.GetMethod(name).Invoke(receiver, [||])
+let private instanceGet (name: string) (objArg: obj) : obj =
+    listOfInt.Value.GetMethod(name).Invoke(objArg, [||])
 
 let private asBool (o: obj) : bool = o :?> bool
 let private asInt (o: obj) : int = o :?> int

@@ -50,12 +50,12 @@ module internal UnificationInferCtor =
         (t: Type<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
-        let receiverTy = translateType ctx t
+        let ctorTy = translateType ctx t
 
         // Provenance: `new T(…)` writes the constructed node's type explicitly.
-        ctx.MarkTypeDeclared(node.Key, receiverTy)
+        ctx.MarkTypeDeclared(node.Key, ctorTy)
 
-        match resolveStep ctx.Store receiverTy with
+        match resolveStep ctx.Store ctorTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
@@ -85,14 +85,14 @@ module internal UnificationInferCtor =
                     |> tupleOrSingle ctx
 
                 unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
-                receiverTy
+                ctorTy
             | ValueNone ->
                 // Fall through to the external-class path: `new System.Exception(msg)`. The
                 // symbol provider owns the ctor catalogue under `.ctor`, and `clsKey` came from
-                // the already-resolved receiver `TyClass`, so construct by key directly.
+                // the already-resolved ctor `TyClass`, so construct by key directly.
                 match ctx.Provider.TryLookupType(SymbolKey.Type clsKey) with
                 | ValueSome(ExternalTypeShape.Class _) ->
-                    inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args receiverTy argExpr
+                    inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args ctorTy argExpr
                 | _ ->
                     ctx.Report(node.Tok, Kind.UnknownNominalType(NominalKind.Class, SymbolKeyOps.typeMetaName clsKey))
 
@@ -116,7 +116,7 @@ module internal UnificationInferCtor =
 
             match stampedClassKey with
             | ValueSome declTypeKey ->
-                inferExternalCtorOn infer ctx node (SymbolKey.Type declTypeKey) tyArgs receiverTy argExpr
+                inferExternalCtorOn infer ctx node (SymbolKey.Type declTypeKey) tyArgs ctorTy argExpr
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
                 | ValueSome(struct (_, surface)) ->
@@ -134,7 +134,7 @@ module internal UnificationInferCtor =
                     | ValueSome chosen -> ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
                     | ValueNone -> ()
 
-                    receiverTy
+                    ctorTy
                 | ValueNone ->
                     ctx.Report(node.Tok, Kind.NewRequiresClassType)
                     infer ctx argExpr |> ignore
@@ -153,7 +153,7 @@ module internal UnificationInferCtor =
         (node: NodeSite)
         (declTypeKey: SymbolKey)
         (args: EqArray<SemType>)
-        (receiverTy: SemType)
+        (ctorTy: SemType)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
         let ctors = ctx.Provider.TryLookupMembers(declTypeKey, ".ctor")
@@ -172,10 +172,10 @@ module internal UnificationInferCtor =
             | _ -> false
 
         if List.isEmpty argElems && isExternalValueType () then
-            receiverTy
+            ctorTy
         elif ctors.Length = 0 then
             ctx.Report(node.Tok, Kind.Message(sprintf "External type '%s' has no accessible constructor" name))
-            receiverTy
+            ctorTy
         else
             match pickBestOverload ctx typeArgs ctors argElems with
             | ValueSome chosen ->
@@ -185,17 +185,17 @@ module internal UnificationInferCtor =
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
                 // Unify the ctor SIGNATURE (grounding each parameter) but leave `resultTy`
-                // free: the receiver `TyClass` from the `new T<args>` annotation is the
+                // free: the ctor `TyClass` from the `new T<args>` annotation is the
                 // AUTHORITY, and a no-arg overload may hardcode `any` type args that clash.
                 unify ctx node.Tok ctorSig (TyFun(argTy, resultTy))
-                receiverTy
+                ctorTy
             | ValueNone ->
                 ctx.Report(
                     node.Tok,
                     Kind.Message(sprintf "No applicable constructor on '%s' for the given arguments" name)
                 )
 
-                receiverTy
+                ctorTy
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
     /// `ArgumentException(message, name)`. The applied function must name an external class (resolved
@@ -219,17 +219,10 @@ module internal UnificationInferCtor =
                 | ValueSome(ExternalTypeShape.Class _) ->
                     // `externalClassTy` mints a canon `TyConst` for a platform repr, else the
                     // external `TyClass`.
-                    let receiverTy = externalClassTy ctx declTypeKey EqArray.empty
+                    let ctorTy = externalClassTy ctx declTypeKey EqArray.empty
 
                     ValueSome(
-                        inferExternalCtorOn
-                            infer
-                            ctx
-                            node
-                            (SymbolKey.Type declTypeKey)
-                            EqArray.empty
-                            receiverTy
-                            args.[0]
+                        inferExternalCtorOn infer ctx node (SymbolKey.Type declTypeKey) EqArray.empty ctorTy args.[0]
                     )
                 | _ -> ValueNone
             | ValueNone -> ValueNone
@@ -268,8 +261,8 @@ module internal UnificationInferCtor =
                     let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
 
                     match tryExternalTypeOfKey ctx symKey explicit with
-                    | ValueSome(TyClass(clsKey, args) as receiverTy) ->
-                        ValueSome(inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args receiverTy argExpr)
+                    | ValueSome(TyClass(clsKey, args) as ctorTy) ->
+                        ValueSome(inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args ctorTy argExpr)
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
         | _ -> ValueNone
@@ -319,7 +312,7 @@ module internal UnificationInferCtor =
                     | None -> ValueNone
                     | Some sc ->
                         let args, subst = freshNamedInstance ctx info.TypeParams
-                        let receiverTy = TyClass(info.TypeKey, args)
+                        let ctorTy = TyClass(info.TypeKey, args)
 
                         // Explicit type args (`Box<int>(x)`) pin the instantiation up front.
                         match explicitTyArgs with
@@ -333,4 +326,4 @@ module internal UnificationInferCtor =
                             |> Array.toList
 
                         unify ctx node.Tok (tupleOrSingle ctx paramTys) argTy
-                        ValueSome receiverTy
+                        ValueSome ctorTy

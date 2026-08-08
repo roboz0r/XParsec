@@ -170,7 +170,7 @@ type TypeStore() =
     /// remainder through `Set` instead of marking items solved.
     member val Constraints = PayloadList<SemanticConstraint>(PayloadJoin.constraintsByKind) with get
 
-    /// Deferred dot-accesses parked on a still-free receiver, keyed by representative.
+    /// Deferred dot-accesses parked on a still-free object argument, keyed by representative.
     member val Pda = BoundTable<DeferredMemberAccess>(fun winner loser -> loser @ winner) with get
 
     /// Default-constraint chains (`default ^T : …`), keyed by representative. A chain is

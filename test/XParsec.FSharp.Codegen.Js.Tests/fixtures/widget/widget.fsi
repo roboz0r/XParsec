@@ -22,6 +22,6 @@ type gadget =
     /// `gadget.Bump w` splices to `w.Poke 41`, which splices in turn.
     static member inline Bump: w: widget -> int
 
-    /// The STATIC two-parameter case: a static member has no receiver to occupy curried
+    /// The STATIC two-parameter case: a static member has no object argument to occupy curried
     /// position 0, so it untuples against a different curried offset than an instance one.
     static member inline Bump2: w: widget * n: int -> int

@@ -72,7 +72,7 @@ all three providers uncurry each abstract slot to an `ExternalMember` — `Froze
 `Interface` arm (`abstractMemberOf` → `memberFromParts`), the `.fsi` extractor's
 `TypeSignatureElement.Abstract` arm (`extractTypeMembers`), and the metadata reader's
 `enumerateClassMembers`. The consumer resolves + dispatches the slot cross-file (a grounded
-`recv.M` and a `'T :> IFace` bound both reach the provider's decurried member). The remaining
+`objArg.M` and a `'T :> IFace` bound both reach the provider's decurried member). The remaining
 gap was CODEGEN: the interface's own nominal was resolved EXTERNAL-first, so a same-assembly
 cross-file interface (home-stamped to our OWN assembly) minted an `AssemblyRef`-scoped `TypeRef`
 back to ourselves — a self-`AssemblyRef` (non-fatal; the CLR resolves it, but the cross-file
@@ -81,7 +81,7 @@ before `externalClassRef`), matching the authority `encodeType`'s nominal arms a
 `ClrProvider.InterfaceHandleOf` (the `interface … with` `InterfaceImpl` row) and
 `ClrExternalMembers.externalMemberRef` (the dispatch member-ref parent; the member analogue of
 `localModuleFns`). `externalMemberRefOn` already re-homed (it parents through `encodeType`).
-Proven end to end in `CrossFileUnitsTests` (a grounded `recv.GetVal()` and a `'T :> IGetVal`
+Proven end to end in `CrossFileUnitsTests` (a grounded `objArg.GetVal()` and a `'T :> IGetVal`
 bound, both RUN and both carrying the full `peAssemblyRefs` self-ref guard the record tests use).
 
 **Member-level accessibility — DONE.** A member's declared accessibility now rides
@@ -89,7 +89,7 @@ bound, both RUN and both carrying the full `peAssemblyRefs` self-ref guard the r
 member-level `private`/`internal` token, NOT the inner `Binding.access`, which is always absent
 for a member; an auto-property's own `member val private X` token wins via `autoPropertyAccess`),
 and `FrozenSignature.membersOf` drops `Private` on the SAME internal-or-better threshold
-`exported` applies to top-level entities. So a cross-unit `receiver.PrivateMember` no longer
+`exported` applies to top-level entities. So a cross-unit `x.PrivateMember` no longer
 resolves — it errors — while `internal`/public members stay same-assembly visible. The design
 lives in the code and its test (`AssemblyUnitsTests`, the paired public/private dispatch case).
 The `.fsi` extractor was already public-only here (a signature file lists no private members), so

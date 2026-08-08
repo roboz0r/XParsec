@@ -433,7 +433,7 @@ type ResolvedExternalMember =
         Key: SymbolKey
         IsStatic: bool
         Storage: MemberStorage
-        /// The member's DECLARED type in the receiver's instantiation: a `TyFun` for a
+        /// The member's DECLARED type in the object argument's instantiation: a `TyFun` for a
         /// method, the property type for a property.
         Signature: SemType
         /// The resolved member's trailing optional-parameter defaults. Empty for a member

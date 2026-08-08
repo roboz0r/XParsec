@@ -60,16 +60,16 @@ module internal ElaborateNominals =
                 | ValueSome info -> ValueSome info.TypeKey
                 | ValueNone -> ValueNone
 
-    /// The declaring nominal `TypeKey` of a class/union/record receiver type — the `Decl`
-    /// slot of the `MemberKey` minted for an instance member access. Only called where the
-    /// receiver is already guarded on `TyNominal`, so a non-nominal one `failwith`s below.
+    /// The declaring nominal `TypeKey` of a class/union/record object-argument type — the
+    /// `Decl` slot of the `MemberKey` minted for an instance member access. Only called where
+    /// `ty` is already guarded on `TyNominal`, so a non-nominal one `failwith`s below.
     let nominalDeclKey (store: TypeStore) (ty: SemType) : TypeKey =
         match Unification.zonk store ty with
         | TyNominal(key, _) -> key
-        | other -> failwithf "Elaborate: expected a class/union/record receiver for a member access, got %A" other
+        | other -> failwithf "Elaborate: expected a class/union/record type for a member access, got %A" other
 
     /// Resolve the declaring class / union / record by its arity-qualified key (``Name`arity``
-    /// read verbatim), never by the bare simple name: an arity-overloaded receiver
+    /// read verbatim), never by the bare simple name: an arity-overloaded type
     /// (`Fun`2` / `Fun`3`) does not resolve by bare name, so such a lookup would miss.
     let tryNominalMemberByKey
         (ctx: PassContext)

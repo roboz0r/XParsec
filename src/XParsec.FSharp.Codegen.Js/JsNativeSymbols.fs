@@ -5,7 +5,7 @@ open XParsec.FSharp.Codegen.Common
 
 /// Hand-authored stub shapes for the JS runtime types the backend resolves BY NAME.
 /// `Error` is the name `exn`'s `(# "Error" #)` repr carries, so `MyExn "boom"` lowers to
-/// `new Error("boom")` and an `exn`-typed receiver's member probe lands on this shape.
+/// `new Error("boom")` and an `exn`-typed object argument's member probe lands on this shape.
 module JsNativeSymbols =
 
     /// The synthetic home "assembly" the stub types report — a label, not a real reference.

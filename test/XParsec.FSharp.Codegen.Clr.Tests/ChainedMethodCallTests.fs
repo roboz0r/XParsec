@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.ChainedReceiverTests
+module XParsec.FSharp.Codegen.Clr.Tests.ChainedMethodCallTests
 
 open System
 open Expecto
@@ -7,17 +7,17 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Isolation tests for the chained method-call-receiver freeze gap (fixed
-// `eed60c7`): a chained method-call receiver
+// Isolation tests for the chained method-call freeze gap (fixed
+// `eed60c7`): a method call whose object argument is itself a method call
 // `f.Invoke(a).Invoke(b)` (a method call on the RESULT of a method call) as the
 // body/return of an interface-impl member mis-types the member's return as the
 // INNER call's result; the OUTER application is dropped at freeze. The identical
 // chain at a top-level `let` types correctly.
 
 [<Tests>]
-let chainedReceiverTests =
+let chainedMethodCallTests =
     testList
-        "ChainedReceiver"
+        "ChainedMethodCall"
         [
             // The bug: inside an interface-impl member whose declared return is the
             // OUTER result `int`, `f.Invoke(a).Invoke(b)` must type as `int`. The
@@ -34,7 +34,7 @@ let chainedReceiverTests =
                             "type AddCurried() ="
                             "    interface Fun<int, Fun<int, int>> with"
                             "        member this.Invoke(a: int) : Fun<int, int> = AddB(a) :> Fun<int, int>"
-                            // Mirror Vesper.Core `Flattened`: the receiver `f` is a
+                            // Mirror Vesper.Core `Flattened`: the object argument `f` is a
                             // ctor-captured field of curried type; the impl body is the
                             // chain `f.Invoke(a).Invoke(b)` with declared return `int`.
                             "type FlattenedT(f: Fun<int, Fun<int, int>>) ="

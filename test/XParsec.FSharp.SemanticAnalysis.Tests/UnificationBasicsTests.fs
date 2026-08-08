@@ -263,7 +263,7 @@ let tests =
                     ctx.Diagnostics
                     |> Seq.exists (fun d -> d.Message.Contains "Cannot resolve field")
 
-                Expect.isFalse fatigueFree "no unresolved-field diagnostic when use pins receiver"
+                Expect.isFalse fatigueFree "no unresolved-field diagnostic when use pins the object argument"
             }
 
             test "record clone types as source record" {

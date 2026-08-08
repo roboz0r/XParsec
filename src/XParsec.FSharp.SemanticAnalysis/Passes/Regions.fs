@@ -240,8 +240,8 @@ module Regions =
             holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]
         | TExpr.New(_, _, args, _, _)
         | TExpr.UnionCons(_, args, _, _) -> holds s [ for a in args -> inferRegion s ctx a ]
-        // A field / property read allocates nothing — it rides the receiver's region.
-        // Walk the receiver so its capture edges still register.
+        // A field / property read allocates nothing — it rides the object argument's region.
+        // Walk the object argument so its capture edges still register.
         | TExpr.FieldGet(r, _, _, _) -> inferRegion s ctx r
         | TExpr.PropertyGet(r, _, _, _, _) -> inferRegion s ctx r
         | TExpr.ExternalMember(rOpt, _, _, _, _, _) ->
@@ -256,12 +256,12 @@ module Regions =
             let rhsR = inferRegion s ctx r
             s.Graph.AddEdge(rhsR, lhsR)
             RegionId.Unknown
-        | TExpr.FieldSet(recv, _, v, _, _) ->
+        | TExpr.FieldSet(objArg, _, v, _, _) ->
             // Same direction as `Assignment`: the stored value's lifetime is
-            // upper-bounded by the receiver that holds the slot.
-            let recvR = inferRegion s ctx recv
+            // upper-bounded by the object argument that holds the slot.
+            let objArgR = inferRegion s ctx objArg
             let vR = inferRegion s ctx v
-            s.Graph.AddEdge(vR, recvR)
+            s.Graph.AddEdge(vR, objArgR)
             RegionId.Unknown
         | TExpr.StaticFieldSet(_, _, v, _, _) ->
             // A static field is an `Unknown`-region global, so there is no cell to
@@ -371,12 +371,12 @@ module Regions =
                 e
                 [ yield inferRegion s ctx fn; for (a, _, _) in args -> inferRegion s ctx a ]
                 RegionId.Unknown
-        | TExpr.MethodCall(recv, _, _, args, _, _) ->
+        | TExpr.MethodCall(objArg, _, _, args, _, _) ->
             joinArms
                 ctx.Store
                 s
                 e
-                [ yield inferRegion s ctx recv; for a in args -> inferRegion s ctx a ]
+                [ yield inferRegion s ctx objArg; for a in args -> inferRegion s ctx a ]
                 RegionId.Unknown
         | TExpr.StaticMethodCall(_, args, _, _) ->
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown

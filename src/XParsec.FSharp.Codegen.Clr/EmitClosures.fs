@@ -154,8 +154,8 @@ module EmitClosures =
         }
 
     /// Name and key come straight off the front end's recorded identity, filed for every
-    /// module-level `let` with a simple bound variable. A top-level binding's identity belongs to its
-    /// file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program holder.
+    /// module-level `let` with a simple bound variable. A top-level binding's identity belongs
+    /// to its file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program holder.
     let private declaredEmission (info: ModuleBindingInfo) : Emission =
         {
             Name = info.Name
@@ -166,9 +166,9 @@ module EmitClosures =
             SymbolKey = info.Key
         }
 
-    /// Mints `<source name>$<bound variable slot>` (`value$3` when no source names the bound variable) for a
-    /// decl with no exportable identity: a `let` lowered out of the entry expression (a value
-    /// written after a top-level `do`), or one a LATER binding in the same holder re-binds.
+    /// Mints `<name>$<slot>` (`value$3` when no source names the variable) for a decl with no
+    /// exportable identity: a `let` lowered out of the entry expression (a value written after
+    /// a top-level `do`), or one a LATER binding in the same holder re-binds.
     let private residueEmission (programHolder: HolderKey) (pool: PoolBuilder) (k: BoundVarId) : Emission =
         let (BoundVarId slot) = k
 

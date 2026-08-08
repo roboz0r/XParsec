@@ -155,7 +155,7 @@ module Probe =
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
 /// A synthetic producer whose recursion closes on a MEMBER, which is the one function whose
-/// RECEIVER is not an applied argument: the reduction PREPENDS it, so the entry's parameters are
+/// OBJECT ARGUMENT is not an applied argument: the reduction PREPENDS it, so the entry's parameters are
 /// peeled from `this :: args` while the application it was reached through carries only `args`.
 /// A back edge taking the application's own arguments would therefore name the entry with one argument
 /// too few — a miscompile no non-recursive member call can expose, because every other edge is
@@ -446,8 +446,8 @@ let tests =
                     "the entry really did fuse call-site material, or this exercises the shareable path again"
             }
 
-            test "a recursion that closes on a MEMBER answers the call without losing its receiver" {
-                // The one function whose receiver is not an applied argument. `a.[1]` expands
+            test "a recursion that closes on a MEMBER answers the call without losing its object argument" {
+                // The one function whose object argument is not an applied argument. `a.[1]` expands
                 // `get_Item`, whose reduction peels `this :: [index]`; its body reaches the same
                 // member through `bounce`, and THAT call is answered rather than expanded.
                 //
@@ -515,7 +515,7 @@ let tests =
 
                 // THE case: the back edge is minted inside `bounce`'s entry, where the source
                 // spells `a.[i]` — one explicit argument. It carries TWO, because the peel it was
-                // minted from prepended the receiver. An edge taking the application's own arguments
+                // minted from prepended the object argument. An edge taking the application's own arguments
                 // would name this two-parameter entry with one argument, and nothing before the
                 // backend would notice.
                 match
@@ -526,7 +526,7 @@ let tests =
                     Expect.equal
                         argCount
                         2
-                        "the back edge carries `this` ahead of the index — the receiver the application never held as an argument"
+                        "the back edge carries `this` ahead of the index — the object argument the application never held as an argument"
                 | other ->
                     failtestf "`bounce`'s body closes the loop with exactly one back edge; got %d" (List.length other)
             }

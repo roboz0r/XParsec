@@ -34,7 +34,7 @@ let private optionAsm: Lazy<Assembly> =
 
 let private intTy = typeof<int>
 
-/// `Vesper.Option`1` closed over `int` — the receiver type for the case factories
+/// `Vesper.Option`1` closed over `int` — the object-argument type for the case factories
 /// and instance members.
 let private optionOfInt: Lazy<Type> =
     lazy (optionAsm.Value.GetType("Vesper.Option`1").MakeGenericType(intTy))
@@ -62,8 +62,8 @@ let private callModule (name: string) (typeArgs: Type[]) (args: obj[]) : obj =
 
 /// Read an instance member (`get_Value` / `get_IsSome` / `get_IsNone`) off an
 /// option value.
-let private instanceGet (name: string) (receiver: obj) : obj =
-    optionOfInt.Value.GetMethod(name).Invoke(receiver, [||])
+let private instanceGet (name: string) (objArg: obj) : obj =
+    optionOfInt.Value.GetMethod(name).Invoke(objArg, [||])
 
 let private asBool (o: obj) : bool = o :?> bool
 let private asInt (o: obj) : int = o :?> int
@@ -191,7 +191,7 @@ let frontEndTests =
 
             test "int option; o.IsNone : bool" { typeChecksOption "let f (o: int option) : bool = o.IsNone" }
 
-            // `member Value: 'T` substitutes the receiver's arg, so `o.Value : int`.
+            // `member Value: 'T` substitutes the object argument's arg, so `o.Value : int`.
             test "int option; o.Value substitutes the type arg (: int)" {
                 typeChecksOption "let f (o: int option) : int = o.Value"
             }
@@ -285,7 +285,7 @@ let layerBRuntime =
                     "open Vesper\nprintfn \"%b\" (None: int option).IsNone\nprintfn \"%b\" (Some 5).IsNone"
             }
 
-            // `member Value: 'T` substitutes the receiver's type arg — the property
+            // `member Value: 'T` substitutes the object argument's type arg — the property
             // getter returns `!0` = `int`, so the value reads back as `5`.
             test "(Some 5).Value reads the payload" { runsOption "5" "open Vesper\nprintfn \"%d\" (Some 5).Value" }
         ]

@@ -315,7 +315,7 @@ let tests =
                         "ldelem.any"
                         "…on the member's own intrinsic line"
 
-                // The receiver and the index were written HERE and stay here — a map that
+                // The object argument and the index were written HERE and stay here — a map that
                 // relabelled the whole expansion onto the producer would pass the check above.
                 Expect.contains
                     (attributions m |> List.map snd)

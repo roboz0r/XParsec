@@ -49,12 +49,12 @@ let tests =
 
                 Expect.stringContains src "const Lst__get_IsEmpty = (" "instance property getter, mangled name"
                 Expect.stringContains src "const Lst__get_Length = (" "recursive instance property getter"
-                // Instance method: receiver, then one curried arrow per argument.
+                // Instance method: object argument, then one curried arrow per argument.
                 Expect.stringContains src "const Lst__AddHead = (" "instance method, mangled name"
-                Expect.stringContains src ") => (n) =>" "method curries the receiver then its argument"
-                // Static members: single underscore, no receiver.
+                Expect.stringContains src ") => (n) =>" "method curries the object argument then its argument"
+                // Static members: single underscore, no object argument.
                 Expect.stringContains src "const Lst_Empty = new Lst_Nil()" "static property is a value binding"
-                Expect.stringContains src "const Lst_Single = (x) =>" "static method drops the receiver"
+                Expect.stringContains src "const Lst_Single = (x) =>" "static method drops the object argument"
             }
 
             test "an external member imports its mangled name from the runtime module" {
@@ -65,7 +65,7 @@ let tests =
                     "import { Option__get_IsSome as $Option__get_IsSome } from \"./Vesper.Option.mjs\""
                     "the consumer imports the mangled member export under its `$`-aliased name"
 
-                Expect.stringContains src "$Option__get_IsSome(o)" "and applies it receiver-first"
+                Expect.stringContains src "$Option__get_IsSome(o)" "and applies it to the object argument"
             }
 
             // ---- execution under Node ----
@@ -101,7 +101,7 @@ let tests =
                     Expect.equal out "3\n7" "get_Length recurses via t.Length; get_Head reads the field"
             }
 
-            test "an instance method takes the receiver then its argument (AddHead)" {
+            test "an instance method takes the object argument then its argument (AddHead)" {
                 match
                     runJs "member-method" (memberUnion + "\nlet xs = Cons(10, Nil)\nprintfn \"%d\" (xs.AddHead 5)")
                 with

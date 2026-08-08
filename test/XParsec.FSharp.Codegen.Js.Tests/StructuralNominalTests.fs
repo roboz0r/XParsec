@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // TS provider: an anonymous object shape (`{x:int;y:int}`) is a RESOLVABLE erasing
 // nominal. Its fields register as Property members (one per field), so `.x` on a
-// structural value resolves through the provider and lowers to a native `receiver.x`
+// structural value resolves through the provider and lowers to a native `objArg.x`
 // read — while NOTHING is emitted for the type (no decl, no import, no ctor). Two
 // distinct exports of the SAME shape resolve to ONE identity/type, and a nested shape
 // registers members at BOTH levels.
@@ -126,7 +126,7 @@ let tests =
                 Expect.equal innerName (typeNameOf "pt1") "the nested inner shape must share the flat shape's identity"
             }
 
-            test "`.x` lowers to a native receiver.x read; the type emits nothing" {
+            test "`.x` lowers to a native objArg.x read; the type emits nothing" {
                 let program = String.concat "\n" [ "let p = getPoint()"; "let result = p.x"; "" ]
                 let js = emitPoint program
 

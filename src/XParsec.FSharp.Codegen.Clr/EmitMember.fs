@@ -13,63 +13,63 @@ open EmitDispatch
 /// Field / property / method access — instance and static, project-local and external.
 module EmitMember =
 
-    /// Load an unboxed value-type receiver as a managed pointer, so a mutating member call
+    /// Load an unboxed value-type object argument as its `this` pointer, so a mutating call
     /// persists rather than mutating a copy: a slot-bound local is addressed in place
     /// (`ldloca slot`), a struct `this` already IS a byref (`ldarg.0`), anything else spills.
-    let rec private loadStructReceiverAddr
+    let rec private loadStructThisPtr
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (receiver: TastAccessor.ExprId)
-        (receiverTy: FrozenType)
+        (objArg: TastAccessor.ExprId)
+        (objArgTy: FrozenType)
         : unit =
-        match receiver with
+        match objArg with
         | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
         | TastAccessor.EVar k when env.SelfKey = ValueSome k -> b.Add(ILInstr.Ldarg 0)
-        // A struct-typed FIELD receiver (`this.Source.MoveNext()`) is addressed in place with
+        // A struct-typed FIELD object argument (`this.Source.MoveNext()`) is addressed with
         // `ldflda`; the parent recurses when it is itself a struct (`this.a.b.M()`). A struct
         // from a PROPERTY falls through to the spill — a getter yields a copy, no location.
         | TastAccessor.EFieldGet fieldGet ->
-            let parent = fieldGet.Receiver
+            let parent = fieldGet.ObjArg
             let name = fieldGet.FieldName
             let parentTy = typeOfExpr parent
             let fldHandle = resolveRecordField env parentTy name
 
             if isValueType env parentTy then
-                loadStructReceiverAddr recur env b parent parentTy
+                loadStructThisPtr recur env b parent parentTy
             else
                 recur env b parent
 
             b.Add(ILInstr.Ldflda fldHandle)
         | _ ->
-            recur env b receiver
-            let tmp = b.Local receiverTy
+            recur env b objArg
+            let tmp = b.Local objArgTy
             b.Add(ILInstr.Stloc tmp)
             b.Add(ILInstr.Ldloca tmp)
 
-    /// Emit an instance member access: load the receiver, push any arguments, invoke `handle`. A
-    /// `Self` receiver is `callvirt`ed for a class, addressed + `call`ed for an unboxed struct;
-    /// `Base` and sealed union/record receivers take a non-virtual `call`, so `base.M` cannot recurse.
+    /// Emit an instance member access: load the object argument, push args, invoke `handle`. A
+    /// `Self` object argument is `callvirt`ed for a class, addressed + `call`ed for a struct;
+    /// `Base` and sealed union/record ones take a non-virtual `call`, so `base.M` cannot recurse.
     let private emitInstanceMember
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
         (via: CallVia<FrozenType>)
-        (receiver: TastAccessor.ExprId)
-        (receiverTy: FrozenType)
+        (objArg: TastAccessor.ExprId)
+        (objArgTy: FrozenType)
         (handle: EntityHandle)
         (args: EqArray<TastAccessor.ExprId>)
         (returnsUnit: bool)
         : unit =
         let isStructSelf =
-            match via, receiverTy with
-            | CallVia.Self, FTClass _ -> isValueType env receiverTy
+            match via, objArgTy with
+            | CallVia.Self, FTClass _ -> isValueType env objArgTy
             | _ -> false
 
         if isStructSelf then
-            loadStructReceiverAddr recur env b receiver receiverTy
+            loadStructThisPtr recur env b objArg objArgTy
         else
-            recur env b receiver
+            recur env b objArg
 
         // The value→`obj` box is an explicit `Upcast` node from Elaborate; push each arg raw.
         for a in args do
@@ -81,7 +81,7 @@ module EmitMember =
         // declares 0 results and a `unit` value is reified afterward for the consumer.
         let resultCount = if returnsUnit then 0 else 1
 
-        match via, receiverTy with
+        match via, objArgTy with
         | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, resultCount))
         | _ -> b.Add(ILInstr.Call(handle, operands, resultCount))
 
@@ -89,19 +89,19 @@ module EmitMember =
             EmitTypes.buildUnitValue env b
 
     /// A member access through an interface-constrained typar (`x : 'T when 'T :> IFace`). The
-    /// receiver is an `FTTypar`, not a nominal, so the abstract slot comes off the key's declaring
+    /// object argument is an `FTTypar`, not a nominal, so the slot comes off the key's declaring
     /// interface, dispatched `constrained. <typar> callvirt` — a struct typar by address, no box.
     let private emitConstrainedInterfaceCall
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (receiver: TastAccessor.ExprId)
+        (objArg: TastAccessor.ExprId)
         (key: SymbolKey)
         (ifaceArgs: EqArray<FrozenType>)
         (args: EqArray<TastAccessor.ExprId>)
         (ty: FrozenType)
         : unit =
-        let receiverTy = typeOfExpr receiver
+        let objArgTy = typeOfExpr objArg
         // A member name carries no arity, so the display projection IS the emitted CLR name.
         let (DisplayName name) = SymbolKeyOps.simpleName key
         let argTys = [ for a in args -> typeOfExpr a ]
@@ -149,12 +149,12 @@ module EmitMember =
         let operands = 1 + args.Length
 
         // `constrained.` needs a managed pointer for both struct and class typars.
-        loadStructReceiverAddr recur env b receiver receiverTy
+        loadStructThisPtr recur env b objArg objArgTy
 
         for a in args do
             recur env b a
 
-        b.Add(ILInstr.Constrained(env.Provider.TypeToken receiverTy))
+        b.Add(ILInstr.Constrained(env.Provider.TypeToken objArgTy))
         b.Add(ILInstr.Callvirt(slotHandle, operands, resultCount))
 
         if returnsUnit then
@@ -162,11 +162,11 @@ module EmitMember =
 
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldGet e
-        let receiver = view.Receiver
+        let objArg = view.ObjArg
         let name = view.FieldName
-        // `r.X` — load the receiver and `ldfld` the field.
-        let handle = resolveRecordField env (typeOfExpr receiver) name
-        recur env b receiver
+        // `r.X` — load the object argument and `ldfld` the field.
+        let handle = resolveRecordField env (typeOfExpr objArg) name
+        recur env b objArg
         b.Add(ILInstr.Ldfld handle)
 
     let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -188,55 +188,54 @@ module EmitMember =
 
     let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldSet e
-        let receiver = view.Receiver
+        let objArg = view.ObjArg
         let name = view.FieldName
         let value = view.Value
         // `r.X <- v` on a `mutable` field. `stfld` consumes both pushes and leaves nothing, but
         // a `FieldSet` is UNIT-TYPED — a `Sequential` middle item or a unit-returning body
         // expects a value present — so reify `unit` to keep the IL verifier happy.
-        let handle = resolveRecordField env (typeOfExpr receiver) name
-        recur env b receiver
+        let handle = resolveRecordField env (typeOfExpr objArg) name
+        recur env b objArg
         recur env b value
         b.Add(ILInstr.Stfld handle)
         EmitTypes.buildUnitValue env b
 
     let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprPropertyGet e
-        let receiver = view.Receiver
+        let objArg = view.ObjArg
         let key = view.Key
 
         match view.Via with
         | CallVia.Interface ifaceArgs ->
-            // A property read on an interface-constrained typar receiver
-            // (`this.Source.Current`) is a 0-argument constrained access; the slot is the
-            // interface's `get_<name>`.
+            // A property read through an interface-constrained typar (`this.Source.Current`)
+            // is a 0-argument constrained access; the slot is the interface's `get_<name>`.
             let ty = TastAccessor.exprTy e
-            emitConstrainedInterfaceCall recur env b receiver key ifaceArgs EqArray.empty ty
+            emitConstrainedInterfaceCall recur env b objArg key ifaceArgs EqArray.empty ty
         | via ->
-            let receiverTy = typeOfExpr receiver
+            let objArgTy = typeOfExpr objArg
             // A property is never a generic method and takes no arguments, so the resolved
             // member metadata is unused and there are no overload args to match.
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
-            let handle, _ = resolveInstanceMember env receiverTy memberName []
+            let handle, _ = resolveInstanceMember env objArgTy memberName []
             // A property get is never `unit`-returning, so it always yields a value.
-            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
+            emitInstanceMember recur env b via objArg objArgTy handle EqArray.empty false
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
-        let receiver = view.Receiver
+        let objArg = view.ObjArg
         let key = view.Key
-        // `MethodCallView.Args` is ONLY the args — `exprChildren` merges the receiver in.
+        // `MethodCallView.Args` is ONLY the args — `exprChildren` merges the object arg in.
         let args = view.Args
         let ty = TastAccessor.exprTy e
 
         match view.Via with
-        | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b receiver key ifaceArgs args ty
+        | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b objArg key ifaceArgs args ty
         | via ->
-            let receiverTy = typeOfExpr receiver
+            let objArgTy = typeOfExpr objArg
             let argTys = [ for a in args -> typeOfExpr a ]
 
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
-            let handle0, m = resolveInstanceMember env receiverTy memberName argTys
+            let handle0, m = resolveInstanceMember env objArgTy memberName argTys
 
             // A generic instance method's member-ref already carries the `GENERIC` header (its
             // `'U` rides `!!i`), so the call must wrap it in a `MethodSpec`. The node carries no
@@ -246,7 +245,7 @@ module EmitMember =
                     handle0
                 else
                     let declTyparArity =
-                        match receiverShape receiverTy with
+                        match objArgShape objArgTy with
                         | ValueSome(_, rargs) -> List.length rargs
                         | ValueNone -> 0
 
@@ -260,7 +259,7 @@ module EmitMember =
                 | FTUnit -> true
                 | _ -> false
 
-            emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
+            emitInstanceMember recur env b via objArg objArgTy handle args returnsUnit
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e
@@ -292,7 +291,7 @@ module EmitMember =
 
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticMethodCallKey e
-        // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no receiver to merge).
+        // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no object arg to merge).
         let args = TastAccessor.exprChildren e
         let ty = TastAccessor.exprTy e
         // A consumer's SRTP `+` dispatching to an imported type's static operator
@@ -339,7 +338,7 @@ module EmitMember =
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprExternalMember e
-        let receiver = view.Receiver
+        let objArg = view.ObjArg
         let key = view.Key
         let ty = TastAccessor.exprTy e
 
@@ -347,40 +346,40 @@ module EmitMember =
         | MemberStorage.Field ->
             // A genuine external public FIELD, against a field token and not a `get_X`
             // accessor: `ldsfld` for a static one (`String.Empty`), `ldfld` over the pushed
-            // receiver for an instance one (a `ValueTuple`'s `Item1`).
-            match receiver with
+            // object argument for an instance one (a `ValueTuple`'s `Item1`).
+            match objArg with
             | ValueNone ->
                 let handle = env.Provider.ExternalFieldRef(key, ValueNone, ty)
                 b.Add(ILInstr.Ldsfld handle)
             | ValueSome r ->
-                let receiverTy = typeOfExpr r
-                let handle = env.Provider.ExternalFieldRef(key, ValueSome receiverTy, ty)
+                let objArgTy = typeOfExpr r
+                let handle = env.Provider.ExternalFieldRef(key, ValueSome objArgTy, ty)
 
-                // An unboxed value-type receiver is reached by address; `ldfld` then reads the
-                // field off that managed pointer.
-                if isValueType env receiverTy then
-                    loadStructReceiverAddr recur env b r receiverTy
+                // An unboxed value-type object argument is reached by address; `ldfld` then
+                // reads the field off that managed pointer.
+                if isValueType env objArgTy then
+                    loadStructThisPtr recur env b r objArgTy
                 else
                     recur env b r
 
                 b.Add(ILInstr.Ldfld handle)
         | MemberStorage.Property ->
             // A standalone external PROPERTY get: static (`call get_<name>()`) or instance
-            // (`<receiver>; callvirt get_<name>()`). An external union/record receiver routes
-            // through `ExternalMemberRefOn`, whose parent + arity come off the receiver type.
-            match receiver with
+            // (`<objArg>; callvirt get_<name>()`). An external union/record object argument
+            // routes through `ExternalMemberRefOn`, whose parent + arity come off its type.
+            match objArg with
             | ValueNone ->
                 let handle = env.Provider.ExternalMemberRef(key, true, true, ty)
                 b.Add(ILInstr.Call(handle, 0, 1))
             | ValueSome r ->
-                let receiverTy = typeOfExpr r
-                let handle = externalInstanceMemberRef env key receiverTy true (ty)
+                let objArgTy = typeOfExpr r
+                let handle = externalInstanceMemberRef env key objArgTy true (ty)
 
-                // A getter on an unboxed value-type receiver (`span.Length`) is reached by
+                // A getter on an unboxed value-type object arg (`span.Length`) is reached by
                 // address + non-virtual `call`, not by value + `callvirt`: the latter boxes,
                 // and a ref struct cannot be boxed.
-                if isValueType env receiverTy then
-                    loadStructReceiverAddr recur env b r receiverTy
+                if isValueType env objArgTy then
+                    loadStructThisPtr recur env b r objArgTy
                     b.Add(ILInstr.Call(handle, 1, 1))
                 else
                     recur env b r

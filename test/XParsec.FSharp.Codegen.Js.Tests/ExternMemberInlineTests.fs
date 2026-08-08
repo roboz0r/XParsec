@@ -259,7 +259,7 @@ let tests =
                     (sprintf "the tuple must be built once, not per element:\n%s" js)
             }
 
-            // The same arity, STATIC: no receiver occupies curried position 0, so the
+            // The same arity, STATIC: no object argument occupies curried position 0, so the
             // untupled arguments land at a different offset. Its body is itself a
             // two-parameter instance call, so one use site untuples twice.
             test "`gadget.Bump2(w, 41)` untuples a STATIC two-parameter member, twice over" {

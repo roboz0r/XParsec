@@ -133,7 +133,7 @@ type PassContextResolution =
         /// Keyed by an external method call: the constant defaults of the trailing
         /// optional parameters the call OMITTED, in declaration order.
         ExternalOptionalFill: SideTable<TConstValue list>
-        /// Keyed by the folded `x.M(…)` call whose receiver is a typar coerced to a
+        /// Keyed by the folded `x.M(…)` call whose object argument is a typar coerced to a
         /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
         TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
         /// Keyed by an external-value use-site — an `Expr.Ident` / `Expr.LongIdentOrOp`.
@@ -161,9 +161,9 @@ type PassContextResolution =
         ResolvedType: SideTable<TypeKey>
         /// Keyed by a written type reference, anchored on `li.Idents.[0]`.
         TypeRefVerdicts: SideTable<TypeRefVerdict>
-        /// A static-access receiver's external type key: the PREFIX of a folded `Expr.LongIdent`
+        /// A static-access qualifier's external type key: the PREFIX of a folded `Expr.LongIdent`
         /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` target.
-        ExternalStaticReceiver: SideTable<SymbolKey>
+        ExternalStaticQualifier: SideTable<SymbolKey>
         /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
         /// RECORD: such a type bears no static fields, so an unresolved tail is a real miss.
         ExternalUnionRecordQualifier: SideTable<SymbolKey>
@@ -200,13 +200,13 @@ module PassContextResolution =
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
             TypeRefVerdicts = SideTable<_>()
-            ExternalStaticReceiver = SideTable<_>()
+            ExternalStaticQualifier = SideTable<_>()
             ExternalUnionRecordQualifier = SideTable<_>()
             LocalModules = Dictionary<_, _>()
             TypeEnclosingModule = Dictionary<_, _>()
         }
 
-/// A `recv?name` site whose result var (`Root`) may escape `dynamic` through context —
+/// An `x?name` site whose result var (`Root`) may escape `dynamic` through context —
 /// `d?foo + 1` pins it to `int`, which warns. `Node` is the `?` expression itself.
 type DynamicEscapeSite = { Root: TyVarId; Node: NodeSite }
 
@@ -432,7 +432,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// drives it, otherwise it defaults to FSharp.Core's `list`.
     member val ListLiterals = ResizeArray<ListLiteral>() with get
 
-    /// `recv?name` sites, swept once inference has settled: a `Root` that zonks to a concrete
+    /// `x?name` sites, swept once inference has settled: a `Root` that zonks to a concrete
     /// non-`dynamic` type is an implicit escape and warns unless `DynamicEscapeSuppressed`.
     member val DynamicEscapes = ResizeArray<DynamicEscapeSite>() with get
 

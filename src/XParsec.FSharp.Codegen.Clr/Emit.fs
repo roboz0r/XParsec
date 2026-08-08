@@ -183,15 +183,15 @@ module Emit =
             | ValueNone -> 0
 
         // `base` loads the same `ldarg.0` as `this`; the `CallVia.Base` discriminator on
-        // the member access, not the receiver load, makes the dispatch non-virtual.
+        // the member access, not the object-arg load, makes the dispatch non-virtual.
         match baseKey with
         | ValueSome k -> args.[BoundVarKey.identity k] <- 0
         | ValueNone -> ()
 
         prms
         |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- baseIdx + i)
-        // `this` as `SelfKey` too, so the struct-receiver path recognises a self-call:
-        // `ldarg.0` is already the byref receiver and must be loaded directly — spilling
+        // `this` as `SelfKey` too, so the struct `this`-pointer path recognises a self-call:
+        // `ldarg.0` is already the byref `this` and must be loaded directly — spilling
         // it to a value temp copies the struct and a mutating self-call would not persist.
         let env =
             EmitEnv.create ctx (ValueOption.map BoundVarKey.identity thisKey) (Dictionary()) args
@@ -295,7 +295,7 @@ module Emit =
 
         ctorParams
         |> List.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
-        // `this` as `SelfKey`: on a value type `ldarg.0` is the byref receiver, so a
+        // `this` as `SelfKey`: on a value type `ldarg.0` is the byref `this`, so a
         // self-call must load it directly rather than spill a copy.
         let env =
             EmitEnv.create ctx (ValueSome(BoundVarKey.identity thisKey)) (Dictionary()) args
@@ -872,7 +872,7 @@ module Emit =
         b.Body
 
     // Each co-slot shim forwards through a `call`, not a `callvirt`, so the exact method
-    // binds. The receiver is `ldarg.0` — an object reference for a class, a managed
+    // binds. The object arg is `ldarg.0` — an object reference for a class, a managed
     // pointer for a struct enumerator, which `call` on its own instance method takes.
 
     /// `IEnumerator IEnumerable.GetEnumerator()` — forwards to the capability's

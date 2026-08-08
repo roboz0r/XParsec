@@ -50,12 +50,12 @@ let private echoContract = contractTs echoManifest
 let private echoProvider: IExternalSymbolProvider = echoContract.Provider
 
 /// Hand-authored runtime backing `boxlib`: `makeBox()` yields an object whose
-/// `echo` instance method is the identity (so the native `receiver.member(args)`
+/// `echo` instance method is the identity (so the native `objArg.member(args)`
 /// lowering round-trips the argument unchanged).
 let private echoRuntimeSource =
     "export function makeBox() { return { echo(x) { return x; } }; }\n"
 
-// A SINGLE generic instance method, called at int then at string on one receiver:
+// A SINGLE generic instance method, called at int then at string on one object argument:
 // `U` must freshen per call, or one of the two uses fails to type.
 let private program =
     String.concat

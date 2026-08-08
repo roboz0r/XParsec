@@ -176,7 +176,7 @@ module FrozenTypeBridge =
         | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t
 
     /// The impl in `ifaces` (each `(compiled name, args over the declaring typars)`)
-    /// whose name is `target`, with its args realised at THIS receiver —
+    /// whose name is `target`, with its args realised at THIS object argument —
     /// `FTTypar(Declaring,i) := declArgs.[i]`.
     let pickInterfaceWitness
         (target: string)

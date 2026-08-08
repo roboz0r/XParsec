@@ -30,7 +30,7 @@ let private choiceAsm: Lazy<Assembly> =
 let private intTy = typeof<int>
 let private strTy = typeof<string>
 
-/// `Vesper.Choice`2` closed over <int, string> — the receiver type for the case
+/// `Vesper.Choice`2` closed over <int, string> — the object-argument type for the case
 /// factories and field reads.
 let private choiceIntStr: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`2").MakeGenericType(intTy, strTy))
@@ -44,12 +44,12 @@ let private c2IS (v: string) : obj =
     choiceIntStr.Value.GetMethod("Choice2Of2").Invoke(null, [| box v |])
 
 /// The discriminating `_tag` field (declaration order) off a Choice value.
-let private tagOf (receiver: obj) : int =
-    choiceIntStr.Value.GetField("_tag").GetValue(receiver) :?> int
+let private tagOf (objArg: obj) : int =
+    choiceIntStr.Value.GetField("_tag").GetValue(objArg) :?> int
 
 /// Read a per-case payload field (`Choice1Of2_0` / `Choice2Of2_0`) off a value.
-let private fieldOf (name: string) (receiver: obj) : obj =
-    choiceIntStr.Value.GetField(name).GetValue(receiver)
+let private fieldOf (name: string) (objArg: obj) : obj =
+    choiceIntStr.Value.GetField(name).GetValue(objArg)
 
 [<Tests>]
 let tests =
@@ -96,10 +96,10 @@ let private choice3: Lazy<Type> =
 let private choice7: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`7").MakeGenericType(Array.create 7 intTy))
 
-let private tagOfOn (ty: Type) (receiver: obj) : int =
-    ty.GetField("_tag").GetValue(receiver) :?> int
+let private tagOfOn (ty: Type) (objArg: obj) : int =
+    ty.GetField("_tag").GetValue(objArg) :?> int
 
-let private fieldOfOn (ty: Type) (name: string) (receiver: obj) : obj = ty.GetField(name).GetValue(receiver)
+let private fieldOfOn (ty: Type) (name: string) (objArg: obj) : obj = ty.GetField(name).GetValue(objArg)
 
 [<Tests>]
 let higherArity =
@@ -137,7 +137,7 @@ let higherArity =
                 Expect.equal (fieldOfOn choice7.Value "Choice7Of7_0" last :?> int) 7 "Choice7Of7 carries 7"
             }
 
-            // The arity-2 and arity-3 receivers are different `Type`s — pins that the
+            // The arity-2 and arity-3 object arguments are different `Type`s — pins that the
             // emitter did NOT collapse the overloaded short name to a single type.
             test "Choice`2 and Choice`3 are distinct emitted types" {
                 Expect.notEqual choiceIntStr.Value.Name choice3.Value.Name "`2 and `3 have distinct metadata names"
@@ -251,7 +251,7 @@ let frontEndTests =
                     "let x : Choice<int, string> = Choice.Choice1Of2 5\nlet y : Choice<int, string> = Choice.Choice2Of2 \"e\""
             }
 
-            // `match` binds each case's field at the receiver's instantiation.
+            // `match` binds each case's field at the object argument's instantiation.
             test "match Choice1Of2 x binds x : int; Choice2Of2 e binds e : string" {
                 typeChecksChoice
                     "let f (c: Choice<int, string>) : int =\n    match c with\n    | Choice1Of2 x -> x\n    | Choice2Of2 _ -> 0"

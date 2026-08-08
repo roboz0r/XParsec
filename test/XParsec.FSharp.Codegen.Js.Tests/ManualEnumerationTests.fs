@@ -65,14 +65,14 @@ let tests =
                 Expect.stringContains
                     js
                     "enumeratorOf"
-                    "GetEnumerator → the `enumeratorOf` runtime adapter, not a receiver method"
+                    "GetEnumerator → the `enumeratorOf` runtime adapter, not an object-argument method"
 
                 Expect.stringContains
                     js
                     "from \"./Vesper.Core.mjs\""
                     "the adapter is imported from the Vesper.Core runtime module"
 
-                // The broken pre-fix emission: a mangled receiver-first import of an export
+                // The broken pre-fix emission: a type-prefixed import of an export
                 // `Vesper.Core.mjs` does not have (an ESM link error under Node, not a
                 // compile diagnostic). It must not come back.
                 Expect.isFalse (js.Contains "seq__GetEnumerator") "no mangled `seq__GetEnumerator` import"

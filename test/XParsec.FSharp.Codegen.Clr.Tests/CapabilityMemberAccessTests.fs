@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // A capability's canonical shape (`Vesper.Collections.enumerator`1`) is an
 // `IntrinsicInterface`: it NAMES its platform type but carries no member table. So a
-// receiver typed that way used to resolve its shape, find no members on it, and fail with
+// value typed that way used to resolve its shape, find no members on it, and fail with
 // "Unknown class type" — even though `capabilities.fsi` declares `MoveNext` / `Current`.
 // Member lookup now retries under the capability's platform key
 // (`EngineCore.capabilityPlatformKey`), where the members live.

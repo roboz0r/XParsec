@@ -56,10 +56,10 @@ module NameResolutionScope =
     let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
         (tryExternalCase ctx ValueNone name).IsSome
 
-    /// The receiver name of an `Expr.TypeApp` when the receiver could name a type;
-    /// `ValueNone` for shapes that never can (e.g. an applied expression).
-    let private typeAppReceiverName (ctx: PassContext) (receiver: Expr<SyntaxToken>) : WrittenTypeName voption =
-        match receiver with
+    /// The written type name an `Expr.TypeApp`'s applied expression spells, when it could
+    /// name a type; `ValueNone` for shapes that never can (e.g. an applied expression).
+    let private typeAppTypeName (ctx: PassContext) (expr: Expr<SyntaxToken>) : WrittenTypeName voption =
+        match expr with
         | Expr.Ident tok -> ValueSome(WrittenTypeName.bare (ctx.NameOf tok))
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> ValueSome(ctx.WrittenTypeNameOf li)
         | _ -> ValueNone
@@ -116,7 +116,7 @@ module NameResolutionScope =
                 if
                     TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt useKey) name
                     || (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt useKey) name).IsSome
-                    // A generic receiver (`EqualityComparer<int>`) had `ResolvedType`
+                    // A generic prefix (`EqualityComparer<int>`) had `ResolvedType`
                     // stamped at exact arity by the enclosing TypeApp visit.
                     || ctx.Resolution.ResolvedType.ContainsKey useKey
                     || (
@@ -334,7 +334,7 @@ module NameResolutionScope =
             match lookup scope with
             | ValueSome(bindingSite, isMutable) ->
                 // Key the anchor's binding entry under ExprIdent on the anchor token
-                // so later passes look up the receiver's type by the same key.
+                // so later passes look up the anchor's type by the same key.
                 ctx.Bindings.Binding.Set(
                     NodeKey.ofToken anchorIdent NodeKind.ExprIdent,
                     {
@@ -408,7 +408,7 @@ module NameResolutionScope =
                                 ))
 
                         // `A.T` — a project-local TYPE named through its module, so the
-                        // reference is a ctor / static receiver, not a value. Suppress.
+                        // reference is a ctor / static qualifier, not a value. Suppress.
                         let isLocalQualifiedType =
                             TypeRegistry.isWrittenTypeNameInScope ctx.Types useSite (ctx.WrittenTypeNameOf li)
 
@@ -464,7 +464,7 @@ module NameResolutionScope =
                             | _ -> ()
 
                         // The whole name as an external class (`System.Exception "x"`, a
-                        // ctor-sugar application) → `ResolvedType`; else the folded receiver prefix
+                        // ctor-sugar application) → `ResolvedType`; else the folded prefix
                         // (`System.Console` in `System.Console.Out`, class or intrinsic).
                         if not (ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)) then
                             match qualHit with
@@ -483,7 +483,7 @@ module NameResolutionScope =
                                                 ProbedTyparArity = 0
                                                 Shape = ExternalTypeShape.Class info
                                             } when info.TyparArity = 0 ->
-                                    ctx.Resolution.ExternalStaticReceiver.Set(
+                                    ctx.Resolution.ExternalStaticQualifier.Set(
                                         CstKeys.ofExpr e,
                                         SymbolKeyOps.externalTypeKey info.Origin compiled 0
                                     )
@@ -491,7 +491,7 @@ module NameResolutionScope =
                                                 ProbedTyparArity = 0
                                                 Shape = ExternalTypeShape.Intrinsic { Id = { Canon = canon } }
                                             } when canon.TyparArity = 0 ->
-                                    ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr e, SymbolKey.Type canon)
+                                    ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr e, SymbolKey.Type canon)
                                 | _ -> ()
 
                         // An external UNION or RECORD qualifier has no static fields, so an
@@ -533,7 +533,7 @@ module NameResolutionScope =
                             || isLocalQualifiedType
                             || isEnumCase
                             || isExternalQualifiedCase
-                            // A generic receiver (`…List<int>.Empty`) was stamped by TypeApp.
+                            // A generic prefix (`…List<int>.Empty`) was stamped by TypeApp.
                             || ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
                             || qualIsExternalType
                             || isExternalStaticMember
@@ -572,32 +572,32 @@ module NameResolutionScope =
             let displayName = ctx.NameOf firstTok
 
             ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName displayName)
-        | Expr.TypeApp(expr = receiver; types = types) ->
-            // The receiver's type-arg count lives on THIS node, so receiver and arity are
+        | Expr.TypeApp(expr = expr; types = types) ->
+            // The type-arg count lives on THIS node, so the applied name and its arity are
             // classified together — `EqualityComparer<int>.Default` resolves at the exact
             // arity. A local claim wins: `T<'a>(…)` in `T`'s own file means `T`'s decl.
-            match typeAppReceiverName ctx receiver with
+            match typeAppTypeName ctx expr with
             | ValueSome written when
-                not (TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt(CstKeys.ofExpr receiver)) written)
+                not (TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt(CstKeys.ofExpr expr)) written)
                 ->
                 match tryClassifyExternalType ctx (arityProbes types.Length) written.Written with
                 | ValueSome hit when hit.Shape.TyparArity = types.Length ->
                     let key = useSiteTypeKey hit
-                    ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr receiver, key)
+                    ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr expr, key)
 
                     match hit.Shape with
                     | ExternalTypeShape.Class _ ->
-                        ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr receiver, SymbolKey.Type key)
+                        ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr expr, SymbolKey.Type key)
                     | _ -> ()
                 | _ -> ()
             | _ -> ()
         | Expr.InfixApp _
         | Expr.PrefixApp _ -> stampDesugaredOperator ctx e
-        // `recv?name` — stamp `op_Dynamic`. The SET form (`recv?name <- v`) parses as
+        // `x?name` — stamp `op_Dynamic`. The SET form (`x?name <- v`) parses as
         // `Assignment(DynamicLookup, v)`, whose inner `DynamicLookup` is visited and
         // stamped too, but the setter reads the enclosing node, so that stamp is inert.
         | Expr.DynamicLookup _ -> stampExternalSymbol ctx (CstKeys.ofExpr e) OperatorData.OpDynamic
-        // `recv?name <- value` — stamp `op_DynamicAssignment` on the enclosing
+        // `x?name <- value` — stamp `op_DynamicAssignment` on the enclosing
         // `Assignment`, the node the setter is typed at.
         | Expr.Assignment(leftExpr = Expr.DynamicLookup _) ->
             stampExternalSymbol ctx (CstKeys.ofExpr e) OperatorData.OpDynamicAssignment

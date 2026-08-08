@@ -633,7 +633,7 @@ The expressible shape is the one the repo already uses everywhere else: **a capa
 / `enumerable` work). On CLR it stays the abstract BCL class; on JS it is an interface.
 Nothing in the design requires the two bindings to share a *kind* — the provider binds the sink
 per target, and (per question 1) the printf lowering only ever calls `Write(string)` on the
-receiver. `ScratchSink`'s `new StringWriter()` becomes a concrete JS class implementing that
+object argument. `ScratchSink`'s `new StringWriter()` becomes a concrete JS class implementing that
 interface, with the parameterless `ToString` the `%a` capture-first residue block already
 demands (`InferApp.fs:493-499`).
 
@@ -651,7 +651,7 @@ and it is the wrong one. The protocol:
   has its `Dispose` emitted **as** the `[Symbol.dispose]()` method — the `Disposers` partition
   (`EmitJsMembers.fs:107-109`, `EmitJsTypes.fs:95`).
 - A **bare** `Dispose()` member with no `interface disposable` is `Disposal.ViaOwnMember` (the
-  ref-struct / external-type carve-out) and lowers to the free receiver-first
+  ref-struct / external-type carve-out) and lowers to the free type-prefixed
   `TextWriter__Dispose(w)` — a different call shape entirely.
 
 So the `.fsi` must say **`interface disposable`**, and the `[Symbol.dispose]()` method comes

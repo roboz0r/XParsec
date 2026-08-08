@@ -87,7 +87,7 @@ let tests =
             }
 
             test "short external type name resolves under its open (no unresolved error)" {
-                // Mirrors the external-type receiver shape at the NameResolution layer:
+                // Mirrors the external-type qualifier shape at the NameResolution layer:
                 // `Foo<int>` is suppressed as an external-type reference once
                 // `open Some.Where` is in scope.
                 let ctx = analyse "open Some.Where\nlet f = Foo<int>"

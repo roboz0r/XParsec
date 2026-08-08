@@ -325,7 +325,7 @@ runs end-to-end today.
 A `Vesper.Fun\`2` is monomorphic at the IL level — `Fun<int, int>`
 and `Fun<string, string>` are distinct `TypeSpec`s, so a value-level
 "generic closure" passed as a function argument would need rank-2
-polymorphism (the receiver can't `Invoke` it at a type it doesn't
+polymorphism (the caller can't `Invoke` it at a type it doesn't
 know). The closure-synthesis sprint covers closures constructed and
 consumed in a single generic static method's scope, which is the
 bulk of user code. Cross-package generic closures (a referenced

@@ -183,8 +183,8 @@ module internal TsManifestMembers =
                         FrozenInterfaces = frozenInterfaces
                         FrozenBaseType = frozenBaseType
                         // A manifest type is a native object: its instance members live ON it
-                        // as prototype/own methods, so a call emits `receiver.member(args)`,
-                        // not a receiver-first free function.
+                        // as prototype/own methods, so a call emits `objArg.member(args)`,
+                        // not a type-prefixed free function.
                         Flags =
                             { ExternalClassFlags.Default with
                                 MemberLowering = MemberLowering.AttachedNative
@@ -233,7 +233,7 @@ module internal TsManifestMembers =
 
     /// One ERASING nominal per distinct anonymous object shape reachable from the exports,
     /// deduped by shape-hash: a ctor-less interface whose Property members lower to native
-    /// `receiver.field` reads, and for which NOTHING is emitted.
+    /// `objArg.field` reads, and for which NOTHING is emitted.
     let buildStructuralTypes
         (ctx: TranslateCtx)
         (flatExports: (string * Schema.Export) list)

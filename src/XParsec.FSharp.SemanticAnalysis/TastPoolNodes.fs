@@ -248,7 +248,7 @@ type ExprPayload =
         |}
     | ExternalMember of
         {|
-            HasReceiver: bool
+            HasObjArg: bool
             Key: SymbolKey
             MemberName: string
             Storage: MemberStorage
@@ -269,11 +269,11 @@ type ExprPayload =
     | Upcast
     | Downcast
     | TypeTest of testTy: FrozenType
-    /// The receiver TYPE (a `FrozenType`, not a sub-expression) + member name; the args
+    /// The support TYPE (a `FrozenType`, not a sub-expression) + member name; the args
     /// are the child expressions.
     | TraitCall of
         {|
-            Receiver: FrozenType
+            SupportTy: FrozenType
             MemberName: string
         |}
     /// The specialization-table slot this call names, and the file the node's own anchor (and

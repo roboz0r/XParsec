@@ -98,7 +98,7 @@ let tests =
             }
 
             test "unresolved field access diagnoses" {
-                // `let f r = r.X` with no use — the receiver TyVar stays free.
+                // `let f r = r.X` with no use — the object argument's TyVar stays free.
                 let ctx = analyse "let f r = r.X"
                 Expect.isTrue (hasMessage ctx "Cannot resolve member") "deferred-dot-access diagnostic emitted"
             }
@@ -138,7 +138,7 @@ let tests =
                 Expect.isTrue (hasMessage ctx "value restriction") "free-typar mutable still fires"
             }
 
-            test "unresolved member on class receiver still diagnoses" {
+            test "unresolved member on class object argument still diagnoses" {
                 let ctx = analyse "let f p = p.NotAMember"
 
                 Expect.isTrue (hasMessage ctx "Cannot resolve member") "deferred-dot-access diagnostic emitted"

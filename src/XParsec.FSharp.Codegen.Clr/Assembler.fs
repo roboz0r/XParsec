@@ -591,7 +591,7 @@ type internal Assembler
 
     member this.PrepareInterfaces(f: FileEmit) =
         for (td, methods) in f.Layout.Partitioned.Interfaces do
-            // The use-site table for a call on an interface-typed receiver: each method's
+            // The use-site table for a call on an interface-typed object arg: each method's
             // slot handle keyed by source name, to `callvirt`. Overloads share a name,
             // hence the list.
             let memberTable = Dictionary<string, Emit.EmittedMember list>()

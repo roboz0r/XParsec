@@ -216,7 +216,7 @@ is why Seq is the right *eventual* forcing function — but each is gated as abo
 
 | `get-enumerator-gaps.md` item | exercised by | gated behind |
 |---|---|---|
-| **value-type source** (a struct `MapSeq` passed to `Seq.fold` / `foreach`) | §5 `Fold`, §6 | unboxed struct dispatch (#1) — it's the same "address a struct receiver" capability one level up, so it falls out of, or right after, that work |
+| **value-type source** (a struct `MapSeq` passed to `Seq.fold` / `foreach`) | §5 `Fold`, §6 | unboxed struct dispatch (#1) — it's the same "address a struct `this`" capability one level up, so it falls out of, or right after, that work |
 | **generic struct interface impls** | §7.2 escape hatch | the impl/upcast gap (#3) |
 | **ref-struct `Dispose()`** (non-`IDisposable`) | ref-struct enumerators | byref-like modelling (#4), co-blocked with `allows ref struct` |
 

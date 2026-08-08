@@ -137,7 +137,7 @@ was already gone, so no reverse-map tier was rebuilt. What landed:
   `intrinsicName canon`); `subtypeNominalOf`'s `TyConst` arm and `numericFamilyOr` dropped their
   `intrinsicName`. `SymbolKeyOps.intrinsicName` itself STAYS — its other feeds (Freeze/Printf,
   Freeze/Access, Regions, Inline, VesperLib, `TyStructuralCtor`, Subsume's `v.BaseName` compare,
-  Engine `primitiveSupports`, `tryExternalReceiver`) are Stage-4 work.
+  Engine `primitiveSupports`, `externalSurfaceKeys`) are Stage-4 work.
 - **`sameTypeAsmBlind` audit — NOT empty, so it stays.** But its domain does NOT include the subtype
   walk: the ONE cross-asm hazard the currency change exposed was `subtypeInterfacesOf` surfacing an
   external interface with `asm = None` (matched only asm-agnostically by the old string compare) vs a

@@ -88,9 +88,9 @@ module UnificationInfer =
             | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> inferTryWith infer ctx node.Tok body rules
             | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
                 inferTryFinally infer ctx node.Tok body finallyE
-            // `recv?name <- value` — the dynamic setter, routed through `op_DynamicAssignment`.
-            | Expr.Assignment(leftExpr = Expr.DynamicLookup(expr = recv); rightExpr = right) ->
-                inferDynamicSet infer ctx node recv right
+            // `x?name <- value` — the dynamic setter, routed through `op_DynamicAssignment`.
+            | Expr.Assignment(leftExpr = Expr.DynamicLookup(expr = objArg); rightExpr = right) ->
+                inferDynamicSet infer ctx node objArg right
             | Expr.Assignment(leftExpr = left; rightExpr = right) -> inferAssignment infer ctx node left right
             | Expr.Range(fromExpr = a; toExpr = b) -> inferRange infer ctx node.Tok a ValueNone b
             | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
@@ -100,19 +100,19 @@ module UnificationInfer =
                 TyVar(freshTyVar ctx)
             | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx node inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone infer ctx node src inits
-            | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                // A type-name receiver (`EqualityComparer<int>.Default`) resolves its
-                // static member through the provider, so the receiver is never `infer`d
+            | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+                // A type-name qualifier (`EqualityComparer<int>.Default`) resolves its
+                // static member through the provider, so the qualifier is never `infer`d
                 // as a value. Instance access (`value.Member`) takes the fallback.
-                match tryExternalTypeReceiver ctx recv with
+                match tryExternalTypeQualifier ctx r with
                 | ValueSome(declTypeKey, typeArgsCst) ->
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
                     inferExternalStaticMember ctx node.Key declTypeKey args li.Idents.[0]
                 | ValueNone ->
-                    match tryLocalTypeAppStaticMember ctx recv li.Idents.[0] with
+                    match tryLocalTypeAppStaticMember ctx r li.Idents.[0] with
                     | ValueSome ty -> ty
-                    | ValueNone -> inferFieldAccess infer ctx node recv li.Idents.[0]
-            | Expr.IndexedLookup(expr = recv; indexExpr = idx) -> inferIndexedLookup infer ctx node recv idx
+                    | ValueNone -> inferFieldAccess infer ctx node r li.Idents.[0]
+            | Expr.IndexedLookup(expr = objArg; indexExpr = idx) -> inferIndexedLookup infer ctx node objArg idx
             | Expr.New(typ = t; expr = argExpr) -> inferNew infer ctx node t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic infer ctx args rt
             | Expr.LibraryOnlyStaticOptimization(defaultExpr = defaultE; clauses = clauses) ->
@@ -120,9 +120,9 @@ module UnificationInfer =
             | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
                 inferStaticMemberInvocation infer ctx msig argExpr
             | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx node.Tok inner typeArgs
-            // `recv?name` — dynamic member access, routed through the `op_Dynamic`
+            // `x?name` — dynamic member access, routed through the `op_Dynamic`
             // operator so its `default ^TResult : dynamic` drives target typing.
-            | Expr.DynamicLookup(expr = recv) -> inferDynamicLookup infer ctx node recv
+            | Expr.DynamicLookup(expr = objArg) -> inferDynamicLookup infer ctx node objArg
             | _ -> failwithf "infer: TODO %A" e
 
         ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome inferredTy)

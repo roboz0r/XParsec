@@ -642,7 +642,7 @@ let interfaceImplTests =
             }
         ]
 
-// Direct instance-member dispatch on a record RECEIVER (`v.Method()` / `v.Property`),
+// Direct instance-member dispatch on a record OBJECT ARGUMENT (`v.Method()` / `v.Property`),
 // distinct from the `(r :> IFace).M()` interface-coercion path above. A record's
 // augmentation members resolve on the same nominal-member path as a class or union;
 // before this these lowered to a `FieldGet` and crashed in codegen.

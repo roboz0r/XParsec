@@ -89,9 +89,9 @@ module TastPoolShapes =
 
             for (_, v) in overrides do
                 acc.Add v
-        | TExprG.FieldGet(receiver = receiver) -> acc.Add receiver
-        | TExprG.FieldSet(receiver = receiver; value = value) ->
-            acc.Add receiver
+        | TExprG.FieldGet(objArg = objArg) -> acc.Add objArg
+        | TExprG.FieldSet(objArg = objArg; value = value) ->
+            acc.Add objArg
             acc.Add value
         | TExprG.UnionCons(args = args) ->
             for x in args do
@@ -99,18 +99,18 @@ module TastPoolShapes =
         | TExprG.New(args = args) ->
             for x in args do
                 acc.Add x
-        | TExprG.MethodCall(receiver = receiver; args = args) ->
-            acc.Add receiver
+        | TExprG.MethodCall(objArg = objArg; args = args) ->
+            acc.Add objArg
 
             for x in args do
                 acc.Add x
-        | TExprG.PropertyGet(receiver = receiver) -> acc.Add receiver
+        | TExprG.PropertyGet(objArg = objArg) -> acc.Add objArg
         | TExprG.StaticMethodCall(args = args) ->
             for x in args do
                 acc.Add x
         | TExprG.StaticFieldSet(value = value) -> acc.Add value
-        | TExprG.ExternalMember(receiver = receiver) ->
-            match receiver with
+        | TExprG.ExternalMember(objArg = objArg) ->
+            match objArg with
             | ValueSome r -> acc.Add r
             | ValueNone -> ()
         | TExprG.Format(sink = sink; segments = segments) ->
@@ -313,10 +313,10 @@ module TastPoolShapes =
                     DeclKey = declKey
                     FieldName = fieldName
                 |}
-        | TExprG.ExternalMember(receiver = receiver; key = key; memberName = memberName; storage = storage) ->
+        | TExprG.ExternalMember(objArg = objArg; key = key; memberName = memberName; storage = storage) ->
             ExprPayload.ExternalMember
                 {|
-                    HasReceiver = receiver.IsSome
+                    HasObjArg = objArg.IsSome
                     Key = key
                     MemberName = memberName
                     Storage = storage
@@ -357,10 +357,10 @@ module TastPoolShapes =
         | TExprG.Upcast _ -> ExprPayload.Upcast
         | TExprG.Downcast _ -> ExprPayload.Downcast
         | TExprG.TypeTest(testTy = testTy) -> ExprPayload.TypeTest testTy
-        | TExprG.TraitCall(receiver = receiver; memberName = memberName) ->
+        | TExprG.TraitCall(supportTy = supportTy; memberName = memberName) ->
             ExprPayload.TraitCall
                 {|
-                    Receiver = receiver
+                    SupportTy = supportTy
                     MemberName = memberName
                 |}
         | TExprG.InlineCall(spec = spec; origin = origin) -> ExprPayload.InlineCall {| Spec = spec; Origin = origin |}

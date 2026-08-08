@@ -68,8 +68,8 @@ module EmitBindings =
         match TastAccessor.patKind pat with
         | PatShape.NamedSimple
         | PatShape.Wildcard ->
-            // `use x = value` or `use _ = value`. A `_` bound variable still parks the value — it
-            // is the resource the `finally` disposes — under a synthetic placeholder key.
+            // `use x = value` or `use _ = value`. A `_` still parks the value — it is the
+            // resource the `finally` disposes — under a synthetic placeholder key.
             let tok = TastAccessor.exprTok e
             let varTy = TastAccessor.patTy pat
 
@@ -78,12 +78,12 @@ module EmitBindings =
                 | ValueSome b -> b
                 | ValueNone -> TastPoolBuilder.mintBoundVar pat.Pool
             // `use x = v in body` → `let x = v in try body finally if x <> null then
-            // x.Dispose()`, so a null bound variable disposes nothing. `view.Dispose` names the
-            // member: the capability's interface slot, or the bound variable's own `Dispose()`.
+            // x.Dispose()`, so a null `x` disposes nothing. `view.Dispose` names the member:
+            // the capability's interface slot, or `x`'s own `Dispose()`.
 
-            // Both disposal paths below `brfalse` the loaded bound variable and `callvirt` it —
-            // valid only for a reference bound variable. `brfalse` on a loaded struct is invalid
-            // IL, and a struct receiver would need `ldloca` + `constrained. callvirt`.
+            // Both disposal paths below `brfalse` the loaded `x` and `callvirt` it — valid only
+            // for a reference type. `brfalse` on a loaded struct is invalid IL, and a struct
+            // object arg would need `ldloca` + `constrained. callvirt`.
             if isValueType env varTy then
                 failwithf "Emit: `use` over a value-type bound variable is out of scope: %A" varTy
 
@@ -111,7 +111,7 @@ module EmitBindings =
                 b.Add ILInstr.Pop
 
             // A keyed `Dispose` on an EXTERNAL type. Its real `void` return pushes
-            // nothing, so this is a receiver-only `callvirt` with no `pop`.
+            // nothing, so this is an object-arg-only `callvirt` with no `pop`.
             let emitExternalDispose (disposeKey: SymbolKey) =
                 let dispHandle =
                     env.Provider.ExternalMemberRef(
@@ -134,7 +134,7 @@ module EmitBindings =
                 || env.Unions.ContainsKey(SymbolKey.Type key)
 
             let isLocalBoundVar =
-                match TastLower.receiverShape varTy with
+                match TastLower.objArgShape varTy with
                 | ValueSome(tyCtorKey, _) -> isLocalType tyCtorKey
                 | ValueNone -> false
 
@@ -156,7 +156,7 @@ module EmitBindings =
                 | Disposal.ViaCapability _ when isLocalBoundVar ->
                     emitLocalDispose (
                         SymbolKeyOps.memberKey
-                            (nominalTypeKey "use-dispose receiver" varTy)
+                            (nominalTypeKey "use-dispose object argument" varTy)
                             "Dispose"
                             EqArray.empty
                             0

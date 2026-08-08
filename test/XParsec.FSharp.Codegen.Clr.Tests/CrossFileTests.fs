@@ -22,7 +22,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // `resolveFieldStep`'s `TyRecord` arm has a provider fallback (file 2 reads a field of
 // file 1's record) and `recordFieldSetVerdict` has the same provider path (file 2 BUILDS
 // file 1's record via a bare field-set literal). In both cases codegen re-homes the
-// receiver's / literal's cross-file `recKey` to the LOCAL `TypeDef`, emitting `ldfld` /
+// object argument's / literal's cross-file `recKey` to the LOCAL `TypeDef`, emitting `ldfld` /
 // `newobj`. Union-case construction (the local `CtorIndex` — `Unresolved identifier`)
 // remains blocked UPSTREAM; the codegen multi-file machinery it would feed is already in
 // place and shared-registry resolved.
@@ -183,7 +183,7 @@ printfn \"%d\" n
                 // End-to-end: file 1 declares a record and a factory returning it; file 2
                 // reads `.X` off the factory result and prints it. The field read resolves
                 // through file 1's projected provider view (no local `TypeRegistry` entry), and
-                // codegen re-homes the receiver's cross-file `recKey` to the LOCAL `TypeDef` so
+                // codegen re-homes the object argument's cross-file `recKey` to the LOCAL `TypeDef` so
                 // it emits a plain `ldfld` — THIS run is where any codegen `ldfld` gap surfaces.
                 let file1 =
                     "\
@@ -280,7 +280,7 @@ printfn \"%d\" (r.X + r.Y)
             test "two files run: file 2 calls an INTERFACE member declared in file 1 (decurried slot)" {
                 // File 1 declares an interface, a class implementing it, and a factory returning
                 // the interface; file 2 dispatches `GetVal` on the interface-typed result — a
-                // receiver grounded to file 1's cross-file interface. A missing/wrong uncurry
+                // object argument grounded to file 1's cross-file interface. A missing/wrong uncurry
                 // surfaces as a front-end "no such member" miss or a bad `callvirt`, so a clean
                 // run returning the value is the proof the slot resolved cross-file.
                 let file1 =

@@ -39,7 +39,7 @@ let tests =
                 Expect.isTrue hasMismatch "ctor-arg mismatch diagnosed"
             }
 
-            test "property read pins receiver via annotation" {
+            test "property read pins the object argument via annotation" {
                 let ctx =
                     analyse "type Point(x: int, y: int) =\n    member this.X = x\nlet f (p : Point) = p.X"
                 // pat f at 55: 29 + 22 char decl lines + "let ".
@@ -188,7 +188,7 @@ let tests =
                 Expect.isFalse hasErr "no error diagnostics"
             }
 
-            test "static member on receiver instance diagnoses" {
+            test "static member on an object-argument instance diagnoses" {
                 // F# spec: static members are accessed via the type name, not an instance.
                 let ctx =
                     analyse "type C() =\n    static member M () = 1\nlet c = new C()\nlet r = c.M()"

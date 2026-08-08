@@ -466,7 +466,7 @@ type internal ClrEnv
 
     /// Whether a referenced-assembly type is a .NET value type — `false` also for any name the
     /// provider can't resolve as a class. Drives the `VALUETYPE` vs `CLASS` element tag, and the
-    /// value-receiver dispatch for the duck-typed struct enumerator (`List`1+Enumerator`).
+    /// value object-arg dispatch for the duck-typed struct enumerator (`List`1+Enumerator`).
     let externalIsValueType (key: SymbolKey) : bool =
         match lookupClassShape key with
         | ValueSome info -> info.Flags.IsValueType

@@ -187,7 +187,7 @@ let tests =
                     (js.Contains "import $_mitt from \"./mitt.mjs\"")
                     (sprintf "expected a DEFAULT import of the real mitt runtime, got:\n%s" js)
 
-                // on/off/emit are NATIVE prototype calls, not mangled receiver-first imports.
+                // on/off/emit are NATIVE prototype calls, not type-prefixed imports.
                 Expect.isTrue (js.Contains ".on(") (sprintf "expected native `.on(`:\n%s" js)
                 Expect.isTrue (js.Contains ".emit(") (sprintf "expected native `.emit(`:\n%s" js)
                 Expect.isTrue (js.Contains ".off(") (sprintf "expected native `.off(`:\n%s" js)

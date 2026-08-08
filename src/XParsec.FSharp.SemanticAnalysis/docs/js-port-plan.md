@@ -70,8 +70,8 @@ interface) both passed first try. What the tranche actually found:
   `shapeHomeAssembly <> ctx.AssemblyName`, and the old helper passed `""`. So the
   `arrayDepsJsContract` comment's "safe only where the package declares no in-file types"
   was wrong, and is corrected in place.
-- **It still does not RUN, for an unrelated reason.** `f.Invoke(a, b)` on a receiver typed
-  as an interface the compiling file does not itself declare lowers to a receiver-first
+- **It still does not RUN, for an unrelated reason.** `f.Invoke(a, b)` on an object argument typed
+  as an interface the compiling file does not itself declare lowers to a type-prefixed
   free function imported from the package's asset, which exports no such name. Attached-
   method dispatch is chosen only for interfaces in the file's own declaration set. That
   matters well beyond this file: under §4.3's per-file model, EVERY cross-file interface
@@ -81,7 +81,7 @@ interface) both passed first try. What the tranche actually found:
   another file, another library, no difference. An interface has no runtime existence on
   JS (no module, no export, no free-function form); its implementations are attached
   methods on the implementing class, so a member reached through an interface-typed
-  receiver is a member access on whatever object is there, and where the interface was
+  object argument is a member access on whatever object is there, and where the interface was
   DECLARED is not part of the question. The local/external split is the wrong axis.
   The capability mapping keeps precedence over it — that one renames a member to its
   JS-native spelling rather than dispatching by name. Expected to fix TS interop in the
@@ -134,7 +134,7 @@ own check rather than a drive-by.
 
 `list.fsi` declares `Item`, `Empty`, `Cons`, `GetSlice`, `GetReverseIndex`, and none has a
 body on *either* target. `Item` is the interesting one: it is an INDEXED property, and
-nothing in the front end can define one — `get_Item` is resolved only on external receivers,
+nothing in the front end can define one — `get_Item` is resolved only on external object arguments,
 there is no `IsIndexed` on the member node, and no Vesper source anywhere declares one. This
 is a front-end gap, not library work, and conformance does not see it (§4.5).
 

@@ -35,7 +35,7 @@ module internal ElaborateExpr =
             ElaborateIdents.translateLongIdentFieldChain ctx li ty (ctx.Resolution.ExternalAccess.TryGetValue key) tok
         // Static member on an *external* type reached through a folded LongIdent
         // (`System.Console.Out`, `Console.Out`), recorded in `ExternalAccess`.
-        // Always static, so the type-name receiver is dropped (`ValueNone`).
+        // Always static, so there is no object argument (`ValueNone`).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
             TExpr.ExternalMember(ValueNone, info.Key, memberName, info.Storage, ty, tok)
@@ -54,75 +54,71 @@ module internal ElaborateExpr =
         // Class instance method invocation: `r.M(args)` →
         // `App(DotLookup(r, ., M), args)`.
         | Expr.App(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExprs = args) ->
-            let receiver = translateExpr ctx r
-            mkMethodCall ctx key receiver declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
+            let objArg = translateExpr ctx r
+            mkMethodCall ctx key objArg declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExpr = arg) ->
-            let receiver = translateExpr ctx r
-            mkMethodCall ctx key receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            let objArg = translateExpr ctx r
+            mkMethodCall ctx key objArg declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `LongIdent [p; M]` — the parser folds the dot into the long ident
         // rather than emitting `DotLookup` when the anchor is a regular identifier.
         | Expr.App(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
-                                                                                       receiverTy,
-                                                                                       memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite, objArgTy, memberName)))
             argExprs = args) ->
-            let receiver = TExpr.Var(bindingSite, receiverTy, tok)
+            let objArg = TExpr.Var(bindingSite, objArgTy, tok)
 
             mkMethodCall
                 ctx
                 key
-                receiver
-                (nominalDeclKey ctx.Store receiverTy)
+                objArg
+                (nominalDeclKey ctx.Store objArgTy)
                 memberName
                 (peelCtorArgs (translateExpr ctx) args)
                 ty
                 tok
         | Expr.HighPrecedenceApp(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
-                                                                                       receiverTy,
-                                                                                       memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite, objArgTy, memberName)))
             argExpr = arg) ->
-            let receiver = TExpr.Var(bindingSite, receiverTy, tok)
+            let objArg = TExpr.Var(bindingSite, objArgTy, tok)
 
             mkMethodCall
                 ctx
                 key
-                receiver
-                (nominalDeclKey ctx.Store receiverTy)
+                objArg
+                (nominalDeclKey ctx.Store objArgTy)
                 memberName
                 (peelOneArg (translateExpr ctx) arg)
                 ty
                 tok
-        // `r.f.…M(args)` — method call on a *multi-segment* receiver chain (e.g.
+        // `r.f.…M(args)` — method call on a *multi-segment* object argument (e.g.
         // `this.Source.MoveNext()`), which `ClassTailMethod` (2-segment) misses. The
-        // prefix LongIdent rebuilds the receiver field-chain; the tail is the method.
+        // prefix LongIdent rebuilds the field-chain; the tail is the method.
         | Expr.App(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, receiverTy, memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, objArgTy, memberName)))
             argExprs = args) ->
-            let receiver =
-                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            let objArg =
+                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi objArgTy ValueNone tok
 
             mkMethodCall
                 ctx
                 key
-                receiver
-                (nominalDeclKey ctx.Store receiverTy)
+                objArg
+                (nominalDeclKey ctx.Store objArgTy)
                 memberName
                 (peelCtorArgs (translateExpr ctx) args)
                 ty
                 tok
         | Expr.HighPrecedenceApp(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, receiverTy, memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, objArgTy, memberName)))
             argExpr = arg) ->
-            let receiver =
-                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            let objArg =
+                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi objArgTy ValueNone tok
 
             mkMethodCall
                 ctx
                 key
-                receiver
-                (nominalDeclKey ctx.Store receiverTy)
+                objArg
+                (nominalDeclKey ctx.Store objArgTy)
                 memberName
                 (peelOneArg (translateExpr ctx) arg)
                 ty
@@ -132,17 +128,17 @@ module internal ElaborateExpr =
         // `CallVia.Interface` makes codegen emit `constrained. <typar> callvirt`.
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
-                                                                                            receiverTy,
+                                                                                            objArgTy,
                                                                                             ifaceKey,
                                                                                             ifaceArgs,
                                                                                             memberName)))
             argExprs = args) ->
-            let receiver =
-                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            let objArg =
+                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi objArgTy ValueNone tok
 
             mkInterfaceMethodCall
                 ctx
-                receiver
+                objArg
                 ifaceKey
                 ifaceArgs
                 memberName
@@ -151,23 +147,23 @@ module internal ElaborateExpr =
                 tok
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
-                                                                                            receiverTy,
+                                                                                            objArgTy,
                                                                                             ifaceKey,
                                                                                             ifaceArgs,
                                                                                             memberName)))
             argExpr = arg) ->
-            let receiver =
-                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
+            let objArg =
+                ElaborateIdents.translateLongIdentFieldChain ctx prefixLi objArgTy ValueNone tok
 
-            mkInterfaceMethodCall ctx receiver ifaceKey ifaceArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            mkInterfaceMethodCall ctx objArg ifaceKey ifaceArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the anchor is a regular identifier.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
-            let receiver = TExpr.Var(bindingSite, receiverTy, tok)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, objArgTy, memberName))) ->
+            let objArg = TExpr.Var(bindingSite, objArgTy, tok)
 
-            let key = LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store receiverTy) memberName
+            let key = LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store objArgTy) memberName
 
-            TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
+            TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
             argExprs = args) -> mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
@@ -287,19 +283,19 @@ module internal ElaborateExpr =
         | Expr.RecordClone(expr = src; fieldInitializers = inits) -> translateRecordClone ctx src inits ty tok
         // Member access on an *external* type (static `Type.Member` or instance
         // `value.Member`) resolved through the provider — emit a keyed
-        // `TExpr.ExternalMember`; a static access drops the type-name receiver.
+        // `TExpr.ExternalMember`; a static access has no object argument.
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when
             li.Idents.Length = 1
             ->
             let memberName = ctx.NameOf li.Idents.[0]
 
-            let receiver =
+            let objArg =
                 if info.IsStatic then
                     ValueNone
                 else
                     ValueSome(translateExpr ctx r)
 
-            TExpr.ExternalMember(receiver, info.Key, memberName, info.Storage, ty, tok)
+            TExpr.ExternalMember(objArg, info.Key, memberName, info.Storage, ty, tok)
         // `ClassName<'args>.Prop` — static property read on an explicitly
         // instantiated generic class (`Set<'T>.Empty`). The `<'args>` only pinned
         // the instantiation in inference and is carried on `ty`.
@@ -328,7 +324,7 @@ module internal ElaborateExpr =
         | Expr.LibraryOnlyStaticOptimization(defaultExpr = defaultE; clauses = clauses) ->
             translateStaticOptimization ctx key defaultE clauses ty tok
         // `value<'T>` — explicit type application on a VALUE reference (the
-        // `TypeAppStaticMember` class-receiver forms matched above). The `<'T>` only
+        // `TypeAppStaticMember` class-qualifier forms matched above). The `<'T>` only
         // pinned the instantiation in inference; forward to the inner reference.
         | Expr.TypeApp(expr = inner) -> translateExpr ctx inner
         | _ ->
@@ -337,7 +333,7 @@ module internal ElaborateExpr =
 
     /// `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
     /// fallback is purely defensive for error paths where Unification couldn't
-    /// pin the receiver.
+    /// pin the constructed type.
     and private translateNew
         (ctx: PassContext)
         (key: NodeKey)

@@ -91,7 +91,7 @@ module internal UnificationInferGeneralize =
 
     /// True if `t` contains a TyVar whose root carries a deferred `PendingDotAccess`
     /// constraint. Such a binding must stay monomorphic in v1: quantifying freezes the
-    /// constraint into the scheme, where a use site pinning the receiver never discharges it.
+    /// constraint into the scheme, where a use site pinning the object argument never discharges it.
     let rec hasPendingDotAccess (store: TypeStore) (t: SemType) : bool =
         match t with
         | TyVar tv ->

@@ -273,7 +273,7 @@ module PrintfSpec =
         {
             /// `System.IO.StringWriter` / `System.Text.StringBuilder`.
             ScratchClassName: string
-            /// The `New` result type, and the receiver type of the `ToString` call.
+            /// The `New` result type, and the object-argument type of the `ToString` call.
             ScratchTy: SemType
             /// The interned `ToString()` member key codegen mints the ref off.
             ToStringKey: SymbolKey

@@ -360,7 +360,7 @@ module UnificationEngine =
         dischargeSrtpBounds ctx tok root t
 
     /// Resolve the dot-access constraints parked on a TyVar now its `Link` has settled.
-    /// When the receiver is generic its arg list substitutes for the declared typars, so
+    /// When the object argument is generic its arg list substitutes for the declared typars, so
     /// `(b : Box<int>).Value` resolves to `int`, not `Box`'s prototype `'a`.
     and private dischargePendingDotAccess (ctx: PassContext) (root: Rep) (linkTarget: SemType) : unit =
         let pending = ctx.Store.Pda.Live root
@@ -419,7 +419,7 @@ module UnificationEngine =
                         )
 
                         // The application linked the arg into `d.ResultTv`'s domain while the
-                        // receiver was deferred, so the `obj` parameter of `GetHashCode(obj)`
+                        // object argument was deferred, so the `obj` parameter of `GetHashCode(obj)`
                         // must absorb a typar argument here, not ground it.
                         unifyAppliedSig ctx d.Use.Tok (TyVar d.ResultTv) memberSig
                     | _ ->

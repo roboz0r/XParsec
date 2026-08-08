@@ -424,29 +424,29 @@ module Operators =
         ///
         val inline invalidArg: argumentName: string -> message: string -> 'T
 
-/// The desugaring target for `s.[i]` on a `string` receiver. The front end routes here
+/// The desugaring target for `s.[i]` on a `string`. The front end routes here
 /// only when the BCL `get_Chars` accessor does NOT resolve — the JS target, whose
 /// `string` carries no BCL metadata.
 [<AutoOpen>]
 module StringIntrinsics =
 
     /// <summary>Indexed read of a UTF-16 code unit — the lowering target the front
-    /// end desugars <c>s.[i]</c> to on a <c>string</c> receiver (the `string`
+    /// end desugars <c>s.[i]</c> to on a <c>string</c> (the `string`
     /// analogue of <c>GetArray</c>).</summary>
     val inline GetString: s: string -> index: int -> char
 
-/// The desugaring target for `x.[k]` / `x.[k] <- v` on a receiver whose EXTERNAL type
+/// The desugaring target for `x.[k]` / `x.[k] <- v` on a value whose EXTERNAL type
 /// carries a TS index signature (`{ [k: K]: V }`). A JS object has no `get_Item` method —
 /// bracket access is the only form — so the CLR body is contract-only.
 [<AutoOpen>]
 module IndexIntrinsics =
 
     /// <summary>Indexed read of an index-signature object — the lowering target the
-    /// front end desugars <c>x.[k]</c> to on such a receiver.</summary>
+    /// front end desugars <c>x.[k]</c> to on such a value.</summary>
     val inline GetIndex: target: 'T -> key: 'K -> 'V
 
     /// <summary>Indexed write of an index-signature object — the lowering target the
-    /// front end desugars <c>x.[k] &lt;- value</c> to on such a receiver.</summary>
+    /// front end desugars <c>x.[k] &lt;- value</c> to on such a value.</summary>
     val inline SetIndex: target: 'T -> key: 'K -> value: 'V -> unit
 
 /// Every reference splices the body in place, so this module emits no method.

@@ -748,7 +748,7 @@ let staticTests =
             test "`Box<'T>.Member` lowers to Static{Method,Property} (no Elaborate TODO TypeApp)" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
-                // `Tag`/`Origin` are `'T`-free so the receiver's `<'T>` is the only
+                // `Tag`/`Origin` are `'T`-free so the object argument's `<'T>` is the only
                 // explicit instantiation under test.
                 let src =
                     String.concat
@@ -1646,10 +1646,10 @@ let inheritanceTests =
 
             // Reading an *inherited* member from in-Vesper code (`node.Key` where
             // `Key` is declared on the base). The access walks the `inherit` chain
-            // and upcasts the receiver to the declaring ancestor (a ref-type upcast is
-            // a codegen no-op), so the receiver-keyed `resolveInstanceMember` resolves
-            // `get_Key` on the base.
-            test "reading an inherited member on a derived receiver resolves the base property (Key shape)" {
+            // and upcasts the object argument to the declaring ancestor (a ref-type upcast
+            // is a codegen no-op), so `resolveInstanceMember`, keyed on the object
+            // argument, resolves `get_Key` on the base.
+            test "reading an inherited member on a derived object argument resolves the base property (Key shape)" {
                 runs
                     "42"
                     (String.concat
@@ -1666,7 +1666,7 @@ let inheritanceTests =
             }
 
             // The same inherited read *inside a closure body*: a lambda capturing the
-            // derived receiver and reading its inherited member must lower the same
+            // derived object argument and reading its inherited member must lower the same
             // way.
             test "an inherited member read captured in a closure resolves the base property" {
                 runs
@@ -2346,7 +2346,7 @@ let coercionTests =
                 // params; `comparer` is pinned to `System.Collections.IEqualityComparer`
                 // only by the conformance unify that runs *after* the body — so
                 // `comparer.Equals(…)` defers as a pending dot-access on a free TyVar.
-                // The discharge resolves an external receiver through the provider.
+                // The discharge resolves an external object argument through the provider.
                 let src =
                     String.concat
                         "\n"

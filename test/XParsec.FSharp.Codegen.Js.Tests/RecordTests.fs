@@ -148,8 +148,8 @@ let tests =
                     Expect.equal out "5" "record built inside a curried function"
             }
 
-            // Instance-member dispatch on a record receiver: each augmentation member
-            // emits as a free receiver-first function (`<Type>__<member>`), and a
+            // Instance-member dispatch on a record object argument: each augmentation member
+            // emits as a free type-prefixed function (`<Type>__<member>`), and a
             // `v.M()` / `v.Prop` call site lowers to it — the same form union/class
             // members take. A field read (`v.X`) still lowers to a plain member access.
             let vecSrc =
@@ -159,15 +159,15 @@ let tests =
                 + "    member this.AddN (n: int) = this.X + this.Y + n\n"
                 + "    member this.Doubled = this.X * 2\n"
 
-            test "record instance members emit as free receiver-first functions" {
+            test "record instance members emit as free type-prefixed functions" {
                 let src = emitJs vecSrc
                 Expect.stringContains src "const Vec__Sum = (" "instance method, mangled name"
                 Expect.stringContains src "const Vec__AddN = (" "instance method with an arg"
-                Expect.stringContains src ") => (n) =>" "AddN curries the receiver then its argument"
+                Expect.stringContains src ") => (n) =>" "AddN curries the object argument then its argument"
                 Expect.stringContains src "const Vec__get_Doubled = (" "instance property getter, mangled name"
             }
 
-            test "a record instance method call executes receiver-first (Sum = 7)" {
+            test "a record instance method call passes its object argument first (Sum = 7)" {
                 match
                     runJs "record-member-method" (vecSrc + "\nlet v = { X = 3; Y = 4 }\nprintfn \"%d\" (v.Sum())")
                 with

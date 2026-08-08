@@ -109,26 +109,26 @@ module TastUnpool =
 
             TExprG.RecordClone(source, overrides', ty, tok)
         | ExprPayload.FieldGet fieldName ->
-            let receiver = nextE ()
-            TExprG.FieldGet(receiver, fieldName, ty, tok)
+            let objArg = nextE ()
+            TExprG.FieldGet(objArg, fieldName, ty, tok)
         | ExprPayload.FieldSet fieldName ->
-            let receiver = nextE ()
+            let objArg = nextE ()
             let value = nextE ()
-            TExprG.FieldSet(receiver, fieldName, value, ty, tok)
+            TExprG.FieldSet(objArg, fieldName, value, ty, tok)
         | ExprPayload.UnionCons caseName -> TExprG.UnionCons(caseName, EqArray.ofArray es, ty, tok)
         | ExprPayload.New p -> TExprG.New(p.ClassName, p.Key, EqArray.ofArray es, ty, tok)
-        // Positional, not a cursor draw: the children are the receiver then exactly the args.
+        // Positional, not a cursor draw: the children are the object argument then exactly the args.
         | ExprPayload.MethodCall p -> TExprG.MethodCall(es.[0], p.Key, p.Via, EqArray.ofArray es.[1..], ty, tok)
         | ExprPayload.PropertyGet p ->
-            let receiver = nextE ()
-            TExprG.PropertyGet(receiver, p.Key, p.Via, ty, tok)
+            let objArg = nextE ()
+            TExprG.PropertyGet(objArg, p.Key, p.Via, ty, tok)
         | ExprPayload.StaticMethodCall key -> TExprG.StaticMethodCall(key, EqArray.ofArray es, ty, tok)
         | ExprPayload.StaticFieldSet p ->
             let value = nextE ()
             TExprG.StaticFieldSet(p.DeclKey, p.FieldName, value, ty, tok)
         | ExprPayload.ExternalMember p ->
-            let receiver' = if p.HasReceiver then ValueSome(nextE ()) else ValueNone
-            TExprG.ExternalMember(receiver', p.Key, p.MemberName, p.Storage, ty, tok)
+            let objArg' = if p.HasObjArg then ValueSome(nextE ()) else ValueNone
+            TExprG.ExternalMember(objArg', p.Key, p.MemberName, p.Storage, ty, tok)
         | ExprPayload.Format p ->
             let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
@@ -153,7 +153,7 @@ module TastUnpool =
         | ExprPayload.TypeTest testTy ->
             let source = nextE ()
             TExprG.TypeTest(source, testTy, ty, tok)
-        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
+        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.SupportTy, p.MemberName, EqArray.ofArray es, ty, tok)
 
     let substitutePat
         (widenBoundVar: BoundVarId -> 'id)

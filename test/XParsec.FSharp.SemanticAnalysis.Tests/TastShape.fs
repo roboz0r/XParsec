@@ -352,13 +352,13 @@ type private Renderer() =
 
             push " }"
 
-        | TExpr.FieldGet(receiver, name, _, _) ->
-            this.Expr receiver
+        | TExpr.FieldGet(objArg, name, _, _) ->
+            this.Expr objArg
             push "."
             push name
 
-        | TExpr.FieldSet(receiver, name, value, _, _) ->
-            this.Expr receiver
+        | TExpr.FieldSet(objArg, name, value, _, _) ->
+            this.Expr objArg
             push "."
             push name
             push " <- "
@@ -400,8 +400,8 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.MethodCall(receiver, key, via, args, _, _) ->
-            this.Expr receiver
+        | TExpr.MethodCall(objArg, key, via, args, _, _) ->
+            this.Expr objArg
             // `base.M(...)` renders with a `^` dot so it reads distinctly from a
             // virtual `this.M(...)`.
             push (
@@ -426,8 +426,8 @@ type private Renderer() =
 
             push ")"
 
-        | TExpr.PropertyGet(receiver, key, via, _, _) ->
-            this.Expr receiver
+        | TExpr.PropertyGet(objArg, key, via, _, _) ->
+            this.Expr objArg
 
             push (
                 match via with
@@ -528,8 +528,8 @@ type private Renderer() =
 
             push "]"
 
-        | TExpr.ExternalMember(receiver, _, name, _, _, _) ->
-            match receiver with
+        | TExpr.ExternalMember(objArg, _, name, _, _, _) ->
+            match objArg with
             | ValueSome r ->
                 this.Expr r
                 push "."
@@ -576,8 +576,8 @@ type private Renderer() =
             push " :? "
             push (tyName testTy)
             push ")"
-        | TExpr.TraitCall(recv, memberName, args, _, _) ->
-            push (tyName recv)
+        | TExpr.TraitCall(supportTy, memberName, args, _, _) ->
+            push (tyName supportTy)
             push "."
             push memberName
             push "("

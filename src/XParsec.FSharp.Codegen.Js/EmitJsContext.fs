@@ -67,8 +67,8 @@ module EmitJsContext =
             /// flattened, lone unit erased); anything unsaturated gets a curried adapter.
             CompiledFns: Dictionary<BoundVarId, CompiledFns.CompiledFn>
             /// Keys of the file's locally-declared interfaces. A member whose declaring type
-            /// is in this set lowers to `receiver.<member>(args)`, not the free receiver-first
-            /// `<Type>__<member>`. `CallVia` cannot say: an interface-TYPED receiver is `Self`.
+            /// is in this set lowers to `objArg.<member>(args)`, not the free type-prefixed
+            /// `<Type>__<member>`. `CallVia` cannot say: an interface-TYPED object argument is `Self`.
             LocalInterfaces: HashSet<TypeKey>
             /// Depends only on the provider, not the file, so it is resolved at construction
             /// and is never a placeholder.
@@ -143,10 +143,10 @@ module EmitJsContext =
 
     // ---- Records -------------------------------------------------------------
 
-    /// The nominal key of a construct's receiver type, widened for the kind-blind
+    /// The nominal key of a construct's own type, widened for the kind-blind
     /// emitted-type tables.
     let nominalKey (what: string) (ty: FrozenType) : SymbolKey =
-        match TastLower.receiverShape ty with
+        match TastLower.objArgShape ty with
         | ValueSome(key, _) -> SymbolKey.Type key
         | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
 
@@ -173,7 +173,7 @@ module EmitJsContext =
                 ValueSome info
             | _ -> ValueNone
 
-    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver to its `JsRecordInfo`,
+    /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` record type to its `JsRecordInfo`,
     /// local or external.
     let recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
         let key = nominalKey what ty
@@ -217,7 +217,7 @@ module EmitJsContext =
                 ValueSome info
             | _ -> ValueNone
 
-    /// Resolve a `UnionCons` / union-pattern receiver type to its `JsUnionInfo`, local or
+    /// Resolve a `UnionCons` / union-pattern type to its `JsUnionInfo`, local or
     /// external.
     let unionInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsUnionInfo =
         let key = nominalKey what ty

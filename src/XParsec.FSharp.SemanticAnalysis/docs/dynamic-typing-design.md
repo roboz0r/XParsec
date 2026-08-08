@@ -147,11 +147,11 @@ cut. Ship infectious-default + target-typing first (it works with zero new machi
 add the warning once the core is proven, since it is the only part that needs new
 tyvar-origin tagging + suppression plumbing. Decide the syntactic-vs-loose fork then.
 
-### Receiver is `dynamic`, not `obj` **[DECIDED — strict `dynamic` receiver]**
+### The `?` operand is `dynamic`, not `obj` **[DECIDED — strict `dynamic` operand]**
 
 FSharp.Interop.Dynamic types `(?)` as `obj -> string -> 'TResult` (permissive: `?`
 works on anything). We recommend the **stricter** `dynamic -> …`: `?` is valid only on a
-`dynamic` receiver, so you cannot `?`-probe a statically-typed value by accident — you
+`dynamic` operand, so you cannot `?`-probe a statically-typed value by accident — you
 must first *be* in `dynamic`. This matches "you must go through `d?foo` / a cast."
 
 ### JS emission — bracket form
@@ -202,8 +202,8 @@ All uncommitted. Keep as reference, then unwind:
    `inline-bodies-js`): `?`/`?<-` emit `$0[$1]` / `$0[$1] = $2`; `dynamic value` =
    `retype value`. (`retype` may live in a more general ops file if made public — see
    surface [OPEN].)
-3. Desugar `Expr.DynamicLookup(recv, ?, ident)` → `(?) recv "ident"`, and
-   `Assignment(DynamicLookup(...), v)` → `(?<-) recv "ident" v`. **[OPEN: desugar site —
+3. Desugar `Expr.DynamicLookup(objArg, ?, ident)` → `(?) objArg "ident"`, and
+   `Assignment(DynamicLookup(...), v)` → `(?<-) objArg "ident" v`. **[OPEN: desugar site —
    a Desugar pass vs an `Infer`/`Freeze` arm that emits the operator App. The operator
    route is what unlocks SRTP target-typing; a bespoke arm returning `dynamic` would
    NOT.]**
@@ -223,7 +223,7 @@ All uncommitted. Keep as reference, then unwind:
 
 ## Open questions (decide before/while implementing)
 
-1. **[DECIDED]** `(?)` receiver — **`dynamic` (strict)**. You cannot `?`-probe a
+1. **[DECIDED]** `(?)` operand — **`dynamic` (strict)**. You cannot `?`-probe a
    statically-typed value; you must first *be* in `dynamic`.
 2. **[DECIDED — G3, landed 2026-07-04]** `retype` surface — PUBLIC but in a
    NON-`[<AutoOpen>]` `module Vesper.Unsafe`, reached via an explicit `open Vesper.Unsafe`

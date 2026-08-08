@@ -89,7 +89,7 @@ modelled:
   callback exist; the member-trait resolution behind them is the deferred
   `MemberTrait` case above. This is the real remaining SRTP gap.
 - **`PendingDotAccess`** — `x.Foo` where `x`'s type is still free. Parked until
-  the receiver is known, then resolved against record fields vs class members.
+  the object argument is known, then resolved against record fields vs class members.
 - **`Defaults`** — a `default ^T : dynamic` chain from an external symbol's
   declared defaults; applied at generalisation if nothing else pinned the
   variable.

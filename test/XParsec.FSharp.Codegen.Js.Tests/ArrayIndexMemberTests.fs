@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // path is actually taken and the bare-key store/lookup agreement holds.
 
 /// The array's member-contract key — the double-backtick-escaped `arrayName 1`
-/// (`` ``[]`` ``), the SAME ordinal string the receiver-side lookup, the consumer
+/// (`` ``[]`` ``), the SAME ordinal string the member-access lookup, the consumer
 /// contract, and the inline-body store all pass to `TryLookupMember`.
 let private arrayMemberKey: string = RuntimeNames.arrayContractName
 

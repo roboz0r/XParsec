@@ -539,7 +539,7 @@ module TastWalk =
                 else
                     TExpr.StaticFieldSet(k, n, v', ty', tok)
             | TExpr.ExternalMember(r, k, n, isProp, ty, tok) ->
-                // `r` is a struct `voption`, so the receiver's preservation is
+                // `r` is a struct `voption`, so the object argument's preservation is
                 // observed through the wrapped `TExpr`, not the wrapper.
                 match r with
                 | ValueNone ->
@@ -637,17 +637,17 @@ module TastWalk =
                     e
                 else
                     TExpr.Downcast(src', ty', tok)
-            | TExpr.TraitCall(recv, memberName, args, ty, tok) ->
-                let recv' = f recv
+            | TExpr.TraitCall(supportTy, memberName, args, ty, tok) ->
+                let supportTy' = f supportTy
                 let ty' = f ty
 
                 match EqArray.mapPreserve pe args with
                 | ValueNone ->
-                    if refEq recv' recv && refEq ty' ty then
+                    if refEq supportTy' supportTy && refEq ty' ty then
                         e
                     else
-                        TExpr.TraitCall(recv', memberName, args, ty', tok)
-                | ValueSome args' -> TExpr.TraitCall(recv', memberName, args', ty', tok)
+                        TExpr.TraitCall(supportTy', memberName, args, ty', tok)
+                | ValueSome args' -> TExpr.TraitCall(supportTy', memberName, args', ty', tok)
             | TExpr.TypeTest(src, testTy, ty, tok) ->
                 let src' = pe src
                 let testTy' = f testTy

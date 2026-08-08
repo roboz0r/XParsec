@@ -38,7 +38,7 @@ let r = Rectangle(2.0, 3.0)         //  r : Shape
 // Ctor as a value → arg -> union.
 let mkCircle = Circle               //  mkCircle : float -> Shape
 
-// Pattern match — receiver-driven, reaches a TyUnion.
+// Pattern match — scrutinee-driven, reaches a TyUnion.
 let area s =
     match s with
     | Circle r -> 3.14 * r * r

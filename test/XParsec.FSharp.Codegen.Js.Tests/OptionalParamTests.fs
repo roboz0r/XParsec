@@ -87,7 +87,7 @@ let private contract = contractTs manifest
 let private provider: IExternalSymbolProvider = contract.Provider
 
 /// Bind the external `api` value to a LOCAL first: an instance-method call dispatches
-/// on a local-binding receiver (`a.greet …`), the shape the dot-access / instance-probe
+/// on a local-binding object argument (`a.greet …`), the shape the dot-access / instance-probe
 /// path resolves — a bare external value folds into an unresolvable qualified name.
 let private withApi (body: string) : string = "let a = api\n" + body
 

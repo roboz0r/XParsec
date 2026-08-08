@@ -12,12 +12,12 @@ open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 
 module Inline =
 
-    /// An SRTP trait call the expansion could NOT resolve: the substituted receiver is not a
-    /// nominal, so no type can carry the named static member. `Receiver` is the SUBSTITUTED
-    /// receiver type and `MemberName` its compiled member name (`op_Addition`).
+    /// An SRTP trait call the expansion could NOT resolve: the substituted support type is not
+    /// a nominal, so no type can carry the named static member. `SupportTy` is that SUBSTITUTED
+    /// type and `MemberName` its compiled member name (`op_Addition`).
     type UnresolvedTrait =
         {
-            Receiver: SemType
+            SupportTy: SemType
             MemberName: string
         }
 
@@ -127,12 +127,12 @@ module Inline =
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
             | ValueNone -> TastWalk.mapExpr m defaultExpr
 
-        // Rewrite a substituted `TraitCall` to a `StaticMethodCall` on the receiver's static
-        // operator member; an unpinned receiver, or a host carrying no such member, declines.
+        // Rewrite a substituted `TraitCall` to a `StaticMethodCall` on the support type's static
+        // operator member; an unpinned support type, or a host carrying no such member, declines.
         // The result type is `sub ty` — `Vec2 * float -> Vec2` returns neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
-            (recvTy: SemType)
+            (supportTy: SemType)
             (memberName: string)
             (args: EqArray<TExpr>)
             (ty: SemType)
@@ -141,21 +141,21 @@ module Inline =
             let decline () =
                 declined.Add
                     {
-                        Receiver = sub recvTy
+                        SupportTy = sub supportTy
                         MemberName = memberName
                     }
 
                 ValueNone
 
-            match operatorHostKey ctx.Store (sub recvTy) with
+            match operatorHostKey ctx.Store (sub supportTy) with
             | ValueSome k ->
-                // The operands are POST-substitution (`sub recvTy` already pinned `k`): the
-                // receiver's declaring-type args and the substituted operand element types
+                // The operands are POST-substitution (`sub supportTy` already pinned `k`): the
+                // support type's declaring-type args and the substituted operand element types
                 // discriminate `op_Addition(Vec2, Vec2)` from `op_Addition(Vec2, float)`.
                 let operands =
                     LocalMemberKeys.externalOperands
                         ctx.Store
-                        (LocalMemberKeys.nominalArgs ctx.Store (sub recvTy))
+                        (LocalMemberKeys.nominalArgs ctx.Store (sub supportTy))
                         [ for a in args -> sub (TastWalk.exprTy a) ]
 
                 match LocalMemberKeys.totalMemberKey ctx k memberName operands with
@@ -170,8 +170,8 @@ module Inline =
                 fun m e ->
                     match e with
                     | TExpr.StaticOptimization(clauses, def, _, _) -> ValueSome(resolveStaticOpt clauses def)
-                    | TExpr.TraitCall(recvTy, memberName, args, ty, tok) ->
-                        resolveTraitCall m recvTy memberName args ty tok
+                    | TExpr.TraitCall(supportTy, memberName, args, ty, tok) ->
+                        resolveTraitCall m supportTy memberName args ty tok
                     | _ -> ValueNone
         }
 
@@ -411,11 +411,11 @@ module Inline =
     /// the user WROTE it (`+`), never by the member it compiled to (`op_Addition`). A name
     /// outside that table is not an operator at all: `(^T: (member GetAwaiter: …) x)`.
     let internal unsupportedTrait (store: TypeStore) (u: UnresolvedTrait) : Kind =
-        let receiver = shown store u.Receiver
+        let supportTy = shown store u.SupportTy
 
         match OperatorData.sourceSpelling u.MemberName with
-        | ValueSome symbol -> Kind.TraitNotSupported(receiver, MemberNoun.Operator, symbol)
-        | ValueNone -> Kind.TraitNotSupported(receiver, MemberNoun.Member, u.MemberName)
+        | ValueSome symbol -> Kind.TraitNotSupported(supportTy, MemberNoun.Operator, symbol)
+        | ValueNone -> Kind.TraitNotSupported(supportTy, MemberNoun.Member, u.MemberName)
 
     /// How a diagnostic spells a SERVED template: as the user WROTE it wherever the name is an
     /// operator (`|>`, never `op_PipeRight`) — a spelling the source never contains cannot be

@@ -33,7 +33,7 @@ module TastLower =
             "Emit: a TraitCall to '%s' reached the emitter — inline expansion grounds every trait call it can and reports the rest, so this node should not exist here"
             memberName
 
-    let inline receiverShape (ty: FrozenType) : (TypeKey * FrozenType list) voption =
+    let inline objArgShape (ty: FrozenType) : (TypeKey * FrozenType list) voption =
         match ty with
         | FTUnion(n, args)
         | FTRecord(n, args)
@@ -129,8 +129,8 @@ module TastLower =
                     | FrozenConstraint.Coercion(ci, target) ->
                         if ci >= 0 && ci < instArr.Length then
                             match instArr.[ci], target with
-                            | ValueSome receiver, FTClass(ifaceKey, _) ->
-                                match tryWitness receiver ifaceKey with
+                            | ValueSome instTy, FTClass(ifaceKey, _) ->
+                                match tryWitness instTy ifaceKey with
                                 | ValueSome witnessArgs ->
                                     let holes =
                                         matchInstantiationPartial

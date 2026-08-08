@@ -150,7 +150,7 @@ module AssemblyFiles =
         analyseAssemblyWith Pipeline.analyseFor assemblyName external files
 
     /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so nothing
-    /// resolves a token index against it and they render at the file head. A POSITIONED
+    /// resolves a token index against it and they render at line 1, col 1. A POSITIONED
     /// diagnostic here is unverifiable, so it faults rather than printing a plausible line.
     let unpositionedDiagnostics (path: string) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         [
@@ -173,7 +173,7 @@ module AssemblyFiles =
 
     /// Anchor a file's bare diagnostics to its path and text: a `Site` names tokens of THIS
     /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a
-    /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at the file head.
+    /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at line 1, col 1.
     let anchorDiagnostics (file: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         let lexed = file.Lexed
         let source = file.Input
@@ -207,7 +207,7 @@ module AssemblyFiles =
         ]
 
     /// A failed file's diagnostics, anchored against its own token stream when the failure
-    /// came AFTER lexing, and at the file head when there is no stream to anchor against.
+    /// came AFTER lexing, and at line 1, col 1 when there is no stream to anchor against.
     let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
         match e.Failure.Lexed with
         // The `""` bucket: no file was analysed, so no assembly claims this one — the

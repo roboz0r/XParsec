@@ -46,11 +46,11 @@ module TastNodeViews =
     type CompiledReturn = CompiledReturnG<FrozenType>
     type CompiledForm = CompiledFormG<FrozenType, PatId, BoundVarId>
 
-    /// The scalar payload of an `ExternalMember` node; `Receiver` is the member's target.
+    /// The scalar payload of an `ExternalMember` node; `ObjArg` is the member's target.
     [<Struct>]
     type ExternalMemberView =
         {
-            Receiver: ExprId voption
+            ObjArg: ExprId voption
             Key: SymbolKey
             MemberName: string
             Storage: MemberStorage
@@ -119,17 +119,17 @@ module TastNodeViews =
             Overrides: (string * ExprId)[]
         }
 
-    /// The scalar payload of a `FieldGet` node (`receiver.FieldName`); `Receiver` is the
+    /// The scalar payload of a `FieldGet` node (`objArg.FieldName`); `ObjArg` is the
     /// sole `exprChildren` entry.
     [<Struct>]
-    type FieldGetView = { Receiver: ExprId; FieldName: string }
+    type FieldGetView = { ObjArg: ExprId; FieldName: string }
 
-    /// The scalar payload of a `FieldSet` node (`receiver.FieldName <- value`) — the two
+    /// The scalar payload of a `FieldSet` node (`objArg.FieldName <- value`) — the two
     /// nodes `exprChildren` yields, named by role, plus the field label.
     [<Struct>]
     type FieldSetView =
         {
-            Receiver: ExprId
+            ObjArg: ExprId
             FieldName: string
             Value: ExprId
         }
@@ -144,24 +144,24 @@ module TastNodeViews =
             ChosenCtor: SymbolKey voption
         }
 
-    /// The scalar payload of a `PropertyGet` node; `Receiver` is the sole `exprChildren`
+    /// The scalar payload of a `PropertyGet` node; `ObjArg` is the sole `exprChildren`
     /// entry. `Via` distinguishes a grounded self/base access from a
     /// `constrained.`-dispatched typar-interface one (`CallVia.Interface`).
     [<Struct>]
     type PropertyGetView =
         {
-            Receiver: ExprId
+            ObjArg: ExprId
             Key: SymbolKey
             Via: CallVia<FrozenType>
         }
 
-    /// The scalar payload of a `MethodCall` node. `Args` excludes the receiver, where
+    /// The scalar payload of a `MethodCall` node. `Args` excludes the object argument, where
     /// `exprChildren` merges it in ahead of them. `Via` distinguishes a grounded self/base
     /// call from a `constrained.`-dispatched typar-interface one (`CallVia.Interface`).
     [<Struct>]
     type MethodCallView =
         {
-            Receiver: ExprId
+            ObjArg: ExprId
             Key: SymbolKey
             Via: CallVia<FrozenType>
             Args: EqArray<ExprId>

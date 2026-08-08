@@ -167,7 +167,7 @@ type Constraint =
 
 and Predicate =
     | Capability of CapabilityKind * SemType            // equality/comparison/struct/nullness — derived
-    | HasMember  of recv: SemType * MemberShape         // structural trait (SRTP) + ordinary dot-access
+    | HasMember  of supportTy: SemType * MemberShape    // structural trait (SRTP) + ordinary dot-access
     | Implements of SemType * iface: TypeKey * args      // nominal trait (SAIM/IWSAM, generic math)
 ```
 
@@ -190,7 +190,7 @@ and Predicate =
   ordinary dot-access at generalization is the "lookup on indeterminate type" error; an SRTP bound
   may be quantified.
 
-A predicate is **solved** (witness on the ground type), **stuck** (receiver not ground → re-woken
+A predicate is **solved** (witness on the ground type), **stuck** (the object argument not ground → re-woken
 when it grounds), or **quantified** (var generalizes → predicate rides `TypeScheme.constraints`
 (`:1931`) as `P => τ`). That field is already the qualified-type context — the machinery is
 half-there, smeared across four node slots today.
@@ -208,7 +208,7 @@ half-there, smeared across four node slots today.
 | `subsumes` | read-only relation + suspendable bound | `CSub` |
 
 Solver loop: `union` joins two reps' stuck-constraint sets; **grounding a var wakes its watchers**;
-`CSub`/`Capability` checked read-only; `HasMember`/`Implements` resolved when the receiver's type constructor
+`CSub`/`Capability` checked read-only; `HasMember`/`Implements` resolved when the object argument's type constructor
 grounds; unresolved-at-end are diagnostics (or generalized). Suspension, not backtracking —
 consistent with preserve-6.
 

@@ -57,7 +57,7 @@ module internal UnificationInferResolve =
         match TypeRegistry.tryWrittenClass ctx.Types useSite written with
         | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
-            let receiverTy = TyClass(info.TypeKey, args)
+            let ctorTy = TyClass(info.TypeKey, args)
 
             let arg =
                 info.CtorParams
@@ -65,7 +65,7 @@ module internal UnificationInferResolve =
                 |> Array.toList
                 |> tupleOrSingle ctx
 
-            ValueSome(TyFun(arg, receiverTy))
+            ValueSome(TyFun(arg, ctorTy))
         | ValueNone -> ValueNone
 
     let tryClassCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType voption =
@@ -359,9 +359,9 @@ module internal UnificationInferResolve =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Split a folded static-member LongIdent (`System.Console.Out`) into the receiver
+    /// Split a folded static-member LongIdent (`System.Console.Out`) into the qualifier
     /// PREFIX's resolved type identity and the trailing member token, reading the key
-    /// NameResolution stamped in `ExternalStaticReceiver` rather than re-resolving here.
+    /// NameResolution stamped in `ExternalStaticQualifier` rather than re-resolving here.
     let splitExternalStaticPrefix
         (ctx: PassContext)
         (key: NodeKey)
@@ -369,7 +369,7 @@ module internal UnificationInferResolve =
         : (SymbolKey * SyntaxToken) voption =
         let lastTok = li.Idents.[li.Idents.Length - 1]
 
-        match ctx.Resolution.ExternalStaticReceiver.TryGetValue key with
+        match ctx.Resolution.ExternalStaticQualifier.TryGetValue key with
         | ValueSome declTypeKey -> ValueSome(declTypeKey, lastTok)
         | ValueNone -> ValueNone
 
@@ -407,21 +407,21 @@ module internal UnificationInferResolve =
                 memberTok
                 (Kind.NoMember(SymbolKeyOps.qualifiedName declTypeKey, MemberNoun.AccessibleMember, memberName))
 
-    /// If `recv` is an external generic type name used as a static-access receiver
+    /// If `qualifier` is an external generic type name used as a static-access qualifier
     /// (`EqualityComparer<int>` in `EqualityComparer<int>.Default`), its declaring type's
     /// stamped key and the raw CST type args — translation is deferred to the caller.
-    let tryExternalTypeReceiver
+    let tryExternalTypeQualifier
         (ctx: PassContext)
-        (recv: Expr<SyntaxToken>)
+        (qualifier: Expr<SyntaxToken>)
         : (SymbolKey * Type<SyntaxToken> list) voption =
-        // The receiver as written: a single-segment name parses as `Expr.Ident`
+        // The qualifier as written: a single-segment name parses as `Expr.Ident`
         // (`EqualityComparer<int>`), a dotted one as a `LongIdent`.
-        match recv with
+        match qualifier with
         | Expr.TypeApp(expr = fn; types = typeArgs) ->
             match fn with
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _)
             | Expr.Ident _ ->
-                match ctx.Resolution.ExternalStaticReceiver.TryGetValue(CstKeys.ofExpr fn) with
+                match ctx.Resolution.ExternalStaticQualifier.TryGetValue(CstKeys.ofExpr fn) with
                 | ValueSome declTypeKey -> ValueSome(declTypeKey, List.ofSeq typeArgs)
                 | ValueNone -> ValueNone
             | _ -> ValueNone

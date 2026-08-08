@@ -1260,7 +1260,7 @@ let tests =
             }
 
             test "an interface-dispatched method call mints a TOTAL member key" {
-                // `'T :> IShow` coerces the receiver typar to a local interface, so the call
+                // `'T :> IShow` coerces the object argument's typar to a local interface, so the call
                 // lowers through `mkInterfaceMethodCall` — its key must resolve the member on
                 // the interface (the local-registry arm of the shared minter), total by
                 // construction like every other method mint.

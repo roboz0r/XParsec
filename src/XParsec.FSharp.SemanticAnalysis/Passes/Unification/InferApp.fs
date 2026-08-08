@@ -484,11 +484,11 @@ module internal UnificationInferApp =
             // Desugar didn't recognise the operator — leave the result free.
             TyVar(freshTyVar ctx)
 
-    /// `recv?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident` desugars to `(?)
-    /// x "ident"`), unified against `recv -> string -> ^TResult`. Its `target: dynamic`
-    /// parameter rejects a static receiver; `default ^TResult : dynamic` keeps a chain dynamic.
-    and inferDynamicLookup (infer: Infer) (ctx: PassContext) (node: NodeSite) (recv: Expr<SyntaxToken>) : SemType =
-        let recvTy = infer ctx recv
+    /// `x?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident` desugars to `(?)
+    /// x "ident"`), unified against `x -> string -> ^TResult`. Its `target: dynamic`
+    /// parameter rejects a static object argument; `default ^TResult : dynamic` keeps a chain dynamic.
+    and inferDynamicLookup (infer: Infer) (ctx: PassContext) (node: NodeSite) (objArg: Expr<SyntaxToken>) : SemType =
+        let objArgTy = infer ctx objArg
 
         match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
         | ValueSome sym ->
@@ -502,7 +502,7 @@ module internal UnificationInferApp =
                 ctx
                 node.Tok
                 (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                (TyFun(recvTy, TyFun(ctx.Intrinsics.String, resultTy)))
+                (TyFun(objArgTy, TyFun(ctx.Intrinsics.String, resultTy)))
 
             // Record for the post-settle escape sweep: a context that pins `resultVar` to a
             // concrete non-`dynamic` type is an unchecked assertion, warned on unless ascribed.
@@ -511,16 +511,16 @@ module internal UnificationInferApp =
             resultTy
         | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope "dynamic-access operator '?' (op_Dynamic)")
 
-    /// `recv?name <- value` — the dynamic-set operator (`(?<-) recv "name" value`), unified
-    /// against `recv -> string -> value -> unit`.
+    /// `x?name <- value` — the dynamic-set operator (`(?<-) x "name" value`), unified
+    /// against `x -> string -> value -> unit`.
     and inferDynamicSet
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
-        (recv: Expr<SyntaxToken>)
+        (objArg: Expr<SyntaxToken>)
         (value: Expr<SyntaxToken>)
         : SemType =
-        let recvTy = infer ctx recv
+        let objArgTy = infer ctx objArg
         let valueTy = infer ctx value
 
         match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
@@ -533,7 +533,7 @@ module internal UnificationInferApp =
                 ctx
                 node.Tok
                 (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                (TyFun(recvTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
+                (TyFun(objArgTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
 
             ctx.Intrinsics.Unit
         | ValueNone ->

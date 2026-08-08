@@ -209,7 +209,7 @@ module FrozenCodec =
             w.Write p.FieldName
         | ExprPayload.ExternalMember p ->
             w.Write 31uy
-            w.Write p.HasReceiver
+            w.Write p.HasObjArg
             writeSymbolRef w p.Key
             w.Write p.MemberName
             writeMemberStorage w p.Storage
@@ -231,7 +231,7 @@ module FrozenCodec =
             writeTypeRef w testTy
         | ExprPayload.TraitCall p ->
             w.Write 38uy
-            writeTypeRef w p.Receiver
+            writeTypeRef w p.SupportTy
             w.Write p.MemberName
         | ExprPayload.InlineCall p ->
             w.Write 39uy
@@ -312,14 +312,14 @@ module FrozenCodec =
                     FieldName = fieldName
                 |}
         | 31uy ->
-            let hasReceiver = r.ReadBoolean()
+            let hasObjArg = r.ReadBoolean()
             let key = readSymbolRef r
             let memberName = r.ReadString()
             let storage = readMemberStorage r
 
             ExprPayload.ExternalMember
                 {|
-                    HasReceiver = hasReceiver
+                    HasObjArg = hasObjArg
                     Key = key
                     MemberName = memberName
                     Storage = storage
@@ -345,12 +345,12 @@ module FrozenCodec =
         | 36uy -> ExprPayload.Downcast
         | 37uy -> ExprPayload.TypeTest(readTypeRef r)
         | 38uy ->
-            let receiver = readTypeRef r
+            let supportTy = readTypeRef r
             let memberName = r.ReadString()
 
             ExprPayload.TraitCall
                 {|
-                    Receiver = receiver
+                    SupportTy = supportTy
                     MemberName = memberName
                 |}
         | 39uy ->

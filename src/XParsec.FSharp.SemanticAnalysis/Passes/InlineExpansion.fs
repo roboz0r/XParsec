@@ -150,14 +150,14 @@ module InlineExpansion =
                             Args = ValueSome args
                             RebuiltFn = fun () -> markedFn
                         }
-                | TExpr.ExternalMember(receiver, key, memberName, storage, _, memberTok) ->
+                | TExpr.ExternalMember(objArg, key, memberName, storage, _, memberTok) ->
                     ValueSome
                         {
                             Key = ValueSome key
                             Args =
                                 untupleMemberArgs key memberName storage args
                                 |> ValueOption.map (fun opened ->
-                                    match receiver with
+                                    match objArg with
                                     | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: opened
                                     | ValueNone -> opened
                                 )

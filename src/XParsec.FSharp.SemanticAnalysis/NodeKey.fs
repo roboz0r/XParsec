@@ -51,7 +51,7 @@ type NodeKind =
     | ExprStaticUpcast = 37us
     | ExprDynamicTypeTest = 38us
     | ExprDynamicDowncast = 39us
-    /// Indexed array lookup (`arr.[i]`), keyed off the `[` token, not its receiver's.
+    /// Indexed array lookup (`arr.[i]`), keyed off the `[` token, not the object argument's.
     | ExprIndexedLookup = 40us
     | ExprStaticMemberInvocation = 41us
 
@@ -113,8 +113,8 @@ type NodeKind =
     /// BoundVar of a template UNPOOLED onto the cross-file wire, whose slot means nothing in the
     /// consuming file and so is re-minted. Counter-minted, on its own counter.
     | SynthUnpooledBoundVar = 1008us
-    /// The receiver and per-element bound variables a tupled member call's destructured argument
-    /// needs. Counter-minted on its own counter: one construct mints several at one offset.
+    /// The object argument and per-element bound variables a tupled member call's destructured
+    /// argument needs. Counter-minted on its own counter: one construct mints several at one offset.
     | SynthElaborateBoundVar = 1009us
 
 [<Struct>]

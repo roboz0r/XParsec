@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // TS provider: a manifest `Interface`/`Class` name resolves through
-// `TsManifestProvider.toFrozen` as `FTClass` (→ front-end `TyClass`), so a receiver
+// `TsManifestProvider.toFrozen` as `FTClass` (→ front-end `TyClass`), so an object argument
 // whose type FLOWS FROM A SIGNATURE (a function/member return — the path that goes
 // through `toFrozen`, unlike a direct annotation, which Translate.fs already minted as
 // `TyClass`) admits `.member` access via `resolveFieldStep`'s external-`TyClass` arm.

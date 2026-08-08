@@ -195,22 +195,22 @@ module internal ClosureVerdictRewrite =
             |> TastLower.mapFrozenArgs (EqArray.mapi (fun i a -> if i = pos then closureFt else a))
 
         // A `FieldGet` off a verdict binding has its own type — the projected function —
-        // mapped to the closure via that binding's recorded replacements; the receiver is
+        // mapped to the closure via that binding's recorded replacements; the object arg is
         // retyped to the container so its field `TypeSpec` matches the instantiated field row.
         let retypeBody (e: TastAccessor.ExprId) : TastAccessor.ExprId =
             if verdictBindings.Count = 0 && not hasTransformerVerdict then
                 e
             else
-                // The verdict binding a (possibly nested-field) receiver bottoms out in,
+                // The verdict binding a (possibly nested-field) object arg bottoms out in,
                 // for mapping a projection's function type to its closure.
-                let rec receiverBinding (r: TastAccessor.ExprId) : BoundVarId voption =
+                let rec objArgBinding (r: TastAccessor.ExprId) : BoundVarId voption =
                     match r with
                     | TastAccessor.EVar k ->
                         if verdictBindings.ContainsKey k then
                             ValueSome k
                         else
                             ValueNone
-                    | TastAccessor.EFieldGet fg -> receiverBinding fg.Receiver
+                    | TastAccessor.EFieldGet fg -> objArgBinding fg.ObjArg
                     | _ -> ValueNone
 
                 // Re-author ONLY the affected nodes: closure discovery keys lambdas by node
@@ -224,10 +224,10 @@ module internal ClosureVerdictRewrite =
                         | false, _ -> e
                     | TastAccessor.EFieldGet fg ->
                         let ty = TastAccessor.exprTy e
-                        let recv' = rw fg.Receiver
+                        let objArg' = rw fg.ObjArg
 
                         let ty' =
-                            match receiverBinding fg.Receiver with
+                            match objArgBinding fg.ObjArg with
                             | ValueSome k ->
                                 let _, replaced = verdictBindings.[k]
 
@@ -236,7 +236,7 @@ module internal ClosureVerdictRewrite =
                                 |> Option.defaultValue ty
                             | ValueNone -> ty
 
-                        TastAccessor.retypeWithChildren e [| recv' |] ty'
+                        TastAccessor.retypeWithChildren e [| objArg' |] ty'
                     | TastAccessor.EApp app ->
                         let ty = TastAccessor.exprTy e
                         // `fold f 0 (map g src)` — a transformer argument with no stored

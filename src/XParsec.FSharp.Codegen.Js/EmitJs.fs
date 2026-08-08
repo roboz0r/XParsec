@@ -188,7 +188,7 @@ module EmitJs =
         // `r.X` → `r.X`: the emitted class stores each field under its source field name.
         | ExprShape.FieldGet ->
             let fg = TastAccessor.exprFieldGet e
-            JsExpr.Member(buildExpr ctx fg.Receiver, JsExpr.Identifier(fg.FieldName, ValueNone), false, loc)
+            JsExpr.Member(buildExpr ctx fg.ObjArg, JsExpr.Identifier(fg.FieldName, ValueNone), false, loc)
 
         // `r.X <- v` → `(r.X = v)`, a `val mutable` instance-field write. Unit-typed in F#,
         // so the yielded value is unused; statement position wraps it as a statement.
@@ -196,7 +196,7 @@ module EmitJs =
             let fs = TastAccessor.exprFieldSet e
 
             JsExpr.Assign(
-                JsExpr.Member(buildExpr ctx fs.Receiver, JsExpr.Identifier(fs.FieldName, ValueNone), false, loc),
+                JsExpr.Member(buildExpr ctx fs.ObjArg, JsExpr.Identifier(fs.FieldName, ValueNone), false, loc),
                 buildExpr ctx fs.Value,
                 loc
             )
@@ -222,7 +222,7 @@ module EmitJs =
             // A locally-emitted class constructs by its emitted name with positional args,
             // the ctor storing each into the like-named field.
             let localClassName =
-                match TastLower.receiverShape ty with
+                match TastLower.objArgShape ty with
                 | ValueSome(key, _) ->
                     match ctx.Classes.TryGetValue(SymbolKey.Type key) with
                     | true, name -> ValueSome name
@@ -233,7 +233,7 @@ module EmitJs =
             // import — the JS runtime provides it intrinsically. That name is the key's
             // simple name (`Js.Widget` → `Widget`).
             let globalClassName =
-                match TastLower.receiverShape ty with
+                match TastLower.objArgShape ty with
                 | ValueSome(key, _) ->
                     JsExternalMembers.classFlagsOf ctx.Provider key
                     |> ValueOption.filter (fun flags -> flags.Global)
@@ -262,27 +262,27 @@ module EmitJs =
                         "EmitJs: construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
                         (TastAccessor.exprNewClassName e)
 
-        // A LOCAL interface slot's impl is an ATTACHED method on the receiver's class, so it
-        // dispatches as `receiver.<member>(args)` — no free `<Type>__<member>` function is
+        // A LOCAL interface slot's impl is an ATTACHED method on the object argument's class, so
+        // it dispatches as `objArg.<member>(args)` — no free `<Type>__<member>` function is
         // emitted for an interface member. An impl PROPERTY is a zero-arg attached method.
         | ExprShape.PropertyGet ->
             let pg = TastAccessor.exprPropertyGet e
 
             if ctx.LocalInterfaces.Contains(JsExternalMembers.declKey pg.Key) then
-                JsExpr.Call(attachedAccess ctx loc pg.Receiver pg.Key, [], loc)
+                JsExpr.Call(attachedAccess ctx loc pg.ObjArg pg.Key, [], loc)
             else
-                JsExpr.Call(Members.localFn ctx pg.Key false true ValueNone, [ buildExpr ctx pg.Receiver ], loc)
+                JsExpr.Call(Members.localFn ctx pg.Key false true ValueNone, [ buildExpr ctx pg.ObjArg ], loc)
 
         | ExprShape.MethodCall ->
             let mc = TastAccessor.exprMethodCall e
 
             if ctx.LocalInterfaces.Contains(JsExternalMembers.declKey mc.Key) then
-                JsExpr.Call(attachedAccess ctx loc mc.Receiver mc.Key, [ for a in mc.Args -> buildExpr ctx a ], loc)
+                JsExpr.Call(attachedAccess ctx loc mc.ObjArg mc.Key, [ for a in mc.Args -> buildExpr ctx a ], loc)
             else
-                let withRecv =
-                    JsExpr.Call(Members.localFn ctx mc.Key false false ValueNone, [ buildExpr ctx mc.Receiver ], loc)
+                let withObjArg =
+                    JsExpr.Call(Members.localFn ctx mc.Key false false ValueNone, [ buildExpr ctx mc.ObjArg ], loc)
 
-                applyArgs ctx withRecv mc.Args
+                applyArgs ctx withObjArg mc.Args
 
         | ExprShape.StaticPropertyGet -> Members.localFn ctx (TastAccessor.exprStaticPropertyGetKey e) true true loc
 
@@ -312,15 +312,15 @@ module EmitJs =
         // lowering, so every dispatch but the erased one falls to the mangled import.
         | ExprShape.ExternalMember ->
             match e with
-            | CapabilityRead ctx.Capabilities ctx.Imports (recv, emit) -> emit (buildExpr ctx recv) loc
+            | CapabilityRead ctx.Capabilities ctx.Imports (objArg, emit) -> emit (buildExpr ctx objArg) loc
             | _ ->
                 let em = TastAccessor.exprExternalMember e
                 let declKey = JsExternalMembers.declKey em.Key
 
-                match JsExternalMembers.dispatchOf ctx.Provider declKey em.Storage, em.Receiver with
+                match JsExternalMembers.dispatchOf ctx.Provider declKey em.Storage, em.ObjArg with
                 | MemberDispatch.ErasedBare _, ValueSome _ ->
                     failwithf
-                        "EmitJs: erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
+                        "EmitJs: erased grouping type member '%s' has an object argument, but a synthetic free-function-overload type carries only static members"
                         em.MemberName
                 | MemberDispatch.ErasedBare form, ValueNone ->
                     JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey em.MemberName form loc
@@ -334,7 +334,7 @@ module EmitJs =
                     JsExpr.Call(JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc, [], loc)
                 // JS has no field/property distinction at access — a `Field` and a `Property`
                 // both take the `get_`-style mangled import; only a `Method` is a function.
-                | MemberDispatch.MangledImport, _
+                | MemberDispatch.TypePrefixedImport, _
                 | MemberDispatch.Application, ValueNone
                 | MemberDispatch.NativeData, ValueNone
                 | MemberDispatch.AttachedMethod, ValueNone
@@ -344,7 +344,7 @@ module EmitJs =
                         ctx.Imports
                         (buildExpr ctx)
                         declKey
-                        em.Receiver
+                        em.ObjArg
                         em.MemberName
                         em.Storage.IsValueMember
                         loc
@@ -626,11 +626,11 @@ module EmitJs =
 
         JsExpr.Arrow(names, trampolineOrExpr ctx selfKey (List.length cf.Groups) names cf.Body, loc)
 
-    /// `receiver.<member>` for a call dispatched through a local interface slot — the member
-    /// resolves to the attached method emitted on the receiver's class, under its JS name.
-    and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: TastAccessor.ExprId) (key: SymbolKey) : JsExpr =
+    /// `objArg.<member>` for a call dispatched through a local interface slot — the member
+    /// resolves to the attached method emitted on the object argument's class, under its JS name.
+    and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (objArg: TastAccessor.ExprId) (key: SymbolKey) : JsExpr =
         let (DisplayName memberName) = SymbolKeyOps.simpleName key
-        JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(memberName, ValueNone), false, loc)
+        JsExpr.Member(buildExpr ctx objArg, JsExpr.Identifier(memberName, ValueNone), false, loc)
 
     /// A value bound to a name. A `Lambda` value carries its bound variable key down, so a recursive
     /// binding (`let rec`) can recognise its own tail calls.
@@ -744,7 +744,7 @@ module EmitJs =
                 ]
             | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
-    /// The JS bound variable name for a single-bound-variable loop/scope pattern (`use x = …`, `for x in …`).
+    /// The JS name for a single-name loop/scope pattern (`use x = …`, `for x in …`).
     /// A wildcard gets a fresh temporary: still bound, though the body cannot name it.
     and private patBoundVarName (ctx: WalkCtx) (prefix: string) (pattern: TastAccessor.PatId) : string =
         match pattern with
@@ -772,7 +772,7 @@ module EmitJs =
             // names its own slot.
             | Disposal.ViaCapability _ -> disposeSlotCall boundVar ValueNone
             // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
-            // keyed member's free receiver-first function.
+            // keyed member's free type-prefixed function.
             | Disposal.ViaOwnMember key ->
                 let disposeFn = Members.localFn ctx key false false ValueNone
                 JsExpr.Call(disposeFn, [ boundVar ], ValueNone)

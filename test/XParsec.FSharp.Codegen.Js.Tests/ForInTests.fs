@@ -65,10 +65,10 @@ let private seqClassSrc =
 // case instance — and `for x in (Stop3 :> seq<int>)` then drives `[Symbol.iterator]`
 // resolved on the concrete case instance. This exercises that a union routes its interface
 // impls through the SAME `partitionClassMembers` path the class uses, attaching
-// `*[Symbol.iterator]()` to the union base class. (Referencing the receiver `this` or a
-// case PAYLOAD inside a union interface-impl body hits a separate front-end bound-variable-scoping
-// gap — slice 1 did not scope the self/pattern bound variables for a union's impl bodies — so the
-// `GetEnumerator` body is receiver-free and the case is nullary.)
+// `*[Symbol.iterator]()` to the union base class. (Referencing `this` or a case PAYLOAD inside a
+// union interface-impl body hits a separate front-end bound-variable-scoping gap — slice 1 did not
+// scope the self/pattern bound variables for a union's impl bodies — so the `GetEnumerator` body is
+// `this`-free and the case is nullary.)
 let private seqUnionSrc =
     String.concat
         "\n"
@@ -98,7 +98,7 @@ let private seqUnionSrc =
 // through the `seq<'T>`-typed arm instead and never touches the nominal probe). A record
 // routes its interface impls through the SAME `partitionClassMembers` path the class and
 // union use, so the impl becomes a `*[Symbol.iterator]()` generator on the record class and
-// the loop lowers to a plain `for…of`. The impl body reads the receiver (`this.Stop`).
+// the loop lowers to a plain `for…of`. The impl body reads `this` (`this.Stop`).
 let private seqRecordSrc =
     String.concat
         "\n"

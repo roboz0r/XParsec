@@ -175,8 +175,8 @@ It is unreachable today only because the producer hard-codes it away:
 `ForInEnumMembersG.ConstrainedInterface`. Nothing in either type enforces that coupling — the
 named field states it, no more — and the first constrained-typar enumerator that is
 `IDisposable` breaks it. The disposal branch should
-key on "is the receiver addressed", which is `IsValueType || MembersViaConstrained` — the same
-predicate `loadEnumReceiver` already uses — not on `IsValueType` alone. Pairs with B14.
+key on "is the object argument addressed", which is `IsValueType || MembersViaConstrained` — the same
+predicate `loadEnumObjArg` already uses — not on `IsValueType` alone. Pairs with B14.
 
 ## A14. `MetadataContext.AddProgramType` is a byte-identical copy of `AddClass`
 
@@ -216,7 +216,7 @@ struct. Pairs with B20.
 
 The front end accepts it: `Infer.resolveLocal` mints `Disposal.ViaOwnMember` from
 `tryRefStructOwnDispose` for exactly that shape. A `use` over a local ref struct with a pattern
-`Dispose()` therefore type-checks and then fails codegen. Either lower the addressed-receiver
+`Dispose()` therefore type-checks and then fails codegen. Either lower the addressed-object-argument
 form (`ldloca` + `call` / `constrained. callvirt`, and no null check — a struct cannot be null)
 or reject it in Validation with a message about ref structs rather than "out of scope".
 
@@ -252,8 +252,8 @@ and naming the outcomes is one change.
 
 ## B3. `ExternalParent` — `EmitResolve.externalInstanceMemberRef`
 
-Two 3-line comments exist only to say where the parent `TypeSpec` comes from per receiver
-shape. `ExternalParent = FromReceiver of FrozenType | RecoverFromSignature`, computed once,
+Two 3-line comments exist only to say where the parent `TypeSpec` comes from per object-argument
+shape. `ExternalParent = FromObjArg of FrozenType | RecoverFromSignature`, computed once,
 deletes both.
 
 ## B4. `CallResult` — the `unit` → `void` mapping, restated at four sites
@@ -354,10 +354,10 @@ two factories into one taking the paths.
 ## B14. `EmitLoops.EnumeratorLoop`'s three dispatch bools are one choice each
 
 `GetEnumeratorViaInterface`, `GetEnumViaConstrained` and `MembersViaConstrained` encode the
-receiver/dispatch decision as three independent bools, and two of them are not independent. The
+object-argument/dispatch decision as three independent bools, and two of them are not independent. The
 `Pattern` arm assigns the *same* value to `GetEnumeratorViaInterface` and `GetEnumViaConstrained`;
 the `Interface` arm sets `GetEnumeratorViaInterface = true` where it is never read, because that
-field is consulted only inside the addressed-receiver branch and the `Interface` arm's
+field is consulted only inside the addressed-object-argument branch and the `Interface` arm's
 `IsValueType = false` / `GetEnumViaConstrained = false` never enters it. So
 `GetEnumeratorViaInterface` is redundant with `GetEnumViaConstrained` at the only site that reads
 it. Its deleted five-line doc claimed it distinguished the `Interface` arm from the `Pattern` arm
@@ -365,7 +365,7 @@ it. Its deleted five-line doc claimed it distinguished the `Interface` arm from 
 
 A source-dispatch DU (by-value `callvirt` / by-address `call` / `constrained.` on the address) and
 an enumerator-dispatch DU replace all three, delete the two surviving field comments, and make A13
-unrepresentable: "is the receiver addressed" becomes one value read by `loadEnumReceiver`, the
+unrepresentable: "is the object argument addressed" becomes one value read by `loadEnumObjArg`, the
 `GetEnumerator` call and the disposal branch alike, instead of three bools recombined per site.
 
 ## B15. `MetadataSymbolProvider`'s "Must hold `gate`" is a comment, not a token

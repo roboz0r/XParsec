@@ -236,7 +236,7 @@ let tests =
             // The value elaborates to a plain keyed `External("op_Addition")`;
             // `InlineExpansion` eta-reifies it to `fun a b -> (+) a b`, splices the
             // contract body at the call site its own eta minted, and the body's SRTP
-            // trait-call BASE resolves against the nominal `V<int>` receiver to
+            // trait-call BASE resolves against the nominal `V<int>` support type to
             // `V<_>.op_Addition(a, b)`. The type-directed decision F# makes here lives in
             // that trait call, so the hand-rolled `resolveOperatorValues` scan + the
             // Elaborate eta that used to make it are gone.

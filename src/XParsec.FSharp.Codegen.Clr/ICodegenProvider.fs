@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 [<RequireQualifiedAccess>]
 type CallArity =
     /// Argument count = flat pop count: every argument pushes one value (an instance
-    /// call's count includes the receiver).
+    /// call's count includes the object argument).
     | Flat of argCount: int
     /// The callee's SOURCE grouping drives the split: the walker consumes
     /// `groups.Length` arguments and flattens each to its pushed CLR values;
@@ -223,7 +223,7 @@ type ICodegenProvider =
             CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values are already
-    /// on the stack in declaration order beneath the call. The receiver is identified by
+    /// on the stack in declaration order beneath the call. The union is identified by
     /// key identity, not by name — FSharp.Core `list` vs the Vesper cons-list.
     abstract TryEmitUnionCons: key: TypeKey * caseName: string * tyArgs: FrozenType list -> CallRecipe voption
 
@@ -272,8 +272,8 @@ type ICodegenProvider =
             FrozenType list * FrozenType list
 
     /// Apply a function *value* of type `funcTy` to one argument — `Vesper.Fun\`2::Invoke`.
-    /// Receiver and argument are both already on the stack (receiver beneath), so the
-    /// recipe's arity is `Flat 2`.
+    /// Object argument and argument are both already on the stack (object arg beneath),
+    /// so the recipe's arity is `Flat 2`.
     abstract TryEmitInvoke: funcTy: FrozenType -> CallRecipe voption
 
     /// `EqualityComparer<'T>.Default` getter and its `GetHashCode(!0)` — the `hash x`

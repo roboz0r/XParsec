@@ -182,14 +182,14 @@ module internal UnificationInferIdentExpr =
         | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
     /// `Set<'T>.Empty` parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`, and
-    /// inferring that receiver as a value would yield the ctor function type. The explicit
+    /// inferring that prefix as a value would yield the ctor function type. The explicit
     /// `<'args>` are not unified here; the member's annotated type pins the instantiation.
     and tryLocalTypeAppStaticMember
         (ctx: PassContext)
-        (recv: Expr<SyntaxToken>)
+        (qualifier: Expr<SyntaxToken>)
         (memberTok: SyntaxToken)
         : SemType voption =
-        match recv with
+        match qualifier with
         | Expr.TypeApp(expr = classExpr) ->
             let classNameOpt =
                 match classExpr with
@@ -210,7 +210,7 @@ module internal UnificationInferIdentExpr =
                         ValueSome(substituteWith ctx.Store subst m.Type)
                     | None -> ValueNone
 
-                let useSite = ctx.UseSiteAt(CstKeys.ofExpr recv)
+                let useSite = ctx.UseSiteAt(CstKeys.ofExpr qualifier)
 
                 match TypeRegistry.tryClass ctx.Types useSite className with
                 | ValueSome info -> resolve info.TypeParams info.Members

@@ -127,7 +127,7 @@ let tests =
             }
 
             test "writing `x.[k] <- v` type-checks and lowers to a bracket assignment" {
-                // A string-keyed write to a non-array receiver only type-checks through the
+                // A string-keyed write to a non-array object argument only type-checks through the
                 // index-signature (`SetIndex`) path — `SetArray` needs an int index on an
                 // array — so a green type-check plus the bracket assignment pins `SetIndex`.
                 let errs = analyseErrors "let d = dict\nd.[\"k\"] <- 5.0\n"

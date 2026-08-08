@@ -250,7 +250,7 @@ module B =
             }
 
             test "file 2 reads a record FIELD declared in file 1 (cross-file provider fallback)" {
-                // A record field read on a receiver whose record type is declared in a PRIOR
+                // A record field read on an object argument whose record type is declared in a PRIOR
                 // file. File 1 declares `R = { X: int }` and a factory returning it; file 2
                 // reads `.X`. `resolveFieldStep`'s `TyRecord` arm must consult the provider on
                 // a local miss — records are otherwise the one nominal kind with no

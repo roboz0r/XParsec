@@ -26,12 +26,12 @@ module EmitJsFormat =
 
         let id (s: string) = JsExpr.Identifier(s, ValueNone)
         let call callee args = JsExpr.Call(callee, args, ValueNone)
-        // A method call `recv.m(args…)`.
-        let invoke (recv: JsExpr) (m: string) (args: JsExpr list) =
-            JsExpr.Call(JsExpr.Member(recv, id m, false, ValueNone), args, ValueNone)
-        // Parenthesise a bare numeric-literal `.method` receiver — `5.toFixed(0)` is a
+        // A method call `objArg.m(args…)`.
+        let invoke (objArg: JsExpr) (m: string) (args: JsExpr list) =
+            JsExpr.Call(JsExpr.Member(objArg, id m, false, ValueNone), args, ValueNone)
+        // Parenthesise a bare numeric-literal `.method` object argument — `5.toFixed(0)` is a
         // JS syntax error and `-3.14.toFixed(2)` mis-binds as `-(3.14.toFixed(2))`.
-        let receiver (e: JsExpr) : JsExpr =
+        let objArg (e: JsExpr) : JsExpr =
             match e with
             | JsExpr.Literal _ -> JsExpr.Sequence([ e ], ValueNone)
             | _ -> e
@@ -150,12 +150,12 @@ module EmitJsFormat =
             | FieldFormat.Bool -> wrapped (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
             // `%f`/`%.Nf`/`%.*f`: fixed-point, `precision` fraction digits.
             | FieldFormat.Fixed precision ->
-                wrapped (direct (fun v -> invoke (receiver v) "toFixed" [ precJs precision ]))
+                wrapped (direct (fun v -> invoke (objArg v) "toFixed" [ precJs precision ]))
             // `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
             | FieldFormat.FixedZeroPad(precision, width) ->
                 wrapped (
                     strBind
-                        (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
+                        (direct (fun v -> invoke (objArg v) "toFixed" [ num precision ]))
                         (fun s ->
                             let padTail =
                                 JsExpr.Binary(
@@ -179,7 +179,7 @@ module EmitJsFormat =
             | FieldFormat.FixedRightZeroPad(precision, width) ->
                 wrapped (
                     direct (fun v ->
-                        invoke (invoke (receiver v) "toFixed" [ num precision ]) "padEnd" [ num width; str "0" ]
+                        invoke (invoke (objArg v) "toFixed" [ num precision ]) "padEnd" [ num width; str "0" ]
                     )
                 )
             // `%+d`/`% d`/`%+05d`/`%+.Nf`/`%+e`/`%+g`: forced sign — a non-negative value takes
@@ -193,13 +193,13 @@ module EmitJsFormat =
                         match typeChar with
                         | 'e'
                         | 'E' ->
-                            let e = invoke (receiver v) "toExponential" [ precJs precision ]
+                            let e = invoke (objArg v) "toExponential" [ precJs precision ]
                             if typeChar = 'E' then invoke e "toUpperCase" [] else e
                         | 'g'
                         | 'G' ->
-                            let g = invoke (receiver v) "toPrecision" [ precForToPrecision precision ]
+                            let g = invoke (objArg v) "toPrecision" [ precForToPrecision precision ]
                             if typeChar = 'G' then invoke g "toUpperCase" [] else g
-                        | _ -> invoke (receiver v) "toFixed" [ precJs precision ]
+                        | _ -> invoke (objArg v) "toFixed" [ precJs precision ]
                     )
 
                 let signed =
@@ -237,7 +237,7 @@ module EmitJsFormat =
             | FieldFormat.Exponential(precision, upper) ->
                 wrapped (
                     direct (fun v ->
-                        let e = invoke (receiver v) "toExponential" [ precJs precision ]
+                        let e = invoke (objArg v) "toExponential" [ precJs precision ]
                         if upper then invoke e "toUpperCase" [] else e
                     )
                 )
@@ -246,7 +246,7 @@ module EmitJsFormat =
             | FieldFormat.Compact(precision, upper) ->
                 wrapped (
                     direct (fun v ->
-                        let g = invoke (receiver v) "toPrecision" [ precForToPrecision precision ]
+                        let g = invoke (objArg v) "toPrecision" [ precForToPrecision precision ]
                         if upper then invoke g "toUpperCase" [] else g
                     )
                 )
@@ -259,10 +259,10 @@ module EmitJsFormat =
                             match typeChar with
                             | 'e'
                             | 'E' ->
-                                let e = invoke (receiver v) "toExponential" [ num precision ]
+                                let e = invoke (objArg v) "toExponential" [ num precision ]
                                 if typeChar = 'E' then invoke e "toUpperCase" [] else e
                             | _ ->
-                                let g = invoke (receiver v) "toPrecision" [ num (max 1 precision) ]
+                                let g = invoke (objArg v) "toPrecision" [ num (max 1 precision) ]
                                 if typeChar = 'G' then invoke g "toUpperCase" [] else g
                         ))
                         (fun s ->
