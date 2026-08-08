@@ -26,7 +26,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // ---- reflection over the built Vesper.Array.dll (zeroCreate, pure-data) -------
 
 /// The built `Vesper.Array.dll` (cached). The module's `ModuleSuffix` repr gives
-/// it the compiled holder name `Vesper.Collections.ArrayModule` (matching the
+/// it the compiled module class name `Vesper.Collections.ArrayModule` (matching the
 /// FSharp.Core surface).
 let private arrayAsm: Lazy<Assembly> =
     lazy (fst (buildPackage "Vesper.Array").Value)

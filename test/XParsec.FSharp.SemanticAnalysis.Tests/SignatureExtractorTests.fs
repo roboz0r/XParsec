@@ -309,18 +309,18 @@ let tests =
                 let ctx =
                     extractFsi
                         "app.fsi"
-                        "namespace App\n\nmodule M =\n    type IBox<'T> =\n        abstract member Get: unit -> 'T\n\n    [<Struct>]\n    type Holder<'T> =\n        new: value: 'T -> Holder<'T>\n        interface IBox<'T>\n"
+                        "namespace App\n\nmodule M =\n    type IBox<'T> =\n        abstract member Get: unit -> 'T\n\n    [<Struct>]\n    type Container<'T> =\n        new: value: 'T -> Container<'T>\n        interface IBox<'T>\n"
 
-                let holderShape =
+                let containerShape =
                     let mutable found = ValueNone
 
                     for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "Holder`1" then
+                        if found.IsNone && kv.Key.EndsWith "Container`1" then
                             found <- ValueSome kv.Value
 
                     found
 
-                match holderShape with
+                match containerShape with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenInterfaces with
                     | [| (name, args) |] ->
@@ -332,7 +332,7 @@ let tests =
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBox); got %A" other
                 | ValueSome other -> failtestf "expected a Class shape for the struct; got %A" other
-                | ValueNone -> failtestf "Holder registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                | ValueNone -> failtestf "Container registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
             test "`extern with` publishes interfaces into FrozenInterfaces and members" {
@@ -829,10 +829,10 @@ let tests =
                     extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
                 // The key a CONSUMER's local containment mints for `T` — built from the
-                // holder chain, never from a name.
+                // containment chain, never from a name.
                 let key: TypeKey =
                     {
-                        Holder = TypeHolder.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
+                        Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
                         Name = "T"
                         TyparArity = 0
                     }
@@ -840,7 +840,7 @@ let tests =
                 Expect.equal
                     (SymbolKeyOps.typeMetaName key)
                     "Test.A.M+T"
-                    "the module's holder class encloses the type, as the CLR spells a nested type"
+                    "the module's container class encloses the type, as the CLR spells a nested type"
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
@@ -852,7 +852,7 @@ let tests =
 
             // …and the SOURCE still names it with dots (`Test.A.M.T`, as `byref<'T,
             // ByRefKinds.In>` names `In`). The written spelling is not the metadata name, so
-            // it reaches the identity through a redirect (`SymbolKeyOps.tryDottedModuleHeld`
+            // it reaches the identity through a redirect (`SymbolKeyOps.tryDottedInModule`
             // over the DECLARED module containment) — never by being re-cut into a key of its
             // own, which would absorb the module into the namespace path and mint an unequal
             // identity.
@@ -876,7 +876,7 @@ let tests =
                 // module containment mints, not a key re-cut from the dotted string.
                 let expected: TypeKey =
                     {
-                        Holder = TypeHolder.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
+                        Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
                         Name = "T"
                         TyparArity = 0
                     }

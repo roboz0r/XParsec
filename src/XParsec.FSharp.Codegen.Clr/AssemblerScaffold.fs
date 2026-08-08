@@ -79,8 +79,8 @@ module internal AssemblerScaffold =
         blob
 
     /// Assembly scaffolding for a hand-written `Main` body: module + assembly rows, a
-    /// `Main` whose body comes from `build`, the `<Module>` pseudo-type and the holder
-    /// class. Primitive reprs are read from the caller's `symbols`.
+    /// `Main` whose body comes from `build`, the `<Module>` pseudo-type and the "Program"
+    /// class.  Primitive reprs are read from the caller's `symbols`.
     let assembleWith
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
@@ -111,7 +111,7 @@ module internal AssemblerScaffold =
 
         ctx.AddModuleType(mainDef)
 
-        // The scaffold's Program holder owns no values, so it keeps `BeforeFieldInit`.
+        // The scaffold's Program class owns no values, so it keeps `BeforeFieldInit`.
         ctx.AddProgramType(
             TypeAttributes.Class
             ||| TypeAttributes.Public

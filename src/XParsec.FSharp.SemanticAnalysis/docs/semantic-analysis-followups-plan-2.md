@@ -42,11 +42,11 @@ callers thread an id they otherwise do not need. Storing the pattern and value d
 parameter, and delete the sentence "`Decl` is always a `TDecl.Let` of lambdas" from the type's
 doc. The cost is at the freeze/codec seam, which currently reads and writes a whole `TDecl`.
 
-### `TastDecl.fs:55` — `TTypeDeclG.Namespace` looks write-only and duplicates `TypeKey.Holder`
+### `TastDecl.fs:55` — `TTypeDeclG.Namespace` looks write-only and duplicates `TypeKey.Container`
 
 The field is set once in `Elaborate\TypeDecls.fs`, copied by `TastConvert`, and written and
 read back by the frozen codec, but I found no site that consults it for behaviour. It is also
-a second spelling of information `TypeKey` already carries: `TypeKey.Holder` chains through
+a second spelling of information `TypeKey` already carries: `TypeKey.Container` chains through
 the namespace and `TypeKey.Namespace` projects it as a `NamespaceKey`, whereas this field is
 a `string option` — the over-wide form of the same key. If it really is unread, deleting it
 also removes an option-vs-empty-string mismatch between the two spellings. Hedge: I traced
@@ -108,7 +108,7 @@ The body tests only for the presence of a backtick, so `` List`1 `` satisfies it
 F#-escaped `` ``[]`` ``. At the two guarded sites the resulting behaviour happens to be wanted —
 `arityName` must not append a second suffix, and `withArity`/`spelledArity` must not overwrite
 an arity the name already spelled — but the predicate's name says something narrower than what
-it tests, and `typeKeyOfHolder` reads it as "escaped, therefore arity 0", which would silently
+it tests, and `typeKeyOfContainer` reads it as "escaped, therefore arity 0", which would silently
 zero the arity of a caller that handed in a compiled name. Renaming it to something like
 `hasBacktick`, or splitting the two questions, would make the third site's assumption visible.
 The doc comment claiming "True iff `name` is an F#-BACKTICK-ESCAPED identifier" was cut here.

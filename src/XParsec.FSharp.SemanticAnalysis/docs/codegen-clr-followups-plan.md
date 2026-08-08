@@ -96,7 +96,7 @@ Narrow the handler to the intended failure.
 
 ## A7. An arity over-count wants a regression test, not a comment
 
-`HolderPlan`'s body sweep deliberately does NOT use the front-end `scheme.Quantified.Length`,
+`ModuleClassPlan`'s body sweep deliberately does NOT use the front-end `scheme.Quantified.Length`,
 which over-counts a quantified-but-body-erased typar. The deleted comment named this "the
 `SetTree.compare` regression" — so the honest form is a test with that name.
 
@@ -120,13 +120,13 @@ cannot fire. Defensive dead code that also spells the default width a second tim
 
 ## A10. Module initialisation order diverges from fsc — decide, don't drift
 
-`holderAttrsOf` drops `BeforeFieldInit`, giving **first-access, per-holder** initialisation.
+`moduleClassAttrsOf` drops `BeforeFieldInit`, giving **first-access, per-container** initialisation.
 fsc runs file-scope bindings eagerly in file order via startup code. A side-effecting
 module-value initialiser can therefore observe a different order than fsc would produce.
 Currently unobservable, because every value in scope is pure.
 
 **This is not automatically a defect.** The house position is that correct semantics beat F#
-parity and fsc's quirks are not worth reproducing, so lazy per-holder init may well be the
+parity and fsc's quirks are not worth reproducing, so lazy per-container init may well be the
 better design. What is wrong is that the divergence was recorded in a prose hedge rather than
 decided. Either write the test that pins the chosen order, or state the choice in the type —
 not in a paragraph that no reader will act on.
@@ -147,7 +147,7 @@ type, that behaviour is missing and wants a test.
 Nothing models `internal` in emission — every attribute set in the file hard-codes `Public` —
 so a `module internal` emits a public class today. The deleted hedge also carried the rule for
 when accessibility does land (a nested type's visibility is the minimum of its own and its
-holder chain's), which belongs with that work rather than in the emitter.
+containment chain's), which belongs with that work rather than in the emitter.
 
 ## A12. A C# `in` parameter cannot be called — `modreq(InAttribute)` is dropped on both sides
 
@@ -182,10 +182,10 @@ predicate `loadEnumObjArg` already uses — not on `IsValueType` alone. Pairs wi
 
 Same parameter list, same body: both call `mb.AddTypeDefinition` with the identical
 nil-if-empty namespace expression and pass every other argument straight through. Only the
-docs differ, and what they claim differs (the static holder owns no fields, so `firstField`
+docs differ, and what they claim differs (the static container owns no fields, so `firstField`
 points past any preceding rows) is the CALLER's to satisfy — neither member enforces it.
 
-Either delete `AddProgramType` and call `AddClass`, or make the holder member actually differ:
+Either delete `AddProgramType` and call `AddClass`, or make the container member actually differ:
 one that takes no `firstField` and derives it from the row count is the shape its doc
 describes.
 

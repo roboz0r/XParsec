@@ -679,7 +679,7 @@ module internal ElaborateTypeDecls =
             match tryInterfaceMethods ctx name arity body with
             | Some(typars, methods, env) ->
                 // Mint the identity registration would, from the SAME containment-derived
-                // holder, so a reference to the interface compares equal to this decl's key
+                // container, so a reference to the interface compares equal to this decl's key
                 // wherever the interface is declared.
                 let key = ctx.DeclaredTypeKey(name, typars.Length)
 

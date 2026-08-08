@@ -179,13 +179,13 @@ module internal UnificationInferResolve =
         else
             let key = cand.TypeKey
 
-            let holder =
-                match key.Holder with
-                | TypeHolder.InNamespace ns -> ValueSome ns.Dotted
-                | TypeHolder.InModule m -> ValueSome(SymbolKeyOps.moduleFullName m)
-                | TypeHolder.InType _ -> ValueNone
+            let container =
+                match key.Container with
+                | TypeContainer.InNamespace ns -> ValueSome ns.Dotted
+                | TypeContainer.InModule m -> ValueSome(SymbolKeyOps.moduleFullName m)
+                | TypeContainer.InType _ -> ValueNone
 
-            match holder with
+            match container with
             | ValueNone -> false
             | ValueSome h ->
                 let (DisplayName simple) = SymbolKeyOps.typeSimpleName key

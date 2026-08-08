@@ -12,13 +12,13 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // missing field, wrong vtable) surfaces with a legible stack trace through the
 // `TestHelpers.loadAssembly` / `Activator.CreateInstance` path.
 
-/// A top-level (Program-holder) value/function's emitted metadata name carries its
+/// A top-level (Program-class) value/function's emitted metadata name carries its
 /// source offset (`x` → `x$<offset>`), so a shadowed `let x` stays a distinct row and
 /// its `SymbolKey` handle key stays injective. Match a source name against that scheme.
 let private topLevelNameMatches (source: string) (emitted: string) : bool =
     emitted = source || emitted.StartsWith(source + "$")
 
-/// The Program-holder static field for a source top-level value `name` (its emitted
+/// The Program-class static field for a source top-level value `name` (its emitted
 /// field is `name$<offset>`), or `null` when there is none.
 let private programStaticField (program: Type) (name: string) : FieldInfo =
     program.GetFields(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
@@ -329,9 +329,9 @@ let staticTests =
             }
 
             // A module-level value (`let x = e` at module scope) is a `public static`
-            // field on its module holder, initialised by the holder's `.cctor`, read
+            // field on its module class, initialised by the module class's `.cctor`, read
             // everywhere as `ldsfld` — never a `Main` local or a closure capture.
-            // The field lands on the named-module holder (`Helper`).
+            // The field lands on the named-module class (`Helper`).
 
             // (1) An instance member body reads a module value.
             test "an instance member reads a module-level value via a static field (Get() = 42)" {
@@ -351,7 +351,7 @@ let staticTests =
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let helper = asm.GetType "Helper"
-                Expect.isNotNull helper "the named-module holder Helper is emitted"
+                Expect.isNotNull helper "the named-module class Helper is emitted"
 
                 let seedField = helper.GetField("seed", BindingFlags.Public ||| BindingFlags.Static)
                 Expect.isNotNull seedField "the module value `seed` is a public static field on Helper"
@@ -428,7 +428,7 @@ let staticTests =
             }
 
             // (5) A module value's initialiser must resolve entirely to other
-            //     module values / static methods inside the holder `.cctor`. A
+            //     module values / static methods inside the module class `.cctor`. A
             //     value that demotes to a closure held in a `Main` local (which a
             //     `.cctor` cannot see) fails with a targeted message.
             //
@@ -469,9 +469,9 @@ let staticTests =
             }
 
             // (6) A *generic* module value (`let empty: Node<'T> = null`) cannot be a
-            //     static *field* — a non-generic module holder has no type parameter to
+            //     static *field* — a non-generic module class has no type parameter to
             //     type it — so it lowers to a zero-arg *generic static method* on its
-            //     holder; every reference `call`s its `MethodSpec`, the instantiation
+            //     module class; every reference `call`s its `MethodSpec`, the instantiation
             //     recovered from the reference's own type.
             test "a generic module value lowers to a generic method read across contexts (null)" {
                 let _, artifact =
@@ -497,9 +497,9 @@ let staticTests =
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
-                // `empty` is a zero-arg generic method on the `Tree` holder, NOT a field.
+                // `empty` is a zero-arg generic method on the `Tree` module class, NOT a field.
                 let tree = asm.GetType "Tree"
-                Expect.isNotNull tree "the Tree holder is emitted"
+                Expect.isNotNull tree "the Tree module class is emitted"
 
                 Expect.isNull
                     (tree.GetField("empty", BindingFlags.Public ||| BindingFlags.Static))
@@ -858,11 +858,11 @@ let staticTests =
             }
 
             // Leading top-level values (declared before any top-level statement) are
-            // `static initonly` fields on the Program holder, initialised by its
+            // `static initonly` fields on the Program class, initialised by its
             // `.cctor` in declaration order — so a later leading value reads an earlier
             // one (`ldsfld`, already set). A member then reads them, and a trailing
             // `printfn` confirms the runtime values.
-            test "leading top-level values are Program-holder initonly fields, cctor-initialised in order" {
+            test "leading top-level values are Program-class initonly fields, cctor-initialised in order" {
                 let _, artifact =
                     compileSource
                         "TopLevelLeading"
@@ -894,7 +894,7 @@ let staticTests =
                 Expect.isTrue (field "b").IsInitOnly "b (leading) is initonly — set by the Program .cctor"
             }
 
-            test "a member reads a top-level (leading) value via a Program-holder initonly field" {
+            test "a member reads a top-level (leading) value via a Program-class initonly field" {
                 let _, artifact =
                     compileSource
                         "TopLevelValMember"
@@ -910,7 +910,7 @@ let staticTests =
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
                 let program = asm.GetType "Program"
-                Expect.isNotNull program "the Program holder is emitted"
+                Expect.isNotNull program "the Program class is emitted"
 
                 let providerField = programStaticField program "provider"
 
@@ -924,9 +924,9 @@ let staticTests =
             }
 
             // A *generic* top-level value (`let empty : 'T list = []`) cannot be a
-            // static *field* (a non-generic Program holder has no type parameter to
+            // static *field* (a non-generic Program class has no type parameter to
             // type it), so it lowers to a **zero-arg generic static method** on the
-            // Program holder, `call`ed at the use-site instantiation.
+            // Program class, `call`ed at the use-site instantiation.
             test "a generic top-level value is a generic static method on Program (not a field)" {
                 let _, artifact =
                     compileSource
@@ -947,7 +947,7 @@ let staticTests =
 
                 let asm = loadAssembly bytes
                 let program = asm.GetType "Program"
-                Expect.isNotNull program "the Program holder is emitted"
+                Expect.isNotNull program "the Program class is emitted"
 
                 // `empty` is a generic static METHOD, never a static field.
                 Expect.isNull
@@ -1008,7 +1008,7 @@ let staticTests =
 
                 let asm = loadAssembly bytes
                 let program = asm.GetType "Program"
-                Expect.isNotNull program "the Program holder is emitted"
+                Expect.isNotNull program "the Program class is emitted"
 
                 let statics = program.GetFields(BindingFlags.Public ||| BindingFlags.Static)
 

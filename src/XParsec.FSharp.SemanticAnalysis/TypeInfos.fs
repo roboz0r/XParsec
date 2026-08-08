@@ -11,8 +11,8 @@ module internal LocalSymbolKey =
 
     /// `name` is AS WRITTEN and `arity` the declared typar count: the `` `N `` spelling is
     /// rendered for metadata, never stored.
-    let ofType (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
-        SymbolKeyOps.typeKeyOfHolder holder name arity
+    let ofType (container: TypeContainer) (name: string) (arity: int) : TypeKey =
+        SymbolKeyOps.typeKeyOfContainer container name arity
 
     /// A property's `ArgSig` is empty: its name is unique on a type, since properties do not
     /// overload by argument.
@@ -232,7 +232,7 @@ type IntrinsicAbbrevInfo
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     /// The abbrev's INTRINSIC identity key (contract namespace, arity-suffixed) — the key a
     /// use site resolves the abbrev name to, and what `MkSelfType` returns. Distinct from
-    /// `Key`, the holder-homed local nominal claim.
+    /// `Key`, the container-homed local nominal claim.
     member val SelfKey: SymbolKey = selfKey
     member val TypeParams = typeParams
     member val DeclSite = declSite

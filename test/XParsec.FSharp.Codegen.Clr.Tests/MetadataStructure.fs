@@ -233,7 +233,7 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
                     (rowOf h)
                     (rowOf encl)
 
-            // Its namespace column belongs to its OUTERMOST holder; its own name is a
+            // Its namespace column belongs to its OUTERMOST container; its own name is a
             // single segment, never a dotted path.
             if not (String.IsNullOrEmpty(md.GetString td.Namespace)) then
                 failwithf
@@ -244,7 +244,7 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
 
             if name.Contains "." then
                 failwithf
-                    "%s: nested type name '%s' is dotted — the holder chain belongs in NestedClass, not the name"
+                    "%s: nested type name '%s' is dotted — the containment chain belongs in NestedClass, not the name"
                     label
                     name
 
@@ -266,7 +266,7 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
 // A type at row r that transitively encloses n types owns rows (r, r+n] and nothing
 // else. This is what makes the table HIERARCHICAL rather than merely legal: a nested
 // type may sit anywhere after its enclosing type and still be valid metadata, but
-// only a pre-order walk puts each holder's subtree immediately after it.
+// only a pre-order walk puts each module class's subtree immediately after it.
 
 let private assertPreOrderContiguity (label: string) (md: MetadataReader) =
     let children = Dictionary<int, ResizeArray<int>>()

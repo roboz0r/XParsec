@@ -27,7 +27,7 @@ let private has (tast: TastFile) (s: string) =
 
 /// A duplicate is a plain user diagnostic, never the `stampLocalTypeKey` collision
 /// backstop — that branch witnesses a MINT that dropped something the claim kept, and the
-/// claim is `(holder, name, arity)`, which is exactly what the key is minted from.
+/// claim is `(container, name, arity)`, which is exactly what the key is minted from.
 let private expectDuplicate (source: string) =
     let tast = analyse source
     Expect.isTrue (has tast "Duplicate type definition") "duplicate-type diagnostic emitted"
@@ -191,11 +191,11 @@ let tests =
                         (sprintf "no collision against its own contract; got %A" msgs)
                 }
 
-            // The claim is `(holder, name, arity)`, so the MODULE is part of it: sibling
+            // The claim is `(container, name, arity)`, so the MODULE is part of it: sibling
             // modules each declaring `T` declare two types, not one name twice. Only a second
             // `T` in the SAME module contests a claim.
             yield
-                test "sibling modules may each declare the same type name — different holders, different claims" {
+                test "sibling modules may each declare the same type name — different containers, different claims" {
                     let src =
                         "namespace N\n\nmodule A =\n    type T = { X: int }\n\nmodule B =\n    type T = { Y: int }"
 

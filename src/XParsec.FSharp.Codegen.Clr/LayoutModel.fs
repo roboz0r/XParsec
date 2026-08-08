@@ -78,7 +78,7 @@ type internal TypeSlotKey =
     | ModulePseudo
     | Nominal of SymbolKey
     | Closure of name: string
-    | Holder of Emit.HolderKey
+    | ModuleClass of Emit.ModuleClassKey
     | Program
 
 /// Which `Add*` recipe the writer uses for a `TypeSlot`.
@@ -102,11 +102,11 @@ type internal TypeSlotKind =
     /// (`string`, or `obj` when `isMixed`), with a `.ctor` setting it, per-case
     /// `static initonly` fields, and a `.cctor` constructing them.
     | StructEnum of isMixed: bool
-    /// A named module holder; `HasCctor` ⇔ it owns module values (drops
+    /// A named module's class; `hasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
-    | Holder of hasCctor: bool
-    /// The anonymous "Program" holder (holder-less fns + `Main` + the top-level value
-    /// fields). `hasCctor` ⇔ it owns leading-prefix values (drops `BeforeFieldInit`;
+    | ModuleClass of hasCctor: bool
+    /// The anonymous "Program" class (the fns of no named module + `Main` + the top-level
+    /// value fields). `hasCctor` ⇔ it owns leading-prefix values (drops `BeforeFieldInit`;
     /// its `.cctor` runs before `Main`).
     | Program of hasCctor: bool
 
@@ -139,8 +139,8 @@ type internal FieldKey =
     /// A non-capturing, monomorphic closure's `static readonly` singleton field —
     /// the one cached instance every construction site `ldsfld`s.
     | ClosureCached of closure: string
-    /// A module-level value's `public static` holder field, keyed by `SymbolKey`
-    /// (declaring holder + emitted name) so the combined field-def map stays injective
+    /// A module-level value's `public static` field, keyed by `SymbolKey`
+    /// (declaring module class + emitted name) so the combined field-def map stays injective
     /// across files and under entry-file shadowing.
     | ModuleValue of SymbolKey
 
@@ -186,12 +186,12 @@ type internal MethodKey =
     /// A non-capturing, monomorphic closure's `.cctor` — `newobj`s the closure once and
     /// `stsfld`s it into `ClosureCached`. A capturing / generic closure has none.
     | ClosureCctor of closure: string
-    | HolderCctor of Emit.HolderKey
-    /// The anonymous "Program" holder's `.cctor` — initialises the
+    | ModuleClassCctor of Emit.ModuleClassKey
+    /// The anonymous "Program" class's `.cctor` — initialises the
     /// leading-prefix top-level values; at most one per assembly.
     | ProgramCctor
     /// A top-level function lowered to a static method, keyed by `SymbolKey` (declaring
-    /// holder + emitted name) so the combined method-def map stays injective across files
+    /// module class + emitted name) so the combined method-def map stays injective across files
     /// and under entry-file shadowing.
     | StaticFn of SymbolKey
     | Main
@@ -238,7 +238,7 @@ type internal TypeSlot =
         /// The `TypeDef` namespace column. EMPTY for a nested type — a nested type's
         /// namespace is its enclosing type's, which is the CLR rule.
         Namespace: string
-        /// Metadata name, already arity-suffixed (`Map\`2`). ONE segment: the holder chain
+        /// Metadata name, already arity-suffixed (`Map\`2`). ONE segment: the containment chain
         /// lives in `TypeNode.Enclosing` (a `NestedClass` row), never in the name.
         MetaName: string
         /// Metadata-layer typar names (leading F# quote dropped).
@@ -252,7 +252,7 @@ type internal TypeNode =
     {
         Slot: TypeSlot
         /// `ValueNone` for a root (`<Module>`, a namespace-level type, a closure, a root
-        /// module's holder, `Program`); `ValueSome` for a type the CLR nests — exactly the
+        /// module's class, `Program`); `ValueSome` for a type the CLR nests — exactly the
         /// types that get a `NestedClass` row and nested visibility.
         Enclosing: TypeSlotKey voption
         Fields: FieldSlot list
@@ -261,19 +261,19 @@ type internal TypeNode =
     }
 
 /// One file's contribution to the assembly, as data — everything a file produces on its
-/// own, BEFORE the single `<Module>` pseudo-type and the single Program holder, which
+/// own, BEFORE the single `<Module>` pseudo-type and the single Program class, which
 /// belong to the assembly and are minted once when the files are combined.
 type internal FileLayout =
     {
         /// This file's placeable ROOT nodes — its namespace-level nominals, its closures,
-        /// its root-module holders (each carrying its own nested subtree). The `<Module>`
+        /// its root-module classes (each carrying its own nested subtree). The `<Module>`
         /// and Program roots are deliberately absent.
         Roots: TypeNode list
-        /// Every nominal, closure and holder key this file built, independently of how they
+        /// Every nominal, closure and module-class key this file built, independently of how they
         /// were placed in the tree — the input to the completeness check.
         BuiltKeys: TypeSlotKey list
         Lowered: TastAccessor.DeclId list
-        Plan: HolderPlan
+        Plan: ModuleClassPlan
         Closures: EmitTypes.Closure list
         ClosureByNode: Dictionary<TastAccessor.ExprId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
@@ -292,7 +292,7 @@ type internal FileLayout =
 type internal AssemblyLayout =
     {
         /// The `TypeDef` table: the PRE-ORDER flattening of the type hierarchy, so each
-        /// holder is immediately followed by the types it holds. Index 0 = `<Module>`;
+        /// module class is immediately followed by the types it holds. Index 0 = `<Module>`;
         /// the i-th entry is TypeDef row i+1.
         Types: TypeNode list
         /// The full `Field` table in row order — the fields of `Types`, in `Types` order.
@@ -300,7 +300,7 @@ type internal AssemblyLayout =
         /// The full `MethodDef` table in row order — the methods of `Types`, in `Types` order.
         Methods: MethodRow list
         /// The Program slot's presence is a layout decision: exe (`Main`) or
-        /// holder-less fns. True iff some file carries the entry point.
+        /// Program-class fns. True iff some file carries the entry point.
         EmitEntryPoint: bool
         /// The per-file products this layout was combined from — one per source file, so a
         /// file's bodies resolve their own file-local nodes.

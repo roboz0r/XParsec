@@ -56,71 +56,71 @@ module FrozenCodecRows =
     let private readNamespaceRow (r: FrozenReader) : EqArray<StrId> =
         EqArray.ofArray (readArrayWith r readStrId)
 
-    let private writeModuleHolderRow (w: FrozenWriter) (h: ModuleHolderRow) =
+    let private writeModuleContainerRow (w: FrozenWriter) (h: ModuleContainerRow) =
         match h with
-        | ModuleHolderRow.InNamespace ns ->
+        | ModuleContainerRow.InNamespace ns ->
             w.Write 0uy
             writeNamespaceId w ns
-        | ModuleHolderRow.InModule parent ->
+        | ModuleContainerRow.InModule parent ->
             w.Write 1uy
             writeModuleId w parent
 
-    let private readModuleHolderRow (r: FrozenReader) : ModuleHolderRow =
+    let private readModuleContainerRow (r: FrozenReader) : ModuleContainerRow =
         match r.ReadByte() with
-        | 0uy -> ModuleHolderRow.InNamespace(readNamespaceId r)
-        | 1uy -> ModuleHolderRow.InModule(readModuleId r)
-        | b -> failwithf "FrozenCodec: unknown ModuleHolderRow tag %d" b
+        | 0uy -> ModuleContainerRow.InNamespace(readNamespaceId r)
+        | 1uy -> ModuleContainerRow.InModule(readModuleId r)
+        | b -> failwithf "FrozenCodec: unknown ModuleContainerRow tag %d" b
 
     let private writeModuleRow (w: FrozenWriter) (row: ModuleRow) =
-        writeModuleHolderRow w row.Holder
+        writeModuleContainerRow w row.Container
         writeStrId w row.Name
 
     let private readModuleRow (r: FrozenReader) : ModuleRow =
-        let holder = readModuleHolderRow r
+        let container = readModuleContainerRow r
         let name = readStrId r
-        { Holder = holder; Name = name }
+        { Container = container; Name = name }
 
-    let private writeTypeHolderRow (w: FrozenWriter) (h: TypeHolderRow) =
+    let private writeTypeContainerRow (w: FrozenWriter) (h: TypeContainerRow) =
         match h with
-        | TypeHolderRow.InNamespace ns ->
+        | TypeContainerRow.InNamespace ns ->
             w.Write 0uy
             writeNamespaceId w ns
-        | TypeHolderRow.InModule parent ->
+        | TypeContainerRow.InModule parent ->
             w.Write 1uy
             writeModuleId w parent
-        | TypeHolderRow.InType outer ->
+        | TypeContainerRow.InType outer ->
             w.Write 2uy
             writeTypeKeyId w outer
 
-    let private readTypeHolderRow (r: FrozenReader) : TypeHolderRow =
+    let private readTypeContainerRow (r: FrozenReader) : TypeContainerRow =
         match r.ReadByte() with
-        | 0uy -> TypeHolderRow.InNamespace(readNamespaceId r)
-        | 1uy -> TypeHolderRow.InModule(readModuleId r)
-        | 2uy -> TypeHolderRow.InType(readTypeKeyId r)
-        | b -> failwithf "FrozenCodec: unknown TypeHolderRow tag %d" b
+        | 0uy -> TypeContainerRow.InNamespace(readNamespaceId r)
+        | 1uy -> TypeContainerRow.InModule(readModuleId r)
+        | 2uy -> TypeContainerRow.InType(readTypeKeyId r)
+        | b -> failwithf "FrozenCodec: unknown TypeContainerRow tag %d" b
 
     let private writeTypeKeyRow (w: FrozenWriter) (row: TypeKeyRow) =
-        writeTypeHolderRow w row.Holder
+        writeTypeContainerRow w row.Container
         writeStrId w row.Name
         w.Write row.TyparArity
 
     let private readTypeKeyRow (r: FrozenReader) : TypeKeyRow =
-        let holder = readTypeHolderRow r
+        let container = readTypeContainerRow r
         let name = readStrId r
         let arity = r.ReadInt32()
 
         {
-            Holder = holder
+            Container = container
             Name = name
             TyparArity = arity
         }
 
     let private writeBindingKeyRow (w: FrozenWriter) (row: BindingKeyRow) =
-        writeModuleHolderRow w row.Decl
+        writeModuleContainerRow w row.Decl
         writeStrId w row.Name
 
     let private readBindingKeyRow (r: FrozenReader) : BindingKeyRow =
-        let decl = readModuleHolderRow r
+        let decl = readModuleContainerRow r
         let name = readStrId r
         { Decl = decl; Name = name }
 

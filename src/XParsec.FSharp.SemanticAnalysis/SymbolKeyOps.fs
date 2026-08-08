@@ -82,11 +82,11 @@ module SymbolKeyOps =
     let typeSegmentName (t: TypeKey) : string = arityName t.Name t.TyparArity
 
     /// The parse half of `typeSegmentName`, for a producer meeting the name segment by segment.
-    let typeKeyOfSegment (holder: TypeHolder) (metaName: string) : TypeKey =
+    let typeKeyOfSegment (container: TypeContainer) (metaName: string) : TypeKey =
         let struct (bare, arity) = parseArity metaName
 
         {
-            Holder = holder
+            Container = container
             Name = bare
             TyparArity = arity
         }
@@ -94,9 +94,9 @@ module SymbolKeyOps =
     /// The `+`-joined chain of a module's COMPILED HOLDER-CLASS names, WITHOUT the namespace
     /// (`A+B` for `module A` ⊃ `module B`) — a module compiles to a static class.
     let rec private moduleNestedName (m: ModuleKey) : string =
-        match m.Holder with
-        | ModuleHolder.InNamespace _ -> m.Name
-        | ModuleHolder.InModule parent -> moduleNestedName parent + "+" + m.Name
+        match m.Container with
+        | ModuleContainer.InNamespace _ -> m.Name
+        | ModuleContainer.InModule parent -> moduleNestedName parent + "+" + m.Name
 
     /// The `+`-joined nested chain WITHOUT the namespace (`` List`1+Enumerator ``). EACH
     /// segment renders its OWN arity, so a generic nested in a generic spells both
@@ -104,10 +104,10 @@ module SymbolKeyOps =
     let rec typeNestedName (t: TypeKey) : string =
         let self = typeSegmentName t
 
-        match t.Holder with
-        | TypeHolder.InNamespace _ -> self
-        | TypeHolder.InModule m -> moduleNestedName m + "+" + self
-        | TypeHolder.InType outer -> typeNestedName outer + "+" + self
+        match t.Container with
+        | TypeContainer.InNamespace _ -> self
+        | TypeContainer.InModule m -> moduleNestedName m + "+" + self
+        | TypeContainer.InType outer -> typeNestedName outer + "+" + self
 
     let typeNs (t: TypeKey) : string = t.Namespace.Dotted
 
@@ -121,7 +121,7 @@ module SymbolKeyOps =
     /// `name` may carry a `+`-mangled nested chain AND `` `N `` suffixes — each segment's
     /// suffix PARSES into that segment's `TyparArity`, round-tripping via `typeMetaName`.
     let typeKeyOf (dottedNs: string) (name: string) : TypeKey =
-        let ns = TypeHolder.InNamespace(namespaceKey dottedNs)
+        let ns = TypeContainer.InNamespace(namespaceKey dottedNs)
 
         if name.IndexOf '+' < 0 then
             typeKeyOfSegment ns name
@@ -130,15 +130,15 @@ module SymbolKeyOps =
             let mutable k = typeKeyOfSegment ns parts.[0]
 
             for i in 1 .. parts.Length - 1 do
-                k <- typeKeyOfSegment (TypeHolder.InType k) parts.[i]
+                k <- typeKeyOfSegment (TypeContainer.InType k) parts.[i]
 
             k
 
     /// Resolve a WRITTEN dotted type name against an `exact` index keyed by `typeMetaName`,
     /// reaching the one spelling that is not that rendering: `Test.A.M.T`, keyed `Test.A.M+T`.
-    let tryDottedModuleHeld
+    let tryDottedInModule
         (exact: string -> 'T voption)
-        (moduleHolder: string -> TypeHolder voption)
+        (moduleContainer: string -> TypeContainer voption)
         (probe: string)
         : 'T voption =
         match exact probe with
@@ -149,29 +149,29 @@ module SymbolKeyOps =
             if dot <= 0 || dot = probe.Length - 1 then
                 ValueNone
             else
-                match moduleHolder (probe.Substring(0, dot)) with
-                | ValueSome holder -> exact (typeMetaName (typeKeyOfSegment holder (probe.Substring(dot + 1))))
+                match moduleContainer (probe.Substring(0, dot)) with
+                | ValueSome container -> exact (typeMetaName (typeKeyOfSegment container (probe.Substring(dot + 1))))
                 | ValueNone -> ValueNone
 
     /// A BARE source name plus its arity as an INT. An ESCAPED name is forced to arity 0, so
     /// `type ``[]``<'T>` keys equal to the `` ``[]`` `` a name-axis producer meets.
-    let typeKeyOfHolder (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
+    let typeKeyOfContainer (container: TypeContainer) (name: string) (arity: int) : TypeKey =
         {
-            Holder = holder
+            Container = container
             Name = name
             TyparArity = if isEscapedName name then 0 else arity
         }
 
-    /// `typeKeyOfHolder` for a type declared directly in a namespace.
+    /// `typeKeyOfContainer` for a type declared directly in a namespace.
     let typeKeyOfArity (dottedNs: string) (name: string) (arity: int) : TypeKey =
-        typeKeyOfHolder (TypeHolder.InNamespace(namespaceKey dottedNs)) name arity
+        typeKeyOfContainer (TypeContainer.InNamespace(namespaceKey dottedNs)) name arity
 
     let rec private spelledArity (t: TypeKey) : bool =
         t.TyparArity > 0
         || isEscapedName t.Name
         || (
-            match t.Holder with
-            | TypeHolder.InType outer -> spelledArity outer
+            match t.Container with
+            | TypeContainer.InType outer -> spelledArity outer
             | _ -> false
         )
 
@@ -188,18 +188,18 @@ module SymbolKeyOps =
     /// The full dotted name of a module (`Vesper.Collections`) — namespace path plus the
     /// module chain, and the name of the CLR type it compiles to.
     let rec moduleFullName (m: ModuleKey) : string =
-        match m.Holder with
-        | ModuleHolder.InNamespace ns ->
+        match m.Container with
+        | ModuleContainer.InNamespace ns ->
             let d = ns.Dotted
             if d = "" then m.Name else d + "." + m.Name
-        | ModuleHolder.InModule parent -> moduleFullName parent + "." + m.Name
+        | ModuleContainer.InModule parent -> moduleFullName parent + "." + m.Name
 
-    /// Containment is the holder chain, never a dotted string: only the producer knows which
+    /// Containment is a `ModuleContainer` chain, never a dotted string: only the producer knows which
     /// segments are namespace and which are module.
-    let moduleKeyOf (holder: ModuleHolder) (name: string) : ModuleKey = { Holder = holder; Name = name }
+    let moduleKeyOf (container: ModuleContainer) (name: string) : ModuleKey = { Container = container; Name = name }
 
-    let inNamespace (dottedNs: string) : ModuleHolder =
-        ModuleHolder.InNamespace(namespaceKey dottedNs)
+    let inNamespace (dottedNs: string) : ModuleContainer =
+        ModuleContainer.InNamespace(namespaceKey dottedNs)
 
     /// `namespace Vesper` + `module Collections`, named SEPARATELY — no dotted string to cut.
     let moduleInNamespace (dottedNs: string) (name: string) : ModuleKey = moduleKeyOf (inNamespace dottedNs) name
@@ -212,19 +212,19 @@ module SymbolKeyOps =
     let typeKeyArity (ns: string) (name: string) (arity: int) : SymbolKey =
         SymbolKey.Type(typeKeyOfArity ns name arity)
 
-    let holderFullName (h: ModuleHolder) : string =
+    let containerFullName (h: ModuleContainer) : string =
         match h with
-        | ModuleHolder.InNamespace ns -> ns.Dotted
-        | ModuleHolder.InModule m -> moduleFullName m
+        | ModuleContainer.InNamespace ns -> ns.Dotted
+        | ModuleContainer.InModule m -> moduleFullName m
 
-    let bindingKeyOf (decl: ModuleHolder) (name: string) : BindingKey = { Decl = decl; Name = name }
+    let bindingKeyOf (decl: ModuleContainer) (name: string) : BindingKey = { Decl = decl; Name = name }
 
-    let valueKey (decl: ModuleHolder) (name: string) : SymbolKey =
+    let valueKey (decl: ModuleContainer) (name: string) : SymbolKey =
         SymbolKey.Binding(bindingKeyOf decl name)
 
     /// `(dotted ns, module, name)` named separately, for a value in a namespace-level module.
     let moduleValueKey (dottedNs: string) (declModule: string) (name: string) : SymbolKey =
-        valueKey (ModuleHolder.InModule(moduleInNamespace dottedNs declModule)) name
+        valueKey (ModuleContainer.InModule(moduleInNamespace dottedNs declModule)) name
 
     let memberKeyOf
         (decl: TypeKey)
@@ -295,7 +295,7 @@ module SymbolKeyOps =
         match k with
         | SymbolKey.Type t -> typeMetaName t
         | SymbolKey.Binding b ->
-            match holderFullName b.Decl with
+            match containerFullName b.Decl with
             | "" -> b.Name
             | h -> h + "." + b.Name
         | SymbolKey.Member m -> m.Name

@@ -147,19 +147,19 @@ module EmitClosures =
     type Emission =
         {
             Name: string
-            /// `None` ⇒ the anonymous "Program" holder, which the CLR needs because it has
+            /// `None` ⇒ the anonymous "Program" class, which the CLR needs because it has
             /// no namespace-level member.
-            Holder: HolderKey option
+            ModuleClass: ModuleClassKey option
             SymbolKey: SymbolKey
         }
 
     /// Name and key come straight off the front end's recorded identity, filed for every
     /// module-level `let` with a simple bound variable. A top-level binding's identity belongs
-    /// to its file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program holder.
+    /// to its file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program class.
     let private declaredEmission (info: ModuleBindingInfo) : Emission =
         {
             Name = info.Name
-            Holder =
+            ModuleClass =
                 match info.DeclaringModule with
                 | ValueSome m -> Some m
                 | ValueNone -> None
@@ -168,8 +168,8 @@ module EmitClosures =
 
     /// Mints `<name>$<slot>` (`value$3` when no source names the variable) for a decl with no
     /// exportable identity: a `let` lowered out of the entry expression (a value written after
-    /// a top-level `do`), or one a LATER binding in the same holder re-binds.
-    let private residueEmission (programHolder: HolderKey) (pool: PoolBuilder) (k: BoundVarId) : Emission =
+    /// a top-level `do`), or one a LATER binding in the same module class re-binds.
+    let private residueEmission (programClass: ModuleClassKey) (pool: PoolBuilder) (k: BoundVarId) : Emission =
         let (BoundVarId slot) = k
 
         let source =
@@ -181,8 +181,8 @@ module EmitClosures =
 
         {
             Name = name
-            Holder = None
-            SymbolKey = SymbolKeyOps.valueKey (ModuleHolder.InModule programHolder) name
+            ModuleClass = None
+            SymbolKey = SymbolKeyOps.valueKey (ModuleContainer.InModule programClass) name
         }
 
     /// How EVERY top-level decl of a file emits — decided over the whole list, because
@@ -190,7 +190,7 @@ module EmitClosures =
     /// takes it and the earlier ones, which still need storage, take the residue mint.
     let emissions
         (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
-        (programHolder: HolderKey)
+        (programClass: ModuleClassKey)
         (decls: TastAccessor.DeclId list)
         : Dictionary<BoundVarId, Emission> =
         let bound =
@@ -219,13 +219,13 @@ module EmitClosures =
             result.[k] <-
                 match Map.tryFind k moduleMembers with
                 | Some info when owner.[info.Key] = k -> declaredEmission info
-                | _ -> residueEmission programHolder pool k
+                | _ -> residueEmission programClass pool k
 
         result
 
     /// Every non-`inline`, non-`Lambda` `let name = value`. `tyOk` selects which type shapes
     /// qualify; `project` builds the caller's row, returning `None` to decline (a caller that
-    /// wants only named-holder values declines a Program-holder `Emission`, and vice versa).
+    /// wants only named-module values declines a Program-class `Emission`, and vice versa).
     let private classifyModuleValues
         (emissions: Dictionary<BoundVarId, Emission>)
         (tyOk: FrozenType -> bool)
@@ -248,8 +248,8 @@ module EmitClosures =
         )
 
     /// The **module values**: a non-inline `let name = <plain value>` on a NAMED module
-    /// holder whose type is fully ground. Each becomes a `public static` field initialised by
-    /// the holder's `.cctor`; every reference is an `ldsfld`, never a local or a capture.
+    /// whose type is fully ground. Each becomes a `public static` field initialised by
+    /// the module class's `.cctor`; every reference is an `ldsfld`, never a local or a capture.
     let collectModuleValues
         (emissions: Dictionary<BoundVarId, Emission>)
         (decls: TastAccessor.DeclId list)
@@ -259,10 +259,10 @@ module EmitClosures =
             emissions
             ftIsGround
             (fun k ty value em ->
-                // Only a NAMED-holder ground value is a field here.
-                match em.Holder with
+                // Only a NAMED-module ground value is a field here.
+                match em.ModuleClass with
                 | None -> None
-                | Some holder ->
+                | Some moduleClass ->
                     Some
                         {
                             Key = k
@@ -270,7 +270,7 @@ module EmitClosures =
                             Name = em.Name
                             Ty = ty
                             Init = value
-                            Holder = holder
+                            ModuleClass = moduleClass
                         }
             )
 
@@ -289,7 +289,7 @@ module EmitClosures =
     let typeKeyNsName (t: TypeKey) : string * string =
         t.Namespace.Dotted, SymbolKeyOps.typeNestedName t
 
-    /// The GENERIC module-level values (`let empty : SetTree<'T> = …`). A module holder has no
+    /// The GENERIC module-level values (`let empty : SetTree<'T> = …`). A module class has no
     /// type parameter to type a `SetTree<'T>` field, so each lowers to a zero-arg generic
     /// static method — an ordinary 0-param `StaticFn` — and a reference `call`s its `MethodSpec`.
     let collectGenericModuleValues
@@ -317,7 +317,7 @@ module EmitClosures =
                         Key = k
                         SymbolKey = em.SymbolKey
                         Name = em.Name
-                        Holder = em.Holder
+                        ModuleClass = em.ModuleClass
                         Params = []
                         // A generic module VALUE is never applied — it reaches codegen as a
                         // bare `Var` — so it has no source groups and never returns `void`.
@@ -331,11 +331,11 @@ module EmitClosures =
             )
 
     /// The TOP-LEVEL ground values — those declaring no enclosing module. Each becomes a
-    /// `public static` field on the anonymous "Program" holder; whether it initialises in
+    /// `public static` field on the anonymous "Program" class; whether it initialises in
     /// the `.cctor` or in `Main` is decided later.
     let collectProgramValues
         (emissions: Dictionary<BoundVarId, Emission>)
-        (programHolder: HolderKey)
+        (programClass: ModuleClassKey)
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this assembly.
         // Lowering strips type decls, so the caller computes this from the unlowered decls.
         (refStructNsNames: HashSet<string * string>)
@@ -364,8 +364,8 @@ module EmitClosures =
             emissions
             tyOk
             (fun k ty value em ->
-                // A named-holder value (`module Foo`) takes the named-holder path.
-                match em.Holder with
+                // A named-module value (`module Foo`) takes the named-module path.
+                match em.ModuleClass with
                 | Some _ -> None
                 | None ->
                     Some
@@ -375,11 +375,11 @@ module EmitClosures =
                             Name = em.Name
                             Ty = ty
                             Init = value
-                            Holder = programHolder
+                            ModuleClass = programClass
                         }
             )
 
-    /// A module value's initialiser runs in its holder's `.cctor`, where only other module
+    /// A module value's initialiser runs in its module class's `.cctor`, where only other module
     /// values (`ldsfld`) and static-method functions (direct `call`) resolve — any other
     /// top-level reference would need a `Main` local no `.cctor` can see.
     let validateModuleValueInits
@@ -391,7 +391,7 @@ module EmitClosures =
             for free in freeVarKeys [] mv.Init do
                 if not (moduleValueKeys.Contains free || staticFnKeys.Contains free) then
                     failwithf
-                        "Emit: module value '%s' references top-level binding %O, which is neither a module value nor a static method, so its initialiser cannot run in the holder's .cctor"
+                        "Emit: module value '%s' references top-level binding %O, which is neither a module value nor a static method, so its initialiser cannot run in the module class's .cctor"
                         mv.Name
                         free
 
@@ -551,7 +551,7 @@ module EmitClosures =
                             Key = c.Key
                             SymbolKey = em.SymbolKey
                             Name = em.Name
-                            Holder = em.Holder
+                            ModuleClass = em.ModuleClass
                             Params = c.Params
                             Groups = c.Groups
                             Body = c.Body

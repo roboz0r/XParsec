@@ -556,7 +556,7 @@ module N =
                 //   * annotation (`r : R`) goes through NameResolution's `useSiteTypeKey`, which
                 //     stamps the SAME registered key the provider resolved — the one that came
                 //     back WITH the shape from `TryLookupType` — rather than re-cutting the
-                //     dotted spelling into a flattened `InNamespace` holder.
+                //     dotted spelling into a flattened `InNamespace` container.
                 // So `let r : R = { X = 1 }` unifies the annotation against the literal with a
                 // matching identity — no type mismatch.
                 let file1 =

@@ -95,13 +95,13 @@ let tests =
 
             // `typeMetaName` is THE renderer and `typeKeyOf` THE parser for the `+`-mangled,
             // arity-suffixed reflection display name of a CLR nested type. They must invert
-            // each other; the nesting lands in the holder chain and the arity in `TyparArity` —
+            // each other; the nesting lands in the containment chain and the arity in `TyparArity` —
             // neither survives inside a key's `Name`.
-            test "nested type: the `+` chain becomes holders, and renders back unchanged" {
+            test "nested type: the `+` chain becomes containers, and renders back unchanged" {
                 let k = SymbolKeyOps.typeKeyOf "System.Collections.Generic" "List`1+Enumerator"
 
-                match k.Holder with
-                | TypeHolder.InType outer ->
+                match k.Container with
+                | TypeContainer.InType outer ->
                     Expect.equal outer.Name "List" "the outer's Name is plain"
                     Expect.equal outer.TyparArity 1 "the outer owns the typar"
                     Expect.equal k.Name "Enumerator" "the inner Name is the bare segment, not `+`-mangled"
@@ -158,8 +158,8 @@ let tests =
 
                 Expect.equal nested.TyparArity 1 "the INNER declares one typar of its own"
 
-                match nested.Holder with
-                | TypeHolder.InType outer -> Expect.equal outer.TyparArity 1 "the OUTER declares one of its own"
+                match nested.Container with
+                | TypeContainer.InType outer -> Expect.equal outer.TyparArity 1 "the OUTER declares one of its own"
                 | other -> failtestf "expected InType, got %A" other
 
                 // The array's source spelling is BACKTICK-ESCAPED (F# requires it — `[]` is not
@@ -180,8 +180,8 @@ let tests =
             }
 
             // `moduleFullName` is the ONE rendering of a module's containment. Nothing parses
-            // it back, so its correctness argument is that it renders each holder shape whole.
-            test "module full name renders the holder chain" {
+            // it back, so its correctness argument is that it renders each container shape whole.
+            test "module full name renders the containment chain" {
                 Expect.equal
                     (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace "Vesper" "Unchecked"))
                     "Vesper.Unchecked"
@@ -193,14 +193,14 @@ let tests =
                     "a module in the global namespace"
             }
 
-            // A NESTED module: the holder chain no producer could mint while `moduleKeyOf`
+            // A NESTED module: the containment chain no producer could mint while `moduleKeyOf`
             // took a dotted name (its last segment became the module and the rest the
             // namespace, so `Inner` and `Outer` both flattened into the namespace path).
             // `Outer` must be a MODULE here, not a namespace segment.
             test "nested module: the chain nests, and the namespace stops where it stops" {
                 let outer = SymbolKeyOps.moduleInNamespace "Vesper" "Outer"
 
-                let inner = SymbolKeyOps.moduleKeyOf (ModuleHolder.InModule outer) "Inner"
+                let inner = SymbolKeyOps.moduleKeyOf (ModuleContainer.InModule outer) "Inner"
 
                 Expect.equal (SymbolKeyOps.moduleFullName inner) "Vesper.Outer.Inner" "the whole chain renders"
 
@@ -209,7 +209,7 @@ let tests =
                     [ "Vesper" ]
                     "the namespace is `Vesper` alone — `Outer` is a module, not a namespace segment"
 
-                let b = SymbolKeyOps.bindingKeyOf (ModuleHolder.InModule inner) "f"
+                let b = SymbolKeyOps.bindingKeyOf (ModuleContainer.InModule inner) "f"
 
                 Expect.equal
                     (SymbolKeyOps.qualifiedName (SymbolKey.Binding b))
@@ -217,23 +217,23 @@ let tests =
                     "a binding in a nested module qualifies through the whole chain"
             }
 
-            // The UNQUALIFIED binding — a flat package's export / a global extern. Its holder
+            // The UNQUALIFIED binding — a flat package's export / a global extern. Its container
             // is the GLOBAL NAMESPACE, not an absent one: the empty path is a real value, so
-            // every holder shape is inhabited and no site has to model "no holder".
-            test "unqualified binding: the holder is the global namespace, not a sentinel" {
+            // every container shape is inhabited and no site has to model "no container".
+            test "unqualified binding: the container is the global namespace, not a sentinel" {
                 let b = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"
 
                 match b.Decl with
-                | ModuleHolder.InNamespace ns ->
+                | ModuleContainer.InNamespace ns ->
                     Expect.isTrue ns.Path.IsEmpty "the global namespace is an EMPTY path, not a sentinel"
                 | other -> failtestf "expected InNamespace, got %A" other
 
-                Expect.equal (SymbolKeyOps.holderFullName b.Decl) "" "an empty holder renders empty"
+                Expect.equal (SymbolKeyOps.containerFullName b.Decl) "" "an empty container renders empty"
 
                 Expect.equal
                     (SymbolKeyOps.qualifiedName (SymbolKey.Binding b))
                     "f"
-                    "qualifiedName drops the empty holder rather than emitting a leading dot"
+                    "qualifiedName drops the empty container rather than emitting a leading dot"
             }
 
             // `Origin.AssemblyOption` is TOTAL: an `Unstamped` origin has no home, so it
@@ -315,7 +315,7 @@ let memberKeyIdentity =
 
 // The DECLARING containment of a project-local type, as minted by
 // `NameResolutionTypeRegistration.stampLocalTypeKey`. A type declared inside a `module`
-// is held by that module (`TypeHolder.InModule`), not by the namespace the module sits in
+// is held by that module (`TypeContainer.InModule`), not by the namespace the module sits in
 // — the module name is neither folded into the namespace path nor dropped.
 //
 // The `(name, arity)` CLAIM table stays namespace- and module-blind, so this does not yet
@@ -343,8 +343,8 @@ let localTypeContainment =
                 let k =
                     Local.typeKeyOf 0 "T" (Local.source [ "namespace N"; ""; "type T = { x: int }" ])
 
-                match k.Holder with
-                | TypeHolder.InNamespace ns ->
+                match k.Container with
+                | TypeContainer.InNamespace ns ->
                     Expect.equal (List.ofSeq ns.Path.Underlying) [ "N" ] "the declaring namespace, segmented"
                 | other -> failtestf "expected InNamespace, got %A" other
             }
@@ -353,12 +353,12 @@ let localTypeContainment =
                 let k =
                     Local.typeKeyOf 0 "T" (Local.source [ "namespace N"; ""; "module M ="; "    type T = { x: int }" ])
 
-                match k.Holder with
-                | TypeHolder.InModule m ->
-                    Expect.equal m.Name "M" "the enclosing module, by its compiled holder name"
+                match k.Container with
+                | TypeContainer.InModule m ->
+                    Expect.equal m.Name "M" "the enclosing module, by its compiled container name"
 
-                    match m.Holder with
-                    | ModuleHolder.InNamespace ns ->
+                    match m.Container with
+                    | ModuleContainer.InNamespace ns ->
                         Expect.equal
                             (List.ofSeq ns.Path.Underlying)
                             [ "N" ]
@@ -372,12 +372,12 @@ let localTypeContainment =
                     "`TypeKey.Namespace` walks the chain to its root"
 
                 // A module compiles to a static class, so a type it holds is a class NESTED
-                // in it: the metadata name `+`-joins the holder, and the namespace column is
-                // the outermost holder's — exactly what the CLR does with a nested type.
+                // in it: the metadata name `+`-joins the container, and the namespace column is
+                // the outermost container's — exactly what the CLR does with a nested type.
                 Expect.equal
                     (SymbolKeyOps.typeMetaName k)
                     "N.M+T"
-                    "the module's holder class is the type's enclosing class"
+                    "the module's container class is the type's enclosing class"
             }
 
             test "a NESTED module produces a nested InModule chain" {
@@ -394,33 +394,33 @@ let localTypeContainment =
                                 "        type T = { x: int }"
                             ])
 
-                match k.Holder with
-                | TypeHolder.InModule b ->
+                match k.Container with
+                | TypeContainer.InModule b ->
                     Expect.equal b.Name "B" "held by the INNERMOST module"
 
-                    match b.Holder with
-                    | ModuleHolder.InModule a ->
+                    match b.Container with
+                    | ModuleContainer.InModule a ->
                         Expect.equal a.Name "A" "which is itself held by the outer module"
 
                         Expect.equal
                             (List.ofSeq a.Namespace.Path.Underlying)
                             [ "N" ]
                             "and the outer module by the namespace — neither module is a namespace segment"
-                    | other -> failtestf "expected B's holder to be module A, got %A" other
+                    | other -> failtestf "expected B's container to be module A, got %A" other
                 | other -> failtestf "expected InModule, got %A" other
 
-                // EVERY module in the chain is a holder class, so the rendering nests as far
+                // EVERY module in the chain is a container class, so the rendering nests as far
                 // as the source does. This is what makes the renderer INJECTIVE: `N.A.T` and
                 // `N.B.T` no longer collapse onto one name.
                 Expect.equal (SymbolKeyOps.typeMetaName k) "N.A+B+T" "the whole module chain nests, outermost first"
             }
 
-            // `ModuleKey.Name` carries the COMPILED holder name — the static class the module
+            // `ModuleKey.Name` carries the COMPILED container name — the static class the module
             // compiles to — which is what a `ModuleKey` means at every other mint (the
             // contract view bakes the suffix in at mint time too). The rule has ONE
-            // implementation (`moduleHolderName`), so the key and the emitted holder cannot
+            // implementation (`compiledModuleName`), so the key and the emitted container cannot
             // disagree about which class holds what.
-            test "the module's key carries its COMPILED holder name (…Module on a type collision)" {
+            test "the module's key carries its COMPILED container name (…Module on a type collision)" {
                 let k =
                     Local.typeKeyOf
                         0
@@ -435,9 +435,12 @@ let localTypeContainment =
                                 "    type T = { x: int }"
                             ])
 
-                match k.Holder with
-                | TypeHolder.InModule m ->
-                    Expect.equal m.Name "MModule" "the module collides with `type M`, so its holder class is suffixed"
+                match k.Container with
+                | TypeContainer.InModule m ->
+                    Expect.equal
+                        m.Name
+                        "MModule"
+                        "the module collides with `type M`, so its container class is suffixed"
                 | other -> failtestf "expected InModule, got %A" other
             }
         ]

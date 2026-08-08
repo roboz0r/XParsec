@@ -8,7 +8,7 @@ module ExternalSymbolProviders =
 
     /// A leaf whose types' identities are not a field: a name IS the identity, so a type
     /// key is minted from the name and a key lookup is the rendered name lookup. A leaf
-    /// holding `TypeHolder.InModule` types supplies a `KeyIndexedLeaf` instead.
+    /// holding `TypeContainer.InModule` types supplies a `KeyIndexedLeaf` instead.
     type NamedLeaf =
         {
             TryLookup: string -> ExternalSymbol voption
@@ -42,7 +42,7 @@ module ExternalSymbolProviders =
             }
 
     /// A leaf that HOLDS its types' identities. Needed when a type is
-    /// `TypeHolder.InModule`, whose rendering is not what the source writes.
+    /// `TypeContainer.InModule`, whose rendering is not what the source writes.
     type KeyIndexedLeaf =
         {
             ShapesByKey: IReadOnlyDictionary<SymbolKey, ExternalTypeShape>

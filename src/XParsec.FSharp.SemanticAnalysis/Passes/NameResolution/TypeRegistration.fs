@@ -92,17 +92,17 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// The compiled holder name of `md`, under this file's `ModuleNaming`.
-    let moduleHolderName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
-        ModuleRules.holderName ctx.ModuleNaming md
+    /// The compiled module name of `md`, under this file's `ModuleNaming`.
+    let compiledModuleName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
+        ModuleRules.compiledModuleName ctx.ModuleNaming md
 
-    /// The holder a TYPE declared in `c` sits in, under this file's `ModuleNaming`.
-    let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
-        ModuleRules.typeHolder ctx.ModuleNaming c
+    /// The container a TYPE declared in `c` sits in, under this file's `ModuleNaming`.
+    let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer =
+        ModuleRules.typeContainer ctx.ModuleNaming c
 
-    /// The holder a BINDING declared in `c` sits in — the same chain `localTypeHolder` reads.
-    let localHolderChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
-        ModuleRules.holderChain ctx.ModuleNaming c
+    /// The container a BINDING declared in `c` sits in — the same chain `localTypeContainer` reads.
+    let localContainerChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleContainer =
+        ModuleRules.containerChain ctx.ModuleNaming c
 
     /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares — recovered by
     /// the key the declaration mints in the module the walk stands in, never by its name: an
@@ -126,16 +126,16 @@ module NameResolutionTypeRegistration =
         TypeRegistry.tryNonClassMemberHostByKey ctx.Types (ctx.DeclaredTypeKey(name, arityOfTypeName ctx tn)) name
 
     /// Mint the project-local `SymbolKey` for a type declaration, under the declaring
-    /// containment's holder chain. The collision branch is an INTERNAL-ERROR BACKSTOP — a
+    /// containment's containment chain. The collision branch is an INTERNAL-ERROR BACKSTOP — a
     /// user duplicate is refused by the claim test upstream and never reaches the mint.
     let private stampLocalTypeKey
         (ctx: PassContext)
         (declSite: NodeSite)
-        (holder: ModuleHolder)
+        (container: ModuleContainer)
         (name: string)
         (arity: int)
         : TypeKey =
-        let key = LocalSymbolKey.ofType (ModuleRules.typeHolderOf holder) name arity
+        let key = LocalSymbolKey.ofType (ModuleRules.typeContainerOf container) name arity
 
         match TypeRegistry.recordKeyOrigin ctx.Types declSite.Key (SymbolKey.Type key) with
         | ValueSome _ ->
@@ -240,7 +240,7 @@ module NameResolutionTypeRegistration =
 
     /// Pre-scan: note the RECORD / UNION / CLASS short names this element declares into
     /// `NominalTypeNames`. Swept over the WHOLE file first because a `module Foo` may textually
-    /// precede the `type Foo` whose existence renames its holder to `FooModule`.
+    /// precede the `type Foo` whose existence renames it to `FooModule`.
     let noteNominalTypeNames (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
@@ -309,10 +309,10 @@ module NameResolutionTypeRegistration =
                     | _ -> arityOfTypeName ctx tn
 
                 // The module chain that HOLDS the declaration — part of its claim, and the
-                // holder its key is minted from.
-                let holder = localHolderChain ctx c
+                // container its key is minted from.
+                let container = localContainerChain ctx c
 
-                if TypeRegistry.isTypeClaimed ctx.Types holder name arity then
+                if TypeRegistry.isTypeClaimed ctx.Types container name arity then
                     ctx.Report(declSite.Tok, Kind.Message(sprintf "Duplicate type definition: %s" name))
 
                     // The first claimant keeps the name; this declaration registers nothing and
@@ -322,7 +322,7 @@ module NameResolutionTypeRegistration =
                     // The external claim test must ask the provider, and the provider is
                     // addressed BY the key, so the mint sits below the local duplicate test.
                     // An externally-claimed name is diagnosed but still CLAIMED locally.
-                    let key = stampLocalTypeKey ctx declSite holder name arity
+                    let key = stampLocalTypeKey ctx declSite container name arity
 
                     diagnoseExternalClaim ctx declSite.Tok key
 
@@ -332,7 +332,7 @@ module NameResolutionTypeRegistration =
                                 {
                                     Name = name
                                     TyparArity = arity
-                                    Holder = holder
+                                    Container = container
                                     Kind = kind
                                     DeclSite = declSite
                                     Key = key

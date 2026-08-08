@@ -152,7 +152,7 @@ not leak into Freeze; FSharp.Core encodes the verdict at the source with
 
 | # | File | Change |
 |---|------|--------|
-| 1 | `SymbolProviders.fs` (`buildContractCached`) | A qualified read of an *external* module value already froze to `TExpr.External` carrying the resolved (holder-scoped) `SymbolKey` — the SAME `ValueKey(asm, ns, name)` the provider mints for that value. The defect was in the inline-body **by-key store**: it resolved each value body via its *simple* name (`provider.TryLookup info.Name`), which the qualified-name-keyed index does not contain (and never did — `[<AutoOpen>]` only ever fed front-end resolution, not `TryLookup`), so `byKey` got no entry and `InlineExpansion.fs:674` missed the key channel → phantom `call`. Fix: key `byKey` by resolving the value's **fully-qualified** compiled name (`ValueInlineBody.Qualified`, reconstructed from its `ModuleMemberInfo`), exactly as the member channel already keys by `TryLookupMember(qualifiedTypeName, …)`. The use-site key then hits the identity-robust key channel directly — no Freeze-side name rewrite, and same-simple-name value inlines across modules no longer alias in the by-name map. |
+| 1 | `SymbolProviders.fs` (`buildContractCached`) | A qualified read of an *external* module value already froze to `TExpr.External` carrying the resolved (container-scoped) `SymbolKey` — the SAME `ValueKey(asm, ns, name)` the provider mints for that value. The defect was in the inline-body **by-key store**: it resolved each value body via its *simple* name (`provider.TryLookup info.Name`), which the qualified-name-keyed index does not contain (and never did — `[<AutoOpen>]` only ever fed front-end resolution, not `TryLookup`), so `byKey` got no entry and `InlineExpansion.fs:674` missed the key channel → phantom `call`. Fix: key `byKey` by resolving the value's **fully-qualified** compiled name (`ValueInlineBody.Qualified`, reconstructed from its `ModuleMemberInfo`), exactly as the member channel already keys by `TryLookupMember(qualifiedTypeName, …)`. The use-site key then hits the identity-robust key channel directly — no Freeze-side name rewrite, and same-simple-name value inlines across modules no longer alias in the by-name map. |
 | 2 | `ElaborateExpr.fs` | New arm: value `Expr.TypeApp(inner, types)` forwards to `inner`'s frozen `External` leaf. |
 | 3 | `InferTypeOps.fs:36` (optional) | `inferTypeApp` binds a generic value's scheme typar to the explicit arg. |
 | 4 | `EmitClosures.fs:164` | `classifyModuleValues`: admit `isInline` values that lack `[<NoDynamicInvocation>]`. |
@@ -180,7 +180,7 @@ Sites 1–3 are **Half 1** (correctness, independently shippable); 4–7 are
 - **Qualified in-language:** a fixture using `Unchecked.defaultof<'T>`
   (bare and type-applied) splices identically — assert on frozen TAST
   and on emitted IL (no `call Unchecked::*`).
-- **Materialisation:** assert the `Unchecked` holder emits a generic
+- **Materialisation:** assert the `Unchecked` container emits a generic
   `DefaultOf<T>()` method with an `ilzero` body, and that it loads and
   invokes via reflection returning `default(T)` for a value and `null`
   for a reference type.

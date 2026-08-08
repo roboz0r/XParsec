@@ -273,9 +273,9 @@ let tests =
                 Expect.isNotNull consM "IntList has a static Cons factory"
 
                 // `sum` declares no module (it sits directly under `namespace
-                // Vesper.Collections`), so it emits on the Program holder — under its
+                // Vesper.Collections`), so it emits on the Program class — under its
                 // own source name, which is also the name its key qualifies to.
-                let sumM = programHolderMethodsOf asm
+                let sumM = programClassMethodsOf asm
 
                 match sumM with
                 | [| sumM |] ->

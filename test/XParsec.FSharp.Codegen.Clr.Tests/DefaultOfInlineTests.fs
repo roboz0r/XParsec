@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Every reference to the `inline` nullary intrinsic `defaultof` —
 // `Unchecked.defaultof` and its `<'T>`-type-applied form — splices to the zero-operand
 // `ilzero` intrinsic during semantic analysis and NEVER emits a `call` into the
-// inline-only `Vesper.Unchecked` holder (which emits no method). A qualified /
+// inline-only `Vesper.Unchecked` module class (which emits no method). A qualified /
 // type-applied spelling that reached codegen as a member read/call would
 // `TypeLoadException` at runtime. This suite drives the real contract stack
 // (`ClrSymbolProviders.buildContract`), whose provider serves the cross-package inline
@@ -51,7 +51,7 @@ let tests =
 
             // Execution proof: the idiomatic qualified, type-applied spelling must
             // run. A surviving `call Vesper.Unchecked::DefaultOf<int>()` would
-            // `TypeLoadException` (the inline-only holder emits no method); the
+            // `TypeLoadException` (the inline-only module class emits no method); the
             // spliced `ilzero` yields `default(int)` = 0.
             yield
                 test "`Unchecked.defaultof<int>` runs (no phantom call into Vesper.Unchecked)" {

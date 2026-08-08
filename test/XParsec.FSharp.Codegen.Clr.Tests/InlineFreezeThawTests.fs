@@ -194,9 +194,9 @@ let private traitUnit (ns: string) (moduleName: string) =
             "        ((^T or ^T): (static member (+): ^T * ^T -> ^T) (x, y))"
         ]
 
-/// A module-held `let inline` — the only shape with a declaring holder chain, hence an
+/// A module-held `let inline` — the only shape with a declaring container chain, hence an
 /// exportable identity, hence a vocabulary entry. (A top-level inline lives in the
-/// anonymous Program holder and is spliceable only within its own file.)
+/// anonymous Program class and is spliceable only within its own file.)
 let private kindOfUnit (ns: string) (moduleName: string) =
     String.concat
         "\n"
@@ -350,7 +350,7 @@ let tests =
 
                 let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
-                // The key is MINTED from the declaring holder chain — not recovered by
+                // The key is MINTED from the declaring container chain — not recovered by
                 // re-resolving a dotted spelling, which multi-file has nothing to recover
                 // against. It is the identity a use-site `TExpr.External` carries.
                 Expect.equal

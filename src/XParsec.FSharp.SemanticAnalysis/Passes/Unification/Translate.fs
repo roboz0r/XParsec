@@ -95,7 +95,7 @@ module internal UnificationTranslate =
     /// so no raw BCL nominal enters the unifier. Interfaces are absent from that map.
     let externalClassTy (ctx: PassContext) (key: TypeKey) (args: EqArray<SemType>) : SemType =
         // Built on the resolved `key` directly: re-minting an identity from the flattened
-        // metadata name loses the holder and gives an unequal key. The probe keys on that
+        // metadata name loses the container and gives an unequal key. The probe keys on that
         // NAME — its entries are all bare-IL, where name and key agree.
         match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.typeMetaName key) with
         | true, (canon :: _) -> TyConst(canon, args)

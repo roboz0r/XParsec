@@ -12,18 +12,18 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // method calling another, `inline`, and a higher-order function taking a lambda.
 // The table is the broad behavioral net; the anchors beneath it pin the emission
 // strategy (top-level fn → static method, capturing fn → closure), the
-// `inline`-expansion NodeKey freshening, and the nested-module holder shape.
+// `inline`-expansion NodeKey freshening, and the nested-module class shape.
 
-/// A public static method `name` on the named holder type — for nested-module
-/// functions, which land on their module's holder class rather than on `Program`.
-let private moduleStaticMethod (bytes: byte[]) (holder: string) (name: string) : MethodInfo =
+/// A public static method `name` on the named module's class — for nested-module
+/// functions, which land on their module's class rather than on `Program`.
+let private moduleStaticMethod (bytes: byte[]) (moduleClass: string) (name: string) : MethodInfo =
     let asm = loadAssembly bytes
 
-    match asm.GetTypes() |> Array.tryFind (fun t -> t.FullName = holder) with
-    | None -> failtestf "no `%s` holder type emitted for the nested module" holder
+    match asm.GetTypes() |> Array.tryFind (fun t -> t.FullName = moduleClass) with
+    | None -> failtestf "no `%s` class emitted for the nested module" moduleClass
     | Some t ->
         match t.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static) with
-        | null -> failtestf "`%s` is not a public static method on the `%s` holder" name holder
+        | null -> failtestf "`%s` is not a public static method on the `%s` class" name moduleClass
         | m -> m
 
 [<Tests>]
@@ -103,7 +103,7 @@ let tests =
 
                     // G8: a nil `ParamList` would throw `BadImageFormatException` on
                     // `GetParameters`, so the reflection round-trip guards it.
-                    match programHolderMethods bytes with
+                    match programClassMethods bytes with
                     | [| m |] ->
                         Expect.isTrue m.IsStatic "emitted as a static method"
                         Expect.equal (m.GetParameters().Length) 1 "one real Param row (G8)"
@@ -120,7 +120,7 @@ let tests =
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
                     Expect.equal (output.Trim()) "15" "sumTo 5 = 5+4+3+2+1+0 via a self-recursive static call"
-                    Expect.equal (programHolderMethods bytes).Length 1 "sumTo is the one static method (no closure)"
+                    Expect.equal (programClassMethods bytes).Length 1 "sumTo is the one static method (no closure)"
                 }
 
             yield
@@ -133,7 +133,7 @@ let tests =
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
                     Expect.equal (output.Trim()) "13" "add3 10 = inc(inc(inc 10)) = 13"
-                    Expect.equal (programHolderMethods bytes).Length 2 "both inc and add3 are static methods"
+                    Expect.equal (programClassMethods bytes).Length 2 "both inc and add3 are static methods"
                 }
 
             // A lambda capturing a genuine local (a function parameter) is a closure.
@@ -160,10 +160,10 @@ let tests =
                 }
 
             // A function inside a `module M = …` compiles to a static method on an
-            // `M` holder type, carrying its *source* name — as a top-level function does too,
+            // `M` module class, carrying its *source* name — as a top-level function does too,
             // the difference being which type it lands on.
             yield
-                test "a function inside a nested module runs as a static method on its holder (prints 42)" {
+                test "a function inside a nested module runs as a static method on its module class (prints 42)" {
                     let src =
                         "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)"
 
@@ -174,8 +174,8 @@ let tests =
                     Expect.equal (output.Trim()) "42" "twice 21 = 42 — the nested-module function ran"
 
                     let twice = moduleStaticMethod bytes "M" "twice"
-                    Expect.isTrue twice.IsStatic "twice is a static method on the M holder"
-                    Expect.isEmpty (programHolderMethods bytes) "lands on the M holder, not the Program holder"
+                    Expect.isTrue twice.IsStatic "twice is a static method on the M module class"
+                    Expect.isEmpty (programClassMethods bytes) "lands on the M module class, not the Program class"
                 }
 
             yield
@@ -194,15 +194,15 @@ let tests =
                         "sumTo 5 = 15 via a self-recursive static call from a nested module"
 
                     let sumTo = moduleStaticMethod bytes "M" "sumTo"
-                    Expect.isTrue sumTo.IsStatic "sumTo is a static method on the M holder"
-                    Expect.isEmpty (programHolderMethods bytes) "lands on the M holder, not the Program holder"
+                    Expect.isTrue sumTo.IsStatic "sumTo is a static method on the M module class"
+                    Expect.isEmpty (programClassMethods bytes) "lands on the M module class, not the Program class"
                 }
 
             // ---- escape bridge (bridgeStaticFnEscapes) -------------------------
             // A module function used higher-order *within its own assembly* still
             // emits its flat static method; the escape ADDS a wrapper closure that
             // `call`s it (F#/JS model). For an
-            // EXPORTED (named-holder) function the flat method is the `.fsi`-advertised
+            // EXPORTED (named-module) function the flat method is the `.fsi`-advertised
             // contract a cross-assembly consumer `call`s; demoting it entirely to a
             // closure (the old all-or-nothing policy) left that `call` unbound →
             // `MissingMethodException` at JIT. `bridgeStaticFnEscapes` eta-expands the
@@ -230,7 +230,7 @@ let tests =
                     // Pre-fix `addOne` was demoted to a closure and this method did not
                     // exist (the cross-assembly `MissingMethodException` latent bug).
                     let addOne = moduleStaticMethod bytes "M" "addOne"
-                    Expect.isTrue addOne.IsStatic "addOne is still a static method on the M holder"
+                    Expect.isTrue addOne.IsStatic "addOne is still a static method on the M module class"
                     Expect.equal (addOne.GetParameters().Length) 1 "one flat param (the contract the .fsi advertises)"
 
                     // The value-use is carried by a wrapper closure that `call`s it.
@@ -242,14 +242,14 @@ let tests =
                     Expect.isTrue hasClosure "a wrapper closure was emitted for the eta-expanded value-use"
                 }
 
-            // The holderless analogue of the escape gap: a *top-level* (anonymous)
+            // The Program-class analogue of the escape gap: a *top-level* (anonymous)
             // function used as a value also keeps its flat static method — under the
-            // unified model there is no exported-vs-holderless split. `addOne` becomes
-            // a static method on the Program holder + a wrapper closure
+            // unified model there is no exported-vs-Program-class split. `addOne` becomes
+            // a static method on the Program class + a wrapper closure
             // carrying the value-use, matching F# (which emits the static method for
             // non-exported module functions too).
             yield
-                test "a holderless module function used higher-order keeps its flat static method" {
+                test "a Program-class module function used higher-order keeps its flat static method" {
                     let src =
                         String.concat
                             "\n"
@@ -259,17 +259,17 @@ let tests =
                                 "printfn \"%d\" (apply addOne 41)"
                             ]
 
-                    let _, artifact = compileSource "FnEscapeHolderless" src
+                    let _, artifact = compileSource "FnEscapeUnnamedModule" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
                     Expect.equal (output.Trim()) "42" "apply addOne 41 = 42 via the wrapper closure"
 
-                    // `addOne` survives as a holderless static method (1 flat
-                    // param) — pre-change a holderless escaper was demoted to a closure
-                    // and no Program-holder method existed.
+                    // `addOne` survives as a Program-class static method (1 flat
+                    // param) — pre-change a Program-class escaper was demoted to a closure
+                    // and no Program-class method existed.
                     let addOne =
-                        programHolderMethods bytes
+                        programClassMethods bytes
                         |> Array.tryFind (fun m -> m.GetParameters().Length = 1)
 
                     Expect.isSome addOne "addOne emitted as a 1-param static method, not demoted to a closure"

@@ -776,12 +776,12 @@ already exist beside them.
 
 Structurally identical apart from the shape type, and could share one generic record.
 
-### `FrozenSignature.fs:75-84` — module holders are keyed by the COMPILED chain
+### `FrozenSignature.fs:75-84` — module containers are keyed by the COMPILED chain
 
 `SymbolKeyOps.moduleFullName` gives a `[<CompilationRepresentation(ModuleSuffix)>]` or
 name-collision module its `…Module` spelling, while the `.fsi` extractor keys the source path — so
 a cross-file dotted name for a type in such a module does not resolve. An `InType`-nested type
-contributes no module holder at all (`:199-200`). The deleted prose hedged this; the honest form
+contributes no module container at all (`:199-200`). The deleted prose hedged this; the honest form
 is a failing test, and there is none.
 
 ### `SemanticScalars.fs:73-127` — the ref-safety tiers have no production consumer

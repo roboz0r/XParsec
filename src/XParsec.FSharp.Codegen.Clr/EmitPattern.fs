@@ -33,7 +33,7 @@ module EmitPattern =
                     | true, slot -> b.Add(ILInstr.Ldloc slot)
                     | false, _ ->
                         // A module-level value (`let x = e` at module scope) is a
-                        // `public static` field on its module holder — `ldsfld`.
+                        // `public static` field on its module class — `ldsfld`.
                         match env.ModuleValues.TryGetValue key with
                         | true, field -> b.Add(ILInstr.Ldsfld field)
                         | false, _ ->

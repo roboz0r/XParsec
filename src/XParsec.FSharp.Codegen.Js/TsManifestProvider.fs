@@ -18,10 +18,10 @@ module TsManifestProvider =
         | [] -> failwithf "symbol '%s' has no call signature" name
         | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
-    /// A TS `export namespace Foo` mints a namespace, so `Foo.bar`'s holder is `InNamespace Foo`.
-    let private declaringHolder (ctx: TranslateCtx) (nsPath: string) : SymbolOrigin * ModuleHolder =
+    /// A TS `export namespace Foo` mints a namespace, so `Foo.bar`'s container is `InNamespace Foo`.
+    let private declaringContainer (ctx: TranslateCtx) (nsPath: string) : SymbolOrigin * ModuleContainer =
         let origin = originFor ctx nsPath
-        origin, ModuleHolder.InNamespace origin.Namespace
+        origin, ModuleContainer.InNamespace origin.Namespace
 
     /// The symbol constructors mint `Origin = SymbolOrigin.Empty`; the module spec stamped
     /// here becomes the `'<mod>'` of `import x from '<mod>'`, and a home-less origin throws.
@@ -57,7 +57,7 @@ module TsManifestProvider =
             let frozenTy =
                 List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen ctx sg.Returns)
 
-            let origin, decl = declaringHolder ctx nsPath
+            let origin, decl = declaringContainer ctx nsPath
 
             let sym =
                 ExternalSymbols.scheme decl name frozenTy sg.TypeParams []
@@ -74,7 +74,7 @@ module TsManifestProvider =
         : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, import) ->
-            let origin, decl = declaringHolder ctx nsPath
+            let origin, decl = declaringContainer ctx nsPath
 
             let sym =
                 ExternalSymbols.monoFrozen decl name (toFrozen ctx ty)

@@ -14,8 +14,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.MetadataStructure
 // the emitter's own handle checks cannot see what these do.
 
 /// A program that exercises every slot GROUP the layout orders by: a union, a
-/// record, a class, a closure (`adder`'s lambda captures `k`), a module holder with a
-/// type NESTED in it, the anonymous `Program` holder's top-level value fields, and
+/// record, a class, a closure (`adder`'s lambda captures `k`), a module class with a
+/// type NESTED in it, the anonymous `Program` module class's top-level value fields, and
 /// `Main`.
 let private representative =
     String.concat
@@ -212,7 +212,7 @@ let tests =
                             Fields = [ "instance" ]
                             Methods = [ ".ctor"; "Invoke"; ".cctor" ]
                         }
-                        // The module's compiled holder class: static methods, no fields —
+                        // The module's compiled module class: static methods, no fields —
                         // immediately followed (pre-order) by the type it holds.
                         {
                             Type = "M"
@@ -224,7 +224,7 @@ let tests =
                             Fields = [ "Hits" ]
                             Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
-                        // The anonymous holder, last, so that `Main` — the final row of the
+                        // The anonymous module class, last, so that `Main` — the final row of the
                         // final node — falls inside its method range.
                         // A top-level value's field carries its SOURCE name: the binding
                         // declares no module, but it has a real identity all the same (held

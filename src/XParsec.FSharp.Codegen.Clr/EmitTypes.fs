@@ -203,10 +203,10 @@ module EmitTypes =
             Members: Dictionary<string, EmittedMember list>
         }
 
-    /// One static holder class per `module Foo = …`, identified by the whole `ModuleKey`
+    /// One static module class per `module Foo = …`, identified by the whole `ModuleKey`
     /// rather than a `(namespace, name)` pair: modules nest, and the nesting chain is what
-    /// the holder tree and its `NestedClass` rows are read off.
-    type HolderKey = ModuleKey
+    /// the module-class tree and its `NestedClass` rows are read off.
+    type ModuleClassKey = ModuleKey
 
     /// One flattened parameter of a `StaticFn`. A simple bound variable's `Slot` key resolves
     /// directly to the parameter's `ldarg` index; a `fun (a, b) -> …` destructuring
@@ -224,10 +224,10 @@ module EmitTypes =
             /// identity, so a cross-file call re-homes here; others carry an unspellable mint.
             SymbolKey: SymbolKey
             Name: string
-            /// `Some holderKey` when from a named `module Foo = …`: emits as a public
-            /// static method on the `Foo` holder type. `None` ⇒ the anonymous "Program"
-            /// holder.
-            Holder: HolderKey option
+            /// `Some k` when from a named `module Foo = …`: emits as a public
+            /// static method on the `Foo` module class. `None` ⇒ the anonymous "Program"
+            /// module class.
+            ModuleClass: ModuleClassKey option
             /// The flat, tuple-expanded, lone-unit-erased parameters: one CLR `ldarg` slot
             /// each, so `Params.Length` is the emitted method's parameter count — NOT the
             /// number of source applications a call collapses (that is `Groups.Length`).
@@ -249,8 +249,8 @@ module EmitTypes =
         }
 
     /// A module-level value (`let x = e` at module scope) lowered to a `public static`
-    /// field, whose holder's `.cctor` evaluates `Init` and `stsfld`s it. A value on a named
-    /// module gets that module's holder, a top-level one the anonymous "Program" holder.
+    /// field, whose module class's `.cctor` evaluates `Init` and `stsfld`s it. A value on a named
+    /// module gets that module's class, a top-level one the anonymous "Program" class.
     type ModuleValue =
         {
             Key: BoundVarId
@@ -259,7 +259,7 @@ module EmitTypes =
             Name: string
             Ty: FrozenType
             Init: TastAccessor.ExprId
-            Holder: HolderKey
+            ModuleClass: ModuleClassKey
         }
 
     /// Emission handle + shape of a static-method function, resolved before any body is
@@ -350,7 +350,7 @@ module EmitTypes =
             Enums: Dictionary<SymbolKey, EmittedEnum>
             StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
             /// Module-level values, each lowered to a `public static` field on its module
-            /// holder and resolved here by bound variable → field handle (`ldsfld`).
+            /// class and resolved here by bound variable → field handle (`ldsfld`).
             ModuleValues: Dictionary<BoundVarId, EntityHandle>
         }
 

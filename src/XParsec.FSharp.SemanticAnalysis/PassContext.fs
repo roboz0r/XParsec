@@ -50,7 +50,7 @@ type PassContextBindings =
         /// Keyed as `Escape` but orthogonal to it: a frame-local closure held in an aggregate
         /// is `RequiresHeapRepr` here, `LocalStack` in `Escape`.
         Repr: SideTable<RegionRepr>
-        /// Bindings inside a named `module Foo = …`: which holder type (`Foo`/`FooModule`,
+        /// Bindings inside a named `module Foo = …`: which compiled module name (`Foo`/`FooModule`,
         /// not the anonymous "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
         /// Keyed by the binding's pattern `NodeKey`, in SOURCE order — the method-typar order.
@@ -108,7 +108,7 @@ type PassContextResolution =
         /// from `OpenScope`, which each walk overwrites per element.
         mutable AmbientOpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
-        mutable EnclosingHolder: ModuleHolder voption
+        mutable EnclosingContainer: ModuleContainer voption
         /// Per-signature type-parameter scope, restored on exit. Anonymous typars (`_`) never
         /// enter it — they are fresh per occurrence.
         mutable TyparScope: Dictionary<string, TyVarId>
@@ -180,7 +180,7 @@ module PassContextResolution =
         {
             OpenScope = ambient
             AmbientOpenScope = ambient
-            EnclosingHolder = ValueNone
+            EnclosingContainer = ValueNone
             TyparScope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
             EnclosingTypars = ValueNone
@@ -468,14 +468,14 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// Enter a module containment: the chain a by-name read from inside speaks from, set and
     /// returned. Every scope on the way in is noted under the SOURCE path an `open` names it by.
-    member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleHolder =
-        let scopes = ModuleRules.holderScopes this.ModuleNaming c
+    member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleContainer =
+        let scopes = ModuleRules.enclosingContainers this.ModuleNaming c
 
-        for (path, holder) in scopes do
-            TypeRegistry.noteLocalHolder types path holder
+        for (path, container) in scopes do
+            TypeRegistry.noteLocalContainer types path container
 
         let chain = scopes |> List.last |> snd
-        this.Resolution.EnclosingHolder <- ValueSome chain
+        this.Resolution.EnclosingContainer <- ValueSome chain
         chain
 
     /// Enter a walked module element: advance BOTH ambient facts a by-name read speaks against
@@ -489,21 +489,21 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.UseSiteAt(key: NodeKey) : UseSite =
         {
             Pos = SourcePos.ofNodeKey key
-            Holder = this.Resolution.EnclosingHolder
+            Container = this.Resolution.EnclosingContainer
             Opens = this.Resolution.OpenScope.Locals
         }
 
     /// The module chain the walk stands in — what HOLDS a declaration written here. Before the
     /// walk enters anything, the global namespace: a declaration in an anonymous module.
-    member this.CurrentHolder: ModuleHolder =
-        match this.Resolution.EnclosingHolder with
+    member this.CurrentContainer: ModuleContainer =
+        match this.Resolution.EnclosingContainer with
         | ValueSome h -> h
-        | ValueNone -> ModuleHolder.InNamespace NamespaceKey.Global
+        | ValueNone -> ModuleContainer.InNamespace NamespaceKey.Global
 
     /// The `TypeKey` a type DECLARED where the walk stands would be minted with. A pass must
     /// not find the declaration it is walking by NAME: two sibling modules may each declare `T`.
     member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
-        LocalSymbolKey.ofType (ModuleRules.typeHolderOf this.CurrentHolder) name arity
+        LocalSymbolKey.ofType (ModuleRules.typeContainerOf this.CurrentContainer) name arity
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

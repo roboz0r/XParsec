@@ -215,17 +215,17 @@ module internal LayoutNodes =
     let private declaringModule (td: TastAccessor.TypeDecl) : ModuleKey voption =
         match td.Key with
         | SymbolKey.Type t ->
-            match t.Holder with
-            | TypeHolder.InModule m -> ValueSome m
-            | TypeHolder.InNamespace _ -> ValueNone
+            match t.Container with
+            | TypeContainer.InModule m -> ValueSome m
+            | TypeContainer.InNamespace _ -> ValueNone
             // `InType` is the EXTERNAL nesting of a bare-IL type; source cannot declare
             // a nested type, and a local one would need an enclosing SLOT this backend
             // has no way to name.
-            | TypeHolder.InType outer ->
-                failwithf "Layout: local type '%s' claims a CLR-nested holder '%s'" td.Name outer.Name
+            | TypeContainer.InType outer ->
+                failwithf "Layout: local type '%s' claims a CLR-nested container '%s'" td.Name outer.Name
         | k -> failwithf "Layout: type declaration '%s' carries a non-type key %A" td.Name k
 
-    /// A nominal type's node. Its `TypeDef` sits in its declaring module's holder class
+    /// A nominal type's node. Its `TypeDef` sits in its declaring module's class
     /// when it has one — empty namespace column, a `NestedClass` row — and at the root
     /// of its namespace otherwise.
     let private nominalNode
@@ -236,7 +236,7 @@ module internal LayoutNodes =
         : TypeNode =
         let ns, enclosing =
             match declaringModule td with
-            | ValueSome m -> "", ValueSome(TypeSlotKey.Holder m)
+            | ValueSome m -> "", ValueSome(TypeSlotKey.ModuleClass m)
             | ValueNone -> defaultArg td.Namespace "", ValueNone
 
         {

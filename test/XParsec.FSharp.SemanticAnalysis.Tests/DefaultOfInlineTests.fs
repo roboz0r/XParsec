@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // a `TExpr.External` splice-eligible head: never a member-read (`StaticPropertyGet` /
 // `StaticMethodCall` / `ExternalMember`, which the splice arm skips), and never the
 // `Expr.TypeApp` `failwith` fallthrough. A member-read / call reaches codegen as a
-// `call` into the inline-only `Unchecked` holder — which emits no method — and would
+// `call` into the inline-only `Unchecked` container — which emits no method — and would
 // `TypeLoadException` at runtime.
 //
 // This front-end-only harness resolves the `Vesper.Core` contract from its `.fsi`

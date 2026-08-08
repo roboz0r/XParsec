@@ -276,7 +276,7 @@ module FrozenCodecTypes =
 
     let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =
         match readSymbolRef r with
-        | SymbolKey.Binding bk -> { Holder = bk.Decl; Name = bk.Name }
+        | SymbolKey.Binding bk -> { Container = bk.Decl; Name = bk.Name }
         | k -> failwithf "FrozenCodec: a ModuleBindingInfo stored a non-Binding key: %A" k
 
     let writeIntrinsicReprInfo (w: FrozenWriter) (i: IntrinsicReprInfo) =

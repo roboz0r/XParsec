@@ -28,7 +28,7 @@ type TypeIdentity =
         TyparArity: int
         /// Part of the CLAIM — `N.A.T` and `N.B.T` are two types, not one name contested twice
         /// — and where it answers from: a bare name reaches it from inside, or via an `open`.
-        Holder: ModuleHolder
+        Container: ModuleContainer
         Kind: TypeDeclKind
         /// The key stamped onto the kind-specific `*TypeInfo`, and the name token spelling it.
         DeclSite: NodeSite
@@ -57,7 +57,7 @@ type PassContextTypes =
         /// The declared structure (ctor-param annotations, `val` field types) is resolved at
         /// registration; MEMBER types start as placeholder TyVars, inferred from their bodies.
         Class: Dictionary<TypeKey, ClassTypeInfo>
-        /// An enum is non-generic, so its claim is always `(holder, name, 0)` — still keyed by
+        /// An enum is non-generic, so its claim is always `(container, name, 0)` — still keyed by
         /// `TypeKey`, since two sibling modules may each declare one.
         Enum: Dictionary<TypeKey, EnumTypeInfo>
         /// An alias body is forced by the first thing that names it, at the latest when its
@@ -80,7 +80,7 @@ type PassContextTypes =
         IntrinsicKeys: Dictionary<string, SymbolKey>
         /// Inline intrinsic-abbrevs carrying `with member …` augmentations
         /// (`type widget = (# "object" #) with member …`), keyed by the abbrev's CANON key —
-        /// the namespace-homed identity a use site's `TyConst` carries, not its holder-homed
+        /// the namespace-homed identity a use site's `TyConst` carries, not its container-homed
         /// nominal claim. A name reaches it only through `IntrinsicKeys`.
         IntrinsicAbbrevHost: Dictionary<SymbolKey, IntrinsicAbbrevInfo>
         /// Reverse index: record short name (NO arity suffix, as written) → the `TypeKey`s
@@ -92,15 +92,15 @@ type PassContextTypes =
         ClassNames: Dictionary<string, ResizeArray<TypeKey>>
         /// Reverse index: abbreviation short name → candidate `TypeKey`s. See `RecordNames`.
         AbbreviationNames: Dictionary<string, ResizeArray<TypeKey>>
-        /// THE name table: short name → every `(holder, name, arity)` claim under it, of any
+        /// THE name table: short name → every `(container, name, arity)` claim under it, of any
         /// KIND. At most one type may hold a claim; several under one name are ranked.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE path
         /// an `open` names them by (`"N"`, `"N.A"`), not the compiled name a `ModuleKey` holds.
-        LocalHolders: Dictionary<string, ModuleHolder>
-        /// The INVERSE of `LocalHolders`. A qualifier is written relative to a SCOPE (`A.T`
+        LocalContainers: Dictionary<string, ModuleContainer>
+        /// The INVERSE of `LocalContainers`. A qualifier is written relative to a SCOPE (`A.T`
         /// inside `module N.B` means `N.A.T`), so resolving one needs that scope's path.
-        LocalHolderPaths: Dictionary<ModuleHolder, string>
+        LocalContainerPaths: Dictionary<ModuleContainer, string>
         /// The RECORD / UNION / CLASS short names this file declares — what a `module` of the
         /// same name collides with. Filled whole-file first: `module Foo` may precede `type Foo`.
         NominalTypeNames: HashSet<string>
@@ -127,8 +127,8 @@ module PassContextTypes =
             ClassNames = Dictionary<_, _>()
             AbbreviationNames = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
-            LocalHolders = Dictionary<_, _>()
-            LocalHolderPaths = Dictionary<_, _>()
+            LocalContainers = Dictionary<_, _>()
+            LocalContainerPaths = Dictionary<_, _>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
@@ -181,11 +181,11 @@ module TypeRegistry =
 
     /// The scope this file declares under the dotted SOURCE `path`, as written INSIDE the scope
     /// whose own source path is `scope`: `scope.path` first, then ever-shorter prefixes.
-    let private tryHolderOfPath (types: PassContextTypes) (scope: string) (path: string) : ModuleHolder voption =
+    let private tryContainerOfPath (types: PassContextTypes) (scope: string) (path: string) : ModuleContainer voption =
         let rec go (scope: string) =
             let qualified = if scope.Length = 0 then path else scope + "." + path
 
-            match types.LocalHolders.TryGetValue qualified with
+            match types.LocalContainers.TryGetValue qualified with
             | true, h -> ValueSome h
             | false, _ ->
                 if scope.Length = 0 then
@@ -198,30 +198,34 @@ module TypeRegistry =
 
     /// The module / namespace this `open` names, if THIS file declares it — its written path
     /// resolved from the scope it is written in.
-    let private openedHolder (types: PassContextTypes) (o: LocalOpen) : ModuleHolder voption =
-        tryHolderOfPath types o.Scope o.Path
+    let private openedContainer (types: PassContextTypes) (o: LocalOpen) : ModuleContainer voption =
+        tryContainerOfPath types o.Scope o.Path
 
     /// The scope the dotted SOURCE `path` names when written INSIDE `enclosing` — and
     /// `enclosing` itself for an empty path. An EXACT descent, no walking outward.
-    let private holderUnder (types: PassContextTypes) (enclosing: ModuleHolder) (path: string) : ModuleHolder voption =
+    let private containerUnder
+        (types: PassContextTypes)
+        (enclosing: ModuleContainer)
+        (path: string)
+        : ModuleContainer voption =
         if path.Length = 0 then
             ValueSome enclosing
         else
-            match types.LocalHolderPaths.TryGetValue enclosing with
+            match types.LocalContainerPaths.TryGetValue enclosing with
             | true, basePath ->
                 let qualified = if basePath.Length = 0 then path else basePath + "." + path
 
-                match types.LocalHolders.TryGetValue qualified with
+                match types.LocalContainers.TryGetValue qualified with
                 | true, h -> ValueSome h
                 | false, _ -> ValueNone
             | false, _ -> ValueNone
 
-    /// ONE way a written name REACHES a scope from a use site, and where it enters there.
+    /// ONE way a written name REACHES a container from a use site, and where it enters there.
     [<Struct; NoComparison>]
-    type private ScopeReach =
+    type private ContainerReach =
         {
-            /// The scope reached — where the claim must be held for this reach to answer.
-            Scope: ModuleHolder
+            /// The container reached — where the claim must be held for this reach to answer.
+            Container: ModuleContainer
             /// How many `module`s enclose whatever ADDED the name (the enclosing scope, or
             /// the `open`). An inner scope is entered later, making resolution innermost-out.
             Depth: int
@@ -232,31 +236,31 @@ module TypeRegistry =
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this file
     /// from `useSite`. Empty for a path naming no scope of this file (`System.Uri`).
-    let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ScopeReach list =
-        match useSite.Holder with
+    let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ContainerReach list =
+        match useSite.Container with
         | ValueNone -> []
         | ValueSome here ->
             let reaches = ResizeArray()
 
             for h in here.SelfAndAncestors do
-                match holderUnder types h path with
-                | ValueSome scope ->
+                match containerUnder types h path with
+                | ValueSome reached ->
                     reaches.Add
                         {
-                            Scope = scope
+                            Container = reached
                             Depth = h.Depth
                             Offset = ValueNone
                         }
                 | ValueNone -> ()
 
             for o in useSite.Opens do
-                match openedHolder types o with
+                match openedContainer types o with
                 | ValueSome opened ->
-                    match holderUnder types opened path with
-                    | ValueSome scope ->
+                    match containerUnder types opened path with
+                    | ValueSome reached ->
                         reaches.Add
                             {
-                                Scope = scope
+                                Container = reached
                                 Depth = o.ScopeDepth
                                 Offset = ValueSome o.Offset
                             }
@@ -264,11 +268,11 @@ module TypeRegistry =
                 | ValueNone -> ()
 
             if path.Length > 0 then
-                match types.LocalHolders.TryGetValue path with
-                | true, scope ->
+                match types.LocalContainers.TryGetValue path with
+                | true, reached ->
                     reaches.Add
                         {
-                            Scope = scope
+                            Container = reached
                             Depth = 0
                             Offset = ValueNone
                         }
@@ -278,11 +282,15 @@ module TypeRegistry =
 
     /// WHERE this claim enters the name environment at `useSite`, `ValueNone` if out of scope.
     /// The MAXIMUM over every reach that lands on the scope HOLDING the claim.
-    let private claimRank (useSite: UseSite) (reaches: ScopeReach list) (claim: TypeIdentity) : BindingRank voption =
+    let private claimRank
+        (useSite: UseSite)
+        (reaches: ContainerReach list)
+        (claim: TypeIdentity)
+        : BindingRank voption =
         if claim.VisibleFrom > useSite.Offset then
             ValueNone
         else
-            match useSite.Holder with
+            match useSite.Container with
             // Nowhere to speak from: the whole-file view (`UseSite.unbounded`). Every claim is
             // in scope and none outranks another, so a caller that must choose takes the first.
             | ValueNone -> ValueSome { Depth = 0; Offset = 0 }
@@ -290,7 +298,7 @@ module TypeRegistry =
                 let mutable best = ValueNone
 
                 for r in reaches do
-                    if r.Scope = claim.Holder then
+                    if r.Container = claim.Container then
                         let rank =
                             {
                                 Depth = r.Depth
@@ -410,7 +418,7 @@ module TypeRegistry =
 
     // --- The name table -------------------------------------------------------------
 
-    /// Accept a type declaration: claim `(Holder, Name, Arity)` in the name table. The caller
+    /// Accept a type declaration: claim `(Container, Name, Arity)` in the name table. The caller
     /// has already rejected a contested claim.
     let claimType (types: PassContextTypes) (id: TypeIdentity) : unit =
         match types.TypeClaims.TryGetValue id.Name with
@@ -434,11 +442,11 @@ module TypeRegistry =
     let tryTypeClaim (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : TypeIdentity voption =
         tryWrittenTypeClaim types useSite (WrittenTypeName.bare name) arity
 
-    /// THE duplicate-type-definition test: is `(holder, name, arity)` already claimed, by any
+    /// THE duplicate-type-definition test: is `(container, name, arity)` already claimed, by any
     /// kind? No use site — the registration scan's own position scopes it.
-    let isTypeClaimed (types: PassContextTypes) (holder: ModuleHolder) (name: string) (arity: int) : bool =
+    let isTypeClaimed (types: PassContextTypes) (container: ModuleContainer) (name: string) (arity: int) : bool =
         match types.TypeClaims.TryGetValue name with
-        | true, claims -> claims.Exists(fun c -> c.TyparArity = arity && c.Holder = holder)
+        | true, claims -> claims.Exists(fun c -> c.TyparArity = arity && c.Container = container)
         | false, _ -> false
 
     /// The claim the written name reaches at `useSite` at ANY arity — the local/external
@@ -464,9 +472,9 @@ module TypeRegistry =
 
     /// Record a module / namespace scope this file declares, under the dotted SOURCE path an
     /// `open` or a qualified name spells. Idempotent: every pass re-enters the same scopes.
-    let noteLocalHolder (types: PassContextTypes) (path: string) (holder: ModuleHolder) : unit =
-        types.LocalHolders.[path] <- holder
-        types.LocalHolderPaths.[holder] <- path
+    let noteLocalContainer (types: PassContextTypes) (path: string) (container: ModuleContainer) : unit =
+        types.LocalContainers.[path] <- container
+        types.LocalContainerPaths.[container] <- path
 
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore
@@ -538,7 +546,7 @@ module TypeRegistry =
                 | ValueNone -> ValueNone
 
     /// An enum needs no short-name index of its own, being never generic: its claim is always
-    /// `(holder, name, 0)` and carries the key.
+    /// `(container, name, 0)` and carries the key.
     let registerEnum (types: PassContextTypes) (info: EnumTypeInfo) : unit = types.Enum.[info.TypeKey] <- info
 
     /// Resolve an enum by bare short name at `useSite`. Never generic, so the `(name, 0)` claim
@@ -626,7 +634,7 @@ module TypeRegistry =
     /// The key-addressed twin of the above, for what a DECLARATION names — two sibling modules
     /// may each declare `T`. Every kind answers by KEY, but by a DIFFERENT key for the
     /// intrinsic arm, which is why the name is still a parameter: an intrinsic binding carries
-    /// two, the holder-homed claim `key` naming it here and the namespace-homed canon
+    /// two, the container-homed claim `key` naming it here and the namespace-homed canon
     /// addressing the host table, which the name resolves to through `IntrinsicKeys`.
     let tryNonClassMemberHostByKey
         (types: PassContextTypes)

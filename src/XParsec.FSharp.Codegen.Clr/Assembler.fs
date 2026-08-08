@@ -195,7 +195,7 @@ type internal Assembler
             provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
             provider.RegisterUserValueType td.TypeKey
 
-        // Register this file's module functions, holder-less ones included, so a SIBLING
+        // Register this file's module functions, Program-class ones included, so a SIBLING
         // file's cross-file call resolves to the local `MethodDef` instead of an
         // `AssemblyRef`-scoped `MemberRef`. Keyed by the `SymbolKey` a reference spells.
         for fn in plan.StaticFns do
@@ -484,10 +484,10 @@ type internal Assembler
     let interfaceAttrs =
         TypeAttributes.Interface ||| TypeAttributes.Abstract ||| TypeAttributes.Public
 
-    // A module holder / the anonymous "Program" holder: an `abstract sealed` static
+    // A module class / the anonymous "Program" class: an `abstract sealed` static
     // class. One owning module-value fields has a side-effecting `.cctor`; drop
     // `BeforeFieldInit` so it runs before first member access.
-    let holderAttrsOf (hasCctor: bool) =
+    let moduleClassAttrsOf (hasCctor: bool) =
         let baseAttrs =
             TypeAttributes.Class
             ||| TypeAttributes.Public
@@ -877,12 +877,12 @@ type internal Assembler
                 }
             )
 
-        // A holder's `.cctor` `stsfld`s its module values in declaration order — the
+        // A module class's `.cctor` `stsfld`s its module values in declaration order — the
         // static analogue of a class's `static let` cctor.
-        let prepareHolderCctor (h: Emit.HolderKey) =
+        let prepareModuleClassCctor (h: Emit.ModuleClassKey) =
             let lets =
                 [
-                    for mv in HolderPlan.holderValues plan h ->
+                    for mv in ModuleClassPlan.moduleClassValues plan h ->
                         Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                 ]
 
@@ -890,7 +890,7 @@ type internal Assembler
                 Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx lets))
 
             this.AddPrepared(
-                MethodKey.HolderCctor h,
+                MethodKey.ModuleClassCctor h,
                 {
                     Signature = provider.CctorSignature()
                     BodyOffset = bodyOffset
@@ -899,8 +899,8 @@ type internal Assembler
                 }
             )
 
-        // The anonymous "Program" holder's `.cctor`: the same store recipe as a named
-        // holder's, over the leading-prefix top-level values.
+        // The anonymous "Program" class's `.cctor`: the same store recipe as a named
+        // module class's, over the leading-prefix top-level values.
         let prepareProgramCctor () =
             let lets =
                 [
@@ -923,8 +923,8 @@ type internal Assembler
 
         for slot in plan.MethodPlan do
             match slot with
-            | HolderCctor h -> prepareHolderCctor h
-            | HolderFn fn -> prepareStaticFn fn
+            | ModuleClassCctor h -> prepareModuleClassCctor h
+            | ModuleClassFn fn -> prepareStaticFn fn
             | ProgramCctor -> prepareProgramCctor ()
 
     /// `Main` belongs to the ENTRY file only — the one whose layout carries the entry
@@ -1131,13 +1131,13 @@ type internal Assembler
                 for iface in extras.Interfaces do
                     ctx.AddInterfaceImplementation(closureHandle, iface)
 
-            // Named-module holders: one static class per `module Foo`, nested in its
-            // parent's holder when the module nests. One owning module values takes its
+            // Named-module classes: one static class per `module Foo`, nested in its
+            // parent's module class when the module nests. One owning module values takes its
             // own `FieldList`; a value-less one's empty range points past the previous.
-            | TypeSlotKind.Holder hasCctor ->
+            | TypeSlotKind.ModuleClass hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(
-                        nestedAttrsOf node.Enclosing (holderAttrsOf hasCctor),
+                        nestedAttrsOf node.Enclosing (moduleClassAttrsOf hasCctor),
                         slot.Namespace,
                         slot.MetaName,
                         provider.ObjectType,
@@ -1148,13 +1148,13 @@ type internal Assembler
                 verifyTypeHandle slot typeHandle
                 addNesting node typeHandle
 
-            // The anonymous "Program" holder owns the holder-less static methods (and
+            // The anonymous "Program" class owns the static methods of no named module (and
             // `Main`, when an executable) and the top-level value fields. `hasCctor` ⇔ it
             // owns leading-prefix values, so its `.cctor` must run before `Main`.
             | TypeSlotKind.Program hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(
-                        holderAttrsOf hasCctor,
+                        moduleClassAttrsOf hasCctor,
                         slot.Namespace,
                         slot.MetaName,
                         provider.ObjectType,

@@ -45,8 +45,8 @@ let private declType (tast: TastFile) : SemType =
 /// the roots, because `Passes.InlineExpansion` runs BEFORE that cut.)
 ///
 /// The `namespace` + nested `module` wrapper is not incidental: only a binding with a
-/// declaring MODULE has a holder chain, hence an exportable identity, hence a vocabulary
-/// entry. A top-level binding lives in the anonymous Program holder and is published
+/// declaring MODULE has a containment chain, hence an exportable identity, hence a vocabulary
+/// entry. A top-level binding lives in the anonymous Program container and is published
 /// nowhere — it is spliceable only within its own file.
 // Returns the thaw `TypeStore` alongside the decl: the thawed typars are fresh roots in
 // THAT store, so a test reading them back (`Inline.quantifiedTypars`) must use the same one.
@@ -614,7 +614,7 @@ let tests =
                 // the bare name a consumer resolves it by.
                 Expect.equal
                     kKey
-                    (SymbolKeyOps.valueKey (ModuleHolder.InNamespace NamespaceKey.Global) "k")
+                    (SymbolKeyOps.valueKey (ModuleContainer.InNamespace NamespaceKey.Global) "k")
                     "a top-level binding is keyed in its file's namespace"
 
                 let refs = ResizeArray<string * SymbolKey>()

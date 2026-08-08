@@ -44,7 +44,7 @@
     <Compile Include="EmitExpr.fs" />
     <Compile Include="EmitStructuralFormat.fs" />
     <Compile Include="Emit.fs" />
-    <Compile Include="HolderPlan.fs" />
+    <Compile Include="ModuleClassPlan.fs" />
     <Compile Include="CodegenTypes.fs" />
     <Compile Include="LayoutModel.fs" />
     <Compile Include="LayoutNodes.fs" />

@@ -69,7 +69,7 @@ type ExternalSymbol =
         Constraints: ExternalConstraint list
         /// Where the symbol lives. `SymbolOrigin.Empty` until a resolving source fills it.
         Origin: SymbolOrigin
-        /// Interned identity: declaring holder + simple name, for exact identity checks
+        /// Interned identity: declaring container + simple name, for exact identity checks
         /// ("is this `Vesper.Printf.printfn`?") instead of suffix-matching the written name.
         Key: BindingKey
         /// The producer's SOURCE parameter grouping; `ValueNone` for anything not
@@ -157,7 +157,7 @@ type ExternalUnionCase =
 type ExternalRecordCandidate =
     {
         /// The exact `TypeKey` the declaring file minted: a module-held record's `InModule`
-        /// holder chain cannot be recut from a compiled-name string, which yields the same
+        /// containment chain cannot be recut from a compiled-name string, which yields the same
         /// metadata NAME under an unequal identity.
         TypeKey: TypeKey
         TyparArity: int
@@ -901,7 +901,7 @@ module ExternalSymbols =
     /// A monomorphic symbol from a closed `FrozenType` scheme. `decl` is a module chain, or
     /// the namespace itself for an unqualified binding (a flat-package extern like
     /// `printfn`).
-    let monoFrozen (decl: ModuleHolder) (name: string) (scheme: FrozenType) : ExternalSymbol =
+    let monoFrozen (decl: ModuleContainer) (name: string) (scheme: FrozenType) : ExternalSymbol =
         { ofBindingKey (SymbolKeyOps.bindingKeyOf decl name) with
             Scheme = scheme
         }
@@ -909,7 +909,7 @@ module ExternalSymbols =
     /// A symbol from a `FrozenType` scheme over `arity` declaring typars — a template
     /// freshened per use site, not a closure.
     let scheme
-        (decl: ModuleHolder)
+        (decl: ModuleContainer)
         (name: string)
         (frozen: FrozenType)
         (arity: int)

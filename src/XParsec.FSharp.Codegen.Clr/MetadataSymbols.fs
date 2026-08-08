@@ -223,14 +223,14 @@ module private MetadataMapping =
             else
                 t
 
-        let holder =
+        let container =
             if t.IsNested then
-                TypeHolder.InType(declTypeKey t.DeclaringType)
+                TypeContainer.InType(declTypeKey t.DeclaringType)
             else
                 let ns = if isNull t.Namespace then "" else t.Namespace
-                TypeHolder.InNamespace(SymbolKeyOps.namespaceKey ns)
+                TypeContainer.InNamespace(SymbolKeyOps.namespaceKey ns)
 
-        SymbolKeyOps.typeKeyOfSegment holder t.Name
+        SymbolKeyOps.typeKeyOfSegment container t.Name
 
 /// `IExternalSymbolProvider` over reference-assembly paths, sharing one
 /// `MetadataLoadContext`. `reverseCanon` is `Map.empty` for a leaf with no Vesper.Core in

@@ -426,13 +426,13 @@ type internal ClrEnv
         | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
         | _ -> ValueNone
 
-    /// The `TypeRef` for an external module's compiled holder type (an F# module compiles to a
+    /// The `TypeRef` for an external module's compiled module class (an F# module compiles to a
     /// static class): a nested module chains through its parent's `TypeRef` with the bare name +
     /// empty namespace; only the chain's root carries one. A key never says WHERE, hence `origin`.
     let rec externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
-        match m.Holder with
-        | ModuleHolder.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", m.Name))
-        | ModuleHolder.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, m.Name))
+        match m.Container with
+        | ModuleContainer.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", m.Name))
+        | ModuleContainer.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, m.Name))
 
     let rec externalClassRef (key: SymbolKey) : EntityHandle voption =
         match lookupTypeByKey key with
@@ -451,13 +451,13 @@ type internal ClrEnv
                 // as ResolutionScope, with its OWN bare name + `` `N `` and no namespace. A flat
                 // `Outer+Inner` under the `AssemblyRef` scope throws `TypeLoadException`.
                 let rec typeRefOf (t: TypeKey) : EntityHandle =
-                    match t.Holder with
-                    | TypeHolder.InType outer ->
+                    match t.Container with
+                    | TypeContainer.InType outer ->
                         toEntity (ctx.TypeRef(typeRefOf outer, "", SymbolKeyOps.typeSegmentName t))
-                    | TypeHolder.InNamespace ns ->
+                    | TypeContainer.InNamespace ns ->
                         toEntity (ctx.TypeRef(asm, ns.Dotted, SymbolKeyOps.typeSegmentName t))
-                    | TypeHolder.InModule m ->
-                        // A module-held type compiles NESTED in the module's holder type, so a
+                    | TypeContainer.InModule m ->
+                        // A module-held type compiles NESTED in the module's class, so a
                         // bare namespace-scoped ref would drop `m` and fail to bind.
                         toEntity (ctx.TypeRef(externalModuleRef info.Origin m, "", SymbolKeyOps.typeSegmentName t))
 

@@ -295,19 +295,19 @@ let tests =
                 let closureReprs = Map.ofArray pools.ClosureReprs
                 let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
 
-                // A holderless static fn keys on the Program holder, mirroring
+                // A Program-class static fn keys on the Program class, mirroring
                 // `Layout.build` (this test asserts only discovered closures, so the
-                // holder name is immaterial — any valid `ModuleKey` yields the same set).
-                let programHolder =
-                    SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) "Program"
+                // module class name is immaterial — any valid `ModuleKey` yields the same set).
+                let programClass =
+                    SymbolKeyOps.moduleKeyOf (ModuleContainer.InNamespace NamespaceKey.Global) "Program"
 
-                let emissions = Emit.emissions moduleMembers programHolder lowered0
+                let emissions = Emit.emissions moduleMembers programClass lowered0
                 let moduleValues = Emit.collectModuleValues emissions lowered0
 
                 let moduleValueKeys =
                     HashSet<BoundVarId>(moduleValues |> List.map (fun mv -> mv.Key))
 
-                // Mirror `HolderPlan.create`: the capture-only eligible set drives
+                // Mirror `ModuleClassPlan.create`: the capture-only eligible set drives
                 // bridging, then `collectStaticFns` projects it onto the bridged decls.
                 let fns0 = CompiledFns.gather lowered0
                 let eligible = Emit.staticEligible moduleValueKeys fns0

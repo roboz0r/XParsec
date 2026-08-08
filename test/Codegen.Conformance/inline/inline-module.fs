@@ -1,6 +1,6 @@
 // The same duality for an inline binding that has a DECLARING MODULE. That is the shape
 // with an exportable identity, so it is the one a consumer can splice — and it is also
-// the one both backends place on a named holder rather than the anonymous program one, so
+// the one both backends place on a named module class rather than the anonymous program one, so
 // "emitted as an ordinary module function" means something different here than it does
 // for a top-level binding, and has to produce the same numbers.
 module Scale =

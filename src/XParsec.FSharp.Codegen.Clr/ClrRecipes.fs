@@ -366,8 +366,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 | true, defHandle -> ValueSome defHandle
                 | _ ->
                     match binding.Decl with
-                    | ModuleHolder.InNamespace _ -> ValueNone
-                    | ModuleHolder.InModule declModule ->
+                    | ModuleContainer.InNamespace _ -> ValueNone
+                    | ModuleContainer.InModule declModule ->
                         let parent = env.ExternalModuleRef(openSig.Origin, declModule)
                         ValueSome(toEntity (ctx.MemberRef(parent, name, msig)))
 

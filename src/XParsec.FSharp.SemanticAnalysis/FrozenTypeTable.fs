@@ -42,15 +42,18 @@ type TypeId = | TypeId of int
 type OriginId = | OriginId of int
 
 [<RequireQualifiedAccess>]
-type ModuleHolderRow =
+type ModuleContainerRow =
     | InNamespace of ns: NamespaceId
     | InModule of parent: ModuleId
 
 type ModuleRow =
-    { Holder: ModuleHolderRow; Name: StrId }
+    {
+        Container: ModuleContainerRow
+        Name: StrId
+    }
 
 [<RequireQualifiedAccess>]
-type TypeHolderRow =
+type TypeContainerRow =
     | InNamespace of ns: NamespaceId
     | InModule of parent: ModuleId
     | InType of outer: TypeKeyId
@@ -58,12 +61,16 @@ type TypeHolderRow =
 /// `TyparArity` stays an int: it is part of the identity, not a reference.
 type TypeKeyRow =
     {
-        Holder: TypeHolderRow
+        Container: TypeContainerRow
         Name: StrId
         TyparArity: int
     }
 
-type BindingKeyRow = { Decl: ModuleHolderRow; Name: StrId }
+type BindingKeyRow =
+    {
+        Decl: ModuleContainerRow
+        Name: StrId
+    }
 
 [<RequireQualifiedAccess>]
 type MemberKindRow =
@@ -237,30 +244,30 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let namespaceKey (ns: NamespaceKey) =
         namespaces.Intern(EqArray.map str ns.Path)
 
-    let rec moduleHolder (h: ModuleHolder) : ModuleHolderRow =
+    let rec moduleContainer (h: ModuleContainer) : ModuleContainerRow =
         match h with
-        | ModuleHolder.InNamespace ns -> ModuleHolderRow.InNamespace(namespaceKey ns)
-        | ModuleHolder.InModule parent -> ModuleHolderRow.InModule(moduleKey parent)
+        | ModuleContainer.InNamespace ns -> ModuleContainerRow.InNamespace(namespaceKey ns)
+        | ModuleContainer.InModule parent -> ModuleContainerRow.InModule(moduleKey parent)
 
     and moduleKey (m: ModuleKey) : ModuleId =
         modules.Intern
             {
-                Holder = moduleHolder m.Holder
+                Container = moduleContainer m.Container
                 Name = str m.Name
             }
 
     // One recursive group: a member key's `ArgSig` holds frozen types and an `FTConst` holds
     // a symbol key, so neither can be interned without the other.
-    let rec typeHolder (h: TypeHolder) : TypeHolderRow =
+    let rec typeContainer (h: TypeContainer) : TypeContainerRow =
         match h with
-        | TypeHolder.InNamespace ns -> TypeHolderRow.InNamespace(namespaceKey ns)
-        | TypeHolder.InModule parent -> TypeHolderRow.InModule(moduleKey parent)
-        | TypeHolder.InType outer -> TypeHolderRow.InType(typeKey outer)
+        | TypeContainer.InNamespace ns -> TypeContainerRow.InNamespace(namespaceKey ns)
+        | TypeContainer.InModule parent -> TypeContainerRow.InModule(moduleKey parent)
+        | TypeContainer.InType outer -> TypeContainerRow.InType(typeKey outer)
 
     and typeKey (k: TypeKey) : TypeKeyId =
         typeKeys.Intern
             {
-                Holder = typeHolder k.Holder
+                Container = typeContainer k.Container
                 Name = str k.Name
                 TyparArity = k.TyparArity
             }
@@ -268,7 +275,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     and bindingKey (b: BindingKey) : BindingKeyId =
         bindings.Intern
             {
-                Decl = moduleHolder b.Decl
+                Decl = moduleContainer b.Decl
                 Name = str b.Name
             }
 
@@ -370,7 +377,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
 /// A file's interned type and key tables, READ SIDE: an id resolves back to the very
 /// `FrozenType` / `SymbolKey` the DU declares. One row materialises to ONE object, shared by
-/// every id-holder that names it — so a type is allocated once per DISTINCT type.
+/// every id that names it — so a type is allocated once per DISTINCT type.
 [<Sealed>]
 type FrozenTypeTable private (rows: FrozenTypeRows) =
     let namespaceCache: NamespaceKey[] = Array.zeroCreate rows.Namespaces.Length
@@ -411,10 +418,10 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 }
             )
 
-    let rec moduleHolder (h: ModuleHolderRow) : ModuleHolder =
+    let rec moduleContainer (h: ModuleContainerRow) : ModuleContainer =
         match h with
-        | ModuleHolderRow.InNamespace ns -> ModuleHolder.InNamespace(namespaceKey ns)
-        | ModuleHolderRow.InModule parent -> ModuleHolder.InModule(moduleKey parent)
+        | ModuleContainerRow.InNamespace ns -> ModuleContainer.InNamespace(namespaceKey ns)
+        | ModuleContainerRow.InModule parent -> ModuleContainer.InModule(moduleKey parent)
 
     and moduleKey (ModuleId i) : ModuleKey =
         Materialise.get
@@ -424,16 +431,16 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 let row = rows.Modules.[i]
 
                 {
-                    Holder = moduleHolder row.Holder
+                    Container = moduleContainer row.Container
                     Name = str row.Name
                 }
             )
 
-    let rec typeHolder (h: TypeHolderRow) : TypeHolder =
+    let rec typeContainer (h: TypeContainerRow) : TypeContainer =
         match h with
-        | TypeHolderRow.InNamespace ns -> TypeHolder.InNamespace(namespaceKey ns)
-        | TypeHolderRow.InModule parent -> TypeHolder.InModule(moduleKey parent)
-        | TypeHolderRow.InType outer -> TypeHolder.InType(typeKey outer)
+        | TypeContainerRow.InNamespace ns -> TypeContainer.InNamespace(namespaceKey ns)
+        | TypeContainerRow.InModule parent -> TypeContainer.InModule(moduleKey parent)
+        | TypeContainerRow.InType outer -> TypeContainer.InType(typeKey outer)
 
     and typeKey (TypeKeyId i) : TypeKey =
         Materialise.get
@@ -443,7 +450,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 let row = rows.TypeKeys.[i]
 
                 {
-                    Holder = typeHolder row.Holder
+                    Container = typeContainer row.Container
                     Name = str row.Name
                     TyparArity = row.TyparArity
                 }
@@ -457,7 +464,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 let row = rows.Bindings.[i]
 
                 {
-                    Decl = moduleHolder row.Decl
+                    Decl = moduleContainer row.Decl
                     Name = str row.Name
                 }
             )

@@ -191,7 +191,7 @@ module DeclContainment =
 
     /// The dotted SOURCE path of this containment (`"N.A.B"`; `""` at the top of an
     /// anonymous module) — the namespace plus each enclosing module's name AS WRITTEN,
-    /// never its compiled holder name (`ListModule`).
+    /// never its compiled module name (`ListModule`).
     let sourcePath (nameOf: 'T -> string) (c: DeclContainment<'T>) : string =
         let mutable path = c.Namespace
 
@@ -1063,7 +1063,7 @@ module CstWalk =
             match e with
             | ModuleElem.Module((ModuleDefn.ModuleDefn(
                 moduleToken = kw; isRec = innerRec; body = ModuleDefnBody(elements = inner))) as md) ->
-                // A module is a *holder*: it extends the containment's module chain and
+                // A module is a *container*: it extends the containment's module chain and
                 // leaves its `Namespace` alone.
                 match inner with
                 | ValueSome innerElems ->

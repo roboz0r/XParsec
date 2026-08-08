@@ -114,11 +114,11 @@ module JsImports =
             let name = b.Name
             let entry = entryFor imports home (sprintf "external value '%s'" compiledName)
 
-            // `$<holder>_<name>`, every `.` underscored. An UNQUALIFIED binding's holder is
+            // `$<container>_<name>`, every `.` underscored. An UNQUALIFIED binding's container is
             // the global namespace (`""`), so the join's leading `.` survives as `_`:
             // `makeBox` → `$_makeBox`.
             let alias =
-                "$" + (SymbolKeyOps.holderFullName b.Decl + "." + name).Replace('.', '_')
+                "$" + (SymbolKeyOps.containerFullName b.Decl + "." + name).Replace('.', '_')
 
             // At-most-one module slot, ENFORCED: a second, different local would silently
             // clobber the first in the emitted `import` line; the SAME local is the no-op.

@@ -8,21 +8,21 @@ type Accessibility =
     | Internal
     | Private
 
-/// The exportable identity of a module-level `let`. `InModule m` names the compiled holder
+/// The exportable identity of a module-level `let`. `InModule m` names the compiled module
 /// type — an F# module is a static class (`Vesper.Collections.ListModule::fold`).
 type ModuleBindingInfo =
     {
-        Holder: ModuleHolder
+        Container: ModuleContainer
         Name: string
     }
 
-    member this.Key: SymbolKey = SymbolKeyOps.valueKey this.Holder this.Name
+    member this.Key: SymbolKey = SymbolKeyOps.valueKey this.Container this.Name
 
     /// The named module this binding is declared in, or `ValueNone` for a top-level `let`.
     member this.DeclaringModule: ModuleKey voption =
-        match this.Holder with
-        | ModuleHolder.InModule m -> ValueSome m
-        | ModuleHolder.InNamespace _ -> ValueNone
+        match this.Container with
+        | ModuleContainer.InModule m -> ValueSome m
+        | ModuleContainer.InNamespace _ -> ValueNone
 
 /// The value-struct closure verdict for one source lambda, keyed by the lambda argument's
 /// `NodeKey`. Recorded only for a lambda threaded through a `:> Fun<a,b>` slot.
@@ -32,7 +32,7 @@ type FunVerdict =
         /// `Fun<a,b>` slot, `2` for a `Fun<a,b,c>` slot.
         Arity: int
         /// The type-argument POSITION the constrained `'TFunc` occupies in the combinator's
-        /// RESULT nominal (`0` for `mk : ('TF:>Fun) -> Holder<'TF>`); `ValueNone` for a
+        /// RESULT nominal (`0` for `mk : ('TF:>Fun) -> Container<'TF>`); `ValueNone` for a
         /// result that does not mention it (`fold`).
         ResultTyparPos: int voption
     }

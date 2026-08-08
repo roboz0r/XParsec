@@ -10,8 +10,8 @@ open XParsec.FSharp.Codegen.Common
 module internal Layout =
 
     /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
-    /// then closures, then root-module holders — each holder carrying the types it holds
-    /// and its child holders. The shared `ClosureNamer` keeps closure names unique.
+    /// then closures, then root-module classes — each module class carrying the types it holds
+    /// and its child module classes. The shared `ClosureNamer` keeps closure names unique.
     let buildFile
         (closureNamer: Emit.ClosureNamer)
         (symbols: ICodegenSymbols)
@@ -55,11 +55,11 @@ module internal Layout =
             d :> IReadOnlyDictionary<_, _>
 
         let lowered0 = Emit.lower decls
-        // The anonymous "Program" holder's key — a module of that name in the global
-        // namespace, owning the holder-less fns + `Main` + the top-level values. It tags
-        // those values' `Holder` field; the type slot is `TypeSlotKey.Program`.
-        let programHolder =
-            SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) project.ModuleName
+        // The anonymous "Program" class's key — a module of that name in the global
+        // namespace, owning the fns of no named module + `Main` + the top-level values. It
+        // tags those values' `ModuleClass` field; the type slot is `TypeSlotKey.Program`.
+        let programClass =
+            SymbolKeyOps.moduleKeyOf (ModuleContainer.InNamespace NamespaceKey.Global) project.ModuleName
 
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type — a top-level value of
         // such a type can't be a static field; computed from the pool's own decl roots
@@ -83,7 +83,7 @@ module internal Layout =
         // function — keeping the flat static method, adding a wrapper closure — and
         // republishes the rewritten decls, which is what closure discovery must walk.
         let plan =
-            HolderPlan.create moduleMembers genericFnSchemes programHolder refStructNsNames lowered0
+            ModuleClassPlan.create moduleMembers genericFnSchemes programClass refStructNsNames lowered0
 
         let lowered = plan.Lowered
 
@@ -159,8 +159,8 @@ module internal Layout =
         let structEnumNodes = LayoutNodes.buildStructEnumNodes partitioned.StructEnums
         let closureNodes = LayoutNodes.buildClosureNodes closures
 
-        // Every nominal type, by kind. The order applies *within* each holder (and among
-        // the roots), since filtering this list by holder preserves it.
+        // Every nominal type, by kind. The order applies *within* each module class (and among
+        // the roots), since filtering this list by module class preserves it.
         let nominalNodes =
             interfaceNodes
             @ unionNodes
@@ -169,46 +169,46 @@ module internal Layout =
             @ enumNodes
             @ structEnumNodes
 
-        // ---- Holder discovery ------------------------------------------------------
+        // ---- Module class discovery -------------------------------------------------
 
-        // Every module that holds an emitted binding or type needs a holder class, and so
-        // does every ancestor on the way down to it — a `NestedClass` row needs its
-        // enclosing `TypeDef`. Ancestors first, first-appearance order, deduplicated.
-        let orderedHolders =
+        // Every module that holds an emitted binding or type needs a class, and so does
+        // every ancestor on the way down to it — a `NestedClass` row needs its enclosing
+        // `TypeDef`. Ancestors first, first-appearance order, deduplicated.
+        let orderedClasses =
             let seen = HashSet<ModuleKey>()
             let acc = ResizeArray<ModuleKey>()
 
             let rec add (m: ModuleKey) =
-                match m.Holder with
-                | ModuleHolder.InModule parent -> add parent
-                | ModuleHolder.InNamespace _ -> ()
+                match m.Container with
+                | ModuleContainer.InModule parent -> add parent
+                | ModuleContainer.InNamespace _ -> ()
 
                 if seen.Add m then
                     acc.Add m
 
-            for h in plan.OrderedNamedHolders do
+            for h in plan.OrderedNamedClasses do
                 add h
 
             for node in nominalNodes do
                 match node.Enclosing with
-                | ValueSome(TypeSlotKey.Holder m) -> add m
+                | ValueSome(TypeSlotKey.ModuleClass m) -> add m
                 | _ -> ()
 
             List.ofSeq acc
 
-        let holderMethodRows (h: Emit.HolderKey) : MethodRow list =
+        let moduleClassMethodRows (h: Emit.ModuleClassKey) : MethodRow list =
             [
-                // The `.cctor` initialises the holder's module values.
-                if not (List.isEmpty (HolderPlan.holderValues plan h)) then
+                // The `.cctor` initialises the module class's module values.
+                if not (List.isEmpty (ModuleClassPlan.moduleClassValues plan h)) then
                     yield
                         {
-                            Key = MethodKey.HolderCctor h
+                            Key = MethodKey.ModuleClassCctor h
                             Name = ".cctor"
                             Attrs = cctorAttrs
                         }
 
                 for fn in plan.StaticFns do
-                    if fn.Holder = Some h then
+                    if fn.ModuleClass = Some h then
                         yield
                             {
                                 Key = MethodKey.StaticFn fn.SymbolKey
@@ -217,11 +217,11 @@ module internal Layout =
                             }
             ]
 
-        // A holder node: its module-value fields (immutable ⇒ `initonly`, set only in
-        // the holder `.cctor`), its methods, and — nested inside it — the types it
-        // holds followed by its child holders.
-        let rec holderNode (h: Emit.HolderKey) : TypeNode =
-            let values = HolderPlan.holderValues plan h
+        // A module class node: its module-value fields (immutable ⇒ `initonly`, set only in
+        // the module class `.cctor`), its methods, and — nested inside it — the types it
+        // holds followed by its child module classes.
+        let rec moduleClassNode (h: Emit.ModuleClassKey) : TypeNode =
+            let values = ModuleClassPlan.moduleClassValues plan h
 
             let fields =
                 [
@@ -237,59 +237,59 @@ module internal Layout =
 
             let held =
                 nominalNodes
-                |> List.filter (fun n -> n.Enclosing = ValueSome(TypeSlotKey.Holder h))
+                |> List.filter (fun n -> n.Enclosing = ValueSome(TypeSlotKey.ModuleClass h))
 
             let children =
-                orderedHolders
-                |> List.filter (fun m -> m.Holder = ModuleHolder.InModule h)
-                |> List.map holderNode
+                orderedClasses
+                |> List.filter (fun m -> m.Container = ModuleContainer.InModule h)
+                |> List.map moduleClassNode
 
             {
                 Slot =
                     {
-                        Key = TypeSlotKey.Holder h
-                        Kind = TypeSlotKind.Holder(not (List.isEmpty values))
-                        // A nested module's holder is a class nested in its parent's
-                        // holder, so its namespace column is empty; a root module's
-                        // carries the declaring namespace.
+                        Key = TypeSlotKey.ModuleClass h
+                        Kind = TypeSlotKind.ModuleClass(not (List.isEmpty values))
+                        // A nested module's class is nested in its parent's, so its
+                        // namespace column is empty; a root module's carries the
+                        // declaring namespace.
                         Namespace =
-                            match h.Holder with
-                            | ModuleHolder.InNamespace ns -> ns.Dotted
-                            | ModuleHolder.InModule _ -> ""
+                            match h.Container with
+                            | ModuleContainer.InNamespace ns -> ns.Dotted
+                            | ModuleContainer.InModule _ -> ""
                         MetaName = h.Name
                         Typars = []
                     }
                 Enclosing =
-                    match h.Holder with
-                    | ModuleHolder.InModule parent -> ValueSome(TypeSlotKey.Holder parent)
-                    | ModuleHolder.InNamespace _ -> ValueNone
+                    match h.Container with
+                    | ModuleContainer.InModule parent -> ValueSome(TypeSlotKey.ModuleClass parent)
+                    | ModuleContainer.InNamespace _ -> ValueNone
                 Fields = fields
-                Methods = holderMethodRows h
+                Methods = moduleClassMethodRows h
                 Nested = held @ children
             }
 
-        let rootHolderNodes =
-            orderedHolders
+        let rootModuleClassNodes =
+            orderedClasses
             |> List.filter (fun m ->
-                match m.Holder with
-                | ModuleHolder.InNamespace _ -> true
-                | ModuleHolder.InModule _ -> false
+                match m.Container with
+                | ModuleContainer.InNamespace _ -> true
+                | ModuleContainer.InModule _ -> false
             )
-            |> List.map holderNode
+            |> List.map moduleClassNode
 
-        // The `<Module>` pseudo-type and the Program holder belong to the ASSEMBLY, so
+        // The `<Module>` pseudo-type and the Program class belong to the ASSEMBLY, so
         // they are minted around the combined files, not here. This hands over the
         // placeable roots and the flat key set for the completeness check.
         {
             Roots =
                 (nominalNodes |> List.filter (fun n -> n.Enclosing.IsNone))
                 @ closureNodes
-                @ rootHolderNodes
+                @ rootModuleClassNodes
             BuiltKeys =
                 [
                     for n in nominalNodes -> n.Slot.Key
                     for n in closureNodes -> n.Slot.Key
-                    for h in orderedHolders -> TypeSlotKey.Holder h
+                    for h in orderedClasses -> TypeSlotKey.ModuleClass h
                 ]
             Lowered = lowered
             Plan = plan
@@ -302,7 +302,7 @@ module internal Layout =
         }
 
     /// Assemble the files into the whole `AssemblyLayout`: PREPEND the `<Module>`
-    /// pseudo-type (so it is TypeDef row 1), APPEND the Program holder, flatten the
+    /// pseudo-type (so it is TypeDef row 1), APPEND the Program class, flatten the
     /// concatenated roots into the `TypeDef` table, then check completeness once.
     let combine (project: ProjectInfo) (files: FileLayout list) : AssemblyLayout =
         // The entry file carries `Main`. For an executable it is the LAST file — F#'s rule
@@ -327,7 +327,7 @@ module internal Layout =
             | None -> ValueNone
 
         // Only the entry file may carry top-level VALUE bindings; a non-entry file with any
-        // is a front-end error. A namespace-level `let` (a holder-less FN) is not top-level
+        // is a front-end error. A namespace-level `let` (a Program-class FN) is not top-level
         // code — a library may carry those — so it is aggregated below, not rejected here.
         files
         |> List.iteri (fun i f ->
@@ -345,18 +345,18 @@ module internal Layout =
                         (List.length p.ProgramCctorValues + List.length p.ProgramMainValues)
         )
 
-        // A holder contributed by two files is a same-FQN module split across files.
+        // A module class contributed by two files is a same-FQN module split across files.
         // Rejected by name here rather than as an opaque duplicate-key throw when the
         // handles are derived.
-        let holderSeen = HashSet<TypeSlotKey>()
+        let classSeen = HashSet<TypeSlotKey>()
 
         for f in files do
             for k in f.BuiltKeys do
                 match k with
-                | TypeSlotKey.Holder _ ->
-                    if not (holderSeen.Add k) then
+                | TypeSlotKey.ModuleClass _ ->
+                    if not (classSeen.Add k) then
                         failwithf
-                            "Layout.combine: holder %A is contributed by more than one file — a module's definition is split across files"
+                            "Layout.combine: module class %A is contributed by more than one file — a module's definition is split across files"
                             k
                 | _ -> ()
 
@@ -378,7 +378,7 @@ module internal Layout =
                 Nested = []
             }
 
-        // The Program holder's value fields come from the ENTRY file alone: a value before
+        // The Program class's value fields come from the ENTRY file alone: a value before
         // the first top-level `do` is `initonly`, written by the `.cctor`; one after it is
         // plain mutable `static`, written by `Main`.
         let programFields =
@@ -411,15 +411,15 @@ module internal Layout =
             | ValueSome f -> not (List.isEmpty f.Plan.ProgramCctorValues)
             | ValueNone -> false
 
-        // Every file's holder-less fns, in file order, on the one Program holder. Two files
+        // Every file's Program-class fns, in file order, on the one Program class. Two files
         // declaring the same namespace can both declare `let f` — F# tells them apart by an
         // implicit module named after each FILE, which this front end cannot mint.
-        let holderlessFnRows =
+        let programFnRows =
             let seen = HashSet<SymbolKey>()
 
             [
                 for f in files do
-                    for fn in f.Plan.HolderlessFns do
+                    for fn in f.Plan.ProgramFns do
                         if not (seen.Add fn.SymbolKey) then
                             failwithf
                                 "Layout.combine: top-level binding %s is declared by more than one file — two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
@@ -433,13 +433,13 @@ module internal Layout =
                             }
             ]
 
-        // The Program holder exists only if it would hold something: `Main`, a top-level
-        // value field, or a holder-less fn from any file.
+        // The Program class exists only if it would hold something: `Main`, a top-level
+        // value field, or a Program-class fn from any file.
         let programNodes =
             if
                 entryFile.IsSome
                 || not (List.isEmpty programFields)
-                || not (List.isEmpty holderlessFnRows)
+                || not (List.isEmpty programFnRows)
             then
                 [
                     {
@@ -463,7 +463,7 @@ module internal Layout =
                                             Attrs = cctorAttrs
                                         }
 
-                                yield! holderlessFnRows
+                                yield! programFnRows
 
                                 // Only an executable has an entry file, and only it has `Main`.
                                 if entryFile.IsSome then
@@ -480,7 +480,7 @@ module internal Layout =
             else
                 []
 
-        // `<Module>` first — it must be TypeDef row 1 — and the Program holder last.
+        // `<Module>` first — it must be TypeDef row 1 — and the Program class last.
         let roots = moduleNode :: (files |> List.collect (fun f -> f.Roots)) @ programNodes
 
         // The `TypeDef` table is this pre-order flattening, and every table the writer
@@ -491,7 +491,7 @@ module internal Layout =
         let types = List.collect flatten roots
 
         // Completeness: every node built above must be placed in the tree exactly once —
-        // none dropped (a holder discovery missed), none duplicated (a nominal landing in
+        // none dropped (a module-class discovery miss), none duplicated (a nominal landing in
         // both the roots and a module's `Nested`).
         let builtKeys =
             [

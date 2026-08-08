@@ -667,8 +667,8 @@ let structSeqTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "9" "constrained struct dispatch returns the impl value"
 
-                // The holder-less top-level `callIt` is emitted on the "Program" type
-                // under its source name on the Program holder, so target it structurally.
+                // The Program-class top-level `callIt` is emitted on the "Program" type
+                // under its source name on the Program class, so target it structurally.
                 let il = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
@@ -1029,7 +1029,7 @@ let structSeqTests =
             // GENERICINST VALUETYPE `<closure>$…` (`15 11 …`) and the round-trip yields 42.
             test "a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
                 let tast, artifact = compileSourceData "StoredFunTyparSlotHolder"
-                Expect.isEmpty tast.Diagnostics (sprintf "stored-holder diagnostics: %A" tast.Diagnostics)
+                Expect.isEmpty tast.Diagnostics (sprintf "stored-module class diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -1048,7 +1048,7 @@ let structSeqTests =
                     |> Seq.collect (fun tdh -> (md.GetTypeDefinition tdh).GetFields())
                     |> Seq.tryPick (fun fh ->
                         let fd = md.GetFieldDefinition fh
-                        // A top-level (Program-holder) value's field name carries its
+                        // A top-level (Program-class) value's field name carries its
                         // source offset (`h` → `h$<offset>`).
                         let fn = md.GetString fd.Name
 

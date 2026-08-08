@@ -305,10 +305,10 @@ let nestedModuleTests =
                 | other -> failtestf "unexpected: %A" other
             }
 
-            // The DECL flattens; the CONTAINMENT does not. A binding's holder is the whole
+            // The DECL flattens; the CONTAINMENT does not. A binding's container is the whole
             // chain of modules it is written in — the same chain a type declared there gets
             // (`SymbolKeyTests`, "a NESTED module produces a nested InModule chain"), because
-            // both read `ModuleRules.holderChain`. Dropping the outer module here would give
+            // both read `ModuleRules.containerChain`. Dropping the outer module here would give
             // one source location two containments depending on what was declared in it.
             test "a binding in a nested module is held by the WHOLE module chain" {
                 let tast =
@@ -328,15 +328,15 @@ let nestedModuleTests =
                 | ValueSome b ->
                     Expect.equal b.Name "B" "held by the INNERMOST module"
 
-                    match b.Holder with
-                    | ModuleHolder.InModule a ->
+                    match b.Container with
+                    | ModuleContainer.InModule a ->
                         Expect.equal a.Name "A" "which is itself held by the outer module"
 
                         Expect.equal
                             (List.ofSeq a.Namespace.Path.Underlying)
                             [ "N" ]
                             "and the outer module by the namespace — neither module is a namespace segment"
-                    | other -> failtestf "expected B's holder to be module A, got %A" other
+                    | other -> failtestf "expected B's container to be module A, got %A" other
 
                 Expect.equal
                     (SymbolKeyOps.qualifiedName info.Key)

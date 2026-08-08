@@ -113,8 +113,8 @@ module VesperLibTyparCapture =
         /// metadata name — the same key the shape tables below use.
         member val TypeKeys = Dictionary<string, TypeKey>(StringComparer.Ordinal) with get
         /// Every `module` this package declares, keyed by the DOTTED path the source writes
-        /// -> the holder a type declared in it sits in, which carries the compiled chain.
-        member val ModuleHolders = Dictionary<string, TypeHolder>(StringComparer.Ordinal) with get
+        /// -> the container a type declared in it sits in, which carries the compiled chain.
+        member val ModuleContainers = Dictionary<string, TypeContainer>(StringComparer.Ordinal) with get
         /// Type-shape index: qualified compiled name -> body shape.
         member val TypeShapes = Dictionary<string, ExternalTypeShape>(StringComparer.Ordinal) with get
         /// The `member`s a `.fsi` declares inside a union/record/class body, keyed by the
@@ -180,12 +180,12 @@ module VesperLibTyparCapture =
                 | true, key -> ValueSome key
                 | _ -> ValueNone
 
-            let moduleHolder (path: string) =
-                match ctx.ModuleHolders.TryGetValue path with
-                | true, holder -> ValueSome holder
+            let moduleContainer (path: string) =
+                match ctx.ModuleContainers.TryGetValue path with
+                | true, container -> ValueSome container
                 | _ -> ValueNone
 
-            SymbolKeyOps.tryDottedModuleHeld exact moduleHolder probe
+            SymbolKeyOps.tryDottedInModule exact moduleContainer probe
 
         /// Lift a FINALIZED context to a provider, publishing `AutoOpenPrefixes` as its
         /// ambient. Precondition: every deferred body / member is already frozen into its shape.

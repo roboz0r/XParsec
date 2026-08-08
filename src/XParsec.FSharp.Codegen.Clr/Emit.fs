@@ -21,7 +21,7 @@ module Emit =
     type EmittedInterface = EmitTypes.EmittedInterface
     type EmittedEnum = EmitTypes.EmittedEnum
     type EmittedEnumRepr = EmitTypes.EmittedEnumRepr
-    type HolderKey = EmitTypes.HolderKey
+    type ModuleClassKey = EmitTypes.ModuleClassKey
     type StaticFn = EmitTypes.StaticFn
     type ModuleValue = EmitTypes.ModuleValue
     type StaticMethodRef = EmitTypes.StaticMethodRef
@@ -70,7 +70,7 @@ module Emit =
                 | ValueSome boundVar when ctx.MainInitValues.ContainsKey boundVar ->
                     buildExpr env b dl.Value
                     b.Add(ILInstr.Stsfld ctx.MainInitValues.[boundVar])
-                // A module-level value is a `public static` field its holder's `.cctor`
+                // A module-level value is a `public static` field its module class's `.cctor`
                 // initialises; a reference `ldsfld`s it, so it needs no Main local.
                 | ValueSome boundVar when ctx.ModuleValues.ContainsKey boundVar -> ()
                 | ValueSome boundVar ->

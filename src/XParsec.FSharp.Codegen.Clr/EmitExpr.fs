@@ -42,7 +42,7 @@ module EmitExpr =
 
             if env.StaticMethods.ContainsKey boundVar then
                 // A generic module value (`let empty : SetTree<'T> = …`) lowers to a 0-arg
-                // generic static method, since a non-generic holder cannot host a
+                // generic static method, since a non-generic module class cannot host a
                 // `SetTree<'T>` field. Its instantiation comes from this use's own type.
                 let varTy = TastAccessor.exprTy e
                 let sm = env.StaticMethods.[boundVar]

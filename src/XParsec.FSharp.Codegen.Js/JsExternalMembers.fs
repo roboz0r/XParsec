@@ -291,7 +291,7 @@ module JsExternalMembers =
         // A free function is held DIRECTLY by the namespace its export sits in, which the
         // synthetic grouping type shares — home included, by construction.
         let valueKey =
-            SymbolKeyOps.valueKey (ModuleHolder.InNamespace declKey.Namespace) memberName
+            SymbolKeyOps.valueKey (ModuleContainer.InNamespace declKey.Namespace) memberName
 
         let home =
             homeOf provider (SymbolKey.Type declKey) (sprintf "erased grouping member '%s'" memberName)

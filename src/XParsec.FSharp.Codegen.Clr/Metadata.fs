@@ -220,9 +220,9 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// The `abstract sealed` (static) holder for top-level members: it owns no fields, so
+    /// The `abstract sealed` (static) class for top-level members: it owns no fields, so
     /// `firstField` points past any preceding rows and its field range stays empty. `ns`
-    /// is empty for the anonymous "Program" holder and for a NESTED module's holder.
+    /// is empty for the anonymous "Program" class and for a NESTED module's class.
     member _.AddProgramType
         (
             attrs: TypeAttributes,

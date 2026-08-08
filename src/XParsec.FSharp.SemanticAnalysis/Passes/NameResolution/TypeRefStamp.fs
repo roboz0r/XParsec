@@ -66,7 +66,7 @@ module NameResolutionTypeRefStamp =
             ]
 
     /// A NOMINAL type constructor takes the producer's REGISTERED key: only that preserves an `InModule`
-    /// holder chain, a re-cut from the dotted spelling flattening the module segment into the
+    /// containment chain, a re-cut from the dotted spelling flattening the module segment into the
     /// namespace. The rest key off the compiled name, an abbrev dealiasing on read.
     let useSiteTypeKey (hit: ExternalTypeHit) : TypeKey =
         match hit.Shape with

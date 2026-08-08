@@ -141,48 +141,48 @@ let private collect () : Collected =
 
     let tkInt =
         {
-            Holder = TypeHolder.InNamespace nsGlobal
+            Container = TypeContainer.InNamespace nsGlobal
             Name = "int"
             TyparArity = 0
         }
 
     let tkString =
         {
-            Holder = TypeHolder.InNamespace nsGlobal
+            Container = TypeContainer.InNamespace nsGlobal
             Name = "string"
             TyparArity = 0
         }
 
     let tkArray =
         {
-            Holder = TypeHolder.InNamespace nsGlobal
+            Container = TypeContainer.InNamespace nsGlobal
             Name = "[]"
             TyparArity = 1
         }
 
     let tkList =
         {
-            Holder = TypeHolder.InNamespace nsSystem
+            Container = TypeContainer.InNamespace nsSystem
             Name = "List`1"
             TyparArity = 1
         }
 
     let modKey =
         {
-            Holder = ModuleHolder.InNamespace nsSystem
+            Container = ModuleContainer.InNamespace nsSystem
             Name = "ListModule"
         }
 
     let tkInMod =
         {
-            Holder = TypeHolder.InModule modKey
+            Container = TypeContainer.InModule modKey
             Name = "Inner"
             TyparArity = 0
         }
 
     let tkNested =
         {
-            Holder = TypeHolder.InType tkList
+            Container = TypeContainer.InType tkList
             Name = "Enumerator"
             TyparArity = 0
         }
@@ -217,12 +217,12 @@ let private collect () : Collected =
             SymbolKey.Type tkNested
             SymbolKey.Binding
                 {
-                    Decl = ModuleHolder.InNamespace nsSystem
+                    Decl = ModuleContainer.InNamespace nsSystem
                     Name = "printfn"
                 }
             SymbolKey.Binding
                 {
-                    Decl = ModuleHolder.InModule modKey
+                    Decl = ModuleContainer.InModule modKey
                     Name = "map"
                 }
             SymbolKey.Member memberKey

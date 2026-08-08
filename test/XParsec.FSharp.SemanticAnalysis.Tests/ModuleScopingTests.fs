@@ -36,7 +36,7 @@ let private typeDeclKeyInArity (tast: TastFile) (moduleName: string) (typeName: 
                 | TDecl.Type td when td.Name = typeName ->
                     match td.Key with
                     | SymbolKey.Type {
-                                         Holder = TypeHolder.InModule m
+                                         Container = TypeContainer.InModule m
                                          TyparArity = a
                                      } when m.Name = moduleName && a = arity -> yield td.Key
                     | _ -> ()
@@ -62,10 +62,10 @@ let private typeDeclKeyInNested (tast: TastFile) (outer: string) (inner: string)
                 | TDecl.Type td when td.Name = typeName ->
                     match td.Key with
                     | SymbolKey.Type {
-                                         Holder = TypeHolder.InModule {
-                                                                          Name = i
-                                                                          Holder = ModuleHolder.InModule o
-                                                                      }
+                                         Container = TypeContainer.InModule {
+                                                                                Name = i
+                                                                                Container = ModuleContainer.InModule o
+                                                                            }
                                      } when i = inner && o.Name = outer -> yield td.Key
                     | _ -> ()
                 | _ -> ()
@@ -83,7 +83,9 @@ let private typeDeclKeyInNamespace (tast: TastFile) (typeName: string) : SymbolK
                 match d with
                 | TDecl.Type td when td.Name = typeName ->
                     match td.Key with
-                    | SymbolKey.Type { Holder = TypeHolder.InNamespace _ } -> yield td.Key
+                    | SymbolKey.Type {
+                                         Container = TypeContainer.InNamespace _
+                                     } -> yield td.Key
                     | _ -> ()
                 | _ -> ()
         ]

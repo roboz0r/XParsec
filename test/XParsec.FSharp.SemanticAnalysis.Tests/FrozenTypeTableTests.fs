@@ -37,53 +37,53 @@ let private ns: NamespaceKey =
 
 let private outerModule: ModuleKey =
     {
-        Holder = ModuleHolder.InNamespace ns
+        Container = ModuleContainer.InNamespace ns
         Name = "M"
     }
 
 let private innerModule: ModuleKey =
     {
-        Holder = ModuleHolder.InModule outerModule
+        Container = ModuleContainer.InModule outerModule
         Name = "N"
     }
 
 let private boxKey: TypeKey =
     {
-        Holder = TypeHolder.InModule innerModule
+        Container = TypeContainer.InModule innerModule
         Name = "Box"
         TyparArity = 1
     }
 
 let private nestedKey: TypeKey =
     {
-        Holder = TypeHolder.InType boxKey
+        Container = TypeContainer.InType boxKey
         Name = "Enumerator"
         TyparArity = 0
     }
 
 let private ifaceKey: TypeKey =
     {
-        Holder = TypeHolder.InNamespace globalNs
+        Container = TypeContainer.InNamespace globalNs
         Name = "IThing"
         TyparArity = 0
     }
 
 let private colourKey: TypeKey =
     {
-        Holder = TypeHolder.InNamespace ns
+        Container = TypeContainer.InNamespace ns
         Name = "Colour"
         TyparArity = 0
     }
 
 let private bindingKey: BindingKey =
     {
-        Decl = ModuleHolder.InNamespace globalNs
+        Decl = ModuleContainer.InNamespace globalNs
         Name = "printfn"
     }
 
 let private moduleBindingKey: BindingKey =
     {
-        Decl = ModuleHolder.InModule outerModule
+        Decl = ModuleContainer.InModule outerModule
         Name = "f"
     }
 
@@ -99,7 +99,7 @@ let private memberKeyOf (kind: MemberKind) (argSig: FrozenType list) : MemberKey
     }
 
 /// Every `FrozenType` constructor, at depth, plus the shapes that only appear inside a KEY
-/// (a member's `ArgSig`, a nested holder chain) — the type table and the key tables are one
+/// (a member's `ArgSig`, a nested containment chain) — the type table and the key tables are one
 /// interning problem, so the samples have to exercise the edge in both directions.
 let private samples: FrozenType list =
     [
@@ -317,7 +317,7 @@ let tests =
             // reader is forced to accept.
             //
             // Materialising through the REREAD table is what makes this reach further than
-            // the type rows: every key row (`SymbolRow`, `MemberKindRow`, the two holder
+            // the type rows: every key row (`SymbolRow`, `MemberKindRow`, the two container
             // rows, `LiteralRow`) has a byte-tag reader with the same catch-all, and the only
             // way to resolve a sample's id is through all of them.
             test "every row case survives the row codec at the id it was minted with" {

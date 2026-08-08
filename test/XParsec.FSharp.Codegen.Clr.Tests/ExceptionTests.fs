@@ -25,7 +25,7 @@ let private thrownBy (assemblyName: string) (src: string) : exn =
 
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
 
-    let fn = programHolderMethods (Codegen.toBytes artifact) |> Array.exactlyOne
+    let fn = programClassMethods (Codegen.toBytes artifact) |> Array.exactlyOne
 
     try
         fn.Invoke(null, [| box 0 |]) |> ignore

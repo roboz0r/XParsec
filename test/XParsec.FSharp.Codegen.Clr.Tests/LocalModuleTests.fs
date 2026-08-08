@@ -115,14 +115,14 @@ let tests =
 
 // ---- A module-held type is a NESTED class -----------------------------------
 //
-// The type's key says a module holds it (`TypeHolder.InModule`), the renderer spells that
+// The type's key says a module holds it (`TypeContainer.InModule`), the renderer spells that
 // `N.MModule+T`, and the emitter writes exactly that: a `TypeDef` with an empty namespace
-// column and a `NestedClass` row into the module's compiled holder class. These pin the
+// column and a `NestedClass` row into the module's compiled module class. These pin the
 // key and emitter MEETING — the name the key renders is the name the runtime binds.
 
-/// `namespace N` + `module M` (whose name collides with `type M`, so its holder takes the
+/// `namespace N` + `module M` (whose name collides with `type M`, so its module class takes the
 /// `Module` suffix) + a `type T` the module holds. `M` holds ONLY types — no `let` — so
-/// its holder class exists solely because a type needs it.
+/// its module class exists solely because a type needs it.
 let private moduleHeldType =
     String.concat
         "\n"
@@ -154,22 +154,22 @@ let nestedEmission =
                 Expect.isNull (asm.GetType "N.T") "expected no flat N.T"
             }
 
-            // A module with no `let` at all still gets its holder class — holder discovery
-            // reads the emitted TYPES' holder chains, not just the bindings'.
-            test "a module holding only types still gets its holder class" {
+            // A module with no `let` at all still gets its module class — module class discovery
+            // reads the emitted TYPES' containment chains, not just the bindings'.
+            test "a module holding only types still gets its module class" {
                 let artifact = compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
                 let bytes = Codegen.toBytes artifact
 
                 let ts = MetadataStructure.emittedTypes bytes |> List.map (fun t -> t.Name)
 
-                Expect.contains ts "N.MModule" "expected the type-only module's holder class"
+                Expect.contains ts "N.MModule" "expected the type-only module's module class"
                 Expect.contains ts "N.MModule+T" "expected the held type nested in it"
             }
 
-            // A nested module's holder is itself nested — in its PARENT's holder. The
+            // A nested module's module class is itself nested — in its PARENT's module class. The
             // parent must therefore be emitted even when it holds nothing of its own,
-            // which is the ancestor half of holder discovery.
-            test "a nested module's holder nests in its parent's, ancestors included" {
+            // which is the ancestor half of module class discovery.
+            test "a nested module's module class nests in its parent's, ancestors included" {
                 let src =
                     String.concat
                         "\n"
@@ -182,12 +182,12 @@ let nestedEmission =
                             "        let twice (n: int) = n + n"
                         ]
 
-                let artifact = compileSourceTo (ProjectInfo.library "NestedModuleHolder") src
+                let artifact = compileSourceTo (ProjectInfo.library "NestedModuleClass") src
                 let bytes = Codegen.toBytes artifact
-                MetadataStructure.assertWellFormed "NestedModuleHolder" bytes
+                MetadataStructure.assertWellFormed "NestedModuleClass" bytes
 
                 MetadataStructure.assertTypeMembers
-                    "NestedModuleHolder"
+                    "NestedModuleClass"
                     bytes
                     [
                         // `Outer` holds nothing directly; it exists so `Inner` has an
@@ -216,8 +216,8 @@ let nestedEmission =
 
 // ---- The module is part of a type's CLAIM ------------------------------------
 //
-// A type claims `(holder, name, arity)`, so `N.A.T` and `N.B.T` are two types — not one
-// name contested twice. Each is a `TypeDef` nested in its own module's compiled holder
+// A type claims `(container, name, arity)`, so `N.A.T` and `N.B.T` are two types — not one
+// name contested twice. Each is a `TypeDef` nested in its own module's compiled module class
 // class, which is what gives two same-named types two distinguishable metadata names, and
 // each body constructs ITS OWN.
 //
@@ -251,7 +251,7 @@ let moduleIsPartOfTypeIdentity =
                 ] -> test $"sibling modules may each declare a {kind} named T" { compiles (siblingModuleTypes inA inB) }
 
             yield
-                test "each sibling module's T is emitted, nested in ITS OWN holder" {
+                test "each sibling module's T is emitted, nested in ITS OWN module class" {
                     let _, artifact = compileSource "SiblingModuleTypeIdentity" recordPair
                     let bytes = Codegen.toBytes artifact
 
@@ -261,7 +261,7 @@ let moduleIsPartOfTypeIdentity =
                         |> List.filter (fun n -> n.EndsWith "+T")
                         |> List.sort
 
-                    Expect.equal ts [ "N.A+T"; "N.B+T" ] "expected two nested Ts, one per module holder"
+                    Expect.equal ts [ "N.A+T"; "N.B+T" ] "expected two nested Ts, one per module class"
 
                     MetadataStructure.assertWellFormed "SiblingModuleTypeIdentity" bytes
 

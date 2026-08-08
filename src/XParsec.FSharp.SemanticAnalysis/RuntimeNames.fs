@@ -235,8 +235,8 @@ module RuntimeNames =
     /// For a name that is NOT a registered intrinsic.
     let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey "" name
 
-    let private intrinsicHolder: TypeHolder =
-        TypeHolder.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
+    let private intrinsicContainer: TypeContainer =
+        TypeContainer.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
 
     /// A `namespace Vesper` intrinsic whose NAME satisfies `nameSatisfies` — for the one
     /// classification a finite key set cannot spell: an array of arbitrary rank, whose
@@ -245,7 +245,7 @@ module RuntimeNames =
     /// classification with FIXED membership names its keys instead.
     let isIntrinsicKeyWhere (nameSatisfies: string -> bool) (k: SymbolKey) : bool =
         match k with
-        | SymbolKey.Type t -> t.TyparArity = 0 && t.Holder = intrinsicHolder && nameSatisfies t.Name
+        | SymbolKey.Type t -> t.TyparArity = 0 && t.Container = intrinsicContainer && nameSatisfies t.Name
         | _ -> false
 
     /// The KEY-based form of `isStructuralConstructorName`: an array of any rank or a
@@ -434,7 +434,8 @@ module IntrinsicTypePatterns =
     /// A key onto the platform-repr string axis: refuses any key with a declaring namespace.
     let (|PlatformName|_|) (k: SymbolKey) : string option =
         match k with
-        | SymbolKey.Type t when t.TyparArity = 0 && t.Holder = TypeHolder.InNamespace NamespaceKey.Global -> Some t.Name
+        | SymbolKey.Type t when t.TyparArity = 0 && t.Container = TypeContainer.InNamespace NamespaceKey.Global ->
+            Some t.Name
         | _ -> None
 
     let (|FTUnit|_|) (ft: FrozenType) =

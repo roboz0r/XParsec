@@ -61,9 +61,9 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
-        /// A module-level binding's bound variable → its named-holder placement (`module Foo`'s
+        /// A module-level binding's bound variable → its named-module placement (`module Foo`'s
         /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
-        /// "Program" holder).
+        /// "Program" class).
         ModuleMembers: Map<BoundVarKeyG<'id>, ModuleBindingInfo>
         /// A closure bound variable → its stack-vs-heap verdict. A bound variable absent here, and any
         /// anonymous lambda, is `Heap`.

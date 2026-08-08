@@ -203,7 +203,7 @@ let tests =
             // external name that a unit happens to redeclare later.
             yield
                 test "an external type of the same name still resolves above a local declaration" {
-                    expectClean "type Holder = { e: exn }\ntype exn = { message: int }"
+                    expectClean "type Container = { e: exn }\ntype exn = { message: int }"
                 }
 
             // …and it BINDS to the external type, not merely accepts. Diagnostics and
@@ -213,12 +213,15 @@ let tests =
             // declaration, so the assertion is "identical resolution", not a hardcoded key.
             yield
                 test "a shadowing local declaration below a use does not capture it" {
-                    let external = recordFieldType "type Holder = { e: exn }" "Holder" "e"
+                    let external = recordFieldType "type Container = { e: exn }" "Container" "e"
 
                     let shadowed =
-                        recordFieldType "type Holder = { e: exn }\ntype exn = { message: int }" "Holder" "e"
+                        recordFieldType "type Container = { e: exn }\ntype exn = { message: int }" "Container" "e"
 
-                    Expect.equal shadowed external "Holder.e binds the external `exn`, not the local one declared below"
+                    Expect.equal
+                        shadowed
+                        external
+                        "Container.e binds the external `exn`, not the local one declared below"
                 }
 
             // The same rule through a member SIGNATURE, whose annotation is translated by
@@ -227,14 +230,14 @@ let tests =
             // with nothing yet claiming `exn` — is what the translation reads.
             yield
                 test "a shadowing local declaration below a member signature does not capture it" {
-                    let src = "type Holder() =\n    member this.M(e: exn) = e"
+                    let src = "type Container() =\n    member this.M(e: exn) = e"
 
-                    let external = classMemberParamType src "Holder" "M"
+                    let external = classMemberParamType src "Container" "M"
 
                     let shadowed =
-                        classMemberParamType (src + "\ntype exn = { message: int }") "Holder" "M"
+                        classMemberParamType (src + "\ntype exn = { message: int }") "Container" "M"
 
-                    Expect.equal shadowed external "Holder.M's parameter binds the external `exn`"
+                    Expect.equal shadowed external "Container.M's parameter binds the external `exn`"
                 }
 
             // Types and module `let`s are ONE ordered sequence, not two passes: a `let` sees

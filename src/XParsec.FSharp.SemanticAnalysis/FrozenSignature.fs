@@ -61,20 +61,21 @@ module FrozenSignature =
 
         let symbols = Dictionary<string, ExternalSymbol>(System.StringComparer.Ordinal)
 
-        // The DOTTED path of a module this file declares -> the `TypeHolder` a type it holds
+        // The DOTTED path of a module this file declares -> the `TypeContainer` a type it holds
         // sits in, populated from each registered type's containment chain: it is what makes
         // a written `Test.A.M.T` reach the type whose canonical name is `Test.A.M+T`.
-        let moduleHolders = Dictionary<string, TypeHolder>(System.StringComparer.Ordinal)
+        let moduleContainers =
+            Dictionary<string, TypeContainer>(System.StringComparer.Ordinal)
 
-        let rec registerModuleHolder (m: ModuleKey) =
+        let rec registerModuleContainer (m: ModuleKey) =
             let path = SymbolKeyOps.moduleFullName m
 
-            if not (moduleHolders.ContainsKey path) then
-                moduleHolders.[path] <- TypeHolder.InModule m
+            if not (moduleContainers.ContainsKey path) then
+                moduleContainers.[path] <- TypeContainer.InModule m
 
-            match m.Holder with
-            | ModuleHolder.InModule parent -> registerModuleHolder parent
-            | ModuleHolder.InNamespace _ -> ()
+            match m.Container with
+            | ModuleContainer.InModule parent -> registerModuleContainer parent
+            | ModuleContainer.InNamespace _ -> ()
 
         // --- member projection --------------------------------------------------------
         // A member's frozen `Params` / `ReturnTy` already carry the declaring type's typars as
@@ -190,11 +191,11 @@ module FrozenSignature =
                 let origin = originIn typeKey.Namespace
 
                 // Index the enclosing module chain so a written `A.M.T` for this type resolves
-                // through containment. An `InType`-nested type contributes no module holder.
-                match typeKey.Holder with
-                | TypeHolder.InModule m -> registerModuleHolder m
-                | TypeHolder.InNamespace _
-                | TypeHolder.InType _ -> ()
+                // through containment. An `InType`-nested type contributes no module container.
+                match typeKey.Container with
+                | TypeContainer.InModule m -> registerModuleContainer m
+                | TypeContainer.InNamespace _
+                | TypeContainer.InType _ -> ()
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
                     shapesByKey.[key] <- shape
@@ -482,19 +483,19 @@ module FrozenSignature =
 
         // Written type name -> the REGISTERED identity key. `typesByName` holds the canonical
         // rendering (`Test.A.M+T` for a module-held type); the fallback adds the DOTTED source
-        // spelling (`Test.A.M.T`), resolved through the declared module holders.
+        // spelling (`Test.A.M.T`), resolved through the declared module containers.
         let resolveNameToKey (name: string) : TypeKey voption =
             let exact (probe: string) =
                 match typesByName.TryGetValue probe with
                 | true, key -> ValueSome key
                 | _ -> ValueNone
 
-            let moduleHolder (path: string) =
-                match moduleHolders.TryGetValue path with
-                | true, holder -> ValueSome holder
+            let moduleContainer (path: string) =
+                match moduleContainers.TryGetValue path with
+                | true, container -> ValueSome container
                 | _ -> ValueNone
 
-            SymbolKeyOps.tryDottedModuleHeld exact moduleHolder name
+            SymbolKeyOps.tryDottedInModule exact moduleContainer name
 
         ExternalSymbolProviders.ofKeyedLeaf (
             ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes

@@ -83,7 +83,7 @@ module Codegen =
 
     /// TAST + symbol context → in-memory PE artifact; the single-file case of `compileFiles`.
     /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
-    /// holder exist and whether the PE serialises with an entry point.
+    /// class exist and whether the PE serialises with an entry point.
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: FrozenPools) : ClrArtifact =
         compileFiles symbols project [ tast ]
 

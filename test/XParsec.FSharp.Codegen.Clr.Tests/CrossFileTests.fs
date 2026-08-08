@@ -106,7 +106,7 @@ printfn \"%d\" (s + e)
             // missing identity: file 2 CALLS file 1's top-level `addBase` directly, and it
             // EXPANDS file 1's top-level `let inline twice`, whose published body references
             // `addBase` — a reference the freeze can only bake in as a `SymbolKey`. Emission
-            // homes both on the anonymous Program holder (the CLR has no namespace-level
+            // homes both on the anonymous Program class (the CLR has no namespace-level
             // method), which is exactly why the identity and the emission are separate facts:
             // the key says `addBase`, the metadata says which type it landed on.
             test "two files run: file 2 calls and EXPANDS file 1's top-level bindings" {
@@ -144,9 +144,9 @@ let inline twice (x: int) : int = addBase (addBase x)
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "42" "the expanded inline template and the direct call both resolved cross-file"
 
-                // `addBase` emits under its SOURCE name on the Program holder — the name its
+                // `addBase` emits under its SOURCE name on the Program class — the name its
                 // key qualifies to — which is what let file 2's reference find it.
-                let names = programHolderMethods bytes |> Array.map (fun m -> m.Name)
+                let names = programClassMethods bytes |> Array.map (fun m -> m.Name)
 
                 Expect.contains names "addBase" (sprintf "addBase emitted under its own name; got %A" names)
             }

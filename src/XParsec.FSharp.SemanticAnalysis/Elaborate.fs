@@ -138,14 +138,19 @@ module Elaborate =
     /// A pattern introducing no bound variable (`let (a, b) = p`) names no value, so records nothing.
     let private recordExportedBinding
         (ctx: PassContext)
-        (holder: ModuleHolder)
+        (container: ModuleContainer)
         (b: Binding<SyntaxToken>)
         (emittedName: string voption)
         (boundVar: BoundVarKey voption)
         : SymbolKey voption =
         match emittedName, boundVar with
         | ValueSome compiledNm, ValueSome bk ->
-            let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
+            let info: ModuleBindingInfo =
+                {
+                    Container = container
+                    Name = compiledNm
+                }
+
             ctx.Bindings.ModuleMembers.[bk] <- info
             ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
             ValueSome info.Key
@@ -181,7 +186,7 @@ module Elaborate =
     /// reaches the frozen tree as neither a declaration nor a bound variable.
     let private translateModuleLet
         (ctx: PassContext)
-        (holder: ModuleHolder)
+        (container: ModuleContainer)
         (b: Binding<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) voption =
         let tpat = translatePat ctx b.pattern
@@ -192,7 +197,7 @@ module Elaborate =
         let boundVar = if elided then ValueNone else BoundVarKey.ofPat tpat
 
         let emittedName = emittedNameOfBinding ctx b
-        let exportedKey = recordExportedBinding ctx holder b emittedName boundVar
+        let exportedKey = recordExportedBinding ctx container b emittedName boundVar
 
         let valT = translateBinding ctx b
         let declTy = typeOfKey ctx (CstKeys.ofBinding b)
@@ -222,13 +227,13 @@ module Elaborate =
         (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) list =
-        let holder = ctx.CurrentHolder
+        let container = ctx.CurrentContainer
 
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
                 for b in bindings do
-                    match translateModuleLet ctx holder b with
+                    match translateModuleLet ctx container b with
                     | ValueSome decl -> yield decl
                     | ValueNone -> ()
             ]

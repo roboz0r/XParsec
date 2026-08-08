@@ -39,7 +39,7 @@ type Origin =
         | Origin.InAssembly _ -> ValueNone
         | Origin.InFile f -> ValueSome f
 
-/// A namespace — the root holder. `Path` is SEGMENTED (`["System"; "Collections"]`), so
+/// A namespace — the root container. `Path` is SEGMENTED (`["System"; "Collections"]`), so
 /// prefix relations are segment-list tests. The EMPTY path IS the global namespace.
 type NamespaceKey =
     {
@@ -55,40 +55,40 @@ type NamespaceKey =
 /// Also what holds a `BindingKey`, where `InNamespace` means the binding has NO declaring
 /// module — a TOP-LEVEL `let`, or a flat package's export. No CLR type corresponds to it.
 [<RequireQualifiedAccess>]
-type ModuleHolder =
+type ModuleContainer =
     | InNamespace of ns: NamespaceKey
     | InModule of parent: ModuleKey
 
     member this.Namespace: NamespaceKey =
         match this with
-        | ModuleHolder.InNamespace ns -> ns
-        | ModuleHolder.InModule parent -> parent.Namespace
+        | ModuleContainer.InNamespace ns -> ns
+        | ModuleContainer.InModule parent -> parent.Namespace
 
     /// How many `module`s deep this scope is — a namespace body is 0.
     member this.Depth: int =
         match this with
-        | ModuleHolder.InNamespace _ -> 0
-        | ModuleHolder.InModule parent -> parent.Holder.Depth + 1
+        | ModuleContainer.InNamespace _ -> 0
+        | ModuleContainer.InModule parent -> parent.Container.Depth + 1
 
     /// The scopes a bare name written HERE is searched in, innermost FIRST.
-    member this.SelfAndAncestors: ModuleHolder list =
+    member this.SelfAndAncestors: ModuleContainer list =
         match this with
-        | ModuleHolder.InNamespace _ -> [ this ]
-        | ModuleHolder.InModule parent -> this :: parent.Holder.SelfAndAncestors
+        | ModuleContainer.InNamespace _ -> [ this ]
+        | ModuleContainer.InModule parent -> this :: parent.Container.SelfAndAncestors
 
 /// A module. NO arity — modules are not generic.
 and ModuleKey =
     {
-        Holder: ModuleHolder
+        Container: ModuleContainer
         Name: string
     }
 
-    member this.Namespace: NamespaceKey = this.Holder.Namespace
+    member this.Namespace: NamespaceKey = this.Container.Namespace
 
 [<RequireQualifiedAccess>]
-type TypeHolder =
+type TypeContainer =
     | InNamespace of ns: NamespaceKey
-    /// `parent` names the module's COMPILED holder type — the `…Module` suffix already
+    /// `parent` names the module's COMPILED module class — the `…Module` suffix already
     /// applied, never the source name an `open` writes.
     | InModule of parent: ModuleKey
     /// A CLR *nested* type such as `` List`1+Enumerator ``; the parser cannot declare one.
@@ -100,7 +100,7 @@ type TypeHolder =
 /// (`` IEnumerable`1 `` vs `Vesper.Collections.seq`) — use `sameNominalKey`.
 and TypeKey =
     {
-        Holder: TypeHolder
+        Container: TypeContainer
         Name: string
         /// This segment's OWN generic-parameter count. A nested type's outer carries its
         /// own; the CLR spells each segment separately (`` Outer`1+Inner`1 ``).
@@ -109,10 +109,10 @@ and TypeKey =
 
     /// A nested type reports its OUTER's namespace, as the CLR does.
     member this.Namespace: NamespaceKey =
-        match this.Holder with
-        | TypeHolder.InNamespace ns -> ns
-        | TypeHolder.InModule parent -> parent.Namespace
-        | TypeHolder.InType outer -> outer.Namespace
+        match this.Container with
+        | TypeContainer.InNamespace ns -> ns
+        | TypeContainer.InModule parent -> parent.Namespace
+        | TypeContainer.InType outer -> outer.Namespace
 
 /// WHERE a candidate binding ENTERS the name environment: `Depth` enclosing `module`s, then
 /// `Offset` within that scope (a declaration's own position, or that of the `open` that
@@ -126,7 +126,7 @@ type BindingRank = { Depth: int; Offset: int }
 type UseSite =
     {
         Pos: SourcePos
-        Holder: ModuleHolder voption
+        Container: ModuleContainer voption
         Opens: LocalOpen list
     }
 
@@ -139,12 +139,12 @@ module UseSite =
     let unbounded: UseSite =
         {
             Pos = SourcePos.unbounded
-            Holder = ValueNone
+            Container = ValueNone
             Opens = []
         }
 
 /// A type name AS WRITTEN: the path of the scope that QUALIFIES it (`"N.A"` in `N.A.T`, EMPTY
-/// for a bare `T`) plus the short name. A SOURCE path, never a compiled holder (`ListModule`).
+/// for a bare `T`) plus the short name. A SOURCE path, never a compiled module name (`ListModule`).
 [<Struct>]
 type WrittenTypeName =
     {
@@ -164,7 +164,7 @@ module WrittenTypeName =
     let bare (name: string) : WrittenTypeName = { Path = ""; Name = name }
 
 /// A module-level binding / operator. No `ArgSig`: modules do not overload.
-type BindingKey = { Decl: ModuleHolder; Name: string }
+type BindingKey = { Decl: ModuleContainer; Name: string }
 
 /// A key's name AS SHOWN TO A HUMAN, containment chain and generic arity dropped. A LOSSY
 /// projection OUT of an identity, never a route back INTO one: to ask a table, ask the KEY.

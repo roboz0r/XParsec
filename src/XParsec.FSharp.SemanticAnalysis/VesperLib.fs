@@ -447,11 +447,11 @@ module VesperLib =
         | ValueSome(Access.Internal _)
         | ValueSome(Access.Private _) -> false
 
-    /// The identity of a val: its declaring holder (`decl`, with `ModuleSuffix` already baked
+    /// The identity of a val: its declaring container (`decl`, with `ModuleSuffix` already baked
     /// into the module names) plus its compiled simple name, which `[<CompiledName(_)>]` sets.
     let private bindingKeyForVal
         (lexed: Lexed)
-        (decl: ModuleHolder)
+        (decl: ModuleContainer)
         (attrs: Attributes<SyntaxToken> voption)
         (ident: IdentOrOp<SyntaxToken>)
         : BindingKey voption =
@@ -482,9 +482,9 @@ module VesperLib =
         (file: LibFile)
         (lexed: Lexed)
         (opens: string list)
-        (decl: ModuleHolder)
+        (decl: ModuleContainer)
         // The *source* module path (no `ModuleSuffix` rewrite). Differs from the compiled
-        // holder `decl` only inside a `[<CompilationRepresentation(ModuleSuffix)>]` module,
+        // container `decl` only inside a `[<CompilationRepresentation(ModuleSuffix)>]` module,
         // where `List` ⇒ `ListModule`.
         (sourcePath: string list)
         (valSig: ValSig<SyntaxToken>)
@@ -563,7 +563,7 @@ module VesperLib =
     let private registerTypeDecl
         (ctx: ExtractCtx)
         (lexed: Lexed)
-        (decl: ModuleHolder)
+        (decl: ModuleContainer)
         (typeName: TypeName<SyntaxToken>)
         : struct (string * int) voption =
         let (TypeName(_, _, prefix, ident, defns, _)) = typeName
@@ -580,7 +580,8 @@ module VesperLib =
 
                 // The containment the walker descended: namespace at the root, one
                 // `InModule` per enclosing module.
-                let key = SymbolKeyOps.typeKeyOfHolder (ModuleRules.typeHolderOf decl) short arity
+                let key =
+                    SymbolKeyOps.typeKeyOfContainer (ModuleRules.typeContainerOf decl) short arity
 
                 // The arity suffix plus the `+`-nesting of a module-held type
                 // (`Vesper.Choice`2`) — the same string the emitted `TypeDef` carries.
@@ -1013,7 +1014,7 @@ module VesperLib =
         (file: LibFile)
         (lexed: Lexed)
         (opens: string list)
-        (decl: ModuleHolder)
+        (decl: ModuleContainer)
         (ts: TypeSignature<SyntaxToken>)
         : unit =
         match ts with
@@ -1215,7 +1216,7 @@ module VesperLib =
         | TypeSignature.Extern _ -> ValueNone
 
     /// Runs BEFORE extraction: the `…Module` suffix rule reads the answer when it mints a
-    /// module's holder name, and `module Foo` may be written above the `type Foo` it hits.
+    /// module's compiled name, and `module Foo` may be written above the `type Foo` it hits.
     let rec private noteNominalTypeSigNames
         (lexed: Lexed)
         (names: System.Collections.Generic.HashSet<string>)
@@ -1246,7 +1247,7 @@ module VesperLib =
         (opens: string list)
         // The COMPILED containment the walker has descended: the namespace at the root,
         // one `InModule` per enclosing module, `ModuleSuffix` already baked in.
-        (decl: ModuleHolder)
+        (decl: ModuleContainer)
         // The source-name twin of `decl`. Equal to it except inside a `ModuleSuffix`
         // module, where `decl` carries the compiled `…Module` segment.
         (sourcePath: string list)
@@ -1268,17 +1269,21 @@ module VesperLib =
 
             if isAccessible access then
                 let name = nameOfTok lexed identTok
-                let holderName = ModuleRules.holderNameOf naming attrs name
+                let compiledModuleName = ModuleRules.compiledModuleNameOf naming attrs name
 
-                let childDecl = ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf decl holderName)
+                let childDecl =
+                    ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf decl compiledModuleName)
+
                 let childSourcePath = name :: sourcePath
                 // The containment a WRITTEN name is resolved against: the source path names
-                // the module, the holder carries its compiled (`…Module`-suffixed) chain.
-                ctx.ModuleHolders.[String.concat "." (List.rev childSourcePath)] <- ModuleRules.typeHolderOf childDecl
+                // the module, the container carries its compiled (`…Module`-suffixed) chain.
+                ctx.ModuleContainers.[String.concat "." (List.rev childSourcePath)] <-
+                    ModuleRules.typeContainerOf childDecl
+
                 let (ModuleSignatureBody(_, elems, _)) = body
                 // The module's own qualified path is itself an implicit open
                 // prefix, ahead of the inherited opens but behind the body's.
-                let modulePath = SymbolKeyOps.holderFullName childDecl
+                let modulePath = SymbolKeyOps.containerFullName childDecl
 
                 if isAutoOpen lexed attrs then
                     ctx.AutoOpenPrefixes.Add modulePath
@@ -1341,16 +1346,16 @@ module VesperLib =
                 match List.rev segments with
                 | [] -> SymbolKeyOps.inNamespace ""
                 | last :: revNs ->
-                    let name = ModuleRules.holderNameOf naming attrs last
+                    let name = ModuleRules.compiledModuleNameOf naming attrs last
 
-                    ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace (String.concat "." (List.rev revNs)) name)
+                    ModuleContainer.InModule(SymbolKeyOps.moduleInNamespace (String.concat "." (List.rev revNs)) name)
 
             // `module A.B.C`'s source path is what a written `A.B.C.T` names it by; the
-            // holder is the compiled chain.
+            // container is the compiled chain.
             if not (List.isEmpty segments) then
-                ctx.ModuleHolders.[String.concat "." segments] <- ModuleRules.typeHolderOf decl
+                ctx.ModuleContainers.[String.concat "." segments] <- ModuleRules.typeContainerOf decl
 
-            let qualifiedSelf = SymbolKeyOps.holderFullName decl
+            let qualifiedSelf = SymbolKeyOps.containerFullName decl
 
             if isAutoOpen lexed attrs then
                 ctx.AutoOpenPrefixes.Add qualifiedSelf

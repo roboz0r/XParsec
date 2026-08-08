@@ -124,8 +124,7 @@ let encodeTests =
 [<Tests>]
 let constructTests =
     /// The single top-level static method an emitted bare program carries.
-    let theStaticFn (bytes: byte[]) : MethodInfo =
-        programHolderMethods bytes |> Array.head
+    let theStaticFn (bytes: byte[]) : MethodInfo = programClassMethods bytes |> Array.head
 
     testList
         "Tuple representation — construct a tuple value"
@@ -196,7 +195,7 @@ let constructTests =
 let destructureTests =
     let invokeIntFn (source: string) (arg: int) : int =
         let _, artifact = compileSource "TupleStep4" source
-        let m = programHolderMethods (Codegen.toBytes artifact) |> Array.head
+        let m = programClassMethods (Codegen.toBytes artifact) |> Array.head
 
         m.Invoke(null, [| box arg |]) :?> int
 
@@ -257,7 +256,7 @@ let destructureTests =
 let lambdaParamTests =
     let invokeIntFn (source: string) (arg: int) : int =
         let _, artifact = compileSource "TupleStep5" source
-        let m = programHolderMethods (Codegen.toBytes artifact) |> Array.head
+        let m = programClassMethods (Codegen.toBytes artifact) |> Array.head
 
         m.Invoke(null, [| box arg |]) :?> int
 
