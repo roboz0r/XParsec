@@ -51,8 +51,8 @@ let tests =
             test "canonical BCL-free `interface equatable<Self>` dispatches via the real System.IEquatable<Self>" {
                 // Platform-independence slice 5: generic capability authored canonically
                 // (`interface equatable<Tagged>`, not `System.IEquatable<Tagged>`). The
-                // generic interface head reconciles canon→platform the same way (the encoder's
-                // `TypeSpecOf` resolves its head through `ClrEnv.externalClassRef`), so `=`
+                // generic interface type constructor reconciles canon→platform the same way (the encoder's
+                // `TypeSpecOf` resolves it through `ClrEnv.externalClassRef`), so `=`
                 // dispatches to the user member via the real `System.IEquatable<Tagged>`.
                 let src =
                     String.concat

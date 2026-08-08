@@ -175,7 +175,7 @@ module UnificationInfer =
             | _ -> ValueNone
 
     /// True iff a project-local nominal type's `InterfaceImpls` carry a resolved interface
-    /// whose head key matches `ctx.CapabilityIds.Disposable`.
+    /// whose type-constructor key matches `ctx.CapabilityIds.Disposable`.
     and private localImplementsDisposable
         (ctx: PassContext)
         (host: IInterfaceImplHost)
@@ -211,16 +211,16 @@ module UnificationInfer =
     /// (real-F# parity); the `[<IsByRefLike>]` ref struct and an external type with an
     /// own-`Dispose` and no `IDisposable` are the carve-out. Neither ⇒ a diagnostic, entry unset.
     and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
-        match b.headPat with
+        match b.pattern with
         // `use _ = e` disposes exactly like a named binder; the body just has no name for it.
         | Pat.NamedSimple _
         | Pat.Wildcard _ ->
-            let patKey = CstKeys.ofPat b.headPat
+            let patKey = CstKeys.ofPat b.pattern
             let binderTy = zonk ctx.Store (TyVar(tvOf ctx patKey))
 
             let notDisposable (display: string) =
                 ctx.Report(
-                    CstKeys.firstTokenOfPat b.headPat,
+                    CstKeys.firstTokenOfPat b.pattern,
                     Kind.Message(
                         sprintf
                             "The type '%s' cannot be used with 'use': a 'use' binding requires its type to implement 'disposable' ('System.IDisposable')"
@@ -228,30 +228,30 @@ module UnificationInfer =
                     )
                 )
 
-            let resolveLocal (host: IInterfaceImplHost) (headKey: TypeKey) (simple: string) (args: EqArray<SemType>) =
+            let resolveLocal (host: IInterfaceImplHost) (tyCtorKey: TypeKey) (simple: string) (args: EqArray<SemType>) =
                 match
                     (if localImplementsDisposable ctx host args then
                          capabilityDisposeSlot ctx |> ValueOption.map Disposal.ViaCapability
                      else
-                         tryRefStructOwnDispose ctx headKey |> ValueOption.map Disposal.ViaOwnMember)
+                         tryRefStructOwnDispose ctx tyCtorKey |> ValueOption.map Disposal.ViaOwnMember)
                 with
                 | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
                 | ValueNone -> notDisposable simple
 
             match resolveStep ctx.Store binderTy with
-            | TyClass(headKey, args)
-            | TyUnion(headKey, args)
-            | TyRecord(headKey, args) ->
+            | TyClass(tyCtorKey, args)
+            | TyUnion(tyCtorKey, args)
+            | TyRecord(tyCtorKey, args) ->
                 // `simple` is for the diagnostic text only; the host resolves by the
                 // arity-qualified key, which an arity-overloaded host needs.
-                let (DisplayName simple) = SymbolKeyOps.typeSimpleName headKey
+                let (DisplayName simple) = SymbolKeyOps.typeSimpleName tyCtorKey
 
-                match TypeRegistry.tryInterfaceImplHostByKey ctx.Types headKey with
-                | ValueSome host -> resolveLocal host headKey simple args
+                match TypeRegistry.tryInterfaceImplHostByKey ctx.Types tyCtorKey with
+                | ValueSome host -> resolveLocal host tyCtorKey simple args
                 | ValueNone ->
-                    match tryExternalDispose ctx headKey args with
+                    match tryExternalDispose ctx tyCtorKey args with
                     | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
-                    | ValueNone -> notDisposable (SymbolKeyOps.typeMetaName headKey)
+                    | ValueNone -> notDisposable (SymbolKeyOps.typeMetaName tyCtorKey)
             | _ -> ()
         | _ -> ()
 
@@ -331,7 +331,7 @@ module UnificationInfer =
 
         try
             let bindTok = (CstKeys.siteOfBinding b).Tok
-            let patTy = inferPat ctx b.headPat
+            let patTy = inferPat ctx b.pattern
 
             // The return annotation is translated *before* the body so a return-only typar
             // (`let f () : 'T list = …`) seeds the scope first; otherwise the body mints a
@@ -343,7 +343,7 @@ module UnificationInfer =
                         let annTy = translateType ctx t
 
                         // Provenance: `let x : T = e` writes the binder's type explicitly.
-                        ctx.MarkTypeDeclared(CstKeys.ofPat b.headPat, annTy)
+                        ctx.MarkTypeDeclared(CstKeys.ofPat b.pattern, annTy)
 
                         // A format-string literal bound to a `PrintfFormat`-family annotation
                         // types AS the format, not `string`: skip `infer` on the literal, and
@@ -391,13 +391,13 @@ module UnificationInfer =
             match resolveStep ctx.Store patTy with
             | TyClass(fmtKey, _) when RuntimeNames.isPrintfFormatKey fmtKey ->
                 match peelToFormatString ctx b.expr with
-                | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.headPat, lit)
+                | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.pattern, lit)
                 | ValueNone -> ()
             | _ -> ()
         finally
             ctx.Resolution.TyparScope <- savedScope
 
-    /// Type a `let` / `let rec` group. Sibling headPat TyVars are pre-allocated so a forward
+    /// Type a `let` / `let rec` group. Sibling binding-pattern TyVars are pre-allocated so a forward
     /// reference from inside one RHS finds the sibling's TyVar at THIS group's level rather
     /// than lazy-minting at a deeper one. Generalisation runs against the outer level.
     and inferBindingGroup (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
@@ -405,10 +405,10 @@ module UnificationInfer =
         enterLevel ctx
 
         for b in bindings do
-            match b.headPat with
+            match b.pattern with
             | Pat.NamedSimple _
             | Pat.Op _ ->
-                let key = CstKeys.ofPat b.headPat
+                let key = CstKeys.ofPat b.pattern
                 tvOf ctx key |> ignore
                 // Drop any annotation-derived forward scheme so this group's bodies type
                 // with monomorphic self/sibling references — no polymorphic recursion.
@@ -422,9 +422,9 @@ module UnificationInfer =
 
         for b in bindings do
             if shouldGeneralise b then
-                let key = CstKeys.ofPat b.headPat
-                let headTv = tvOf ctx key
-                let zonked = zonk ctx.Store (TyVar headTv)
+                let key = CstKeys.ofPat b.pattern
+                let patTv = tvOf ctx key
+                let zonked = zonk ctx.Store (TyVar patTv)
 
                 if not (hasPendingDotAccess ctx.Store zonked) then
                     // Settle flexible list-literal containers first, then re-zonk so the

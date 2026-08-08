@@ -135,7 +135,7 @@ module EmitBindings =
 
             let isLocalBinder =
                 match TastLower.receiverShape varTy with
-                | ValueSome(headKey, _) -> isLocalType headKey
+                | ValueSome(tyCtorKey, _) -> isLocalType tyCtorKey
                 | ValueNone -> false
 
             let isLocalDisposeKey (key: SymbolKey) =

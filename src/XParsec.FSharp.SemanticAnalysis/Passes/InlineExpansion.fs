@@ -55,25 +55,25 @@ module InlineExpansion =
         : Dictionary<NodeKey, TemplateBody> =
         // The very `SymbolKey` the freeze publishes this binding under, so one template has one
         // identity whether the call that resolved it is in this file or in a consumer of it.
-        let templateKey (head: TPat) : SymbolKey =
-            match BinderKey.ofPat head with
+        let templateKey (pattern: TPat) : SymbolKey =
+            match BinderKey.ofPat pattern with
             | ValueSome bk ->
                 match ctx.Bindings.ModuleMembers.TryGetValue bk with
                 | true, info -> info.Key
                 | _ ->
                     failwithf
                         "InlineExpansion: the local inline bound at %A has no module-binding identity, so its specialization entry could name no template"
-                        (TastWalk.patTok head)
-            | ValueNone -> failwithf "InlineExpansion: a local inline's head is a named binder; got %A" head
+                        (TastWalk.patTok pattern)
+            | ValueNone -> failwithf "InlineExpansion: a local inline's pattern binds no single name; got %A" pattern
 
         let locals = Dictionary<NodeKey, TemplateBody>()
 
         for (d, _) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _, _) as head, _, true, _) ->
+            | TDecl.Let(TPat.NamedSimple(b, _, _) as pattern, _, true, _) ->
                 locals.[b] <-
                     {
-                        Key = templateKey head
+                        Key = templateKey pattern
                         Decl = d
                         // Empty when the inline declared no recognised parameter attribute.
                         ParamAttrs =
@@ -127,28 +127,28 @@ module InlineExpansion =
             |> ValueOption.map (fun opened -> opened @ rest)
         | _ -> ValueSome args
 
-    let private callHead
+    let private appliedFunction
         (x: Expander)
         (walk: TExpr -> TExpr)
-        (markedHead: TExpr)
+        (markedFn: TExpr)
         (args: (TExpr * SemType * SyntaxToken) list)
-        : CallHead =
-        // Read THROUGH any caller mark: a fused external value in head position is still the head
-        // it was before the fusion marked it.
-        match TastWalk.unmarked markedHead with
+        : AppliedFunction =
+        // Read THROUGH any caller mark: a fused external value in function position is still the
+        // function it was before the fusion marked it.
+        match TastWalk.unmarked markedFn with
         | TExpr.Var(k, _, _) when x.LocalInlines.ContainsKey k ->
-            CallHead.Template(TemplateId.Local k, x.LocalInlines.[k], args)
-        | TExpr.Var(k, _, _) when x.LambdaEnv.ContainsKey k -> CallHead.Fused x.LambdaEnv.[k]
-        | head ->
-            // How a cross-file head presents itself; `ValueNone` is any other head.
-            let external: ExternalHead voption =
-                match head with
+            AppliedFunction.Template(TemplateId.Local k, x.LocalInlines.[k], args)
+        | TExpr.Var(k, _, _) when x.LambdaEnv.ContainsKey k -> AppliedFunction.Fused x.LambdaEnv.[k]
+        | fn ->
+            // How a cross-file function presents itself; `ValueNone` is any other function.
+            let external: ExternalFunction voption =
+                match fn with
                 | TExpr.External(_, keyOpt, _, _) ->
                     ValueSome
                         {
                             Key = keyOpt
                             Args = ValueSome args
-                            RebuiltHead = fun () -> markedHead
+                            RebuiltFn = fun () -> markedFn
                         }
                 | TExpr.ExternalMember(receiver, key, memberName, storage, _, memberTok) ->
                     ValueSome
@@ -161,7 +161,7 @@ module InlineExpansion =
                                     | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: opened
                                     | ValueNone -> opened
                                 )
-                            RebuiltHead = fun () -> walk markedHead
+                            RebuiltFn = fun () -> walk markedFn
                         }
                 | _ -> ValueNone
 
@@ -171,15 +171,16 @@ module InlineExpansion =
                 // An external WITH an inline body ALWAYS expands — no operand-groundness gate. An
                 // un-ground `^T` selects no per-primitive `StaticOptimization` clause and falls to
                 // the body's BASE, where the safe generic default lives (`=` → `Equals`).
-                | ValueSome served, ValueSome opened -> CallHead.Template(TemplateId.Foreign served.Key, served, opened)
+                | ValueSome served, ValueSome opened ->
+                    AppliedFunction.Template(TemplateId.Foreign served.Key, served, opened)
                 // A body to splice and no parameters to splice it against: Elaborate opens every
                 // member argument to the width its key declares, so this node is malformed.
                 | ValueSome served, ValueNone ->
                     failwithf
                         "InlineExpansion: the spliced member %A was applied to an argument its declared parameters cannot be bound to"
                         served.Key
-                | ValueNone, _ -> CallHead.Opaque ext.RebuiltHead
-            | ValueNone -> CallHead.Opaque(fun () -> walk markedHead)
+                | ValueNone, _ -> AppliedFunction.Opaque ext.RebuiltFn
+            | ValueNone -> AppliedFunction.Opaque(fun () -> walk markedFn)
 
     /// The same entry-and-edge as an applied call, for a cross-file NULLARY INTRINSIC used as a
     /// VALUE: the degenerate reduction, at arity 0, with a body that is one node and no survivors.
@@ -215,7 +216,7 @@ module InlineExpansion =
             }
             x.Specs
 
-    /// Finish a classified application: walk the body — where every nested inline head inside it
+    /// Finish a classified application: walk the body — where every nested inline call inside it
     /// resolves — and fuse in the call-site material the classification marked.
     let rec private reduceClassified (x: Expander) (inFlight: InFlight) (peeled: Peeled) : Reduced =
         // Every fusion below is the CALLER's material, so it carries the caller's domain.
@@ -315,16 +316,17 @@ module InlineExpansion =
                     // child recursion would instead descend into a saturated op's
                     // partial-application sub-`App` and expand it with a single arg.
                     | TExpr.App _ ->
-                        let markedHead, appArgs = TastWalk.collectAppChain [] e
+                        let markedFn, appArgs = TastWalk.collectAppChain [] e
 
-                        match callHead x walk markedHead appArgs with
-                        | CallHead.Template(id, body, templateArgs) ->
+                        match appliedFunction x walk markedFn appArgs with
+                        | AppliedFunction.Template(id, body, templateArgs) ->
                             let call =
                                 {
                                     Template = id
                                     // A rewrite inherits the position of the node it REPLACES: the
-                                    // whole APPLICATION, not its head. The two differ when an
-                                    // outer fusion substituted a CALL SITE head into this body.
+                                    // whole APPLICATION, not the function it applies. The two
+                                    // differ when an outer fusion substituted a CALL SITE
+                                    // function into this body.
                                     Tok = TastWalk.exprTok e
                                     Ty = TastWalk.exprTy e
                                     Args = templateArgs
@@ -332,17 +334,17 @@ module InlineExpansion =
                                 }
 
                             ValueSome(expandAt x at body call)
-                        // Beta-reduced against the call args and walked, so nested inline heads
+                        // Beta-reduced against the call args and walked, so nested inline calls
                         // resolve in the recursion. The copy keeps its OWN positions: it is the
                         // CALL SITE's argument, whose tokens anchor its `FunVerdicts` entry.
-                        | CallHead.Fused fused ->
+                        | AppliedFunction.Fused fused ->
                             ValueSome(
                                 walkAt x fused.Caller (Inline.betaReduce (Inline.freshen x.Mint fused.Body) appArgs)
                             )
                         // A rebuild walks the arguments as the CALLER's own material.
-                        | CallHead.Opaque rebuiltHead ->
+                        | AppliedFunction.Opaque rebuiltFn ->
                             ValueSome(
-                                TastWalk.rebuildApp (rebuiltHead ()) [ for (a, ty, tok) in appArgs -> walk a, ty, tok ]
+                                TastWalk.rebuildApp (rebuiltFn ()) [ for (a, ty, tok) in appArgs -> walk a, ty, tok ]
                             )
                     // A dispatched SRTP trait call, whose body the provider serves. The INTRINSIC
                     // operator surface arrives here: `1 &&& 2` dispatches to `Vesper.int`'s

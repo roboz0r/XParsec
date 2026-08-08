@@ -164,7 +164,7 @@ module internal TsManifestMembers =
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
 
-            // Adding the erased `IEnumerable\`1` head with the peeled element is what makes
+            // Adding the erased `IEnumerable\`1` type constructor with the peeled element is what makes
             // `for … in` over this type lower to `for..of`: the recogniser scans the
             // interface set by name for the enumerable capability.
             let frozenInterfaces =

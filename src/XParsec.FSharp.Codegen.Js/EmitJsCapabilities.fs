@@ -121,11 +121,11 @@ module EmitJsCapabilities =
         (caps: RuntimeNames.CapabilityIds)
         (imports: JsImports)
         (build: TastAccessor.ExprId -> JsExpr)
-        (head: TastAccessor.ExprId)
+        (fn: TastAccessor.ExprId)
         (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match head, appArgs with
+        match fn, appArgs with
         | JsExternalMembers.InstanceExternalMember(recv, em), [ (arg, _, _) ] when
             em.Storage = MemberStorage.Method
             && TastAccessor.exprKind arg = ExprShape.Const

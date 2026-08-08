@@ -266,9 +266,9 @@ and walkPat (visitor: AstVisitor<'T>) (pat: Pat<'T>) : unit =
             visitor.ExitSection "Args"
 
         visitor.ExitSection "Pat.Named"
-    | Pat.OpNamed(head, args) ->
+    | Pat.OpNamed(ident, args) ->
         visitor.EnterSection "Pat.OpNamed"
-        walkIdentOrOp visitor head
+        walkIdentOrOp visitor ident
 
         if not args.IsEmpty then
             visitor.EnterSection "Args"
@@ -734,7 +734,7 @@ and walkBinding (visitor: AstVisitor<'T>) (binding: Binding<'T>) : unit =
     visitTokenOpt visitor "mutable" binding.mutableToken
     visitTokenOpt visitor "access" binding.access
 
-    walkPat visitor binding.headPat
+    walkPat visitor binding.pattern
 
     match binding.typarDefns with
     | ValueSome typars -> walkTyparDefns visitor typars

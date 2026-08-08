@@ -270,7 +270,7 @@ let tests =
                 expectCanonOnly "Vesper.equatable`1"
                 expectCanonOnly "Vesper.comparable`1"
 
-                // The BCL spelling resolves through the compat shim — an Abbrev whose head is
+                // The BCL spelling resolves through the compat shim — an Abbrev whose referent is
                 // the canonical capability — so `interface System.IDisposable` records the
                 // canonical interface key on JS (the same key `caps.Disposable` resolves to).
                 let expectShimAbbrev (bcl: string) (canonQualified: string) =

@@ -92,7 +92,7 @@ spelling (bare / `Unchecked.`-qualified / `<'T>`-applied). Today only
 the bare `External` leaf splices.
 
 - **Freeze:** when a `DotLookup` / `TypeApp` resolves to an `inline`
-  binding, lower it to the **`External` head** (symbol key + `refTy`)
+  binding, lower it to the **`External` node** (symbol key + `refTy`)
   rather than `StaticPropertyGet` / `StaticMethodCall`, so it lands on
   the existing `InlineExpansion.fs:674` splice arm. `ilzero` grounds to
   `refTy` there, unchanged.

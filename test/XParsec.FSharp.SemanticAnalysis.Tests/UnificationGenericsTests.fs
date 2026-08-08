@@ -145,9 +145,9 @@ let tests =
                 Expect.isTrue hasArity "arity-0-with-args diagnostic emitted and blames the local type"
             }
 
-            test "arity-0 enum given a type argument is blamed, not left an unresolved head" {
+            test "arity-0 enum given a type argument is blamed, not left an unresolved type" {
                 // An enum is the kind the OLD cascade had no arm for: `E<int>` fell straight
-                // through to the undefined-head verdict, silently NOT blaming the arity of a
+                // through to the undefined-type verdict, silently NOT blaming the arity of a
                 // type that plainly exists. Routed through the same any-arity claim as every
                 // other kind, it now blames the arity. The "expects 0 type argument" text is
                 // itself the proof: the old path could not emit it for an enum.

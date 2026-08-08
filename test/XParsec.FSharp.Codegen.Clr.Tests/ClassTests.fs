@@ -1145,7 +1145,7 @@ let typeAppTests =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
     // Explicit type application at a construction site — `Box<int>(v)` /
-    // `Holder<'T>(v)`. The type args unify against the head's nominal result,
+    // `Holder<'T>(v)`. The type args unify against the ctor's nominal result,
     // and `tryClassRef` peels the `Expr.TypeApp` so the call still lowers to
     // `TExpr.New`.
     testList

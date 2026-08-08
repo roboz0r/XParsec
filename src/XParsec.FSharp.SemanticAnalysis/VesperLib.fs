@@ -51,8 +51,8 @@ module VesperLib =
         let (TypeName(attributes = attrs)) = typeName
         (AttributeDecode.decodeClassAttributes (nameOfTok lexed) attrs).IsValueType
 
-    /// Splits the head `FTFun(params, ret)`; a property takes the whole result as its value.
-    /// `ValueNone` drops the member; a body-less head degrades to `unit -> FTUnknown`.
+    /// Splits the OUTERMOST `FTFun(params, ret)`; a property takes the whole result as its value.
+    /// `ValueNone` drops the member; a body-less shape degrades to `unit -> FTUnknown`.
     let private freezeMemberSig
         (ctx: ExtractCtx)
         (isProperty: bool)

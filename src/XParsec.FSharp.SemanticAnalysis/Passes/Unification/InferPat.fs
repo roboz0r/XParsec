@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
+namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -73,7 +73,7 @@ module internal UnificationInferPat =
             // by a forward reference must be reused, not overwritten.
             TyVar(tvOf ctx key)
         | Pat.Op _ ->
-            // An operator-named binding head (`let (=) x y = …`) introduces a single name,
+            // An operator-named binding (`let (=) x y = …`) introduces a single name,
             // exactly like a `Pat.NamedSimple`.
             TyVar(tvOf ctx key)
         | Pat.Named(argumentPats = args) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey ->

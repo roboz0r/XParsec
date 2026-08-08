@@ -72,8 +72,8 @@ module Site =
         | placed -> placed
 
     /// The place `tok` names, or `fallback` when it names none — for a caller holding an
-    /// ENCLOSING span (the declaration the head sits in) that is still a real place when
-    /// the head itself is a recovery insertion.
+    /// ENCLOSING span (the declaration it sits in) that is still a real place when
+    /// the named node itself is a recovery insertion.
     let ofTokenOr (fallback: Site) (tok: SyntaxToken) : Site =
         match ofToken tok with
         | Site.Nowhere -> fallback
@@ -215,7 +215,7 @@ module Offside =
     /// pushed by `ProgramStructureParsing.parse`/`parseSignature`, identified by its
     /// `Token.EOF` anchor — every other `SeqBlock` is anchored on the real token
     /// that opened it, so an EOF anchor is unique to the file entry. Consumed by
-    /// `pSepVirt`'s binding-head OBLOCKSEP rule.
+    /// `pSepVirt`'s binding-start OBLOCKSEP rule.
     let isDeclBlock (frame: Offside) : bool =
         match frame.Context with
         | OffsideContext.Module -> true
@@ -570,11 +570,11 @@ module ParseState =
     let popOffside current (state: ParseState) =
         match state.Context with
         | [] -> invalidOp "Attempted to pop empty context"
-        | head :: tail ->
-            if head <> current then
-                invalidOp $"Attempted to pop context {current} but top of stack was {head}"
+        | top :: tail ->
+            if top <> current then
+                invalidOp $"Attempted to pop context {current} but top of stack was {top}"
 
-            ifTrace state (fun t -> t.ContextPop(head.Context, state.Context.Length))
+            ifTrace state (fun t -> t.ContextPop(top.Context, state.Context.Length))
             { state with Context = tail }
 
     let addDiagnostic code startToken endToken error (state: ParseState) =

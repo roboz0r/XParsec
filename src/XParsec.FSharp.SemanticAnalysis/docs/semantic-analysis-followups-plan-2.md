@@ -307,7 +307,7 @@ deleted the sentence rather than restate it; the rest of the block is correct.
 ### `SemTypeWalks.fs:203` — `iterChildren2`'s bare-typar pairing in an `FTOr` is order-dependent
 
 The deleted second half of this comment admitted that two or more bare `FTTypar` members make the
-leftover pairing arbitrary, because head keys cannot tell one bare typar from another. That is a
+leftover pairing arbitrary, because type-constructor keys cannot tell one bare typar from another. That is a
 real limitation of the code as written — the wildcards are consumed in index order — and the arm
 above it raises a `failwithf` on the ambiguous case for NON-wildcards while this one silently
 picks. The honest form is a test that pins the intended behaviour for `FTOr` with two open

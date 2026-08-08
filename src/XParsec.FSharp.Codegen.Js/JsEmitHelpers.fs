@@ -237,9 +237,9 @@ module JsEmitHelpers =
         match TastAccessor.exprKind e with
         | ExprShape.App ->
             match TastAccessor.collectAppChain [] e with
-            | head, appArgs when
-                TastAccessor.exprKind head = ExprShape.Var
-                && TastAccessor.exprVarBinding head = selfKey
+            | fn, appArgs when
+                TastAccessor.exprKind fn = ExprShape.Var
+                && TastAccessor.exprVarBinding fn = selfKey
                 && List.length appArgs = arity
                 ->
                 Some [ for (a, _, _) in appArgs -> a ]

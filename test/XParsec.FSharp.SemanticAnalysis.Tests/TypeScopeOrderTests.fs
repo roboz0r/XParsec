@@ -207,7 +207,7 @@ let tests =
                 }
 
             // …and it BINDS to the external type, not merely accepts. Diagnostics and
-            // resolution are one mechanism here: the head was classified external where it
+            // resolution are one mechanism here: the name was classified external where it
             // was written (nothing had claimed `exn` yet), so it stays external once the
             // local `exn` registers. Pinned against the SAME program without the local
             // declaration, so the assertion is "identical resolution", not a hardcoded key.
@@ -223,7 +223,7 @@ let tests =
 
             // The same rule through a member SIGNATURE, whose annotation is translated by
             // the body walk long after the whole file is registered. It still binds the
-            // external type, because the head's classification — made where it was written,
+            // external type, because the type name's classification — made where it was written,
             // with nothing yet claiming `exn` — is what the translation reads.
             yield
                 test "a shadowing local declaration below a member signature does not capture it" {
@@ -260,7 +260,7 @@ let tests =
                 }
 
             // The shadowing rule, through a module `let` — the third site of the same
-            // mechanism (record field, member signature, module let). The head was classified
+            // mechanism (record field, member signature, module let). The name was classified
             // where it was written, with nothing yet claiming `exn`, so it stamped external
             // and stays bound there once the local `exn` registers. Pinned against the SAME
             // program without the local declaration, so the assertion is "identical

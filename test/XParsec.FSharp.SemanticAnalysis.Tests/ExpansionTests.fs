@@ -155,7 +155,7 @@ let tests =
                 let hasMismatch =
                     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
 
-                Expect.isTrue hasMismatch "non-unit head triggers mismatch"
+                Expect.isTrue hasMismatch "non-unit applied function triggers mismatch"
             }
 
             test "(e : int) constrains e to int" {
@@ -211,7 +211,7 @@ let tests =
             }
 
             test "occurs check rejects let rec f x = f" {
-                // f's headPat tv unifies with TyFun(tvX, tv) — tv occurs in the RHS.
+                // f's binding-pattern tv unifies with TyFun(tvX, tv) — tv occurs in the RHS.
                 let tast = analyse "let rec f x = f"
 
                 let hasOccurs =

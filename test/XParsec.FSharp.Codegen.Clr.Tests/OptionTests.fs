@@ -175,7 +175,7 @@ let tests =
 // abbreviation to a mis-kinded `TyRecord("Vesper.Option", …)` (the extractor
 // bakes every nominal head as a record), so `o.IsSome` routed to the record
 // registry and failed with `Unknown record type 'Vesper.Option'`. The fix
-// re-kinds the dealiased head to the referent's actual shape (`TyUnion`) and
+// re-kinds the dealiased type constructor to the referent's actual shape (`TyUnion`) and
 // resolves the union's augmentation members (`IsSome`/`IsNone`/`Value`) through
 // the contract provider's now-published member surface.
 [<Tests>]
@@ -244,7 +244,7 @@ let layerBFrontEnd =
             // monomorphic); no annotation needed for the ctor itself to resolve.
             test "Some 5 resolves with no annotation" { typeChecksOption "let x = Some 5" }
 
-            // Qualified form `Option.Some` — head is the external union, guarded by
+            // Qualified form `Option.Some` — the anchor is the external union, guarded by
             // the union short-name match.
             test "Option.Some 5 (qualified) types as int option" {
                 typeChecksOption "let x : int option = Option.Some 5"
@@ -368,7 +368,7 @@ let layerCRuntime =
 // `printfn`, so any other external module call fell to `Emit: no call recipe for
 // external '…'`. `EmitExternalCall` (generalised from `emitFold`) closes it: it
 // reads the symbol's open signature from `Instantiate` (re-kinding the contract's
-// `TyRecord` heads to `TyUnion`), installs the method's free typars as the ambient
+// `TyRecord` type constructors to `TyUnion`), installs the method's free typars as the ambient
 // `!!i` set to encode the member-ref signature, mints the declaring module's
 // `TypeRef` (`Vesper.OptionModule`) from the key's `ns` + `Origin`, recovers the
 // use-site type args by matching the open signature against the call type, and
@@ -427,7 +427,7 @@ let layerDRuntime =
             // method typars (`'State`, `'T`), exercising the multi-typar `MethodSpec`
             // (the appearance-order typar collection must match the producer's). The
             // folder is written curried (`fun s -> fun x -> …`), not as a multi-arg
-            // lambda (`fun s x -> …`): the latter parses to a lowercase-headed
+            // lambda (`fun s x -> …`): the latter parses to a lowercase-anchored
             // `Pat.Named` applicative pattern Elaborate doesn't yet lower — a pre-existing
             // gap orthogonal to this layer.
             test "Option.fold accumulates over Some, returns state on None" {

@@ -590,7 +590,7 @@ module Type =
 
                                 let ctxIndent =
                                     match state.Context with
-                                    | head :: _ -> head.Indent
+                                    | innermost :: _ -> innermost.Indent
                                     | [] -> 0
 
                                 if peekedCol > ctxIndent then

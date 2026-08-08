@@ -13,8 +13,8 @@ let private analyse (input: string) =
 
     ctx, file
 
-/// Find the headPat NodeKey of a module-level binding by name.
-let private headKeyOf (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) (name: string) : NodeKey =
+/// Find the binding-pattern NodeKey of a module-level binding by name.
+let private patternKeyOf (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) (name: string) : NodeKey =
     let rec tryBindings (bindings: System.Collections.Immutable.ImmutableArray<Binding<SyntaxToken>>) =
         let mutable found = ValueNone
         let mutable i = 0
@@ -22,8 +22,8 @@ let private headKeyOf (ctx: PassContext) (file: ImplementationFile<SyntaxToken>)
         while found.IsNone && i < bindings.Length do
             let b = bindings.[i]
 
-            match b.headPat with
-            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.headPat)
+            match b.pattern with
+            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.pattern)
             | _ -> ()
 
             i <- i + 1
@@ -56,18 +56,18 @@ let private headKeyOf (ctx: PassContext) (file: ImplementationFile<SyntaxToken>)
 
 let private escapeOf (input: string) (name: string) : EscapeState option =
     let ctx, file = analyse input
-    let key = headKeyOf ctx file name
+    let key = patternKeyOf ctx file name
 
     match ctx.Bindings.Escape.TryGetValue key with
     | ValueSome s -> Some s
     | ValueNone -> None
 
-/// Region of a binding (via its headPat TyVar). Used by tests that need
+/// Region of a binding (via its binding-pattern TyVar). Used by tests that need
 /// to check identity (e.g. two names sharing a region) rather than just
 /// the escape state.
 let private regionOf (input: string) (name: string) : RegionId option =
     let ctx, file = analyse input
-    let key = headKeyOf ctx file name
+    let key = patternKeyOf ctx file name
 
     match ctx.Bindings.TypeVar.TryGetValue key with
     | ValueSome tv ->
@@ -83,13 +83,13 @@ let private regionOf (input: string) (name: string) : RegionId option =
 /// Mirrors `escapeOf` over the `Repr` side table.
 let private reprOf (input: string) (name: string) : RegionRepr option =
     let ctx, file = analyse input
-    let key = headKeyOf ctx file name
+    let key = patternKeyOf ctx file name
 
     match ctx.Bindings.Repr.TryGetValue key with
     | ValueSome r -> Some r
     | ValueNone -> None
 
-/// Find the headPat NodeKey of the first `let`-binding named `name` reachable
+/// Find the binding-pattern NodeKey of the first `let`-binding named `name` reachable
 /// from `e` (searching binding RHSs, let bodies, and lambda bodies). Lets the
 /// repr tests key a *nested* closure (`let g = fun x -> x` inside a function).
 let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToken>) : NodeKey voption =
@@ -101,8 +101,8 @@ let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToke
         while found.IsNone && i < bs.Length do
             let b = bs.[i]
 
-            match b.headPat with
-            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.headPat)
+            match b.pattern with
+            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.pattern)
             | _ -> found <- findLetKey ctx name b.expr
 
             i <- i + 1
@@ -161,9 +161,9 @@ let tests =
                             let mutable found = ValueNone
 
                             for b in bs do
-                                match b.headPat with
+                                match b.pattern with
                                 | Pat.NamedSimple t when ctx.NameOf t = "f" ->
-                                    found <- ValueSome(CstKeys.ofPat b.headPat)
+                                    found <- ValueSome(CstKeys.ofPat b.pattern)
                                 | _ -> ()
 
                             if found.IsNone then
@@ -231,7 +231,7 @@ let tests =
                 let ctx, file = analyse input
                 // mk itself classifies as CallerStack (returns a closure).
                 let mkEscape =
-                    let k = headKeyOf ctx file "mk"
+                    let k = patternKeyOf ctx file "mk"
 
                     match ctx.Bindings.Escape.TryGetValue k with
                     | ValueSome s -> Some s
@@ -275,7 +275,7 @@ let tests =
             test "identifier reuse: bindings share a region" {
                 // `let r = let x = (1, 2) in let y = x in y` — x and y
                 // should map to the same RegionId via the Ident pass-through
-                // rule. The headPats are inside r's RHS, so we walk the
+                // rule. The binding patterns are inside r's RHS, so we walk the
                 // CST to find them.
                 let input = "let r = let x = (1, 2) in let y = x in y"
                 let ctx, file = analyse input
@@ -284,8 +284,8 @@ let tests =
                     let mutable xR = None
                     let mutable yR = None
 
-                    let regionOfHead (b: Binding<SyntaxToken>) =
-                        let k = CstKeys.ofPat b.headPat
+                    let regionOfPattern (b: Binding<SyntaxToken>) =
+                        let k = CstKeys.ofPat b.pattern
 
                         match ctx.Bindings.TypeVar.TryGetValue k with
                         | ValueSome tv ->
@@ -301,11 +301,11 @@ let tests =
                         match e with
                         | Expr.LetOrUse(bindings = bs; body = body) ->
                             for b in bs do
-                                match b.headPat with
+                                match b.pattern with
                                 | Pat.NamedSimple t ->
                                     match ctx.NameOf t with
-                                    | "x" -> xR <- regionOfHead b
-                                    | "y" -> yR <- regionOfHead b
+                                    | "x" -> xR <- regionOfPattern b
+                                    | "y" -> yR <- regionOfPattern b
                                     | _ -> ()
                                 | _ -> ()
 
@@ -338,7 +338,7 @@ let tests =
                 // `let rec f x = f x` — region(f) edges may form a self-loop
                 // through the App rule; the fixpoint solver should converge.
                 let ctx, file = analyse "let rec f x = f x"
-                let k = headKeyOf ctx file "f"
+                let k = patternKeyOf ctx file "f"
 
                 let escape =
                     match ctx.Bindings.Escape.TryGetValue k with
@@ -514,9 +514,9 @@ let tests =
                             let mutable found = ValueNone
 
                             for b in bs do
-                                match b.headPat with
+                                match b.pattern with
                                 | Pat.NamedSimple t when ctx.NameOf t = "n" ->
-                                    found <- ValueSome(CstKeys.ofPat b.headPat)
+                                    found <- ValueSome(CstKeys.ofPat b.pattern)
                                 | _ -> ()
 
                             if found.IsSome then

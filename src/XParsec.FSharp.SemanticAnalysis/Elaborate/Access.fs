@@ -69,9 +69,9 @@ module internal ElaborateAccess =
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
-            // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v). The
-            // head-resolved chain peels into FieldGet for the intermediate
-            // segments and a final FieldSet for the assigned slot.
+            // `r.X <- v` parsed as Assignment(LongIdent[r;X], <-, v). The chain
+            // peels into FieldGet for the intermediate segments and a final
+            // FieldSet for the assigned slot.
             let receiverIdents = li.Idents
             let lastIdx = receiverIdents.Length - 1
 
@@ -82,22 +82,22 @@ module internal ElaborateAccess =
                 NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
             let receiverChain =
-                let head = receiverIdents.[0]
-                let headKey = NodeKey.ofToken head NodeKind.ExprIdent
-                let headBinding = ctx.Bindings.Binding.TryGetValue headKey
+                let anchorIdent = receiverIdents.[0]
+                let anchorKey = NodeKey.ofToken anchorIdent NodeKind.ExprIdent
+                let anchorBinding = ctx.Bindings.Binding.TryGetValue anchorKey
 
-                let headTy =
-                    match headBinding with
+                let anchorTy =
+                    match anchorBinding with
                     | ValueSome rb -> typeOfKey ctx rb.BindingSite
                     | ValueNone -> typeOfKey ctx (CstKeys.ofExpr unwrapped)
 
-                let headExpr =
-                    match headBinding with
-                    | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy, tok)
-                    | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy, tok)
+                let anchorExpr =
+                    match anchorBinding with
+                    | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
+                    | ValueNone -> TExpr.External(ctx.NameOf anchorIdent, ValueNone, anchorTy, tok)
 
-                let mutable curr = headExpr
-                let mutable currTy = headTy
+                let mutable curr = anchorExpr
+                let mutable currTy = anchorTy
 
                 // Field reads for the intermediate segments; the assigned slot is the
                 // final one, handled by the `FieldSet` below.

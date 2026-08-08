@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
 
-/// HOW an `ExternalMember` head lowers. ONE verdict for both the unapplied member reference
+/// HOW an `ExternalMember` lowers. ONE verdict for both the unapplied member reference
 /// and the applied call, so a new lowering is a case here plus an arm at each.
 type MemberDispatch =
     /// The receiver IS the callable: `f.Invoke(a)` is `f(a)`.
@@ -75,7 +75,7 @@ module JsExternalMembers =
     let classFlagsOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassFlags voption =
         classShapeOf provider declKey |> ValueOption.map (fun shape -> shape.Flags)
 
-    /// Built once: the emit walk tests every external member head against it.
+    /// Built once: the emit walk tests every external member against it.
     let private funKeys: TypeKey[] =
         [| for arity in 2..5 -> RuntimeNames.vesperFunKey arity |]
 
@@ -169,18 +169,18 @@ module JsExternalMembers =
 
     // ---- The lowerings ---------------------------------------------------------
 
-    /// A head dispatching on the receiver folds every applied argument into ONE
+    /// A function dispatching on the receiver folds every applied argument into ONE
     /// `receiver.member(args)`. The member is tupled, so it consumes the FIRST argument as its
     /// argument list, at the key's `argSig` width; residual application folds on as unary calls.
     let tryAttachedCall
         (provider: IExternalSymbolProvider)
         (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
-        (head: TastAccessor.ExprId)
+        (fn: TastAccessor.ExprId)
         (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match head with
+        match fn with
         | InstanceExternalMember(recv, em) ->
             // ONE argument plan for both receiver-dispatched shapes; only the callee differs.
             let saturate (callee: JsExpr -> JsExpr list -> JsExpr) : JsExpr voption =

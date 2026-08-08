@@ -895,7 +895,7 @@ let tests =
             }
 
             // A preamble binding carries `argumentPats`, so `let f x = …` binds a FUNCTION
-            // value — reading only the head pattern and taking the bare body as the
+            // value — reading only the bound pattern and taking the bare body as the
             // initialiser would register `f` as an `int` whose value is `x + 1`.
             test "TAST: a preamble `let f x = …` surfaces as a function value" {
                 let tast =
@@ -1195,8 +1195,8 @@ let tests =
                     | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
                     | _ -> ()
 
-                // The single-`FTConst` parameter head name of a member key, if any.
-                let argHead (k: SymbolKey) : string option =
+                // The single-`FTConst` parameter type name of a member key, if any.
+                let argTyName (k: SymbolKey) : string option =
                     match k with
                     | SymbolKey.Member mk when mk.ArgSig.Length = 1 ->
                         match mk.ArgSig.[0] with
@@ -1208,14 +1208,14 @@ let tests =
 
                 Expect.equal calls.Count 2 "two overloaded Show calls lowered to MethodCall nodes"
                 Expect.notEqual calls.[0] calls.[1] "the two Show overloads carry DISTINCT keys"
-                Expect.equal (argHead calls.[0]) (Some "int") "p.Show(1) keyed on Show(int)"
-                Expect.equal (argHead calls.[1]) (Some "string") "p.Show(\"hi\") keyed on Show(string)"
+                Expect.equal (argTyName calls.[0]) (Some "int") "p.Show(1) keyed on Show(int)"
+                Expect.equal (argTyName calls.[1]) (Some "string") "p.Show(\"hi\") keyed on Show(string)"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
             test "a non-overloaded local instance method call mints a TOTAL member key" {
                 // No overload set, so no `LocalMemberCall` handshake: the fallback mints
-                // from the resolved member itself. Its `ArgSig` head is the DECLARED
+                // from the resolved member itself. Its `ArgSig` type is the DECLARED
                 // parameter type (`int`), not the retired `FTUnknown ""` placeholder, and
                 // `MethodTyparArity` is the member's real `0`.
                 let tast =
@@ -1233,8 +1233,8 @@ let tests =
                         Expect.equal
                             (SymbolKeyOps.simpleName sk)
                             (DisplayName "int")
-                            "arg head is the declared int, not a placeholder"
-                    | other -> failtestf "expected an FTConst int arg head, got %A" other
+                            "arg type is the declared int, not a placeholder"
+                    | other -> failtestf "expected an FTConst int arg type, got %A" other
                 | other -> failtestf "expected a single MethodCall member key, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -1252,8 +1252,8 @@ let tests =
 
                     match mk.ArgSig |> EqArray.toList with
                     | [ FTConst(sk, _) ] ->
-                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg head is the declared int"
-                    | other -> failtestf "expected a single FTConst int arg head, got %A" other
+                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg type is the declared int"
+                    | other -> failtestf "expected a single FTConst int arg type, got %A" other
                 | other -> failtestf "expected a single StaticMethodCall member key, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -1275,8 +1275,8 @@ let tests =
 
                     match mk.ArgSig |> EqArray.toList with
                     | [ FTConst(sk, _) ] ->
-                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg head is the declared int"
-                    | other -> failtestf "expected a single FTConst int arg head, got %A" other
+                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg type is the declared int"
+                    | other -> failtestf "expected a single FTConst int arg type, got %A" other
                 | other -> failtestf "expected a single interface MethodCall member key, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

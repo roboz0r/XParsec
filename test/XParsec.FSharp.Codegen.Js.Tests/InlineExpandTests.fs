@@ -134,7 +134,7 @@ let tests =
             }
 
             test "an entry whose body names another entry expands through both" {
-                // `b |> not`: `(|>)`'s entry is an application whose HEAD the classification
+                // `b |> not`: `(|>)`'s entry is an application whose APPLIED FUNCTION the classification
                 // substituted, so its body is itself an edge — the entry-references-entry leg
                 // of the DAG, which a one-level splice would leave standing.
                 let input = "let b = true\nlet a = b |> not\n"

@@ -67,7 +67,7 @@ module internal UnificationInferForwardSchemes =
     let prebindModuleFunctionSchemes (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
         for b in bindings do
             if shouldGeneralise b && not b.argumentPats.IsEmpty then
-                let key = CstKeys.ofPat b.headPat
+                let key = CstKeys.ofPat b.pattern
 
                 if (ctx.Bindings.Scheme.TryGetValue key).IsNone then
                     let savedScope = ctx.Resolution.TyparScope

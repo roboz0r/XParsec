@@ -65,7 +65,7 @@ module NameResolutionTypeRefStamp =
                 struct (candidate, arity)
             ]
 
-    /// A NOMINAL head takes the producer's REGISTERED key: only that preserves an `InModule`
+    /// A NOMINAL type constructor takes the producer's REGISTERED key: only that preserves an `InModule`
     /// holder chain, a re-cut from the dotted spelling flattening the module segment into the
     /// namespace. The rest key off the compiled name, an abbrev dealiasing on read.
     let useSiteTypeKey (hit: ExternalTypeHit) : TypeKey =
@@ -113,7 +113,7 @@ module NameResolutionTypeRefStamp =
         tryPickExternalType ctx probes ValueSome name
 
     /// An enum-case access `E.C1` resolved to the enum's nominal key, at arity 0.
-    let tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : TypeKey voption =
+    let tryExternalEnumCaseKey (ctx: PassContext) (anchorName: string) (caseName: string) : TypeKey voption =
         tryPickExternalType
             ctx
             (arityProbes 0)
@@ -125,7 +125,7 @@ module NameResolutionTypeRefStamp =
                     ValueSome(useSiteTypeKey hit)
                 | _ -> ValueNone
             )
-            headName
+            anchorName
 
     /// A local claim WINS — including one qualified by a module of this file. The claims
     /// consulted are those VISIBLE AT THE USE SITE, so one written ABOVE a same-named local

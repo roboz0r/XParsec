@@ -50,7 +50,7 @@ currently prevents.
 `FrozenSignature` now projects a frozen enum's closed case→literal table to an
 `ExternalTypeShape.Enum` under its nominal key (mirroring the record / union arms), so a later
 file resolves `(x: E)` / `E.Ci` against it instead of falling back to a nominal `TyConst`. The
-shape is exactly what the consuming side already reads (`TypeHeadStamp.tryExternalEnumCaseKey`
+shape is exactly what the consuming side already reads (`NameResolutionTypeRefStamp.tryExternalEnumCaseKey`
 scans shapes — no case index needed). Numeric cases carry their `int64` value, string cases
 their text; the integral width is dropped (`ExternalEnumCaseValue` has none — external enums
 are a JS-target feature and never reach CLR codegen). An unresolved case (`ValueNone`) is

@@ -300,7 +300,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 ///
 /// Following the edge is the whole shape of the answer: the call becomes a `TExpr.InlineCall`
 /// naming an entry, and the entry is the resolved body under the lambdas the edge's arguments
-/// are positional against. A call that resolved nothing leaves an `App` head instead, which
+/// are positional against. A call that resolved nothing leaves an `App` node instead, which
 /// reaches no `Const`, so this cannot pass by accident.
 let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src

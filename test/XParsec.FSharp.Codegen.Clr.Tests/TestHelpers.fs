@@ -241,7 +241,7 @@ let vesperListDll: Lazy<string> =
          // stack is unaffected by the `Nil`/`Cons` → `Empty`/`Cons` rename. It uses
          // `failwith` (a real inline operator in `Vesper.Core/ops-platform.clr.fs`, not
          // a name-suffix probe), so the build must run through the Vesper.Core
-         // contract for the call head to inline.
+         // contract for the call to inline.
          // Self-manifest (`Vesper.List`'s own) is excluded; the package is
          // *defining* its types here.
          let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]

@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 //
 // The provider (backend-owned) reads the faithful `__@iterator@N` member the extractor
 // carries, peels the element off its iterator return, and injects the erased
-// `IEnumerable\`1` head into the type's interface set. The EXISTING `tryForInEnumerator`
+// `IEnumerable\`1` type constructor into the type's interface set. The EXISTING `tryForInEnumerator`
 // external-class arm then admits the type and `EmitJs` emits `for (const x of src)`.
 //
 // Driven against a minimal GLOBAL pack (`Package = "es2015"`, mounted under `Js`) whose
@@ -169,7 +169,7 @@ let tests =
                 let js = emitMap mapProgram
 
                 // The pair binder lowers to a `for..of` over a fresh loop temp, then
-                // deconstructs it positionally into the body head (`t[0]`/`t[1]`).
+                // deconstructs it positionally into the body's first statements (`t[0]`/`t[1]`).
                 Expect.stringContains js " of " (sprintf "expected a `for..of`, got:\n%s" js)
                 Expect.stringContains js "[0]" (sprintf "expected positional `[0]` destructure, got:\n%s" js)
                 Expect.stringContains js "[1]" (sprintf "expected positional `[1]` destructure, got:\n%s" js)

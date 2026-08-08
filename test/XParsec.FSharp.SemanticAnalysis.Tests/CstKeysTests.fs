@@ -77,7 +77,7 @@ let tests =
                         inlineToken = ValueNone
                         mutableToken = ValueNone
                         access = ValueNone
-                        headPat = Pat.NamedSimple(mkToken Token.Identifier 4)
+                        pattern = Pat.NamedSimple(mkToken Token.Identifier 4)
                         typarDefns = ValueNone
                         argumentPats = ImmutableArray.Empty
                         returnType = ValueNone
@@ -117,8 +117,8 @@ let tests =
                 Expect.equal key.Kind NodeKind.PatWildcard "kind"
             }
 
-            test "ofBinding uses headPat's NodeKey" {
-                let headIdent = mkToken Token.Identifier 4
+            test "ofBinding uses the binding pattern's NodeKey" {
+                let patIdent = mkToken Token.Identifier 4
 
                 let binding =
                     {
@@ -126,7 +126,7 @@ let tests =
                         inlineToken = ValueNone
                         mutableToken = ValueNone
                         access = ValueNone
-                        headPat = Pat.NamedSimple headIdent
+                        pattern = Pat.NamedSimple patIdent
                         typarDefns = ValueNone
                         argumentPats = ImmutableArray.Empty
                         returnType = ValueNone
@@ -135,7 +135,7 @@ let tests =
                     }
 
                 let key = CstKeys.ofBinding binding
-                Expect.equal key.Offset 4 "headPat's offset"
-                Expect.equal key.Kind NodeKind.PatIdent "kind matches headPat"
+                Expect.equal key.Offset 4 "the binding pattern's offset"
+                Expect.equal key.Kind NodeKind.PatIdent "kind matches the binding pattern"
             }
         ]

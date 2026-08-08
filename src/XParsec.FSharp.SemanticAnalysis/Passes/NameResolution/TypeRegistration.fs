@@ -104,7 +104,7 @@ module NameResolutionTypeRegistration =
     let localHolderChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
         ModuleRules.holderChain ctx.ModuleNaming c
 
-    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` heads — recovered by
+    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares — recovered by
     /// the key the declaration mints in the module the walk stands in, never by its name: an
     /// arity-overloaded `Box\`1`/`Box\`2` has no bare name, and two modules may each declare `C`.
     let tryDeclaredClass (ctx: PassContext) (tn: TypeName<SyntaxToken>) : ClassTypeInfo voption =
@@ -118,7 +118,7 @@ module NameResolutionTypeRegistration =
             ValueNone
 
     /// The registered union / record / inline intrinsic-abbrev host the DECLARATION `tn`
-    /// heads — the non-class sibling of `tryDeclaredClass`, key-addressed for the same reason.
+    /// declares — the non-class sibling of `tryDeclaredClass`, key-addressed for the same reason.
     let tryDeclaredNonClassHost (ctx: PassContext) (tn: TypeName<SyntaxToken>) : IInterfaceImplHost voption =
         let (TypeName(ident = nameLi)) = tn
         let name = ctx.NameOf nameLi.Idents.[0]
@@ -351,9 +351,9 @@ module NameResolutionTypeRegistration =
 
                     ValueSome claimed
 
-    /// The type-head visitor for every head written at a DECLARING position. Classify each head
+    /// The visitor for every type NAME written at a DECLARING position. Classify each name
     /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
-    /// that names neither (FS0039); a DOTTED head is judged where its path's scope is resolved.
+    /// that names neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
     let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
         // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
@@ -388,7 +388,7 @@ module NameResolutionTypeRegistration =
                         true
         }
 
-    /// Classify + stamp every type head in ONE type definition's declared surface, under the
+    /// Classify + stamp every type name in ONE type definition's declared surface, under the
     /// scope in force at its group. The `inherit` clause is stamped but NOT diagnosed here: it
     /// resolves against the referent's registered DETAIL, so its verdict waits for group close.
     let classifyDeclaredTypes (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
@@ -424,7 +424,7 @@ module NameResolutionTypeRegistration =
             EnterLetBody =
                 fun env bindings ->
                     for b in bindings do
-                        onPat b.headPat
+                        onPat b.pattern
 
                     env
             EnterForIn =
@@ -437,7 +437,7 @@ module NameResolutionTypeRegistration =
                     env
         }
 
-    /// Classify + stamp every type head a module-level TERM writes — a `let`'s parameter and
+    /// Classify + stamp every type name a module-level TERM writes — a `let`'s parameter and
     /// return-type annotations, and every annotation reachable in its body. Runs at the term's
     /// own position in the scan, so the registry holds exactly the types declared ABOVE it.
     let classifyTermTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -445,7 +445,7 @@ module NameResolutionTypeRegistration =
         let walker = classifyingExprWalker ctx it
 
         let binding (b: Binding<SyntaxToken>) =
-            NameResolutionScope.stampPatCasesWith ctx it b.headPat
+            NameResolutionScope.stampPatCasesWith ctx it b.pattern
 
             for p in b.argumentPats do
                 NameResolutionScope.stampPatCasesWith ctx it p
@@ -579,11 +579,11 @@ module NameResolutionTypeRegistration =
                 | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
         | _ -> ()
 
-    /// A union-case head's case name: `([])` → `Empty`, `(::)` → `Cons`, an ordinary head its
-    /// own text. A head with no name (`(*)`, range / active-pattern ops) yields `""`, which
+    /// A union case's ctor name: `([])` → `Empty`, `(::)` → `Cons`, an ordinary case its
+    /// own text. A case with no name (`(*)`, range / active-pattern ops) yields `""`, which
     /// `inspectCaseData` reads as "drop this case".
-    let private unionCaseName (ctx: PassContext) (head: IdentOrOp<SyntaxToken>) : string =
-        match OperatorNames.unionCaseCtorName ctx.NameOf head with
+    let private unionCaseName (ctx: PassContext) (ident: IdentOrOp<SyntaxToken>) : string =
+        match OperatorNames.unionCaseCtorName ctx.NameOf ident with
         | ValueSome n -> n
         | ValueNone -> ""
 
@@ -611,11 +611,11 @@ module NameResolutionTypeRegistration =
                     }
 
         match data with
-        | UnionTypeCaseData.Nullary(name = head)
-        | UnionTypeCaseData.GadtNullary(name = head) -> named (unionCaseName ctx head) [||] [||]
-        | UnionTypeCaseData.Nary(name = head; fields = fields) ->
+        | UnionTypeCaseData.Nullary(name = ident)
+        | UnionTypeCaseData.GadtNullary(name = ident) -> named (unionCaseName ctx ident) [||] [||]
+        | UnionTypeCaseData.Nary(name = ident; fields = fields) ->
             named
-                (unionCaseName ctx head)
+                (unionCaseName ctx ident)
                 [|
                     for f in fields ->
                         match f with
@@ -628,9 +628,9 @@ module NameResolutionTypeRegistration =
                         | UnionTypeField.Named(typ = t)
                         | UnionTypeField.Unnamed(typ = t) -> t
                 |]
-        | UnionTypeCaseData.GadtNary(name = head; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
+        | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
             named
-                (unionCaseName ctx head)
+                (unionCaseName ctx ident)
                 [|
                     for ArgSpec(name = nm) in specs ->
                         match nm with

@@ -4,12 +4,12 @@ open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// Symbolic operator — a token, or a parenthesised binding head — to its
+/// Symbolic operator — a token, or a parenthesised binding name — to its
 /// compiled member name: `+` → `op_Addition`, `<<<` → `op_LeftShift`.
 module OperatorNames =
 
     /// Only operators the lexer emits as a *distinct* `Token`. A parenthesised
-    /// head (`(<<<)`, `(~-)`) collapses to `OpGeneric`, so `ofParenSymbolic`
+    /// name (`(<<<)`, `(~-)`) collapses to `OpGeneric`, so `ofParenSymbolic`
     /// recovers it from source text. `::` → `ValueNone`: cons builds the list union.
     let ofToken (t: Token) : string voption =
         match t with
@@ -42,8 +42,8 @@ module OperatorNames =
         | Token.OpDynamicAssignment -> ValueSome OperatorData.OpDynamicAssignment
         | _ -> ValueNone
 
-    /// `(<<<)` → `op_LeftShift`. `text` is the head's source spelling (`&&&`,
-    /// `~-`), the only thing an `OpGeneric` head can be named from.
+    /// `(<<<)` → `op_LeftShift`. `text` is the operator's source spelling (`&&&`,
+    /// `~-`), the only thing an `OpGeneric` token can be named from.
     let ofParenSymbolic (text: string) (tok: SyntaxToken) : string voption =
         match ofToken tok.Token with
         | ValueSome _ as found -> found
@@ -54,9 +54,9 @@ module OperatorNames =
 
     /// Union-case ctor name: `([])` → `Empty`, `(::)` → `Cons` — the source ctor
     /// spellings, NOT the `op_Nil` / `op_ColonColon` compiled-op form. `ValueNone`
-    /// for a head with no ctor form (range / active-pattern op): drop that case.
-    let unionCaseCtorName (nameOf: SyntaxToken -> string) (head: IdentOrOp<SyntaxToken>) : string voption =
-        match head with
+    /// for a name with no ctor form (range / active-pattern op): drop that case.
+    let unionCaseCtorName (nameOf: SyntaxToken -> string) (ident: IdentOrOp<SyntaxToken>) : string voption =
+        match ident with
         | IdentOrOp.Ident t -> ValueSome(nameOf t)
         | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome "Empty"
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) ->

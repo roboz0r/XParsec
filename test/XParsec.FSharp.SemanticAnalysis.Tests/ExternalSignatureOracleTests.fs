@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.ExternalSignatureOracleTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The external-signature realiser oracle. The two-headed window is closed: every
+// The external-signature realiser oracle. The dual-path window is closed: every
 // external descriptor now carries ONLY its `FrozenType` template (the
 // `SemType[] -> SemType` closures that producers once derived templates from are
 // gone). What remains load-bearing is that the

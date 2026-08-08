@@ -22,7 +22,7 @@ let private walk (input: string) : (string * string list) list =
             "open " + (li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
         | ModuleElem.ModuleAbbrev(ModuleAbbrev.ModuleAbbrev(ident = id)) -> "abbrev " + ctx.NameOf id
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) when bs.Length > 0 ->
-            match bs.[0].headPat with
+            match bs.[0].pattern with
             | Pat.NamedSimple t -> "let " + ctx.NameOf t
             | _ -> "let ?"
         | _ -> "other"
@@ -75,7 +75,7 @@ let tests =
                 Expect.equal got expected "constant prelude shared by all elements"
             }
 
-            test "module abbrev expands the head segment before probing" {
+            test "module abbrev expands the anchor segment before probing" {
                 let scope =
                     { OpenScope.empty with
                         Abbrevs = Map.ofList [ "R", "A.B.C" ]

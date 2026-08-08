@@ -10,7 +10,7 @@ printf. For the landed printf architecture see
 Decisions locked:
 
 - Flat-arity cap `K = 4`.
-- `n > K` degrades **FSharp.Core-style — one flat-`K` head + a curried tail** (option A),
+- `n > K` degrades **FSharp.Core-style — one flat-`K` prefix + a curried tail** (option A),
   NOT a greedy flat→flat chain. Rationale: the tail is existing curried closure codegen (no
   flat→flat residual), and A→B is a non-breaking internal change until we target binary
   compatibility of emitted assemblies — far past compiler v1. The greedy flat chain (option
@@ -87,7 +87,7 @@ object + closures the rest of `Vesper.Printf` is built to avoid.
   and no runtime spec — same as the happy path. `PrintfFormat` survives *only* on the cold
   path (non-literal / format-as-value), demoted to a static-field representation driven by the
   runtime spec-runner.
-- **Multi-hole: one flat-`K` head + a curried tail (option A).** `printfn "%d %s"` fully
+- **Multi-hole: one flat-`K` prefix + a curried tail (option A).** `printfn "%d %s"` fully
   unapplied is a *flat* value struct `Fun<int, string, unit>` (the landed flat arity-2
   interface; stateless). Matching FSharp.Core's `OptimizedClosures` (never nests flat
   closures): take **one** flat chunk of arity `min(K, n)`, and the codomain beyond it is the
@@ -98,7 +98,7 @@ object + closures the rest of `Vesper.Printf` is built to avoid.
       curried arrow `h5 -> h6 -> unit`. Full application is **one** flat `Invoke(h1..h4)`
       returning a residual capturing `h1..h4` (remaining segments baked into the residual's
       statically-emitted `Invoke` — no runtime spec to capture), then two ordinary curried
-      applies. **This head-returns-curried-residual codegen is step 5 (greenfield).**
+      applies. **This prefix-returns-curried-residual codegen is step 5 (greenfield).**
 
   Library-wise `K = 4` is three flat interfaces: `Fun`3`/`Fun`4`/`Fun`5` (all landed). The
   `n > K` residual is a plain curried closure — existing closure codegen, no `Curried`/
@@ -106,8 +106,8 @@ object + closures the rest of `Vesper.Printf` is built to avoid.
   curried-tail alloc there is acceptable (FSharp.Core pays the same on its `Adapt` slow path).
 
 - **Within-chunk partial application is Phase B (deferred).** Supplying FEWER than the flat
-  head's arity (`printfn "%d %s" x`, a flat-2 with one arg) needs the `Curried`*k* residual
-  over the head's remaining args, reusing the `Curried`/flat-`Fun` adapter machinery in
+  prefix's arity (`printfn "%d %s" x`, a flat-2 with one arg) needs the `Curried`*k* residual
+  over the prefix's remaining args, reusing the `Curried`/flat-`Fun` adapter machinery in
   `Vesper.Core/core-types`. For `n ≥ 2` holes, only the fully-unapplied struct and the
   fully-saturated call land in step 4; a proper subset stays on FSharp.Core until Phase B.
 
@@ -257,17 +257,17 @@ through to FSharp.Core.
 
 ### Step 5 — the `n > K` curried-residual codegen (greenfield)
 
-The flat-`K` head `Invoke(h1..hK)` **captures** `h1..hK` and **returns** an ordinary curried
+The flat-`K` prefix `Invoke(h1..hK)` **captures** `h1..hK` and **returns** an ordinary curried
 closure for the tail (`h(K+1) -> … -> unit`), with the remaining format segments baked into
 the residual's statically-emitted `Invoke`. This is the one greenfield piece: a prior survey
-confirmed there is **no** existing "flat head `Invoke` returns a captured curried closure"
+confirmed there is **no** existing "flat prefix `Invoke` returns a captured curried closure"
 codegen — everything flat today fully saturates in one `Invoke`. Only needed for **5+‑hole**
 partial printf; those stay on FSharp.Core (correct, just allocating) until this lands. This
-was the "head flat `Invoke` returns that curried residual" half of the original combined
+was the "flat prefix `Invoke` returns that curried residual" half of the original combined
 step 3 — split out because it is greenfield and separable from the saturated substrate.
 
 **Call-side application (option A).** Saturated application of an `n > K` partial
-(`p a b c d e f`) then lowers to one flat `Invoke(a,b,c,d)` on the head, then ordinary curried
+(`p a b c d e f`) then lowers to one flat `Invoke(a,b,c,d)` on the prefix, then ordinary curried
 applies for the tail (`… e f`) — exactly FSharp.Core's `invokeFast5 … a6` shape. No `⌈n/K⌉`
 flat-chunk loop, no flat→flat residual.
 
@@ -299,16 +299,16 @@ flat-chunk loop, no flat→flat residual.
 type-test-or-wrap (≈ our `Curried`/`Flattened`, Phase B); `invokeFast{2..5}` = a
 widest-flat-then-degrade `:?` cascade. Crucially FSharp.Core **never nests flat closures** —
 `invokeFast` uses at most ONE flat `Invoke` and curries the rest (6-arg = `invokeFast5 … a6`),
-which is exactly option A. Reuse the *design* (small cap, one-flat-head + curried-tail, `Adapt`
+which is exactly option A. Reuse the *design* (small cap, one-flat-prefix + curried-tail, `Adapt`
 for Phase B) — NOT the mechanism: inheritance + heap classes + runtime type-tests are what the
 value-struct / static-verdict / no-inheritance-bridge design rejects (Vesper picks the flat
-head statically via the verdict, never by a runtime cast, and the head is a value struct, not a
+prefix statically via the verdict, never by a runtime cast, and the prefix is a value struct, not a
 heap class). *(Line numbers drift — grep the `OptimizedClosures` module.)*
 
 **Option B (future promotion, not v1) — greedy flat→flat chain** (`n = 6` as
 `Fun<_,_,_,_,Fun<_,_,_>>`, flat-4∘flat-2), for better perf on rare wide saturated calls. The
 chunk-boundary residual is a **heap reference, not a value struct** — deliberately: it captures
-the whole head chunk (`K` args + format), so passing a pointer beats copying `K + 1` words, and
+the whole prefix chunk (`K` args + format), so passing a pointer beats copying `K + 1` words, and
 it boxes anyway the moment it flows through a `Fun`-typed slot. The one case a value copy would
 save an alloc (a non-escaping, monomorphic, immediately-saturated residual) is exactly what
 option A's curried tail already covers. So B's boundary residual is ordinary heap-closure
@@ -323,13 +323,13 @@ compiler v1 — so it is deferred.
   gate lowers `printfn "%d"` to `default(S)` and `p 3` invokes `S.Invoke(3)` directly —
   zero-alloc because `default(S)` is stateless and `p` does not escape. An interface-typed
   `Fun<int, unit>` slot boxes it.
-- **Motivating multi-hole scenario** (forces the flat-head machinery — the natural step-4 test,
+- **Motivating multi-hole scenario** (forces the flat-prefix machinery — the natural step-4 test,
   cf. `apply3`): given `let f () = printf "%d %s %b"`, `f ()` yields the fully-unapplied flat-3
   struct `Fun<int, string, bool, unit>`; `let g d s b = f () d s b` saturates it in **one** flat
   `Invoke(d, s, b)`. The within-chunk form `let h d s = f () d s` is Phase B (FSharp.Core until
   then).
 - Multi-hole lands flat (option A): `n ≤ 4` as a single flat `Fun<…>`, zero-alloc where it
-  doesn't escape (step 4); `n > 4` as one flat-`K` head + a curried tail (step 5), so
+  doesn't escape (step 4); `n > 4` as one flat-`K` prefix + a curried tail (step 5), so
   `printfn "%d %s %b %f %d %s"` fully applied runs as one flat-4 `Invoke(h1..h4)` (returning a
   curried residual) then two ordinary curried applies — one flat dispatch + two curried, not
   six curried.

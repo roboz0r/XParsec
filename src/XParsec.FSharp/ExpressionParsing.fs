@@ -136,14 +136,14 @@ module Binding =
     let private errNoTrailingTypeAnnotation: ErrorType<PositionedToken, ParseState> =
         Message "no trailing type annotation"
 
-    let private errNotNamedFieldCtorHead: ErrorType<PositionedToken, ParseState> =
-        Message "not a named-field ctor head"
+    let private errNotNamedFieldCtorPatStart: ErrorType<PositionedToken, ParseState> =
+        Message "not the start of a named-field ctor pattern"
 
     let private pMutableTok =
         nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWMutable) "Expected 'mutable'"
 
-    /// Build the Pat head from an IdentOrOp
-    let private headPatOfIdentOrOp (identOrOp: IdentOrOp<SyntaxToken>) : Pat<SyntaxToken> =
+    /// Build the binding pattern from an IdentOrOp
+    let private patternOfIdentOrOp (identOrOp: IdentOrOp<SyntaxToken>) : Pat<SyntaxToken> =
         match identOrOp with
         | IdentOrOp.Ident t -> Pat.NamedSimple t
         | _ -> Pat.Op identOrOp
@@ -245,12 +245,12 @@ module Binding =
             return! pChainStaticOptimizations annotated
         }
 
-    // Detects a named-field destructure head: `( Identifier = ...`. Used only as a
+    // Detects the START of a named-field destructure: `( Identifier = ...`. Used only as a
     // lookahead guard in `parseFunction`; the shape is unambiguously a value-binding
     // pattern (F# let bindings don't support default-valued parameters), so letting
     // parseFunction commit here would cause pEnclosed to recover with a virtual `)`
     // and bury the real parse.
-    let private pNamedFieldCtorArgHead =
+    let private pNamedFieldCtorPatStart =
         lookAhead (
             parser {
                 let! t1 = nextSyntaxToken
@@ -264,7 +264,7 @@ module Binding =
                 then
                     return ()
                 else
-                    return! fail errNotNamedFieldCtorHead
+                    return! fail errNotNamedFieldCtorPatStart
             }
         )
 
@@ -276,7 +276,7 @@ module Binding =
             let! inlineTok = opt pInline
             let! access = opt pAccessModifier
             let! identOrOp = IdentOrOp.parse
-            do! notFollowedByL pNamedFieldCtorArgHead "named-field destructure"
+            do! notFollowedByL pNamedFieldCtorPatStart "named-field destructure"
             let! typarDefns = opt TyparDefns.parse
             // Parse argument patterns (atomic to avoid consuming return type annotations).
             // Operator definitions (e.g., `let (|PointFree|) = expr`) allow zero arguments.
@@ -298,7 +298,7 @@ module Binding =
                     inlineToken = inlineTok
                     mutableToken = ValueNone
                     access = access
-                    headPat = headPatOfIdentOrOp identOrOp
+                    pattern = patternOfIdentOrOp identOrOp
                     typarDefns = typarDefns
                     argumentPats = argumentPats
                     returnType = returnType
@@ -326,7 +326,7 @@ module Binding =
                     inlineToken = ValueNone
                     mutableToken = mut
                     access = access
-                    headPat = pat
+                    pattern = pat
                     typarDefns = typarDefns
                     argumentPats = ImmutableArray.Empty
                     returnType = returnType
@@ -833,11 +833,11 @@ module Expr =
                         (parser {
                             // Grammar (above): FUN atomicPatterns RARROW. Lambda
                             // parameters are *atomic* patterns — a bare identifier is
-                            // a simple binder, NOT a constructor head that swallows the
+                            // a simple binder, NOT a ctor pattern that swallows the
                             // following parameters. `Pat.parse` would parse `fun acc k`
                             // as the applied pattern `acc k` (`Pat.Named acc [k]`);
                             // `parseAtomicBindingArgMany1` (the same parser the let/
-                            // member binding heads use) keeps them as separate binders.
+                            // member bindings use) keeps them as separate binders.
                             let! pats = Pat.parseAtomicBindingArgMany1
 
                             let! arrow =
@@ -1515,7 +1515,7 @@ module Expr =
                         | { Indent = ctxIndent } :: _ -> indent = ctxIndent
                         | [] -> indent = 0
 
-                    // pars.fsy `moduleDefns`: a `let`/`use` binding head (`defnBindings`) at a
+                    // pars.fsy `moduleDefns`: a `let`/`use` binding (`defnBindings`) beginning at a
                     // module-BODY column is a NEW module declaration, separated from a
                     // preceding do-expression by OBLOCKSEP — never an OSEMI sequential
                     // continuation. Sequencing it in would parse the binding as the trailing
@@ -1525,9 +1525,9 @@ module Expr =
                     // `Offside.isDeclBlock` identifies a module body POSITIVELY (file-level
                     // entry frame or a nested `module X =` body), so the rule covers a nested
                     // body whose elements sit exactly at the `Module` frame's minimum column.
-                    // `let!`/`use!` are NOT included: they are not `moduleDefns` heads — leave
+                    // `let!`/`use!` are NOT included: they start no `moduleDefns` entry — leave
                     // them to sequence and be rejected by the expression grammar.
-                    let isDeclHeadAtBodyColumn =
+                    let isDeclStartAtBodyColumn =
                         match state.Context with
                         | frame :: _ when Offside.isDeclBlock frame ->
                             match t.Token with
@@ -1537,7 +1537,7 @@ module Expr =
                         | _ -> false
 
                     if atContextIndent then
-                        if isDeclHeadAtBodyColumn then
+                        if isDeclStartAtBodyColumn then
                             return! failSep
                         else
                             return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))

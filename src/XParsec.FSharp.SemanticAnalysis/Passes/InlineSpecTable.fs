@@ -17,7 +17,7 @@ module InlineSpecTable =
         /// Bound to a bare `External` function VALUE — pure and capture-free, so it is
         /// substituted into the body and its `let` disappears.
         | FuseExternalValue
-        /// A lambda argument every use of which is a fully saturated application head: spliced
+        /// A lambda argument every use of which is a fully saturated application: spliced
         /// at each use, so its closure never exists.
         | FuseLambda
         /// Declared `[<CallAtMostOnce>]`: substituted at its single validated use rather than

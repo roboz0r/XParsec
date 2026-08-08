@@ -30,7 +30,7 @@ module VesperLibTypeTranslate =
     let identOrOpName (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
         | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
-        // `(::)` is a binding head only the contract surface needs to name (cons has no `op_`
+        // `(::)` is a bound name only the contract surface needs to name (cons has no `op_`
         // member in expression position), so it is mapped before the shared resolver.
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) when opTok.Token = Token.KWColonColon ->
             ValueSome OperatorData.OpColonColon
@@ -186,7 +186,7 @@ module VesperLibTypeTranslate =
         let isQualified = name.IndexOf '.' >= 0
 
         // A *generic* type is keyed by its arity-suffixed compiled name (`List`1`) while
-        // source writes the bare head (`List`), so probe the suffixed form first.
+        // source writes the bare name (`List`), so probe the suffixed form first.
         let forms (n: string) : string list =
             if arity > 0 then
                 [ SymbolKeyOps.arityName n arity; n ]
@@ -355,8 +355,8 @@ module VesperLibTypeTranslate =
                 // No `RawConstraint` shape for these; dropped.
                 ()
 
-    /// Bake a nominal reference (`compiled` head + already-translated `args`) to its
-    /// kind-correct `FrozenType` template, minting no `SemType`. A body-less (`Opaque`) head
+    /// Bake a nominal reference (`compiled` type constructor + already-translated `args`) to its
+    /// kind-correct `FrozenType` template, minting no `SemType`. A body-less (`Opaque`) shape
     /// has no kind to bake and raises `BodylessExternalShape` instead of a placeholder.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<FrozenType>) : FrozenType =
         // This package's own declarations are looked up in the identity index, because a
@@ -410,7 +410,7 @@ module VesperLibTypeTranslate =
 
     /// `CST → FrozenType`: every val signature, type-shape body (record field, union-case
     /// field, abbreviation RHS), constraint target and augmentation-member signature runs
-    /// through this in the finalize pass. An `Opaque` head propagates out of `mkNominal`.
+    /// through this in the finalize pass. An `Opaque` shape propagates out of `mkNominal`.
     let rec translateType
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -575,7 +575,7 @@ module VesperLibTypeTranslate =
             | None -> Ok(FTTuple(EqArray.ofResizeArray items))
 
     /// The curried signature folds right-associatively into nested `FTFun` nodes. The
-    /// finalize pass splits the head `FTFun(params, ret)` into a member's two-axis
+    /// finalize pass splits the OUTERMOST `FTFun(params, ret)` into a member's two-axis
     /// `ExternalSignature`, or takes the whole chain as a val's template.
     let translateCurriedSig
         (ctx: ExtractCtx)

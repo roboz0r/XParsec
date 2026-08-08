@@ -322,7 +322,7 @@ module BinderKey =
 
     /// `ofPat` before the tree exists: the binder a CST pattern introduces. The key is the
     /// INNERMOST `NamedSimple`'s, after peeling `[<…>] p` / `(p)` / `p : t` / `p as x` — the
-    /// elaborated tree drops those, so a key off `let (x) = 5`'s head names a node nothing binds.
+    /// elaborated tree drops those, so a key off `let (x) = 5`'s pattern names a node nothing binds.
     let rec siteOfCstPat (p: Pat<SyntaxToken>) : BinderSite voption =
         match p with
         | Pat.NamedSimple t ->

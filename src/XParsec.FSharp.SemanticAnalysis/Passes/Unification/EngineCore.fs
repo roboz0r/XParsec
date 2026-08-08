@@ -46,7 +46,7 @@ module UnificationEngineCore =
     let rec zonk (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar _ ->
-            match UnionFind.headZonk store t with
+            match UnionFind.zonkShallow store t with
             | TyVar _ as v -> v
             | resolved -> zonk store resolved
         | t -> SemType.mapChildren (zonk store) t
@@ -250,11 +250,11 @@ module UnificationEngineCore =
     /// `Vesper.Fun`2<'A,'B>` through `Vesper.Fun`5<'A,'B,'C,'D,'E>` share one name and
     /// differ only by arity, so the arity is half the identity. Matched by KEY: a user
     /// interface named `Fun` in its own namespace is not a function slot.
-    let funSlotArityOfArgs (head: TypeKey) (genericArity: int) : int option =
+    let funSlotArityOfArgs (tyCtor: TypeKey) (genericArity: int) : int option =
         if
             genericArity >= 2
             && genericArity <= 5
-            && head = RuntimeNames.vesperFunKey genericArity
+            && tyCtor = RuntimeNames.vesperFunKey genericArity
         then
             Some(genericArity - 1)
         else
@@ -263,8 +263,8 @@ module UnificationEngineCore =
     /// `funSlotArityOfArgs` for a KIND-BLIND caller — one holding the canonicalised key
     /// `subtypeNominalOf` surfaces, whose domain includes keys of every kind. A non-type
     /// key names no interface, so it is no `Fun` slot.
-    let funSlotArityOfSymbol (head: SymbolKey) (genericArity: int) : int option =
-        match head with
+    let funSlotArityOfSymbol (tyCtor: SymbolKey) (genericArity: int) : int option =
+        match tyCtor with
         | SymbolKey.Type t -> funSlotArityOfArgs t genericArity
         | _ -> None
 
@@ -563,7 +563,7 @@ module UnificationEngineCore =
     /// How a `SemType` is NAMED to a user in a diagnostic. An unpinned typar prints as the
     /// anonymous `'a`. Zonks first, so no caller has to remember to.
     let rec shown (store: TypeStore) (t: SemType) : string =
-        match UnionFind.headZonk store t with
+        match UnionFind.zonkShallow store t with
         | TyConst(key, _) ->
             let (DisplayName name) = SymbolKeyOps.simpleName key
             name
@@ -576,7 +576,7 @@ module UnificationEngineCore =
         // `->` associates right, so only a function DOMAIN needs the parens:
         // `(int -> int) -> string`.
         | TyFun(dom, cod) ->
-            match UnionFind.headZonk store dom with
+            match UnionFind.zonkShallow store dom with
             | TyFun _ -> sprintf "(%s) -> %s" (shown store dom) (shown store cod)
             | _ -> sprintf "%s -> %s" (shown store dom) (shown store cod)
         | TyTuple _ -> "tuple"

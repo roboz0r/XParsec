@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // An operator use site (`a = b`, `x + y`, `a < b`) freezes to an `External(op_*)`
-// call head; the pre-freeze `Passes.InlineExpansion` pass splices the operator's
+// applied function; the pre-freeze `Passes.InlineExpansion` pass splices the operator's
 // contract body there and resolves its `StaticOptimization` clauses — codegen owns no
 // per-operator recipe. These tests pin the result at the TAST level (`Emit.lower`) and
 // end to end (compile + run real CIL).
@@ -323,7 +323,7 @@ let tests =
                             "    printfn \"side %d\" x"
                             "    x + 1"
                             "f 41 |> ignore"
-                            "ignore (f 7)" // the un-piped form, same head + arguments
+                            "ignore (f 7)" // the un-piped form, same function + arguments
                             "printfn \"done\""
                         ]
 

@@ -135,7 +135,7 @@ module Elaborate =
             | ValueNone -> nm
         )
 
-    /// A head introducing no binder (`let (a, b) = p`) names no value, so records nothing.
+    /// A pattern introducing no binder (`let (a, b) = p`) names no value, so records nothing.
     let private recordExportedBinding
         (ctx: PassContext)
         (holder: ModuleHolder)
@@ -184,11 +184,11 @@ module Elaborate =
         (holder: ModuleHolder)
         (b: Binding<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) voption =
-        let tpat = translatePat ctx b.headPat
-        let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)
+        let tpat = translatePat ctx b.pattern
+        let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.pattern)
 
-        // Read off the TRANSLATED head, never the CST binding: the analysis identity
-        // addresses a head pattern node that `translatePat` erases for `let (x: int) = …`.
+        // Read off the TRANSLATED pattern, never the CST binding: the analysis identity
+        // addresses a pattern node that `translatePat` erases for `let (x: int) = …`.
         let binder = if elided then ValueNone else BinderKey.ofPat tpat
 
         let emittedName = emittedNameOfBinding ctx b
@@ -205,7 +205,7 @@ module Elaborate =
 
         let quantEnv = moduleLetQuantEnv ctx b declTy
 
-        // A binder-less head has nowhere to file the typar-axis width.
+        // A binder-less pattern has nowhere to file the typar-axis width.
         match binder with
         | ValueSome bk ->
             recordGenericFnScheme ctx b bk quantEnv

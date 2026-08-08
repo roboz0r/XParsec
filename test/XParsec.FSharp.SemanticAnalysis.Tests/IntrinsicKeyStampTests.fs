@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The desugared-operator and synthesised-intrinsic `External` heads Elaborate mints
+// The desugared-operator and synthesised-intrinsic `External` nodes Elaborate mints
 // (`a + b` → `op_Addition`, `arr.[i]` → `GetArray`, `arr.Length` → `GetArrayLength`,
 // `arr.[i] <- v` → `SetArray`, …) MUST carry the resolved `SymbolKey` Unification
 // stamped in `Resolution.IntrinsicKey`. That key is the SOLE channel by which
@@ -13,16 +13,16 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // downstream, not a graceful miss — exactly the failure mode the boundary plan warns
 // of. These are the front-end shape twins of the codegen end-to-end splice suites
 // (`OpsPlatform*Tests`, array/dynamic tests): this harness resolves the `Vesper.Core`
-// contract from its `.fsi` alone, so no body is served and the `External` head
+// contract from its `.fsi` alone, so no body is served and the `External` node
 // SURVIVES `InlineExpansion` unspliced — letting us assert the KEY is present on the
-// head that a body-serving stack would splice by.
+// node that a body-serving stack would splice by.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// The `key` field of the first `TExpr.External` named `name` anywhere in the
-/// program's lowered decls (`None` if no such head survives). Asserts the program
+/// program's lowered decls (`None` if no such node survives). Asserts the program
 /// froze without diagnostics first — a diagnostic means the intrinsic never resolved,
 /// so there would be nothing to stamp.
 let private externalKey (name: string) (input: string) : SymbolKey voption option =
@@ -54,10 +54,10 @@ let private assertStamped (name: string) (input: string) =
     | Some(ValueSome _) -> ()
     | Some ValueNone ->
         failtestf
-            "`%s` head minted with a ValueNone key — the `IntrinsicKey` stamp is missing, so InlineExpansion cannot splice its inline body by key: %s"
+            "`%s` node minted with a ValueNone key — the `IntrinsicKey` stamp is missing, so InlineExpansion cannot splice its inline body by key: %s"
             name
             input
-    | None -> failtestf "no `%s` External head found in the lowered TAST of: %s" name input
+    | None -> failtestf "no `%s` External node found in the lowered TAST of: %s" name input
 
 [<Tests>]
 let tests =

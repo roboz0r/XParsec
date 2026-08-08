@@ -652,7 +652,7 @@ module ExternalSymbols =
         // plain `Class` with only the canonical, so `bclName` is supplied and confirmed here.
         let shimConfirms (bcl: string) (lookup: string) : bool =
             match provider.TryLookupType bcl |> typeShapeOf with
-            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.typeMetaName head = lookup
+            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(tyCtor, _))) -> SymbolKeyOps.typeMetaName tyCtor = lookup
             | _ -> false
 
         let resolveAnchorKey (canon: TypeKey) (bcl: TypeKey voption) : RuntimeNames.CapabilityIdentity voption =

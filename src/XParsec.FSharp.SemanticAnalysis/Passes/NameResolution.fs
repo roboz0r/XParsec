@@ -312,7 +312,7 @@ module NameResolution =
                 match d with
                 | MethodOrPropDefn.Method(defn = b)
                 | MethodOrPropDefn.Property(defn = b) ->
-                    // The argument pats bind the method's parameters; the headPat (the member
+                    // The argument pats bind the method's parameters; the bound pattern (the member
                     // name) does NOT enter scope.
                     let mutable inner = scope
 
@@ -457,7 +457,7 @@ module NameResolution =
             let isRecursive = isRec.IsSome
 
             for b in bindings do
-                // The return-type annotation head only; the pattern annotations are stamped
+                // The return-type annotation only; the pattern annotations are stamped
                 // through the RHS scope hook.
                 stampBindingSigTypes ctx b
                 let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
@@ -586,7 +586,7 @@ module NameResolution =
                     d
 
             for b in bindings do
-                for (name, key) in bindingsOfPat ctx b.headPat do
+                for (name, key) in bindingsOfPat ctx b.pattern do
                     members.[name] <-
                         {
                             BindingSite = key

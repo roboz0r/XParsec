@@ -85,7 +85,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// Declared accessibility of each top-level entity (type / module value / inline
         /// value); a key ABSENT here is `Public`. A type MEMBER's rides on the member itself.
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
-        /// A module binding's typar count, keyed by the binder its head pattern introduces.
+        /// A module binding's typar count, keyed by the binder its pattern introduces.
         BindingTyparArities: Map<BinderKeyG<'id>, int>
     }
 
@@ -132,7 +132,7 @@ module TPreambleEntryG =
 
 [<RequireQualifiedAccess>]
 module TSpecializationG =
-    /// The head pattern and lambda value of an entry's `TDecl.Let`.
+    /// The bound pattern and lambda value of an entry's `TDecl.Let`.
     let binding
         (spec: SpecializationId)
         (entry: TSpecializationG<'ty, 'tok, 'id>)

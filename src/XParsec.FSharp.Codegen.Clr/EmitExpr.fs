@@ -80,7 +80,7 @@ module EmitExpr =
         | ExprShape.App -> EmitCall.buildAppCall buildExpr env b e
 
         // A bare external value — `Set.empty`, compiled to `SetModule.Empty<'T>()` — takes
-        // the same head dispatch as an application, with an empty argument list.
+        // the same applied-function dispatch as an application, with no arguments.
         | ExprShape.External -> EmitCall.buildAppCall buildExpr env b e
 
         | ExprShape.FieldGet -> EmitMember.buildFieldGet buildExpr env b e

@@ -181,7 +181,7 @@ let tests =
             }
 
             test "tuple-destructuring let does NOT generalise" {
-                // Compound headPats skip the scheme table. `let (f, _) = ...`
+                // Compound binding patterns skip the scheme table. `let (f, _) = ...`
                 // doesn't get a scheme even if the RHS would otherwise generalise.
                 // No mismatch expected — this just confirms it type-checks.
                 let tast = analyse "let r = let (f, _) = (fun x -> x), 0 in f 1"

@@ -284,8 +284,8 @@ module Pat =
     /// `PatOperatorParser` except `:` is not consumed. In the F# grammar `:`
     /// is a production of `parenPattern` (and `simplePat` for primary-ctor
     /// arg lists), not of `headBindingPattern`; a top-level `let x : int = 5`
-    /// puts the `: int` into the binding's `optReturnType`, not the head
-    /// pattern. Used by `Pat.parseHead` for let-value binding heads.
+    /// puts the `: int` into the binding's `optReturnType`, not the bound
+    /// pattern. Used by `Pat.parseHead` for a `let`-value's bound pattern.
     type PatHeadOperatorParser() =
         static let rhsParser = patRhsParserSpecialist patRhsRoutesHead false
 
@@ -506,7 +506,7 @@ module Pat =
     // pNamed shares one `LongIdent.parse` call between the named-field-pat path and the
     // positional path — the prior `choiceL [pNamedFieldPats; …]` re-parsed the long-ident
     // on backtrack (each alternative started with `let! lid = LongIdent.parse`). Every
-    // identifier-shaped pattern (match-arm variables, fn args, let-binding heads, record
+    // identifier-shaped pattern (match-arm variables, fn args, let-bound names, record
     // fields) goes through here, so the duplicated long-ident parse was hot.
     let pNamed: FSParser<Pat<SyntaxToken>> =
         fun reader ->
@@ -541,13 +541,13 @@ module Pat =
             let! l = pLParen
             let! op = OpName.parse
             let! r = pRParen
-            let head = IdentOrOp.ParenOp(l, op, r)
+            let ident = IdentOrOp.ParenOp(l, op, r)
             let! args = many refPatAtomicBindingArg.Parser
 
             if args.IsEmpty then
-                return Pat.Op head
+                return Pat.Op ident
             else
-                return Pat.OpNamed(head, args)
+                return Pat.OpNamed(ident, args)
         }
 
     let private pParenOrOpHeadPat = pParenOpHeadPat <|> pParenPat
@@ -761,8 +761,8 @@ module Pat =
 
     /// Matches F#'s `headBindingPattern` grammar rule. Same operators as `parse`
     /// except `:` is not consumed (the surrounding binding's `optReturnType`
-    /// owns any trailing `: type`). Used by `Binding.parseValue` for let-value
-    /// binding heads.
+    /// owns any trailing `: type`). Used by `Binding.parseValue` for a
+    /// `let`-value's bound pattern.
     let parseHead = Operator.parser parseAtomic (PatHeadOperatorParser())
 
     // For record field patterns, we want to allow the same operators as the top-level, but not semicolon since that separates fields.

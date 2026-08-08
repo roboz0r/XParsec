@@ -430,13 +430,13 @@ module N =
             test "file 2 ANNOTATES a value + parameter with a record type declared in file 1" {
                 // Value-position + parameter-position annotation of a prior-file record:
                 // `let h (r : R) = r` and `let g (r : R) : int = r.X`, `R` opened from file 1.
-                // The annotation type head is name-resolved + stamped external, and its dotted
+                // The annotated type name is name-resolved + stamped external, and its dotted
                 // open-expansion (`Test.A.M.R`) resolves through the frozen provider's
                 // module-containment fallback to file 1's record shape. Before that fallback the
                 // dotted spelling missed the `+`-keyed identity index and the annotation errored
                 // "The type 'R' is not defined".
                 //
-                // The annotations here are PURE (parameter type + field read): the head resolves
+                // The annotations here are PURE (parameter type + field read): the name resolves
                 // to one identity used consistently, so there is no error at all. A form that
                 // also CONSTRUCTS the record (`let r : R = { X = 1 }`) does NOT belong here — see
                 // the `ptest` below: construction pins the registered `InModule` identity while
@@ -485,7 +485,7 @@ module N =
             test "file 2's MEMBER signature annotates a type declared in file 1" {
                 // Member-signature return + constructor-parameter annotation of a prior-file
                 // type: a class in file 2 captures a `T` (ctor param annotation) and returns it
-                // from a member (return annotation). Both annotation heads are prior-file type
+                // from a member (return annotation). Both annotated type names are prior-file type
                 // names brought in by `open`, resolved through the same module-containment
                 // fallback.
                 let file1 =

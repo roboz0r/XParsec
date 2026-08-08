@@ -842,7 +842,7 @@ let tests =
 
             test "sprintf `%a` lowers to a ToString Format; residue is the applied callback (value-carrying)" {
                 // `%a` residue = `cb unit value` — a double application (the value is the
-                // outer arg), so the residue's head is `App(App(_, _), _)`.
+                // outer arg), so the residue's applied function is `App(App(_, _), _)`.
                 match soleDecl "sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match segs with

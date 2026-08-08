@@ -70,10 +70,10 @@ module NameResolutionScope =
         let rec lookup (s: Scope list) =
             match s with
             | [] -> ValueNone
-            | head :: rest ->
-                match Map.tryFind name head with
+            | innermost :: enclosing ->
+                match Map.tryFind name innermost with
                 | Some bs -> ValueSome bs
-                | None -> lookup rest
+                | None -> lookup enclosing
 
         match lookup scope with
         | ValueSome(bindingSite, isMutable) ->
@@ -97,8 +97,8 @@ module NameResolutionScope =
                 let bareHit = tryClassifyExternalType ctx (arityProbes 0) name
 
                 // A single-ident external CLASS in expression position is a ctor-sugar
-                // head (`InvalidOperationException "x"`). Class-only: `float x` names a
-                // real external type but is not constructible.
+                // application (`InvalidOperationException "x"`). Class-only: `float x`
+                // names a real external type but is not constructible.
                 if not (ctx.Resolution.ResolvedType.ContainsKey useKey) then
                     match bareHit with
                     | ValueSome hit ->
@@ -143,10 +143,10 @@ module NameResolutionScope =
         && (TypeRegistry.isCaseName ctx.Types useSite name
             || resolvesAsBareExternalCase ctx name)
 
-    /// True if the `Pat.Named` head `li` is a ctor reference (the head binds nothing;
-    /// its sub-patterns are the binders). The two-segment leg covers a qualified
-    /// external case (`Color.Red`), whose bare probe an RQA union correctly rejects.
-    let private isPatNamedCtorHead (ctx: PassContext) (useSite: UseSite) (li: LongIdent<SyntaxToken>) : bool =
+    /// True if the `Pat.Named` name `li` is a ctor reference (`Some x` destructures — the
+    /// name itself binds nothing, its sub-patterns are the binders). The two-segment leg
+    /// covers a qualified external case (`Color.Red`), which an RQA union rejects bare.
+    let private isCtorPat (ctx: PassContext) (useSite: UseSite) (li: LongIdent<SyntaxToken>) : bool =
         li.Idents.Length >= 1
         && (isCtorName ctx useSite (ctx.NameOf li.Idents.[li.Idents.Length - 1])
             || (li.Idents.Length = 2
@@ -173,22 +173,22 @@ module NameResolutionScope =
             bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
-        | Pat.Named(longIdent = li; argumentPats = args) when isPatNamedCtorHead ctx (ctx.UseSiteAt(CstKeys.ofPat p)) li ->
-            // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): head binds
-            // nothing, sub-patterns introduce binders.
+        | Pat.Named(longIdent = li; argumentPats = args) when isCtorPat ctx (ctx.UseSiteAt(CstKeys.ofPat p)) li ->
+            // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): the ctor name
+            // binds nothing, sub-patterns introduce binders.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub
             ]
         | Pat.Cons(head = h; tail = t) ->
-            // `h :: t`: the `::` head binds nothing; both sub-patterns introduce binders.
+            // `h :: t`: the `::` ctor binds nothing; both sub-patterns introduce binders.
             bindingsOfPat ctx h @ bindingsOfPat ctx t
         | Pat.Elems(pats = pats) ->
             // `[a; b; c]` list-literal pattern (the multi-element form, wrapped in
             // `EnclosedBlock(List, …)`): each element introduces binders.
             [ for sub in pats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Op io ->
-            // Operator-named binding head (`let (=) x y = …`) binds the compiled name
+            // Operator-named binding (`let (=) x y = …`) binds the compiled name
             // `op_Equality`; use sites resolve through the desugared form instead.
             match Desugar.opPatCompiledName ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
@@ -208,9 +208,9 @@ module NameResolutionScope =
         | Pat.Missing
         | Pat.SkipsTokens _ -> []
 
-    /// Stamp every external union-case ctor head in `p` (1- and 2-segment heads only),
-    /// reaching sub-patterns `bindingsOfPat` skips — or-alternatives, cons tails, tests.
-    /// Embedded type heads go through `typeIter`, which may also diagnose an unknown one.
+    /// Stamp every external union-case ctor in `p` (1- and 2-segment names only), reaching
+    /// sub-patterns `bindingsOfPat` skips — or-alternatives, cons tails, tests. Embedded
+    /// type names go through `typeIter`, which may also diagnose an unknown one.
     let stampPatCasesWith (ctx: PassContext) (typeIter: CstWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
         let visit (pat: Pat<SyntaxToken>) : unit =
             match pat with
@@ -253,7 +253,7 @@ module NameResolutionScope =
             p
 
     /// `stampPatCasesWith` under the plain stamping visitor — the body / value-position
-    /// form, where an unresolved head is not an error.
+    /// form, where an unresolved name is not an error.
     let stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
         stampPatCasesWith ctx (stampTypeIter ctx) p
 
@@ -277,9 +277,9 @@ module NameResolutionScope =
 
         for b in bindings do
             let isMut = b.mutableToken.IsSome
-            stampPatCases ctx b.headPat
+            stampPatCases ctx b.pattern
 
-            for n, k in bindingsOfPat ctx b.headPat do
+            for n, k in bindingsOfPat ctx b.pattern do
                 s <- Map.add n (k, isMut) s
 
                 ctx.Bindings.Binding.Set(
@@ -300,7 +300,7 @@ module NameResolutionScope =
         | ValueSome sym -> ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
         | ValueNone -> ()
 
-    /// A desugared `InfixApp` / `PrefixApp` head: stamp the symbol for the compiled
+    /// A desugared `InfixApp` / `PrefixApp` operator: stamp the symbol for the compiled
     /// operator name the desugaring recorded. `::` is not an `OpName` and `op_AddressOf`
     /// has no provider symbol, so both take the no-stamp arm.
     let private stampDesugaredOperator (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
@@ -309,8 +309,8 @@ module NameResolutionScope =
         | _ -> ()
 
     let private visit (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
-        // Stamp every external type head embedded in this node's annotations. Recursion
-        // into child expressions is the walker's, so each head is stamped once.
+        // Stamp every external type name embedded in this node's annotations. Recursion
+        // into child expressions is the walker's, so each name is stamped once.
         stampExprEmbeddedTypes ctx e
 
         match e with
@@ -318,25 +318,25 @@ module NameResolutionScope =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             resolveIdent ctx scope li.Idents.[0] (CstKeys.ofExpr e)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-            // Multi-segment: a chained field access (`r.X.Y`, head local) or a qualified
-            // name (`Math.PI`, provider). Field resolution waits for the head's type.
-            let head = li.Idents.[0]
-            let headName = ctx.NameOf head
+            // Multi-segment: a chained field access (`r.X.Y`, anchor local) or a qualified
+            // name (`Math.PI`, provider). Field resolution waits for the anchor's type.
+            let anchorIdent = li.Idents.[0]
+            let anchorName = ctx.NameOf anchorIdent
 
             let rec lookup (s: Scope list) =
                 match s with
                 | [] -> ValueNone
-                | top :: rest ->
-                    match Map.tryFind headName top with
+                | innermost :: enclosing ->
+                    match Map.tryFind anchorName innermost with
                     | Some bs -> ValueSome bs
-                    | None -> lookup rest
+                    | None -> lookup enclosing
 
             match lookup scope with
             | ValueSome(bindingSite, isMutable) ->
-                // Key the head's binding entry under ExprIdent on the head token
+                // Key the anchor's binding entry under ExprIdent on the anchor token
                 // so later passes look up the receiver's type by the same key.
                 ctx.Bindings.Binding.Set(
-                    NodeKey.ofToken head NodeKind.ExprIdent,
+                    NodeKey.ofToken anchorIdent NodeKind.ExprIdent,
                     {
                         BindingSite = bindingSite
                         IsInline = false
@@ -345,7 +345,7 @@ module NameResolutionScope =
                 )
             | ValueNone ->
                 // `Module.member` on a *local* (in-file) module: the module tree is
-                // flattened before this walk, so neither the provider nor the head lookup
+                // flattened before this walk, so neither the provider nor the anchor lookup
                 // can see it. Resolving here gives it the shape a plain local ident takes.
                 let tryLocalModuleMember () : bool =
                     if li.Idents.Length >= 2 then
@@ -408,11 +408,11 @@ module NameResolutionScope =
                                 ))
 
                         // `A.T` — a project-local TYPE named through its module, so the
-                        // reference is a ctor / static head, not a value. Suppress.
+                        // reference is a ctor / static receiver, not a value. Suppress.
                         let isLocalQualifiedType =
                             TypeRegistry.isWrittenTypeNameInScope ctx.Types useSite (ctx.WrittenTypeNameOf li)
 
-                        // `E.C1` — the head names a project-local enum. Suppress, so a bad
+                        // `E.C1` — the anchor names a project-local enum. Suppress, so a bad
                         // tail gets the precise "Enum 'E' has no case 'C'" instead of a
                         // redundant unresolved-qualified-name on top of it.
                         let isEnumCase =
@@ -464,7 +464,7 @@ module NameResolutionScope =
                             | _ -> ()
 
                         // The whole name as an external class (`System.Exception "x"`, a
-                        // ctor-sugar head) → `ResolvedType`; else the folded receiver prefix
+                        // ctor-sugar application) → `ResolvedType`; else the folded receiver prefix
                         // (`System.Console` in `System.Console.Out`, class or intrinsic).
                         if not (ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)) then
                             match qualHit with

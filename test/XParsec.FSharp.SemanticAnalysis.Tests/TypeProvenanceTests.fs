@@ -66,7 +66,7 @@ let tests =
             }
 
             test "a wildcard argument is an inference hole inside a declared type (Box<_>)" {
-                // The `Box` head is declared, the `_` argument inferred — even though
+                // The `Box` type constructor is declared, the `_` argument inferred — even though
                 // inference pins `_` to `int` from the `{ Item = 5 }` initialiser.
                 let ctx, tast = analyse (box + "let x : Box<_> = { Item = 5 }")
                 let k = lastBinderKey tast
@@ -84,7 +84,7 @@ let tests =
             }
 
             test "a bare wildcard annotation `(x: _)` is a request to infer, so inferred" {
-                // Unlike `Box<_>` (written head, inferred arg), a *whole-type* `_` writes
+                // Unlike `Box<_>` (written type constructor, inferred arg), a *whole-type* `_` writes
                 // no structure — it asks inference to fill it, so the binder is inferred,
                 // not declared.
                 let ctx, tast = analyse "let f (x: _) = x + 1"

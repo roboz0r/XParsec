@@ -177,7 +177,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
 /// the id. Every recorded `GTuple` must therefore name a pat that some `Lambda` bears as
 /// its parameter.
 ///
-/// Also: one entry per `NamedSimple`-headed `Let` root and no more, which is the coverage
+/// Also: one entry per `NamedSimple`-patterned `Let` root and no more, which is the coverage
 /// the file→file signature projection relies on.
 let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
     let lambdaParams = System.Collections.Generic.HashSet<PatPoolId>()
@@ -198,9 +198,9 @@ let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
         pools.Roots
         |> Array.filter (fun (DeclPoolId d) ->
             DeclPayload.shape pools.DeclPayloads.[d] = DeclShape.Let
-            && (let (PatPoolId head) = ChildColumn.item pools.DeclPatChildren d 0
+            && (let (PatPoolId pattern) = ChildColumn.item pools.DeclPatChildren d 0
 
-                match pools.PatPayloads.[head] with
+                match pools.PatPayloads.[pattern] with
                 | PatPayload.NamedSimple _ -> true
                 | _ -> false)
         )
@@ -277,33 +277,33 @@ let private programs =
         "for-to loop with mutable accumulator",
         "let sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n"
 
-        // Binding heads that introduce NO single binder, or introduce one only behind a
+        // Binding patterns that introduce NO single binder, or introduce one only behind a
         // wrapper the frozen tree erases. Each of these once faulted `toPools`: the
-        // side tables were filed under `CstKeys.ofBinding` (the head PATTERN's key),
+        // side tables were filed under `CstKeys.ofBinding` (the bound PATTERN's key),
         // which for these shapes names a node the frozen tree does not bear — a
         // `Pat.EnclosedBlock`/`Pat.As` wrapper `translatePat` drops, or a composite /
         // wildcard pattern that binds no name at all. The producers now file under the
-        // binder the head introduces (`BinderKey.ofPat`), or under nothing.
+        // binder the pattern introduces (`BinderKey.ofPat`), or under nothing.
         "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
         "module-level tuple destructuring without parens", "let p = (1, 2)\nlet a, b = p\nlet s = a + b\n"
         "module-level nested destructuring", "let p = ((1, 2), 3)\nlet ((a, b), c) = p\nlet s = a + b + c\n"
         "module-level record destructuring",
         "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }\nlet { X = xx; Y = yy } = r\nlet s = xx + yy\n"
         "module-level union destructuring", "type U = | A of int\nlet u = A 1\nlet (A n) = u\nlet s = n + 1\n"
-        "destructuring head with an as-alias", "let p = (1, 2)\nlet (a, b) as q = p\nlet s = a + b\n"
+        "destructuring pattern with an as-alias", "let p = (1, 2)\nlet (a, b) as q = p\nlet s = a + b\n"
         "module-level wildcard binding", "let _ = 5\n"
-        "parenthesised simple binding head", "let (x) = 5\nlet y = x + 1\n"
-        "annotated parenthesised simple binding head", "let (x: int) = 5\nlet y = x + 1\n"
-        "parenthesised mutable binding head", "let mutable (m) = 1\nlet f () = m <- m + 1\n"
-        "destructuring and wildcard heads in a named module",
+        "parenthesised simple binding pattern", "let (x) = 5\nlet y = x + 1\n"
+        "annotated parenthesised simple binding pattern", "let (x: int) = 5\nlet y = x + 1\n"
+        "parenthesised mutable binding pattern", "let mutable (m) = 1\nlet f () = m <- m + 1\n"
+        "destructuring and wildcard patterns in a named module",
         "module M\n\nmodule N =\n    let p = (1, 2)\n    let (a, b) = p\n    let (z) = a\n    let _ = b\n"
 
-        // The same non-binder heads INSIDE a body, which reach the pool through
+        // The same non-binder patterns INSIDE a body, which reach the pool through
         // `ClosureReprs` (the escape snapshot) rather than the module-binding tables.
         "wildcard binding in a function body", "let f x =\n    let _ = x\n    x\n"
         "wildcard binding in a lambda body", "let f = fun x ->\n    let _ = x\n    x\n"
-        "parenthesised binding head in a function body", "let f x =\n    let (y) = x\n    y\n"
-        "parenthesised use binding head", "let f (d: System.IDisposable) =\n    use (x) = d\n    1\n"
+        "parenthesised binding pattern in a function body", "let f x =\n    let (y) = x\n    y\n"
+        "parenthesised use binding pattern", "let f (d: System.IDisposable) =\n    use (x) = d\n    1\n"
         "destructuring let ahead of a use in a function body",
         "let f (d: System.IDisposable * int) =\n    let (a, b) = d\n    use x = a\n    b\n"
 

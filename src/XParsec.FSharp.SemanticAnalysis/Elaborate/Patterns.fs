@@ -192,7 +192,7 @@ module internal ElaboratePatterns =
             // `null` literal pattern; the node's type is the scrutinee's reference type.
             TPat.Null(ty, tok)
         | Pat.Op _ ->
-            // Operator-named binding head (`let (=) x y = …`): a single binder shaped like a
+            // Operator-named binding (`let (=) x y = …`): a single binder shaped like a
             // `Pat.NamedSimple`, compiled under `op_Equality`. Being a `NamedSimple` is what
             // gives it a frozen identity, and so an entry the inline-body loader can find.
             namedSimple ctx key ty tok

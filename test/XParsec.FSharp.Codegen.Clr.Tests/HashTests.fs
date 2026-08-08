@@ -34,7 +34,7 @@ let tests =
                 // body, which the pre-freeze `Passes.InlineExpansion` pass splices in:
                 // `hash 5` becomes
                 // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
-                // `'T` pinned to `int`, the `External("hash")` head gone — already in
+                // `'T` pinned to `int`, the `External("hash")` node gone — already in
                 // the frozen `tast.Decls`, before codegen runs.
                 let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let inlines = ClrSymbolProviders.contractInlineBodies [ vesperCoreManifest ]

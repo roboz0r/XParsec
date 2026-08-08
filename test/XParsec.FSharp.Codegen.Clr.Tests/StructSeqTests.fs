@@ -797,12 +797,12 @@ let structSeqTests =
                     "nested struct-field mutation persists across calls"
             }
 
-            // A chain headed by an ordinary local (not `this`): `o.I.Get()`.
-            test "chained method call headed by a local variable resolves" {
-                let _, artifact = compileSourceData "LocalHeadedChain"
+            // A chain anchored on an ordinary local (not `this`): `o.I.Get()`.
+            test "chained method call anchored on a local variable resolves" {
+                let _, artifact = compileSourceData "LocallyAnchoredChain"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Replace("\r", "").Trim()) "42" "local-headed chained method call works"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "locally anchored chained method call works"
             }
 
             // `for y in s` over a GENERIC typar source
@@ -1065,7 +1065,7 @@ let structSeqTests =
                 // Decode the FIELD sig properly: `h : valuetype Holder`1<arg0>` is
                 //   FIELD(0x06) GENERICINST(0x15) VALUETYPE(0x11) <Holder token>
                 //   <argCount=1> <arg0 element type> …
-                // The DISCRIMINATING byte is arg0's element-type head, NOT the byte
+                // The DISCRIMINATING byte is arg0's element type constructor, NOT the byte
                 // after the first 0x15 (that is Holder's own VALUETYPE marker — always
                 // 0x11 since Holder is `[<Struct>]`, identical in the broken encoding).
                 // Use BlobReader so the compressed Holder token / arg-count are skipped
@@ -1078,14 +1078,14 @@ let structSeqTests =
                 Expect.equal (br.ReadByte()) 0x11uy "Holder itself is a value type (VALUETYPE)"
                 br.ReadCompressedInteger() |> ignore // Holder TypeDef/TypeRef coded token
                 Expect.equal (br.ReadCompressedInteger()) 1 "Holder`1 has one type argument"
-                let arg0Head = br.ReadByte()
+                let arg0TyCtor = br.ReadByte()
 
                 Expect.equal
-                    arg0Head
+                    arg0TyCtor
                     0x11uy
                     (sprintf
-                        "h's Holder<…> type-arg is a value-struct closure (VALUETYPE 0x11); the bug encoded it GENERICINST(0x15) CLASS Fun`2. arg0 head = 0x%02X"
-                        arg0Head)
+                        "h's Holder<…> type-arg is a value-struct closure (VALUETYPE 0x11); the bug encoded it GENERICINST(0x15) CLASS Fun`2. arg0 type constructor = 0x%02X"
+                        arg0TyCtor)
             }
 
             // The SAME `ofArray |>
@@ -1205,13 +1205,13 @@ let structSeqTests =
                     (sprintf "both nested source-lambda closures are value types: %A" closureBases)
             }
 
-            // External-head sibling of the project-local `apply2` test:
+            // External-function sibling of the project-local `apply2` test:
             // the SAME node-keyed verdict mechanism must lower a SOURCE lambda
             // fed into `fold`'s `'TFunc :> Fun<'State,'T,'State>` parameter — the
             // combinator here stands in for the eventual external `StructSeq.fold`.
             // No `collectStackLambdaArgs` extension is needed for the head: the verdict
             // is recorded at the application site by `subsumes`' caller regardless of
-            // whether the head is project-local or external.
+            // whether the applied function is project-local or external.
             test "a SOURCE lambda through fold's Fun slot lowers to a no-box value-struct" {
                 let tast, artifact = compileSourceData "FoldSourceLambdaValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "fold source-lambda diagnostics: %A" tast.Diagnostics)
@@ -1310,7 +1310,7 @@ let structSeqTests =
 
             // Library GRADUATION, the headline epic test.
             // `ofArray |> map |> fold` from SOURCE LAMBDAS against the REAL, separately
-            // built `Vesper.Seq` package (an EXTERNAL combinator head) through the strict
+            // built `Vesper.Seq` package (an EXTERNAL combinator) through the strict
             // `buildPackage` path — not the inline single-`compileSource` slice the
             // tests above use. The external analogue of the project-local
             // phantom-typar solve was wired into `ClrRecipes.emitExternalCall`:
@@ -1327,7 +1327,7 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "14" "(x+1) over [1;2;3;4] summed = 14"
 
                 // The driver's source lambdas lower to VALUE-STRUCT closures even though
-                // the combinator head is EXTERNAL — `substituteVerdictClosures` rewrote
+                // the combinator is EXTERNAL — `substituteVerdictClosures` rewrote
                 // their frozen types so the external-call `MethodSpec` instantiates
                 // `'TFunc` at the struct `TypeDef`, not the `Fun` interface.
                 let closureBases = peClosureBaseTypeNames bytes

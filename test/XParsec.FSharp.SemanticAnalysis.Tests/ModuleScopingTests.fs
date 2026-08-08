@@ -442,7 +442,7 @@ let qualifiedTests =
 
                 expectClean tast
 
-                // The path is walked from its HEAD, so the `B` in `A.B` is the one A holds —
+                // The path is walked from its ANCHOR, so the `B` in `A.B` is the one A holds —
                 // not the sibling module B, whose own `T` is a different type entirely.
                 Expect.equal
                     (nominalKey (soleLetArg tast))
@@ -451,8 +451,8 @@ let qualifiedTests =
             }
 
             // Arity is part of the claim, so it is part of what a qualified name selects: `A`
-            // holds BOTH a `T` and a `T<'a>`, and the written head picks one of them.
-            test "a qualified generic head resolves at its written arity" {
+            // holds BOTH a `T` and a `T<'a>`, and the written name picks one of them.
+            test "a qualified generic name resolves at its written arity" {
                 let source =
                     src
                         [
@@ -603,10 +603,10 @@ let qualifiedTests =
                 )
             }
 
-            // The head names A's `T`, at an arity A does not hold it at — so the ARITY is
+            // The name denotes A's `T`, at an arity A does not hold it at — so the ARITY is
             // blamed. A local claim is never abandoned for an external type of the same
             // spelling just because the arity is wrong.
-            test "a qualified head at the wrong arity blames the arity" {
+            test "a qualified name at the wrong arity blames the arity" {
                 let es =
                     errors (
                         analyse (

@@ -146,7 +146,7 @@ module EmitJsTypes =
             Members: (string * TastAccessor.TypeMember) list
         }
 
-    let ifaceHeadKey (ty: FrozenType) : TypeKey voption =
+    let ifaceTyCtorKey (ty: FrozenType) : TypeKey voption =
         match ty with
         | FTClass(key, _) -> ValueSome key
         | _ -> ValueNone
@@ -180,11 +180,11 @@ module EmitJsTypes =
         // dispatch is the plain pair `e.MoveNext()` / `e.Current()`, not a symbol method.
         for (iface, ifaceMembers) in interfaces do
             let isNonGenericEnumerable =
-                match ifaceHeadKey iface with
+                match ifaceTyCtorKey iface with
                 | ValueSome key -> SymbolKeyOps.typeMetaName key = nonGenericEnumerableName
                 | ValueNone -> false
 
-            let capability = ifaceHeadKey iface |> ValueOption.bind (capabilityOf caps)
+            let capability = ifaceTyCtorKey iface |> ValueOption.bind (capabilityOf caps)
 
             if isNonGenericEnumerable then
                 ()

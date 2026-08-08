@@ -61,10 +61,10 @@ module internal ElaborateObjArgs =
             | _ -> ValueNone
         | ValueNone -> ValueNone
 
-    /// The `obj`-slot model for an application head: an external .NET method reads it off
-    /// its recorded declared signature. `ValueNone` for any other head, whose `obj` slots
+    /// The `obj`-slot model for an applied function: an external .NET method reads it off
+    /// its recorded declared signature. `ValueNone` for anything else, whose `obj` slots
     /// come from its own function-type domain at the call site.
-    let externalHeadDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
+    let externalFnDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
         match fnT with
         | TExpr.ExternalMember(_, _, _, MemberStorage.Method, _, _) -> externalMethodParamTy ctx fnKey
         | _ -> ValueNone

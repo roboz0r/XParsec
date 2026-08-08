@@ -168,8 +168,8 @@ module Unification =
                     match d with
                     | MethodOrPropDefn.Method(defn = b)
                     | MethodOrPropDefn.Property(defn = b) ->
-                        // The *leaf* head pattern's key, the one stamped as
-                        // `mInfo.DeclSite.Key`: a `Pat.Op` head keys on `(lParen, PatOp)`.
+                        // The *leaf* pattern's key, the one stamped as
+                        // `mInfo.DeclSite.Key`: a `Pat.Op` keys on `(lParen, PatOp)`.
                         let mKeyOpt =
                             let rec walkP (p: Pat<SyntaxToken>) =
                                 match p with
@@ -180,7 +180,7 @@ module Unification =
                                 | Pat.Attributed(pat = inner) -> walkP inner
                                 | _ -> ValueNone
 
-                            walkP b.headPat
+                            walkP b.pattern
 
                         match mKeyOpt with
                         | ValueSome mKey ->
@@ -907,7 +907,7 @@ module Unification =
             | TyUnion(k, _) -> k = info.TypeKey
             | _ -> false
 
-        // Best-effort on the arg: a head match with a Self arg, or with no readable arg
+        // Best-effort on the arg: a type-constructor match with a Self arg, or with no readable arg
         // at all, satisfies the requirement.
         let implementsSelf (info: IInterfaceImplHost) (cap: RuntimeNames.CapabilityIdentity) : bool =
             info.InterfaceImpls

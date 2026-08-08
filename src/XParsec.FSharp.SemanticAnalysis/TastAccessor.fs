@@ -824,8 +824,8 @@ module TastAccessor =
 
     let existsChild (p: ExprId -> bool) (e: ExprId) : bool = exprChildren e |> Array.exists p
 
-    /// Peel a curried `App` chain into its head and the arguments paired with each
-    /// `App` node's *result* type and token. The inverse of `mintAppChain`.
+    /// Peel a curried `App` chain into the applied function and the arguments paired with
+    /// each `App` node's *result* type and token. The inverse of `mintAppChain`.
     let rec collectAppChain
         (acc: (ExprId * FrozenType * Anchor) list)
         (e: ExprId)
@@ -836,14 +836,14 @@ module TastAccessor =
             collectAppChain ((app.Arg, exprTy e, exprTok e) :: acc) app.Fn
         | _ -> e, acc
 
-    /// Rewrite a curried `App` chain: `fArg` on each argument, `fHead` on the chain's head.
-    /// Every `App` is a row copy, so a chain whose head and arguments all stay put keeps
-    /// every id it already had.
-    let rec mapAppChain (fHead: ExprId -> ExprId) (fArg: ExprId -> ExprId) (e: ExprId) : ExprId =
+    /// Rewrite a curried `App` chain: `fArg` on each argument, `fFn` on the applied
+    /// function. Every `App` is a row copy, so a chain whose function and arguments all
+    /// stay put keeps every id it already had.
+    let rec mapAppChain (fFn: ExprId -> ExprId) (fArg: ExprId -> ExprId) (e: ExprId) : ExprId =
         match exprKind e with
         | ExprShape.App ->
             let app = exprApp e
-            let fn = mapAppChain fHead fArg app.Fn
+            let fn = mapAppChain fFn fArg app.Fn
             let arg = fArg app.Arg
 
             at
@@ -856,7 +856,7 @@ module TastAccessor =
                             Children = [| fn.Id; arg.Id |]
                         }
                     ))
-        | _ -> fHead e
+        | _ -> fFn e
 
     // ── minting ─────────────────────────────────────────────────────────────
     // A minted node is a ROW appended to the pool taken off a handle the site already holds;
@@ -900,10 +900,10 @@ module TastAccessor =
     let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
 
-    /// Re-apply a head to a list of `(arg, result type, token)` levels — the inverse
+    /// Re-apply a function to a list of `(arg, result type, token)` levels — the inverse
     /// of `collectAppChain`.
-    let mintAppChain (head: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
-        List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) head args
+    let mintAppChain (fn: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
+        List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) fn args
 
     /// `fun param -> body`.
     let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =

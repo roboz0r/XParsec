@@ -40,7 +40,7 @@ module AttributeDecode =
             }
 
     /// `Microsoft.FSharp.Core.StructuralEquality` → `StructuralEquality`.
-    /// `ValueNone` for any head that is not a plain named type.
+    /// `ValueNone` for anything that is not a plain named type.
     let attributeShortName (nameOf: SyntaxToken -> string) (typ: Type<SyntaxToken>) : string voption =
         match typ with
         | Type.NamedType li when li.Idents.Length > 0 -> ValueSome(nameOf li.Idents.[li.Idents.Length - 1])

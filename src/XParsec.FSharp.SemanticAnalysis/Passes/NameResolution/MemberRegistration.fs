@@ -93,7 +93,7 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// A member's name + the node key its body is inferred under, from its head pattern. The
+    /// A member's name + the node key its body is inferred under, from its bound pattern. The
     /// key is the *leaf* pattern's, so `static member (+) (a, b) = …` keys on
     /// `(lParen, PatOp)`, not `(opToken, PatIdent)` — the key the body's type arrives under.
     let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
@@ -107,8 +107,8 @@ module NameResolutionMemberRegistration =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
             | Pat.NamedSimple id -> named p (ctx.NameOf id)
-            // Operator-named member head: register under the operator's compiled
-            // name (`op_Addition`) so a use site's desugared `op_*` head finds it.
+            // Operator-named member: register under the operator's compiled name
+            // (`op_Addition`), which is what a desugared use site looks up.
             | Pat.Op io ->
                 match Desugar.opPatCompiledName ctx.NameOf io with
                 | ValueSome n -> named p n
@@ -117,7 +117,7 @@ module NameResolutionMemberRegistration =
             | Pat.Typed(pat = inner) -> walk inner
             | _ -> ValueNone
 
-        walk b.headPat
+        walk b.pattern
 
     let private identOrOpNameTok (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : (string * SyntaxToken) voption =
         match id with
@@ -165,9 +165,9 @@ module NameResolutionMemberRegistration =
                     acc.Add n
             | ValueNone -> ()
 
-        // `VarType` and a `SubtypeConstraint`'s constrained typar are the two typar-bearing
-        // heads. A `when`-clause's constraint types are NOT descended: an implicit method
-        // typar is drawn from the signature's arg/return SHAPE, not from a constraint target.
+        // `VarType` and a `SubtypeConstraint`'s constrained typar are the only two type forms
+        // that bear one. A `when`-clause's constraint types are NOT descended: an implicit
+        // method typar is drawn from the signature's arg/return SHAPE, not a constraint target.
         let typarIter: CstWalk.TypeIter =
             { CstWalk.identityTypeIter with
                 VisitType =
@@ -460,7 +460,7 @@ module NameResolutionMemberRegistration =
                 match target with
                 | ValueSome acc ->
                     for b in bindings do
-                        match bindingsOfPat ctx b.headPat with
+                        match bindingsOfPat ctx b.pattern with
                         | [ (name, key) ] ->
                             let tv = ctx.NewTypeVar()
                             ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
@@ -610,9 +610,9 @@ module NameResolutionMemberRegistration =
                 |> ignore
         | _ -> ()
 
-    /// The use site a single-segment type head written at `li` speaks from — its own place
-    /// in the file, under the module and `open`s the registration scan currently stands in.
-    let private useSiteOfHead (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
+    /// The use site the type named at `li` speaks from — its own place in the file, under
+    /// the module and `open`s the registration scan currently stands in.
+    let private useSiteOfTypeName (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
         ctx.UseSiteAt(NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.TypeNamed)
 
     /// Resolve a named type in an `inherit` clause *argument* position (`inherit
@@ -640,7 +640,7 @@ module NameResolutionMemberRegistration =
             | None -> freshTv ()
         | Type.VarType(Typar.Anon _) -> freshTv ()
         | Type.NamedType li when li.Idents.Length = 1 ->
-            resolveInheritArgName ctx (useSiteOfHead ctx li) (ctx.NameOf li.Idents.[0]) EqArray.empty
+            resolveInheritArgName ctx (useSiteOfTypeName ctx li) (ctx.NameOf li.Idents.[0]) EqArray.empty
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
             let targs =
                 EqArray.ofList
@@ -651,11 +651,11 @@ module NameResolutionMemberRegistration =
                             | TypeArg.Measure _ -> ()
                     ]
 
-            resolveInheritArgName ctx (useSiteOfHead ctx li) (ctx.NameOf li.Idents.[0]) targs
+            resolveInheritArgName ctx (useSiteOfTypeName ctx li) (ctx.NameOf li.Idents.[0]) targs
         | Type.SuffixedType(baseType = bt; longIdent = li) when li.Idents.Length = 1 ->
             resolveInheritArgName
                 ctx
-                (useSiteOfHead ctx li)
+                (useSiteOfTypeName ctx li)
                 (ctx.NameOf li.Idents.[0])
                 (EqArray.singleton (translateInheritArg ctx typarScope bt))
         | Type.TupleType(types = types) ->
@@ -691,9 +691,9 @@ module NameResolutionMemberRegistration =
         (typarScope: Map<string, TyVarId>)
         (t: Type<SyntaxToken>)
         : SemType voption =
-        let rec head (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
+        let rec nameAndArgs (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
             match t with
-            | Type.ParenType(typ = inner) -> head inner
+            | Type.ParenType(typ = inner) -> nameAndArgs inner
             | Type.NamedType li -> ValueSome(li, [])
             | Type.GenericType(longIdent = li; typeArgs = args) ->
                 let targs =
@@ -711,7 +711,7 @@ module NameResolutionMemberRegistration =
 
         let diagnose (tok: SyntaxToken) (kind: Kind) = ctx.Report(tok, kind)
 
-        match head t with
+        match nameAndArgs t with
         | ValueNone -> ValueNone
         | ValueSome(li, targs) ->
             let nameTok = li.Idents.[li.Idents.Length - 1]
@@ -746,7 +746,7 @@ module NameResolutionMemberRegistration =
                 // provider (`exn`, or a prior file's `(# class … #)` base like `Attribute`).
                 let resolveThroughProvider () =
                     // `inherit X` is a name WRITTEN AT A SITE, so it resolves through the same
-                    // opens-aware engine as any written type head. WITH contract ctors (`exn`)
+                    // opens-aware engine as any written type name. WITH contract ctors (`exn`)
                     // ⇒ the intrinsic canon; WITHOUT (`Attribute`) ⇒ the platform type.
                     let heritableIntrinsic (shape: ExternalTypeShape) =
                         match shape with
@@ -947,7 +947,7 @@ module NameResolutionMemberRegistration =
 
     /// The nominal a `SemType` names DIRECTLY, if any. A type argument is NOT direct: a
     /// `B option` field stores a reference to a `B`, so it is an indirection, and only the
-    /// head of a field's type is an immediate containment edge.
+    /// outermost type constructor of a field's type is an immediate containment edge.
     let private directNominal (store: TypeStore) (t: SemType) : TypeKey voption =
         match zonk store t with
         | TyRecord(key, _)
@@ -1055,7 +1055,7 @@ module NameResolutionMemberRegistration =
             | ValueNone -> ()
 
         // Over ALL defs, not only the claimed ones: a declaration that claims no type (an
-        // `interface … end`, a delegate) still writes type heads that must resolve.
+        // `interface … end`, a delegate) still writes type names that must resolve.
         for td in defs do
             classifyDeclaredTypes ctx td
 

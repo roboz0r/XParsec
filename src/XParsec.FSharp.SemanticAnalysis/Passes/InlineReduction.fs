@@ -90,7 +90,7 @@ module InlineReduction =
         {
             Template: TemplateId
             /// The position the expansion stands in for: the APPLICATION node's own token, never
-            /// the head's — the two differ when an outer fusion substituted the head in.
+            /// the applied function's — the two differ when an outer fusion substituted it in.
             Tok: SyntaxToken
             /// The node's own result type — the type of every edge minted for this call.
             Ty: SemType
@@ -149,20 +149,20 @@ module InlineReduction =
                 Caller = d
             }
 
-    /// A call HEAD that names a cross-file symbol — a plain `External`, or the dotted
-    /// `ExternalMember` that `x.get_Item(2)` lowers to, whose receiver is a FIELD of the head
-    /// rather than an applied argument and so must be prepended at curried position 0.
+    /// An applied FUNCTION that names a cross-file symbol — a plain `External`, or the dotted
+    /// `ExternalMember` that `x.get_Item(2)` lowers to, whose receiver is a FIELD of the
+    /// function rather than an applied argument and so must be prepended at curried position 0.
     [<NoEquality; NoComparison>]
-    type internal ExternalHead =
+    type internal ExternalFunction =
         {
             /// `ValueNone` is a genuine "carries no inline body", never a missed lookup: an
-            /// expandable head is key-stamped upstream, and a member head is always keyed.
+            /// expandable function is key-stamped upstream, and a member is always keyed.
             Key: SymbolKey voption
             /// A member's arguments are the call's ONE tupled argument OPENED to the declared
             /// parameters; `ValueNone` is one that does not open.
             Args: (TExpr * SemType * SyntaxToken) list voption
-            /// A thunk: the walk a member head needs is wasted on any answer but the rebuild.
-            RebuiltHead: unit -> TExpr
+            /// A thunk: the walk a member needs is wasted on any answer but the rebuild.
+            RebuiltFn: unit -> TExpr
         }
 
     /// A lambda argument eligible for inline-first elimination, with the descent it was WRITTEN
@@ -171,19 +171,20 @@ module InlineReduction =
     [<NoEquality; NoComparison>]
     type internal FusedLambda = { Body: TExpr; Caller: Descent }
 
-    /// What a call HEAD resolves to: the whole dispatch of the walker's application rule.
+    /// What the function at a call resolves to: the whole dispatch of the walker's
+    /// application rule.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
-    type internal CallHead =
-        /// A head with an inline body, and the arguments its parameters are peeled against — for a
-        /// member head the receiver leads, so this is not the list the application was written with.
+    type internal AppliedFunction =
+        /// A function with an inline body, and the arguments its parameters are peeled against —
+        /// for a member the receiver leads, so this is not the list the application was written with.
         | Template of id: TemplateId * body: TemplateBody * args: (TExpr * SemType * SyntaxToken) list
         /// A saturated use of an inline-first lambda parameter: the bound lambda is spliced at
         /// this use, so its closure never exists.
         | Fused of FusedLambda
-        /// Nothing to expand; the head survives its application. A THUNK because the surviving
-        /// head is walked for a member (whose receiver nothing else walks) and must NOT be for a
+        /// Nothing to expand; the function survives its application. A THUNK because the surviving
+        /// function is walked for a member (whose receiver nothing else walks) and must NOT be for a
         /// plain `External` — walking one etas it into the closure this call is the saturation of.
-        | Opaque of rebuiltHead: (unit -> TExpr)
+        | Opaque of rebuiltFn: (unit -> TExpr)
 
     [<RequireQualifiedAccess>]
     module internal Peeled =
@@ -309,7 +310,7 @@ module InlineReduction =
 
         // A parameter bound to a bare `External` function value is substituted into the body BEFORE
         // the walk (a value reference has no side effect and no capture), so a saturated `func arg`
-        // use re-forms the head; else `let func = ignore in func arg` survives, uneta-expandable.
+        // use re-forms the application; else `let func = ignore in func arg` survives, uneta-expandable.
         let externalValParams =
             bindings
             |> List.choose (fun p ->

@@ -387,5 +387,5 @@ module EmitMember =
                     b.Add(ILInstr.Callvirt(handle, 1, 1))
         | MemberStorage.Method ->
             // A method group needs closure synthesis — out of scope. An APPLIED external
-            // method never reaches here; it is handled as an `App` head.
+            // method never reaches here; it is handled as an `App`'s applied function.
             failwith "Emit: external method used as a first-class value is out of scope"

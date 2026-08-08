@@ -323,7 +323,7 @@ type internal Assembler
             | ValueSome d -> provider.EnterClosureTyparScope d
             | ValueNone -> ()
 
-            // An ungrounded head in a field type (a closure capture whose element typar
+            // An ungrounded type constructor in a field type (a closure capture whose element typar
             // never resolved, say) surfaces here as an opaque encoder failure; name the
             // field + type so the front-end grounding gap is pinpointable.
             let fieldSig =

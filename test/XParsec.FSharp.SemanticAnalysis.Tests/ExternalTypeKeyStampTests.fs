@@ -9,14 +9,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // NameResolution — the one resolve-once layer — resolves an expression-position
 // external TYPE identity (opens-aware, longest-type-prefix) ONCE and stamps its
-// `SymbolKey` in `Resolution.ResolvedType`, keyed by the head expr's `NodeKey`.
+// `SymbolKey` in `Resolution.ResolvedType`, keyed by the applied function's `NodeKey`.
 // Unification's `tryExternalTypeReceiver` / `splitExternalStaticPrefix` /
 // `tryInferExternalCtorApp` READ that stamp and do a key-addressed store-view
 // member/ctor lookup instead of re-running `OpenScope.tryQualify` + a string
 // provider lookup at inference time. A MISSED stamp is a resolution failure (the
 // consumer no longer re-resolves), so these tests assert the stamp is present at
 // the three representative expression positions: a static member on a named type,
-// an external ctor-sugar head, and a generic external-type static receiver.
+// an external ctor-sugar application, and a generic external-type static receiver.
 
 /// A provider that knows two external classes in namespace `Tests` (auto-opened via
 /// `AmbientOpenPrefixes`, as the real prelude opens the package namespace): a
@@ -42,8 +42,8 @@ let private analyse (input: string) = analyseNameRes provider input
 let private isStamped (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
     ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
 
-let private isExternalHead (ctx: PassContext) (headKey: NodeKey) : bool =
-    match ctx.Resolution.TypeRefVerdicts.TryGetValue headKey with
+let private isExternalTypeName (ctx: PassContext) (nameKey: NodeKey) : bool =
+    match ctx.Resolution.TypeRefVerdicts.TryGetValue nameKey with
     | ValueSome(TypeRefVerdict.ExternalType _) -> true
     | _ -> false
 
@@ -57,7 +57,7 @@ let tests =
         [
             // A folded static-member LongIdent: the receiver PREFIX (`Widget`) is
             // stamped in the DEDICATED receiver table (not `ResolvedType`, so a ctor-app
-            // consumer never mistakes it for a constructible head);
+            // consumer never mistakes it for a constructible type);
             // `splitExternalStaticPrefix` reads it and looks the member up by key.
             test "static-member receiver prefix is stamped" {
                 let ctx, file = analyse "let x = Widget.Make"
@@ -66,72 +66,72 @@ let tests =
                 Expect.isFalse (isStamped ctx e) "a static-member node is NOT a whole-name ResolvedType stamp"
             }
 
-            // The `new`-less ctor-sugar head (`Widget "a"`): `tryInferExternalCtorApp`
-            // reads the head's stamped key to construct by key.
-            test "external ctor-sugar head is stamped" {
+            // The `new`-less ctor-sugar application (`Widget "a"`): `tryInferExternalCtorApp`
+            // reads the type name's stamped key to construct by key.
+            test "external ctor-sugar application is stamped" {
                 let ctx, file = analyse "let f = Widget \"a\""
 
-                let head =
+                let fn =
                     match firstBindingExpr file with
                     | Expr.App(funcExpr = fn)
                     | Expr.HighPrecedenceApp(funcExpr = fn) -> fn
-                    | other -> failwithf "expected an application head, got %A" other
+                    | other -> failwithf "expected an application, got %A" other
 
-                Expect.isTrue (isStamped ctx head) "Widget ctor-sugar head type key stamped"
+                Expect.isTrue (isStamped ctx fn) "Widget ctor-sugar type key stamped"
             }
 
             // A generic external-type static receiver (`Box<int>.Empty`): NameResolution's
-            // `Expr.TypeApp` visit stamps the receiver head at its exact arity;
+            // `Expr.TypeApp` visit stamps the receiver name at its exact arity;
             // `tryExternalTypeReceiver` reads it.
-            test "generic static receiver head is stamped" {
+            test "generic static receiver name is stamped" {
                 let ctx, file = analyse "let e = Box<int>.Empty"
 
-                let head =
+                let fn =
                     match firstBindingExpr file with
                     | Expr.DotLookup(expr = Expr.TypeApp(expr = h)) -> h
                     | other -> failwithf "expected a DotLookup on a TypeApp, got %A" other
 
-                Expect.isTrue (isStamped ctx head) "Box<int> receiver head type key stamped"
+                Expect.isTrue (isStamped ctx fn) "Box<int> receiver type key stamped"
             }
 
-            // The `new T(…)` head: the written type `t` is a `Type` node, so its head
-            // carries the general type-head verdict (written by
-            // `stampExprEmbeddedTypes`' `Expr.New` arm) — no dedicated `new`-head
+            // The `new T(…)` type: the written type `t` is a `Type` node, so it
+            // carries the general written-type verdict (written by
+            // `stampExprEmbeddedTypes`' `Expr.New` arm) — no dedicated `new`
             // table. `inferNew`'s `TyConst` arm reads that verdict and confirms the
             // CLASS shape by key instead of re-resolving the written spelling through
             // opens at inference time (the written-platform-class ctor opt-in).
-            test "new-head external class is stamped" {
+            test "new-expression external class is stamped" {
                 let ctx, file = analyse "let w = new Widget(\"a\")"
 
-                let headKey =
+                let nameKey =
                     match firstBindingExpr file with
                     | Expr.New(typ = t) -> (CstKeys.ofTypeRef t).Value.Site.Key
                     | other -> failwithf "expected Expr.New, got %A" other
 
-                Expect.isTrue (isExternalHead ctx headKey) "new Widget(...) head type key stamped"
+                Expect.isTrue (isExternalTypeName ctx nameKey) "new Widget(...) type key stamped"
             }
 
-            // A `new` head the provider does not know as a class is not stamped —
+            // A `new` type the provider does not know as a class is not stamped —
             // `inferNew`'s `TyConst` arm then falls to the intrinsic constructible-surface
             // path (`new exn "boom"`), never re-resolving a spelling.
-            test "unknown new-head is not stamped" {
+            test "unknown new-expression type is not stamped" {
                 let ctx, file = analyse "let w = new Unknown(\"a\")"
 
-                let headKey =
+                let nameKey =
                     match firstBindingExpr file with
                     | Expr.New(typ = t) -> (CstKeys.ofTypeRef t).Value.Site.Key
                     | other -> failwithf "expected Expr.New, got %A" other
 
-                Expect.isFalse (isExternalHead ctx headKey) "unknown new head is not stamped"
+                Expect.isFalse (isExternalTypeName ctx nameKey) "unknown new type is not stamped"
             }
 
-            // A head the provider does not know is not stamped — the consumer then
+            // A name the provider does not know is not stamped — the consumer then
             // declines (a resolution failure surfaces, it never re-resolves).
-            test "unknown external head is not stamped" {
+            test "unknown external name is not stamped" {
                 let ctx, file = analyse "let x = Unknown.Member"
                 let e = firstBindingExpr file
-                Expect.isFalse (isStamped ctx e) "unknown head is not a ResolvedType stamp"
-                Expect.isFalse (isStaticReceiver ctx e) "unknown head is not a receiver-prefix stamp"
+                Expect.isFalse (isStamped ctx e) "unknown name is not a ResolvedType stamp"
+                Expect.isFalse (isStaticReceiver ctx e) "unknown name is not a receiver-prefix stamp"
             }
 
             // THE CLASSIFICATION RULE, pinned. A written name is classified against the
@@ -169,13 +169,13 @@ let tests =
 
                 let ctx, file = analyseNameRes shadowingProvider "let x = Thing 1"
 
-                let head =
+                let fn =
                     match firstBindingExpr file with
                     | Expr.App(funcExpr = f) -> f
                     | other -> failwithf "expected Expr.App, got %A" other
 
                 Expect.isFalse
-                    (isStamped ctx head)
+                    (isStamped ctx fn)
                     "`Thing` names the UNION under the winning open — it is not stamped as a constructible class"
 
                 // It still resolves to *something* external, so it is not diagnosed as an

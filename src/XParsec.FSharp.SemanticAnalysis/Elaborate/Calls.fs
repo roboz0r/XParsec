@@ -17,20 +17,20 @@ module internal ElaborateCalls =
     // elements are not expressions, and a spliced `member inline` body needs one each.
 
     /// The `let`s an opened call now sits inside (outermost first), and its rewritten
-    /// head + argument.
+    /// applied function + argument.
     [<NoEquality; NoComparison>]
     type OpenedTupledCall =
         {
             Binds: (TPat * TExpr) list
-            Head: TExpr
+            Fn: TExpr
             Arg: TExpr
         }
 
     /// `w.M t` ⟶ `let r = w in let (a, b) = t in r.M(a, b)`. `t` binds once, so it is
     /// evaluated once; the receiver binds FIRST, since an instance member evaluates it
     /// before its argument and the argument's `let` would otherwise hoist above it.
-    let openTupledMemberArg (ctx: PassContext) (head: TExpr) (arg: TExpr) : OpenedTupledCall voption =
-        match head with
+    let openTupledMemberArg (ctx: PassContext) (fn: TExpr) (arg: TExpr) : OpenedTupledCall voption =
+        match fn with
         | TExpr.ExternalMember(receiver, key, name, MemberStorage.Method, memberTy, memberTok) ->
             let arity = SymbolKeyOps.memberArity (sprintf "Elaborate: member '%s'" name) key
 
@@ -50,7 +50,7 @@ module internal ElaborateCalls =
                         argTok
                     )
 
-                let recvBind, head' =
+                let recvBind, fn' =
                     match receiver with
                     | ValueSome r ->
                         let rKey = ctx.NewSynthBinder()
@@ -65,12 +65,12 @@ module internal ElaborateCalls =
                             memberTy,
                             memberTok
                         )
-                    | ValueNone -> [], head
+                    | ValueNone -> [], fn
 
                 ValueSome
                     {
                         Binds = recvBind @ [ tuplePat, arg ]
-                        Head = head'
+                        Fn = fn'
                         Arg =
                             TExpr.Tuple(
                                 EqArray.ofSeq (seq { for (k, ty) in elems -> TExpr.Var(k, ty, argTok) }),
@@ -209,7 +209,7 @@ module internal ElaborateCalls =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        // A folded / type-qualified static head names a non-generic declaring type (generics
+        // A folded / type-qualified static call names a non-generic declaring type (generics
         // need `<>`, handled at the receiver), so it carries no declaring-type args; the
         // operand element types alone discriminate a same-arity overload (e.g. an operator).
         let operands =
@@ -350,8 +350,8 @@ module internal ElaborateCalls =
         // `TyClass` matched above, so this catches only union and record.
         | TyNominal(nominalKey, _) -> flatNominalStep nominalKey
         // `arr.Length` on a rank-1 array desugars to the core `GetArrayLength` inline
-        // function (`ldlen`). `array.Length` parses as a local-headed LongIdent field
-        // chain, not a `DotLookup`, so this arm is the one that fires.
+        // function (`ldlen`). `array.Length` parses as a LongIdent field chain anchored on
+        // a local, not a `DotLookup`, so this arm is the one that fires.
         | TyArray _ when segName = "Length" ->
             let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue chainKey
             TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)

@@ -57,7 +57,7 @@ and FrozenType =
     /// Typar #`index` of a body-local `let`'s OWN generalized scheme (`let g = fun x -> x`
     /// inside a decl), not the enclosing method's. Equate only by the whole `(scheme, index)`.
     | FTLocalTypar of scheme: SchemeId * index: int
-    /// A nominal head that resolved to no type shape, carried so `freeze` is total.
+    /// A nominal type constructor that resolved to no type shape, carried so `freeze` is total.
     | FTUnknown of name: string
 
     /// Instantiation can make two members equal after the fact, so a re-map of an existing
@@ -119,7 +119,7 @@ type SemType =
     | TyIndexedAccess of objTy: SemType * index: SemType
     | TyConditional of TyConditionalPayload
     /// A nominal reference that resolved to no in-scope type shape. It unifies with nothing,
-    /// so one broken contract head doesn't cascade.
+    /// so one broken contract type doesn't cascade.
     | TyUnknown of name: string
     /// An elaborated open type parameter. `freeze` rewrites every surviving `TyVar` to one, so
     /// afterwards no `TyVar` remains in any TAST `.ty` field.

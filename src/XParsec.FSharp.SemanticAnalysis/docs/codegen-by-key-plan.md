@@ -153,10 +153,10 @@ and `byte` on two operators) — every other primitive would have become a silen
 on inversion. **Fill each bitwise operator's net BEFORE inverting it**, not after.
 
 **`decimal` has no clause and is not a nominal.** It is a `TyConst`, so it falls to the
-base, fails `nominalHeadKey`, and now diagnoses — where it used to emit CIL `add` on a
+base, fails the nominal type-constructor key lookup, and now diagnoses — where it used to emit CIL `add` on a
 `System.Decimal` (garbage). The diagnostic is the correct interim state. The real fix is
-a clause calling `Decimal::op_Addition`, or a `nominalHeadKey` that accepts BCL `TyConst`
-heads.
+a clause calling `Decimal::op_Addition`, or a nominal type-constructor key lookup that accepts
+BCL `TyConst`s.
 
 **Narrow / wide literals and clause selection — the cited mechanism was fictional.**
 Corrected: there is no `Freeze.parseConst` (it is `ElaborateLiterals.parseConst`,
@@ -217,7 +217,7 @@ Not blocked by the above, and each stands on its own.
   This is the step that buys an invariant, not just tidiness.
 - **`RuntimeNames.arrayOfListKey`.** `ElaborateExpr.fs:672-674` mints
   `TExpr.External(arrayOfListName, ValueNone, …)` for an array literal — the one
-  genuinely keyless head, and the sole supply for `EmitCall.fs:149-150`'s string match.
+  genuinely keyless node, and the sole supply for `EmitCall.fs:149-150`'s string match.
   Give it a well-known key (precedent: `structuralFormattableKey: TypeKey`,
   `RuntimeNames.fs:77` — *not* `structuralFormatKey`, which does not exist).
 - **`ClrProvider.fs:323-324`'s `compiledName = "List.fold"`** string test; drop

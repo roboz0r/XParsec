@@ -605,18 +605,17 @@ module internal UnificationInferRecordAccess =
             | None -> stringOrArrayIndex ()
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
-    /// head segment NameResolution resolved as a local binding; the remaining
+    /// anchor segment NameResolution resolved as a local binding; the remaining
     /// segments are a field-access chain.
     and inferLongIdentFieldChain (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
-        let head = li.Idents.[0]
-        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+        let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
-        let headTy =
-            match ctx.Bindings.Binding.TryGetValue headKey with
+        let anchorTy =
+            match ctx.Bindings.Binding.TryGetValue anchorKey with
             | ValueSome rb -> instantiateBinding ctx rb
             | ValueNone -> TyVar(freshTyVar ctx)
 
-        let mutable currTy = headTy
+        let mutable currTy = anchorTy
 
         for i = 1 to li.Idents.Length - 1 do
             currTy <- resolveFieldStep ctx node li.Idents.[i] currTy
@@ -627,15 +626,14 @@ module internal UnificationInferRecordAccess =
     /// folded-LongIdent instance method call (`w.Write(arg)` parses with
     /// `fn = LongIdent [w; Write]`), so the last segment can be resolved arg-aware.
     and inferLongIdentReceiverPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
-        let head = li.Idents.[0]
-        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+        let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
-        let headTy =
-            match ctx.Bindings.Binding.TryGetValue headKey with
+        let anchorTy =
+            match ctx.Bindings.Binding.TryGetValue anchorKey with
             | ValueSome rb -> instantiateBinding ctx rb
             | ValueNone -> TyVar(freshTyVar ctx)
 
-        let mutable currTy = headTy
+        let mutable currTy = anchorTy
 
         for i = 1 to li.Idents.Length - 2 do
             currTy <- resolveFieldStep ctx node li.Idents.[i] currTy

@@ -24,7 +24,7 @@ primitive that collapses to a short `TyConst`? That kind lives in the *defining*
 package's extraction state, not the referencing one.
 
 The design makes that cross-package kind information available at the moment a
-head is baked, by processing packages in dependency order and giving each
+type constructor is baked, by processing packages in dependency order and giving each
 package read access to its dependencies' already-built type shapes.
 
 ## Data flow
@@ -114,11 +114,11 @@ shapes**: the composite `TryLookupType` of
 
 Scoping the ambient to the *declared* closure rather than to all topological
 predecessors is deliberate: a package that never declared a `depends-on` for
-another can't silently kind a head against it just because it happened to sort
+another can't silently kind a type constructor against it just because it happened to sort
 earlier. An undeclared cross-package reference bakes `TyUnknown` and surfaces at
 the use site.
 
-Layer 2 is in the ambient so a contract naming a raw BCL nominal head with no
+Layer 2 is in the ambient so a contract naming a raw BCL nominal with no
 `extern` alias in its own package (e.g. `System.Text.StringBuilder`) kinds
 correctly at bake time, instead of baking a spurious `TyUnknown` for a type the
 consumer would resolve through layer 2 anyway. The result: a package's ambient is
@@ -154,7 +154,7 @@ it is legal — inside a `type … and …` group or a `rec` scope, whose
 mutually-referential shapes register together before any body is kinded. Any
 other same-package miss is a genuine `TyUnknown`, not an ordering artefact.
 
-### Kinding a head — `mkNominal` and `resolveTypeName`
+### Kinding a type constructor — `mkNominal` and `resolveTypeName`
 
 [`translateType`](../VesperLib/TypeTranslate.fs) handles the three nominal forms
 (`NamedType`, `GenericType`, `'T list` `SuffixedType`) in two steps:
@@ -167,7 +167,7 @@ other same-package miss is a genuine `TyUnknown`, not an ordering artefact.
    surfacing the defect at the use site, rather than the old silent skip.
 
 2. **`mkNominal`** runs *inside the deferred builder* (at `Instantiate` time, when
-   `ctx.TypeShapes` is fully populated) and kinds the compiled head against
+   `ctx.TypeShapes` is fully populated) and kinds the compiled name against
    `shapeOf`:
 
    | shape | baked `SemType` |
@@ -217,7 +217,7 @@ nominal reference that resolved to no in-scope shape. It is baked only at
 (`TyUnknown name, _ | _, TyUnknown name`), emits a use-site diagnostic — *"Type
 'name' could not be resolved during contract extraction — is a package
 dependency missing?"* — and leaves the other side untouched (no `Link`), so one
-broken head can't cascade. `checkConstraint` defers on it (the real error already
+broken type constructor can't cascade. `checkConstraint` defers on it (the real error already
 fired at `unify`). Every other exhaustive `SemType` match carries an inert leaf
 arm, and `ClrEncoder.encodeTypeCore` rejects it with a pointed internal-error
 message: `TyUnknown` must never reach the backend, because the front end errors
@@ -232,7 +232,7 @@ and `ClrRecipes.normalizeSig` were deleted; their callers use bare
 `sym.Instantiate` directly. An abbreviation expands in place at both extraction
 (`mkNominal`'s `Abbrev` arm) and the consumer (`tryResolveExternalType`), because
 an abbreviation's `build` closure *is* the defining package's `translateType`
-builder — its heads already kinded against that package's scope, so the wider
+builder — its type constructors already kinded against that package's scope, so the wider
 consumer scope can't improve them.
 
 ## Invariants worth preserving
@@ -247,7 +247,7 @@ consumer scope can't improve them.
   unresolved* (a real, expected contract defect).
 - **Ambient = declared dependency closure + layer 2.** Widening it to all
   topological predecessors would re-admit undeclared cross-package references;
-  narrowing it to exclude layer 2 would mis-bake raw BCL heads.
+  narrowing it to exclude layer 2 would mis-bake raw BCL nominals.
 - **Directory name is the package identity.** `parseManifest` enforces it so
   `depends-on` resolution and cycle/error reporting can't disagree.
 - **Intrinsic short-name collapse** assumes two packages binding the same

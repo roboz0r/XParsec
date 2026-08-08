@@ -27,8 +27,8 @@ module internal ElaborateMembers =
         | Accessibility.Public -> memberLevel
         | own -> own
 
-    /// Member name from a member binding's `headPat` (`member this.M …` parses
-    /// the member name as the head pattern's ident).
+    /// Member name from a member binding's `pattern` (`member this.M …` parses
+    /// the member name as the bound pattern's ident).
     let memberNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
@@ -40,9 +40,9 @@ module internal ElaborateMembers =
             | Pat.Attributed(pat = inner) -> walk inner
             | _ -> ValueNone
 
-        walk b.headPat
+        walk b.pattern
 
-    /// The member's declaration `NodeKey`, minted off the same name-head pattern that
+    /// The member's declaration `NodeKey`, minted off the same named pattern that
     /// member registration keys `TypeMemberInfo.DeclSite` from. It carries the member's
     /// source offset, so same-name overloads sharing name + kind + static-ness differ here.
     let memberKeyOfBinding (b: Binding<SyntaxToken>) : NodeKey voption =
@@ -55,7 +55,7 @@ module internal ElaborateMembers =
             | Pat.Attributed(pat = inner) -> walk inner
             | _ -> ValueNone
 
-        walk b.headPat
+        walk b.pattern
 
     /// Member parameter list as `(bindingKey, ty)` pairs in declaration order (`this` is
     /// separate). A tupled member `M(a, b)` is ONE `argumentPats` entry, but F# compiles it

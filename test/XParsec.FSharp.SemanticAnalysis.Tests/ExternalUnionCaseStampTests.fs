@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // NameResolution — the one resolve-once layer — recognises external union cases in
 // BOTH pattern and expression position, applying the opens / RQA / qualifier
-// discipline, and stamps the resolved `ExternalUnionCase` under the ctor head's
+// discipline, and stamps the resolved `ExternalUnionCase` under the ctor's
 // `NodeKey` (`Resolution.ExternalUnionCaseStamp`). Unification's `InferPat` /
 // `InferIdentExpr` and Elaborate's `translatePat` / `tryCtorRef` READ that stamp instead
 // of handing raw spelling back to `TryLookupUnionCase(string)`. A MISSED stamp where a
@@ -66,7 +66,7 @@ let private patNodes (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
 
     List.ofSeq acc
 
-/// Every pattern node reachable in `file` — module-let heads/args plus the patterns
+/// Every pattern node reachable in `file` — module-let patterns/args plus the patterns
 /// entering scope in lambda / for-in / match-arm bodies.
 let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> list =
     let acc = ResizeArray<Pat<SyntaxToken>>()
@@ -85,7 +85,7 @@ let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> l
             EnterLetBody =
                 fun () bindings ->
                     (for b in bindings do
-                        add b.headPat)
+                        add b.pattern)
             EnterForIn = fun () p -> add p
             EnterMatchArm = fun () p -> add p
         }
@@ -94,7 +94,7 @@ let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> l
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do
-                add b.headPat
+                add b.pattern
 
                 for p in b.argumentPats do
                     add p
@@ -105,9 +105,9 @@ let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> l
 
     List.ofSeq acc
 
-/// The ctor-head pattern nodes whose case name (bare ident, or last segment of a
+/// The ctor pattern nodes whose case name (bare ident, or last segment of a
 /// qualified `Pat.Named`) equals `caseName`.
-let private caseHeads (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) (caseName: string) =
+let private caseCtors (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) (caseName: string) =
     allPats file
     |> List.filter (fun p ->
         match p with
@@ -117,28 +117,28 @@ let private caseHeads (ctx: PassContext) (file: ImplementationFile<SyntaxToken>)
         | _ -> false
     )
 
-/// Assert every `caseName` ctor head in `input` carries a pattern-position stamp,
-/// and that exactly `expected` heads were found (so a missed traversal position
-/// can't pass by finding zero heads).
+/// Assert every `caseName` ctor in `input` carries a pattern-position stamp,
+/// and that exactly `expected` ctors were found (so a missed traversal position
+/// can't pass by finding zero).
 let private assertPatStamped (input: string) (caseName: string) (expected: int) =
     let ctx, file = analyse input
-    let heads = caseHeads ctx file caseName
-    Expect.equal heads.Length expected (sprintf "ctor-head count for '%s' in: %s" caseName input)
+    let ctors = caseCtors ctx file caseName
+    Expect.equal ctors.Length expected (sprintf "ctor count for '%s' in: %s" caseName input)
 
-    for h in heads do
+    for h in ctors do
         Expect.isTrue
             (ctx.Resolution.ExternalUnionCaseStamp.ContainsKey(CstKeys.ofPat h))
-            (sprintf "external case '%s' stamped at its pattern head in: %s" caseName input)
+            (sprintf "external case '%s' stamped at its ctor pattern in: %s" caseName input)
 
-/// Assert every `caseName` head in `input` is NOT stamped (its declaring namespace
-/// is not open, so NameResolution treats the head as a binder, not an external
+/// Assert every `caseName` ctor in `input` is NOT stamped (its declaring namespace
+/// is not open, so NameResolution treats the name as a binder, not an external
 /// case — the opens false-accept this gate closes).
 let private assertPatNotStamped (input: string) (caseName: string) (expected: int) =
     let ctx, file = analyse input
-    let heads = caseHeads ctx file caseName
-    Expect.equal heads.Length expected (sprintf "ctor-head count for '%s' in: %s" caseName input)
+    let ctors = caseCtors ctx file caseName
+    Expect.equal ctors.Length expected (sprintf "ctor count for '%s' in: %s" caseName input)
 
-    for h in heads do
+    for h in ctors do
         Expect.isFalse
             (ctx.Resolution.ExternalUnionCaseStamp.ContainsKey(CstKeys.ofPat h))
             (sprintf "bare case '%s' in a non-opened namespace is NOT stamped in: %s" caseName input)
@@ -173,9 +173,9 @@ let tests =
                 assertPatStamped "let f (o: obj) = match o with | Blue | Blue -> 1 | _ -> 0" "Blue" 2
             }
 
-            // A bare RQA-free case in a `let`-binder head still stamps (the binder walk
+            // A bare RQA-free case in a `let` binding pattern still stamps (the binder walk
             // treats the head as a nullary ctor).
-            test "case in a let-binder head is stamped" {
+            test "case in a let binding pattern is stamped" {
                 assertPatStamped "let f (o: obj) = let Blue = o in 1" "Blue" 1
             }
 

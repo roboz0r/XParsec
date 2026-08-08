@@ -117,7 +117,7 @@ module internal ElaborateTypars =
         { m with ThisTy = selfTy }, methodMarkers
 
     /// The per-member elaborator each host surfacer folds over its members — they differ
-    /// only in `selfTy`'s head. Surface a member when the declaring type is generic
+    /// only in `selfTy`'s type constructor. Surface a member when the declaring type is generic
     /// (declaring axis) OR the member itself is generic (method axis); else leave it as is.
     let mkMemberElaborator
         (selfTy: SemType)

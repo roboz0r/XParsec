@@ -105,7 +105,7 @@ module ResolvedTypes =
         }
 
     /// Best-effort attribution for a decl-level diagnostic: the binding's own token where
-    /// the head pattern is a `NamedSimple`, and no place in the file otherwise.
+    /// the binding's pattern is a `NamedSimple`, and no place in the file otherwise.
     let declSite (d: TDecl) : Site =
         match d with
         | TDecl.Let(TPat.NamedSimple(tok = tok), _, _, _) -> Site.ofToken tok

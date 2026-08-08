@@ -208,7 +208,7 @@ let tests =
                 Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }
 
-            // The conformance corpus declares no binding whose head pattern introduces no
+            // The conformance corpus declares no binding whose pattern introduces no
             // binder, so it never exercised the seam where a side table is filed under a
             // key the frozen tree does not bear. These pin the shapes END-TO-END through
             // the stored wire form (`flatten` is `TastPools.toPools` then the column
@@ -219,13 +219,13 @@ let tests =
                 [
                     "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
                     "module-level wildcard binding", "let _ = 5\n"
-                    "parenthesised simple binding head", "let (x) = 5\nlet y = x + 1\n"
+                    "parenthesised simple binding pattern", "let (x) = 5\nlet y = x + 1\n"
                     "wildcard binding in a function body", "let f x =\n    let _ = x\n    x\n"
                     "top-level inline binding", "module M\nlet inline f x = x + 1\nlet y = f 2\n"
                     "inline binding in a named module",
                     "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
                 ] do
-                test ("a binder-less or unpooled-binder binding head round-trips: " + name) {
+                test ("a binder-less or unpooled-binder binding pattern round-trips: " + name) {
                     Expect.isTrue
                         (survivesRoundTrip (frozenOfJs src))
                         (name + " did not survive flatten/thaw structurally")

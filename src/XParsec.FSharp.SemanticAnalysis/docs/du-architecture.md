@@ -144,7 +144,7 @@ Run order (`NameResolution.fs:354`): records, then unions, then classes,
 then expression walks. The three registry populations are mutually
 independent.
 
-Pattern binders: `bindingsOfPat` recognises ctor patterns (head name
+Pattern binders: `bindingsOfPat` recognises ctor patterns (the ctor name
 binds nothing; recurse into sub-patterns) and uppercase nullary-ctor
 `NamedSimple` reinterpretations (bind nothing) ahead of the
 "name-binds-itself" arm.

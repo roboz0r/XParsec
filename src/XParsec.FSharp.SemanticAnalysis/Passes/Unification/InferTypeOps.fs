@@ -19,8 +19,8 @@ open UnificationInferDispatch
 
 module internal UnificationInferTypeOps =
 
-    /// Explicit type application on a value or ctor head (`Box<int>(x)`): the given args
-    /// unify pairwise with the head's *nominal result* type args, so `ResizeArray<int>()`
+    /// Explicit type application on a value or ctor (`Box<int>(x)`): the given args
+    /// unify pairwise with the *nominal result* type args, so `ResizeArray<int>()`
     /// pins. A bare generic function (`id<int>`) has no nominal result — args are a no-op.
     let rec inferTypeApp
         (infer: Infer)

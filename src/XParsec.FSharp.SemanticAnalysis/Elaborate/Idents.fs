@@ -47,7 +47,7 @@ module internal ElaborateIdents =
             TExpr.External(name, symKey, ty, tok)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
-    /// head segment's TAST node is a `Var` pointing back at the local binding.
+    /// anchor segment (`r`) becomes a `Var` pointing back at the local binding.
     let translateLongIdentFieldChain
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
@@ -55,21 +55,21 @@ module internal ElaborateIdents =
         (lastExternal: ResolvedExternalMember voption)
         (tok: SyntaxToken)
         : TExpr =
-        let head = li.Idents.[0]
-        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
-        let headBinding = ctx.Bindings.Binding.TryGetValue headKey
+        let anchorIdent = li.Idents.[0]
+        let anchorKey = NodeKey.ofToken anchorIdent NodeKind.ExprIdent
+        let anchorBinding = ctx.Bindings.Binding.TryGetValue anchorKey
 
-        let headTy =
+        let anchorTy =
             // Unification didn't allocate a side-table entry for the synthetic
-            // head key, so fall back to the binding site's TyVar.
-            match headBinding with
+            // anchor key, so fall back to the binding site's TyVar.
+            match anchorBinding with
             | ValueSome rb -> typeOfKey ctx rb.BindingSite
             | ValueNone -> finalTy
 
-        let headExpr =
-            match headBinding with
-            | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy, tok)
-            | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy, tok)
+        let anchorExpr =
+            match anchorBinding with
+            | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
+            | ValueNone -> TExpr.External(ctx.NameOf anchorIdent, ValueNone, anchorTy, tok)
 
         // The chain's *last* segment may be a property read on a typar receiver constrained
         // to an interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator<'T>`).
@@ -77,8 +77,8 @@ module internal ElaborateIdents =
         let liKey =
             NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
-        let mutable currTy = headTy
-        let mutable curr = headExpr
+        let mutable currTy = anchorTy
+        let mutable curr = anchorExpr
 
         for i = 1 to li.Idents.Length - 1 do
             let segName = ctx.NameOf li.Idents.[i]

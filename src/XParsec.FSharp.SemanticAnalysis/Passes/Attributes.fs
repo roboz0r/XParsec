@@ -222,7 +222,7 @@ module Attributes =
         | ValueSome _, true ->
             match exportedKey with
             | ValueSome k -> ctx.Bindings.GlobalValueKeys.Add k |> ignore
-            // A head naming no single value has no identity to file the declaration under.
+            // A pattern naming no single value has no identity to file the declaration under.
             | ValueNone ->
                 report
                     "[<Global>] declares the VALUE a binding names to be a target global, but this binding names none — give it a single name, or drop the attribute"

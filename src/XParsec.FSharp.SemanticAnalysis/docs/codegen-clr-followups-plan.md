@@ -245,7 +245,7 @@ independently**, which moves the type below both backends rather than inside eit
 
 ## B2. `DeclaringInstantiation` — `EmitResolve.instantiationFor`
 
-A 3-way precedence (result-type head → signature recovery → bare declaring typars) expressed
+A 3-way precedence (result type constructor → signature recovery → bare declaring typars) expressed
 as a `match` plus a `try/with`, with a comment at each step. A classifier returning the DU
 makes precedence a total match and deletes both blocks. Pairs with A6: narrowing the handler
 and naming the outcomes is one change.
@@ -386,7 +386,7 @@ provider's own doc, and read as `Map.tryFind` + `List.isEmpty` + `List.head` —
 CLR the list is always a singleton. The surviving three-line doc exists to say exactly that.
 
 A `PlatformCanon` value with `tryCanon : string -> SymbolKey voption`, built once in the
-provider's constructor, removes the head-taking, the emptiness guard, and the doc. The `list`
+provider's constructor, removes the first-element read, the emptiness guard, and the doc. The `list`
 in `IExternalSymbolProvider.IntrinsicReverseCanon` is real for JS (`number` → several canons),
 so this is a CLR-side narrowing at the seam, not a change to the interface.
 

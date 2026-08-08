@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // NameResolution — the one resolve-once layer — recognises an external enum-case access
 // `E.C1` in BOTH expression and pattern position: `E` is qualified opens-aware to an
 // external `ExternalTypeShape.Enum` declaring `C1`, and the enum's nominal `SymbolKey`
-// is stamped under the head's `NodeKey` (`Resolution.ExternalEnumCaseStamp`).
+// is stamped under the anchor's `NodeKey` (`Resolution.ExternalEnumCaseStamp`).
 // Unification's `InferIdentExpr` / `InferPat` enum arms READ that stamp and type the node
 // `TyEnum key`, instead of re-recognising the spelling through the resolver-view
 // `TryLookupType(string)`. These tests assert the stamp is present at a representative
@@ -67,7 +67,7 @@ let private matchArmPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxTok
 
     List.ofSeq acc
 
-/// A `Pat.Named` whose last segment is `Up` (the `Direction.Up` enum-case pattern head).
+/// A `Pat.Named` whose last segment is `Up` (the `Direction.Up` enum-case pattern).
 let private isDirectionUp (ctx: PassContext) (p: Pat<SyntaxToken>) : bool =
     match p with
     | Pat.Named(longIdent = li) when li.Idents.Length >= 1 -> ctx.NameOf li.Idents.[li.Idents.Length - 1] = "Up"
@@ -78,7 +78,7 @@ let tests =
     testList
         "ExternalEnumCaseStamp"
         [
-            // Expression position: `Direction.Up` (head `Direction` qualifies to the
+            // Expression position: `Direction.Up` (anchor `Direction` qualifies to the
             // auto-opened `Tests.Direction`) is stamped with the enum nominal key so
             // `InferIdentExpr` types it `TyEnum key`.
             test "external enum-case access is stamped (expression)" {
@@ -94,11 +94,11 @@ let tests =
             // the pattern `TyEnum key` and the scrutinee unifies.
             test "external enum-case pattern is stamped" {
                 let ctx, file = analyse "let f (o: obj) = match o with | Direction.Up -> 1 | _ -> 0"
-                let heads = matchArmPats file |> List.filter (isDirectionUp ctx)
+                let arms = matchArmPats file |> List.filter (isDirectionUp ctx)
 
-                Expect.equal heads.Length 1 "exactly one Direction.Up match arm"
+                Expect.equal arms.Length 1 "exactly one Direction.Up match arm"
 
-                for h in heads do
+                for h in arms do
                     Expect.isTrue
                         (ctx.Resolution.ExternalEnumCaseStamp.ContainsKey(CstKeys.ofPat h))
                         "Direction.Up enum key stamped in pattern position"

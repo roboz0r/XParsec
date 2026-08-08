@@ -105,7 +105,7 @@ module TastWalk =
         TExprG.CallerExpr(body, origin, exprTy body, exprTok body)
 
     /// The node under any caller marks. `CallerExpr` is semantically transparent, so a SHAPE
-    /// test (is this an `External`? an application head?) must read through it — and marks
+    /// test (is this an `External`? an applied function?) must read through it — and marks
     /// NEST, so it pops as many layers as fusion added.
     let rec unmarked (e: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
         match e with
@@ -138,23 +138,23 @@ module TastWalk =
         | TPatG.EnumCase(tok = tok)
         | TPatG.Or(tok = tok) -> tok
 
-    /// Peel a curried `App` chain into its head and the arguments paired with each `App`
-    /// node's *result* type. The inverse of `rebuildApp`.
+    /// Peel a curried `App` chain into the applied function and the arguments paired with
+    /// each `App` node's *result* type. The inverse of `rebuildApp`.
     let rec collectAppChain
         (acc: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
         (e: TExprG<'ty, 'tok, 'id>)
         : TExprG<'ty, 'tok, 'id> * (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list =
         match e with
         | TExprG.App(fn, arg, ty, tok) -> collectAppChain ((arg, ty, tok) :: acc) fn
-        | head -> head, acc
+        | fn -> fn, acc
 
-    /// Re-fold a head + (arg, result-type, tok) arguments back into a curried
+    /// Re-fold a function + (arg, result-type, tok) arguments back into a curried
     /// `App` chain. The inverse of `collectAppChain`.
     let rebuildApp
-        (head: TExprG<'ty, 'tok, 'id>)
+        (fn: TExprG<'ty, 'tok, 'id>)
         (args: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
         : TExprG<'ty, 'tok, 'id> =
-        List.fold (fun acc (arg, resTy, tok) -> TExprG.App(acc, arg, resTy, tok)) head args
+        List.fold (fun acc (arg, resTy, tok) -> TExprG.App(acc, arg, resTy, tok)) fn args
 
     /// Rewrite hooks. Every `OverrideX` receives the active `Mapper`, so an override can
     /// recurse manually (e.g. to bind a key before walking the body). `ValueSome` replaces

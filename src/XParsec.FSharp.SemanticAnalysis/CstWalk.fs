@@ -31,7 +31,7 @@ type OpenScope =
         /// `open` brings against the declarations around it.
         Locals: LocalOpen list
         /// Module-abbrev aliases (`module R = A.B.C` ⇒ `"R" → "A.B.C"`), expanded
-        /// on the head segment of a dotted name before probing.
+        /// on the anchor segment of a dotted name before probing.
         Abbrevs: Map<string, string>
     }
 
@@ -47,9 +47,9 @@ module OpenScope =
     let private candidates (scope: OpenScope) (name: string) : string list =
         let expanded =
             let dot = name.IndexOf '.'
-            let head = if dot < 0 then name else name.Substring(0, dot)
+            let anchor = if dot < 0 then name else name.Substring(0, dot)
 
-            match Map.tryFind head scope.Abbrevs with
+            match Map.tryFind anchor scope.Abbrevs with
             | Some target -> target + (if dot < 0 then "" else name.Substring dot)
             | None -> name
 
@@ -139,7 +139,7 @@ module TypeDefnPatterns =
                        | _ -> false
                    )
 
-    /// A single-ident `Union` or `Record` head with its `with`-block elements — the
+    /// A single-ident `Union` or `Record` name with its `with`-block elements — the
     /// channel an `interface … with` / augmentation member rides.
     let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (TypeName<'T> * TypeDefnElements<'T> voption) voption =
         let extElems (ext: TypeExtensionElements<'T> voption) =
@@ -457,7 +457,7 @@ module CstWalk =
 
         match construction with
         | ObjectConstruction.ObjectConstruction(expr = e) -> iterExpr walker env e
-        // `interface Foo with …` head — no constructor argument expression.
+        // `interface Foo with …` name — no constructor argument expression.
         | ObjectConstruction.InterfaceConstruction _ -> ()
 
         let (ObjectMembers(memberDefns = memberDefns)) = members

@@ -421,7 +421,7 @@ module TypeRegistry =
             types.TypeClaims.[id.Name] <- claims
 
     /// The identity the WRITTEN name at `arity` MEANS at `useSite` — the winning claim. A
-    /// qualified head (`A.T`) is the same lookup, its path saying which SCOPE to read from.
+    /// qualified name (`A.T`) is the same lookup, its path saying which SCOPE to read from.
     let tryWrittenTypeClaim
         (types: PassContextTypes)
         (useSite: UseSite)
@@ -442,7 +442,7 @@ module TypeRegistry =
         | false, _ -> false
 
     /// The claim the written name reaches at `useSite` at ANY arity — the local/external
-    /// precedence test. Arity-blind: a wrong-arity head is LOCAL, never an external namesake.
+    /// precedence test. Arity-blind: a wrong-arity name is LOCAL, never an external namesake.
     let tryWrittenTypeClaimAnyArity
         (types: PassContextTypes)
         (useSite: UseSite)

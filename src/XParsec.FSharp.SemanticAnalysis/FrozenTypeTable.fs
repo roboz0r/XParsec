@@ -27,7 +27,7 @@ type BindingKeyId = | BindingKeyId of int
 type MemberKeyId = | MemberKeyId of int
 
 /// A row of the file's symbol-key table — a type, a binding or a member key, interned once
-/// so a repeated `FTConst` head costs one int.
+/// so a repeated `FTConst` type constructor costs one int.
 [<Struct>]
 type SymbolId = | SymbolId of int
 

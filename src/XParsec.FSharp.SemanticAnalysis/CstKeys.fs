@@ -282,7 +282,7 @@ module CstKeys =
         | ValueSome typeRef -> typeRef.Site
         | ValueNone -> failwithf "CstKeys.typeRefSite: type node applies no type name: %A" ty
 
-    let siteOfBinding (b: Binding<SyntaxToken>) : NodeSite = siteOfPat b.headPat
+    let siteOfBinding (b: Binding<SyntaxToken>) : NodeSite = siteOfPat b.pattern
 
     let ofBinding (b: Binding<SyntaxToken>) : NodeKey = (siteOfBinding b).Key
 

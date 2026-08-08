@@ -92,7 +92,7 @@ module Inline =
     /// the only shape an SRTP trait call can dispatch to. An intrinsic qualifies on the same
     /// footing as a nominal: `int` declares `static member (&&&)` in its `.fsi`.
     let private operatorHostKey (store: TypeStore) (t: SemType) : TypeKey voption =
-        match UnionFind.headZonk store t with
+        match UnionFind.zonkShallow store t with
         | TyClass(k, _)
         | TyUnion(k, _)
         | TyRecord(k, _) -> ValueSome k
@@ -290,7 +290,7 @@ module Inline =
         | _ -> f e
 
     /// Of the lambda-valued inline parameters in `candidates` (key → its bound lambda), those
-    /// NOT eligible for elimination: a saturated head (`f a b` where `f`'s lambda has arity 2)
+    /// NOT eligible for elimination: a saturated call (`f a b` where `f`'s lambda has arity 2)
     /// reduces away, but a bare `Var`, a partial or an over-application forces a real closure.
     let internal nonInlinableLambdaParams (candidates: Dictionary<NodeKey, TExpr>) (core: TExpr) : HashSet<NodeKey> =
         let bad = HashSet<NodeKey>()
@@ -303,13 +303,13 @@ module Inline =
                         | TExpr.App _ ->
                             // The WHOLE application at once: letting the default recursion reach
                             // a sub-`App` would measure a partial application as the arity.
-                            let head, args = TastWalk.collectAppChain [] e
+                            let fn, args = TastWalk.collectAppChain [] e
 
-                            (match head with
+                            (match fn with
                              | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
                                  if List.length args <> lambdaArity candidates.[k] then
                                      bad.Add k |> ignore
-                             | _ -> TastWalk.iterExpr iter head)
+                             | _ -> TastWalk.iterExpr iter fn)
 
                             for (a, _, _) in args do
                                 TastWalk.iterExpr iter a

@@ -105,7 +105,7 @@ module internal UnificationInferResolve =
 
     /// The external (referenced-package) case ctor's function/value type
     /// `field… → TyUnion(union, freshArgs)`, built from the case NameResolution
-    /// stamped at the expression head `key`.
+    /// stamped at the applied function's `key`.
     let tryExternalCtorType (ctx: PassContext) (key: NodeKey) : SemType voption =
         match ctx.Resolution.ExternalUnionCaseStamp.TryGetValue key with
         | ValueNone -> ValueNone
@@ -414,14 +414,14 @@ module internal UnificationInferResolve =
         (ctx: PassContext)
         (recv: Expr<SyntaxToken>)
         : (SymbolKey * Type<SyntaxToken> list) voption =
-        // The receiver head as written: a single-segment name parses as `Expr.Ident`
+        // The receiver as written: a single-segment name parses as `Expr.Ident`
         // (`EqualityComparer<int>`), a dotted one as a `LongIdent`.
         match recv with
-        | Expr.TypeApp(expr = head; types = typeArgs) ->
-            match head with
+        | Expr.TypeApp(expr = fn; types = typeArgs) ->
+            match fn with
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _)
             | Expr.Ident _ ->
-                match ctx.Resolution.ExternalStaticReceiver.TryGetValue(CstKeys.ofExpr head) with
+                match ctx.Resolution.ExternalStaticReceiver.TryGetValue(CstKeys.ofExpr fn) with
                 | ValueSome declTypeKey -> ValueSome(declTypeKey, List.ofSeq typeArgs)
                 | ValueNone -> ValueNone
             | _ -> ValueNone
@@ -444,7 +444,7 @@ module internal UnificationInferResolve =
         | _ -> ValueNone
 
     /// A folded-LongIdent external STATIC member reference (`System.String.Concat`), as its
-    /// declaring type's stamped `SymbolKey` + member token. A head that is a local
+    /// declaring type's stamped `SymbolKey` + member token. An anchor that is a local
     /// binding — an `r.X.Y` field chain — is excluded.
     let tryResolveExternalStaticMemberRef
         (ctx: PassContext)

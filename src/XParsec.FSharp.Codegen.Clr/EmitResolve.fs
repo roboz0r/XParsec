@@ -75,10 +75,11 @@ module EmitResolve =
             | false, _ -> ValueNone
         | _ -> ValueNone
 
-    /// The head identity of a `FrozenType` for overload-candidate matching: the nominal's
-    /// FULLY-QUALIFIED name, or a structural tag. Qualified for an intrinsic head too, not its
-    /// display name — two heads are the same type only if they are the same identity.
-    let private headOf (t: FrozenType) : string =
+    /// A `FrozenType`'s outermost type constructor as a string identity, for
+    /// overload-candidate matching: the nominal's FULLY-QUALIFIED name, or a structural
+    /// tag. Qualified for an intrinsic too, not its display name — two types match only
+    /// when these identities are equal.
+    let private tyCtorOf (t: FrozenType) : string =
         match t with
         | FTConst(k, _) -> SymbolKeyOps.qualifiedName k
         | FTClass(k, _)
@@ -88,25 +89,25 @@ module EmitResolve =
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
         | FTOr _ -> SymbolKeyOps.qualifiedName RuntimeNames.objKey
-        // A literal erases to its base primitive — match on that head.
+        // A literal erases to its base primitive — match on that instead.
         | FTLiteral v -> SymbolKeyOps.qualifiedName (RuntimeNames.literalBaseKey v)
         | FTKeyOf _
         | FTIndexedAccess _
         | FTConditional _ ->
-            failwithf "EmitResolve.headOf: unreachable carried type-level node reached the CLR backend: %A" t
+            failwithf "EmitResolve.tyCtorOf: unreachable carried type-level node reached the CLR backend: %A" t
         | FTTypar _ -> "!typar"
         | FTUnknown n -> n
-        // A body-local typar's identity is its `(scheme, index)` pair, so it heads-matches
-        // only itself — unlike `FTTypar`, no overload can be generic in it.
+        // A body-local typar's identity is its `(scheme, index)` pair, so it matches only
+        // itself — unlike `FTTypar`, no overload can be generic in it.
         | FTLocalTypar(SchemeId scheme, i) -> "!local:" + string scheme + ":" + string i
 
     /// Does a candidate's declared (open) parameter accept a call argument of type `arg`?
     /// An `FTTypar` parameter is a generic hole and accepts anything; a concrete one matches
-    /// by HEAD only, so two overloads differing just in a generic argument tie.
+    /// by TYPE CONSTRUCTOR only, so two overloads differing just in a generic argument tie.
     let private paramAccepts (param: FrozenType) (arg: FrozenType) : bool =
         match param with
         | FTTypar _ -> true
-        | _ -> headOf param = headOf arg
+        | _ -> tyCtorOf param = tyCtorOf arg
 
     /// Pick the overload of `name` matching the call's argument types (ECMA-335 §I.10.2:
     /// overloading is by number + types of parameters). Candidates arrive own-members-first, so

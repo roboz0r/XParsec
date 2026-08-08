@@ -120,10 +120,10 @@ module FrozenType =
     let existsChild (p: FrozenType -> bool) (t: FrozenType) : bool =
         not (forallChildren (fun c -> not (p c)) t)
 
-    /// True when `a` and `b` present the SAME head — same case, and for a nominal the
-    /// same `key`; child structure is ignored. An `FTTypar` is a WILDCARD that
-    /// heads-matches anything: an open template slot accepts any instantiated shape.
-    let private sameHead (a: FrozenType) (b: FrozenType) : bool =
+    /// True when `a` and `b` share the same outermost type constructor — same case, and
+    /// for a nominal the same `key`; child structure is ignored. An `FTTypar` is a
+    /// WILDCARD matching anything: an open template slot accepts any instantiated shape.
+    let private sameTyCtor (a: FrozenType) (b: FrozenType) : bool =
         match a, b with
         | FTTypar _, _
         | _, FTTypar _ -> true
@@ -141,13 +141,14 @@ module FrozenType =
         | FTConditional _, FTConditional _ -> true
         | FTUnknown n1, FTUnknown n2 -> n1 = n2
         // NOT a wildcard like `FTTypar`: no argument vector instantiates a local typar,
-        // so it heads-matches only the same `(scheme, index)` pair — never index alone.
+        // so it matches only the same `(scheme, index)` pair — never index alone.
         | FTLocalTypar(s1, i1), FTLocalTypar(s2, i2) -> s1 = s2 && i1 = i2
         | _ -> false
 
-    /// PAIRWISE descent: `f` on each corresponding child of `a` and `b`. A case, head or
-    /// length mismatch is a silent no-op — the caller decides what it means. Nominal KEYS
-    /// are not compared: this serves open-template vs instantiated matching.
+    /// PAIRWISE descent: `f` on each corresponding child of `a` and `b`. A case, type
+    /// constructor or length mismatch is a silent no-op — the caller decides what it
+    /// means. Nominal KEYS are not compared: this serves open-template vs instantiated
+    /// matching.
     let iterChildren2 (f: FrozenType -> FrozenType -> unit) (a: FrozenType) (b: FrozenType) : unit =
         let pairwise (xs: EqArray<FrozenType>) (ys: EqArray<FrozenType>) =
             if xs.Length = ys.Length then
@@ -168,13 +169,13 @@ module FrozenType =
             let mutable positionalOk = true
 
             for i in 0 .. n - 1 do
-                positionalOk <- positionalOk && sameHead xs.[i] ys.[i]
+                positionalOk <- positionalOk && sameTyCtor xs.[i] ys.[i]
 
             if positionalOk then
                 for i in 0 .. n - 1 do
                     f xs.[i] ys.[i]
             else
-                // Instantiation can reorder the member set: pair by head key instead.
+                // Instantiation can reorder the member set: pair by type constructor instead.
                 let used = Array.zeroCreate<bool> n
                 let wildcards = ResizeArray<FrozenType>()
 
@@ -185,7 +186,7 @@ module FrozenType =
                         let candidates =
                             [
                                 for j in 0 .. n - 1 do
-                                    if not used.[j] && sameHead x ys.[j] then
+                                    if not used.[j] && sameTyCtor x ys.[j] then
                                         yield j
                             ]
 
@@ -223,7 +224,7 @@ module FrozenType =
 module SemTypePatterns =
 
     /// A member-bearing nominal — class, union OR record — as `(declaring key, receiver
-    /// args)`; NOT `TyEnum` (niladic) or `TyConst` (an intrinsic head). An arm where the
+    /// args)`; NOT `TyEnum` (niladic) or `TyConst` (an intrinsic). An arm where the
     /// kind forks must precede this one. Does NOT zonk: match an already-resolved type.
     [<return: Struct>]
     let (|TyNominal|_|) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =

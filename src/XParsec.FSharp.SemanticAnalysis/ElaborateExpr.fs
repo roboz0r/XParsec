@@ -29,7 +29,7 @@ module internal ElaborateExpr =
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
-            // `r.X` / `r.X.Y` parsed as ONE multi-segment LongIdent: head is a local
+            // `r.X` / `r.X.Y` parsed as ONE multi-segment LongIdent: the anchor is a local
             // binding, the rest field accesses. A final *external* instance member
             // (`e.Current` on `IEnumerator<'T>`) is in `ExternalAccess` under this key.
             ElaborateIdents.translateLongIdentFieldChain ctx li ty (ctx.Resolution.ExternalAccess.TryGetValue key) tok
@@ -61,7 +61,7 @@ module internal ElaborateExpr =
             mkMethodCall ctx key receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `LongIdent [p; M]` — the parser folds the dot into the long ident
-        // rather than emitting `DotLookup` when the head is a regular identifier.
+        // rather than emitting `DotLookup` when the anchor is a regular identifier.
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
                                                                                        receiverTy,
@@ -94,7 +94,7 @@ module internal ElaborateExpr =
                 (peelOneArg (translateExpr ctx) arg)
                 ty
                 tok
-        // `head.f.…M(args)` — method call on a *multi-segment* receiver chain (e.g.
+        // `r.f.…M(args)` — method call on a *multi-segment* receiver chain (e.g.
         // `this.Source.MoveNext()`), which `ClassTailMethod` (2-segment) misses. The
         // prefix LongIdent rebuilds the receiver field-chain; the tail is the method.
         | Expr.App(
@@ -161,7 +161,7 @@ module internal ElaborateExpr =
 
             mkInterfaceMethodCall ctx receiver ifaceKey ifaceArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
-        // the head is a regular identifier.
+        // the anchor is a regular identifier.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
             let receiver = TExpr.Var(bindingSite, receiverTy, tok)
 
@@ -604,7 +604,7 @@ module internal ElaborateExpr =
         if isArray then
             let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)
             // Codegen resolves `Array.ofList` against its target; the BCL-only path
-            // recognises this head and emits the array directly (no FSharp.Core).
+            // recognises this function and emits the array directly (no FSharp.Core).
             let opName = RuntimeNames.arrayOfListName
             let opTy = TyFun(listTy, arrayTy)
             TExpr.App(TExpr.External(opName, ValueNone, opTy, tok), listExpr, arrayTy, tok)
@@ -683,22 +683,22 @@ module internal ElaborateExpr =
             // Drop a format-literal alias binding (`let fmt : Format<…> = "%d" in …`):
             // its value froze to a dead `New PrintfFormat`, since every use
             // const-propagates the literal. Fold it out, keeping the body.
-            if not isUse && ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat) then
+            if not isUse && ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.pattern) then
                 ()
             else
 
-                let tpat = translatePat ctx b.headPat
+                let tpat = translatePat ctx b.pattern
                 let valT = translateBinding ctx b
                 // The let/use node's source anchor is its binder pattern's first token.
-                let bindTok = CstKeys.firstTokenOfPat b.headPat
+                let bindTok = CstKeys.firstTokenOfPat b.pattern
 
                 result <-
                     if isUse then
                         // Unification records the binder's resolved disposal path under
-                        // the head-pattern's key. Absent ⇒ it reported a
+                        // the binding pattern's key. Absent ⇒ it reported a
                         // `use`-over-non-disposable error; no backend lowers `Unresolved`.
                         let dispose =
-                            match ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat) with
+                            match ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.pattern) with
                             | ValueSome d -> d
                             | ValueNone -> Disposal.Unresolved
 

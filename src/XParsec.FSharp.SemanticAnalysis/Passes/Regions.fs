@@ -363,13 +363,13 @@ module Regions =
             // Absent an effect signature, assume any callee returns its arguments or
             // values reachable through them: the result region outlives the callee and
             // every argument.
-            let head, args = TastWalk.collectAppChain [] e
+            let fn, args = TastWalk.collectAppChain [] e
 
             joinArms
                 ctx.Store
                 s
                 e
-                [ yield inferRegion s ctx head; for (a, _, _) in args -> inferRegion s ctx a ]
+                [ yield inferRegion s ctx fn; for (a, _, _) in args -> inferRegion s ctx a ]
                 RegionId.Unknown
         | TExpr.MethodCall(recv, _, _, args, _, _) ->
             joinArms

@@ -394,7 +394,7 @@ let mapVariantTests =
         ]
 
 // `iterChildren2` pairs the members of an `FTOr` — a SET, so storage order is not a
-// semantic invariant across instantiation. These pin the head-keyed fallback that
+// semantic invariant across instantiation. These pin the tyctor-keyed fallback that
 // recovers the pairing when the members line up NON-positionally (the case
 // `ClrEncoder.recoverOpenTypars` rests on): a positional-only walk would silently
 // mis-recover an open typar buried under a reordered union member.
@@ -416,12 +416,12 @@ let iterChildren2FTOrTests =
     testList
         "FrozenType.iterChildren2 FTOr pairing"
         [
-            test "recovers a typar buried under a REORDERED FTOr member by head key, not position" {
+            test "recovers a typar buried under a REORDERED FTOr member by tyctor key, not position" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
                 // open template `Box<!!0> | int`; instantiated view `int | Box<string>`.
                 // `EqSet` preserves insertion order, so the two are stored REORDERED —
                 // a positional pairing would match `Box<!!0>` against `int` and lose the
-                // typar; the head-keyed fallback pairs `Box` with `Box`.
+                // typar; the tyctor-keyed fallback pairs `Box` with `Box`.
                 let openOr =
                     FrozenType.MkUnion
                         [
@@ -443,13 +443,13 @@ let iterChildren2FTOrTests =
                 Expect.equal
                     recovered.[0]
                     (FTConst(RuntimeNames.stringKey, EqArray.empty))
-                    "!!0 recovers to `string` via head-keyed pairing, not the positional `int`"
+                    "!!0 recovers to `string` via tyctor-keyed pairing, not the positional `int`"
             }
 
-            test "fails loudly when an open FTOr member's head matches TWO instantiated members" {
+            test "fails loudly when an open FTOr member's type constructor matches TWO instantiated members" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
                 // open `int | Box<!!0>`; instantiated `Box<string> | Box<float>`. Positional
-                // heads mismatch (int vs Box) so the fallback runs; the concrete `int` open
+                // type constructors mismatch (int vs Box) so the fallback runs; the concrete `int` open
                 // member has no partner, and `Box<!!0>` matches BOTH instantiated members —
                 // genuinely ambiguous, so guessing is a bug: fail.
                 let openOr =
@@ -468,6 +468,6 @@ let iterChildren2FTOrTests =
 
                 Expect.throws
                     (fun () -> recoverMethodTypars openOr instOr |> ignore)
-                    "an ambiguous head-keyed FTOr pairing must fail, not guess"
+                    "an ambiguous tyctor-keyed FTOr pairing must fail, not guess"
             }
         ]

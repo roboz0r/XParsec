@@ -578,7 +578,7 @@ module ReferencedProject =
 
     /// Compose layer-1 providers in dependency (topological) order ahead of the `metaTail`
     /// leaf. Each package is extracted with read access to its transitive `depends-on`
-    /// closure's shapes, so a cross-package nominal head kinds at bake time.
+    /// closure's shapes, so a cross-package nominal type constructor kinds at bake time.
     let composeOrdered
         (metaTail: MetaTailFactory)
         (target: string)

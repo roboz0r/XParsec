@@ -79,7 +79,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyInt "result : int"
             }
 
-            test "TDecl.Let binding NodeKey matches headPat NodeKey" {
+            test "TDecl.Let binding NodeKey matches binding-pattern NodeKey" {
                 let tast = analyse "let x = 1"
                 let expected = NodeKey.ofSource 4 NodeKind.PatIdent
 
@@ -89,7 +89,7 @@ let tests =
                 | other -> failtestf "unexpected: %A" other
             }
 
-            test "TVar references the original headPat NodeKey" {
+            test "TVar references the original binding-pattern NodeKey" {
                 // y's RHS references x's binding key.
                 let tast = analyse "let x = 1\nlet y = x"
                 let xKey = NodeKey.ofSource 4 NodeKind.PatIdent
@@ -196,7 +196,7 @@ let tests =
 
         ]
 
-// Every pass — not just Elaborate — walks `namespace`-headed files, so
+// Every pass — not just Elaborate — walks `namespace`-rooted files, so
 // declarations under a `namespace` are fully analysed (name-resolved,
 // inferred, frozen) exactly like a module file. Earlier, Desugar /
 // NameResolution / Unification / Regions / Validation dropped namespace
@@ -552,7 +552,7 @@ let memberTyparOrderTests =
 // verbatim — operator-named cases (`([])` → Empty, `(::)` → Cons) and the
 // explicit-return (GADT-syntax) case forms FSharp.Core's list uses
 // (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
-// Earlier `inspectCaseData` returned `""` for any operator head (the
+// Earlier `inspectCaseData` returned `""` for any operator name (the
 // case was dropped) and `GadtNary`/`GadtNullary` were diagnosed "not supported".
 module private UnionCaseSyntaxHelpers =
     let union (tast: TastFile) =
@@ -927,8 +927,8 @@ let unionInterfaceImplTests =
 
                     match ifaceTy with
                     | TyClass(name, _) ->
-                        Expect.stringContains name "IDescribe" "the impl heads the IDescribe interface"
-                    | other -> failtestf "interface head is not a TyClass: %A" other
+                        Expect.stringContains name "IDescribe" "the impl names the IDescribe interface"
+                    | other -> failtestf "the interface type is not a TyClass: %A" other
 
                     Expect.equal members.Length 1 "the Describe member body is carried with the impl"
                     Expect.equal members.[0].Name "Describe" "the carried member is Describe"
@@ -1043,8 +1043,8 @@ let recordInterfaceImplTests =
                     let (ifaceTy, members) = ifaces.[0]
 
                     match ifaceTy with
-                    | TyClass(name, _) -> Expect.stringContains name "IRank" "the impl heads the IRank interface"
-                    | other -> failtestf "interface head is not a TyClass: %A" other
+                    | TyClass(name, _) -> Expect.stringContains name "IRank" "the impl names the IRank interface"
+                    | other -> failtestf "the interface type is not a TyClass: %A" other
 
                     Expect.equal members.Length 1 "the Rank member body is carried with the impl"
                     Expect.equal members.[0].Name "Rank" "the carried member is Rank"
@@ -1108,8 +1108,8 @@ let globalAttributeTests =
                 Expect.isEmpty (errorsOf "module M\n\nlet emptyDocs = (# \"[]\" #)\n") "no diagnostic"
             }
 
-            test "[<Global>] on a head naming no value is an error, not a silent no-op" {
-                // The declaration is filed under the value's identity, so a wildcard head
+            test "[<Global>] on a pattern naming no value is an error, not a silent no-op" {
+                // The declaration is filed under the value's identity, so a wildcard pattern
                 // has nowhere to carry it — and honouring it silently would emit the very
                 // definition the attribute exists to suppress.
                 let tast = analyse "module M\n\n[<Global>]\nlet _ = (# \"undefined\" #)\n"
@@ -1117,7 +1117,7 @@ let globalAttributeTests =
                 Expect.isEmpty tast.GlobalValueKeys "nothing was recorded"
 
                 match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
-                | [ msg ] -> Expect.stringContains msg "this binding names none" "the head is blamed"
+                | [ msg ] -> Expect.stringContains msg "this binding names none" "the pattern is blamed"
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 

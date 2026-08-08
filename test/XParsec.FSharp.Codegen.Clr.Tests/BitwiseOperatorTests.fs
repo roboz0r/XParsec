@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The bitwise operator family (`&&& ||| ^^^ <<< >>> ~~~`) sourced from the
 // `Vesper.Core/ops-platform.clr.fs` contract bodies, each of which is the bare trait call.
-// Binding heads need the source-text fallback in `Desugar.opPatCompiledName` (the
+// Operator bindings need the source-text fallback in `Desugar.opPatCompiledName` (the
 // parenthesised ops lex to generic tokens); use sites resolve to their distinct `Token`
 // enums. Which widths support the family, and the IL each one lowers to, are stated on
 // the primitives themselves (`prim-types-*.fsi`/`.fs`).
@@ -18,7 +18,7 @@ let tests =
     testList
         "BitwiseOperators"
         [
-            test "bitwise binding heads freeze from Vesper.Core and are collected as cross-package inlines" {
+            test "bitwise operator bindings freeze from Vesper.Core and are collected as cross-package inlines" {
                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
                 for name in
@@ -88,7 +88,7 @@ let tests =
             // unsolved typars when the infix is typed, so `inferInfix` reaches
             // `OpenScope.tryResolve` on the compiled
             // op name. That lookup missed entirely until the contract extractor
-            // mapped the *parenthesised* binding heads `(<<<)` / `(&&&)` (which lex
+            // mapped the *parenthesised* operator bindings `(<<<)` / `(&&&)` (which lex
             // to generic operator tokens, not the distinct enum) to their compiled
             // names — and the shift's `int32` param dealiased to `int` so the `1`
             // literal unifies. This is the exact `Set<'T>.ComputeHashCode` shape.

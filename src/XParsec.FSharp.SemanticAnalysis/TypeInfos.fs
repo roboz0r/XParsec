@@ -318,7 +318,7 @@ type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, declSite: NodeSi
     member val DeclSite = declSite
 
 /// One `[static] let [mutable] [rec] x = <init>` of a class preamble. `Binding` is the WHOLE
-/// CST binding — head pattern AND `argumentPats`, since `let f x = …` binds a FUNCTION value.
+/// CST binding — its pattern AND `argumentPats`, since `let f x = …` binds a FUNCTION value.
 [<Sealed>]
 type ClassLetInfo(name: string, ty: SemType, declKey: NodeKey, binding: Binding<SyntaxToken>, isRec: bool) =
     member val Name = name

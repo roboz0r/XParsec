@@ -42,8 +42,8 @@ module SideTablePatterns =
 type PassContextBindings =
     {
         Binding: SideTable<ResolvedBinding>
-        /// Keyed by the binding's headPat `NodeKey`. Present only for a single-name or
-        /// operator head that generalises; destructuring heads and lambda parameters get none.
+        /// Keyed by the binding's pattern `NodeKey`. Present only for a single-name or
+        /// operator name that generalises; destructuring patterns and lambda parameters get none.
         Scheme: SideTable<TypeScheme>
         TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
@@ -53,7 +53,7 @@ type PassContextBindings =
         /// Bindings inside a named `module Foo = …`: which holder type (`Foo`/`FooModule`,
         /// not the anonymous "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BinderKey, ModuleBindingInfo>
-        /// Keyed by the binding's headPat `NodeKey`, in SOURCE order — the method-typar order.
+        /// Keyed by the binding's pattern `NodeKey`, in SOURCE order — the method-typar order.
         DeclaredTypars: SideTable<(string * TyVarId) list>
         /// Top-level EXPORTED entities only — a type MEMBER's accessibility rides on the
         /// member. Un-thresholded: each export filter applies its own.
@@ -130,10 +130,10 @@ type PassContextResolution =
         /// Keyed by an OVERLOADED project-local method-call node: the member key the picker
         /// chose — its argSig distinguishes `Show(int)` from `Show(string)`.
         LocalMemberCall: SideTable<SymbolKey>
-        /// Keyed by an external method-call head: the constant defaults of the trailing
+        /// Keyed by an external method call: the constant defaults of the trailing
         /// optional parameters the call OMITTED, in declaration order.
         ExternalOptionalFill: SideTable<TConstValue list>
-        /// Keyed by the folded head of `x.M(…)` whose receiver is a typar coerced to a
+        /// Keyed by the folded `x.M(…)` call whose receiver is a typar coerced to a
         /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
         TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
         /// Keyed by an external-value use-site — an `Expr.Ident` / `Expr.LongIdentOrOp`.
@@ -141,28 +141,28 @@ type PassContextResolution =
         /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
         /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
         ExternalSymbolStamp: SideTable<ExternalSymbol>
-        /// Keyed by an external union-case ctor head, in pattern (`Some x`) or expression
+        /// Keyed by an external union-case ctor, in pattern (`Some x`) or expression
         /// (`None`, `Option.Some`) position. Absent ⇒ a binder, a local ctor, an RQA case.
         ExternalUnionCaseStamp: SideTable<ExternalUnionCase>
-        /// Keyed by an external enum-case access `E.C1`'s head: the enum's nominal key, minted
+        /// Keyed by an external enum-case access `E.C1`'s anchor: the enum's nominal key, minted
         /// at arity 0 and so equal to the key an `(x: E)` annotation mints, letting them unify.
         ExternalEnumCaseStamp: SideTable<TypeKey>
         /// Keyed by an expression splicing a cross-package `let inline` body — an operator,
         /// `x?f`, `arr.[i]`, `arr.Length`: the intrinsic's key, so the splice is by KEY.
         IntrinsicKey: SideTable<SymbolKey>
         TypeTestTargets: SideTable<SemType>
-        /// Keyed by a `use` binding's head-pattern `NodeKey`: how the binder is disposed.
+        /// Keyed by a `use` binding's pattern `NodeKey`: how the binder is disposed.
         UseDispose: SideTable<Disposal>
         /// Keyed by a `for x in src do …` node. Absent ⇒ the interface path (which range
         /// sources also take); present for a source with only a pattern-based `GetEnumerator()`.
         ForInShape: SideTable<ForInEnumerator>
         /// Keyed by a type-naming node: a type-declaration site, a union / enum type
-        /// annotation, or an expression-position type name (a static prefix, a ctor head).
+        /// annotation, or an expression-position type name (a static prefix, a ctor).
         ResolvedType: SideTable<TypeKey>
         /// Keyed by a written type reference, anchored on `li.Idents.[0]`.
         TypeRefVerdicts: SideTable<TypeRefVerdict>
         /// A static-access receiver's external type key: the PREFIX of a folded `Expr.LongIdent`
-        /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` head.
+        /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` target.
         ExternalStaticReceiver: SideTable<SymbolKey>
         /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
         /// RECORD: such a type bears no static fields, so an unresolved tail is a real miss.
@@ -512,7 +512,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         | TokenIndex.Virtual -> ""
 
     /// Record how the source writes `binder`. Idempotent, and must be: a ctor parameter's key
-    /// is minted twice from the same identifier. An operator head `(` is no name and records none.
+    /// is minted twice from the same identifier. An operator's `(` is no name and records none.
     member this.SpellBinder(binder: BinderKey, at: SyntaxToken) : unit =
         match at.Index with
         | TokenIndex.Virtual -> ()
@@ -522,7 +522,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             | name -> this.BinderSpellings.Set(binder, { Name = name; At = Anchor.ofToken at })
 
     /// The LAST segment is the type's short name, everything before it the dotted SOURCE path
-    /// of the qualifying scope — empty for a single-segment head.
+    /// of the qualifying scope — empty for a single-segment name.
     member this.WrittenTypeNameOf(li: LongIdent<SyntaxToken>) : WrittenTypeName =
         let idents = li.Idents
         let last = idents.Length - 1
@@ -546,7 +546,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
 
     /// Blame the written type name at `site`: `name` names no type, here or outside. `site` is
-    /// what once-per-head counts over, so a parser-inserted head widens it to the decl's span.
+    /// what once-per-name counts over, so a parser-inserted name widens it to the decl's span.
     member this.UndefinedType(site: Site, name: string) =
         this.UndefinedTypeNames.Add name |> ignore
 

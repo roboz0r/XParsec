@@ -210,7 +210,7 @@ type FormatSinkHandles =
 
 /// Resolves compiled names to emission recipes for one target.
 type ICodegenProvider =
-    /// `fnTy` is the head's full curried type: a multi-typar call can't recover its type args
+    /// `fnTy` is the applied function's full curried type: a multi-typar call can't recover its type args
     /// from the result alone (`List.fold` reads `'T`/`'State` from the folder). `key` dispatches
     /// by identity — only `Vesper.Printf.printfn` trips cold-printf, never `MyMod.printfn`.
     abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption

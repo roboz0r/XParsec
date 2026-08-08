@@ -353,7 +353,7 @@ let tests =
                 // template (decl 0) is retained verbatim, and the use site `succ
                 // 41` is resolved *pre-freeze* by `InlineExpansion` into an EDGE
                 // naming the entry `succ`'s resolved body went into. The
-                // `op_Addition` head survives inside that entry because
+                // `op_Addition` node survives inside that entry because
                 // `realProvider` is a CONTRACT-only stack (`.fsi` signatures, no
                 // `.fs` inline bodies), so there is no `(+)` body to resolve; a
                 // codegen provider serves one and it is outlined in turn.
@@ -538,8 +538,8 @@ let tests =
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
                 let kBinder =
                     match sem.Decls.[0] with
-                    | TDecl.Let(head, _, _, _) ->
-                        match BinderKey.ofPat head with
+                    | TDecl.Let(pattern, _, _, _) ->
+                        match BinderKey.ofPat pattern with
                         | ValueSome b -> b
                         | ValueNone -> failtest "expected `let k` to introduce a binder"
                     | other -> failtestf "expected `let k` first, got %A" other
@@ -601,8 +601,8 @@ let tests =
 
                 let kKey =
                     match sem.Decls.[0] with
-                    | TDecl.Let(head, _, _, _) ->
-                        match BinderKey.ofPat head with
+                    | TDecl.Let(pattern, _, _, _) ->
+                        match BinderKey.ofPat pattern with
                         | ValueSome b ->
                             match Map.tryFind b sem.ModuleMembers with
                             | Some info -> info.Key

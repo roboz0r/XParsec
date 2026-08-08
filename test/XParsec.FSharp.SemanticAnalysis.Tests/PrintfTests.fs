@@ -373,7 +373,7 @@ let tests =
             // annotated sink argument to a real writer/builder class is pinned where a
             // provider CAN name it (`Codegen.Clr.Tests.PrintfHappyPathTests`).
             test "an fprintf writer annotated with an undefined type is blamed at the annotation" {
-                // The motivating nonsense: a free TyVar for an unresolved dotted head made the
+                // The motivating nonsense: a free TyVar for an unresolved dotted name made the
                 // annotation decorative — `Foo.Bar.Baz` unified with the writer sink as readily
                 // as a real `TextWriter`, so the mistake type-checked in silence and detonated
                 // in the backend. One diagnostic, at the annotation, naming what was written.

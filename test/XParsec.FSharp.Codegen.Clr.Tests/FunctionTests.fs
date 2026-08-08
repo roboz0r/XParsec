@@ -59,7 +59,7 @@ let tests =
                     // emitted as an ordinary function too — while the use site `succ 41` is
                     // resolved *pre-freeze* by `InlineExpansion` into an EDGE naming the entry
                     // its body went into, carrying the one argument that entry abstracts.
-                    // (Previously this stayed an `App(Var, 41)` call head for codegen to
+                    // (Previously this stayed an `App(Var, 41)` call for codegen to
                     // expand.) The body behind the edge is matched as `_`: it inline-expands in
                     // turn (real `Vesper.Core` `(+)` → `ILIntrinsic "add"`), and the anchor here
                     // is that the call became an edge rather than staying an application.

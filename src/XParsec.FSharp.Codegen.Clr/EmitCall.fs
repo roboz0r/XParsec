@@ -13,8 +13,8 @@ open EmitResolve
 open EmitPattern
 open EmitDispatch
 
-/// Application (`f a b …`) lowering: emit the head, then apply the residual
-/// arguments through `Invoke`.
+/// Application (`f a b …`) lowering: emit the applied function, then apply the
+/// residual arguments through `Invoke`.
 module EmitCall =
 
     /// Apply the remaining arguments to a `Vesper.Fun` value through its `Invoke`.
@@ -122,12 +122,12 @@ module EmitCall =
         CompiledFns.flattenPlan groups (leading |> List.map (fun (a, _, _) -> a))
         |> pushFlatSteps recur env b
 
-    /// Lower an `App` chain: dispatch on the head's shape, then apply any argument the
-    /// head's own call did not consume through `Invoke`.
+    /// Lower an `App` chain: dispatch on the applied function's shape, then apply any
+    /// argument its own call did not consume through `Invoke`.
     let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        let head, appArgs = TastAccessor.collectAppChain [] e
+        let fn, appArgs = TastAccessor.collectAppChain [] e
 
-        match head with
+        match fn with
         | TastAccessor.EExternal ext ->
             if
                 ext.CompiledName = RuntimeNames.arrayOfListName
@@ -138,7 +138,7 @@ module EmitCall =
 
                 let name = ext.CompiledName
                 let key = ext.Key
-                // The recipe's generic instantiation comes from the head's curried type,
+                // The recipe's generic instantiation comes from the function's curried type,
                 // which is stale once an argument became a value-struct closure — that leaf
                 // still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
                 let recipeFnTy =
@@ -158,7 +158,7 @@ module EmitCall =
 
                         List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
                     else
-                        typeOfExpr head
+                        typeOfExpr fn
 
                 match env.Provider.TryEmitCall(name, key, recipeFnTy) with
                 | ValueSome recipe ->
@@ -190,7 +190,7 @@ module EmitCall =
                     let funcTy =
                         match List.tryLast leading with
                         | Some(_, ty, _) -> ty
-                        | None -> typeOfExpr head
+                        | None -> typeOfExpr fn
 
                     foldInvoke recur env b funcTy rest
                 | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
@@ -263,7 +263,7 @@ module EmitCall =
             let receiver = em.Receiver
             let key = em.Key
             let name = em.MemberName
-            let memberTy = typeOfExpr head
+            let memberTy = typeOfExpr fn
             // A .NET method is tupled — `m(a, b)` is ONE application to `(a, b)` — so the
             // call consumes a single argument, opened to the declared width.
             let isStatic = ValueOption.isNone receiver
@@ -314,7 +314,7 @@ module EmitCall =
             let resultTy =
                 match argList with
                 | ValueSome(_, ty, _) -> ty
-                | ValueNone -> typeOfExpr head
+                | ValueNone -> typeOfExpr fn
 
             // An F# `unit` return is a .NET **void** method and must declare 0 results, or
             // the statement discard underflows on a phantom value. Void-ness comes from the
@@ -342,6 +342,7 @@ module EmitCall =
             foldInvoke recur env b resultTy rest
 
         | _ ->
-            // The head is itself a function value — a closure local or a partial result.
-            recur env b head
-            foldInvoke recur env b (typeOfExpr head) appArgs
+            // The applied expression is itself a function VALUE — a closure local or a
+            // partial result — so there is no call recipe to dispatch to.
+            recur env b fn
+            foldInvoke recur env b (typeOfExpr fn) appArgs

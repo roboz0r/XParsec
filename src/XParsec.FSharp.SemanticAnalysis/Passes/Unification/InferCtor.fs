@@ -198,7 +198,7 @@ module internal UnificationInferCtor =
                 receiverTy
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
-    /// `ArgumentException(message, name)`. The head must name an external class (resolved
+    /// `ArgumentException(message, name)`. The applied function must name an external class (resolved
     /// through the active `open`s) and not be a local binding. Ctor args arrive as one tuple.
     and tryInferExternalCtorApp
         (infer: Infer)
@@ -210,9 +210,9 @@ module internal UnificationInferCtor =
         if args.Length <> 1 then
             ValueNone
         else
-            // NameResolution stamps `ResolvedType` only when the head does NOT resolve as a
+            // NameResolution stamps `ResolvedType` only when the applied function does NOT resolve as a
             // local, so reading the stamp inherently excludes a local binding shadowing a type
-            // name. A non-class head declines to the caller's fallback rather than erroring.
+            // name. A non-class function declines to the caller's fallback rather than erroring.
             match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr fn) with
             | ValueSome declTypeKey ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type declTypeKey) with
@@ -235,8 +235,8 @@ module internal UnificationInferCtor =
             | ValueNone -> ValueNone
 
     /// Construction of an external *generic* class through an explicit type application:
-    /// `ResizeArray<int>()`, `List<string>(cap)`. The head's type args pin the element type up
-    /// front, which a parameterless ctor's value args cannot. A *local* generic head declines.
+    /// `ResizeArray<int>()`, `List<string>(cap)`. The type args pin the element type up
+    /// front, which a parameterless ctor's value args cannot. A *local* generic name declines.
     and tryInferExternalGenericCtorApp
         (infer: Infer)
         (ctx: PassContext)
@@ -245,25 +245,25 @@ module internal UnificationInferCtor =
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
         match fn with
-        | Expr.TypeApp(expr = headExpr; types = tyArgs) ->
+        | Expr.TypeApp(expr = ctorFun; types = tyArgs) ->
             // The stamp is minted opens-aware from the spelling alone, so the local-binder
             // guard must stay on the read side.
-            let headUnbound =
-                match headExpr with
-                | Expr.Ident headTok ->
-                    not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken headTok NodeKind.ExprIdent))
+            let ctorUnbound =
+                match ctorFun with
+                | Expr.Ident ctorTok ->
+                    not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken ctorTok NodeKind.ExprIdent))
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
                     li.Idents.Length >= 1
                     && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
                 | _ -> false
 
-            if not headUnbound then
+            if not ctorUnbound then
                 ValueNone
             else
-                // NameResolution's TypeApp visit stamped the head's `ResolvedType` at exact
+                // NameResolution's TypeApp visit stamped the ctor's `ResolvedType` at exact
                 // arity — an abbreviation stamps its OWN key, which `tryExternalTypeOfKey`
                 // then expands: `ResizeArray<int>` → `TyClass(List`1, [int])`.
-                match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr headExpr) with
+                match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr ctorFun) with
                 | ValueSome symKey ->
                     let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
 
@@ -284,27 +284,27 @@ module internal UnificationInferCtor =
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
-        let headExpr, explicitTyArgs =
+        let ctorFun, explicitTyArgs =
             match fn with
             | Expr.TypeApp(expr = h; types = ts) -> h, ValueSome [ for t in ts -> translateType ctx t ]
             | _ -> fn, ValueNone
 
-        // The head may name the class bare (`OnceEnum(x)`) or through the module holding it
+        // The ctor may name the class bare (`OnceEnum(x)`) or through the module holding it
         // (`A.OnceEnum(x)`) — one written name either way.
-        let headName =
-            match headExpr with
-            | Expr.Ident headTok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken headTok NodeKind.ExprIdent)) ->
-                ValueSome(WrittenTypeName.bare (ctx.NameOf headTok))
+        let ctorName =
+            match ctorFun with
+            | Expr.Ident ctorTok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken ctorTok NodeKind.ExprIdent)) ->
+                ValueSome(WrittenTypeName.bare (ctx.NameOf ctorTok))
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
                 ->
                 ValueSome(ctx.WrittenTypeNameOf li)
             | _ -> ValueNone
 
-        match headName with
+        match ctorName with
         | ValueNone -> ValueNone
         | ValueSome written ->
-            // The head names a class only if one is in scope AT THE CALL: a class declared
+            // The name denotes a class only if one is in scope AT THE CALL: a class declared
             // below it is not constructible there.
             match TypeRegistry.tryWrittenClass ctx.Types (ctx.UseSiteAt node.Key) written with
             | ValueNone -> ValueNone

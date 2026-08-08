@@ -111,7 +111,8 @@ let tests =
                         match args.[0] with
                         | TyConst(k, _) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
                         | other -> failtestf "%s: expected Dep.Widget<int>, got arg %A" label other
-                    | other -> failtestf "%s: expected (Dep.Widget<int> -> int) with TyUnion head, got %A" label other
+                    | other ->
+                        failtestf "%s: expected (Dep.Widget<int> -> int) with a TyUnion result, got %A" label other
 
                 assertWidgetIntToInt "fully-qualified reference" (instOf "qualified")
                 assertWidgetIntToInt "reference via open" (instOf "viaOpen")
@@ -300,7 +301,7 @@ let tests =
                 // extracted shape's `FrozenInterfaces` (args over the declaring typars),
                 // so a consumer's interface-impl witness (`tryInterfaceWitness`' external
                 // arm) can recover a phantom typar from a struct seq's `IStructSeq<'T,'E>`
-                // impl — the `.fsi` half of the struct-seq external-head graduation. Filled
+                // impl — the `.fsi` half of the struct-seq external-function graduation. Filled
                 // by the deferred finalize pass (the interface type may forward-reference a
                 // sibling), so the previously-empty `basic` default is overwritten.
                 // `FrozenInterfaces` is deferred (the interface type may forward-reference a
@@ -496,7 +497,7 @@ let tests =
                 let qualifiedRegistered =
                     ctx.Symbols.Keys |> Seq.exists (fun k -> k.EndsWith ".qualified")
 
-                Expect.isFalse qualifiedRegistered "an Opaque-headed val is not registered as a symbol"
+                Expect.isFalse qualifiedRegistered "a val whose result type is Opaque is not registered as a symbol"
 
                 let skipped = ctx.Skipped |> Seq.exists (fun (_, msg) -> msg.Contains "qualified")
 

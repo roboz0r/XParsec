@@ -74,7 +74,7 @@ let shownName (key: SymbolKey) : string =
     let (DisplayName name) = SymbolKeyOps.simpleName key
     name
 
-/// `shownName` for a nominal head, which carries the narrow `TypeKey`.
+/// `shownName` for a nominal type constructor, which carries the narrow `TypeKey`.
 let shownTypeName (key: TypeKey) : string =
     let (DisplayName name) = SymbolKeyOps.typeSimpleName key
     name

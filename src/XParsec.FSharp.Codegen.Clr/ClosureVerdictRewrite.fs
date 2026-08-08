@@ -101,8 +101,8 @@ module internal ClosureVerdictRewrite =
                     | FTTuple ao, FTTuple an when ao.Length = an.Length ->
                         record oldT newT
                         recordArgs recordNominalDiff ao an
-                    // A differing leaf (`FTFun` → `<closure>$`) or a head swap: the caller
-                    // already recorded the nominal enclosing it.
+                    // A differing leaf (`FTFun` → `<closure>$`) or a swapped type
+                    // constructor: the caller already recorded the nominal enclosing it.
                     | _ -> ()
 
             let rec collect (e: TastAccessor.ExprId) =

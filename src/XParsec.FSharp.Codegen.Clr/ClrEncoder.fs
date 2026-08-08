@@ -193,7 +193,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 for a in args do
                     encodeType (g.AddArgument()) a
         | FTUnknown name ->
-            // A nominal head that resolved to no in-scope type shape during extraction. The
+            // A nominal type constructor that resolved to no in-scope type shape during extraction. The
             // front end refuses it at `unify` with a use-site diagnostic, so arriving here
             // means that diagnostic did not fire.
             failwithf
@@ -305,8 +305,9 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 if i >= 0 && i < slot.Length && slot.[i].IsNone then
                     slot.[i] <- ValueSome a
-            // Same-head pairwise descent: a head mismatch declines silently (no recovery from
-            // that subtree), and `collect` below fails loud on any slot left empty.
+            // Pairwise descent under a shared type constructor: a mismatch declines silently
+            // (no recovery from that subtree), and `collect` below fails loud on any slot
+            // left empty.
             | d -> FrozenType.iterChildren2 go d a
 
         go openT instT

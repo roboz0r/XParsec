@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
+namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -176,7 +176,7 @@ module internal UnificationInferApp =
         let single probe =
             if args.Length = 1 then probe args.[0] else ValueNone
 
-        // The generic curried-application fallback. The head's type is threaded in rather than
+        // The generic curried-application fallback. The function's type is threaded in rather than
         // inferred here, so the optional-argument fill and this loop share one inference of it.
         let inferGenericAppFrom (fnTy: SemType) (argTys: SemType[]) =
             let mutable currTy = fnTy

@@ -251,9 +251,9 @@ module internal ElaborateClassMembers =
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
-                // Only a simple-name head binds. The slot keeps just the binder key, so
-                // the head's own token is spelled into the context here.
-                match BinderKey.siteOfCstPat b.headPat with
+                // Only a simple name binds. The slot keeps just the binder key, so the
+                // pattern's own token is spelled into the context here.
+                match BinderKey.siteOfCstPat b.pattern with
                 | ValueSome site ->
                     let binder = site.Binder
                     ctx.SpellBinder(binder, site.Tok)

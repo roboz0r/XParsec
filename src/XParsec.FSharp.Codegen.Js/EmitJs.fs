@@ -102,31 +102,31 @@ module EmitJs =
         // dropped). Everything else keeps the curried `f(a)(b)`, one unary call per `App`.
         | ExprShape.App ->
             let av = TastAccessor.exprApp e
-            let head, appArgs = TastAccessor.collectAppChain [] e
+            let fn, appArgs = TastAccessor.collectAppChain [] e
 
             let folded =
-                match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) head appArgs loc with
+                match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) fn appArgs loc with
                 | ValueSome call -> ValueSome call
-                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider ctx.Pool (buildExpr ctx) head appArgs loc
+                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider ctx.Pool (buildExpr ctx) fn appArgs loc
 
             match folded with
             | ValueSome call -> call
             | ValueNone ->
-                // An application head naming a module function → its flat callee + SOURCE
+                // An applied function naming a module function → its flat callee + SOURCE
                 // groups. The groups are non-empty by construction, so saturation is the
                 // argument count reaching the group count; anything else stays curried.
-                let flatHead: (JsExpr * TastAccessor.ArgGroup list) voption =
-                    let identAt name = JsExpr.Identifier(name, locOf ctx head)
+                let flatFn: (JsExpr * TastAccessor.ArgGroup list) voption =
+                    let identAt name = JsExpr.Identifier(name, locOf ctx fn)
 
-                    match TastAccessor.exprKind head with
+                    match TastAccessor.exprKind fn with
                     | ExprShape.Var ->
-                        let k = TastAccessor.exprVarBinding head
+                        let k = TastAccessor.exprVarBinding fn
 
                         match ctx.CompiledFns.TryGetValue k with
                         | true, cf -> ValueSome(identAt (binderNameOf ctx.Pool k), cf.Groups)
                         | _ -> ValueNone
                     | ExprShape.External ->
-                        let ext = TastAccessor.exprExternal head
+                        let ext = TastAccessor.exprExternal fn
 
                         JsFlatFns.externalGroups ctx.Provider ext.Key
                         |> ValueOption.map (fun groups ->
@@ -137,7 +137,7 @@ module EmitJs =
                         )
                     | _ -> ValueNone
 
-                match flatHead with
+                match flatFn with
                 | ValueSome(callee, groups) when List.length appArgs >= List.length groups ->
                     JsFlatFns.emitFlatCall ctx.Pool (buildExpr ctx) callee groups appArgs loc
                 | _ -> JsExpr.Call(buildExpr ctx av.Fn, [ buildExpr ctx av.Arg ], loc)
@@ -308,7 +308,7 @@ module EmitJs =
                 (EqArray.ofArray (TastAccessor.exprChildren e))
 
         // A member on an external type, reached WITHOUT being applied; the call forms fold at
-        // the `App` head off the same `MemberDispatch`. A STATIC member has no native
+        // the applied function off the same `MemberDispatch`. A STATIC member has no native
         // lowering, so every dispatch but the erased one falls to the mangled import.
         | ExprShape.ExternalMember ->
             match e with
@@ -709,7 +709,7 @@ module EmitJs =
                             JsStatement.ForOf(name, buildExpr ctx fi.Source, buildStatements ctx fi.Body)
                         ]
                     // Destructuring binder — `for (k, v) in map`: a fresh loop temp deconstructed
-                    // into the body head. It must be irrefutable; a `Some test` is not.
+                    // into the body's first statement. It must be irrefutable; a `Some test` is not.
                     | PatShape.Tuple ->
                         let tmp = freshTemp ctx.Pool "_forin"
 

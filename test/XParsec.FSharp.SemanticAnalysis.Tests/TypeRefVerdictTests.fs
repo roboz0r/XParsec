@@ -156,7 +156,7 @@ let private objectExprInterfaceReturnTypes (file: ImplementationFile<SyntaxToken
 /// syntactic position, pin how many were found (so a locator that drifted to zero
 /// nodes fails rather than passing vacuously), then assert each carries — or, for a
 /// negative control, does NOT carry — an `ExternalType` verdict.
-let private assertHeadsStamped
+let private assertTypeNamesStamped
     (expected: bool)
     (count: int)
     (locate: ImplementationFile<SyntaxToken> -> Type<SyntaxToken> list)
@@ -330,43 +330,43 @@ let tests =
             // its RHS (`when ^T : System.DateTime`): `Expr.LibraryOnlyStaticOptimization`'s
             // `WhenTyparTyconEqualsTycon.rhsType`.
             test "static-optimization constraint rhs type type reference is external" {
-                assertHeadsStamped true 1 staticOptRhsTypes (staticOptSrc "Widget")
+                assertTypeNamesStamped true 1 staticOptRhsTypes (staticOptSrc "Widget")
             }
 
             test "unknown static-optimization constraint rhs type type reference is not external" {
-                assertHeadsStamped false 1 staticOptRhsTypes (staticOptSrc "Nope")
+                assertTypeNamesStamped false 1 staticOptRhsTypes (staticOptSrc "Nope")
             }
 
             // An SRTP trait call's member signature (`(^T: (static member Make: unit ->
             // Widget) x)`): `Expr.StaticMemberInvocation`'s membersig, walked through
             // `iterTypeMemberSig`.
             test "SRTP trait-call membersig return type reference is external" {
-                assertHeadsStamped true 1 staticMemberInvocationReturnTypes (staticMemberInvocationSrc "Widget")
+                assertTypeNamesStamped true 1 staticMemberInvocationReturnTypes (staticMemberInvocationSrc "Widget")
             }
 
             test "unknown SRTP trait-call membersig return type reference is not external" {
-                assertHeadsStamped false 1 staticMemberInvocationReturnTypes (staticMemberInvocationSrc "Nope")
+                assertTypeNamesStamped false 1 staticMemberInvocationReturnTypes (staticMemberInvocationSrc "Nope")
             }
 
             // An object-expression member's RETURN-type annotation, in the expression's
             // own `with` block. The base-call type was always stamped; the member's
             // signature types were not, until `memberDefnSigs`.
             test "object-expression member return-type type reference is external" {
-                assertHeadsStamped true 1 objectExprMemberReturnTypes (objExprSrc "Widget")
+                assertTypeNamesStamped true 1 objectExprMemberReturnTypes (objExprSrc "Widget")
             }
 
             test "unknown object-expression member return-type type reference is not external" {
-                assertHeadsStamped false 1 objectExprMemberReturnTypes (objExprSrc "Nope")
+                assertTypeNamesStamped false 1 objectExprMemberReturnTypes (objExprSrc "Nope")
             }
 
             // The same annotation inside an `interface … with` block of the object
             // expression — a SEPARATE `memberDefnSigs` call site in the walk, so it needs
             // its own coverage.
             test "object-expression interface-impl member return-type type reference is external" {
-                assertHeadsStamped true 1 objectExprInterfaceReturnTypes (objExprInterfaceSrc "Widget")
+                assertTypeNamesStamped true 1 objectExprInterfaceReturnTypes (objExprInterfaceSrc "Widget")
             }
 
             test "unknown object-expression interface-impl member return-type type reference is not external" {
-                assertHeadsStamped false 1 objectExprInterfaceReturnTypes (objExprInterfaceSrc "Nope")
+                assertTypeNamesStamped false 1 objectExprInterfaceReturnTypes (objExprInterfaceSrc "Nope")
             }
         ]

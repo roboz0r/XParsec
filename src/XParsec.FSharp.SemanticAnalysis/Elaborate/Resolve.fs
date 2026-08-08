@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 module internal ElaborateResolve =
 
     /// A class name only where there is no local `Binding` entry, so a shadowing local wins.
-    /// Answers for a project-local class, or an external head whose `TypeKey` the `ResolvedType`
+    /// Answers for a project-local class, or an external type whose `TypeKey` the `ResolvedType`
     /// stamp carries. The returned string is DIAGNOSTIC ONLY — backends never lower from it.
     let rec private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
@@ -26,9 +26,9 @@ module internal ElaborateResolve =
                 | ValueSome k -> ValueSome(SymbolKeyOps.typeMetaName k)
                 | ValueNone -> ValueNone
 
-            // Scoped by the head's own position: a class declared BELOW this head names
-            // nothing here, so the head is not a class reference. The local read comes first,
-            // so a local class is never mistaken for an external type of the same spelling.
+            // Scoped by the reference's own position: a class declared BELOW it names nothing
+            // here, so it is not a class reference. The local read comes first, so a local
+            // class is never mistaken for an external type of the same spelling.
             let localClass (written: WrittenTypeName) : string voption =
                 if (TypeRegistry.tryWrittenClass ctx.Types (ctx.UseSiteAt key) written).IsSome then
                     ValueSome written.Written
@@ -68,9 +68,9 @@ module internal ElaborateResolve =
                 | ValueSome info -> pick info.TypeKey info.Members
                 | ValueNone -> ValueNone
 
-    /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`
+    /// Resolve `r.M` when the anchor `r` is a local binding of a `TyClass`/`TyUnion`
     /// with a known member `M`. The parser folds the dot into the long ident
-    /// rather than emitting `DotLookup` when the head is a regular identifier.
+    /// rather than emitting `DotLookup` when the anchor is a regular identifier.
     let private tryLongIdentClassTail
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
@@ -78,10 +78,9 @@ module internal ElaborateResolve =
         if li.Idents.Length <> 2 then
             ValueNone
         else
-            let head = li.Idents.[0]
-            let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+            let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
-            match ctx.Bindings.Binding.TryGetValue headKey with
+            match ctx.Bindings.Binding.TryGetValue anchorKey with
             | ValueNone -> ValueNone
             | ValueSome rb ->
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
@@ -247,13 +246,12 @@ module internal ElaborateResolve =
         | _ -> ValueNone
 
     /// The receiver type a folded LongIdent chain's prefix segments `[1 .. n-2]` land on:
-    /// the head's bound type walked one field / property step at a time. `ValueNone` if the
-    /// head is not a local binding or any step cannot be typed.
+    /// the anchor segment's bound type walked one field / property step at a time. `ValueNone`
+    /// if the anchor is not a local binding or any step cannot be typed.
     let private tryChainReceiverTy (ctx: PassContext) (li: LongIdent<SyntaxToken>) : SemType voption =
-        let head = li.Idents.[0]
-        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+        let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
-        match ctx.Bindings.Binding.TryGetValue headKey with
+        match ctx.Bindings.Binding.TryGetValue anchorKey with
         | ValueNone -> ValueNone
         | ValueSome rb ->
             let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
@@ -276,7 +274,7 @@ module internal ElaborateResolve =
             Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
         }
 
-    /// `head.f.…g.M(args)` — a method call whose receiver is a *multi-segment* folded chain:
+    /// `r.f.…g.M(args)` — a method call whose receiver is a *multi-segment* folded chain:
     /// `this.Source.MoveNext` arrives as one `LongIdent[this; Source; MoveNext]`. Returns the
     /// prefix (the receiver chain, last segment dropped), the receiver type and the method.
     [<return: Struct>]
@@ -299,7 +297,7 @@ module internal ElaborateResolve =
                 | _ -> ValueNone
             | _ -> ValueNone
 
-    /// `head.…M(args)` whose receiver type is a generic typar coerced to a project-local
+    /// `r.…M(args)` whose receiver type is a generic typar coerced to a project-local
     /// interface (`'T :> IFace`), which never grounds to a nominal. The interface's `TypeKey`
     /// was recorded in `TyparInterfaceCall`; returns it alongside `ClassChainMethod`'s shape.
     [<return: Struct>]

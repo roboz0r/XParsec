@@ -181,7 +181,7 @@ Members: `AppendLiteral`, `AppendFormatted` (value / +format / +alignment /
 `AppendOctal`, `AppendZeroPaddedFloat`) and `AppendStructured` for `%A`.
 
 Two deliberate deviations from a pure no-alloc handler, each **byte-identical** in
-output and documented at the head of `formatter.clr.fs`:
+output and documented at the top of `formatter.clr.fs`:
 
 - `AppendFormatted` takes the `IFormattable.ToString(format, provider)` path rather
   than the no-alloc `ISpanFormattable.TryFormat` span fast-path — so it does box the
@@ -520,7 +520,7 @@ codegen invariant it always claimed to be.
 **4. The family is recognised by `SymbolKey`.** `PrintfSpec.tryFamily` (`:306-313`) and
 `PrintfSpec.sinkOf` (`:61-75`) — two independent re-derivations of the last dotted segment
 of a written name — collapse into one lookup keyed on `Resolution.ExternalValue` at the
-head's `NodeKey`. Consequences that fall out rather than being engineered:
+applied function's `NodeKey`. Consequences that fall out rather than being engineered:
 - `Scope.fs:202-207` (the suppression that lets an *undeclared* `fprintf` resolve at all)
   is **deleted**: the family is declared, so it resolves like any other value.
 - `InferApp.fs:295`'s `ctx.Bindings.Binding.ContainsKey fnKey` shadow guard is **deleted**:

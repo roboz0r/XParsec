@@ -154,7 +154,7 @@ module VesperLibTyparCapture =
         /// declares; every case built from one is stamped, so a bare case name is rejected.
         member val RqaTypes = HashSet<string>(StringComparer.Ordinal) with get
         /// Type shapes this package did NOT declare — its already-extracted dependencies,
-        /// plus BCL metadata — consulted to kind a nominal head this package only names.
+        /// plus BCL metadata — consulted to kind a nominal type constructor this package only names.
         /// The default answers nothing: a package with no dependencies.
         member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
         /// The ambient prefixes this package's dependencies publish, probed LAST during this

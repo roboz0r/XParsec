@@ -399,25 +399,25 @@ module Parsing =
         =
         match context with
         | [] -> ValueNone
-        | head :: rest ->
+        | current :: enclosing ->
 
             // Closing delimiters are never offside from their matching paren-like context (15.1.8)
-            if isMatchingClose token head.Context then
+            if isMatchingClose token current.Context then
                 ValueSome "15.1.8 MatchingClose"
-            elif anyMatchingClose token rest then
+            elif anyMatchingClose token enclosing then
                 ValueSome "15.1.8 MatchingClose"
 
             // --- 15.1.9: Exceptions to Offside Rules ---
 
             // SeqBlock infix: an infix token may be offside by (tokenSize + 1)
-            elif head.Context = OffsideContext.SeqBlock && isInfixToken token then
+            elif current.Context = OffsideContext.SeqBlock && isInfixToken token then
                 let tokenLength = getTokenLength state (int readerIndex * 1<token>)
 
-                if tokenCol >= head.Indent - (tokenLength + 1) then
+                if tokenCol >= current.Indent - (tokenLength + 1) then
                     ValueSome "15.1.9 InfixUndent"
                 else if
                     // Still check deeper contexts, but don't let bars pass through MatchClauses
-                    contextPermitsTokenBounded token tokenCol rest
+                    contextPermitsTokenBounded token tokenCol enclosing
                 then
                     ValueSome "15.1.9 ContextPermits"
                 else
@@ -426,11 +426,11 @@ module Parsing =
                     // undentation rule.
                     tryCollectionUndent tokenCol context
 
-            // Check if the token is permitted at the head context or any enclosing context
-            elif contextPermitsToken token tokenCol head then
+            // Check if the token is permitted at the current context or any enclosing one
+            elif contextPermitsToken token tokenCol current then
                 ValueSome "15.1.9 ContextPermits"
 
-            elif contextPermitsTokenBounded token tokenCol rest then
+            elif contextPermitsTokenBounded token tokenCol enclosing then
                 ValueSome "15.1.9 ContextPermits"
 
             // --- 15.1.10: Permitted Undentations ---
@@ -439,8 +439,11 @@ module Parsing =
             // The body may undent from fun/function but not past other offside lines.
             // "Constructs enclosed in brackets may be undented" — so we skip past
             // SeqBlock+Paren pairs to find the true enclosing offside line.
-            elif head.Context = OffsideContext.Fun || head.Context = OffsideContext.Function then
-                if findFunBodyEnclosingIndent tokenCol rest then
+            elif
+                current.Context = OffsideContext.Fun
+                || current.Context = OffsideContext.Function
+            then
+                if findFunBodyEnclosingIndent tokenCol enclosing then
                     ValueSome "15.1.10.1 FunBody"
                 else
                     ValueNone
@@ -450,8 +453,8 @@ module Parsing =
             // a rule (guard continuations, ->, etc.) should be bounded by the
             // enclosing Function/Match context, not the pattern column. Apply the
             // same skip-past-containers rule as FunBody.
-            elif head.Context = OffsideContext.MatchClauses && token <> Token.OpBar then
-                if findMatchBodyEnclosingIndent tokenCol rest then
+            elif current.Context = OffsideContext.MatchClauses && token <> Token.OpBar then
+                if findMatchBodyEnclosingIndent tokenCol enclosing then
                     ValueSome "15.1.10.1 MatchBody"
                 else
                     ValueNone
@@ -462,16 +465,16 @@ module Parsing =
             // after lexing, requiring special cases for paren-like frames. XParsec.FSharp is
             // offside-aware by construction: Paren and Begin are pushed (by pEnclosed and
             // withContextAt) with Indent=0 as pure stack markers, so they can never be the
-            // head context in an offside check (tokenCol < 0 is impossible). Content inside
+            // current context in an offside check (tokenCol < 0 is impossible). Content inside
             // `(...)` or `begin...end` is bounded by the SeqBlock inside pInner, which is
             // handled by the SeqBlockParen arm of tryCollectionUndent below.
 
             // 15.1.10.4: Collection/CE undentation for Bracket, BracketBar, Brace contexts
             elif
-                head.Context = OffsideContext.Bracket
-                || head.Context = OffsideContext.BracketBar
-                || head.Context = OffsideContext.BraceBar
-                || head.Context = OffsideContext.Brace
+                current.Context = OffsideContext.Bracket
+                || current.Context = OffsideContext.BracketBar
+                || current.Context = OffsideContext.BraceBar
+                || current.Context = OffsideContext.Brace
             then
                 tryCollectionUndent tokenCol context
 
@@ -479,22 +482,25 @@ module Parsing =
             // withContext pushes a SeqBlock on top of the Paren context from pEnclosed.
             // When content undents past that SeqBlock but is still within the enclosing
             // expression's offside line, delegate to the collection undentation rule.
-            elif head.Context = OffsideContext.SeqBlock then
+            elif current.Context = OffsideContext.SeqBlock then
                 tryCollectionUndent tokenCol context
 
             // 15.1.10 extended: Match/Function/Try aligned tokens (with/|/finally)
             // may undent when the expression is enclosed in brackets, to the
             // enclosing expression's offside line. Mirrors SeqBlockParen above.
             elif
-                (head.Context = OffsideContext.Match
-                 || head.Context = OffsideContext.Function
-                 || head.Context = OffsideContext.Try)
+                (current.Context = OffsideContext.Match
+                 || current.Context = OffsideContext.Function
+                 || current.Context = OffsideContext.Try)
                 && (token = Token.OpBar
                     || (token = Token.KWWith
-                        && (head.Context = OffsideContext.Match || head.Context = OffsideContext.Try))
-                    || (token = Token.KWFinally && head.Context = OffsideContext.Try))
+                        && (current.Context = OffsideContext.Match || current.Context = OffsideContext.Try))
+                    || (token = Token.KWFinally && current.Context = OffsideContext.Try))
             then
-                if hasEnclosingParenAroundMatch rest && checkCollectionUndent tokenCol rest then
+                if
+                    hasEnclosingParenAroundMatch enclosing
+                    && checkCollectionUndent tokenCol enclosing
+                then
                     ValueSome "15.1.10 MatchParen"
                 else
                     ValueNone
@@ -518,12 +524,12 @@ module Parsing =
                 tokenCol >= ctx.Indent
 
     /// F# spec §15.1.10.4 (collection/CE undentation) and its SeqBlockParen extension:
-    /// a token may undent from the head context when it still lies within the enclosing
+    /// a token may undent from the current context when it still lies within the enclosing
     /// expression's offside line. Returns the trace-rule name on success.
-    /// Expects `stack` to be the full context list; inspects the head:
+    /// Expects `stack` to be the full context list; inspects the innermost frame:
     ///   * `SeqBlock :: paren-like :: deeper` — SeqBlock pushed on top of a paren-like
     ///     context by `withContext` after `pEnclosed`. Rule: "15.1.10.4 SeqBlockParen".
-    ///   * `paren-like :: rest` — head is itself the paren-like container. Rule:
+    ///   * `paren-like :: rest` — the innermost frame is itself the paren-like container. Rule:
     ///     "15.1.10.4 Collection".
     and private tryCollectionUndent (tokenCol: int) (stack: Offside list) : string voption =
         match stack with
@@ -587,7 +593,7 @@ module Parsing =
                         else
                             token
                     elif state.CharsConsumedAfterTypeParams > 0 then
-                        // After type-parameter close consumed `n` chars from the head of a fused
+                        // After type-parameter close consumed `n` leading chars of a fused
                         // operator token (e.g. `>` from `>:`, `>` from `>.`), present the remaining
                         // tail as the appropriate non-operator token so syntactic parsers (`:`, `.`,
                         // `;`, `)`) work after a generic instantiation.

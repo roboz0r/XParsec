@@ -16,7 +16,7 @@ module Desugar =
     /// generic operator token and needs `opPatCompiledName`'s source-text fallback.
     let symbolicOpCompiledName (t: Token) : string voption = OperatorNames.ofToken t
 
-    /// Compiled name for an operator-named binding HEAD (`let (=) x y = …` →
+    /// Compiled name for an operator-named binding (`let (=) x y = …` →
     /// `"op_Equality"`, `let (~-) n = …` → `"op_UnaryNegation"`), so a definition
     /// freezes under the same member name its use sites reference.
     let opPatCompiledName (nameOf: SyntaxToken -> string) (io: IdentOrOp<SyntaxToken>) : string voption =
@@ -27,7 +27,7 @@ module Desugar =
 
     /// `Token.OpSubtraction` / `OpAddition` serve both `a - b` and `-x`; only the prefix
     /// form reaches here, mapping to `op_UnaryNegation` / `op_UnaryPlus`. The spellings
-    /// `~-` / `~+` never do — they appear only as binding heads / values.
+    /// `~-` / `~+` never do — they appear only as bound names / values.
     let private prefixOpName (t: Token) : string voption =
         match t with
         | Token.OpSubtraction -> ValueSome OperatorData.OpUnaryNegation

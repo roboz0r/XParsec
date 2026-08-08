@@ -63,9 +63,9 @@ module Validation =
                 | _ -> failwith "unreachable"
 
             if li.Idents.Length = 2 then
-                let headKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
+                let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
-                match ctx.Bindings.Binding.TryGetValue headKey with
+                match ctx.Bindings.Binding.TryGetValue anchorKey with
                 | ValueSome rb ->
                     match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                     | ValueSome tv ->
@@ -200,9 +200,9 @@ module Validation =
 
     let private checkUseBindings (ctx: PassContext) (bindings: XParsec.FSharp.ImArr<Binding<SyntaxToken>>) : unit =
         for b in bindings do
-            if not (isSimpleUsePat b.headPat) then
+            if not (isSimpleUsePat b.pattern) then
                 ctx.Report(
-                    CstKeys.firstTokenOfPat b.headPat,
+                    CstKeys.firstTokenOfPat b.pattern,
                     Kind.Message "Only simple variable patterns can be bound in 'use' expressions"
                 )
 

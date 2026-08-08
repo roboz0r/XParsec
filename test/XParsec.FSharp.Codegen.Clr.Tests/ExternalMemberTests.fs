@@ -330,7 +330,7 @@ let tests =
             // and the two unify.
             test "a type annotation resolves an external type — short form unifies with the receiver" {
                 // Vesper.Core supplies the `int` intrinsic the `EqualityComparer<int>` type
-                // ARGUMENT names; the `EqualityComparer` head itself resolves through the
+                // ARGUMENT names; the `EqualityComparer` name itself resolves through the
                 // metadata leaf either way.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 

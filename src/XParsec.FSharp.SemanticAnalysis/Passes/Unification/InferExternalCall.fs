@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
+namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -82,7 +82,7 @@ module internal UnificationInferExternalCall =
             elif refined.Length = 1 then refined.[0]
             else TyTuple(EqArray.ofSeq refined)
 
-    /// At any structural depth of `t`, not just its head.
+    /// At any structural depth of `t`, not just its outermost type constructor.
     let private referencedMethodTypars (store: TypeStore) (t: SemType) : Set<int> =
         let mutable acc = Set.empty
 
@@ -135,9 +135,9 @@ module internal UnificationInferExternalCall =
 
             [ for kv in seed -> kv.Key, kv.Value ]
 
-    /// The receiver type + member name of an instance-call head. `w.Write(arg)` parses with
+    /// The receiver type + member name of an instance call. `w.Write(arg)` parses with
     /// `fn = LongIdent [w; Write]` (the parser folds the dot after a plain identifier), so the
-    /// head must be a local BINDING — `TextWriter.Synchronized` is the static probe's job.
+    /// anchor must be a local BINDING — `TextWriter.Synchronized` is the static probe's job.
     let private receiverMemberOf
         (infer: Infer)
         (ctx: PassContext)
@@ -254,7 +254,7 @@ module internal UnificationInferExternalCall =
                     )
 
     /// Call-site overload resolution for an external *instance* method call (`sb.Append("x")`),
-    /// keyed off a head whose receiver infers to a ground external `TyClass`. Needed because
+    /// keyed off a call whose receiver infers to a ground external `TyClass`. Needed because
     /// the single-pick path takes an arbitrary overload — `Append(char[], int, int)` for one `string`.
     and tryInferExternalInstanceMethodCall
         (infer: Infer)
@@ -328,7 +328,7 @@ module internal UnificationInferExternalCall =
                 | ValueNone -> ValueNone
             | _ -> ValueNone
 
-        // A parameter-shape rendering for the ambiguity diagnostic: the nominal head's
+        // A parameter-shape rendering for the ambiguity diagnostic: the nominal's
         // simple name (`int`), or `_` for a still-open position.
         let describeParams (ps: SemType list) : string =
             let one (t: SemType) =

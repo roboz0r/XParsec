@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // body, so the splice actually fires and the program runs.
 
 /// The frozen body of the single top-level `let f () = <body>` reduces to the
-/// zero-operand `ilzero` intrinsic — no member-read / call head survives. Read THROUGH the
+/// zero-operand `ilzero` intrinsic — no member-read / call survives. Read THROUGH the
 /// specialization edge the reference now leaves: the resolved body is an entry, and a
 /// nullary intrinsic alias is an entry like any other.
 let rec private findIlzero (tast: TastFile) (e: TExpr) : bool =
@@ -36,7 +36,7 @@ let tests =
                             "qualified", "let f () : int = Unchecked.defaultof"
                             "qualified type-applied", "let f () : int = Unchecked.defaultof<int>"
                         ] ->
-                        test (sprintf "%s `defaultof` splices to `ilzero` (no surviving call head)" label) {
+                        test (sprintf "%s `defaultof` splices to `ilzero` (no surviving call)" label) {
                             let tast = analyse src
                             Expect.isEmpty tast.Diagnostics "no diagnostics"
 

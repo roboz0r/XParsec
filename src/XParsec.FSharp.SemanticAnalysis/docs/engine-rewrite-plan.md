@@ -208,7 +208,7 @@ half-there, smeared across four node slots today.
 | `subsumes` | read-only relation + suspendable bound | `CSub` |
 
 Solver loop: `union` joins two reps' stuck-constraint sets; **grounding a var wakes its watchers**;
-`CSub`/`Capability` checked read-only; `HasMember`/`Implements` resolved when the receiver head
+`CSub`/`Capability` checked read-only; `HasMember`/`Implements` resolved when the receiver's type constructor
 grounds; unresolved-at-end are diagnostics (or generalized). Suspension, not backtracking —
 consistent with preserve-6.
 

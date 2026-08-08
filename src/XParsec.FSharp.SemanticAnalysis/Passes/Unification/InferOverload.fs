@@ -38,7 +38,7 @@ module UnificationInferOverload =
                 CallerVars = Dictionary()
             }
 
-    /// The SOLE overload FILTER: `unify`'s concrete-head arm structure, except that an open
+    /// The SOLE overload FILTER: `unify`'s concrete-type-constructor arm structure, except that an open
     /// method typar and a free metavar RECORD their binding in `binds` instead of matching
     /// unconditionally. Read-only w.r.t. the shared graph; no hierarchy walk enters here.
     let rec private matchTypes
@@ -89,7 +89,7 @@ module UnificationInferOverload =
             binds.MethodTypars.[i] <- other
             true
 
-    /// A free caller metavar: `matchTypes`'s head `zonk` already consulted the shared graph, so
+    /// A free caller metavar: `matchTypes`'s shallow `zonk` already consulted the shared graph, so
     /// a committed `Link` never reaches here and only `binds.CallerVars` is left. Bound ⇒
     /// recurse; unseen ⇒ record it. Two vars already unified in the graph need no new binding.
     and private matchVar

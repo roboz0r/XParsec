@@ -154,7 +154,7 @@ module Probe =
             Target.Js
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
-/// A synthetic producer whose recursion closes on a MEMBER, which is the one head whose
+/// A synthetic producer whose recursion closes on a MEMBER, which is the one function whose
 /// RECEIVER is not an applied argument: the reduction PREPENDS it, so the entry's parameters are
 /// peeled from `this :: args` while the application it was reached through carries only `args`.
 /// A back edge taking the application's own arguments would therefore name the entry with one argument
@@ -447,7 +447,7 @@ let tests =
             }
 
             test "a recursion that closes on a MEMBER answers the call without losing its receiver" {
-                // The one head whose receiver is not an applied argument. `a.[1]` expands
+                // The one function whose receiver is not an applied argument. `a.[1]` expands
                 // `get_Item`, whose reduction peels `this :: [index]`; its body reaches the same
                 // member through `bounce`, and THAT call is answered rather than expanded.
                 //
@@ -886,13 +886,13 @@ let tests =
                     "…and a second one convicts it, naming the entry and the count"
             }
 
-            test "a fused external in call-head position anchors where the ENTRY wrote it" {
+            test "a fused external in applied-function position anchors where the ENTRY wrote it" {
                 // `(|>) arg func = func arg` binds `func` to the bare external `not`, which the
                 // classification substitutes into the body — so the `App` the walker then meets
-                // has a head written HERE inside an application written in `ops-std.fs`. The
-                // rewrite consumes the head and its mark with it, so the edge that replaces the
+                // has an applied function written HERE inside an application written in `ops-std.fs`. The
+                // rewrite consumes that function and its mark with it, so the edge that replaces the
                 // application can only be right if it takes the APPLICATION's position: there is
-                // no marker left to say the head's would have been the caller's.
+                // no marker left to say the applied function's would have been the caller's.
                 let input = "let b = true\nlet a = b |> not\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
@@ -905,10 +905,10 @@ let tests =
 
                 Expect.isEmpty
                     (callerMarked (entryValue entry))
-                    "the rewrite consumed the head, so no mark is left to carry the position"
+                    "the rewrite consumed the applied function, so no mark is left to carry the position"
 
                 // The entry-references-entry leg of the DAG, which no other fixture reaches: `(|>)`
-                // outlines an application whose head has an entry of its own.
+                // outlines an application whose applied function has an entry of its own.
                 Expect.isNonEmpty (InlineSpecTable.edges (entryValue entry)) "the entry's body names another entry"
 
                 let ownToks = unmarkedPositions (entryValue entry)
@@ -925,7 +925,7 @@ let tests =
                 Expect.isGreaterThan
                     (List.min (tokenIndices ownToks))
                     (int lexed.Tokens.Length)
-                    "…and past the end of the CONSUMING file, so none of them is the caller's head token"
+                    "…and past the end of the CONSUMING file, so none of them is the caller's function token"
             }
 
             test "a capture WRITTEN inside an entry is seen only because the table is walked" {

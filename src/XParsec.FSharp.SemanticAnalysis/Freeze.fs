@@ -128,15 +128,15 @@ module Freeze =
     /// The frozen file in DU form, the shape the node-for-node tree map consumes.
     let private toFrozenFile (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
         // Publication is ADDITIVE: `Decls` keeps the binding. A binder with no
-        // `ModuleBindingInfo` (a destructuring `let` head) has no key, so it publishes nowhere.
+        // `ModuleBindingInfo` (a destructuring `let` pattern) has no key, so it publishes nowhere.
         let inlineBodies = ResizeArray<TInlineValue>()
 
         // Widened to the REFERENCE domain: the sibling rewrite is driven by a body's
         // `TExpr.Var`s, which name their binder by `NodeKey`.
         let siblingsByRef = BinderKey.widenMap tast.ModuleMembers
 
-        let publishedInfo (head: TPat) =
-            match BinderKey.ofPat head with
+        let publishedInfo (pattern: TPat) =
+            match BinderKey.ofPat pattern with
             | ValueNone -> ValueNone
             | ValueSome binder ->
                 match Map.tryFind binder tast.ModuleMembers with
@@ -145,8 +145,8 @@ module Freeze =
 
         for d in tast.Decls do
             match d with
-            | TDecl.Let(head, _, _, _) when isInlineVocabulary d ->
-                match publishedInfo head with
+            | TDecl.Let(pattern, _, _, _) when isInlineVocabulary d ->
+                match publishedInfo pattern with
                 | ValueSome(binder, info) ->
                     let k = BinderKey.identity binder
                     // The stashed TEMPLATE, not `d`: `d` is the emitted ordinary function,
@@ -159,7 +159,7 @@ module Freeze =
 
                     let rewritten = rewriteSiblingRefs siblingsByRef template
 
-                    if publishable ctx (TastWalk.patTok head) rewritten then
+                    if publishable ctx (TastWalk.patTok pattern) rewritten then
                         inlineBodies.Add
                             {
                                 TInlineValue.Key = info.Key

@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// An attribute head is RESOLVED as a type and its `TypeKey` compared against the
+// An attribute name is RESOLVED as a type and its `TypeKey` compared against the
 // `Vesper.Core` marker identities, so these pin what only an identity can decide:
 // which declaration a spelling reached. `realProvider` composes the real
 // `compiler-attributes.fsi`, so `Vesper.ReferenceEqualityAttribute` is genuinely
@@ -65,7 +65,7 @@ let tests =
                 Expect.equal
                     (expectRecord ctx "Point").EqualitySupport
                     EqualityVerdict.Structural
-                    "an unresolved head leaves the record's structural default"
+                    "an unresolved name leaves the record's structural default"
 
                 match ctx.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
                 | [ msg ] ->
@@ -78,7 +78,7 @@ let tests =
 
             test "an unresolved attribute that spells no marker stays silently ignored" {
                 // Most of F#'s attribute vocabulary is declared nowhere in the Vesper
-                // contract, so blaming every unresolved head would blame every library file.
+                // contract, so blaming every unresolved name would blame every library file.
                 let ctx = analyse (src [ "[<AutoOpen>]"; "type Point = { X: int }" ])
 
                 Expect.isEmpty (ctx.Diagnostics |> Diagnostic.errors) "an undeclared non-marker is not an error"

@@ -49,7 +49,7 @@ let tests =
     testList
         "ExternalUnionRecordQualifier"
         [
-            // A union qualifier with an unresolved tail: `Colour.Nope` (head `Colour`
+            // A union qualifier with an unresolved tail: `Colour.Nope` (anchor `Colour`
             // qualifies to the auto-opened `Tests.Colour`) stamps the qualifier key so
             // Unification diagnoses the member miss.
             test "union qualifier with unresolved tail is stamped" {

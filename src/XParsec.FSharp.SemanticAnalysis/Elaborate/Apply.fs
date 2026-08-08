@@ -39,7 +39,7 @@ module internal ElaborateApply =
     let private translateExternalOptionalCall
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
-        (head: TExpr)
+        (fn: TExpr)
         (fnKey: NodeKey)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (omitted: TConstValue list)
@@ -71,22 +71,22 @@ module internal ElaborateApply =
                 let tuple = TExpr.Tuple(EqArray.ofList many, fullDom, tok)
                 wrapObjArg ctx.Store fullDom tuple
 
-        TExpr.App(head, argNode, ret, tok)
+        TExpr.App(fn, argNode, ret, tok)
 
-    /// Dispatch an application head through the optional-argument fill iff Unification
-    /// recorded omitted trailing optionals for it; `ValueNone` ⇒ the arm's ordinary
-    /// lowering runs unchanged. `head` is the already lowered application head.
+    /// Dispatch a call through the optional-argument fill iff Unification recorded omitted
+    /// trailing optionals for it; `ValueNone` ⇒ the arm's ordinary lowering runs unchanged.
+    /// `fn` is the already lowered applied function.
     let private tryTranslateExternalOptionalFill
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
-        (head: TExpr)
+        (fn: TExpr)
         (fnKey: NodeKey)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (tok: SyntaxToken)
         : TExpr voption =
         match ctx.Resolution.ExternalOptionalFill.TryGetValue fnKey with
         | ValueSome omitted when not (List.isEmpty omitted) ->
-            ValueSome(translateExternalOptionalCall translateExpr ctx head fnKey args omitted tok)
+            ValueSome(translateExternalOptionalCall translateExpr ctx fn fnKey args omitted tok)
         | _ -> ValueNone
 
     let translateApp
@@ -105,10 +105,10 @@ module internal ElaborateApply =
 
             let mutable currTy = typeOfKey ctx (CstKeys.ofExpr fn)
 
-            // An external .NET method head reads its `obj` slots off the declared
+            // An external .NET method reads its `obj` slots off the declared
             // signature, since its node SemType is the un-grounded applied shape, not a
             // function type. It consumes the FIRST argument; a local one reads `currTy`.
-            let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
+            let externalDom = externalFnDom ctx (CstKeys.ofExpr fn) result
             let mutable isFirst = true
             // The member's own argument is the FIRST one; residual application applies to
             // its RESULT, so the opened `let`s wrap the whole spine and keep it outermost.
@@ -131,7 +131,7 @@ module internal ElaborateApply =
                     if isFirst then
                         match openTupledMemberArg ctx result argT with
                         | ValueSome o ->
-                            result <- o.Head
+                            result <- o.Fn
                             opened <- o.Binds
                             o.Arg
                         | ValueNone -> argT
@@ -152,7 +152,7 @@ module internal ElaborateApply =
 
     /// A residual single application (an external .NET method reached as a folded
     /// LongIdent, a local function value, …). An external method reads its `obj` slot
-    /// off the recorded signature; everything else off the head's function type.
+    /// off the recorded signature; everything else off the applied function's own type.
     let translateHighPrecedenceApp
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -173,7 +173,7 @@ module internal ElaborateApply =
             let argT = translateExpr ctx arg
 
             let paramTy =
-                match externalHeadDom ctx fnKey fnT with
+                match externalFnDom ctx fnKey fnT with
                 | ValueSome _ as dom -> dom
                 | ValueNone ->
                     match Unification.zonk ctx.Store (TastWalk.exprTy fnT) with
@@ -184,7 +184,7 @@ module internal ElaborateApply =
             // and the receiver binds ahead of it.
             let opened, fnT, argT =
                 match openTupledMemberArg ctx fnT argT with
-                | ValueSome o -> o.Binds, o.Head, o.Arg
+                | ValueSome o -> o.Binds, o.Fn, o.Arg
                 | ValueNone -> [], fnT, argT
 
             let argT =

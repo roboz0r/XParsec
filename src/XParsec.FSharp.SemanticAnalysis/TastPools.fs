@@ -144,9 +144,9 @@ module TastPools =
             for DeclPoolId d in pools.Roots do
                 match pools.DeclPayloads.[d] with
                 | DeclPayload.Let _ ->
-                    let (PatPoolId head) = ChildColumn.item pools.DeclPatChildren d 0
+                    let (PatPoolId pattern) = ChildColumn.item pools.DeclPatChildren d 0
 
-                    match pools.PatPayloads.[head] with
+                    match pools.PatPayloads.[pattern] with
                     // Only a simple binder has a side-table identity.
                     | PatPayload.NamedSimple binder ->
                         let groups, body =

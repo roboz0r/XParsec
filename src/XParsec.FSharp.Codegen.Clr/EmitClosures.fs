@@ -453,18 +453,18 @@ module EmitClosures =
                 match e with
                 | TastAccessor.EVar k when arity.ContainsKey k -> buildEta e arity.[k]
                 | TastAccessor.EApp _ ->
-                    let head, args = TastAccessor.collectAppChain [] e
+                    let fn, args = TastAccessor.collectAppChain [] e
 
-                    match head with
+                    match fn with
                     | TastAccessor.EVar k when arity.ContainsKey k && List.length args < arity.[k] ->
                         // Under-application: partially apply the eta closure.
                         TastAccessor.mintAppChain
-                            (buildEta head arity.[k])
+                            (buildEta fn arity.[k])
                             (args |> List.map (fun (a, t, tk) -> rw a, t, tk))
                     | _ ->
-                        // The application STANDS: a saturated (or over-applied) eligible head
-                        // stays a direct `call`, so only the arguments and a non-eligible
-                        // head can move.
+                        // The application STANDS: a saturated (or over-applied) eligible
+                        // function stays a direct `call`, so only the arguments and a
+                        // non-eligible function can move.
                         TastAccessor.mapAppChain
                             (fun h ->
                                 match h with

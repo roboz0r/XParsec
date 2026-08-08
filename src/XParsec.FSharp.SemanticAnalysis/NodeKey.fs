@@ -68,7 +68,7 @@ type NodeKind =
     /// `for i = …` loop variable; the `i` token has no surrounding `Pat` in the CST.
     | PatForToVar = 110us
     | PatEmptyBlock = 111us
-    /// Operator-named binding head (`let (=) x y = …`) — the `IdentOrOp` carries the operator token.
+    /// Operator-named binding (`let (=) x y = …`) — the `IdentOrOp` carries the operator token.
     | PatOp = 112us
     /// Cons pattern (`h :: t`), keyed off the `::` token, not its head sub-pattern's.
     | PatCons = 113us

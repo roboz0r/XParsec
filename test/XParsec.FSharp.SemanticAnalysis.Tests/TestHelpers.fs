@@ -232,7 +232,7 @@ let firstBindingExpr (file: ImplementationFile<SyntaxToken>) : Expr<SyntaxToken>
 
 /// The zonked `SemType` inference settled on at `key` — the node's TypeVar
 /// resolved through the substitution. Asserting on this pins the type's IDENTITY,
-/// which a diagnostics-only assertion cannot: an unresolved head still yields a
+/// which a diagnostics-only assertion cannot: an unresolved name still yields a
 /// well-formed type (`TyConst(RuntimeNames.opaqueKey name)`), so it unifies and
 /// clashes exactly like a resolved one.
 let typeOf (ctx: PassContext) (key: NodeKey) : SemType =

@@ -220,7 +220,7 @@ module UnificationEngine =
         // instead of linking a var to an inert carrier.
         | FoldedCarrier ctx folded, _ -> unify ctx tok folded b
         | _, FoldedCarrier ctx folded -> unify ctx tok a folded
-        // An unresolved head unifies with nothing — no Link, so one broken head can't
+        // An unresolved type constructor unifies with nothing — no Link, so one broken one can't
         // cascade. A name this unit's source wrote was already blamed where it was written
         // (`UndefinedTypeNames`); what reports here is a name a baked contract could not resolve.
         | TyUnknown name, _
@@ -257,7 +257,7 @@ module UnificationEngine =
         // link. Membership (`int ≤ int | string`) belongs to `subsumes`.
         | TyOr m1, TyOr m2 when m1 = m2 -> ()
         // The carried type-level computations unify STRUCTURALLY, as opaque constructors:
-        // same head, children pairwise. NOT evaluation — no `keyof` expansion.
+        // same type constructor, children pairwise. NOT evaluation — no `keyof` expansion.
         | TyKeyOf t1, TyKeyOf t2 -> unify ctx tok t1 t2
         | TyIndexedAccess(o1, i1), TyIndexedAccess(o2, i2) ->
             unify ctx tok o1 o2
@@ -497,7 +497,7 @@ module UnificationEngine =
 
         match c.Kind, resolveStep ctx.Store t with
         | _, TyVar _ -> Defer
-        // An unresolved contract head supports no constraint, but the mismatch was
+        // An unresolved contract type supports no constraint, but the mismatch was
         // already reported where it unified — defer rather than emit a second error.
         | _, TyUnknown _ -> Defer
         | _, TyTypar _ -> Defer

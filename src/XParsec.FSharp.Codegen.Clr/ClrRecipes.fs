@@ -297,7 +297,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | ValueNone -> ValueNone
         | ValueSome openSig ->
             // The open curried signature *template*: its method typars are already
-            // `FTTypar(Method, i)` and its nominal heads kind-correct (`'T option` ⇒ `FTUnion`),
+            // `FTTypar(Method, i)` and its nominal type constructors kind-correct (`'T option` ⇒ `FTUnion`),
             // so it encodes and recovers against the producer's emitted signature unchanged.
             let methodTyparArity = openSig.MethodTyparArity
 

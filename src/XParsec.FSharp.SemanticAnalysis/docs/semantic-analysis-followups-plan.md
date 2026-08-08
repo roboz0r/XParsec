@@ -12,12 +12,12 @@ subagent report.
 
 ## Defects
 
-### `Passes/Unification/Translate.fs:423` — one unresolved-head residue is a free `TyVar`, two are opaque
+### `Passes/Unification/Translate.fs:423` — one unresolved-type residue is a free `TyVar`, two are opaque
 
-`unresolvedHeadTy` takes the residue from its caller. `resolveBareTypeName` (`:394`) and
+The unresolved-type helper takes the residue from its caller. `resolveBareTypeName` (`:394`) and
 `resolveLocalNamedGeneric` (`:470`) both pass `TyConst(RuntimeNames.opaqueKey name, EqArray.empty)`;
 `resolveQualifiedTypeName` (`:423`) passes `TyVar(freshTyVar ctx)`. A free `TyVar` unifies with
-ANYTHING, so a stamped qualified head whose shape fails to build — an external generic written at
+ANYTHING, so a stamped qualified name whose shape fails to build — an external generic written at
 the wrong arity, say — type-checks against everything instead of degrading to an opaque nominal.
 
 `assertNoDottedStampGap` does not catch it: that DEBUG assert passes as soon as the store serves
@@ -36,7 +36,7 @@ implies ("`bindingsOfPat` silently drops the binder"). What is unverified is wha
 FIRST: name resolution has already dropped the binder by the time elaboration reports, so
 unresolved-identifier noise may precede the real message. Worth a test either way.
 
-Note `Pat.Named` is in the same binds-nothing arm, reached whenever `isPatNamedCtorHead` fails —
+Note `Pat.Named` is in the same binds-nothing arm, reached whenever `isCtorPat` fails —
 a different case with the same shape.
 
 ### `Passes/Unification/EngineCore.fs:526` — a surfaced external interface takes the local-registry path
@@ -68,16 +68,16 @@ project-local base … is a later slice"). Nothing enforces that.
 
 ### `Conformance.fs:352` — an operator `let` with parameters is reported as missing
 
-`PatternParsing.fs:547-550` parses `let (+) a b = …` as `Pat.OpNamed(head, args)`, emitting
-the bare `Pat.Op` only when `args.IsEmpty`. `patHeadName` has arms for `Pat.Op`,
+`PatternParsing.fs:547-550` parses `let (+) a b = …` as `Pat.OpNamed(ident, args)`, emitting
+the bare `Pat.Op` only when `args.IsEmpty`. `boundName` has arms for `Pat.Op`,
 `Pat.NamedSimple`, `Pat.Named`, `Pat.EnclosedBlock` and `Pat.Typed`, but none for
 `Pat.OpNamed`, so such a binding falls to `_ -> ValueNone` and `summariseImplVals` never
 records it. The `.fsi` side's `val ( + ) : …` IS recorded, via `identOrOpRaw`. Every operator
 declared with parameters in an implementation therefore raises a false `ValueMissingInImpl`.
 
-Fix: one arm forwarding `Pat.OpNamed(head = io)` to the same `identOrOpRaw` path as `Pat.Op`.
+Fix: one arm forwarding `Pat.OpNamed(ident = io)` to the same `identOrOpRaw` path as `Pat.Op`.
 
-Deletes: the `patHeadName` doc clause "An operator head applied to arguments (`let (+) a b`)
+Deletes: the `boundName` doc clause "An operator applied to arguments (`let (+) a b`)
 is a `Pat.OpNamed` and yields `ValueNone`", which currently documents the bug as behaviour.
 
 ### `FrozenSignature.fs:419` vs `ConformanceTypars.fs:78` — two files disagree about a named binding missing from `ModuleMembers`
@@ -462,9 +462,9 @@ removes both the leak and the "stack-disciplined add and remove" prose.
 ### `Passes/Unification/Translate.fs:506` — the measure carrier is the last by-name reach
 
 `tryResolveExternalType` resolves `float` / `int` by name for a `float<m>` carrier, because
-`classifyTypeHead` recorded that head at its SYNTACTIC arity of 1 and the carrier is wanted at
+The classifying walk recorded that name at its SYNTACTIC arity of 1 and the carrier is wanted at
 arity 0. `TypeRegistration.fs:365-367` already recognises the shape (`isMeasuredCarrier` skips
-the head so `float<kg>` does not blame `kg`), so the classifying walk knows it is looking at a
+the carrier so `float<kg>` does not blame `kg`), so the classifying walk knows it is looking at a
 carrier and could record the arity-0 verdict there instead of skipping the node.
 
 That is what would leave `ctx.Resolver` read only by NameResolution — the enforcement the
@@ -482,7 +482,7 @@ the signal that this belongs in `SymbolKeyOps` as a type-level restriction on wh
 ### `Passes/NameResolution/Scope.fs:225` — `stampPatCasesWith`'s `typeIter` is a mode encoded as a function
 
 The parameter selects between plain stamping and stamping-that-also-diagnoses an unknown type
-head, passed as a `CstWalk.TypeIter`. Only two call shapes exist (`:255` is the sole in-file use).
+name, passed as a `CstWalk.TypeIter`. Only two call shapes exist (`:255` is the sole in-file use).
 A two-case mode DU, or two named entry points, would delete the third line of that doc — the only
 reason it is 3 lines rather than 2.
 
@@ -524,17 +524,17 @@ same shape at `:161-172`.
 One `SideTable<TypeKey>` written from three unrelated meanings:
 
 - **declaration identity** — `TypeRegistration.fs:746`, `:902`, `:959`, at `declSite.Key`;
-- **type-position annotation use site** — `Translate.fs:450` (union), `:455` (enum), at `head.Key`;
-- **expression-position head, and separately a static-receiver PREFIX** — three writers in
-  `Scope.fs` alone (post-sweep lines): `:111` a single-ident bare class as ctor-sugar head, `:490`
-  a whole dotted name as ctor-sugar head, and `:603` a `TypeApp` receiver of ANY shape at exact
+- **type-position annotation use site** — `Translate.fs:450` (union), `:455` (enum), at the anchor's `Key`;
+- **expression-position type name, and separately a static-receiver PREFIX** — three writers in
+  `Scope.fs` alone (post-sweep lines): `:111` a single-ident bare class as a ctor-sugar application, `:490`
+  a whole dotted name as a ctor-sugar application, and `:603` a `TypeApp` receiver of ANY shape at exact
   arity. The last is the awkward one: `:603` stamps `ResolvedType` on the receiver key and `:607`
   stamps `ExternalStaticReceiver` on that SAME key, so a ctor-app consumer reading `ResolvedType`
-  can be handed a receiver prefix rather than a constructible head.
+  can be handed a receiver prefix rather than a constructible type.
 
 Nothing in the type separates the three. Splitting them deletes the 19 lines of prose that
 existed to warn the consumer, and would also remove the need for the (false, now deleted)
-`ResolvedTypeHead` doc claiming the two tables partition by `NodeKind` — they do not.
+a `ResolvedType`-partitioning doc claiming the two tables partition by `NodeKind` — they do not.
 
 ### `PassContext.fs:21` — `KeyedTable.Remove` exists for exactly one table
 
@@ -581,7 +581,7 @@ Deletes: "Distinguishable from every real origin, which names a path: no file is
 
 A BCL platform key and a canonical key are both `TypeKey`s, and which one a comparison must
 use is stated in a CAUTION rather than in the type. `sameNominalKey` (`EngineCore.fs:386`) and
-`capabilityCanonKey` (`:321`) exist precisely because a bare `=` on nominal heads is wrong in one
+`capabilityCanonKey` (`:321`) exist precisely because a bare `=` on nominal type constructors is wrong in one
 of the two roles, and each carries its own doc restating the rule — key-EQUALITY seams only,
 never inside the base/interface-chain lookups, since rewriting a BCL platform key there erases
 that type's own bases (`IEnumerator`1 :> IEnumerator`). A wrapper or active pattern making the
@@ -858,10 +858,10 @@ operand-less intrinsic names nothing, so the `Descent.reentered` answer for this
 unreachable. If that holds, the `expandingTemplate` wrapper at `:409` is pure overhead and its
 `ValueSome reentered` branch is dead. Confirm before anyone relies on it.
 
-### `Passes/Unification/Translate.fs:286` — `Type.SuffixedType` with a dotted head has no arm
+### `Passes/Unification/Translate.fs:286` — `Type.SuffixedType` with a dotted name has no arm
 
 `int A.T` falls to the `_ ->` catch-all and yields a free `TyVar` with no diagnostic, so
-unmodelled syntax is indistinguishable from an unresolvable head for the user.
+unmodelled syntax is indistinguishable from an unresolvable type name for the user.
 
 ### `Passes/Unification/Translate.fs:475` — `buildExternalTy` returns `option` in a `voption` file
 
@@ -1015,12 +1015,12 @@ enclosing descent, and `Descent.top` has exactly one use — `InlineExpansion.fs
 compiling file's own declarations. The clause has been cut; noted here because the same
 "returns to `top`" reading would be a real bug if anyone acted on it.
 
-### `Passes/InlineReduction.fs:167` — `ExternalHead.Args = ValueNone` is documented as unreachable-by-shape, but is a `failwithf`
+### `Passes/InlineReduction.fs:167` — `ExternalFunction.Args = ValueNone` is documented as unreachable-by-shape, but is a `failwithf`
 
-The field doc claimed a non-opening argument means "the head cannot be a template". The consumer
+The field doc claimed a non-opening argument means "the function cannot be a template". The consumer
 disagrees: `InlineExpansion.fs:191-194` matches `ValueSome served, ValueNone` and raises
 "the spliced member … was applied to an argument its declared parameters cannot be bound to".
-Encoding the two outcomes in the type (a member head that opened vs. one that did not) would
+Encoding the two outcomes in the type (a member that opened vs. one that did not) would
 remove the pairwise match over `lookupExternal x.Ctx x.Specs ext.Key, ext.Args` and the failure
 arm with it.
 
@@ -1197,7 +1197,7 @@ fill (`:721-731`) are the same eleven lines twice: `TryGetValue`, a `ResizeArray
 seeded with the new entry, a copy loop, `EqArray.ofResizeArray`, and a `false, _` arm building an
 `EqArray.singleton`. Only the dictionary and the element type differ. A
 `prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T)` helper removes
-both, and gives the "newest declaration wins the head slot" ordering one place to live.
+both, and gives the "newest declaration wins the slot" ordering one place to live.
 
 ### `Elaborate/Typars.fs:86` — the dependent-typar fixpoint is duplicated in `InferGeneralize.generalise`
 
@@ -1349,7 +1349,7 @@ explicit instead of leaving a reader to diff four literals.
 
 ### `InferRecordAccess.fs:629` — `inferLongIdentReceiverPrefix` differs from `inferLongIdentFieldChain` by one loop bound
 
-Both (`:610` and `:629`) read `li.Idents.[0]`, look the head up in `ctx.Bindings.Binding`, fall
+Both (`:610` and `:629`) read `li.Idents.[0]`, look the anchor up in `ctx.Bindings.Binding`, fall
 back to a fresh var, and fold `resolveFieldStep` across the remaining segments. The only
 difference is `for i = 1 to li.Idents.Length - 1` versus `- 2`. One function taking the number
 of trailing segments to leave unresolved (0 or 1) collapses them, and makes the "stops one
@@ -1370,7 +1370,7 @@ that the descriptor's `dispose` field would have to become a member reference. R
 
 `inferTypeApp` only unifies the supplied arguments when `freshArgs.Length = List.length
 explicit`; every other case falls to `| _ -> ()`, which is also the arm a bare generic function
-legitimately takes. So `ResizeArray<int, string>()` — right head shape, wrong arity — types
+legitimately takes. So `ResizeArray<int, string>()` — right type constructor, wrong arity — types
 exactly as `ResizeArray<_>()` with no diagnostic, and the mistake surfaces later as an
 unresolved metavariable or not at all. Distinguishing "no nominal result" (intentionally a
 no-op) from "nominal result of a different arity" (a user error) needs the two conditions
@@ -1500,7 +1500,7 @@ handle (an `IDisposable` push, or a scope value threaded rather than stored) wou
 nesting structural and delete the eleven-line block that argued it, which the comment sweep cut
 to three, so the debt is now invisible.
 
-### `Passes/Unification/InferOverload.fs:54` — `matchTypes` is a hand-maintained parallel copy of `unify`'s concrete-head arms
+### `Passes/Unification/InferOverload.fs:54` — `matchTypes` is a hand-maintained parallel copy of `unify`'s concrete-type-constructor arms
 
 The doc's own justification was that the two are "kept auditably parallel so a future reader can
 diff the two": `TyConst`/`TyRecord`/`TyUnion`/`TyClass`/`TyFun`/`TyTuple` are each destructured
@@ -1640,7 +1640,7 @@ filter rather than a missing match arm.
 ### `ResolvedTypes.fs:48` — `pushScheme` silently ignores every non-`NamedSimple` binding
 
 `pushScheme` matches `TPat.NamedSimple` and returns an empty `added` for anything else, so a
-binding whose head pattern is a tuple or a record pattern contributes no quantified roots to
+binding whose pattern is a tuple or a record pattern contributes no quantified roots to
 `allowed`. Any such binding that did carry a scheme would have its quantified typars counted as
 unresolved and reported as `InternalBreak.UnresolvedTyVars`. `declSite` immediately below has the
 same `NamedSimple`-or-nothing shape, and there it is documented as best-effort attribution, which
@@ -1696,7 +1696,7 @@ true and remove the need for the sentence.
 Every writer of both tables wraps a type key on the way in: `Scope.fs:501/526` call
 `SymbolKeyOps.externalTypeKey`, which exists only to `SymbolKey.Type` the result of
 `externalTypeKeyOf : … -> TypeKey`, and `Scope.fs:509/607` write `SymbolKey.Type canon` by hand.
-The sibling stamps in the same record — `ResolvedType`, `ResolvedTypeHead`,
+The sibling stamps in the same record — `ResolvedType`,
 `ExternalEnumCaseStamp` — are already `SideTable<TypeKey>`, so the two wide ones make a reader
 ask which of the three can hold a member key (none can). `TypeRegistry.recordKeyOrigin` and
 `PassContextTypes.SymbolKeyOrigins` (`TypeRegistry.fs:125`) have the same shape: the sole caller

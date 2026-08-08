@@ -295,7 +295,7 @@ module LexBuilder =
 
     let private emitUnterminatedStrings idx (state: LexBuilder) =
         // TODO: Handle other unclosed contexts (e.g. unterminated #if) — currently we just ignore them and let the parser handle any resulting errors
-        // Stack enumerates top-to-bottom, matching the old head-first list traversal.
+        // Stack enumerates top-to-bottom, matching the old list traversal from index 0.
         for ctx in state.Context do
             match ctx with
             | LexContext.PlainString -> state.Tokens.Add(PositionedToken.Create(Token.UnterminatedStringLiteral, idx))

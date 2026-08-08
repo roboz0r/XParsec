@@ -303,9 +303,9 @@ module internal UnificationInferGeneralize =
         elif b.argumentPats.IsEmpty && isExpansive b.expr then
             false
         else
-            match b.headPat with
+            match b.pattern with
             | Pat.NamedSimple _ -> true
             // An operator-named binding (`let inline (=) …`) is a single-name
-            // head; generalise it like any other function value.
+            // function; generalise it like any other function value.
             | Pat.Op _ -> true
             | _ -> false

@@ -106,7 +106,7 @@ let private samples: FrozenType list =
         intTy
         stringTy
         FTConst(RuntimeNames.arrayKey 1, EqArray.singleton intTy)
-        // The key cluster's three sorts, each in `FTConst` head position.
+        // The key cluster's three sorts, each in `FTConst` type-constructor position.
         FTConst(SymbolKey.Type nestedKey, EqArray.empty)
         FTConst(SymbolKey.Binding bindingKey, EqArray.empty)
         FTConst(SymbolKey.Binding moduleBindingKey, EqArray.empty)
@@ -141,7 +141,7 @@ let private samples: FrozenType list =
     ]
 
 /// The key-cluster values interned in their own right, as `FrozenCodecTypes`' nominal
-/// reference codecs write them — an `FTConst` head is not the only way one reaches the wire.
+/// reference codecs write them — an `FTConst` type constructor is not the only way one reaches the wire.
 let private keySamples: SymbolKey list =
     [
         SymbolKey.Type nestedKey
@@ -388,7 +388,7 @@ let tests =
             }
 
             // Every KEY row array is populated too — the samples reach the key cluster only
-            // through `FTConst` heads and nominal keys, so a table that stopped interning
+            // through `FTConst` type constructors and nominal keys, so a table that stopped interning
             // one of them would otherwise pass every assertion above.
             test "the samples populate every key table" {
                 let _, table = internedSamples ()

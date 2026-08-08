@@ -214,7 +214,7 @@ type Binding<'T> =
         /// For values: the binding pattern (Pat.NamedSimple, Pat.Tuple, etc.)
         /// For functions with a plain name: Pat.NamedSimple
         /// For functions with an operator name: Pat.Op
-        headPat: Pat<'T>
+        pattern: Pat<'T>
         typarDefns: TyparDefns<'T> voption
         /// Non-empty for function-style bindings; empty for value bindings
         argumentPats: ImArr<Pat<'T>>
@@ -457,7 +457,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Elems of pats: ImArr<Pat<'T>> * separators: ImArr<'T>
     | NamedSimple of ident: 'T
     | Named of longIdent: LongIdent<'T> * argumentPats: ImArr<Pat<'T>>
-    | OpNamed of head: IdentOrOp<'T> * argumentPats: ImArr<Pat<'T>>
+    | OpNamed of ident: IdentOrOp<'T> * argumentPats: ImArr<Pat<'T>>
     | NamedFieldPats of
         longIdent: LongIdent<'T> *
         lParen: 'T *
@@ -478,7 +478,7 @@ and [<RequireQualifiedAccess>] Pat<'T> =
     | Null of nullToken: 'T
     | Attributed of attributes: Attributes<'T> * pat: Pat<'T>
     | Optional of questionMark: 'T * pat: Pat<'T>
-    | Op of IdentOrOp<'T> // For operator/active-pattern names in function binding heads
+    | Op of IdentOrOp<'T> // For operator/active-pattern names bound by a `let`
     | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
     /// An expression embedded in pattern position. The type checker
     /// reinterprets the expression when binding the surrounding pattern

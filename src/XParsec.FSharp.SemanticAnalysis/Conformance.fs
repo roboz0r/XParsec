@@ -301,9 +301,9 @@ module Conformance =
     // Module-level `val`/`let` NAMES only — comparing written signatures would flag false
     // drift, as `.fsi` and `.fs` legally differ (`'a list` vs `List<'a>`) until resolved.
 
-    /// The raw source spelling of a binding head (`+`, not `op_Addition`): the `.fsi`
+    /// The raw source spelling of a bound name (`+`, not `op_Addition`): the `.fsi`
     /// `val` and `.fs` `let` spell an operator identically, so it matches across sides.
-    /// `ValueNone` for active-pattern heads, whose compiled names are non-trivial.
+    /// `ValueNone` for active patterns, whose compiled names are non-trivial.
     let private identOrOpRaw (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
         | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
@@ -313,17 +313,17 @@ module Conformance =
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "[]"
         | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) -> ValueNone
 
-    /// The bound name of a `let` head pattern, unwrapping `Pat.EnclosedBlock` and
-    /// `Pat.Typed`. An operator head applied to arguments (`let (+) a b`) is a
+    /// The name a `let` binding's pattern binds, unwrapping `Pat.EnclosedBlock` and
+    /// `Pat.Typed`. An operator applied to arguments (`let (+) a b`) is a
     /// `Pat.OpNamed` and yields `ValueNone`.
-    let rec private patHeadName (lexed: Lexed) (p: Pat<SyntaxToken>) : string voption =
+    let rec private boundName (lexed: Lexed) (p: Pat<SyntaxToken>) : string voption =
         match p with
         | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed ident)
         | Pat.Named(longIdent = li) when li.Idents.Length > 0 ->
             ValueSome(nameOfTok lexed li.Idents.[li.Idents.Length - 1])
         | Pat.Op io -> identOrOpRaw lexed io
         | Pat.EnclosedBlock(pat = inner)
-        | Pat.Typed(pat = inner) -> patHeadName lexed inner
+        | Pat.Typed(pat = inner) -> boundName lexed inner
         | _ -> ValueNone
 
     /// Summarise a parsed signature (`.fsi`) as its module-level `val` bindings (incl.
@@ -342,7 +342,7 @@ module Conformance =
                 | ValueSome n -> addName n
                 | ValueNone -> ()
             | ModuleSignatureElement.ValLiteral(binding = b) ->
-                match patHeadName lexed b.headPat with
+                match boundName lexed b.pattern with
                 | ValueSome n -> addName n
                 | ValueNone -> ()
             | _ -> ()
@@ -358,7 +358,7 @@ module Conformance =
             match e with
             | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) ->
                 for b in bs do
-                    match patHeadName lexed b.headPat with
+                    match boundName lexed b.pattern with
                     | ValueSome n when n <> "" -> acc.Add n
                     | _ -> ()
             | _ -> ()

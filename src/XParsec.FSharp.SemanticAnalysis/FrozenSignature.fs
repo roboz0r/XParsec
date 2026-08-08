@@ -171,7 +171,7 @@ module FrozenSignature =
 
         // --- declarations -------------------------------------------------------------
         // The file's trees as columns; the projection never descends into a value position,
-        // only decl HEADS and the opaque type-declaration shape.
+        // only decl SIGNATURES and the opaque type-declaration shape.
         let pool = TastPoolBuilder.openOver frozen
 
         let (|ExportedTypeDecl|_|) (d: TastAccessor.DeclId) : TastAccessor.TypeDecl option =
@@ -271,7 +271,7 @@ module FrozenSignature =
 
                 | TTypeKindG.Class c ->
                     // Directly-implemented interfaces as `(compiled-name, type-args)` pairs —
-                    // the frozen interface type is a nominal head whose args carry the typars.
+                    // the frozen interface type is a nominal whose args carry the typars.
                     let ifaceOf (ity: FrozenType) : (string * FrozenType[]) option =
                         match ity with
                         | FTClass(k, args)
@@ -356,7 +356,7 @@ module FrozenSignature =
         // A pool of this provider's own, for the re-axised tuple-group patterns it hands out.
         let valReprPats = TastPoolBuilder.openEmpty ()
 
-        // Every binding fact below is read at the binder ID the decl's own head pattern carries.
+        // Every binding fact below is read at the binder ID the decl's own pattern carries.
         let bindingValReprs = DenseTable.index frozen.BindingValReprs
         let moduleMembers = DenseTable.index frozen.ModuleMembers
 

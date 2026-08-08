@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
+namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -37,14 +37,14 @@ module internal UnificationInferIdentExpr =
                         node.Tok
                         (Kind.Message(sprintf "Operator '%s' is not available from the symbol provider" name))
             | ValueNone -> TyVar(freshTyVar ctx)
-        // A multi-segment LongIdent whose head is a local binding is a record-field access
+        // A multi-segment LongIdent anchored on a local binding is a record-field access
         // chain (`r.X.Y`): the parser rides these inside one `Expr.LongIdentOrOp`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx node li
-        // An EXTERNAL enum-case access `E.C1` — the head names a provider enum, not a
+        // An EXTERNAL enum-case access `E.C1` — the anchor names a provider enum, not a
         // project-local one. Types as the nominal `TyEnum key`, the same key an `(x: E)`
         // annotation resolves to, so the two unify.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp node.Key enumKey when
@@ -67,12 +67,12 @@ module internal UnificationInferIdentExpr =
                 TyEnum einfo.TypeKey
             else
                 errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Enum, einfo.Name, caseName))
-        // Two-segment qualified reference whose head is *not* a local binding:
+        // Two-segment qualified reference whose anchor is *not* a local binding:
         // `Math.Pi` / `Lst.Empty` / `Result2.Ok`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2 && not (ctx.Bindings.Binding.ContainsKey node.Key)
             ->
-            let headName = ctx.NameOf li.Idents.[0]
+            let anchorName = ctx.NameOf li.Idents.[0]
             let tailName = ctx.NameOf li.Idents.[1]
 
             let tryStaticMember (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
@@ -86,23 +86,23 @@ module internal UnificationInferIdentExpr =
             // below it does not answer for the name, so `Foo.Bar` above `type Foo` falls
             // through to the external cascade and lands unresolved.
             let classHit =
-                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt node.Key) headName with
+                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt node.Key) anchorName with
                 | ValueSome info -> tryStaticMember info.TypeParams info.Members
                 | ValueNone -> ValueNone
 
             match classHit with
             | ValueSome ty -> ty
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt node.Key) headName with
+                match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt node.Key) anchorName with
                 | ValueSome info ->
                     match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
                     | ValueNone ->
                         // Qualified ctor reference, resolved through the union registry
                         // and so bypassing the `CtorIndex` ambiguity check.
-                        match resolveQualifiedCtor ctx (ctx.UseSiteAt node.Key) headName tailName with
+                        match resolveQualifiedCtor ctx (ctx.UseSiteAt node.Key) anchorName tailName with
                         | ValueSome info -> ctorType ctx info
-                        | ValueNone -> errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, headName, tailName))
+                        | ValueNone -> errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, anchorName, tailName))
                 | ValueNone ->
                     // Qualified external union case (`Option.Some`); NameResolution
                     // stamped the resolved case at this node's key.

@@ -234,15 +234,15 @@ module UnionFind =
 
     let inSameClass (store: TypeStore) (a: TyVarId) (b: TyVarId) : bool = find store a = find store b
 
-    /// Follow union-find roots + `.Link` to the concrete *head* of a type. Only the head
-    /// constructor is resolved — nested type arguments are left untouched. A root carrying
-    /// a `Units` measure stops the follow, so the measure rides on the returned `TyVar`.
-    let rec headZonk (store: TypeStore) (t: SemType) : SemType =
+    /// Follow union-find roots + `.Link` until the OUTERMOST type constructor is concrete;
+    /// nested type arguments are left untouched. A root carrying a `Units` measure stops
+    /// the follow, so the measure rides on the returned `TyVar`.
+    let rec zonkShallow (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = find store tv
 
             match store.Link root with
-            | ValueSome target when (store.Units root).IsNone -> headZonk store target
+            | ValueSome target when (store.Units root).IsNone -> zonkShallow store target
             | _ -> TyVar root.Id
         | _ -> t

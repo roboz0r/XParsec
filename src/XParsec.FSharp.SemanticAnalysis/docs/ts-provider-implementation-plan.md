@@ -359,7 +359,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
 - Capture mints an `InlineBody` from each concrete accessor body, keyed by the MEMBER (`arrayName 1` +
   `get_Item`/`set_Item`/`get_Length`), `this`-first — the member-sourced twin of `collectInlineBodies`'
   `let inline` case (`SymbolProviders.fs:46-104`).
-- `InlineExpansion` gains ONE new App-head arm: a `TExpr.ExternalMember` head whose member carries a
+- `InlineExpansion` gains ONE new applied-function arm: a `TExpr.ExternalMember` whose member carries a
   registered inline body splices via the SAME `reduceApplication` / `ParamAttrs` / `expandExternalAt`
   path the `TExpr.External` arm uses (`InlineExpansion.fs:589`). A member with NO inline body (a real
   CLR `get_Item` runtime method) stays a real call — so the splice-vs-call fork is simply "does this

@@ -310,7 +310,7 @@ module TastPoolBuilder =
     let globalValueKeys (b: PoolBuilder) : IReadOnlySet<SymbolKey> = b.Base.Residue.GlobalValueKeys
 
     /// This file's module-level bindings by binder — the SYMBOL identity behind a `let` decl's
-    /// head, which the columns address only positionally. Indexes on each call.
+    /// name, which the columns address only positionally. Indexes on each call.
     let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BinderId, ModuleBindingInfo> =
         DenseTable.index b.Base.ModuleMembers
 
