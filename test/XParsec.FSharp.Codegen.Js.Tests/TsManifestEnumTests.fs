@@ -6,11 +6,10 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Enum support — the `TsManifestProvider` consumption arm that closes the
-// extractor's last stubbed enum case. A TS module exporting a NUMERIC and a STRING
-// enum is modelled by the provider as `ExternalTypeShape.Enum` (was `Opaque 0`, members
-// dropped). The front end must then (a) resolve the enum TYPE name to its nominal
-// `TyEnum`/`FTEnum` (not Opaque), (b) type-check `E.C1` as the enum and emit it as an
+// Enum support — the `TsManifestProvider` consumption arm. A TS module exporting a
+// NUMERIC and a STRING enum is modelled by the provider as `ExternalTypeShape.Enum`,
+// carrying its cases. The front end must then (a) resolve the enum TYPE name to its
+// nominal `TyEnum`/`FTEnum`, (b) type-check `E.C1` as the enum and emit it as an
 // IMPORTED member access (`import { E } … E.Ci`) — the enum object lives in the TS
 // module, never re-emitted — and (c) lower a `match` on an external enum value to the
 // shared `=== E.Ci` test, all mirroring the external-UNION consumption path.
@@ -77,7 +76,7 @@ let tests =
     testList
         "TsManifestEnum"
         [
-            test "the provider maps a TS enum to ExternalTypeShape.Enum (was Opaque), members carried" {
+            test "the provider maps a TS enum to ExternalTypeShape.Enum, members carried" {
                 match paletteProvider.TryLookupType "Color" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
                     Expect.equal
@@ -96,8 +95,8 @@ let tests =
             }
 
             test "an external enum type annotation resolves and `E.Ci` emits an IMPORTED member access" {
-                // `(c: Color)` exercises the type-annotation resolution (Opaque would have
-                // failed to resolve the nominal); `Color.Green` is the value access.
+                // `(c: Color)` exercises the type-annotation resolution; `Color.Green` is
+                // the value access.
                 let js = emitWithPalette "let f (c: Color) = c\nlet g = Color.Green"
 
                 Expect.isTrue

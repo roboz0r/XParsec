@@ -356,7 +356,7 @@ module VesperLibTypeTranslate =
                 ()
 
     /// Bake a nominal reference (`compiled` type constructor + already-translated `args`) to its
-    /// kind-correct `FrozenType` template, minting no `SemType`. A body-less (`Opaque`) shape
+    /// kind-correct `FrozenType` template, minting no `SemType`. A shape with no modelled body
     /// has no kind to bake and raises `BodylessExternalShape` instead of a placeholder.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<FrozenType>) : FrozenType =
         // This package's own declarations are looked up in the identity index, because a
@@ -385,7 +385,7 @@ module VesperLibTypeTranslate =
         // the matched shape rather than re-deriving it by name — re-minting would hardcode
         // the `Vesper` namespace and diverge for any non-Vesper-homed intrinsic.
         | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(SymbolKey.Type ishape.Id.Canon, EqArray.empty)
-        | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
+        | ValueSome(ExternalTypeShape.Unmodelled(reason = r)) -> raise (BodylessExternalShape(compiled, r))
         | ValueNone ->
             failwithf
                 "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"
@@ -410,7 +410,7 @@ module VesperLibTypeTranslate =
 
     /// `CST → FrozenType`: every val signature, type-shape body (record field, union-case
     /// field, abbreviation RHS), constraint target and augmentation-member signature runs
-    /// through this in the finalize pass. An `Opaque` shape propagates out of `mkNominal`.
+    /// through this in the finalize pass. An unmodelled body propagates out of `mkNominal`.
     let rec translateType
         (ctx: ExtractCtx)
         (lexed: Lexed)

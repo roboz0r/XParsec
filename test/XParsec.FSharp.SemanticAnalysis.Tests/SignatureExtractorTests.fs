@@ -202,9 +202,9 @@ let tests =
                 Expect.equal (compiledReturn "voidRet") CompiledReturnG.RVoid "unit return → RVoid"
             }
 
-            test "A body-less type registers an Opaque residue shape, not absence" {
+            test "A body-less type registers an Unmodelled shape naming the gap, not absence" {
                 // Enum and delegate bodies are unmodelled, so the name registers an explicit
-                // `Opaque` residue carrying the arity — `TryLookupType` answers, never misses.
+                // `Unmodelled` shape carrying WHICH form is missing — `TryLookupType` answers, never misses.
                 let parsed =
                     parseFsi
                         "app.fsi"
@@ -223,8 +223,10 @@ let tests =
                     found
 
                 match thingShape with
-                | ValueSome(ExternalTypeShape.Opaque arity) -> Expect.equal arity 0 "Opaque carries the declared arity"
-                | ValueSome other -> failtestf "expected an Opaque shape for the enum; got %A" other
+                | ValueSome(ExternalTypeShape.Unmodelled(reason, arity)) ->
+                    Expect.equal reason UnmodelledReason.Enum "the shape names the enum stub as the gap"
+                    Expect.equal arity 0 "Unmodelled carries the declared arity"
+                | ValueSome other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
                 | ValueNone ->
                     failtestf
                         "enum registered no shape (name-without-shape gap). Shapes: %A"
@@ -410,13 +412,13 @@ let tests =
                 | ValueNone -> failtest "Blue case not found in the reverse index"
             }
 
-            test "A reference to an Opaque-shaped type is refused at bake time" {
-                // A type whose in-scope shape is `Opaque` has no kind to bake, so translating
+            test "A reference to an Unmodelled-shaped type is refused at bake time" {
+                // A type whose in-scope shape is `Unmodelled` has no kind to bake, so translating
                 // the val in the finalize pass raises `BodylessExternalShape`. The pass
                 // tolerates it as a PER-VAL skip rather than aborting the whole build.
                 let ambient name =
                     if name = "Dep.Widget" then
-                        ValueSome(ExternalTypeShape.Opaque 1)
+                        ValueSome(ExternalTypeShape.Unmodelled(UnmodelledReason.Delegate, 1))
                     else
                         ValueNone
 
@@ -434,7 +436,9 @@ let tests =
                 let qualifiedRegistered =
                     ctx.Symbols.Keys |> Seq.exists (fun k -> k.EndsWith ".qualified")
 
-                Expect.isFalse qualifiedRegistered "a val whose result type is Opaque is not registered as a symbol"
+                Expect.isFalse
+                    qualifiedRegistered
+                    "a val whose result type has no modelled body is not registered as a symbol"
 
                 let skipped = ctx.Skipped |> Seq.exists (fun (_, msg) -> msg.Contains "qualified")
 

@@ -77,7 +77,7 @@ module NameResolutionTypeRefStamp =
         | ExternalTypeShape.Enum _ -> hit.Key
         | ExternalTypeShape.Abbrev _
         | ExternalTypeShape.Intrinsic _
-        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOf hit.Compiled hit.ProbedTyparArity
+        | ExternalTypeShape.Unmodelled _ -> SymbolKeyOps.qualifiedTypeKeyOf hit.Compiled hit.ProbedTyparArity
 
     /// At exactly `arity`: a shape whose own typar count differs is not a hit.
     let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : TypeKey voption =

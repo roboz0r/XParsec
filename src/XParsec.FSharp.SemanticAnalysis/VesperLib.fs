@@ -102,11 +102,11 @@ module VesperLib =
         // Sink for any constraints a target type carries (exotic, not surfaced).
         let throwaway = ConstraintCollector()
 
-        // A target naming a body-less (`Opaque`) type raises `BodylessExternalShape`.
+        // A target naming an unmodelled-body type raises `BodylessExternalShape`.
         let translate t =
             try
                 translateType ctx lexed opens typars throwaway t
-            with BodylessExternalShape _ ->
+            with BodylessExternalShape(_, _) ->
                 Error "body-less target"
 
         raw
@@ -174,8 +174,8 @@ module VesperLib =
         let translated =
             try
                 translateCurriedSig ctx dc.Lexed dc.Opens dc.Typars constraints dv.Signature
-            with BodylessExternalShape compiled ->
-                Error(sprintf "signature names body-less type '%s'" compiled)
+            with BodylessExternalShape(compiled, reason) ->
+                Error(sprintf "signature names '%s', which is %s" compiled reason.Description)
 
         match translated with
         | Error e ->
@@ -603,9 +603,9 @@ module VesperLib =
         registerExplicitTypars lexed collector defns
         collector
 
-    /// Record *why* in `ctx.Skipped` AND register the `Opaque` residue shape, so a type whose
+    /// Record *why* in `ctx.Skipped` AND register the `Unmodelled` shape, so a type whose
     /// name+arity are known leaves no name-without-shape gap.
-    let private skipBodyOpaque
+    let private skipBodyUnmodelled
         (ctx: ExtractCtx)
         (file: LibFile)
         (compiled: string)
@@ -613,7 +613,7 @@ module VesperLib =
         (reason: string)
         : unit =
         ctx.Skipped.Add(file, sprintf "type %s body: %s" compiled reason)
-        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity
+        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, arity)
 
     let private extractAbbrevBody
         (ctx: ExtractCtx)
@@ -763,10 +763,10 @@ module VesperLib =
                         caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
                         caseCsts.Add(fieldCsts.ToArray())
 
-        // A structurally-broken case (an unresolvable case name) downgrades the whole union
-        // to `Opaque` — there is no per-case name to register.
+        // A structurally-broken case (an unresolvable case name) downgrades the whole union:
+        // there is no per-case name to register.
         match err with
-        | Some e -> skipBodyOpaque ctx file compiled arity e
+        | Some e -> skipBodyUnmodelled ctx file compiled arity e
         | None ->
             let (TypeName(attrs, _, _, _, _, _)) = typeName
 
@@ -1009,6 +1009,18 @@ module VesperLib =
             | TypeSignatureElement.Inherit _
             | TypeSignatureElement.Interface _ -> ()
 
+    let private registerUnmodelled
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (decl: ModuleContainer)
+        (typeName: TypeName<SyntaxToken>)
+        (reason: UnmodelledReason)
+        : unit =
+        match registerTypeDecl ctx lexed decl typeName with
+        | ValueNone -> ()
+        | ValueSome(struct (compiled, arity)) ->
+            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Unmodelled(reason, arity)
+
     let private extractTypeSig
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -1166,14 +1178,13 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
 
-        | TypeSignature.Enum(typeName = typeName)
-        | TypeSignature.Delegate(typeName = typeName)
+        // No body shape: register the name+arity plus the gap, so every registered name
+        // carries a shape and a use site can say which form is missing.
+        | TypeSignature.Enum(typeName = typeName) -> registerUnmodelled ctx lexed decl typeName UnmodelledReason.Enum
+        | TypeSignature.Delegate(typeName = typeName) ->
+            registerUnmodelled ctx lexed decl typeName UnmodelledReason.Delegate
         | TypeSignature.TypeExtension(typeName = typeName) ->
-            // No body shape: register the name+arity plus an `Opaque` residue so every
-            // registered name carries a shape.
-            match registerTypeDecl ctx lexed decl typeName with
-            | ValueNone -> ()
-            | ValueSome(struct (compiled, arity)) -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity
+            registerUnmodelled ctx lexed decl typeName UnmodelledReason.TypeExtension
 
     let private collectOpens
         (lexed: Lexed)

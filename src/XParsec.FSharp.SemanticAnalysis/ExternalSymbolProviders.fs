@@ -283,7 +283,7 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.Abbrev _
                 // An intrinsic carries no `Origin`: its identity is the canon.
                 | ExternalTypeShape.Intrinsic _
-                | ExternalTypeShape.Opaque _ -> shape
+                | ExternalTypeShape.Unmodelled _ -> shape
 
         // An extractor records a declaring union with `SymbolOrigin.Empty`, so a case
         // reverse-looked-up off it must be re-homed to agree with its union's shape.
@@ -454,7 +454,7 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Enum _
             | ExternalTypeShape.Intrinsic _
-            | ExternalTypeShape.Opaque _ -> shape
+            | ExternalTypeShape.Unmodelled _ -> shape
 
         { new IExternalSymbolProvider
 

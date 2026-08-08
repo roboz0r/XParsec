@@ -177,25 +177,32 @@ other same-package miss is a genuine `TyUnknown`, not an ordering artefact.
    | `Record`    | `TyRecord(compiled, args)` |
    | `Abbrev`    | expand `build args` (already kind-correct from the defining package) |
    | `Intrinsic` | `TyConst <shortName>` |
-   | `Opaque`    | **`failwith`** — body-less, no kind to bake |
+   | `Unmodelled` | **raise** `BodylessExternalShape` — no body, no kind to bake |
    | `ValueNone` | **`failwith`** — invariant: a resolved name always has a shape |
 
-Both `failwith` arms are loud invariant assertions, not fall-throughs. They
-encode two facts established elsewhere: every registered type declaration also
-registers a *shape* (so `ValueNone` is unreachable for a resolved name), and an
-`Opaque` residue is never named by a shipping contract.
+Both are loud invariant assertions, not fall-throughs. They encode two facts
+established elsewhere: every registered type declaration also registers a
+*shape* (so `ValueNone` is unreachable for a resolved name), and an unmodelled
+body is never named by a shipping contract.
 
 ### Shapes — `ExternalTypeShape`
 
 [`ExternalTypeShape`](../ExternalSymbols.fs) is the kind vocabulary `shapeOf`
-returns: `Abbrev`, `Record`, `Union`, `Class`, `Intrinsic`, and `Opaque of
-arity`. `Opaque` is the residue: a type whose *name + arity* the extractor
-registered but whose body it does not model — an `enum` / `delegate` /
-type-extension (the body is deferred), or a union/record/abbreviation whose body
-used an unsupported form. Coupling registration so that **every**
-`registerTypeDecl` also writes a shape (an `Opaque` for the deferrals) is what
-makes `shapeOf` total over resolvable names and `mkNominal`'s `ValueNone`
-unreachable.
+returns: `Abbrev`, `Record`, `Union`, `Class`, `Intrinsic`, and `Unmodelled of
+reason * arity`. `Unmodelled` is the residue: a type whose *name + arity* the
+extractor registered but whose body it does not model. Its `UnmodelledReason`
+says which gap — `Enum` / `Delegate` / `TypeExtension` for a declaration form the
+`.fsi` extractor still stubs, or `ExtractionFailed reason` for a body that used a
+form it could not translate. Carrying the reason is what lets a use site name the
+gap instead of degrading silently; carrying the arity is what lets the name
+resolve at all. Coupling registration so that **every** `registerTypeDecl` also
+writes a shape is what makes `shapeOf` total over resolvable names and
+`mkNominal`'s `ValueNone` unreachable.
+
+Note the asymmetry with `Enum`: a TS manifest builds a real `ExternalTypeShape.Enum`
+(cases, values, `TyEnum`, `match` lowering), so an external enum is fully modelled
+through that door and stubbed through this one. Teaching the `.fsi` extractor to
+build `Enum` would retire one of the three stub reasons.
 
 A type the extractor *does* model contributes a real shape and kinds normally.
 The cons-list `Vesper.Collections.List` is the worked example: its `.fsi`
@@ -238,9 +245,9 @@ consumer scope can't improve them.
 ## Invariants worth preserving
 
 - **`shapeOf` is total over resolvable names.** Every `registerTypeDecl` registers
-  a shape; a body it can't model registers `Opaque`. Don't add a registration
-  path that writes a name without a shape — `mkNominal`'s `ValueNone` `failwith`
-  is the tripwire.
+  a shape; a body it can't model registers `Unmodelled` with the reason. Don't add
+  a registration path that writes a name without a shape — `mkNominal`'s
+  `ValueNone` `failwith` is the tripwire.
 - **`TyUnknown` is baked at name-resolution failure, not at kinding.** The
   distinction matters: `mkNominal`'s `ValueNone` is *name resolved, shape
   missing* (an invariant violation), whereas a `resolveTypeName` `Error` is *name

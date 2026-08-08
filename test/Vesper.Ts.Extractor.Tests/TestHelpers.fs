@@ -395,8 +395,8 @@ let testProviderResolves (path: string) =
                     Expect.equal arity typeParams $"type alias '{name}' arity must equal its typeParams"
                 | _ -> ()
             | Schema.Export.Enum(name, _) ->
-                // The enum NAME resolves (an `Opaque` shape); its MEMBERS are stubbed on
-                // the provider, so only the type-name resolution is asserted.
+                // The enum NAME resolves; its MEMBERS are stubbed on the provider, so only
+                // the type-name resolution is asserted.
                 Expect.isTrue (prov.TryLookupType(q name)).IsSome $"enum '{q name}' should resolve"
             | Schema.Export.Namespace(nsName, nested) ->
                 // Item 17: the namespace container holds no symbol of its own; recurse into

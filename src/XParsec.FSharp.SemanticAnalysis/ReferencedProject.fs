@@ -545,7 +545,7 @@ module ReferencedProject =
                         | ExternalTypeShape.Union _
                         | ExternalTypeShape.Enum _
                         | ExternalTypeShape.Abbrev _
-                        | ExternalTypeShape.Opaque _ -> yield kv.Key
+                        | ExternalTypeShape.Unmodelled _ -> yield kv.Key
                         | ExternalTypeShape.Intrinsic _
                         | ExternalTypeShape.IntrinsicInterface _ -> ()
                 ]

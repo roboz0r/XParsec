@@ -42,12 +42,27 @@ module internal UnificationTranslate =
         TyVar(freshTyVar ctx)
 
     /// The tail of a WRITTEN reference no claim of this file holds and no external shape built.
-    /// An EXTERNAL verdict means the spelling DOES name a type whose structure is missing —
-    /// keep `residue`. Otherwise nothing resolved it: report undefined and yield `TyUnknown`.
-    let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) (residue: SemType) : SemType =
-        match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
-        | ValueSome(TypeRefVerdict.ExternalType _) -> residue
-        | _ ->
+    /// The spelling either names an external type the contract registered without a body — a
+    /// gap to name — or resolved to nothing at all.
+    let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) : SemType =
+        let unmodelled =
+            match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
+            | ValueSome(TypeRefVerdict.ExternalType symKey) ->
+                match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
+                | ValueSome(ExternalTypeShape.Unmodelled(reason = r)) -> ValueSome r
+                | _ -> ValueNone
+            | _ -> ValueNone
+
+        match unmodelled with
+        | ValueSome(UnmodelledReason.ExtractionFailed reason) ->
+            errorTy
+                ctx
+                site.Tok
+                (Kind.Message(
+                    sprintf "A referenced package declares '%s', but its body did not extract (%s)" name reason
+                ))
+        | ValueSome r -> errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "%s — '%s'" r.Description name))
+        | ValueNone ->
             // Blamed at the name's first token alone — the long-ident span is not in hand here.
             ctx.UndefinedType(Site.ofToken site.Tok, name)
             TyUnknown name
@@ -121,8 +136,8 @@ module internal UnificationTranslate =
                         "External identity round-trip broken: dotted type reference '%s' resolved to %s, but the store view cannot serve that key — NameResolution's mint and the store disagree"
                         name
                         (SymbolKeyOps.typeMetaName stamped)
-                // Served, but the shape declined to build (an `Opaque` residue, or an arity
-                // the shape does not carry) — the `TyVar` fallback is by design.
+                // Served, but the shape declined to build (no modelled body, or an arity the
+                // shape does not carry) — the use site reports it.
                 | ValueSome _ -> ()
             | ValueSome TypeRefVerdict.LocalType
             | ValueSome TypeRefVerdict.UnknownType -> ()
@@ -368,7 +383,7 @@ module internal UnificationTranslate =
                 // this arm mints `undefinedKey` for a stack that has not loaded it.
                 | ValueNone when name = RuntimeNames.undefinedTypeName ->
                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
-                | ValueNone -> unresolvedRefTy ctx site name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
+                | ValueNone -> unresolvedRefTy ctx site name
 
     /// Resolve a QUALIFIED reference (`A.T`, `N.A.T<int>`) whose external verdict read already
     /// missed: it names a project-local type THROUGH the scope holding it, or it names
@@ -397,7 +412,7 @@ module internal UnificationTranslate =
                 errorTy ctx site.Tok (Kind.TypeArgArity(written.Written, other.TyparArity, args.Length))
             | ValueNone ->
                 assertNoDottedStampGap ctx site.Key li
-                unresolvedRefTy ctx site written.Written (TyVar(freshTyVar ctx))
+                unresolvedRefTy ctx site written.Written
 
     /// An EXTERNAL verdict outranks the registry.
     and private resolveNamedGeneric
@@ -440,13 +455,11 @@ module internal UnificationTranslate =
 
             match fromLocal with
             | ValueSome ty -> ty
-            // Nothing built this reference, so the unresolved verdict decides. Its residue
-            // drops the type args: a shape-less name has no parameters to apply them to.
-            | ValueNone -> unresolvedRefTy ctx site name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
+            | ValueNone -> unresolvedRefTy ctx site name
 
     /// Build the annotation `SemType` from a resolved external shape addressed by the RESOLVED
-    /// identity `symKey`, shared by the stamped and by-name paths. `None` for an `Opaque`
-    /// residue, which has no kind a type annotation can take.
+    /// identity `symKey`, shared by the stamped and by-name paths. `None` for an unmodelled
+    /// body, which has no kind a type annotation can take.
     and private buildExternalTy
         (ctx: PassContext)
         (symKey: TypeKey)
@@ -473,9 +486,9 @@ module internal UnificationTranslate =
         // already kind-correct; the type args substitute into it.
         | ExternalTypeShape.Abbrev(_, frozen) ->
             Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
-        // An `Opaque` residue (a GADT union / enum / unmodelled body) has no kind for a
-        // *type annotation* to resolve to.
-        | ExternalTypeShape.Opaque _ -> None
+        // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
+        // the reference to `unresolvedRefTy`, which names the gap.
+        | ExternalTypeShape.Unmodelled _ -> None
 
     /// Fetch + build from an already-resolved external type identity. An arity mismatch is
     /// rejected: it is not this type.

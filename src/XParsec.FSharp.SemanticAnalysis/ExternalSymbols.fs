@@ -3,11 +3,31 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Concurrent
 open System.Collections.Generic
 
-exception BodylessExternalShape of compiledName: string with
+/// Why a registered type name carries no modelled body.
+[<RequireQualifiedAccess>]
+type UnmodelledReason =
+    /// The `.fsi` extractor stubs `type E = | A = 0`; a TS manifest builds a real `Enum`
+    /// for the same declaration, so only this side is missing.
+    | Enum
+    | Delegate
+    | TypeExtension
+    /// The kind IS modelled; this declaration's body did not translate.
+    | ExtractionFailed of reason: string
+
+    /// The phrase a diagnostic or fault names this by.
+    member this.Description: string =
+        match this with
+        | Enum -> "an enum declared in a signature file"
+        | Delegate -> "a delegate type"
+        | TypeExtension -> "a type extension"
+        | ExtractionFailed reason -> sprintf "a body that did not translate (%s)" reason
+
+exception BodylessExternalShape of compiledName: string * reason: UnmodelledReason with
     override this.Message =
         sprintf
-            "mkNominal: '%s' is an Opaque (body-less) shape — an enum / delegate / type-extension or an unmodelled body. Model its kind before a contract names it"
+            "mkNominal: '%s' has no modelled body — %s. Model its kind before a contract names it"
             this.compiledName
+            this.reason.Description
 
 /// A constraint captured on an external symbol's typar list; every `target` is a template
 /// over the symbol's own declaring typars.
@@ -437,9 +457,9 @@ type ExternalTypeShape =
     /// A capability interface (`disposable`/`equatable`/`comparable`). CLR-only — a JS
     /// capability is a plain canon-only interface `Class`.
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
-    /// A nominal type whose NAME + ARITY are registered but whose body is not modelled: an
-    /// enum / delegate / type-extension, or a body that failed to translate.
-    | Opaque of arity: int
+    /// NAME + ARITY are registered, the body is not modelled. `reason` says which gap, so a
+    /// use site can name it rather than degrade silently.
+    | Unmodelled of reason: UnmodelledReason * arity: int
 
     member this.TyparArity: int =
         match this with
@@ -450,7 +470,7 @@ type ExternalTypeShape =
         | Record(arity = a)
         | Union(arity = a)
         | Abbrev(arity = a)
-        | Opaque(arity = a) -> a
+        | Unmodelled(arity = a) -> a
 
 /// The RESOLVER view of the external-symbol contract: spelling → identity, opens-aware.
 /// Downstream of name resolution, passes speak the key-addressed store view instead.

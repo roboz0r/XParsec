@@ -154,7 +154,7 @@ module NameResolutionTypeRegistration =
 
     /// The assembly whose already-declared type a resolved external shape WITNESSES — the
     /// `key -> assembly` oracle the collision test below reads. `None` = not a competing claim:
-    /// every package's `int` is THE `int`, and `Abbrev` / `Opaque` carry no `SymbolOrigin`.
+    /// every package's `int` is THE `int`, and `Abbrev` / `Unmodelled` carry no `SymbolOrigin`.
     let private externalClaimant (shape: ExternalTypeShape) : string option =
         // A stamped home is a claim (its assembly name); an unstamped home makes none. A
         // prior file of this very compilation claims under the compilation's own name.
@@ -171,7 +171,7 @@ module NameResolutionTypeRegistration =
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _
         | ExternalTypeShape.Abbrev _
-        | ExternalTypeShape.Opaque _ -> None
+        | ExternalTypeShape.Unmodelled _ -> None
 
     /// The CS0433 analogue: a `SymbolKey` carries no home assembly, so a declaration whose key a
     /// REFERENCED assembly already answers for is refused — equal keys would let the unifier
