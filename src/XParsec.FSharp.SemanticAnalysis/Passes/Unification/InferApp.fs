@@ -42,49 +42,55 @@ module internal UnificationInferApp =
     /// Key each SOURCE lambda argument landing on a parameter bounded `:> Fun<a,b>` to that
     /// flat arity, which is what makes codegen emit a value-struct closure for it.
     let private recordFunArityVerdicts (ctx: PassContext) (args: ImmutableArray<Expr<SyntaxToken>>) (fnTy: SemType) =
-        let mutable currTy = fnTy
         // Each verdict lambda paired with the typar `dom` it landed on. The result-typar
-        // position is only readable once `currTy` reaches the tail, so a second pass fills it.
+        // position is only readable from the result type, so a second pass fills it.
         let lambdaSlots = ResizeArray<LambdaKey * SemType>()
 
-        for i in 0 .. args.Length - 1 do
-            match resolveStep ctx.Store currTy with
-            | TyFun(dom, cod) ->
-                // Peel the wrappers of a parenthesised argument lambda (`apply2 (fun … )`). The
-                // frozen `Lambda` anchors on its FIRST parameter pattern's token, so key on that.
-                let rec peelLambda e =
-                    match e with
-                    | Expr.EnclosedBlock(expr = inner)
-                    | Expr.TypeAnnotation(expr = inner) -> peelLambda inner
-                    | Expr.Fun(argumentPats = argPats) when argPats.Length > 0 -> ValueSome argPats.[0]
-                    | _ -> ValueNone
+        // `mapSeq (fun x -> x) src` walks `'TF -> Seq<'a> -> MapSeq<'a,'TF,'b>` to `MapSeq<…>`.
+        // `ValueNone` once a step is not a `TyFun`: the `:> Fun<a,b>` bound sits on a declared
+        // parameter, and the chain's domains ARE the declared parameters.
+        let rec walkFunChain i currTy =
+            if i >= args.Length then
+                ValueSome currTy
+            else
+                match resolveStep ctx.Store currTy with
+                | TyFun(dom, cod) ->
+                    // Peel the wrappers of a parenthesised argument lambda (`apply2 (fun … )`). The
+                    // frozen `Lambda` anchors on its FIRST parameter pattern's token, so key on that.
+                    let rec peelLambda e =
+                        match e with
+                        | Expr.EnclosedBlock(expr = inner)
+                        | Expr.TypeAnnotation(expr = inner) -> peelLambda inner
+                        | Expr.Fun(argumentPats = argPats) when argPats.Length > 0 -> ValueSome argPats.[0]
+                        | _ -> ValueNone
 
-                match peelLambda args.[i] with
-                | ValueSome arg0Pat ->
-                    match funSlotArityOf ctx.Store dom with
-                    | ValueSome arity ->
-                        let lamKey = LambdaKey(Anchor.ofToken (CstKeys.firstTokenOfPat arg0Pat))
+                    match peelLambda args.[i] with
+                    | ValueSome arg0Pat ->
+                        match funSlotArityOf ctx.Store dom with
+                        | ValueSome arity ->
+                            let lamKey = LambdaKey(Anchor.ofToken (CstKeys.firstTokenOfPat arg0Pat))
 
-                        ctx.FunVerdicts.Set(
-                            lamKey,
-                            {
-                                Arity = arity
-                                ResultTyparPos = ValueNone
-                            }
-                        )
+                            ctx.FunVerdicts.Set(
+                                lamKey,
+                                {
+                                    Arity = arity
+                                    ResultTyparPos = ValueNone
+                                }
+                            )
 
-                        lambdaSlots.Add(lamKey, dom)
+                            lambdaSlots.Add(lamKey, dom)
+                        | ValueNone -> ()
                     | ValueNone -> ()
-                | ValueNone -> ()
 
-                currTy <- cod
-            | _ -> currTy <- TyVar(freshTyVar ctx)
+                    walkFunChain (i + 1) cod
+                | _ -> ValueNone
 
-        // `currTy` is now the result type; a transformer combinator's result nominal
-        // (`MapSeq<…,'TF,…>`) carries the lambda's typar at some arg index. Match by typar
-        // IDENTITY, not shape — two function-valued args would conflate.
-        if lambdaSlots.Count > 0 then
-            match resolveStep ctx.Store currTy with
+        // A transformer combinator's result nominal (`MapSeq<…,'TF,…>`) carries the lambda's
+        // typar at some arg index. Match by typar IDENTITY, not shape — two function-valued
+        // args would conflate.
+        match walkFunChain 0 fnTy with
+        | ValueSome resultTy when lambdaSlots.Count > 0 ->
+            match resolveStep ctx.Store resultTy with
             | TyConst(_, resArgs)
             | TyRecord(_, resArgs)
             | TyUnion(_, resArgs)
@@ -97,7 +103,7 @@ module internal UnificationInferApp =
                     | TyVar tv -> ValueSome((UnionFind.find ctx.Store tv).Id)
                     | _ -> ValueNone
 
-                for (lamKey, dom) in lambdaSlots do
+                for (lambdaKey, dom) in lambdaSlots do
                     match rootOf dom with
                     | ValueSome domRoot ->
                         let mutable found = ValueNone
@@ -111,10 +117,10 @@ module internal UnificationInferApp =
                         match found with
                         | ValueSome idx ->
                             // Upgrade the arity-only verdict with the result-typar position.
-                            match ctx.FunVerdicts.TryGetValue lamKey with
+                            match ctx.FunVerdicts.TryGetValue lambdaKey with
                             | ValueSome v ->
                                 ctx.FunVerdicts.Set(
-                                    lamKey,
+                                    lambdaKey,
                                     { v with
                                         ResultTyparPos = ValueSome idx
                                     }
@@ -123,6 +129,7 @@ module internal UnificationInferApp =
                         | ValueNone -> ()
                     | ValueNone -> ()
             | _ -> ()
+        | _ -> ()
 
     /// A syntactic string CONSTANT admits into a literal / literal-union parameter by set
     /// membership; a plain `string`-typed expression does not. `true` = handled (admitted as

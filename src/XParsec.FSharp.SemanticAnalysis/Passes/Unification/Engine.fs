@@ -317,7 +317,9 @@ module UnificationEngine =
 
                 ctx.Store.SetLink(root, ValueSome other)
                 dischargeAll ctx tok root other
-        | _ -> ctx.Report(tok, Kind.Message(sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b)))
+        // `unify` is symmetric, so neither side can be named the expected one here. A seam
+        // that knows which is written (`(e : T)`) reports its own directional message.
+        | _ -> ctx.Report(tok, Kind.Message(sprintf "Type mismatch: %s vs %s" (shown ctx.Store a) (shown ctx.Store b)))
 
     and private unifyArgs (ctx: PassContext) (tok: SyntaxToken) (xs: EqArray<SemType>) (ys: EqArray<SemType>) : unit =
         for i in 0 .. xs.Length - 1 do

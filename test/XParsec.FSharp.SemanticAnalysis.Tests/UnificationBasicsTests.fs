@@ -6,6 +6,13 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 open XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
 
+/// Did each spelling accept `t` on `e`? Both route through `unifyAnnotation`, so a
+/// disagreement between them is a defect rather than a policy difference.
+let private annotationSeams (decls: string) (e: string) (t: string) =
+    let ascribed = analyse (sprintf "%slet f = ((%s) : %s)" decls e t)
+    let bound = analyse (sprintf "%slet g : %s = %s" decls t e)
+    List.isEmpty (errors ascribed), List.isEmpty (errors bound)
+
 [<Tests>]
 let tests =
     testList
@@ -89,6 +96,46 @@ let tests =
                     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
 
                 Expect.isTrue hasMismatch "`null` and `undefined` must not unify"
+            }
+
+            test "a function annotation admits a lambda in both spellings" {
+                Expect.equal
+                    (annotationSeams "" "fun x -> x" "int -> int")
+                    (true, true)
+                    "`int -> int` accepted, ascribed and bound"
+            }
+
+            test "a non-function annotation rejects a lambda in both spellings" {
+                Expect.equal
+                    (annotationSeams "" "fun x -> x" "string")
+                    (false, false)
+                    "`string` rejected, ascribed and bound"
+            }
+
+            // `subsumes` requires each peeled domain be invariant-`Equal` to its `Fun`
+            // argument, so an unpinned `'a` cannot pin THROUGH the nominal: both spellings
+            // fall to `unify` and reject. F# admits the analogue, `(fun x -> x) : FSharpFunc<_,_>`.
+            test "an unpinned lambda does not pin through the platform function nominal" {
+                Expect.equal
+                    (annotationSeams "" "fun x -> x" "Fun<int, int>")
+                    (false, false)
+                    "`Fun<int,int>` rejected, ascribed and bound"
+            }
+
+            test "a ground function is admitted the same way in both spellings" {
+                // Ground domains reach `subsumes`' `TyFun ≤ Fun`k`` arm.
+                let ground = annotationSeams "let h (x: int) : int = x\n" "h" "Fun<int, int>"
+                Expect.equal ground (true, true) "`Fun<int,int>` accepted, ascribed and bound"
+            }
+
+            test "a strict supertype is admitted the same way in both spellings" {
+                let decls =
+                    "type Base() =\n    member this.B = 1\ntype Derived() =\n    inherit Base()\n"
+
+                Expect.equal
+                    (annotationSeams decls "Derived()" "Base")
+                    (true, true)
+                    "`Base` accepted, ascribed and bound"
             }
 
             test "Using a TyUnknown-typed external value emits a use-site diagnostic" {

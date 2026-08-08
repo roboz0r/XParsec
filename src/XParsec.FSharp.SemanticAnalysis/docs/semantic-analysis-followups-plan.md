@@ -12,15 +12,6 @@ subagent report.
 
 ## Defects
 
-### `Passes/Unification/InferApp.fs:83` — a non-`TyFun` step silently disables every later verdict
-
-`recordFunArityVerdicts` threads `currTy` through the argument loop and ends it with
-`| _ -> currTy <- TyVar(freshTyVar ctx)`. A fresh unconstrained var never matches the `TyFun` arm,
-so once ANY step is not a function type, every subsequent argument in that application records no
-`FunVerdict` — for an over-applied or partially-resolved head, later lambda arguments are dropped.
-The CLR backend then emits a heap closure where a value-struct one was intended. No diagnostic and
-no test found covering it.
-
 ### `Passes/Unification/Translate.fs:423` — one unresolved-head residue is a free `TyVar`, two are opaque
 
 `unresolvedHeadTy` takes the residue from its caller. `resolveBareTypeName` (`:394`) and
@@ -292,6 +283,50 @@ unreachable. The exemplar the deleted TODO named is
 `lerp 0.1f Vector2.Zero Vector2.One`, which needs `Vector2.op_Multiply` for `float32 * Vector2`.
 Carrying a candidate SET rather than one receiver is the stated fix. The single-receiver shape
 is verified; the `applyDefaults` failure path the TODO described is not.
+
+## Open: the function-type / `Fun` nominal relation
+
+Not from the comment sweep — split out of the annotation-seam work, and NOT to be actioned
+before the representation question below is decided.
+
+### What landed
+
+`inferTypeAnnotation` (`InferTypeOps.fs:147`) now uses `unifyAnnotation`, not bare `unify`, so
+`(e : T)` admits exactly what `let x : T = e` admits. F# accepts a subtype ascription in both
+positions (`("abc" : seq<char>)` and `let f () : seq<char> = "abc"` both check), and the two
+seams previously disagreed: a GROUND function was admitted into `Fun<int,int>` at the binding
+and rejected at the ascription. `UnificationBasicsTests.fs` pins five rows.
+
+### What still diverges
+
+`((fun x -> x) : Fun<int, int>)` is REJECTED at both seams, where F# accepts the analogue
+`((fun x -> x) : FSharpFunc<_,_>)` and leaves it `'a -> 'a`. Cause: `subsumes`' arm
+(`Subsume.fs:208-214`) requires each peeled domain be invariant-`Equal` to its `Fun` argument,
+so an unpinned `'a` cannot pin THROUGH the nominal — a read-only subsumption query cannot
+unify. The pinned row is the test "an unpinned lambda does not pin through the platform
+function nominal".
+
+Making `unify` relate `TyFun(a, b)` with `TyClass(Fun`2, [A; B])` component-wise would close it
+— in F# `FSharpFunc<'a,'b>` IS `'a -> 'b`, so both snippets there are plain unification, not
+subtyping.
+
+### Decide first: what a `Fun`k`` represents
+
+`RuntimeNames.fs:44` states the split — "Curried at 2, the flat overloads at 3–5" — so only
+`Fun`2` is the one-argument curried form. Two source types would share one `Fun`3`:
+`int -> int -> int` and `int * int -> int`. Only the FIRST may be partially applied, and the
+compiler has to keep them apart at the same representation.
+
+`SemType` already distinguishes them — `TyFun(a, TyFun(b, r))` vs `TyFun(TyTuple [a; b], r)` —
+and `FunVerdict.Arity` already records the flat arity a lambda argument was keyed to
+(`InferApp.fs`, `recordFunArityVerdicts`). So the information exists; what is missing is the
+rule tying the shared representation to which of the two the source wrote.
+
+Also unexamined: `Subsume.fs:208` lets a CURRIED chain satisfy a flat `Fun`3+` by peeling
+domains. `Curried` and `Flattened` (`Vesper.Core/fun-adapters.fsi:13`, `:21`) exist to convert
+between the two forms at run time, which suggests they are not interchangeable — so whether
+that peel is correct is part of the same question, and an identity rule for `Fun`2` alone may
+be the whole of the safe answer.
 
 ## Types that would delete a comment
 

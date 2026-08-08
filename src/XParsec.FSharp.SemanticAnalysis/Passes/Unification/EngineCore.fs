@@ -573,7 +573,12 @@ module UnificationEngineCore =
         | TyRecord(k, _) -> SymbolKeyOps.typeMetaName k
         | TyVar _
         | TyTypar _ -> "'a"
-        | TyFun _ -> "function"
+        // `->` associates right, so only a function DOMAIN needs the parens:
+        // `(int -> int) -> string`.
+        | TyFun(dom, cod) ->
+            match UnionFind.headZonk store dom with
+            | TyFun _ -> sprintf "(%s) -> %s" (shown store dom) (shown store cod)
+            | _ -> sprintf "%s -> %s" (shown store dom) (shown store cod)
         | TyTuple _ -> "tuple"
         | TyOr ms -> ms.Members |> EqSet.toList |> List.map (shown store) |> String.concat " | "
         | TyLiteral v -> sprintf "%A" v

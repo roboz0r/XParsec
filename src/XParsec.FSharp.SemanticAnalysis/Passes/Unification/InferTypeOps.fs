@@ -144,7 +144,9 @@ module internal UnificationInferTypeOps =
             annTy
         | ValueNone ->
             let innerTy = infer ctx inner
-            unify ctx node.Tok innerTy annTy
+            // The SAME admission a binding annotation gets: `("abc" : seq<char>)` and
+            // `let s : seq<char> = "abc"` are one written annotation in two positions.
+            unifyAnnotation ctx node.Tok innerTy annTy
 
             // An ascription DIRECTLY on a `?` expression (`(d?foo : int)`) is an explicit
             // assertion, so it suppresses the implicit dynamic-escape warning. An annotation
