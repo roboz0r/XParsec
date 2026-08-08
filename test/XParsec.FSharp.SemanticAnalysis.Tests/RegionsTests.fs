@@ -363,12 +363,12 @@ let tests =
                 Expect.equal escape (Some CallerStack) "mk returns its argument → CallerStack"
             }
 
-            test "as-pattern parameter surfaces its inner binder with a region" {
+            test "as-pattern parameter surfaces its inner bound variable with a region" {
                 // `let f (x as y) = x` — Elaborate's `translatePat` drops the `as`
-                // node and surfaces only the inner binder `x` (the alias `y`
-                // isn't a `TPat` binder yet; downstream `Var`s find it via the
+                // node and surfaces only the inner bound variable `x` (the alias `y`
+                // isn't a `TPat` bound variable yet; downstream `Var`s find it via the
                 // side tables). Regions now walks the
-                // post-Elaborate `TExpr`, so it stamps the surviving inner binder's
+                // post-Elaborate `TExpr`, so it stamps the surviving inner bound variable's
                 // region — the `as`-node key no longer exists to stamp.
                 let input = "let f (x as y) = x"
                 let ctx, file = analyse input
@@ -407,10 +407,10 @@ let tests =
                             None
                     | ValueNone -> None
 
-                Expect.isSome (regionOfKey innerKey) "the as-pattern's surfaced inner binder has a region"
+                Expect.isSome (regionOfKey innerKey) "the as-pattern's surfaced inner bound variable has a region"
             }
 
-            test "tuple-pattern parameter binders share a region" {
+            test "tuple-pattern parameter bound variables share a region" {
                 // `let f (a, b) = a` — `a` and `b` project parts of the
                 // same tuple parameter; both should land on the parameter's
                 // single region.

@@ -233,7 +233,7 @@ let tests =
 
             test "an exhaustive type-test match on a union checks with no warning" {
                 // Both members tested, so the match is provably
-                // exhaustive and the binders `i`/`s` narrow to `int`/`string`.
+                // exhaustive and the bound variables `i`/`s` narrow to `int`/`string`.
                 let ctx =
                     analyse
                         "let f (x: int | string) =\n    match x with\n    | :? int as i -> i\n    | :? string as s -> 0"

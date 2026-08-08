@@ -39,12 +39,12 @@ module FrozenCodec =
         if ChildColumn.length col <> poolSize then
             failwithf "FrozenCodec: %s delimits %d slots but its pool holds %d" name (ChildColumn.length col) poolSize
 
-    /// One optional value per binder slot, in binder-pool order. NO id is written — the
-    /// slot's POSITION is the binder, so the wire carries a presence byte per slot.
-    let private writeBinderColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BinderColumn<'v>) =
+    /// One optional value per bound variable slot, in bound-variable pool order. NO id is written — the
+    /// slot's POSITION is the bound variable, so the wire carries a presence byte per slot.
+    let private writeBoundVarColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BoundVarColumn<'v>) =
         writeArrayWith w (fun w v -> writeVOptionWith w writeVal v) col
 
-    let private readBinderColumn (r: FrozenReader) (readVal: FrozenReader -> 'v) : BinderColumn<'v> =
+    let private readBoundVarColumn (r: FrozenReader) (readVal: FrozenReader -> 'v) : BoundVarColumn<'v> =
         readArrayWith r (fun r -> readVOptionWith r readVal)
 
     /// A dense side table: the `(id, value)` pairs a keyed map was re-keyed to.
@@ -149,7 +149,7 @@ module FrozenCodec =
         | ExprPayload.While -> w.Write 10uy
         | ExprPayload.ForTo p ->
             w.Write 11uy
-            writeBinderId w p.Var
+            writeBoundVarId w p.Var
             writeAnchor w p.IdentTok
         | ExprPayload.ForIn enumerator ->
             w.Write 12uy
@@ -263,7 +263,7 @@ module FrozenCodec =
         | 9uy -> ExprPayload.Sequential
         | 10uy -> ExprPayload.While
         | 11uy ->
-            let var = readBinderId r
+            let var = readBoundVarId r
             let identTok = readAnchor r
 
             ExprPayload.ForTo {| Var = var; IdentTok = identTok |}
@@ -366,9 +366,9 @@ module FrozenCodec =
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =
         match p with
-        | PatPayload.NamedSimple binder ->
+        | PatPayload.NamedSimple boundVar ->
             w.Write 0uy
-            writeBinderId w binder
+            writeBoundVarId w boundVar
         | PatPayload.Wildcard -> w.Write 1uy
         | PatPayload.Null -> w.Write 2uy
         | PatPayload.Tuple -> w.Write 3uy
@@ -392,7 +392,7 @@ module FrozenCodec =
 
     let private readPatPayload (r: FrozenReader) : PatPayload =
         match r.ReadByte() with
-        | 0uy -> PatPayload.NamedSimple(readBinderId r)
+        | 0uy -> PatPayload.NamedSimple(readBoundVarId r)
         | 1uy -> PatPayload.Wildcard
         | 2uy -> PatPayload.Null
         | 3uy -> PatPayload.Tuple
@@ -463,7 +463,7 @@ module FrozenCodec =
         writeArrayWith w writeAnchor p.ExprToks
         writeChildColumn w writeExprPoolId p.ExprChildren
         writeChildColumn w writePatPoolId p.ExprPatChildren
-        writeArrayWith w (fun w b -> writeVOptionWith w writeBinderId b) p.ExprVarBinder
+        writeArrayWith w (fun w b -> writeVOptionWith w writeBoundVarId b) p.ExprVarBoundVar
         writeArrayWith w writeExprPayload p.ExprPayloads
         writeArrayWith w writeTypeId p.PatTys
         writeArrayWith w writeAnchor p.PatToks
@@ -475,17 +475,17 @@ module FrozenCodec =
         writeArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
         writeArrayWith w writeSpecialization p.Specializations
-        writeArrayWith w (fun w (s: string) -> w.Write s) p.BinderNames
-        writeArrayWith w writeAnchor p.BinderToks
+        writeArrayWith w (fun w (s: string) -> w.Write s) p.BoundVarNames
+        writeArrayWith w writeAnchor p.BoundVarToks
         writeResidue w p.Residue
-        writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
-        writeDenseTable w writeBinderId writeClosureRepr p.ClosureReprs
+        writeDenseTable w writeBoundVarId writeModuleBindingInfo p.ModuleMembers
+        writeDenseTable w writeBoundVarId writeClosureRepr p.ClosureReprs
         writeDenseTable w writeExprPoolId writeFunVerdict p.FunVerdicts
 
-        writeDenseTable w writeBinderId (fun w cs -> writeListWith w writeFrozenConstraint cs) p.GenericFnSchemes
+        writeDenseTable w writeBoundVarId (fun w cs -> writeListWith w writeFrozenConstraint cs) p.GenericFnSchemes
 
-        writeDenseTable w writeBinderId writeValRepr p.BindingValReprs
-        writeBinderColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
+        writeDenseTable w writeBoundVarId writeValRepr p.BindingValReprs
+        writeBoundVarColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         // The tables must be READ first, but are not KNOWN until the body has been written: a
@@ -505,7 +505,7 @@ module FrozenCodec =
         let exprToks = readArrayWith r readAnchor
         let exprChildren = readChildColumn r readExprPoolId
         let exprPatChildren = readChildColumn r readPatPoolId
-        let exprVarBinder = readArrayWith r (fun r -> readVOptionWith r readBinderId)
+        let exprVarBoundVar = readArrayWith r (fun r -> readVOptionWith r readBoundVarId)
         let exprPayloads = readArrayWith r readExprPayload
         let patTys = readArrayWith r readTypeId
         let patToks = readArrayWith r readAnchor
@@ -517,18 +517,18 @@ module FrozenCodec =
         let roots = readArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
         let specializations = readArrayWith r readSpecialization
-        let binderNames = readArrayWith r (fun r -> r.ReadString())
-        let binderToks = readArrayWith r readAnchor
+        let boundVarNames = readArrayWith r (fun r -> r.ReadString())
+        let boundVarToks = readArrayWith r readAnchor
         let residue = readResidue r
-        let moduleMembers = readDenseTable r readBinderId readModuleBindingInfo
-        let closureReprs = readDenseTable r readBinderId readClosureRepr
+        let moduleMembers = readDenseTable r readBoundVarId readModuleBindingInfo
+        let closureReprs = readDenseTable r readBoundVarId readClosureRepr
         let funVerdicts = readDenseTable r readExprPoolId readFunVerdict
 
         let genericFnSchemes =
-            readDenseTable r readBinderId (fun r -> readListWith r readFrozenConstraint)
+            readDenseTable r readBoundVarId (fun r -> readListWith r readFrozenConstraint)
 
-        let bindingValReprs = readDenseTable r readBinderId readValRepr
-        let bindingTyparArities = readBinderColumn r (fun r -> r.ReadInt32())
+        let bindingValReprs = readDenseTable r readBoundVarId readValRepr
+        let bindingTyparArities = readBoundVarColumn r (fun r -> r.ReadInt32())
 
         checkSlots "ExprChildren" exprPayloads.Length exprChildren
         checkSlots "ExprPatChildren" exprPayloads.Length exprPatChildren
@@ -543,7 +543,7 @@ module FrozenCodec =
             ExprToks = exprToks
             ExprChildren = exprChildren
             ExprPatChildren = exprPatChildren
-            ExprVarBinder = exprVarBinder
+            ExprVarBoundVar = exprVarBoundVar
             ExprPayloads = exprPayloads
             PatTys = patTys
             PatToks = patToks
@@ -555,8 +555,8 @@ module FrozenCodec =
             Roots = roots
             InlineTemplates = inlineTemplates
             Specializations = specializations
-            BinderNames = binderNames
-            BinderToks = binderToks
+            BoundVarNames = boundVarNames
+            BoundVarToks = boundVarToks
             Residue = residue
             ModuleMembers = moduleMembers
             ClosureReprs = closureReprs

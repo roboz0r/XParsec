@@ -918,7 +918,7 @@ let tests =
 
             // An instance `let` is a private instance field: the same lowering a primary-ctor
             // param gets. So its initialiser reads the ctor param through `this`, and a member
-            // reads the binder through `this` — codegen never sees either binder's NodeKey.
+            // reads the bound variable through `this` — codegen never sees either bound variable's NodeKey.
             test "TAST: an instance `let` surfaces in InstancePreamble and lowers to a field" {
                 let tast = analyse "type C(x: int) =\n    let a = x + 1\n    member _.A = a"
 
@@ -935,13 +935,13 @@ let tests =
 
                 match c.Members.[0].Body with
                 | TExpr.FieldGet(TExpr.Var(k, _, _), name, _, _) ->
-                    Expect.equal k (BinderKey.identity c.ThisKey) "the member reads the field off `this`"
+                    Expect.equal k (BoundVarKey.identity c.ThisKey) "the member reads the field off `this`"
                     Expect.equal name "a" "field name"
                 | other -> failtestf "expected a FieldGet body, got %A" other
             }
 
             // A preamble `let mutable` IS the field, so a write to it must be a field STORE —
-            // never a `TExpr.Let` binder, which `RefCellPromotion` would promote to a ref cell
+            // never a `TExpr.Let` bound variable, which `RefCellPromotion` would promote to a ref cell
             // and fork the storage away from the field every member reads.
             test "TAST: a write to an instance `let mutable` lowers to a FieldSet" {
                 let tast =
@@ -963,7 +963,7 @@ let tests =
 
                 match cls.Members.[0].Body with
                 | TExpr.FieldSet(TExpr.Var(k, _, _), name, _, _, _) ->
-                    Expect.equal k (BinderKey.identity cls.ThisKey) "the write stores through `this`"
+                    Expect.equal k (BoundVarKey.identity cls.ThisKey) "the write stores through `this`"
                     Expect.equal name "c" "field name"
                 | other -> failtestf "expected a FieldSet body, got %A" other
             }

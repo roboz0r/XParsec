@@ -74,9 +74,9 @@ let private classMemberParamType (source: string) (typeName: string) (memberName
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one parameter on '%s.%s', got %A" typeName memberName other
 
-/// The RESOLVED return type of one class member, off the elaborated TAST. A preamble binder
+/// The RESOLVED return type of one class member, off the elaborated TAST. A preamble bound variable
 /// carries no name of its own once it is a field, so this is how a SHADOWING test pins which
-/// binder a name bound to: give the shadowing `let` a different type and read it back here.
+/// bound variable a name bound to: give the shadowing `let` a different type and read it back here.
 let private classMemberReturnType (source: string) (typeName: string) (memberName: string) : SemType =
     let tast = analyse source
 
@@ -330,7 +330,7 @@ let tests =
                 }
 
             // The instance preamble obeys the same two-tier rule: it is one top-down sequence
-            // (a later `let` sees an earlier one), and every binder is in scope for the
+            // (a later `let` sees an earlier one), and every bound variable is in scope for the
             // mutually-recursive member group.
             yield
                 test "a member referencing an instance let is accepted" {
@@ -345,7 +345,7 @@ let tests =
                 }
 
             // …and not the other way round: the two sequences are separate ordered scopes, so
-            // a `static let` never sees an instance binder. F# reports FS0039 too.
+            // a `static let` never sees an instance bound variable. F# reports FS0039 too.
             yield
                 test "a static let referencing an instance let is rejected" {
                     expectError
@@ -384,7 +384,7 @@ let tests =
                     Expect.equal (List.length es) 1 (sprintf "one error for three offending entries, got %A" es)
                 }
 
-            // A struct's zero-arg default ctor is not ours to write, so an instance binder's field
+            // A struct's zero-arg default ctor is not ours to write, so an instance bound variable's field
             // would be left unset by `Unchecked.defaultof<S>` — F# rejects both shapes (FS0901 /
             // FS0035), and so must we: `buildClassPrimaryCtor` would otherwise happily run the
             // preamble in the ctor we DO emit and leave the default-constructed value inconsistent.
@@ -409,7 +409,7 @@ let tests =
                     expectClean "[<Struct>]\ntype S(x: int) =\n    static let k = 41\n    member _.X = x + k"
                 }
 
-            // A `static let mutable` binder IS the static field, so a write stores to it
+            // A `static let mutable` bound variable IS the static field, so a write stores to it
             // (`TExpr.StaticFieldSet`, emitted `stsfld` / a class-object property assign).
             yield
                 test "a write to a `static let mutable` is accepted" {
@@ -417,7 +417,7 @@ let tests =
                 }
 
             // …but a write to a NON-mutable `static let` is still an immutable-binding error —
-            // the mutability gate reads `IsMutable` faithfully off the binder, so only the
+            // the mutability gate reads `IsMutable` faithfully off the bound variable, so only the
             // `mutable` form is writable.
             yield
                 test "a write to a non-mutable `static let` is rejected" {
@@ -462,7 +462,7 @@ let tests =
                     "type C(x: int) =\n    [<DefaultValue>]\n    val mutable x: int\n    member this.X = this.x + x"
                 ] -> test $"{form} is rejected" { expectError "Duplicate field name" source }
 
-            // FS0905 — unlike the collisions above this is a REAL F# rule, and one that binder
+            // FS0905 — unlike the collisions above this is a REAL F# rule, and one that bound variable
             // uniquification would not lift: a member's name is its public surface, so a class
             // `let` may not share it. Both sides being static makes no difference (probed).
             for form, source in
@@ -485,7 +485,7 @@ let tests =
                 }
 
             // …and the non-shadowing neighbours of those programs still resolve, pinned by TYPE
-            // rather than by acceptance: the member reads the binder it names, not a same-shaped
+            // rather than by acceptance: the member reads the bound variable it names, not a same-shaped
             // one — a blanket rejection of anything that merely LOOKS like a preamble let would
             // pass an acceptance test.
             yield
@@ -511,7 +511,7 @@ let tests =
                 }
 
             // The static/instance neighbours of the cross-family rejections above: distinctly
-            // named, each member must read the binder it NAMES — a static field and an instance
+            // named, each member must read the bound variable it NAMES — a static field and an instance
             // field of one class are not interchangeable.
             yield
                 test "distinctly-named static and instance lets each bind their own member" {
@@ -545,7 +545,7 @@ let tests =
                         "type C() =\n    let mutable c = 0\n    let bump () = c <- c + 1\n    do bump ()\n    member _.C = c"
                 }
 
-            // `let rec` puts its binder in scope of its OWN initialiser: recursion, not shadowing,
+            // `let rec` puts its bound variable in scope of its OWN initialiser: recursion, not shadowing,
             // so the shadowing rejection above must not swallow it.
             yield
                 test "a recursive instance let is accepted" {
@@ -553,7 +553,7 @@ let tests =
                         "type C() =\n    let rec fact k = if k <= 1 then 1 else k * fact (k - 1)\n    member _.F = fact 5"
                 }
 
-            // Instance lets in a GENERIC class: a preamble binder is an instance field, and
+            // Instance lets in a GENERIC class: a preamble bound variable is an instance field, and
             // those already work generically (a ctor param is one).
             yield
                 test "instance lets in a generic class are accepted" {

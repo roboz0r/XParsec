@@ -49,7 +49,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         Expect.equal (TastPoolBuilder.exprChildCount b id) kids.Length "base expr child count"
         positionally kids (TastPoolBuilder.exprChild b id) "base expr child by position"
         positionally patKids (TastPoolBuilder.exprPatChild b id) "base expr pat child by position"
-        Expect.equal (TastPoolBuilder.exprVarBinder b id) pools.ExprVarBinder.[i] "base expr var binder"
+        Expect.equal (TastPoolBuilder.exprVarBoundVar b id) pools.ExprVarBoundVar.[i] "base expr var bound variable"
         Expect.equal (TastPoolBuilder.exprPayload b id) pools.ExprPayloads.[i] "base expr payload"
 
     for i in 0 .. pools.PatPayloads.Length - 1 do
@@ -71,26 +71,26 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         positionally patKids (TastPoolBuilder.declPatChild b id) "base decl pat child by position"
         Expect.equal (TastPoolBuilder.declPayload b id) pools.DeclPayloads.[i] "base decl payload"
 
-    for i in 0 .. pools.BinderNames.Length - 1 do
-        let id = BinderId i
-        Expect.equal (TastPoolBuilder.binderTok b id) pools.BinderToks.[i] "base binder anchor"
+    for i in 0 .. pools.BoundVarNames.Length - 1 do
+        let id = BoundVarId i
+        Expect.equal (TastPoolBuilder.boundVarTok b id) pools.BoundVarToks.[i] "base bound variable anchor"
 
         Expect.equal
-            (TastPoolBuilder.binderNaming b id)
-            (BinderNaming.ofColumn pools.BinderNames.[i] id)
-            "base binder naming"
+            (TastPoolBuilder.boundVarNaming b id)
+            (BoundVarNaming.ofColumn pools.BoundVarNames.[i] id)
+            "base bound variable naming"
 
 /// Every base root unpools to the SAME decl before and after the overlay grows — the
 /// end-to-end half of id preservation, through the ONE way out of a builder that production
 /// uses (`declTree`, the cross-file inline wire's unpool). An id-space boundary error shows
 /// up as a wrong or missing subtree; the unpool is deterministic within a builder (its
-/// re-minted binder keys are the builder's), so the two unpools are directly comparable.
+/// re-minted bound variable keys are the builder's), so the two unpools are directly comparable.
 let private unpoolRoots (b: PoolBuilder) : Wire.TDecl[] =
     TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
-// Programs spanning the domains the stack has to keep straight: a binder reference across
-// decls (`Var` into the binder pool), a composite expr with swappable children, a pattern
-// with sub-patterns, and a `for` loop's binder.
+// Programs spanning the domains the stack has to keep straight: a bound variable reference across
+// decls (`Var` into the bound variable pool), a composite expr with swappable children, a pattern
+// with sub-patterns, and a `for` loop's bound variable.
 let private programs =
     [
         "let-bound reference", "let x = 1\nlet y = x\n"
@@ -110,10 +110,10 @@ let baseIdTests =
                     let b = TastPoolBuilder.openOver pools
                     let before = unpoolRoots b
 
-                    // Grow the overlay: a re-pooled real subtree (which also names binder
-                    // references) and a binder the base never held.
+                    // Grow the overlay: a re-pooled real subtree (which also names bound variable
+                    // references) and a bound variable the base never held.
                     TastPoolBuilder.appendExprTree b (firstLetValue frozen) |> ignore
-                    TastPoolBuilder.mintBinder b |> ignore
+                    TastPoolBuilder.mintBoundVar b |> ignore
 
                     Expect.isGreaterThan
                         (TastPoolBuilder.exprCount b)
@@ -140,17 +140,17 @@ let appendTests =
                 let (ExprPoolId i) = id
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
-                // The binder the DU node introduces — already this pool's own id, the tree
+                // The bound variable the DU node introduces — already this pool's own id, the tree
                 // being one unpooled from it, so the payload is checked against the identity
                 // the NODE carries rather than against the payload itself.
-                let duBinder = BinderKey.ofExpr du |> ValueOption.map BinderKey.identity
+                let duBoundVar = BoundVarKey.ofExpr du |> ValueOption.map BoundVarKey.identity
 
                 // The tree is already in the stored anchor form, so the payload's own
                 // anchor needs no narrowing — `Operators.id` because `id` is the pool id
                 // in scope here.
                 Expect.equal
                     (TastPoolBuilder.exprPayload b id)
-                    (TastPoolShapes.exprPayload Operators.id duBinder du)
+                    (TastPoolShapes.exprPayload Operators.id duBoundVar du)
                     "appended payload"
 
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
@@ -166,12 +166,12 @@ let appendTests =
                     Expect.isGreaterThanOrEqual k baseCount "an appended child is an overlay id"
             }
 
-            test "a minted Var resolves to the binder the base pool already interned" {
+            test "a minted Var resolves to the bound variable the base pool already interned" {
                 let pools, frozen = poolsFor "let x = 1\nlet y = x\n"
                 let b = TastPoolBuilder.openOver pools
 
-                // `let y = x`'s value is the `Var` naming `x`'s binder — a reference the
-                // overlay must resolve into the BASE binder pool rather than mint anew.
+                // `let y = x`'s value is the `Var` naming `x`'s bound variable — a reference the
+                // overlay must resolve into the BASE bound variable pool rather than mint anew.
                 let varDu =
                     EqArray.toArray frozen.Decls
                     |> Array.pick (fun d ->
@@ -180,60 +180,67 @@ let appendTests =
                         | _ -> None
                     )
 
-                let binderCountBefore = TastPoolBuilder.binderCount b
+                let boundVarCountBefore = TastPoolBuilder.boundVarCount b
                 let id = TastPoolBuilder.appendExprTree b varDu
 
                 Expect.equal
-                    (TastPoolBuilder.binderCount b)
-                    binderCountBefore
-                    "a reference to a known binder mints no binder"
+                    (TastPoolBuilder.boundVarCount b)
+                    boundVarCountBefore
+                    "a reference to a known bound variable mints no bound variable"
 
-                match TastPoolBuilder.exprVarBinder b id with
-                | ValueSome binder ->
+                match TastPoolBuilder.exprVarBoundVar b id with
+                | ValueSome boundVar ->
                     Expect.equal
-                        binder
+                        boundVar
                         (match varDu with
-                         | TExprG.Var(binding = b) -> b
+                         | TExprG.Var(boundVar = b) -> b
                          | _ -> failtest "not a Var")
-                        "the minted Var resolves to its own binder"
+                        "the minted Var resolves to its own bound variable"
 
-                    let (BinderId j) = binder
-                    Expect.isLessThan j pools.BinderNames.Length "the binder id is the base pool's, not a fresh one"
-                | ValueNone -> failtest "an appended Var carries no resolved binder id"
+                    let (BoundVarId j) = boundVar
+
+                    Expect.isLessThan
+                        j
+                        pools.BoundVarNames.Length
+                        "the bound variable id is the base pool's, not a fresh one"
+                | ValueNone -> failtest "an appended Var carries no resolved bound variable id"
             }
 
-            test "a minted binder extends the pool past the base" {
+            test "a minted bound variable extends the pool past the base" {
                 let pools, _ = poolsFor "let x = 1\n"
                 let b = TastPoolBuilder.openOver pools
 
-                let id = TastPoolBuilder.mintBinder b
-                let (BinderId i) = id
-                Expect.equal i pools.BinderNames.Length "the minted binder takes the next flat id"
+                let id = TastPoolBuilder.mintBoundVar b
+                let (BoundVarId i) = id
+                Expect.equal i pools.BoundVarNames.Length "the minted bound variable takes the next flat id"
 
                 Expect.equal
-                    (TastPoolBuilder.binderNaming b id)
-                    (BinderNaming.Minted id)
-                    "a minted binder is named after its own slot"
+                    (TastPoolBuilder.boundVarNaming b id)
+                    (BoundVarNaming.Minted id)
+                    "a minted bound variable is named after its own slot"
 
-                Expect.equal (TastPoolBuilder.binderTok b id) Anchor.nowhere "a minted binder anchors on nothing"
+                Expect.equal
+                    (TastPoolBuilder.boundVarTok b id)
+                    Anchor.nowhere
+                    "a minted bound variable anchors on nothing"
 
-                // A second mint is a SECOND binder: there is nothing to intern against, so
+                // A second mint is a SECOND bound variable: there is nothing to intern against, so
                 // the id space simply grows.
-                Expect.notEqual (TastPoolBuilder.mintBinder b) id "each mint is its own binder"
+                Expect.notEqual (TastPoolBuilder.mintBoundVar b) id "each mint is its own bound variable"
 
                 Expect.equal
-                    (TastPoolBuilder.binderCount b)
-                    (pools.BinderNames.Length + 2)
-                    "exactly two binders were appended"
+                    (TastPoolBuilder.boundVarCount b)
+                    (pools.BoundVarNames.Length + 2)
+                    "exactly two bound variables were appended"
 
-                // The base half of the binder space is untouched by the mints.
-                for i in 0 .. pools.BinderNames.Length - 1 do
-                    let baseId = BinderId i
+                // The base half of the bound variable space is untouched by the mints.
+                for i in 0 .. pools.BoundVarNames.Length - 1 do
+                    let baseId = BoundVarId i
 
                     Expect.equal
-                        (TastPoolBuilder.binderNaming b baseId)
-                        (BinderNaming.ofColumn pools.BinderNames.[i] baseId)
-                        "base binder naming"
+                        (TastPoolBuilder.boundVarNaming b baseId)
+                        (BoundVarNaming.ofColumn pools.BoundVarNames.[i] baseId)
+                        "base bound variable naming"
             }
         ]
 
@@ -299,11 +306,11 @@ let rowCopyTests =
                 let expected =
                     match original with
                     | TDeclG.Let(
-                        binding = binding; value = TExprG.Tuple(items, ty, tok); isInline = isInline; ty = declTy) ->
+                        pattern = pattern; value = TExprG.Tuple(items, ty, tok); isInline = isInline; ty = declTy) ->
                         let reversed =
                             TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
 
-                        TDeclG.Let(binding, reversed, isInline, declTy)
+                        TDeclG.Let(pattern, reversed, isInline, declTy)
                     | _ -> failtest "the decl is not a `let` over a Tuple"
 
                 // Unpooled through `declTree`: the derived decl is a node like any other,

@@ -44,51 +44,51 @@ module EmitBindings =
     let buildLet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprLet e
 
-        match TastAccessor.patBinder view.Binding with
-        | ValueSome binding ->
-            // A simple `let x = value in body` binder: park the value in `x`'s slot.
-            let slot = b.Local(TastAccessor.patTy view.Binding)
-            env.Slots.[binding] <- slot
+        match TastAccessor.patBoundVar view.Pattern with
+        | ValueSome boundVar ->
+            // A simple `let x = value in body` bound variable: park the value in `x`'s slot.
+            let slot = b.Local(TastAccessor.patTy view.Pattern)
+            env.Slots.[boundVar] <- slot
             recur env b view.Value
             b.Add(ILInstr.Stloc slot)
             recur env b view.Body
         | ValueNone ->
             // A destructuring `let a, b = (1, 2) in body`: park the scrutinee in a temp,
-            // then `bindPattern` pulls each leaf binding out of it before the body runs.
+            // then `bindPattern` pulls each leaf boundVar out of it before the body runs.
             let slot = b.Local(typeOfExpr view.Value)
             recur env b view.Value
             b.Add(ILInstr.Stloc slot)
-            bindPattern env b slot view.Binding
+            bindPattern env b slot view.Pattern
             recur env b view.Body
 
     let buildUse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprUse e
-        let pat = view.Binding
+        let pat = view.Pattern
 
         match TastAccessor.patKind pat with
         | PatShape.NamedSimple
         | PatShape.Wildcard ->
-            // `use x = value` or `use _ = value`. A `_` binder still parks the value — it
+            // `use x = value` or `use _ = value`. A `_` bound variable still parks the value — it
             // is the resource the `finally` disposes — under a synthetic placeholder key.
             let tok = TastAccessor.exprTok e
             let varTy = TastAccessor.patTy pat
 
-            let binding =
-                match TastAccessor.patBinder pat with
+            let boundVar =
+                match TastAccessor.patBoundVar pat with
                 | ValueSome b -> b
-                | ValueNone -> TastPoolBuilder.mintBinder pat.Pool
+                | ValueNone -> TastPoolBuilder.mintBoundVar pat.Pool
             // `use x = v in body` → `let x = v in try body finally if x <> null then
-            // x.Dispose()`, so a null binder disposes nothing. `view.Dispose` names the
-            // member: the capability's interface slot, or the binder's own `Dispose()`.
+            // x.Dispose()`, so a null bound variable disposes nothing. `view.Dispose` names the
+            // member: the capability's interface slot, or the bound variable's own `Dispose()`.
 
-            // Both disposal paths below `brfalse` the loaded binder and `callvirt` it —
-            // valid only for a reference binder. `brfalse` on a loaded struct is invalid
+            // Both disposal paths below `brfalse` the loaded bound variable and `callvirt` it —
+            // valid only for a reference bound variable. `brfalse` on a loaded struct is invalid
             // IL, and a struct receiver would need `ldloca` + `constrained. callvirt`.
             if isValueType env varTy then
-                failwithf "Emit: `use` over a value-type binder is out of scope: %A" varTy
+                failwithf "Emit: `use` over a value-type bound variable is out of scope: %A" varTy
 
             let slot = b.Local varTy
-            env.Slots.[binding] <- slot
+            env.Slots.[boundVar] <- slot
             recur env b view.Value
             b.Add(ILInstr.Stloc slot)
 
@@ -101,7 +101,7 @@ module EmitBindings =
                     env
                     b
                     (TastAccessor.mintMethodCall
-                        (TastAccessor.mintVar pool binding varTy tok)
+                        (TastAccessor.mintVar pool boundVar varTy tok)
                         disposeKey
                         CallVia.Self
                         [||]
@@ -133,7 +133,7 @@ module EmitBindings =
                 env.Classes.ContainsKey(SymbolKey.Type key)
                 || env.Unions.ContainsKey(SymbolKey.Type key)
 
-            let isLocalBinder =
+            let isLocalBoundVar =
                 match TastLower.receiverShape varTy with
                 | ValueSome(tyCtorKey, _) -> isLocalType tyCtorKey
                 | ValueNone -> false
@@ -153,7 +153,7 @@ module EmitBindings =
                 // A LOCAL capability impl disposes through its own `Dispose` method; an
                 // EXTERNAL one through the capability's interface slot, since the type's own
                 // `Dispose` may not exist on it (`MemoryStream` inherits `Stream.Dispose`).
-                | Disposal.ViaCapability _ when isLocalBinder ->
+                | Disposal.ViaCapability _ when isLocalBoundVar ->
                     emitLocalDispose (
                         SymbolKeyOps.memberKey
                             (nominalTypeKey "use-dispose receiver" varTy)
@@ -168,7 +168,7 @@ module EmitBindings =
                 | Disposal.ViaOwnMember key -> emitExternalDispose key
                 | Disposal.Unresolved ->
                     failwithf
-                        "Emit: `use` over a binder with no resolved disposal (%A) — Unification reported an error, so this file should never have reached codegen"
+                        "Emit: `use` over a bound variable with no resolved disposal (%A) — Unification reported an error, so this file should never have reached codegen"
                         varTy
 
                 b.SetDepth 0

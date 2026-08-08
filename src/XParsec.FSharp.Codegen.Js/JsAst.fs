@@ -86,13 +86,13 @@ and [<RequireQualifiedAccess>] JsFnBody =
 and [<RequireQualifiedAccess>] JsStatement =
     /// `<e>;` — an expression evaluated for effect, its value discarded.
     | Expression of JsExpr
-    /// `const <name> = <init>;` — the default for an F# binder the body never assigns.
+    /// `const <name> = <init>;` — the default for an F# bound variable the body never assigns.
     | Const of name: string * init: JsExpr
     /// `let <name> = <init>;` — a *reassignable* local for a `let mutable`; an immutable
-    /// binder stays `Const`.
+    /// bound variable stays `Const`.
     | Let of name: string * init: JsExpr
     /// `export const <name> = <init>;` — a top-level binding in library compile mode;
-    /// `reassignable` selects `export let` for a binder the module later mutates.
+    /// `reassignable` selects `export let` for a bound variable the module later mutates.
     | Export of name: string * init: JsExpr * reassignable: bool
     /// `import <default>, { <name> as <alias>, … } from "<source>";`. `defaultBinding` is the
     /// local name a TS DEFAULT export binds to; each `named` entry is an `(exportName, alias)`
@@ -108,9 +108,9 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `for (let <var> = <init>; <var> <= <limit>; <var>++) { … }` — the F# `for i = a to b do`
     /// counted loop. `<limit>` is re-read each iteration, so it must be a binding, not a call.
     | For of var: string * init: JsExpr * limit: JsExpr * body: JsStatement list
-    /// `for (const <binder> of <source>) { … }` — the F# `for x in source do`. JS drives the
+    /// `for (const <bound variable> of <source>) { … }` — the F# `for x in source do`. JS drives the
     /// source's own `Symbol.iterator`, so no MoveNext/Current plumbing is emitted.
-    | ForOf of binder: string * source: JsExpr * body: JsStatement list
+    | ForOf of boundVar: string * source: JsExpr * body: JsStatement list
     /// `return <e>;`
     | Return of JsExpr
     /// `continue;` — re-enters the `While` trampoline after the parameter write-back.
@@ -141,7 +141,7 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `throw <e>;`
     | Throw of JsExpr
     /// `try { … } finally { … }` — an F# `try…finally`, or a `use` binding whose
-    /// `finallyBody` disposes the binder.
+    /// `finallyBody` disposes the bound variable.
     | TryFinally of tryBody: JsStatement list * finallyBody: JsStatement list
     /// `yield <e>;` — valid only inside a generator method body (`Generator = true` on the
     /// enclosing `JsClassMethod`).

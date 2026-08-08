@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // projection's INPUT) and the provider is asked to answer them.
 
 /// The pooled file as the `Frozen.TastFile` DU. The assertions below read whole decl
-/// trees and the binder-keyed side tables, which is what `ofPools` re-authors
+/// trees and the bound-variable-keyed side tables, which is what `ofPools` re-authors
 /// verbatim — the projection's INPUT is the pools, but its shape reads most directly
 /// here.
 let private duOf (frozen: FrozenPools) : Pooled.TastFile = TastUnpool.ofPools frozen
@@ -48,9 +48,9 @@ let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
         |> List.choose (
             function
             | TDeclG.Let(pattern, _, _, _) ->
-                match BinderKey.ofPat pattern with
-                | ValueSome binder ->
-                    match Map.tryFind binder file.ModuleMembers with
+                match BoundVarKey.ofPat pattern with
+                | ValueSome boundVar ->
+                    match Map.tryFind boundVar file.ModuleMembers with
                     | Some info -> Some(info.Name, info.Key)
                     | None -> None
                 | ValueNone -> None

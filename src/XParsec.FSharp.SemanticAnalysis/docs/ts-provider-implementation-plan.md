@@ -333,7 +333,7 @@ above is authoritative where they conflict (esp. the `"[]``1"` key claim in §3 
 
 **Direction (user, 2026-07-05): (a-literal). The enabling primitive is GENERAL — an intrinsic /
 `extern` type MAY carry concrete members with `(# … #)` inline bodies — NOT an indexer feature.** It
-is a first-class platform-binding strategy for any type the automatic binder (`TsManifestProvider`)
+is a first-class platform-binding strategy for any type the automatic boundVar (`TsManifestProvider`)
 doesn't cover or can't express. Indexers (`array`/`string` `get_Item`/`set_Item`/`Length`) are its
 first consumer. (Distinct from W8: `Vesper.Fun` is a compiler-known INTERFACE with an `abstract Invoke`
 and a call-site lowering decision — not a concrete inline-bodied intrinsic member. The two are

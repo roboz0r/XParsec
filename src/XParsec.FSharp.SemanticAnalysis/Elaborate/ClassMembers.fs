@@ -13,13 +13,13 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateTypars
 open XParsec.FSharp.SemanticAnalysis.ElaborateMembers
 
 // Class-host lowering for the Elaborate pass. What separates a class from the other
-// nominal hosts is that some of its binders are FIELDS, not locals: a primary-ctor
+// nominal hosts is that some of its bound variables are FIELDS, not locals: a primary-ctor
 // param, an instance `let`, a `static let`.
 
 module internal ElaborateClassMembers =
 
-    /// Every reference to such a binder rewrites to a field access, so codegen never sees
-    /// the binder's `NodeKey`. `MkSet` carries the write side: a `let mutable` binder IS the
+    /// Every reference to such a bound variable rewrites to a field access, so codegen never sees
+    /// the bound variable's `NodeKey`. `MkSet` carries the write side: a `let mutable` bound variable IS the
     /// field, so `c <- c + 1` must store to it, not fork storage into a promoted ref cell.
     [<NoEquality; NoComparison>]
     type FieldRewrite =
@@ -60,13 +60,13 @@ module internal ElaborateClassMembers =
             MkSet = fun name rhs ty tok -> TExpr.StaticFieldSet(info.Key, name, rhs, ty, tok)
         }
 
-    /// Primary-ctor params AND instance-`let` binders share ONE map: an instance `let` is a
+    /// Primary-ctor params AND instance-`let` bound variables share ONE map: an instance `let` is a
     /// ctor param whose value comes from an initialiser rather than an argument. Keying by
     /// `NodeKey` stays exact even though the two families share one source name space.
     let instanceFieldRewrite (info: ClassTypeInfo) (classTy: SemType) : FieldRewrite =
         let names =
             (Map.empty, info.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add (BinderKey.identity p.DeclSite.Binder) p.Name acc)
+            ||> Array.fold (fun acc p -> Map.add (BoundVarKey.identity p.DeclSite.BoundVar) p.Name acc)
 
         let names =
             (names, ClassPreamble.lets info.InstancePreamble)
@@ -76,14 +76,14 @@ module internal ElaborateClassMembers =
             Names = names
             MkGet =
                 fun name ty tok ->
-                    TExpr.FieldGet(TExpr.Var(BinderKey.identity info.ThisKey, classTy, tok), name, ty, tok)
+                    TExpr.FieldGet(TExpr.Var(BoundVarKey.identity info.ThisKey, classTy, tok), name, ty, tok)
             MkSet =
                 fun name rhs ty tok ->
-                    TExpr.FieldSet(TExpr.Var(BinderKey.identity info.ThisKey, classTy, tok), name, rhs, ty, tok)
+                    TExpr.FieldSet(TExpr.Var(BoundVarKey.identity info.ThisKey, classTy, tok), name, rhs, ty, tok)
         }
 
     /// Translate one class member element into a `TTypeMember`. A reference to a ctor param
-    /// or an instance-`let` binder in an INSTANCE body becomes a `FieldGet`/`FieldSet` on
+    /// or an instance-`let` bound variable in an INSTANCE body becomes a `FieldGet`/`FieldSet` on
     /// `this`; a static member sees neither, so only the `static let` rewrite applies there.
     let translateClassMember
         (ctx: PassContext)
@@ -221,7 +221,7 @@ module internal ElaborateClassMembers =
     /// DROP the statements they pass over.
     let translateSecondaryCtor (ctx: PassContext) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
-            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) })
+            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) })
 
         let chainArgs (e: Expr<SyntaxToken>) : EqArray<TExpr> =
             let raw =
@@ -251,17 +251,17 @@ module internal ElaborateClassMembers =
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
-                // Only a simple name binds. The slot keeps just the binder key, so the
+                // Only a simple name binds. The slot keeps just the bound variable key, so the
                 // pattern's own token is spelled into the context here.
-                match BinderKey.siteOfCstPat b.pattern with
+                match BoundVarKey.siteOfCstPat b.pattern with
                 | ValueSome site ->
-                    let binder = site.Binder
-                    ctx.SpellBinder(binder, site.Tok)
+                    let boundVar = site.BoundVar
+                    ctx.SetBoundVarName(boundVar, site.Tok)
 
                     lets.Add
                         {
-                            Binder = binder
-                            Type = typeOfKey ctx (BinderKey.identity binder)
+                            BoundVar = boundVar
+                            Type = typeOfKey ctx (BoundVarKey.identity boundVar)
                             Init = translateExpr ctx b.expr
                         }
                 | ValueNone -> ()

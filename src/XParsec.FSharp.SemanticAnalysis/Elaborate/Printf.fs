@@ -364,7 +364,7 @@ module internal ElaboratePrintf =
                             (Unification.zonk ctx.Store ty)
 
                 // A parameter key off the specifier's own token offset — distinct per hole
-                // and stable, so the synthesised `Var` and its `NamedSimple` binder agree.
+                // and stable, so the synthesised `Var` and its `NamedSimple` bound variable agree.
                 let paramKey = NodeKey.ofSynthetic t.StartIndex NodeKind.SynthLambdaBody
                 parameters.Add(paramKey, holeTy, t)
 

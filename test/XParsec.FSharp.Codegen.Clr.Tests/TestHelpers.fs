@@ -294,7 +294,7 @@ let analyse (input: string) : TastFile =
 
     Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultManifests) (Hashing.originSourceOfText lexed) file
 
-/// `analyse`, keeping the `PassContext`. `Freeze.run` needs it: the binder a residual
+/// `analyse`, keeping the `PassContext`. `Freeze.run` needs it: the bound variable a residual
 /// typar root belongs to is recorded in `ctx.Bindings.Scheme`, not recoverable from the
 /// TAST alone.
 let analyseWithCtx (input: string) : PassContext * TastFile =

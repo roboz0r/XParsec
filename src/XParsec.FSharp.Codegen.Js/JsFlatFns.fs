@@ -17,7 +17,7 @@ module JsFlatFns =
     /// One flat parameter's JS name; a tuple pattern renders as a `[a, b]` destructuring.
     let paramNameOf (pool: PoolBuilder) (p: TastLower.StaticParam) : string =
         match p.Pat with
-        | None -> binderNameOf pool p.Slot
+        | None -> boundVarNameOf pool p.Slot
         | Some pat -> lambdaParamName pool pat
 
     /// An external module function's SOURCE groups. `ValueNone` — no `key`, or a symbol with

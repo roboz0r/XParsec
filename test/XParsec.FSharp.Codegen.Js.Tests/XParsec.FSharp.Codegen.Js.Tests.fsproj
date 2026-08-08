@@ -15,7 +15,7 @@
     <Compile Include="SpecializationTableTests.fs" />
     <Compile Include="InlineExpandTests.fs" />
     <Compile Include="AnchorFileLocalityTests.fs" />
-    <Compile Include="BinderNamingTests.fs" />
+    <Compile Include="BoundVarNamingTests.fs" />
     <Compile Include="PrimitiveExprTests.fs" />
     <Compile Include="FunctionEmissionTests.fs" />
     <Compile Include="RecordTests.fs" />

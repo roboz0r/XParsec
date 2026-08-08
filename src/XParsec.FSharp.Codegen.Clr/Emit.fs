@@ -61,21 +61,21 @@ module Emit =
             | DeclShape.Let ->
                 let dl = TastAccessor.declLet d
 
-                match TastAccessor.patBinder dl.Binding with
+                match TastAccessor.patBoundVar dl.Pattern with
                 // A function emitted as a static method has no Main local.
-                | ValueSome binding when ctx.StaticMethods.ContainsKey binding -> ()
+                | ValueSome boundVar when ctx.StaticMethods.ContainsKey boundVar -> ()
                 // A top-level value that follows a top-level `do`: its `public static`
                 // field is written here, in source order — not in the Program `.cctor`,
                 // which runs before `Main`.
-                | ValueSome binding when ctx.MainInitValues.ContainsKey binding ->
+                | ValueSome boundVar when ctx.MainInitValues.ContainsKey boundVar ->
                     buildExpr env b dl.Value
-                    b.Add(ILInstr.Stsfld ctx.MainInitValues.[binding])
+                    b.Add(ILInstr.Stsfld ctx.MainInitValues.[boundVar])
                 // A module-level value is a `public static` field its holder's `.cctor`
                 // initialises; a reference `ldsfld`s it, so it needs no Main local.
-                | ValueSome binding when ctx.ModuleValues.ContainsKey binding -> ()
-                | ValueSome binding ->
+                | ValueSome boundVar when ctx.ModuleValues.ContainsKey boundVar -> ()
+                | ValueSome boundVar ->
                     let slot = b.Local dl.Ty
-                    env.Slots.[binding] <- slot
+                    env.Slots.[boundVar] <- slot
                     buildExpr env b dl.Value
                     b.Add(ILInstr.Stloc slot)
                 // A destructuring top-level `let (a, b) = tupleExpr`: evaluate the value
@@ -85,7 +85,7 @@ module Emit =
                     let slot = b.Local(EmitLower.typeOfExpr dl.Value)
                     buildExpr env b dl.Value
                     b.Add(ILInstr.Stloc slot)
-                    bindPattern env b slot dl.Binding
+                    bindPattern env b slot dl.Pattern
 
         b.Add(ILInstr.LdcI4 0)
         b.Add ILInstr.Ret
@@ -97,10 +97,10 @@ module Emit =
     let buildClosureInvoke
         (ctx: EmitContext)
         (closure: Closure)
-        (captureFields: Dictionary<BinderId, EntityHandle>)
+        (captureFields: Dictionary<BoundVarId, EntityHandle>)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<BinderId, int>()
+        let args = Dictionary<BoundVarId, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
 
         // A flat closure's extra (peeled inner-`Lambda`) parameters: extra param `i`,
@@ -128,7 +128,7 @@ module Emit =
     /// body onto the stack, then `ret`.
     let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<BinderId, int>()
+        let args = Dictionary<BoundVarId, int>()
         fn.Params |> List.iteri (fun i p -> args.[p.Slot] <- i)
         let env = EmitEnv.ofContext ctx args
 
@@ -164,37 +164,37 @@ module Emit =
     /// bodies synthesise no closures, so an empty capture map is passed.
     let buildMember
         (ctx: EmitContext)
-        (thisKey: BinderKeyG<BinderId> voption)
-        (baseKey: BinderKeyG<BinderId> voption)
-        (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
+        (thisKey: BoundVarKeyG<BoundVarId> voption)
+        (baseKey: BoundVarKeyG<BoundVarId> voption)
+        (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
         (voidReturn: bool)
         (body: TastAccessor.ExprId)
         : ILBody =
         let b = IlBuilder()
         // Keyed by raw identity: a body loads a parameter through a `Var` that names it
         // that way, so each definition site widens as it takes its `ldarg` index.
-        let args = Dictionary<BinderId, int>()
+        let args = Dictionary<BoundVarId, int>()
 
         let baseIdx =
             match thisKey with
             | ValueSome k ->
-                args.[BinderKey.identity k] <- 0 // `this`
+                args.[BoundVarKey.identity k] <- 0 // `this`
                 1
             | ValueNone -> 0
 
         // `base` loads the same `ldarg.0` as `this`; the `CallVia.Base` discriminator on
         // the member access, not the receiver load, makes the dispatch non-virtual.
         match baseKey with
-        | ValueSome k -> args.[BinderKey.identity k] <- 0
+        | ValueSome k -> args.[BoundVarKey.identity k] <- 0
         | ValueNone -> ()
 
         prms
-        |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- baseIdx + i)
+        |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- baseIdx + i)
         // `this` as `SelfKey` too, so the struct-receiver path recognises a self-call:
         // `ldarg.0` is already the byref receiver and must be loaded directly — spilling
         // it to a value temp copies the struct and a mutating self-call would not persist.
         let env =
-            EmitEnv.create ctx (ValueOption.map BinderKey.identity thisKey) (Dictionary()) args
+            EmitEnv.create ctx (ValueOption.map BoundVarKey.identity thisKey) (Dictionary()) args
 
         buildExpr env b body
 
@@ -215,19 +215,19 @@ module Emit =
     /// Self::.ctor`). No base-ctor call — the primary performs it.
     let buildSecondaryCtor
         (ctx: EmitContext)
-        (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
+        (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (primaryCtor: EntityHandle)
         (primaryArgs: TastAccessor.ExprId list)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<BinderId, int>()
-        prms |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
+        let args = Dictionary<BoundVarId, int>()
+        prms |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
         for l in lets do
             let slot = b.Local l.Type
-            env.Slots.[BinderKey.identity l.Binder] <- slot
+            env.Slots.[BoundVarKey.identity l.BoundVar] <- slot
             buildExpr env b l.Init
             b.Add(ILInstr.Stloc slot)
 
@@ -245,18 +245,18 @@ module Emit =
     /// source order. NO primary chain — unlisted fields stay zero-initialised.
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
-        (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
+        (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (fieldInits: (EntityHandle * TastAccessor.ExprId) list)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<BinderId, int>()
-        prms |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
+        let args = Dictionary<BoundVarId, int>()
+        prms |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
         for l in lets do
             let slot = b.Local l.Type
-            env.Slots.[BinderKey.identity l.Binder] <- slot
+            env.Slots.[BoundVarKey.identity l.BoundVar] <- slot
             buildExpr env b l.Init
             b.Add(ILInstr.Stloc slot)
 
@@ -284,19 +284,21 @@ module Emit =
     let buildClassPrimaryCtor
         (ctx: EmitContext)
         (chain: CtorChain)
-        (thisKey: BinderKeyG<BinderId>)
-        (ctorParams: (BinderKeyG<BinderId> * FrozenType) list)
+        (thisKey: BoundVarKeyG<BoundVarId>)
+        (ctorParams: (BoundVarKeyG<BoundVarId> * FrozenType) list)
         (fields: EntityHandle list)
         (preamble: PreambleStep list)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<BinderId, int>()
-        args.[BinderKey.identity thisKey] <- 0
-        ctorParams |> List.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
+        let args = Dictionary<BoundVarId, int>()
+        args.[BoundVarKey.identity thisKey] <- 0
+
+        ctorParams
+        |> List.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         // `this` as `SelfKey`: on a value type `ldarg.0` is the byref receiver, so a
         // self-call must load it directly rather than spill a copy.
         let env =
-            EmitEnv.create ctx (ValueSome(BinderKey.identity thisKey)) (Dictionary()) args
+            EmitEnv.create ctx (ValueSome(BoundVarKey.identity thisKey)) (Dictionary()) args
 
         match chain with
         | CtorChain.None -> ()

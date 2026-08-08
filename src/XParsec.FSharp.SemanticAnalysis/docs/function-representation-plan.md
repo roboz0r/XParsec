@@ -397,7 +397,7 @@ independent of lifetime — RS2), and a `Repr: ClosureRepr` field on
   no intermediate arrows. The arity-`≤ K` closure codegen is the delivered mechanism — the
   `Emit.Closure` `Param2 voption` → `ExtraParams` list refactor, the `InvokeSignatureN` /
   `FlatFunInterfaceSpecN` arity-parametric encoders, `ClrEnv.flatFunEntity`, and the closure
-  peel that takes up to `K` binders into the flat prefix. The flat interfaces **overload the
+  peel that takes up to `K` boundVars into the flat prefix. The flat interfaces **overload the
   curried `Fun<'A,'B>` by generic arity** (CLR `Fun`(k+1)` vs `Fun`2`, no interface-inheritance
   bridge) — native k-arg `Invoke` value-structs, not the `curryFun`/`flatten` runtime adapters
   (those exist in `Vesper.Core/core-types` for boundary adaptation and are emitted only for

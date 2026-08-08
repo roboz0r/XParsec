@@ -90,14 +90,14 @@ pairing alone. If the type lands, the derivation must be in its name/definition,
 `liftMemberBody` carried a 30-line block (the longest in the repo, now 3) because a
 `TastAccessor.TypeMember` cannot state the function it *is*. The lift rebuilds the curried
 shape by hand from `ThisKey` / `ThisTy` / `Params` / `ReturnTy`, minting one lambda per
-position and a filler binder purely to reach the `TDecl.Let(_, value, _, declTy)` shape
+position and a filler boundVar purely to reach the `TDecl.Let(_, value, _, declTy)` shape
 `Inline.inlineExpand` matches (verified at `Inline.fs:275`).
 
 Candidate: have a member carry its `this`-first curried parameter list and `declTy` (or expose
 a projection to that effect in SA), so the lift is a projection rather than a construction.
 
 Acceptance: both survivors go — the 3-line doc "`member inline _.M p0 p1 = body` IS the inline
-function `M this p0 p1 = body`" becomes a signature, and the "filler binder that keeps the node
+function `M this p0 p1 = body`" becomes a signature, and the "filler boundVar that keeps the node
 total" comment has nothing left to explain.
 
 ### B3 — `Contract` makes the correct pairing convenient, not mandatory

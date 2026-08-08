@@ -13,11 +13,11 @@ module Freeze =
     /// Attribute each typar root to the body-local scheme that quantified it, and to its index
     /// there. A non-generalized binding (the value restriction) keeps residual roots but has
     /// no scheme, so it contributes none.
-    let private schemeBinders (ctx: PassContext) : Dictionary<TyVarId, struct (SchemeId * int)> =
+    let private schemeBoundVars (ctx: PassContext) : Dictionary<TyVarId, struct (SchemeId * int)> =
         let map = Dictionary<TyVarId, struct (SchemeId * int)>()
 
         ctx.Bindings.Scheme.AsDictionary()
-        |> Seq.sortBy (fun (KeyValue(binder, _)) -> binder.Raw)
+        |> Seq.sortBy (fun (KeyValue(boundVar, _)) -> boundVar.Raw)
         |> Seq.iteri (fun schemeIndex (KeyValue(_, scheme)) ->
             scheme.Quantified
             |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (SchemeId schemeIndex, i))
@@ -56,7 +56,7 @@ module Freeze =
         | _ -> false
 
     /// Rewrite `Var` -> `External` + `SymbolKey` for every module-level sibling: a `Var` names
-    /// a binder that exists only in this file's tree, so a consumer could not resolve it.
+    /// a bound variable that exists only in this file's tree, so a consumer could not resolve it.
     let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleBindingInfo>) (d: TDecl) : TDecl =
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
@@ -74,15 +74,15 @@ module Freeze =
         | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, ty)
         | other -> other
 
-    /// Every `Var` in the rewritten body naming a binder the splice does not re-create — in
+    /// Every `Var` in the rewritten body naming a bound variable the splice does not re-create — in
     /// practice a module-level `let (a, b) = p`, which binds several names at once and so has
     /// no key. Paired with the FIRST reference's token, which spells what the user wrote.
     let private freeVarsOfBody (d: TDecl) : (NodeKey * SyntaxToken) list =
         match d with
-        // The decl's own binder is in scope in its body (a template may be recursive), so it
+        // The decl's own bound variable is in scope in its body (a template may be recursive), so it
         // seeds the bound set.
         | TDecl.Let(pat, value, _, _) ->
-            let free = TastWalk.freeVars (TastWalk.bindersOfTPat pat) value
+            let free = TastWalk.freeVars (TastWalk.boundVarsOfTPat pat) value
             let seen = HashSet<NodeKey>(HashIdentity.Structural)
             let sites = ResizeArray<NodeKey * SyntaxToken>()
 
@@ -127,28 +127,28 @@ module Freeze =
 
     /// The frozen file in DU form, the shape the node-for-node tree map consumes.
     let private toFrozenFile (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
-        // Publication is ADDITIVE: `Decls` keeps the binding. A binder with no
+        // Publication is ADDITIVE: `Decls` keeps the binding. A bound variable with no
         // `ModuleBindingInfo` (a destructuring `let` pattern) has no key, so it publishes nowhere.
         let inlineBodies = ResizeArray<TInlineValue>()
 
         // Widened to the REFERENCE domain: the sibling rewrite is driven by a body's
-        // `TExpr.Var`s, which name their binder by `NodeKey`.
-        let siblingsByRef = BinderKey.widenMap tast.ModuleMembers
+        // `TExpr.Var`s, which name their bound variable by `NodeKey`.
+        let siblingsByRef = BoundVarKey.widenMap tast.ModuleMembers
 
         let publishedInfo (pattern: TPat) =
-            match BinderKey.ofPat pattern with
+            match BoundVarKey.ofPat pattern with
             | ValueNone -> ValueNone
-            | ValueSome binder ->
-                match Map.tryFind binder tast.ModuleMembers with
-                | Some info -> ValueSome(struct (binder, info))
+            | ValueSome boundVar ->
+                match Map.tryFind boundVar tast.ModuleMembers with
+                | Some info -> ValueSome(struct (boundVar, info))
                 | None -> ValueNone
 
         for d in tast.Decls do
             match d with
             | TDecl.Let(pattern, _, _, _) when isInlineVocabulary d ->
                 match publishedInfo pattern with
-                | ValueSome(binder, info) ->
-                    let k = BinderKey.identity binder
+                | ValueSome(boundVar, info) ->
+                    let k = BoundVarKey.identity boundVar
                     // The stashed TEMPLATE, not `d`: `d` is the emitted ordinary function,
                     // already walked with its static-opt clauses and trait calls resolved
                     // against the unground definition site. A nullary alias has no stash.
@@ -183,15 +183,15 @@ module Freeze =
                 Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
-        TastConvert.file (freezeTy ctx.Store (schemeBinders ctx)) id frozen
+        TastConvert.file (freezeTy ctx.Store (schemeBoundVars ctx)) id frozen
 
     /// The assembly's output: the frozen file as struct-of-arrays pools.
     let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
-        // No record means no source spells the binder: a class's `this`/`base` and a spliced
-        // binder are both minted.
-        let spellingOf (b: BinderKey) =
-            match ctx.BinderSpellings.TryGetValue b with
-            | ValueSome sp -> sp
-            | ValueNone -> BinderSpelling.unspelled
+        // No record means no source names the bound variable: a class's `this`/`base` and a
+        // spliced bound variable are both minted.
+        let identOf (b: BoundVarKey) =
+            match ctx.BoundVarNames.TryGetValue b with
+            | ValueSome ident -> ident
+            | ValueNone -> BoundVarIdent.unnamed
 
-        toFrozenFile ctx tast |> TastPools.toPools ctx.Origin spellingOf
+        toFrozenFile ctx tast |> TastPools.toPools ctx.Origin identOf

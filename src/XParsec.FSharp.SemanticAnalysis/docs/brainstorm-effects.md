@@ -199,7 +199,7 @@ type Op = Intrinsic of opcode: string | Extern of ExternRef
 type EffectOracle = Op -> Effect
 
 /// Effect of an expression, target-parametric via `oracle`. Composition over the
-/// language forms lives HERE; opaque leaves defer to `oracle`. `isMutable` (a binder
+/// language forms lives HERE; opaque leaves defer to `oracle`. `isMutable` (a boundVar
 /// → bool, known in SemanticAnalysis) is what makes a mutable-local READ
 /// non-deterministic — the fact the syntactic heuristic was missing. No optimiser.
 val effectOf :
@@ -221,7 +221,7 @@ let isDroppable  e = let x = effectOf oracle isMutable e in x.EffectFree && x.To
 ```
 
 The pure-`let` substitution guard becomes `isDuplicable value && not (isAssignedIn
-k body)` — the second clause still guards a reassigned *binder* (a distinct
+k body)` — the second clause still guards a reassigned *boundVar* (a distinct
 condition from the *value*'s effect). `let x = m` now declines because
 `effectOf (Var m)` carries `Deterministic = false`; the snapshot bug is fixed *in
 the shared model*, not per-backend.

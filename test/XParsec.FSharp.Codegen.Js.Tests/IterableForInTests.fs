@@ -18,7 +18,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 // Driven against a minimal GLOBAL pack (`Package = "es2015"`, mounted under `Js`) whose
 // `Set<T>` is backed by the real Node `Set` global — `new Set()`/`.add()` run
 // intrinsically, no import. Its `[Symbol.iterator](): SetIterator<T>` gives element `T`,
-// a PLAIN element needing only a simple binder (the `[K,V]` tuple binder for `Map` is
+// a PLAIN element needing only a simple bound variable (the `[K,V]` tuple bound variable for `Map` is
 // step 2). This is the smallest end-to-end iteration case.
 
 /// A parameterless `.ctor` returning the declaring class applied to its own typar
@@ -101,7 +101,7 @@ let private analyseErrors (input: string) : string list =
 let private emitSet (input: string) : string =
     emitWith setContract Map.empty true input
 
-// `for (k, v) in m` over `[K,V]` pairs — the tuple binder (step 2). Both `k` and `v` are
+// `for (k, v) in m` over `[K,V]` pairs — the tuple bound variable (step 2). Both `k` and `v` are
 // used at runtime (`total <- total + k + v`), so the destructuring binds both positions.
 let private mapProgram =
     String.concat
@@ -159,7 +159,7 @@ let tests =
                 expectNodeOutput "set-forin-e2e" [ "harness.mjs", harness; "set-forin-program.mjs", js ] "6"
             }
 
-            test "a `for (k, v) in Js.Map` program type-checks (tuple element binder)" {
+            test "a `for (k, v) in Js.Map` program type-checks (tuple element bound variable)" {
                 let errors = analyseMapErrors mapProgram
 
                 Expect.isEmpty errors (sprintf "the for-(k,v)-in-Map program must type-check, got:\n%A" errors)
@@ -168,7 +168,7 @@ let tests =
             test "a `for (k, v) in Js.Map` destructures each pair and round-trips under Node" {
                 let js = emitMap mapProgram
 
-                // The pair binder lowers to a `for..of` over a fresh loop temp, then
+                // The pair bound variable lowers to a `for..of` over a fresh loop temp, then
                 // deconstructs it positionally into the body's first statements (`t[0]`/`t[1]`).
                 Expect.stringContains js " of " (sprintf "expected a `for..of`, got:\n%s" js)
                 Expect.stringContains js "[0]" (sprintf "expected positional `[0]` destructure, got:\n%s" js)

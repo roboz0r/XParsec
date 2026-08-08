@@ -103,25 +103,25 @@ let private ftWidget: FrozenType =
     FTConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
 
 /// A hand-built FROZEN `widget.Poke` member over one value parameter, its body minted by
-/// `mkBody` from the parameter's binder: `member inline _.Poke (x: 'paramTy) : int = <body>`.
+/// `mkBody` from the parameter's bound variable: `member inline _.Poke (x: 'paramTy) : int = <body>`.
 /// Frozen because that is what the lifting reads — a published inline body never carries a
 /// live inference cell.
-let private pokeMemberWith (paramTy: FrozenType) (mkBody: BinderId -> Pooled.TExpr) : TastAccessor.TypeMember =
+let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.TExpr) : TastAccessor.TypeMember =
     // The hand-built body is a node of no file, so it gets a pool of its own — the same
     // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `liftMemberBody`
     // mints its wrapping lambdas straight into it, and the member's definition sites are
-    // this pool's own binders.
+    // this pool's own bound variables.
     let pool = TastPoolBuilder.openEmpty ()
-    let xId = TastPoolBuilder.mintBinder pool
+    let xId = TastPoolBuilder.mintBoundVar pool
 
     // The parameter's definition site, taken off the `NamedSimple` pattern a source member
     // would carry — the same projection `Elaborate.memberParams` fills the slot from.
-    let xBinder =
-        match BinderKey.ofPat (TPatG.NamedSimple(xId, paramTy, dummyTok)) with
+    let xBoundVar =
+        match BoundVarKey.ofPat (TPatG.NamedSimple(xId, paramTy, dummyTok)) with
         | ValueSome b -> b
-        | ValueNone -> failwith "a `NamedSimple` pattern introduces a binder"
+        | ValueNone -> failwith "a `NamedSimple` pattern introduces a bound variable"
 
-    let thisBinder = BinderKey.ofInterned (TastPoolBuilder.mintBinder pool)
+    let thisBoundVar = BoundVarKey.ofInterned (TastPoolBuilder.mintBoundVar pool)
 
     let body = mkBody xId |> TastPoolBuilder.appendExprTree pool
 
@@ -132,10 +132,10 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BinderId -> Pooled.TEx
         IsInline = true
         Kind = TMemberKind.Method
         IsOverride = false
-        ThisKey = ValueSome thisBinder
+        ThisKey = ValueSome thisBoundVar
         BaseKey = ValueNone
         ThisTy = ftWidget
-        Params = EqArray.ofList [ (xBinder, paramTy) ]
+        Params = EqArray.ofList [ (xBoundVar, paramTy) ]
         Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
         MethodTypeParams = EqArray.empty
@@ -244,7 +244,7 @@ let tests =
                     emitWidget "open Widgets\nlet useP2v (w: widget) : int =\n\x20   let t = (3, 4)\n\x20   w.Poke2 t\n"
 
                 // The elements reach the template's `$0`/`$1` through the destructuring's
-                // own binders, so the spliced body is an addition of the two of them.
+                // own bound variables, so the spliced body is an addition of the two of them.
                 Expect.isTrue
                     (System.Text.RegularExpressions.Regex.IsMatch(js, @"\(\w+\) \+ \(\w+\)"))
                     (sprintf "expected the spliced `$0 + $1` body over the destructured elements, got:\n%s" js)

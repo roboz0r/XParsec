@@ -19,16 +19,16 @@ module DenseTable =
 
         d
 
-/// A per-binder SCALAR in its stored form: one slot per binder of the binder pool and in
-/// that same order, `ValueNone` where the binder carries no such fact.
-type BinderColumn<'v> = 'v voption[]
+/// A per-bound-variable SCALAR in its stored form: one slot per bound variable of the bound-variable pool and in
+/// that same order, `ValueNone` where the bound variable carries no such fact.
+type BoundVarColumn<'v> = 'v voption[]
 
 [<RequireQualifiedAccess>]
-module BinderColumn =
+module BoundVarColumn =
 
-    /// An id PAST the column's end reads `ValueNone`: an overlay mints binder ids above the
-    /// base pool the column is aligned to, and a minted binder is no source binding.
-    let tryItem (col: BinderColumn<'v>) (BinderId i) : 'v voption =
+    /// An id PAST the column's end reads `ValueNone`: an overlay mints bound variable ids above the
+    /// base pool the column is aligned to, and a minted bound variable is no source binding.
+    let tryItem (col: BoundVarColumn<'v>) (BoundVarId i) : 'v voption =
         if i < col.Length then col.[i] else ValueNone
 
 /// A CHILD-ID column: every slot's child ids concatenated into one flat `Ids` array, with
@@ -130,12 +130,12 @@ type FrozenFileResidue =
     }
 
 /// THE frozen file: the expr, pat and decl struct-of-arrays columns, each indexable by the
-/// matching `*PoolId`, plus the decl roots in source order. A binder IS its slot, indexable
-/// by `BinderId`, and the file's side tables are re-expressed over that dense id space.
+/// matching `*PoolId`, plus the decl roots in source order. A bound variable IS its slot, indexable
+/// by `BoundVarId`, and the file's side tables are re-expressed over that dense id space.
 [<NoEquality; NoComparison>]
 type FrozenPools =
     {
-        /// WHICH FILE the `Anchor` columns index — expr, pat and binder token alike.
+        /// WHICH FILE the `Anchor` columns index — expr, pat and bound variable token alike.
         Origin: OriginFile
         /// The file's own interned type and key tables — what the `ty` columns index.
         /// Interning is injective on structural equality, so equal types share a row.
@@ -148,10 +148,10 @@ type FrozenPools =
         ExprToks: Anchor[]
         /// The immediate child-expr ids, in the order the pooling walk enumerated them.
         ExprChildren: ChildColumn<ExprPoolId>
-        /// The pat ids the node owns directly — a binder pattern, a match arm's.
+        /// The pat ids the node owns directly — a bound variable pattern, a match arm's.
         ExprPatChildren: ChildColumn<PatPoolId>
-        /// The `Var` reference's binder, `ValueSome` only at a `Var`.
-        ExprVarBinder: BinderId voption[]
+        /// The `Var` reference's bound variable, `ValueSome` only at a `Var`.
+        ExprVarBoundVar: BoundVarId voption[]
         /// The residual per-case payload, which is also the node's shape tag: there is no
         /// separate tag column.
         ExprPayloads: ExprPayload[]
@@ -179,28 +179,28 @@ type FrozenPools =
         /// `InlineCall` payload carries. An entry's body may name a LATER slot, so resolve
         /// an id against the whole array, not in definition order.
         Specializations: PooledSpecialization[]
-        /// The binder pool's two parallel columns, indexed by `BinderId`. This one is the
-        /// identifier the source spells the binder with, EMPTY where none does — a class's
-        /// `this`/`base`, a freshened inline binder.
-        BinderNames: string[]
-        /// The token the binder's name is spelled at, as an index into this file's `Lexed`.
+        /// The bound variable pool's two parallel columns, indexed by `BoundVarId`. This one is the
+        /// identifier the source spells the bound variable with, EMPTY where none does — a class's
+        /// `this`/`base`, a freshened inline bound variable.
+        BoundVarNames: string[]
+        /// The token the bound variable's name is spelled at, as an index into this file's `Lexed`.
         /// `Anchor.nowhere` for a definition site no node spells, which still has a name.
-        BinderToks: Anchor[]
+        BoundVarToks: Anchor[]
         /// The remainder of the file that has no pooled form, carried verbatim.
         Residue: FrozenFileResidue
-        /// The side tables that keep a KEY, re-keyed by `BinderId`. A value that is not a
-        /// scalar — a record, a list — stays here rather than becoming a `BinderColumn`.
-        ModuleMembers: DenseTable<BinderId, ModuleBindingInfo>
-        ClosureReprs: DenseTable<BinderId, ClosureRepr>
+        /// The side tables that keep a KEY, re-keyed by `BoundVarId`. A value that is not a
+        /// scalar — a record, a list — stays here rather than becoming a `BoundVarColumn`.
+        ModuleMembers: DenseTable<BoundVarId, ModuleBindingInfo>
+        ClosureReprs: DenseTable<BoundVarId, ClosureRepr>
         /// Keyed by the lambda EXPRESSION: a lambda's dense id IS its `ExprPoolId`. Several
         /// rows may share a verdict — every copy of a spliced inline body keeps the
         /// definition-site token the verdict was filed under.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
-        GenericFnSchemes: DenseTable<BinderId, FrozenConstraint list>
-        BindingValReprs: DenseTable<BinderId, PooledValRepr>
-        /// A binding's typar-axis width. Sparse — most binders are parameters and locals,
+        GenericFnSchemes: DenseTable<BoundVarId, FrozenConstraint list>
+        BindingValReprs: DenseTable<BoundVarId, PooledValRepr>
+        /// A binding's typar-axis width. Sparse — most bound variables are parameters and locals,
         /// so most slots are `ValueNone`.
-        BindingTyparArities: BinderColumn<int>
+        BindingTyparArities: BoundVarColumn<int>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -215,7 +215,7 @@ module FrozenPools =
             ExprToks = [||]
             ExprChildren = ChildColumn.empty
             ExprPatChildren = ChildColumn.empty
-            ExprVarBinder = [||]
+            ExprVarBoundVar = [||]
             ExprPayloads = [||]
             PatTys = [||]
             PatToks = [||]
@@ -227,8 +227,8 @@ module FrozenPools =
             Roots = [||]
             InlineTemplates = [||]
             Specializations = [||]
-            BinderNames = [||]
-            BinderToks = [||]
+            BoundVarNames = [||]
+            BoundVarToks = [||]
             Residue =
                 {
                     Diagnostics = []
@@ -244,12 +244,12 @@ module FrozenPools =
             BindingTyparArities = [||]
         }
 
-    let binderNaming (pools: FrozenPools) (id: BinderId) : BinderNaming =
-        let (BinderId i) = id
-        BinderNaming.ofColumn pools.BinderNames.[i] id
+    let boundVarNaming (pools: FrozenPools) (id: BoundVarId) : BoundVarNaming =
+        let (BoundVarId i) = id
+        BoundVarNaming.ofColumn pools.BoundVarNames.[i] id
 
-    /// The typar-axis width recorded for `binder`. An empty slot reads 0 as the ANSWER, not
-    /// as a fallback: a binder with no recorded width quantifies nothing.
-    let typarArity (pools: FrozenPools) (binder: BinderId) : int =
-        BinderColumn.tryItem pools.BindingTyparArities binder
+    /// The typar-axis width recorded for `boundVar`. An empty slot reads 0 as the ANSWER, not
+    /// as a fallback: a bound variable with no recorded width quantifies nothing.
+    let typarArity (pools: FrozenPools) (boundVar: BoundVarId) : int =
+        BoundVarColumn.tryItem pools.BindingTyparArities boundVar
         |> ValueOption.defaultValue 0

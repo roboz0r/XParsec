@@ -94,11 +94,11 @@ module EmitJsTypes =
             Disposers: TastAccessor.TypeMember list
         }
 
-    /// A class's instance `let`/`do` preamble. `ThisKey` is the binder its entries read
+    /// A class's instance `let`/`do` preamble. `ThisKey` is the bound variable its entries read
     /// their siblings through, so the emitted ctor must alias that name to JS `this`.
     type ClassPreamble =
         {
-            ThisKey: BinderKeyG<BinderId>
+            ThisKey: BoundVarKeyG<BoundVarId>
             Entries: TastAccessor.PreambleEntry list
         }
 

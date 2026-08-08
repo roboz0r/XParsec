@@ -34,7 +34,7 @@ module InlineSpecTable =
             Ty: SemType
             /// The call-site argument. Unwalked in a peel; walked in a `Reduced`.
             Arg: TExpr
-            /// The template's own binder, where an entry's abstraction is anchored — the call
+            /// The template's own bound variable, where an entry's abstraction is anchored — the call
             /// site's own position belongs to the EDGE instead.
             PatTok: SyntaxToken
             Disposition: Disposition
@@ -274,7 +274,7 @@ module InlineSpecTable =
                     {
                         Key = o.Grounding.Key
                         Origin = o.Origin
-                        // The binder is unread — every consumer matches on the VALUE alone — so
+                        // The bound variable is unread — every consumer matches on the VALUE alone — so
                         // it is minted rather than taken from anything.
                         Decl =
                             TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)

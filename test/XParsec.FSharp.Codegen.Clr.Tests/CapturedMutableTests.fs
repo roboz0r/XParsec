@@ -288,7 +288,7 @@ let tests =
                     |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
                     |> DenseTable.index
 
-                // The binder-keyed tables at the dense id the CLR emit's API takes, indexed
+                // The bound-variable-keyed tables at the dense id the CLR emit's API takes, indexed
                 // exactly as `Layout.buildFile` indexes them, so this harness cannot drift
                 // from the real path.
                 let moduleMembers = Map.ofArray pools.ModuleMembers
@@ -303,7 +303,9 @@ let tests =
 
                 let emissions = Emit.emissions moduleMembers programHolder lowered0
                 let moduleValues = Emit.collectModuleValues emissions lowered0
-                let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
+
+                let moduleValueKeys =
+                    HashSet<BoundVarId>(moduleValues |> List.map (fun mv -> mv.Key))
 
                 // Mirror `HolderPlan.create`: the capture-only eligible set drives
                 // bridging, then `collectStaticFns` projects it onto the bridged decls.
@@ -314,7 +316,7 @@ let tests =
                 let staticFns =
                     Emit.collectStaticFns emissions genericFnSchemes eligible (CompiledFns.gather lowered)
 
-                let typarsMap = Dictionary<BinderId, int>()
+                let typarsMap = Dictionary<BoundVarId, int>()
 
                 for fn in staticFns do
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
@@ -417,7 +419,7 @@ let tests =
                 Expect.equal c.Repr ClosureRepr.Heap "generic typar capture ⇒ RequiresHeapRepr ⇒ Heap"
             }
 
-            test "an anonymous lambda with no binder defaults to Repr = Heap" {
+            test "an anonymous lambda with no bound variable defaults to Repr = Heap" {
                 // `(fun x -> x + 1) 5` — the lambda has no `SelfKey`, so the
                 // snapshot can't key it; it falls back to the emitted `Heap` shape.
                 let src = "printfn \"%d\" ((fun x -> x + 1) 5)"

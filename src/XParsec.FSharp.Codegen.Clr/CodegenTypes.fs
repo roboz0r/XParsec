@@ -105,9 +105,9 @@ type internal ClassDecl =
         /// after the base-ctor call and the ctor-param field stores (so an initialiser
         /// reads a ctor param through its already-stored field).
         InstancePreamble: TastAccessor.PreambleEntry list
-        /// The class-level `this` binder. The instance preamble reads fields through it
+        /// The class-level `this` bound variable. The instance preamble reads fields through it
         /// (`FieldGet(Var ThisKey, …)`), so the primary `.ctor` maps it to `ldarg.0`.
-        ThisKey: BinderKeyG<BinderId>
+        ThisKey: BoundVarKeyG<BoundVarId>
         SecondaryCtors: TastAccessor.SecondaryCtor list
         BaseCtorCall: TastAccessor.BaseCtorCall voption
         ValueKind: ClassValueKind

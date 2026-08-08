@@ -256,9 +256,9 @@ module JsPrint =
             ++ text var
             ++ text "++) "
             ++ block body
-        | JsStatement.ForOf(binder, source, body) ->
+        | JsStatement.ForOf(boundVar, source, body) ->
             text "for (const "
-            ++ text binder
+            ++ text boundVar
             ++ text " of "
             ++ expr source
             ++ text ") "

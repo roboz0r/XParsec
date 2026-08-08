@@ -72,7 +72,7 @@ is the seq-range library, not the operator.
    loop. Add a lowering that recognises a `for x in (App (..) a b)` source (the desugared
    form) and emits `TExpr.ForTo`, exactly the syntactic detection `Freeze.translateForIn`
    does today, moved off `Expr.Range` onto the operator-application form. Keep the
-   pattern guard (simple binder) so a non-simple pattern falls back to the real
+   pattern guard (simple boundVar) so a non-simple pattern falls back to the real
    enumerator walk (now that a real seq exists).
 
 ## Verification

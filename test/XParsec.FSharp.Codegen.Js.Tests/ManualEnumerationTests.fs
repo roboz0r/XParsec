@@ -33,16 +33,16 @@ let private counterPrelude =
             "            (new Enum(-1, stop) :> System.Collections.Generic.IEnumerator<int>)"
         ]
 
-/// `counterPrelude` + a `sum` over the manual protocol, whose enumerator binder is `binder`
+/// `counterPrelude` + a `sum` over the manual protocol, whose enumerator bound variable is `boundVar`
 /// (`let` / `use`) and which runs `tail` after the loop. `sum (Counter 4)` = 0+1+2+3 = 6.
-let private manualSumSrc (binder: string) (tail: string list) =
+let private manualSumSrc (boundVar: string) (tail: string list) =
     String.concat
         "\n"
         [
             counterPrelude
             "let sum (s: seq<int>) ="
             "    let mutable acc = 0"
-            sprintf "    %s e = s.GetEnumerator()" binder
+            sprintf "    %s e = s.GetEnumerator()" boundVar
             "    while e.MoveNext() do"
             "        acc <- acc + e.Current"
             yield! tail

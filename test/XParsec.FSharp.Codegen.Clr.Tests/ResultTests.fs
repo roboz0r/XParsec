@@ -209,7 +209,7 @@ let moduleCallRuntime =
             }
 
             // `bind : ('T -> Result<'U,'TError>) -> Result<'T,'TError> -> Result<'U,'TError>`
-            // — the binder itself returns a `Result`, constructed cross-package
+            // — the bound variable itself returns a `Result`, constructed cross-package
             // inside the lambda (both `Ok` and `Error` arms).
             test "Result.bind chains a Result-returning function" {
                 runsResultLines

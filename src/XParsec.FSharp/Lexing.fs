@@ -143,7 +143,7 @@ type Lexed =
     /// introduces, with `` `` `` quoting stripped so `` ``my value`` `` reads as
     /// `my value`. An EMPTY span for a token that spells no name: a keyword, an operator, a
     /// virtual token, EOF, an unterminated backtick run, or `'T` (a type parameter is not a
-    /// value binder).
+    /// value bound variable).
     ///
     /// Only the span, never a substring: the caller decides whether it needs to
     /// materialise. What the lexer owns is which tokens are names and where a name's text
@@ -166,7 +166,7 @@ type Lexed =
         | _ -> ReadOnlySpan<char>()
 
     /// `GetIdentifierSpan` materialised — for a consumer that must RETAIN the name (the
-    /// frozen binder column), which a span cannot outlive. The empty string is what "this
+    /// frozen bound variable column), which a span cannot outlive. The empty string is what "this
     /// token spells no name" reads as, no identifier being empty.
     member this.GetIdentifier(i: int<token>) : string = this.GetIdentifierSpan(i).ToString()
 

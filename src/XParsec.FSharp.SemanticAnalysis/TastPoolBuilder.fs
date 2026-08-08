@@ -17,17 +17,17 @@ type PoolBuilder =
             ExprBase: int
             PatBase: int
             DeclBase: int
-            BinderBase: int
+            BoundVarBase: int
             OvExprs: ResizeArray<ExprRow>
             OvDecls: ResizeArray<DeclRow>
             OvPats: ResizeArray<PatRow>
-            /// How many binders this overlay has handed out — a COUNT and no column, no
-            /// source spelling a minted binder.
-            mutable OvBinderCount: int
-            /// The binder key `declTree` hands a DU-typed consumer for each binder. Per
+            /// How many bound variables this overlay has handed out — a COUNT and no column, no
+            /// source spelling a minted bound variable.
+            mutable OvBoundVarCount: int
+            /// The bound variable key `declTree` hands a DU-typed consumer for each bound variable. Per
             /// BUILDER, not per unpool: two unpools of one subtree are two views of the same
-            /// binders and must name them alike.
-            UnpooledBinderKeys: Dictionary<BinderId, NodeKey>
+            /// bound variables and must name them alike.
+            UnpooledBoundVarKeys: Dictionary<BoundVarId, NodeKey>
             mutable UnpoolCount: int
         }
 
@@ -45,12 +45,12 @@ module TastPoolBuilder =
             ExprBase = pools.ExprPayloads.Length
             PatBase = pools.PatPayloads.Length
             DeclBase = pools.DeclPayloads.Length
-            BinderBase = pools.BinderNames.Length
+            BoundVarBase = pools.BoundVarNames.Length
             OvExprs = ResizeArray()
             OvPats = ResizeArray()
             OvDecls = ResizeArray()
-            OvBinderCount = 0
-            UnpooledBinderKeys = Dictionary()
+            OvBoundVarCount = 0
+            UnpooledBoundVarKeys = Dictionary()
             UnpoolCount = 0
         }
 
@@ -122,8 +122,8 @@ module TastPoolBuilder =
     let exprPatChildren (b: PoolBuilder) (id: ExprPoolId) : PatPoolId[] =
         readExpr b id (fun p i -> ChildColumn.slice p.ExprPatChildren i) (fun r -> r.PatChildren)
 
-    let exprVarBinder (b: PoolBuilder) (id: ExprPoolId) : BinderId voption =
-        readExpr b id (fun p i -> p.ExprVarBinder.[i]) (fun r -> r.VarBinder)
+    let exprVarBoundVar (b: PoolBuilder) (id: ExprPoolId) : BoundVarId voption =
+        readExpr b id (fun p i -> p.ExprVarBoundVar.[i]) (fun r -> r.VarBoundVar)
 
     let exprPayload (b: PoolBuilder) (id: ExprPoolId) : ExprPayload =
         readExpr b id (fun p i -> p.ExprPayloads.[i]) (fun r -> r.Payload)
@@ -142,7 +142,7 @@ module TastPoolBuilder =
                     Tok = p.ExprToks.[i]
                     Children = ChildColumn.slice p.ExprChildren i
                     PatChildren = ChildColumn.slice p.ExprPatChildren i
-                    VarBinder = p.ExprVarBinder.[i]
+                    VarBoundVar = p.ExprVarBoundVar.[i]
                     Payload = p.ExprPayloads.[i]
                 }
             )
@@ -209,30 +209,30 @@ module TastPoolBuilder =
             )
             (fun r -> r)
 
-    /// How a binder id is SPELLED: the base pool's naming column, or `Minted` for a binder
+    /// How a bound variable id is SPELLED: the base pool's naming column, or `Minted` for a bound variable
     /// this overlay handed out, which no source spells.
-    let binderNaming (b: PoolBuilder) (id: BinderId) : BinderNaming =
-        let (BinderId i) = id
+    let boundVarNaming (b: PoolBuilder) (id: BoundVarId) : BoundVarNaming =
+        let (BoundVarId i) = id
 
-        if i < b.BinderBase then
-            FrozenPools.binderNaming b.Base id
+        if i < b.BoundVarBase then
+            FrozenPools.boundVarNaming b.Base id
         else
-            BinderNaming.Minted id
+            BoundVarNaming.Minted id
 
-    /// Where a binder's name is spelled. `Anchor.nowhere` where no node spells it: an
-    /// overlay-minted binder, or a declaration's pattern-less key slot.
-    let binderTok (b: PoolBuilder) (id: BinderId) : Anchor =
-        let (BinderId i) = id
+    /// Where a bound variable's name is spelled. `Anchor.nowhere` where no node spells it: an
+    /// overlay-minted bound variable, or a declaration's pattern-less key slot.
+    let boundVarTok (b: PoolBuilder) (id: BoundVarId) : Anchor =
+        let (BoundVarId i) = id
 
-        if i < b.BinderBase then
-            b.Base.BinderToks.[i]
+        if i < b.BoundVarBase then
+            b.Base.BoundVarToks.[i]
         else
             Anchor.nowhere
 
-    // The size of the expr and binder id spaces: the next append takes the count itself.
+    // The size of the expr and bound variable id spaces: the next append takes the count itself.
 
     let exprCount (b: PoolBuilder) : int = b.ExprBase + b.OvExprs.Count
-    let binderCount (b: PoolBuilder) : int = b.BinderBase + b.OvBinderCount
+    let boundVarCount (b: PoolBuilder) : int = b.BoundVarBase + b.OvBoundVarCount
 
     /// The file's decl roots, in source order — the BASE pool's: a whole-decl rewrite returns
     /// the derived id for its caller to carry rather than repointing this array. Copied, so a
@@ -258,11 +258,11 @@ module TastPoolBuilder =
         b.OvDecls.Add row
         DeclPoolId id
 
-    /// A binder id belonging to NO node of the base pool — the definition site a lowering
-    /// introduces. It takes no argument: a binder's identity IS its slot, nothing to intern.
-    let mintBinder (b: PoolBuilder) : BinderId =
-        let id = BinderId(b.BinderBase + b.OvBinderCount)
-        b.OvBinderCount <- b.OvBinderCount + 1
+    /// A bound variable id belonging to NO node of the base pool — the definition site a lowering
+    /// introduces. It takes no argument: a bound variable's identity IS its slot, nothing to intern.
+    let mintBoundVar (b: PoolBuilder) : BoundVarId =
+        let id = BoundVarId(b.BoundVarBase + b.OvBoundVarCount)
+        b.OvBoundVarCount <- b.OvBoundVarCount + 1
         id
 
     // ── row copies: rewrite without a per-case match ────────────────────────
@@ -309,9 +309,9 @@ module TastPoolBuilder =
     /// a backend emits nothing for one.
     let globalValueKeys (b: PoolBuilder) : IReadOnlySet<SymbolKey> = b.Base.Residue.GlobalValueKeys
 
-    /// This file's module-level bindings by binder — the SYMBOL identity behind a `let` decl's
+    /// This file's module-level bindings by bound variable — the SYMBOL identity behind a `let` decl's
     /// name, which the columns address only positionally. Indexes on each call.
-    let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BinderId, ModuleBindingInfo> =
+    let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BoundVarId, ModuleBindingInfo> =
         DenseTable.index b.Base.ModuleMembers
 
     /// The bound on every `SpecializationId` an edge can carry.
@@ -339,11 +339,11 @@ module TastPoolBuilder =
         let row = patRow b id
         let kids = row.Children |> Array.map (copyPatTreeInto dest fTy b)
 
-        // A binder id means nothing outside the pool that issued it, so a `NamedSimple` copy
-        // introduces a binder of DEST's own.
+        // A bound variable id means nothing outside the pool that issued it, so a `NamedSimple` copy
+        // introduces a bound variable of DEST's own.
         let payload =
             match PatPayload.mapTys fTy row.Payload with
-            | PatPayload.NamedSimple _ -> PatPayload.NamedSimple(mintBinder dest)
+            | PatPayload.NamedSimple _ -> PatPayload.NamedSimple(mintBoundVar dest)
             | p -> p
 
         appendPat
@@ -358,21 +358,21 @@ module TastPoolBuilder =
 
     /// Fill in the `Var` reference edge of a row the pooling walk just appended. Sound only
     /// there: a base id would index before the overlay's start and fault.
-    let private setVarBinder (b: PoolBuilder) (ExprPoolId i) (binder: BinderId) : unit =
+    let private setVarBoundVar (b: PoolBuilder) (ExprPoolId i) (boundVar: BoundVarId) : unit =
         let j = i - b.ExprBase
 
         b.OvExprs.[j] <-
             { b.OvExprs.[j] with
-                VarBinder = ValueSome binder
+                VarBoundVar = ValueSome boundVar
             }
 
     /// The overlay's pooling sink: the same walk that built the base pool, differing only in
-    /// where a row lands and how a binder id is assigned.
-    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<Anchor, BinderId> =
+    /// where a row lands and how a bound variable id is assigned.
+    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<Anchor, BoundVarId> =
         {
             // The tree being poured in is already in this pool's identity space, so a
             // definition site IS its id and needs no lookup.
-            InternBinder = BinderKey.identity
+            InternBoundVar = BoundVarKey.identity
             // Likewise already in the stored form: the tree names positions by the very index
             // the columns hold.
             Anchor = id
@@ -382,7 +382,7 @@ module TastPoolBuilder =
             OnExprPooled =
                 fun ev ->
                     match ev with
-                    | TastPools.PooledEvent.VarRef(binder, id) -> setVarBinder b id binder
+                    | TastPools.PooledEvent.VarRef(boundVar, id) -> setVarBoundVar b id boundVar
                     // `FunVerdicts` is the frozen file's own table and a minted lambda has no
                     // verdict in it.
                     | TastPools.PooledEvent.LambdaPooled _ -> ()
@@ -395,36 +395,36 @@ module TastPoolBuilder =
     /// The DU subtree a pattern id denotes, resolved across BOTH layers. This direction is
     /// for the one channel whose far end is still DU-typed: an inline template crossing the
     /// PACKAGE wire, where a pool id would mean nothing.
-    let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Wire.TPat =
+    let rec private patTree (rename: BoundVarId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Wire.TPat =
         let row = patRow b at
 
         TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
 
     /// The DU subtree an expression id denotes. Reached through `declTree`: the cross-file
     /// wire carries whole declarations, never a bare expression.
-    let rec private exprTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Wire.TExpr =
+    let rec private exprTree (rename: BoundVarId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Wire.TExpr =
         let row = exprRow b at
 
         TastUnpool.substituteExpr
             rename
             row.Ty
             row.Tok
-            row.VarBinder
+            row.VarBoundVar
             row.Payload
             (row.Children |> Array.map (exprTree rename b))
             (row.PatChildren |> Array.map (patTree rename b))
 
-    /// The DU subtree a declaration id denotes. Its binders are RE-MINTED as `NodeKey`s, not
+    /// The DU subtree a declaration id denotes. Its bound variables are RE-MINTED as `NodeKey`s, not
     /// lent: a slot means nothing outside the pool that issued it, and a DU consumer needs
-    /// only distinctness plus equality between a binder and its references.
+    /// only distinctness plus equality between a bound variable and its references.
     let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
-        let rename (binder: BinderId) : NodeKey =
-            match b.UnpooledBinderKeys.TryGetValue binder with
+        let rename (boundVar: BoundVarId) : NodeKey =
+            match b.UnpooledBoundVarKeys.TryGetValue boundVar with
             | true, k -> k
             | false, _ ->
                 b.UnpoolCount <- b.UnpoolCount + 1
-                let k = NodeKey.ofSyntheticCounter b.UnpoolCount NodeKind.SynthUnpooledBinder
-                b.UnpooledBinderKeys.[binder] <- k
+                let k = NodeKey.ofSyntheticCounter b.UnpoolCount NodeKind.SynthUnpooledBoundVar
+                b.UnpooledBoundVarKeys.[boundVar] <- k
                 k
 
         let row = declRow b at

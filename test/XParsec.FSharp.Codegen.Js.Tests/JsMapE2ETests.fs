@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // Iteration lives in its own gate now (`IterableForInTests`): the provider homes a
 // `[Symbol.iterator]` type as `seq<'T>`, the extractor carries `Map`'s `[K,V]` entry as a
 // real tuple, and `for (k,v) in (m: Js.Map<_,_>)` lowers to a native `for..of` with a tuple
-// binder — driven END-TO-END against THIS vendored pack. This gate stays focused on the
+// bound variable — driven END-TO-END against THIS vendored pack. This gate stays focused on the
 // direct member surface (construct / set / get / has / size / delete).
 //
 // The es2015 pack stacks over the JS-native provider (`stackTs es2015Manifest`), the

@@ -65,7 +65,7 @@ module Regions =
     type private State =
         {
             Graph: RegionGraph
-            /// Binder `NodeKey` -> the binding's region; the `TExpr.Var` arm reads it
+            /// BoundVar `NodeKey` -> the binding's region; the `TExpr.Var` arm reads it
             /// off the node's carried binding-site key.
             BindingRegions: Dictionary<NodeKey, RegionId>
             mutable LetLevel: int
@@ -397,7 +397,7 @@ module Regions =
     /// lambda, pre-minted for a function-form binding). Params must register AFTER
     /// `enterFun` to pick up the lambda's own frame depth as `MintFunctionLevel`.
     and private lambdaRegionWith (s: State) (ctx: PassContext) (r: RegionId) (param: TPat) (body: TExpr) : RegionId =
-        addCaptureEdges s (TastWalk.freeVars (TastWalk.bindersOfTPat param) body) r
+        addCaptureEdges s (TastWalk.freeVars (TastWalk.boundVarsOfTPat param) body) r
         enterFun s
         registerParam s ctx param
         let bodyRegion = inferRegion s ctx body
@@ -406,13 +406,13 @@ module Regions =
         r
 
     and private registerParam (s: State) (ctx: PassContext) (p: TPat) : unit =
-        // ONE region per parameter pattern, shared by every binder in it: for
+        // ONE region per parameter pattern, shared by every bound variable in it: for
         // `(a, b)` that over-approximates safely — if any escapes, so do its siblings.
-        match TastWalk.bindersOfTPat p with
+        match TastWalk.boundVarsOfTPat p with
         | [] -> ()
         | _ -> recordBindingRegion s ctx p (freshParam s)
 
-    /// A `match` / `try-with` arm: register its pattern binders, walk the guard
+    /// A `match` / `try-with` arm: register its pattern bound variables, walk the guard
     /// for capture edges, and return the body's region. Shared by both joiners.
     and private inferRegionArm (s: State) (ctx: PassContext) (arm: TMatchArm) : RegionId =
         registerParam s ctx arm.Pat
@@ -420,7 +420,7 @@ module Regions =
         inferRegion s ctx arm.Body
 
     /// Run a binding group: bump the let-level, pre-mint a closure region for every
-    /// function-form binder so mutual references (let-rec / `and`) resolve before any
+    /// function-form bound variable so mutual references (let-rec / `and`) resolve before any
     /// body walk. A plain binding's region IS its RHS's, so it cannot be pre-minted.
     and private withBindingGroup
         (s: State)
@@ -503,7 +503,7 @@ module Regions =
                 recordBindingRegion s ctx p rhsR
 
     and private recordBindingRegion (s: State) (ctx: PassContext) (p: TPat) (r: RegionId) : unit =
-        // Map every binder this pattern introduces to `r`; tuple / record / union
+        // Map every bound variable this pattern introduces to `r`; tuple / record / union
         // sub-patterns recurse so each name shares it. An approximation —
         // destructuring really projects each element separately.
         match p with
@@ -520,7 +520,7 @@ module Regions =
             for sub in fields do
                 recordBindingRegion s ctx sub r
         | TPat.TypeTestAs(_, inner, _, _) -> recordBindingRegion s ctx inner r
-        // An or-pattern binds nothing (name resolution drops its binders).
+        // An or-pattern binds nothing (name resolution drops its bound variables).
         | TPat.Or _
         | TPat.Wildcard _
         | TPat.Null _
@@ -711,14 +711,14 @@ module Regions =
                 ctx.Bindings.Escape.Set(kv.Key, state.[(ctx.Store.Region tv.Id).Raw])
                 ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv.Id).Raw])
 
-    /// One verdict per binder in `decls`, after `run` has filled both side tables: `Stack`
+    /// One verdict per bound variable in `decls`, after `run` has filled both side tables: `Stack`
     /// iff frame-confined (`LocalStack`) AND free of any heap-repr channel. `decls` only —
-    /// emit-time expansion re-mints binders, so an entry's own binder is unlookupable.
-    let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BinderKey, ClosureRepr> =
+    /// emit-time expansion re-mints bound variables, so an entry's own bound variable is unlookupable.
+    let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BoundVarKey, ClosureRepr> =
         Map.ofSeq (
             seq {
-                for binder in TastWalk.declBinders decls do
-                    let key = BinderKey.identity binder
+                for boundVar in TastWalk.declBoundVars decls do
+                    let key = BoundVarKey.identity boundVar
 
                     match ctx.Bindings.Escape.TryGetValue key with
                     | ValueNone -> ()
@@ -732,7 +732,7 @@ module Regions =
                             )
 
                         yield
-                            binder,
+                            boundVar,
                             (if stackEligible then
                                  ClosureRepr.Stack
                              else

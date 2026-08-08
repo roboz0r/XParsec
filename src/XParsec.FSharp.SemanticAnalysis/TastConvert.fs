@@ -197,14 +197,14 @@ module TastConvert =
             /// An enum case's identifier token — the cluster's only `'tok`, every other slot
             /// having gone to `'body`.
             Tok: 'toka -> 'tokb
-            Id: BinderKeyG<'ida> -> 'idb
+            Id: BoundVarKeyG<'ida> -> 'idb
             Body: 'bodya -> 'bodyb
         }
 
     let typeMember (m': DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (m: TTypeMemberG<'a, 'ia, 'ba>) =
         let fTy = m'.Ty
         let fBody = m'.Body
-        let slot = BinderKey.refile m'.Id
+        let slot = BoundVarKey.refile m'.Id
 
         {
             Name = m.Name
@@ -237,7 +237,7 @@ module TastConvert =
 
     let ctorLet (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (cl: TCtorLetG<'a, 'ia, 'ba>) =
         {
-            Binder = BinderKey.refile m.Id cl.Binder
+            BoundVar = BoundVarKey.refile m.Id cl.BoundVar
             Type = m.Ty cl.Type
             Init = m.Body cl.Init
         }
@@ -250,7 +250,7 @@ module TastConvert =
 
     let secondaryCtor (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (sc: TSecondaryCtorG<'a, 'ia, 'ba>) =
         {
-            Params = EqArray.map (fun (k, ty) -> BinderKey.refile m.Id k, m.Ty ty) sc.Params
+            Params = EqArray.map (fun (k, ty) -> BoundVarKey.refile m.Id k, m.Ty ty) sc.Params
             Lets = EqArray.map (ctorLet m) sc.Lets
             PrimaryArgs = EqArray.map m.Body sc.PrimaryArgs
             FieldInits = EqArray.map (ctorFieldInit m.Body) sc.FieldInits
@@ -258,7 +258,7 @@ module TastConvert =
 
     let baseCtorCall (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (bc: TBaseCtorCallG<'a, 'ia, 'ba>) =
         {
-            CtorParams = EqArray.map (fun (k, ty) -> BinderKey.refile m.Id k, m.Ty ty) bc.CtorParams
+            CtorParams = EqArray.map (fun (k, ty) -> BoundVarKey.refile m.Id k, m.Ty ty) bc.CtorParams
             Args = EqArray.map m.Body bc.Args
             ChosenCtor = bc.ChosenCtor
         }
@@ -309,7 +309,7 @@ module TastConvert =
                     IsSealed = c.IsSealed
                     StaticPreamble = EqArray.map (preambleEntry fTy fBody) c.StaticPreamble
                     InstancePreamble = EqArray.map (preambleEntry fTy fBody) c.InstancePreamble
-                    ThisKey = BinderKey.refile m.Id c.ThisKey
+                    ThisKey = BoundVarKey.refile m.Id c.ThisKey
                     SecondaryCtors = EqArray.map (secondaryCtor m) c.SecondaryCtors
                     BaseCtorCall = ValueOption.map (baseCtorCall m) c.BaseCtorCall
                     ValueKind = c.ValueKind
@@ -340,7 +340,7 @@ module TastConvert =
                     {
                         Ty = f
                         Tok = fTok
-                        Id = BinderKey.identity
+                        Id = BoundVarKey.identity
                         Body = expr f fTok
                     }
                     td
@@ -354,7 +354,7 @@ module TastConvert =
 
     // The compiled-form cluster, likewise a trifunctor — in `('ty, 'pat, 'id)`. The `'ty`-only
     // conversion runs it at `fPat = pat fTy` and `fId = id`; pooling runs it at `fTy = id`,
-    // `fPat = <pat → pool id>`, `fId = <key → binder id>`, and unpooling at its inverse.
+    // `fPat = <pat → pool id>`, `fId = <key → bound variable id>`, and unpooling at its inverse.
     let argGroup
         (fTy: 'a -> 'b)
         (fPat: 'pa -> 'pb)

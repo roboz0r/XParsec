@@ -181,12 +181,12 @@ let tests =
                     Expect.equal out "e" "indexes the string to its char"
             }
 
-            // ---- `let _ = effect` (Wildcard binder) --------------------------
+            // ---- `let _ = effect` (Wildcard bound variable) --------------------------
             //
             // `let _ = expr in body` discards `expr` (kept for its side effects) — the
             // structural-printer's render-into-buffer idiom (`let _ = renderDoc …`), and
             // the natural spelling for an effectful unit expression. JS has no
-            // let-expression, so a Wildcard binder in expression position lowers to a comma
+            // let-expression, so a Wildcard bound variable in expression position lowers to a comma
             // sequence `(<effect>, <body>)`; a *pure* discarded value drops away entirely.
 
             test "`let _ = effect in body` emits a comma sequence, not an IIFE" {
@@ -203,12 +203,12 @@ let tests =
 
                 let js = emitJs src
                 // The discarded `stelem` is impure, so it survives as the first comma operand
-                // of `((a[0] = 7), a[0])` — not hoisted into a named `const`/IIFE binder.
+                // of `((a[0] = 7), a[0])` — not hoisted into a named `const`/IIFE bound variable.
                 Expect.stringContains js "(a[0] = 7), a[0]" "the effect is the head of a comma sequence"
             }
 
             test "`let _ = pure in body` drops the discarded pure value" {
-                // `1 + 1` is pure to `isPureValue`, so the wildcard binder collapses to body.
+                // `1 + 1` is pure to `isPureValue`, so the wildcard bound variable collapses to body.
                 let js = emitJs "let f () =\n    let _ = 1 + 1\n    42\nprintfn \"%d\" (f ())"
                 Expect.isFalse (js.Contains "1 + 1") "a pure discarded value is elided"
             }

@@ -16,7 +16,7 @@ module internal ClosureVerdictRewrite =
             RetypeDecl: TastAccessor.DeclId -> TastAccessor.DeclId
             /// The rewritten container if the key is a verdict binding, else the declared
             /// type unchanged.
-            ModuleValueSlotType: BinderId -> FrozenType -> FrozenType
+            ModuleValueSlotType: BoundVarId -> FrozenType -> FrozenType
         }
 
     /// * `closureValueTypeByNode` — value-struct closure's Lambda node → its `<closure>$` type.
@@ -26,7 +26,7 @@ module internal ClosureVerdictRewrite =
         (closureValueTypeByNode: IReadOnlyDictionary<TastAccessor.ExprId, FrozenType>)
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (enumeratorOf: FrozenType -> FrozenType voption)
-        (moduleValues: (BinderId * FrozenType * TastAccessor.ExprId) seq)
+        (moduleValues: (BoundVarId * FrozenType * TastAccessor.ExprId) seq)
         : Rewrite =
 
         // Lambda node → its `<closure>$` value-struct + the result-typar POSITION its
@@ -46,7 +46,7 @@ module internal ClosureVerdictRewrite =
         // replacements. Filled in DECLARATION order, so a chained `let s2 = map g s1` can
         // read the ALREADY-rewritten type of `s1`.
         let verdictBindings =
-            Dictionary<BinderId, FrozenType * (FrozenType * FrozenType) list>()
+            Dictionary<BoundVarId, FrozenType * (FrozenType * FrozenType) list>()
 
         // Replace a stored binding's `'TFunc`-position leaf with the value-struct closure its
         // initialiser produces — matched by POSITION, so a genuine function-valued field of
@@ -203,7 +203,7 @@ module internal ClosureVerdictRewrite =
             else
                 // The verdict binding a (possibly nested-field) receiver bottoms out in,
                 // for mapping a projection's function type to its closure.
-                let rec receiverBinding (r: TastAccessor.ExprId) : BinderId voption =
+                let rec receiverBinding (r: TastAccessor.ExprId) : BoundVarId voption =
                     match r with
                     | TastAccessor.EVar k ->
                         if verdictBindings.ContainsKey k then

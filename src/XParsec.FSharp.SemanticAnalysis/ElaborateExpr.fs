@@ -265,10 +265,12 @@ module internal ElaborateExpr =
                     tok
                 )
 
-            // A loop variable is the one binder with no pattern node behind it, so its
+            // A loop variable is the one bound variable with no pattern node behind it, so its
             // spelling is recorded here rather than by `namedSimple`. `ident` and not the
             // node's own token, which is the `for` keyword.
-            BinderKey.ofExpr node |> ValueOption.iter (fun b -> ctx.SpellBinder(b, ident))
+            BoundVarKey.ofExpr node
+            |> ValueOption.iter (fun b -> ctx.SetBoundVarName(b, ident))
+
             node
         | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) -> translateForIn ctx key pat src body ty tok
         | Expr.String _ -> ElaborateStrings.translateString translateExpr ctx e ty tok
@@ -310,7 +312,7 @@ module internal ElaborateExpr =
             ElaborateAccess.translateDynamicLookup translateExpr ctx key r idTok ty tok
         | Expr.Null _ -> TExpr.Null(ty, tok)
         // A range reaches here only when the counted-`ForTo` for-in lowering did NOT
-        // consume it: value position, a stepped range, or a non-simple loop binder.
+        // consume it: value position, a stepped range, or a non-simple loop bound variable.
         // All unsupported — a range materialises no seq value in this compiler.
         | Expr.Range(fromExpr = a; toExpr = b) ->
             ctx.Report(tok, Kind.RangeNotFirstClassValue)
@@ -364,7 +366,7 @@ module internal ElaborateExpr =
 
     /// An integer-range source (`for i in a..b do`) lowers to a counted `ForTo`
     /// loop — F#'s own lowering; a range materialises no `seq` to walk. Only a
-    /// unit-step range bound to a *simple* binder; the rest take the enumerator path.
+    /// unit-step range bound to a *simple* bound variable; the rest take the enumerator path.
     and private translateForIn
         (ctx: PassContext)
         (key: NodeKey)
@@ -689,12 +691,12 @@ module internal ElaborateExpr =
 
                 let tpat = translatePat ctx b.pattern
                 let valT = translateBinding ctx b
-                // The let/use node's source anchor is its binder pattern's first token.
+                // The let/use node's source anchor is its bound variable pattern's first token.
                 let bindTok = CstKeys.firstTokenOfPat b.pattern
 
                 result <-
                     if isUse then
-                        // Unification records the binder's resolved disposal path under
+                        // Unification records the bound variable's resolved disposal path under
                         // the binding pattern's key. Absent ⇒ it reported a
                         // `use`-over-non-disposable error; no backend lowers `Unresolved`.
                         let dispose =

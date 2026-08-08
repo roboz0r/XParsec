@@ -38,14 +38,14 @@ module EmitExpr =
         | ExprShape.Null -> b.Add ILInstr.Ldnull
 
         | ExprShape.Var ->
-            let binding = TastAccessor.exprVarBinding e
+            let boundVar = TastAccessor.exprVarBoundVar e
 
-            if env.StaticMethods.ContainsKey binding then
+            if env.StaticMethods.ContainsKey boundVar then
                 // A generic module value (`let empty : SetTree<'T> = …`) lowers to a 0-arg
                 // generic static method, since a non-generic holder cannot host a
                 // `SetTree<'T>` field. Its instantiation comes from this use's own type.
                 let varTy = TastAccessor.exprTy e
-                let sm = env.StaticMethods.[binding]
+                let sm = env.StaticMethods.[boundVar]
 
                 let callHandle =
                     if sm.Typars = 0 then
@@ -56,7 +56,7 @@ module EmitExpr =
 
                 b.Add(ILInstr.Call(callHandle, 0, 1))
             else
-                buildVarLoad env b binding
+                buildVarLoad env b boundVar
 
         | ExprShape.Let -> EmitBindings.buildLet buildExpr env b e
         | ExprShape.Use -> EmitBindings.buildUse buildExpr env b e

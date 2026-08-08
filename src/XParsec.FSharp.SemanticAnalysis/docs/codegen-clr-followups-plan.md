@@ -209,10 +209,10 @@ struct. Pairs with B20.
 
 ## A16. The ref-struct disposal carve-out can never fire on the CLR — `use` rejects it first
 
-`EmitBindings.buildUse` rejects every value-type binder up front
+`EmitBindings.buildUse` rejects every value-type boundVar up front
 (`if isValueType env varTy then failwithf "… out of scope"`), and `EmittedClass.IsValueType` is
 `cd.ValueKind <> ClassValueKind.RefType`, TRUE for `RefStruct`. So a project-local
-`[<IsByRefLike>]` binder dies at that guard and never reaches the `Disposal.ViaOwnMember` arm.
+`[<IsByRefLike>]` boundVar dies at that guard and never reaches the `Disposal.ViaOwnMember` arm.
 
 The front end accepts it: `Infer.resolveLocal` mints `Disposal.ViaOwnMember` from
 `tryRefStructOwnDispose` for exactly that shape. A `use` over a local ref struct with a pattern

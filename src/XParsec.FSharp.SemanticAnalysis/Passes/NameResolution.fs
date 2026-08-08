@@ -22,7 +22,7 @@ module NameResolution =
         {
             ThisName: string
             ThisKey: NodeKey
-            /// `base`'s own synthetic binder key, present only for a class with a
+            /// `base`'s own synthetic bound variable key, present only for a class with a
             /// resolved `inherit` clause. Enters the *instance* scope alongside `this`;
             /// statics never see `base`.
             BaseKey: NodeKey voption
@@ -32,16 +32,16 @@ module NameResolution =
             /// take part in the duplicate-field check below.
             InstanceFields: ClassFieldInfo[]
             /// The type's members. Not in lexical scope (a member reaches a sibling through
-            /// `this`); only their NAMES are read here, since F# forbids a class `let` binder
+            /// `this`); only their NAMES are read here, since F# forbids a class `let` bound variable
             /// sharing a name with a member (FS0905).
             Members: TypeMemberInfo[]
             /// `static let` / `static do`, in declaration order. A `static let` name enters
             /// both the instance and the static member scope; the sequence's own expressions
-            /// see only the static binders above them (no `this` / ctor params / instance lets).
+            /// see only the static bound variables above them (no `this` / ctor params / instance lets).
             StaticPreamble: ClassPreambleEntry[]
-            /// Instance `let` / `do`, in declaration order. Every binder enters the instance
+            /// Instance `let` / `do`, in declaration order. Every bound variable enters the instance
             /// member scope; the sequence's own expressions see the ctor params and the
-            /// instance binders ABOVE them only.
+            /// instance bound variables ABOVE them only.
             InstancePreamble: ClassPreambleEntry[]
             /// Secondary constructors. Each body is walked in a scope of the `static let`s
             /// plus its own params (no `this` / primary-ctor params).
@@ -71,7 +71,7 @@ module NameResolution =
     /// instance scope binding `this` (or the `as` alias) and the primary-ctor params; a
     /// static member's scope has neither (F# spec §8.7). Members are mutually recursive.
     let private walkTypeBodies (ctx: PassContext) (walker: CstWalk.ExprWalker<Scope list>) (w: TypeBodiesWalk) : unit =
-        // Primary-ctor params, `val` fields, `static let` and instance `let` binders each mint
+        // Primary-ctor params, `val` fields, `static let` and instance `let` bound variables each mint
         // a field carrying its source name, and no two fields of one type may share a name — a
         // CLR Field row is (Parent, Name, Signature), static-ness being a flag (ECMA-335 II.22.15).
         let mutable fieldNames: Set<string> = Set.empty
@@ -91,7 +91,7 @@ module NameResolution =
             else
                 fieldNames <- Set.add name fieldNames
 
-        // FS0905: a member's name is its public surface, so a class `let` binder may not share
+        // FS0905: a member's name is its public surface, so a class `let` bound variable may not share
         // it. Holds whichever side is static (probed against fsc).
         let memberNames = w.Members |> Array.map (fun m -> m.Name) |> Set.ofArray
 
@@ -108,7 +108,7 @@ module NameResolution =
         )
 
         // `base` is visible to instance member bodies of a derived class only, and resolves
-        // to its own synthetic binder key. Left unbound without an `inherit` clause, so a
+        // to its own synthetic bound variable key. Left unbound without an `inherit` clause, so a
         // member mentioning it reports "Unresolved identifier: base".
         match w.BaseKey with
         | ValueSome bk ->
@@ -125,7 +125,7 @@ module NameResolution =
         | ValueNone -> ()
 
         for p in w.CtorParams do
-            let paramKey = BinderKey.identity p.DeclSite.Binder
+            let paramKey = BoundVarKey.identity p.DeclSite.BoundVar
             scopeMap <- Map.add p.Name (paramKey, false) scopeMap
             declareField p.Name p.DeclSite.Tok
 
@@ -144,11 +144,11 @@ module NameResolution =
 
         // The enclosing module's value bindings are visible — unqualified — to every member
         // body of a type nested in that module (F# spec §8.7). Lowest-priority tail layer, so
-        // `this` / ctor params / preamble binders shadow on a name clash.
+        // `this` / ctor params / preamble bound variables shadow on a name clash.
         let moduleMemberScope: Scope = w.EnclosingModuleScope
 
-        /// Declare one preamble `let` binder: its binding site, its field, and the FS0905 check.
-        let declarePreambleBinder (l: ClassLetInfo) =
+        /// Declare one preamble `let` bound variable: its binding site, its field, and the FS0905 check.
+        let declarePreambleBoundVar (l: ClassLetInfo) =
             ctx.Bindings.Binding.Set(
                 l.DeclKey,
                 {
@@ -167,7 +167,7 @@ module NameResolution =
                 ctx.Report(bindTok, Kind.MemberAndLocalBindingClash l.Name)
 
         // A preamble `let f x = …` binds a FUNCTION, so its `argumentPats` scope over the
-        // initialiser. Only `let rec` puts the binder in scope of its own initialiser.
+        // initialiser. Only `let rec` puts the bound variable in scope of its own initialiser.
         let walkLetInit (outer: Scope list) (l: ClassLetInfo) =
             let b = l.Binding
 
@@ -181,13 +181,13 @@ module NameResolution =
 
         // `static let` names enter scope for every member body, instance and static alike
         // (F# spec §8.7). Built incrementally, so a `static let` sees neither an instance
-        // binder nor a later static one — matching F# (FS0039).
+        // bound variable nor a later static one — matching F# (FS0039).
         let mutable staticLetScope: Scope = Map.empty
 
         for entry in w.StaticPreamble do
             match entry with
             | ClassPreambleEntry.Let l ->
-                declarePreambleBinder l
+                declarePreambleBoundVar l
 
                 if l.IsRec then
                     staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
@@ -197,11 +197,11 @@ module NameResolution =
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker [ staticLetScope ] e
 
         // The instance sequence runs inside the primary ctor: it sees the ctor params, the
-        // static binders, and the instance binders above it — but never `this` / `base` / the
+        // static bound variables, and the instance bound variables above it — but never `this` / `base` / the
         // `as` alias, so a preamble `let` naming the object is rejected rather than typed.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add p.Name (BinderKey.identity p.DeclSite.Binder, false) acc)
+            ||> Array.fold (fun acc p -> Map.add p.Name (BoundVarKey.identity p.DeclSite.BoundVar, false) acc)
 
         let instanceOuterScope = [ ctorParamScope; staticLetScope; moduleMemberScope ]
 
@@ -210,7 +210,7 @@ module NameResolution =
         for entry in w.InstancePreamble do
             match entry with
             | ClassPreambleEntry.Let l ->
-                declarePreambleBinder l
+                declarePreambleBoundVar l
 
                 if l.IsRec then
                     instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
@@ -219,25 +219,25 @@ module NameResolution =
                 instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker (instanceLetScope :: instanceOuterScope) e
 
-        // Member bodies see EVERY preamble binder, static and instance alike: members are a
+        // Member bodies see EVERY preamble bound variable, static and instance alike: members are a
         // mutually-recursive group, so no ordering rule is left to enforce here.
         let mergePreamble (m: Scope) =
             let m = (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
             (m, instanceLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
 
         let instanceScope = [ mergePreamble scopeMap; moduleMemberScope ]
-        // Statics see neither `this` / ctor params nor any instance binder.
+        // Statics see neither `this` / ctor params nor any instance bound variable.
         let staticScope: Scope list = [ staticLetScope; moduleMemberScope ]
 
         // Primary `inherit Base(args)`: the `static let`s and primary-ctor params, without
-        // `this` / `base` and without the instance binders, which are assigned only after
+        // `this` / `base` and without the instance bound variables, which are assigned only after
         // the base ctor returns.
         match w.InheritsExpr with
         | ValueSome e -> CstWalk.iterExpr walker instanceOuterScope e
         | ValueNone -> ()
 
         // A secondary ctor body is an `AdditionalConstrExpr`, not a plain `Expr`, so it is
-        // walked here: each embedded expression goes through `walker`, and a `let` binder
+        // walked here: each embedded expression goes through `walker`, and a `let` bound variable
         // enters scope for the remainder. Only the static lets and its own params are in scope.
         let rec walkCtorBody (scope: Scope list) (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
             match ace with
@@ -273,7 +273,7 @@ module NameResolution =
             let mutable scScope = staticLetScope
 
             for p in sc.Params do
-                let paramKey = BinderKey.identity p.DeclSite.Binder
+                let paramKey = BoundVarKey.identity p.DeclSite.BoundVar
                 scScope <- Map.add p.Name (paramKey, false) scScope
 
                 ctx.Bindings.Binding.Set(
@@ -378,10 +378,10 @@ module NameResolution =
                         walker
                         {
                             ThisName = info.ThisName
-                            ThisKey = BinderKey.identity info.ThisKey
+                            ThisKey = BoundVarKey.identity info.ThisKey
                             BaseKey =
                                 match info.BaseType with
-                                | ValueSome _ -> ValueSome(BinderKey.identity info.BaseKey)
+                                | ValueSome _ -> ValueSome(BoundVarKey.identity info.BaseKey)
                                 | ValueNone -> ValueNone
                             CtorParams = info.CtorParams
                             InstanceFields = info.InstanceFields
@@ -401,7 +401,7 @@ module NameResolution =
         | _ -> ()
 
     /// Name-resolve a union/record host's augmentation-member and `interface … with` impl
-    /// bodies so `this` and its pattern binders get a `Binding` entry. A type with ONLY an
+    /// bodies so `this` and its pattern bound variables get a `Binding` entry. A type with ONLY an
     /// interface impl and no augmentation members still needs its impl bodies resolved.
     let private walkNominalHostBodies
         (ctx: PassContext)
@@ -416,7 +416,7 @@ module NameResolution =
                 walker
                 {
                     ThisName = host.ThisName
-                    ThisKey = BinderKey.identity host.ThisKey
+                    ThisKey = BoundVarKey.identity host.ThisKey
                     BaseKey = ValueNone
                     CtorParams = [||]
                     InstanceFields = [||]
@@ -508,7 +508,7 @@ module NameResolution =
             ctx.EnterElement w
             walkNominalBodies ctx walker w.Elem
 
-        // Module-level VALUES, in declaration order: a `let`'s binders join the running scope
+        // Module-level VALUES, in declaration order: a `let`'s bound variables join the running scope
         // only AFTER its RHS is walked, so a use above it does not see it. A `rec` scope is a
         // contiguous RUN of elements sharing a `RecScopeOffset`, seeded before the run is walked.
         let elems = List.toArray elems

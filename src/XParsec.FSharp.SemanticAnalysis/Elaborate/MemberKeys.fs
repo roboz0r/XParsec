@@ -16,7 +16,7 @@ module LocalMemberKeys =
             Member: TypeMemberInfo
         }
 
-    /// The declaring type's own typar binders come back alongside the member: they are the
+    /// The declaring type's own typar bound variables come back alongside the member: they are the
     /// declaring axis a value signature freezes against.
     let tryNominalMemberWithTypars (ctx: PassContext) (typeKey: TypeKey) (memberName: string) : NominalMember voption =
         let pick (key: TypeKey) (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =

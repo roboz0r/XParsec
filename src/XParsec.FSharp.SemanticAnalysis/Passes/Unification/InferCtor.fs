@@ -246,7 +246,7 @@ module internal UnificationInferCtor =
         : SemType voption =
         match fn with
         | Expr.TypeApp(expr = ctorFun; types = tyArgs) ->
-            // The stamp is minted opens-aware from the spelling alone, so the local-binder
+            // The stamp is minted opens-aware from the spelling alone, so the local-bound-variable
             // guard must stay on the read side.
             let ctorUnbound =
                 match ctorFun with

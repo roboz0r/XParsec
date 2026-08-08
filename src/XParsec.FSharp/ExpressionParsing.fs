@@ -833,11 +833,11 @@ module Expr =
                         (parser {
                             // Grammar (above): FUN atomicPatterns RARROW. Lambda
                             // parameters are *atomic* patterns — a bare identifier is
-                            // a simple binder, NOT a ctor pattern that swallows the
+                            // a simple bound variable, NOT a ctor pattern that swallows the
                             // following parameters. `Pat.parse` would parse `fun acc k`
                             // as the applied pattern `acc k` (`Pat.Named acc [k]`);
                             // `parseAtomicBindingArgMany1` (the same parser the let/
-                            // member bindings use) keeps them as separate binders.
+                            // member bindings use) keeps them as separate bound variables.
                             let! pats = Pat.parseAtomicBindingArgMany1
 
                             let! arrow =

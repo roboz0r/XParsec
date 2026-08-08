@@ -31,12 +31,12 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // instead of one per node.
 //
 // (The pool figures moved down from 504 / 282 / 508 as data the blob already carried
-// elsewhere came out: the redundant `BinderNamings` column, the re-pooled `ValRepr`
+// elsewhere came out: the redundant `BoundVarNamings` column, the re-pooled `ValRepr`
 // tuple-group patterns, and then the three SHAPE columns — a node's tag is a projection
 // of its payload, so it was a byte per node per domain for a fact the payload's own tag
-// already stored. Turning the two per-binder scalars into `BinderColumn`s then traded 4 id
-// bytes per ENTRY for one presence byte per BINDER, which is a small win where the entries
-// are dense against the binder pool and a small loss where they are sparse. The ceilings
+// already stored. Turning the two per-bound-variable scalars into `BoundVarColumn`s then traded 4 id
+// bytes per ENTRY for one presence byte per BOUND VARIABLE, which is a small win where the entries
+// are dense against the bound variable pool and a small loss where they are sparse. The ceilings
 // below are unchanged throughout: they exist to catch a LARGE inflation, not to track the
 // number.)
 //
@@ -71,7 +71,7 @@ type private SizedProgram =
 
 /// A small representative set spanning the shapes that dominate a real file's blob: curried
 /// bindings and applications, a type declaration whose member bodies are named by pool id
-/// (a `DeclPayload.Type`), and control flow with several binders — each with its measured
+/// (a `DeclPayload.Type`), and control flow with several bound variables — each with its measured
 /// ceiling.
 let private programs =
     [

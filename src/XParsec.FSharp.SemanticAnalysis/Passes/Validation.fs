@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  every prior side table populated.
 // Post: ctx.Diagnostics has any semantic violations. Read-only.
-// Anonymous-union match coverage is instead co-computed with per-arm binder narrowing.
+// Anonymous-union match coverage is instead co-computed with per-arm bound variable narrowing.
 
 module Validation =
 
@@ -151,8 +151,8 @@ module Validation =
             if rb.IsMutable && kv.Key = rb.BindingSite then
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueSome tv when hasFreeTyVar ctx.Store quantified (TyVar tv) ->
-                    // This pass walks the binding TABLE, not the tree, and `BinderSpellings`
-                    // — the only record of where a binder was written — is not filled for an
+                    // This pass walks the binding TABLE, not the tree, and `BoundVarNames`
+                    // — the only record of where a bound variable was written — is not filled for an
                     // ordinary `let mutable` until Elaborate, which runs after. So: nowhere.
                     ctx.Report(
                         Site.Nowhere,

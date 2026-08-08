@@ -6,26 +6,30 @@ open XParsec.FSharp.Parser
 // under it in each of its five kinds, with the members, preambles and ctors they carry.
 
 /// An identity a node of the tree INTRODUCES as a definition site, over the tree's own
-/// identity axis (`'id`): pre-freeze and frozen trees name a binder by `NodeKey`, a tree
-/// rebuilt from the pools by `BinderId`.
+/// identity axis (`'id`): pre-freeze and frozen trees name a bound variable by `NodeKey`, a tree
+/// rebuilt from the pools by `BoundVarId`.
 [<Struct>]
-type BinderKeyG<'id> = private | Binder of 'id
+type BoundVarKeyG<'id> = private | BoundVar of 'id
 
-type BinderKey = BinderKeyG<NodeKey>
+type BoundVarKey = BoundVarKeyG<NodeKey>
 
 [<Struct>]
-type BinderSite = { Binder: BinderKey; Tok: SyntaxToken }
+type BoundVarSite =
+    {
+        BoundVar: BoundVarKey
+        Tok: SyntaxToken
+    }
 
-/// How the SOURCE writes a binder. Recorded where the key is minted from a token, never
-/// recovered afterwards: the key's number is a character offset, not a token index, and inline
-/// expansion copies a body onto its CALL SITE, after which the node's token spells something else.
+/// The identifier a bound variable is written with. Recorded where the key is minted from a
+/// token, never recovered afterwards: the key's number is a character offset, not a token index,
+/// and inline expansion copies a body onto its CALL SITE, whose token spells something else.
 [<Struct>]
-type BinderSpelling = { Name: string; At: Anchor }
+type BoundVarIdent = { Text: string; At: Anchor }
 
-module BinderSpelling =
+module BoundVarIdent =
 
-    /// A binder no source writes.
-    let unspelled: BinderSpelling = { Name = ""; At = Anchor.nowhere }
+    /// A bound variable no source names.
+    let unnamed: BoundVarIdent = { Text = ""; At = Anchor.nowhere }
 
 /// `[<Struct>]` ⇒ `Struct`, `[<IsByRefLike>]` ⇒ `RefStruct`; `RefStruct` implies
 /// value-type emission too.
@@ -37,7 +41,7 @@ type ClassValueKind =
 
 [<RequireQualifiedAccess>]
 type TDeclG<'ty, 'tok, 'id> =
-    | Let of binding: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
+    | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok, 'id> * ty: 'ty
     | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
 
@@ -107,10 +111,10 @@ and TClassG<'ty, 'id, 'body> =
         /// Instance `let` / `do`, in declaration order: the tail of the primary ctor,
         /// running after the base-ctor call and the ctor-param field stores.
         InstancePreamble: EqArray<TPreambleEntryG<'ty, 'body>>
-        /// The `this` binder, on the class and not only on each member because the INSTANCE
+        /// The `this` bound variable, on the class and not only on each member because the INSTANCE
         /// preamble reads fields through it too: a ctor-param reference in an initialiser is
         /// a `FieldGet` on a `Var` of this key.
-        ThisKey: BinderKeyG<'id>
+        ThisKey: BoundVarKeyG<'id>
         SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'id, 'body>>
         BaseCtorCall: TBaseCtorCallG<'ty, 'id, 'body> voption
         ValueKind: ClassValueKind
@@ -175,14 +179,14 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// `true` when declared with the `override` OR the `default` keyword.
         IsOverride: bool
         /// Instance members only; `ValueNone` for a static member.
-        ThisKey: BinderKeyG<'id> voption
-        /// The synthetic `base` binder of the declaring class; `ValueNone` for a static or
+        ThisKey: BoundVarKeyG<'id> voption
+        /// The synthetic `base` bound variable of the declaring class; `ValueNone` for a static or
         /// union member, or a class with no `inherit`. A `base.M(…)` receiver loads as the
         /// same `ldarg.0` as `this`; `CallVia.Base` is what makes the dispatch non-virtual.
-        BaseKey: BinderKeyG<'id> voption
+        BaseKey: BoundVarKeyG<'id> voption
         ThisTy: 'ty
-        /// Parameter binders in declaration order; empty for a property or a nullary method.
-        Params: EqArray<BinderKeyG<'id> * 'ty>
+        /// Parameter bound variables in declaration order; empty for a property or a nullary method.
+        Params: EqArray<BoundVarKeyG<'id> * 'ty>
         Body: 'body
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`), distinct from
@@ -209,11 +213,11 @@ and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'body> =
     | Do of 'body
 
 /// One `let`-preamble binding inside a secondary constructor body
-/// (`new(args) = let x = e in SelfType(...)`). `Binder` is the local's identity: codegen
+/// (`new(args) = let x = e in SelfType(...)`). `BoundVar` is the local's identity: codegen
 /// allocates a local slot, and a reference to the name in the body loads it.
 and TCtorLetG<'ty, 'id, 'body> =
     {
-        Binder: BinderKeyG<'id>
+        BoundVar: BoundVarKeyG<'id>
         Type: 'ty
         Init: 'body
     }
@@ -228,7 +232,7 @@ and TCtorFieldInitG<'body> = { Field: string; Init: 'body }
 /// usable `this` yet; EXPLICIT FIELD-INIT (`new(args) = { f = e; … }`) is the reverse.
 and TSecondaryCtorG<'ty, 'id, 'body> =
     {
-        Params: EqArray<BinderKeyG<'id> * 'ty>
+        Params: EqArray<BoundVarKeyG<'id> * 'ty>
         Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
         PrimaryArgs: EqArray<'body>
         FieldInits: EqArray<TCtorFieldInitG<'body>>
@@ -239,7 +243,7 @@ and TSecondaryCtorG<'ty, 'id, 'body> =
 /// `CtorParams` are the *derived* class's primary-ctor params — `this` isn't constructed yet.
 and TBaseCtorCallG<'ty, 'id, 'body> =
     {
-        CtorParams: EqArray<BinderKeyG<'id> * 'ty>
+        CtorParams: EqArray<BoundVarKeyG<'id> * 'ty>
         Args: EqArray<'body>
         /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`).
         /// `ValueNone` for a project-local base, and for an external base whose overload
@@ -291,13 +295,13 @@ module TTypeKindG =
 /// One projection per way a definition site comes to exist: a pattern introduces it, an
 /// expression introduces it with no pattern behind it, a declaration MINTS it because no
 /// node spells it, or a pool interned it under a dense id.
-module BinderKey =
+module BoundVarKey =
 
-    /// The single binder a PATTERN introduces. `ValueNone` for one that binds nothing, and
+    /// The single bound variable a PATTERN introduces. `ValueNone` for one that binds nothing, and
     /// for one that binds only through nested sub-patterns — walk the children for those.
-    let ofPat (p: TPatG<'ty, 'tok, 'id>) : BinderKeyG<'id> voption =
+    let ofPat (p: TPatG<'ty, 'tok, 'id>) : BoundVarKeyG<'id> voption =
         match p with
-        | TPatG.NamedSimple(binding = binding) -> ValueSome(Binder binding)
+        | TPatG.NamedSimple(boundVar = boundVar) -> ValueSome(BoundVar boundVar)
         | TPatG.Wildcard _
         | TPatG.Tuple _
         | TPatG.Const _
@@ -308,27 +312,27 @@ module BinderKey =
         | TPatG.EnumCase _
         | TPatG.Or _ -> ValueNone
 
-    /// The binder an EXPRESSION introduces with no pattern node behind it, TOGETHER with
+    /// The bound variable an EXPRESSION introduces with no pattern node behind it, TOGETHER with
     /// the token that spells its name: a `ForTo` loop variable, whose `i` token has no
     /// surrounding `Pat` in the CST. Every other binding expression carries a real `TPatG`.
-    let siteOfExpr (e: TExprG<'ty, 'tok, 'id>) : struct (BinderKeyG<'id> * 'tok) voption =
+    let siteOfExpr (e: TExprG<'ty, 'tok, 'id>) : struct (BoundVarKeyG<'id> * 'tok) voption =
         match e with
-        | TExprG.ForTo(var = var; identTok = identTok) -> ValueSome(struct (Binder var, identTok))
+        | TExprG.ForTo(var = var; identTok = identTok) -> ValueSome(struct (BoundVar var, identTok))
         | _ -> ValueNone
 
-    /// The binder an EXPRESSION introduces — `siteOfExpr` without the token.
-    let ofExpr (e: TExprG<'ty, 'tok, 'id>) : BinderKeyG<'id> voption =
+    /// The bound variable an EXPRESSION introduces — `siteOfExpr` without the token.
+    let ofExpr (e: TExprG<'ty, 'tok, 'id>) : BoundVarKeyG<'id> voption =
         siteOfExpr e |> ValueOption.map (fun (struct (b, _)) -> b)
 
-    /// `ofPat` before the tree exists: the binder a CST pattern introduces. The key is the
+    /// `ofPat` before the tree exists: the bound variable a CST pattern introduces. The key is the
     /// INNERMOST `NamedSimple`'s, after peeling `[<…>] p` / `(p)` / `p : t` / `p as x` — the
     /// elaborated tree drops those, so a key off `let (x) = 5`'s pattern names a node nothing binds.
-    let rec siteOfCstPat (p: Pat<SyntaxToken>) : BinderSite voption =
+    let rec siteOfCstPat (p: Pat<SyntaxToken>) : BoundVarSite voption =
         match p with
         | Pat.NamedSimple t ->
             ValueSome
                 {
-                    Binder = Binder(CstKeys.ofPat p)
+                    BoundVar = BoundVar(CstKeys.ofPat p)
                     Tok = t
                 }
         | Pat.Attributed(pat = inner)
@@ -337,31 +341,31 @@ module BinderKey =
         | Pat.As(pat = inner) -> siteOfCstPat inner
         | _ -> ValueNone
 
-    /// The binder a CST pattern introduces — `siteOfCstPat` without the token.
-    let ofCstPat (p: Pat<SyntaxToken>) : BinderKey voption =
-        siteOfCstPat p |> ValueOption.map (fun s -> s.Binder)
+    /// The bound variable a CST pattern introduces — `siteOfCstPat` without the token.
+    let ofCstPat (p: Pat<SyntaxToken>) : BoundVarKey voption =
+        siteOfCstPat p |> ValueOption.map (fun s -> s.BoundVar)
 
-    /// The `this` binder a type declaration introduces, shared by every member body and by
+    /// The `this` bound variable a type declaration introduces, shared by every member body and by
     /// the instance preamble. No node spells it — `type C() =` writes no `this` token — so
     /// the key is MINTED from the declaration's own.
-    let ofDeclaredThis (declKey: NodeKey) : BinderKey =
-        Binder(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding)
+    let ofDeclaredThis (declKey: NodeKey) : BoundVarKey =
+        BoundVar(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding)
 
-    /// The `base` binder of a type declaration, minted from the declaration exactly as the
+    /// The `base` bound variable of a type declaration, minted from the declaration exactly as the
     /// `this` one is and distinguished only by kind. Always allocated; only read when the
     /// class has an `inherit` clause.
-    let ofDeclaredBase (declKey: NodeKey) : BinderKey =
-        Binder(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding)
+    let ofDeclaredBase (declKey: NodeKey) : BoundVarKey =
+        BoundVar(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding)
 
-    /// The binder a pool INTERNED under this dense id — the whole `BinderId` space being
+    /// The bound variable a pool INTERNED under this dense id — the whole `BoundVarId` space being
     /// definition sites. Needed at DESERIALIZATION, where a decl's key slots are read back
     /// with no key to project from.
-    let ofInterned (id: BinderId) : BinderKeyG<BinderId> = Binder id
+    let ofInterned (id: BoundVarId) : BoundVarKeyG<BoundVarId> = BoundVar id
 
-    /// Every binder a TYPE DECLARATION introduces with no pattern node to introduce it. A
+    /// Every bound variable a TYPE DECLARATION introduces with no pattern node to introduce it. A
     /// member body names its receiver and parameters by `TExpr.Var`, but those definition
     /// sites are key SLOTS on the shape, which a walk over PATTERNS alone never reaches.
-    let ofTypeDecl (td: TTypeDeclG<'ty, 'tok, 'id, 'body>) : BinderKeyG<'id> seq =
+    let ofTypeDecl (td: TTypeDeclG<'ty, 'tok, 'id, 'body>) : BoundVarKeyG<'id> seq =
         let ofMember (m: TTypeMemberG<'ty, 'id, 'body>) =
             seq {
                 match m.ThisKey with
@@ -394,7 +398,7 @@ module BinderKey =
                         yield k
 
                     for l in EqArray.toArray sc.Lets do
-                        yield l.Binder
+                        yield l.BoundVar
 
                 match c.BaseCtorCall with
                 | ValueSome bc ->
@@ -408,14 +412,14 @@ module BinderKey =
         }
 
     /// Widen to the tree's own identity axis — for a lookup driven by a REFERENCE, a
-    /// `TExpr.Var` naming its binder by that axis.
-    let identity (Binder k) : 'id = k
+    /// `TExpr.Var` naming its bound variable by that axis.
+    let identity (BoundVar k) : 'id = k
 
-    /// Re-file a binder into ANOTHER identity space: `f` answers with the identity THIS
-    /// binder takes there (interning it into a pool, widening a dense id back to a key).
-    let refile (f: BinderKeyG<'a> -> 'b) (k: BinderKeyG<'a>) : BinderKeyG<'b> = Binder(f k)
+    /// Re-file a bound variable into ANOTHER identity space: `f` answers with the identity THIS
+    /// bound variable takes there (interning it into a pool, widening a dense id back to a key).
+    let refile (f: BoundVarKeyG<'a> -> 'b) (k: BoundVarKeyG<'a>) : BoundVarKeyG<'b> = BoundVar(f k)
 
-    /// A whole binder-keyed table read in the REFERENCE domain: a lookup driven by a
+    /// A whole bound-variable-keyed table read in the REFERENCE domain: a lookup driven by a
     /// `TExpr.Var` has only the raw identity the reference carries.
-    let widenMap (m: Map<BinderKeyG<'id>, 'v>) : Map<'id, 'v> =
+    let widenMap (m: Map<BoundVarKeyG<'id>, 'v>) : Map<'id, 'v> =
         m |> Map.toSeq |> Seq.map (fun (b, v) -> identity b, v) |> Map.ofSeq

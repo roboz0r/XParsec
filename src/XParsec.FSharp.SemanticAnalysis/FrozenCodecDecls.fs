@@ -182,7 +182,7 @@ module FrozenCodecDecls =
             ComparisonSupport = comparisonSupport
         }
 
-    and private writeTypeKind (w: FrozenWriter) (k: TTypeKindG<FrozenType, Anchor, BinderId, ExprPoolId>) =
+    and private writeTypeKind (w: FrozenWriter) (k: TTypeKindG<FrozenType, Anchor, BoundVarId, ExprPoolId>) =
         match k with
         | TTypeKindG.Interface methods ->
             w.Write 0uy
@@ -205,7 +205,7 @@ module FrozenCodecDecls =
             w.Write 4uy
             writeEqArrayWith w writeEnumCase cases
 
-    and private readTypeKind (r: FrozenReader) : TTypeKindG<FrozenType, Anchor, BinderId, ExprPoolId> =
+    and private readTypeKind (r: FrozenReader) : TTypeKindG<FrozenType, Anchor, BoundVarId, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TTypeKindG.Interface(EqArray.ofArray (readArrayWith r readAbstractMethod))
         | 1uy ->
@@ -227,7 +227,7 @@ module FrozenCodecDecls =
     // bodies — shared by the class / union / record arms.
     and private writeInterfaces
         (w: FrozenWriter)
-        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BinderId, ExprPoolId>>>)
+        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>>)
         =
         writeEqArrayWith
             w
@@ -239,7 +239,7 @@ module FrozenCodecDecls =
 
     and private readInterfaces
         (r: FrozenReader)
-        : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BinderId, ExprPoolId>>> =
+        : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>> =
         EqArray.ofArray (
             readArrayWith
                 r
@@ -250,7 +250,7 @@ module FrozenCodecDecls =
                 )
         )
 
-    and private writeClass (w: FrozenWriter) (c: TClassG<FrozenType, BinderId, ExprPoolId>) =
+    and private writeClass (w: FrozenWriter) (c: TClassG<FrozenType, BoundVarId, ExprPoolId>) =
         writeEqArrayWith w writeRecordField c.Fields
         writeEqArrayWith w writeRecordField c.CtorParams
         writeEqArrayWith w writeTypeMember c.Members
@@ -259,13 +259,13 @@ module FrozenCodecDecls =
         w.Write c.IsSealed
         writeEqArrayWith w writePreambleEntry c.StaticPreamble
         writeEqArrayWith w writePreambleEntry c.InstancePreamble
-        writeBinderSlot w c.ThisKey
+        writeBoundVarSlot w c.ThisKey
         writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
         writeVOptionWith w writeBaseCtorCall c.BaseCtorCall
         writeClassValueKind w c.ValueKind
         w.Write c.HasPrimaryCtor
 
-    and private readClass (r: FrozenReader) : TClassG<FrozenType, BinderId, ExprPoolId> =
+    and private readClass (r: FrozenReader) : TClassG<FrozenType, BoundVarId, ExprPoolId> =
         let fields = EqArray.ofArray (readArrayWith r readRecordField)
         let ctorParams = EqArray.ofArray (readArrayWith r readRecordField)
         let members = EqArray.ofArray (readArrayWith r readTypeMember)
@@ -274,7 +274,7 @@ module FrozenCodecDecls =
         let isSealed = r.ReadBoolean()
         let staticPreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let instancePreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
-        let thisKey = readBinderSlot r
+        let thisKey = readBoundVarSlot r
         let secondaryCtors = EqArray.ofArray (readArrayWith r readSecondaryCtor)
         let baseCtorCall = readVOptionWith r readBaseCtorCall
         let valueKind = readClassValueKind r
@@ -296,21 +296,21 @@ module FrozenCodecDecls =
             HasPrimaryCtor = hasPrimaryCtor
         }
 
-    and private writeTypeMember (w: FrozenWriter) (m: TTypeMemberG<FrozenType, BinderId, ExprPoolId>) =
+    and private writeTypeMember (w: FrozenWriter) (m: TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>) =
         w.Write m.Name
         w.Write m.IsStatic
         writeAccessibility w m.Accessibility
         w.Write m.IsInline
         writeTMemberKind w m.Kind
         w.Write m.IsOverride
-        writeVOptionWith w writeBinderSlot m.ThisKey
-        writeVOptionWith w writeBinderSlot m.BaseKey
+        writeVOptionWith w writeBoundVarSlot m.ThisKey
+        writeVOptionWith w writeBoundVarSlot m.BaseKey
         writeTypeRef w m.ThisTy
 
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeBinderSlot w k
+                writeBoundVarSlot w k
                 writeTypeRef w ty
             )
             m.Params
@@ -319,15 +319,15 @@ module FrozenCodecDecls =
         writeTypeRef w m.ReturnTy
         writeMethodTypeParams w m.MethodTypeParams
 
-    and private readTypeMember (r: FrozenReader) : TTypeMemberG<FrozenType, BinderId, ExprPoolId> =
+    and private readTypeMember (r: FrozenReader) : TTypeMemberG<FrozenType, BoundVarId, ExprPoolId> =
         let name = r.ReadString()
         let isStatic = r.ReadBoolean()
         let accessibility = readAccessibility r
         let isInline = r.ReadBoolean()
         let kind = readTMemberKind r
         let isOverride = r.ReadBoolean()
-        let thisKey = readVOptionWith r readBinderSlot
-        let baseKey = readVOptionWith r readBinderSlot
+        let thisKey = readVOptionWith r readBoundVarSlot
+        let baseKey = readVOptionWith r readBoundVarSlot
         let thisTy = readTypeRef r
 
         let parameters =
@@ -335,7 +335,7 @@ module FrozenCodecDecls =
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readBinderSlot r
+                        let k = readBoundVarSlot r
                         let ty = readTypeRef r
                         k, ty
                     )
@@ -395,18 +395,18 @@ module FrozenCodecDecls =
         | 1uy -> TPreambleEntryG.Do(readExprPoolId r)
         | b -> failwithf "FrozenCodec: unknown TPreambleEntry tag %d" b
 
-    and private writeCtorLet (w: FrozenWriter) (cl: TCtorLetG<FrozenType, BinderId, ExprPoolId>) =
-        writeBinderSlot w cl.Binder
+    and private writeCtorLet (w: FrozenWriter) (cl: TCtorLetG<FrozenType, BoundVarId, ExprPoolId>) =
+        writeBoundVarSlot w cl.BoundVar
         writeTypeRef w cl.Type
         writeExprPoolId w cl.Init
 
-    and private readCtorLet (r: FrozenReader) : TCtorLetG<FrozenType, BinderId, ExprPoolId> =
-        let binder = readBinderSlot r
+    and private readCtorLet (r: FrozenReader) : TCtorLetG<FrozenType, BoundVarId, ExprPoolId> =
+        let boundVar = readBoundVarSlot r
         let ty = readTypeRef r
         let init = readExprPoolId r
 
         {
-            Binder = binder
+            BoundVar = boundVar
             Type = ty
             Init = init
         }
@@ -420,11 +420,11 @@ module FrozenCodecDecls =
         let init = readExprPoolId r
         { Field = field; Init = init }
 
-    and private writeSecondaryCtor (w: FrozenWriter) (sc: TSecondaryCtorG<FrozenType, BinderId, ExprPoolId>) =
+    and private writeSecondaryCtor (w: FrozenWriter) (sc: TSecondaryCtorG<FrozenType, BoundVarId, ExprPoolId>) =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeBinderSlot w k
+                writeBoundVarSlot w k
                 writeTypeRef w ty
             )
             sc.Params
@@ -433,13 +433,13 @@ module FrozenCodecDecls =
         writeEqArrayWith w writeExprPoolId sc.PrimaryArgs
         writeEqArrayWith w writeCtorFieldInit sc.FieldInits
 
-    and private readSecondaryCtor (r: FrozenReader) : TSecondaryCtorG<FrozenType, BinderId, ExprPoolId> =
+    and private readSecondaryCtor (r: FrozenReader) : TSecondaryCtorG<FrozenType, BoundVarId, ExprPoolId> =
         let parameters =
             EqArray.ofArray (
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readBinderSlot r
+                        let k = readBoundVarSlot r
                         let ty = readTypeRef r
                         k, ty
                     )
@@ -456,11 +456,11 @@ module FrozenCodecDecls =
             FieldInits = fieldInits
         }
 
-    and private writeBaseCtorCall (w: FrozenWriter) (bc: TBaseCtorCallG<FrozenType, BinderId, ExprPoolId>) =
+    and private writeBaseCtorCall (w: FrozenWriter) (bc: TBaseCtorCallG<FrozenType, BoundVarId, ExprPoolId>) =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeBinderSlot w k
+                writeBoundVarSlot w k
                 writeTypeRef w ty
             )
             bc.CtorParams
@@ -468,13 +468,13 @@ module FrozenCodecDecls =
         writeEqArrayWith w writeExprPoolId bc.Args
         writeVOptionWith w writeSymbolRef bc.ChosenCtor
 
-    and private readBaseCtorCall (r: FrozenReader) : TBaseCtorCallG<FrozenType, BinderId, ExprPoolId> =
+    and private readBaseCtorCall (r: FrozenReader) : TBaseCtorCallG<FrozenType, BoundVarId, ExprPoolId> =
         let ctorParams =
             EqArray.ofArray (
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readBinderSlot r
+                        let k = readBoundVarSlot r
                         let ty = readTypeRef r
                         k, ty
                     )
@@ -532,24 +532,24 @@ module FrozenCodecDecls =
             Decl = decl
         }
 
-    and private writeArgGroup (w: FrozenWriter) (g: ArgGroupG<FrozenType, PatPoolId, BinderId>) =
+    and private writeArgGroup (w: FrozenWriter) (g: ArgGroupG<FrozenType, PatPoolId, BoundVarId>) =
         match g with
         | ArgGroupG.GUnit ty ->
             w.Write 0uy
             writeTypeRef w ty
         | ArgGroupG.GSimple(slot, ty) ->
             w.Write 1uy
-            writeBinderId w slot
+            writeBoundVarId w slot
             writeTypeRef w ty
         | ArgGroupG.GTuple pat ->
             w.Write 2uy
             writePatPoolId w pat
 
-    and private readArgGroup (r: FrozenReader) : ArgGroupG<FrozenType, PatPoolId, BinderId> =
+    and private readArgGroup (r: FrozenReader) : ArgGroupG<FrozenType, PatPoolId, BoundVarId> =
         match r.ReadByte() with
         | 0uy -> ArgGroupG.GUnit(readTypeRef r)
         | 1uy ->
-            let slot = readBinderId r
+            let slot = readBoundVarId r
             let ty = readTypeRef r
             ArgGroupG.GSimple(slot, ty)
         | 2uy -> ArgGroupG.GTuple(readPatPoolId r)

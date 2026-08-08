@@ -33,8 +33,8 @@ type ParamAttrs =
 
 [<RequireQualifiedAccess>]
 type TPatG<'ty, 'tok, 'id> =
-    /// `binding` is the definition site a `TExpr.Var` names.
-    | NamedSimple of binding: 'id * ty: 'ty * tok: 'tok
+    /// `boundVar` is the definition site a `TExpr.Var` names.
+    | NamedSimple of boundVar: 'id * ty: 'ty * tok: 'tok
     /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
     | Wildcard of ty: 'ty * tok: 'tok
     /// `ty` is always a `TyTuple` of the elements' types.
@@ -94,7 +94,7 @@ type CallVia<'ty> =
 
 [<RequireQualifiedAccess>]
 type Disposal =
-    /// The binder implements the disposal capability, disposed through whatever slot the
+    /// The bound variable implements the disposal capability, disposed through whatever slot the
     /// target gives it: `slot` (`disposable::Dispose`) where dispatch goes through the
     /// interface, ignored where the target has a native slot (JS `[Symbol.dispose]()`).
     | ViaCapability of slot: SymbolKey
@@ -103,22 +103,22 @@ type Disposal =
     /// Call the keyed member directly — NOT the capability slot.
     | ViaOwnMember of key: SymbolKey
     /// Disposal never resolved: a `use`-over-non-disposable error was reported, or the
-    /// binder's type never resolved. Exists so an erroneous file still elaborates; both
+    /// bound variable's type never resolved. Exists so an erroneous file still elaborates; both
     /// backends `failwith` on it.
     | Unresolved
 
 [<RequireQualifiedAccess>]
 type TExprG<'ty, 'tok, 'id> =
     | Const of value: TConstValue * ty: 'ty * tok: 'tok
-    /// `binding` is the identity of the *binding site*, not the use site.
-    | Var of binding: 'id * ty: 'ty * tok: 'tok
+    /// `boundVar` is the identity of the *definition site*, not the use site.
+    | Var of boundVar: 'id * ty: 'ty * tok: 'tok
     /// An externally-provided symbol, carrying the compiled name a target dispatches on
     /// (`op_Addition` → CIL `add`). `key` is `ValueNone` where the resolution stamped none.
     | External of compiledName: string * key: SymbolKey voption * ty: 'ty * tok: 'tok
     | Lambda of param: TPatG<'ty, 'tok, 'id> * body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     | App of fn: TExprG<'ty, 'tok, 'id> * arg: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     | Let of
-        binding: TPatG<'ty, 'tok, 'id> *
+        pattern: TPatG<'ty, 'tok, 'id> *
         value: TExprG<'ty, 'tok, 'id> *
         body: TExprG<'ty, 'tok, 'id> *
         ty: 'ty *
@@ -126,7 +126,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// `use x = value in body` — `Let`'s shape plus the disposal `body` is wrapped in a
     /// `try … finally` for. `ty` is the body's type.
     | Use of
-        binding: TPatG<'ty, 'tok, 'id> *
+        pattern: TPatG<'ty, 'tok, 'id> *
         value: TExprG<'ty, 'tok, 'id> *
         body: TExprG<'ty, 'tok, 'id> *
         dispose: Disposal *
@@ -352,7 +352,7 @@ and TStaticOptClauseG<'ty, 'tok, 'id> =
         Body: TExprG<'ty, 'tok, 'id>
     }
 
-/// One flattened compiled parameter. A simple binder's `Slot` is referenced by the body
+/// One flattened compiled parameter. A simple bound variable's `Slot` is referenced by the body
 /// directly; a destructuring leaf carries `Pat = Some …` and a synthetic `Slot` the
 /// backend spills and then binds the pattern against.
 and StaticParamG<'ty, 'pat, 'id> =

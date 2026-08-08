@@ -27,7 +27,7 @@ type KeyedTable<'K, 'V when 'K: equality>() =
 
 type SideTable<'V> = KeyedTable<NodeKey, 'V>
 
-type BinderTable<'V> = KeyedTable<BinderKey, 'V>
+type BoundVarTable<'V> = KeyedTable<BoundVarKey, 'V>
 
 type LambdaTable<'V> = KeyedTable<LambdaKey, 'V>
 
@@ -52,7 +52,7 @@ type PassContextBindings =
         Repr: SideTable<RegionRepr>
         /// Bindings inside a named `module Foo = …`: which holder type (`Foo`/`FooModule`,
         /// not the anonymous "Program" one) the emitted static method belongs to.
-        ModuleMembers: Dictionary<BinderKey, ModuleBindingInfo>
+        ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
         /// Keyed by the binding's pattern `NodeKey`, in SOURCE order — the method-typar order.
         DeclaredTypars: SideTable<(string * TyVarId) list>
         /// Top-level EXPORTED entities only — a type MEMBER's accessibility rides on the
@@ -60,7 +60,7 @@ type PassContextBindings =
         Accessibility: Dictionary<SymbolKey, Accessibility>
         /// The `[<Global>]` bindings: the value IS a target global, so no definition is emitted.
         GlobalValueKeys: HashSet<SymbolKey>
-        BindingTyparArities: Dictionary<BinderKey, int>
+        BindingTyparArities: Dictionary<BoundVarKey, int>
     }
 
 module PassContextBindings =
@@ -142,7 +142,7 @@ type PassContextResolution =
         /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
         ExternalSymbolStamp: SideTable<ExternalSymbol>
         /// Keyed by an external union-case ctor, in pattern (`Some x`) or expression
-        /// (`None`, `Option.Some`) position. Absent ⇒ a binder, a local ctor, an RQA case.
+        /// (`None`, `Option.Some`) position. Absent ⇒ a bound variable, a local ctor, an RQA case.
         ExternalUnionCaseStamp: SideTable<ExternalUnionCase>
         /// Keyed by an external enum-case access `E.C1`'s anchor: the enum's nominal key, minted
         /// at arity 0 and so equal to the key an `(x: E)` annotation mints, letting them unify.
@@ -151,7 +151,7 @@ type PassContextResolution =
         /// `x?f`, `arr.[i]`, `arr.Length`: the intrinsic's key, so the splice is by KEY.
         IntrinsicKey: SideTable<SymbolKey>
         TypeTestTargets: SideTable<SemType>
-        /// Keyed by a `use` binding's pattern `NodeKey`: how the binder is disposed.
+        /// Keyed by a `use` binding's pattern `NodeKey`: how the bound variable is disposed.
         UseDispose: SideTable<Disposal>
         /// Keyed by a `for x in src do …` node. Absent ⇒ the interface path (which range
         /// sources also take); present for a source with only a pattern-based `GetEnumerator()`.
@@ -249,7 +249,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     // (`type int = (# "System.Int32" #)`); a referenced package's ride the provider.
     let types = PassContextTypes.empty ()
 
-    let mutable synthBinders = 0
+    let mutable synthBoundVars = 0
 
     /// The STORE view (`SymbolKey → payload`) — what a pass speaks once identity is resolved.
     /// Narrowed on purpose: a pass holding only this cannot reach a spelling lookup.
@@ -405,10 +405,10 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val FunVerdicts = LambdaTable<FunVerdict>() with get
     /// A generalised binding's frozen typar bounds, minted with the body's method-axis indices
     /// so the bounds' typar leaves carry them.
-    member val GenericFnSchemes = BinderTable<FrozenConstraint list>() with get
-    /// How the SOURCE writes each binder this file introduces — the identifier and where.
+    member val GenericFnSchemes = BoundVarTable<FrozenConstraint list>() with get
+    /// How the SOURCE writes each bound variable this file introduces — the identifier and where.
     /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.
-    member val BinderSpellings = BinderTable<BinderSpelling>() with get
+    member val BoundVarNames = BoundVarTable<BoundVarIdent>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization`: the resolved `when ^T : …` constraints
     /// — outer array aligned with the node's `clauses`, inner one clause's `and`-joined list.
     member val StaticOpt = SideTable<EqArray<EqArray<TStaticOptConstraint>>>() with get
@@ -417,11 +417,11 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
 
-    /// Mint a binder key for a synthesised node. It names no source position, so one construct
-    /// may mint several, and stays unspelled — a backend names it after its slot.
-    member _.NewSynthBinder() : NodeKey =
-        let k = NodeKey.ofSyntheticCounter synthBinders NodeKind.SynthElaborateBinder
-        synthBinders <- synthBinders + 1
+    /// Mint a bound-variable key for a synthesised node. It names no source position, so one
+    /// construct may mint several, and stays unnamed — a backend names it after its slot.
+    member _.NewSynthBoundVar() : NodeKey =
+        let k = NodeKey.ofSyntheticCounter synthBoundVars NodeKind.SynthElaborateBoundVar
+        synthBoundVars <- synthBoundVars + 1
         k
 
     /// Current let-depth (Rémy's levels): push on entering a binding group's RHSes, pop after
@@ -450,7 +450,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// `true` the Vesper one, for a BCL-only self-host package that has no FSharp.Core.
     member val DefaultListIsVesper = false with get, set
 
-    /// Per module-level `let inline` binding, keyed by its function-binder `NodeKey` and
+    /// Per module-level `let inline` binding, keyed by its function-bound-variable `NodeKey` and
     /// positionally aligned to its curried parameters. Only non-default parameters register.
     member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
 
@@ -511,15 +511,15 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT)
         | TokenIndex.Virtual -> ""
 
-    /// Record how the source writes `binder`. Idempotent, and must be: a ctor parameter's key
+    /// Record how the source writes `boundVar`. Idempotent, and must be: a ctor parameter's key
     /// is minted twice from the same identifier. An operator's `(` is no name and records none.
-    member this.SpellBinder(binder: BinderKey, at: SyntaxToken) : unit =
+    member this.SetBoundVarName(boundVar: BoundVarKey, at: SyntaxToken) : unit =
         match at.Index with
         | TokenIndex.Virtual -> ()
         | TokenIndex.Regular i ->
             match this.Lexed.GetIdentifier(i) with
             | "" -> ()
-            | name -> this.BinderSpellings.Set(binder, { Name = name; At = Anchor.ofToken at })
+            | name -> this.BoundVarNames.Set(boundVar, { Text = name; At = Anchor.ofToken at })
 
     /// The LAST segment is the type's short name, everything before it the dotted SOURCE path
     /// of the qualifying scope — empty for a single-segment name.

@@ -61,16 +61,16 @@ module SymbolProviders =
             for i = curried.Length - 1 downto 0 do
                 let (pk, pty) = curried.[i]
                 let lamTy = FTFun(pty, resultTy)
-                let param = TastAccessor.mintNamedPat pool (BinderKey.identity pk) pty bodyTok
+                let param = TastAccessor.mintNamedPat pool (BoundVarKey.identity pk) pty bodyTok
                 body <- TastAccessor.mintLambda param body lamTy bodyTok
                 resultTy <- lamTy
 
             let declTy = resultTy
-            // `inlineExpand` matches `TDecl.Let(_, value, _, declTy)`, so this binder is
+            // `inlineExpand` matches `TDecl.Let(_, value, _, declTy)`, so this bound variable is
             // filler that keeps the node total — minted rather than taken from anything.
             let decl =
                 TastAccessor.mintLetDecl
-                    (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBinder pool) declTy bodyTok)
+                    (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBoundVar pool) declTy bodyTok)
                     body
                     true
                     declTy

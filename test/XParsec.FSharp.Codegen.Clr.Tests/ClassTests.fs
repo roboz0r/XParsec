@@ -586,7 +586,7 @@ let staticTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
             }
 
-            // A `static let mutable` binder IS the static field, so a write (`n <- e`)
+            // A `static let mutable` bound variable IS the static field, so a write (`n <- e`)
             // stores to it — `TExpr.StaticFieldSet`, emitted `stsfld` (0x80), the store
             // analogue of the `ldsfld` (0x7E) a read emits. Assert both opcodes on the
             // emitted method IL directly (not just the reflected result), then confirm the
@@ -1510,7 +1510,7 @@ let inheritanceTests =
 
             // The `inherit` args run BEFORE `this` exists, so no instance rewrite applies to
             // them — but the `.cctor` has already run, so a `static let` named there IS in scope
-            // and is a static FIELD. Without the static field rewrite its binder key would reach
+            // and is a static FIELD. Without the static field rewrite its bound variable key would reach
             // codegen as a bare `TExpr.Var` with no slot to load it from.
             test "a `static let` referenced in the `inherit` arguments loads from the static field" {
                 let _, artifact =

@@ -34,14 +34,14 @@ module InlineExpansion =
         {
             Ctx: PassContext
             Specs: SpecTable
-            /// Fresh keys for inline binders: ONE counter for the whole run, so two expansions of
+            /// Fresh keys for inline bound variables: ONE counter for the whole run, so two expansions of
             /// the same template never mint the same key.
             Mint: unit -> NodeKey
-            /// This file's own module-level `let inline` bindings, by binder key. A `Var` use of
+            /// This file's own module-level `let inline` bindings, by bound variable key. A `Var` use of
             /// one is a local inline call site.
             LocalInlines: Dictionary<NodeKey, TemplateBody>
             /// Lambda arguments currently eligible for inline-first elimination, by the parameter
-            /// binder they are bound to. Added and removed around the walk of the body using them.
+            /// bound variable they are bound to. Added and removed around the walk of the body using them.
             LambdaEnv: Dictionary<NodeKey, FusedLambda>
         }
 
@@ -56,7 +56,7 @@ module InlineExpansion =
         // The very `SymbolKey` the freeze publishes this binding under, so one template has one
         // identity whether the call that resolved it is in this file or in a consumer of it.
         let templateKey (pattern: TPat) : SymbolKey =
-            match BinderKey.ofPat pattern with
+            match BoundVarKey.ofPat pattern with
             | ValueSome bk ->
                 match ctx.Bindings.ModuleMembers.TryGetValue bk with
                 | true, info -> info.Key
@@ -225,7 +225,7 @@ module InlineExpansion =
         let fusedLambdas =
             peeled.Params |> List.filter (fun p -> p.Disposition = Disposition.FuseLambda)
 
-        // Marked UNDER its own binders: beta-reduction consumes those binders against arguments
+        // Marked UNDER its own bound variables: beta-reduction consumes those bound variables against arguments
         // from the BODY the lambda is spliced into, so only what it computes came from the call.
         for p in fusedLambdas do
             x.LambdaEnv.[p.Key] <-

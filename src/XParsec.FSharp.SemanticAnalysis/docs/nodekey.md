@@ -137,9 +137,9 @@ analysis*. After `freeze` it inverts, and both halves matter:
     in `ToString`); pre-freeze, kind acts purely through full-key equality in
     `Map<NodeKey,_>` lookups. `kind` is a *pre-freeze content-address* freeze drops.
   - **`offset` demotes from identity to naming data.** Codegen's only use of a
-    key's bits is `binderName` (source slicing / `_s<n>` synthesis). Freeze keeps
+    key's bits is `boundVarName` (source slicing / `_s<n>` synthesis). Freeze keeps
     the offset (or a synthetic's `NameIndex`) as node-local data, sourced from the
-    binder's own `tok` where present, so emitted names stay byte-identical — but
+    boundVar's own `tok` where present, so emitted names stay byte-identical — but
     it is no longer part of *identity*.
   - **Edges stay, shrunk.** Half of all `NodeKey` fields are resolved references
     (`TExpr.Var.binding`, `Map<NodeKey,_>` keys). Those are irreducible name-

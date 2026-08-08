@@ -75,11 +75,11 @@ type NodeKind =
     /// Attribute-decorated parameter (`([<CallAtMostOnce>] x)`), keyed distinctly from the
     /// wrapped pattern (which shares the same first token).
     | PatAttributed = 114us
-    /// Type-test pattern (`:? T as x`), keyed off the `:?` token, not the inner binder's.
+    /// Type-test pattern (`:? T as x`), keyed off the `:?` token, not the inner bound variable's.
     | PatTypeTestAs = 115us
     /// `null` literal pattern, keyed off the unique `null` keyword token.
     | PatNull = 116us
-    /// Bare type-test pattern (`:? T`, no `as`-binder), keyed off the `:?` token; binds nothing.
+    /// Bare type-test pattern (`:? T`, no `as`-bound variable), keyed off the `:?` token; binds nothing.
     | PatTypeTest = 117us
 
     | TypeNamed = 200us
@@ -98,24 +98,24 @@ type NodeKind =
     | SynthCEMethodCall = 1000us
     | SynthLambdaBody = 1001us
     | SynthDesugaredApp = 1002us
-    /// `this` (or `as self`) binder inside class member bodies. One per class, shared across members.
+    /// `this` (or `as self`) bound variable inside class member bodies. One per class, shared across members.
     | SynthThisBinding = 1003us
     // 1004 is retired; do not reuse it for another kind.
     /// Anchor for a "not yet supported" diagnostic on an unkeyed CST shape (`ModuleElem.Missing`,
     /// `ModuleElem.SkipsTokens`). Offset is the spawning token's, or `0`.
     | SynthUnsupportedDecl = 1005us
-    /// `base` binder inside a derived class's member bodies. One per class with
+    /// `base` bound variable inside a derived class's member bodies. One per class with
     /// `inherit Base(...)`, shared across members.
     | SynthBaseBinding = 1006us
-    /// Freshened binder of an inline template, so independent call sites don't alias each
+    /// Freshened bound variable of an inline template, so independent call sites don't alias each
     /// other's bound names. Counter-minted; it names no source position.
     | SynthPreFreezeInline = 1007us
-    /// Binder of a template UNPOOLED onto the cross-file wire, whose slot means nothing in the
+    /// BoundVar of a template UNPOOLED onto the cross-file wire, whose slot means nothing in the
     /// consuming file and so is re-minted. Counter-minted, on its own counter.
-    | SynthUnpooledBinder = 1008us
-    /// The receiver and per-element binders a tupled member call's destructured argument
+    | SynthUnpooledBoundVar = 1008us
+    /// The receiver and per-element bound variables a tupled member call's destructured argument
     /// needs. Counter-minted on its own counter: one construct mints several at one offset.
-    | SynthElaborateBinder = 1009us
+    | SynthElaborateBoundVar = 1009us
 
 [<Struct>]
 type NodeKey =
@@ -129,7 +129,7 @@ type NodeKey =
     /// False only in the uniqueness-counter space.
     member this.IsSourcePosition: bool = this.Offset >= 0
 
-    /// The offset slot with the counter flag masked off, for NAMING a binder (`_s7`,
+    /// The offset slot with the counter flag masked off, for NAMING a bound variable (`_s7`,
     /// `value@7`) — never for scoping: counter `7` and spawning offset `7` render alike.
     member this.NameIndex: int = int (uint32 this.Raw &&& 0x7FFFFFFFu)
 

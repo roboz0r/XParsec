@@ -145,7 +145,7 @@ members via `extractMembers` → `info.Members`, and `interface … with`
 blocks via the kind-agnostic `extractInterfaceImpls` → `info.InterfaceImpls`.
 `walkRecordBodies` (`NameResolution.fs`, mirroring `walkUnionBodies`) then
 name-resolves each member/impl body with `this` (and any `match this`
-case/field binders) in scope — without it a record whose only `with`
+case/field boundVars) in scope — without it a record whose only `with`
 element is an interface impl would leave `this` an unbound `External`.
 
 Run order (`NameResolution.fs`): records, then unions, then classes, then

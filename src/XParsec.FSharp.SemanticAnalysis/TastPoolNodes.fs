@@ -82,21 +82,21 @@ type PatPoolId = | PatPoolId of int
 [<Struct>]
 type DeclPoolId = | DeclPoolId of int
 
-/// The TAST at the POOLED identity: binders named by the dense `BinderId` the columns address
+/// The TAST at the POOLED identity: bound variables named by the dense `BoundVarId` the columns address
 /// them by, positions by the stored `Anchor`. Rebuilding one from the columns needs no `Lexed`.
 module Pooled =
-    type TPat = TPatG<FrozenType, Anchor, BinderId>
-    type TExpr = TExprG<FrozenType, Anchor, BinderId>
+    type TPat = TPatG<FrozenType, Anchor, BoundVarId>
+    type TExpr = TExprG<FrozenType, Anchor, BoundVarId>
     type TMatchArm = TMatchArmG<TPat, TExpr>
     type HoleSpec = HoleSpecG<FrozenType, Anchor>
-    type TDecl = TDeclG<FrozenType, Anchor, BinderId>
-    type TTypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, TExpr>
-    type TTypeMember = TTypeMemberG<FrozenType, BinderId, TExpr>
-    type TInlineValue = TInlineValueG<FrozenType, Anchor, BinderId>
-    type TastFile = TastFileG<FrozenType, Anchor, BinderId>
+    type TDecl = TDeclG<FrozenType, Anchor, BoundVarId>
+    type TTypeDecl = TTypeDeclG<FrozenType, Anchor, BoundVarId, TExpr>
+    type TTypeMember = TTypeMemberG<FrozenType, BoundVarId, TExpr>
+    type TInlineValue = TInlineValueG<FrozenType, Anchor, BoundVarId>
+    type TastFile = TastFileG<FrozenType, Anchor, BoundVarId>
 
-/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template. Binders are
-/// re-minted `NodeKey`s, a `BinderId` slot meaning nothing outside the pool that issued it.
+/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template. BoundVars are
+/// re-minted `NodeKey`s, a `BoundVarId` slot meaning nothing outside the pool that issued it.
 module Wire =
     type TPat = TPatG<FrozenType, Anchor, NodeKey>
     type TExpr = TExprG<FrozenType, Anchor, NodeKey>
@@ -105,13 +105,13 @@ module Wire =
     type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
 
 /// A `type` declaration whose member/preamble/ctor BODY slots name their expression by
-/// pool id instead of carrying the tree, and whose pattern-less BINDER slots (a member's
-/// `this`, parameters, ctor locals) name their definition site by `BinderId`.
-type PooledTypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprPoolId>
+/// pool id instead of carrying the tree, and whose pattern-less BOUND-VARIABLE slots (a member's
+/// `this`, parameters, ctor locals) name their definition site by `BoundVarId`.
+type PooledTypeDecl = TTypeDeclG<FrozenType, Anchor, BoundVarId, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id: a group's
 /// pattern is the very node the pooled lambda chain bears, not a copy.
-type PooledValRepr = ValReprG<FrozenType, PatPoolId, BinderId>
+type PooledValRepr = ValReprG<FrozenType, PatPoolId, BoundVarId>
 
 /// The SOURCE-arity grouping rule and the curried peel that applies it, generic over the
 /// representation peeled: a caller supplies a reader for its own (raw pool columns, node
@@ -119,14 +119,14 @@ type PooledValRepr = ValReprG<FrozenType, PatPoolId, BinderId>
 [<RequireQualifiedAccess>]
 module ArgGroups =
 
-    /// What the grouping rule reads off ONE curried parameter pattern. `Binder` is filled
+    /// What the grouping rule reads off ONE curried parameter pattern. `BoundVar` is filled
     /// at `NamedSimple` only, `ConstValue` at `Const` only.
     [<Struct>]
     type ParamPatFacts<'id> =
         {
             Shape: PatShape
             Ty: FrozenType
-            Binder: 'id voption
+            BoundVar: 'id voption
             ConstValue: TConstValue voption
         }
 
@@ -134,7 +134,7 @@ module ArgGroups =
     /// flattening it belongs to the compiled form and the source grouping must survive.
     /// Anything else is not a parameter group and stops the peel.
     let ofParam (facts: ParamPatFacts<'id>) (pat: 'p) : ArgGroupG<FrozenType, 'p, 'id> voption =
-        match facts.Shape, facts.Binder, facts.ConstValue with
+        match facts.Shape, facts.BoundVar, facts.ConstValue with
         | PatShape.NamedSimple, ValueSome k, _ -> ValueSome(ArgGroupG.GSimple(k, facts.Ty))
         | PatShape.Const, _, ValueSome TConstValue.Unit -> ValueSome(ArgGroupG.GUnit facts.Ty)
         | PatShape.Tuple, _, _ -> ValueSome(ArgGroupG.GTuple pat)
@@ -178,7 +178,7 @@ type FormatSegShape =
 
 /// The residual payload of a frozen expression node — one case per `ExprShape`, carrying
 /// only what the columnar split left: not `ty`/`tok`, the child expr/pat ids, or a `Var`'s
-/// binder id. A composite carrier also records the STRUCTURE that re-nests those columns.
+/// bound variable id. A composite carrier also records the STRUCTURE that re-nests those columns.
 [<RequireQualifiedAccess>]
 type ExprPayload =
     | Const of TConstValue
@@ -196,9 +196,9 @@ type ExprPayload =
     | Tuple
     | Sequential
     | While
-    /// `Var` is the binder this node INTRODUCES — not a reference, so it is not on the
-    /// binder-reference column — named by the dense id the body's `Var`s resolve to.
-    | ForTo of {| Var: BinderId; IdentTok: Anchor |}
+    /// `Var` is the bound variable this node INTRODUCES — not a reference, so it is not on the
+    /// bound-variable-reference column — named by the dense id the body's `Var`s resolve to.
+    | ForTo of {| Var: BoundVarId; IdentTok: Anchor |}
     | ForIn of Frozen.ForInEnumerator
     /// One flag per arm: whether the arm carries a guard. The scrutinee is the first
     /// child; each arm's guard (when present) and body follow in the expr child column,
@@ -470,9 +470,9 @@ module ExprPayload =
 /// no child expressions.
 [<RequireQualifiedAccess>]
 type PatPayload =
-    /// The single binder this pattern INTRODUCES, named by the dense id its `Var` references
+    /// The single bound variable this pattern INTRODUCES, named by the dense id its `Var` references
     /// resolve to.
-    | NamedSimple of binding: BinderId
+    | NamedSimple of boundVar: BoundVarId
     | Wildcard
     | Null
     | Tuple
@@ -522,26 +522,26 @@ module PatPayload =
         | PatPayload.Union _
         | PatPayload.EnumCase _ -> p
 
-/// How a backend SPELLS a binder. A source identifier is carried verbatim — dialect
+/// How a backend SPELLS a bound variable. A source identifier is carried verbatim — dialect
 /// mangling (JS reserved words, apostrophes) belongs to the backend that emits it.
 [<RequireQualifiedAccess>]
 [<Struct>]
-type BinderNaming =
-    /// The identifier the source spells this binder with.
+type BoundVarNaming =
+    /// The identifier the source spells this bound variable with.
     | Source of name: string
-    /// No identifier spells this binder (a class's `this`/`base`, a freshened inline
-    /// binder); a backend invents one from the slot, which is unique by construction.
-    | Minted of slot: BinderId
+    /// No identifier spells this bound variable (a class's `this`/`base`, a freshened inline
+    /// bound variable); a backend invents one from the slot, which is unique by construction.
+    | Minted of slot: BoundVarId
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
-module BinderNaming =
+module BoundVarNaming =
 
     /// The naming column read at `slot`. An EMPTY name stores "no identifier spells this
-    /// binder"; no legal identifier is empty, so the two cases cannot be confused.
-    let ofColumn (name: string) (slot: BinderId) : BinderNaming =
+    /// bound variable"; no legal identifier is empty, so the two cases cannot be confused.
+    let ofColumn (name: string) (slot: BoundVarId) : BoundVarNaming =
         match name.Length with
-        | 0 -> BinderNaming.Minted slot
-        | _ -> BinderNaming.Source name
+        | 0 -> BoundVarNaming.Minted slot
+        | _ -> BoundVarNaming.Source name
 
 /// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
 /// has no node-level `ty`/`tok` column, so each case rides whatever type/scalars it needs;
@@ -578,8 +578,8 @@ type ExprRow =
         Children: ExprPoolId[]
         PatChildren: PatPoolId[]
         /// The `Var` reference edge (`ValueNone` at every other shape). A walk-produced row
-        /// leaves it `ValueNone`: a `Var` may name a binder the walk has not reached yet.
-        VarBinder: BinderId voption
+        /// leaves it `ValueNone`: a `Var` may name a bound variable the walk has not reached yet.
+        VarBoundVar: BoundVarId voption
         Payload: ExprPayload
     }
 
@@ -594,7 +594,7 @@ module ExprRow =
         && a.Tok = b.Tok
         && a.Children = b.Children
         && a.PatChildren = b.PatChildren
-        && a.VarBinder = b.VarBinder
+        && a.VarBoundVar = b.VarBoundVar
         && (obj.ReferenceEquals(a.Payload, b.Payload) || a.Payload = b.Payload)
 
 /// One pattern node's slice across the `Pat*` columns, in column order.

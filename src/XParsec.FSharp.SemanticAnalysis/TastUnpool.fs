@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 
 // The UNPOOL direction of the frozen pools: columns back to the DU. Every rebuild here is
 // parameterised by the identity space it lands in — the columns hold no identity but the
-// slot, so the unpool itself can only produce `BinderId`s.
+// slot, so the unpool itself can only produce `BoundVarId`s.
 
 [<RequireQualifiedAccess>]
 module TastUnpool =
@@ -14,10 +14,10 @@ module TastUnpool =
     /// subtrees, drawn in the order the pooling walk enumerated them. `tok` goes back
     /// unchanged — re-axising it would silently rebase a producer's indices onto this file.
     let substituteExpr
-        (widenBinder: BinderId -> 'id)
+        (widenBoundVar: BoundVarId -> 'id)
         (ty: FrozenType)
         (tok: Anchor)
-        (varBinder: BinderId voption)
+        (varBoundVar: BoundVarId voption)
         (payload: ExprPayload)
         (es: TExprG<FrozenType, Anchor, 'id>[])
         (ps: TPatG<FrozenType, Anchor, 'id>[])
@@ -30,9 +30,9 @@ module TastUnpool =
 
         match payload with
         | ExprPayload.Var ->
-            match varBinder with
-            | ValueSome id -> TExprG.Var(widenBinder id, ty, tok)
-            | ValueNone -> failwith "TastUnpool: a Var entry carries no resolved binder id"
+            match varBoundVar with
+            | ValueSome id -> TExprG.Var(widenBoundVar id, ty, tok)
+            | ValueNone -> failwith "TastUnpool: a Var entry carries no resolved bound variable id"
         | ExprPayload.Const value -> TExprG.Const(value, ty, tok)
         | ExprPayload.External p -> TExprG.External(p.CompiledName, p.Key, ty, tok)
         | ExprPayload.Null -> TExprG.Null(ty, tok)
@@ -71,7 +71,7 @@ module TastUnpool =
             let startExpr = nextE ()
             let endExpr = nextE ()
             let body = nextE ()
-            TExprG.ForTo(widenBinder p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
+            TExprG.ForTo(widenBoundVar p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
         | ExprPayload.ForIn enumerator ->
             let pat = nextP ()
             let source = nextE ()
@@ -156,14 +156,14 @@ module TastUnpool =
         | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
 
     let substitutePat
-        (widenBinder: BinderId -> 'id)
+        (widenBoundVar: BoundVarId -> 'id)
         (ty: FrozenType)
         (tok: Anchor)
         (payload: PatPayload)
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TPatG<FrozenType, Anchor, 'id> =
         match payload with
-        | PatPayload.NamedSimple binder -> TPatG.NamedSimple(widenBinder binder, ty, tok)
+        | PatPayload.NamedSimple boundVar -> TPatG.NamedSimple(widenBoundVar boundVar, ty, tok)
         | PatPayload.Wildcard -> TPatG.Wildcard(ty, tok)
         | PatPayload.Null -> TPatG.Null(ty, tok)
         | PatPayload.Const value -> TPatG.Const(value, ty, tok)
@@ -180,11 +180,11 @@ module TastUnpool =
 
             TPatG.Record(fields', ty, tok)
 
-    /// Re-author one declaration node. A `Type` decl's bodies AND its pattern-less binder
+    /// Re-author one declaration node. A `Type` decl's bodies AND its pattern-less bound variable
     /// slots are named by id INSIDE the payload's declaration shape, not by the child
     /// columns, so this direction needs the id→expr resolver too.
     let substituteDecl
-        (widenBinder: BinderId -> 'id)
+        (widenBoundVar: BoundVarId -> 'id)
         (fromExpr: ExprPoolId -> TExprG<FrozenType, Anchor, 'id>)
         (payload: DeclPayload)
         (es: TExprG<FrozenType, Anchor, 'id>[])
@@ -199,45 +199,46 @@ module TastUnpool =
                     {
                         Ty = id
                         Tok = id
-                        Id = BinderKey.identity >> widenBinder
+                        Id = BoundVarKey.identity >> widenBoundVar
                         Body = fromExpr
                     }
                     td
             )
 
-    /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM.
-    let private binderKeyedMap (resolve: BinderId -> 'k) (dense: (BinderId * 'v)[]) : Map<'k, 'v> =
+    /// A dense `BoundVarId`-keyed side table as the keyed `Map` it was re-keyed FROM.
+    let private boundVarKeyedMap (resolve: BoundVarId -> 'k) (dense: (BoundVarId * 'v)[]) : Map<'k, 'v> =
         dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
-    /// The same unpool for a per-binder COLUMN: the key is re-minted from the slot's own
+    /// The same unpool for a per-bound-variable COLUMN: the key is re-minted from the slot's own
     /// position.
-    let private binderColumnMap (resolve: BinderId -> 'k) (col: BinderColumn<'v>) : Map<'k, 'v> =
+    let private boundVarColumnMap (resolve: BoundVarId -> 'k) (col: BoundVarColumn<'v>) : Map<'k, 'v> =
         Map.ofSeq
             [
                 for i in 0 .. col.Length - 1 do
                     match col.[i] with
-                    | ValueSome v -> yield resolve (BinderId i), v
+                    | ValueSome v -> yield resolve (BoundVarId i), v
                     | ValueNone -> ()
             ]
 
-    /// The whole-file unpool, in the pool's OWN identity space: a rebuilt binder is named by
-    /// the `BinderId` the columns address it with. The `Decls` are re-authored from the pool
-    /// roots, the side tables re-keyed back through the binder/lambda id spaces, and the
+    /// The whole-file unpool, in the pool's OWN identity space: a rebuilt bound variable is named by
+    /// the `BoundVarId` the columns address it with. The `Decls` are re-authored from the pool
+    /// roots, the side tables re-keyed back through the bound variable/lambda id spaces, and the
     /// `Residue` fields carried verbatim. Only the tests call it — structural
     /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
     let ofPools (pools: FrozenPools) : Pooled.TastFile =
-        // The binder ids back in the BINDER key space by PROJECTION: as the trees below are
+        // The bound variable ids back in the BOUND-VARIABLE key space by PROJECTION: as the trees below are
         // rebuilt, each node is asked what it binds, and only what they answer can key a
-        // rebuilt side table — so no binder identity the tree does not bear can be minted.
+        // rebuilt side table — so no bound variable identity the tree does not bear can be minted.
         let readmitted =
-            System.Collections.Generic.Dictionary<BinderId, BinderKeyG<BinderId>>()
+            System.Collections.Generic.Dictionary<BoundVarId, BoundVarKeyG<BoundVarId>>()
 
-        let readmit (b: BinderKeyG<BinderId>) : unit = readmitted.[BinderKey.identity b] <- b
+        let readmit (b: BoundVarKeyG<BoundVarId>) : unit =
+            readmitted.[BoundVarKey.identity b] <- b
 
-        let readmittedBinder (id: BinderId) : BinderKeyG<BinderId> =
+        let readmittedBoundVar (id: BoundVarId) : BoundVarKeyG<BoundVarId> =
             match readmitted.TryGetValue id with
             | true, b -> b
-            | false, _ -> failwithf "TastUnpool: binder %O is interned but no rebuilt node introduces it" id
+            | false, _ -> failwithf "TastUnpool: bound variable %O is interned but no rebuilt node introduces it" id
 
         // A lambda's `ExprPoolId` back to the `LambdaKey` its verdict is filed under: the
         // key IS the anchor, which the column holds, so there is nothing to resolve.
@@ -249,7 +250,7 @@ module TastUnpool =
             let p =
                 substitutePat id pools.Types.[pools.PatTys.[i]] pools.PatToks.[i] pools.PatPayloads.[i] ps
 
-            BinderKey.ofPat p |> ValueOption.iter readmit
+            BoundVarKey.ofPat p |> ValueOption.iter readmit
             p
 
         let rec fromExpr (ExprPoolId i) : Pooled.TExpr =
@@ -261,12 +262,12 @@ module TastUnpool =
                     id
                     pools.Types.[pools.ExprTys.[i]]
                     pools.ExprToks.[i]
-                    pools.ExprVarBinder.[i]
+                    pools.ExprVarBoundVar.[i]
                     pools.ExprPayloads.[i]
                     es
                     ps
 
-            BinderKey.ofExpr e |> ValueOption.iter readmit
+            BoundVarKey.ofExpr e |> ValueOption.iter readmit
             e
 
         let fromDecl (DeclPoolId i) : Pooled.TDecl =
@@ -275,7 +276,7 @@ module TastUnpool =
             let d = substituteDecl id fromExpr pools.DeclPayloads.[i] es ps
 
             match d with
-            | TDeclG.Type td -> Seq.iter readmit (BinderKey.ofTypeDecl td)
+            | TDeclG.Type td -> Seq.iter readmit (BoundVarKey.ofTypeDecl td)
             | TDeclG.Let _
             | TDeclG.Expression _ -> ()
 
@@ -318,14 +319,14 @@ module TastUnpool =
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
             GlobalValueKeys = pools.Residue.GlobalValueKeys
-            ModuleMembers = binderKeyedMap readmittedBinder pools.ModuleMembers
-            ClosureReprs = binderKeyedMap readmittedBinder pools.ClosureReprs
+            ModuleMembers = boundVarKeyedMap readmittedBoundVar pools.ModuleMembers
+            ClosureReprs = boundVarKeyedMap readmittedBoundVar pools.ClosureReprs
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
-            GenericFnSchemes = binderKeyedMap readmittedBinder pools.GenericFnSchemes
+            GenericFnSchemes = boundVarKeyedMap readmittedBoundVar pools.GenericFnSchemes
             InlineBodies = inlineBodies
             Specializations = specializations
             Accessibility = pools.Residue.Accessibility
             // No `BindingValReprs`: the DU does not carry one — it is a PROJECTION of the
             // lambda chain, re-derived off the columns on the way back in.
-            BindingTyparArities = binderColumnMap readmittedBinder pools.BindingTyparArities
+            BindingTyparArities = boundVarColumnMap readmittedBoundVar pools.BindingTyparArities
         }

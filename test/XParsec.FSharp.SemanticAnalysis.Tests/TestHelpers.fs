@@ -202,7 +202,7 @@ let poolsFor (src: string) : FrozenPools * Pooled.TastFile =
     TastPools.rePool frozen unpooled, unpooled
 
 /// The re-fill `poolsFor` runs, for a test that MODIFIES the unpooled tree before pooling
-/// it. A `BinderId`-named tree cannot supply its own naming column, so the fill takes it
+/// it. A `BoundVarId`-named tree cannot supply its own naming column, so the fill takes it
 /// from the freeze the tree was unpooled out of — which is what this closes over.
 let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool (freezeFor src)
 

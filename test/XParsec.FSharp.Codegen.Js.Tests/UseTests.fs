@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // JS-backend `use` lowering. `use x = e in body` lowers to `const x = e; try { body }
 // finally { if (x != null) x[Symbol.dispose](); }` — the JS analogue of the IL exception
-// region the CLR backend emits. Under the §3b disposal-model flip, a `use` binder must
+// region the CLR backend emits. Under the §3b disposal-model flip, a `use` bound variable must
 // implement `disposable` (`System.IDisposable`) — matching real F# — so the disposable
 // here implements the interface. Its `Dispose` emits as a NATIVE `[Symbol.dispose]()`
 // method (the JS analogue of the CLR `IDisposable::Dispose` slot), and `use` disposes
@@ -41,13 +41,13 @@ let useTests =
                 // The disposable's `Dispose` impl emits as a native `[Symbol.dispose]()`
                 // method on the class.
                 Expect.stringContains js "[Symbol.dispose]() {" "emits the disposer as a native [Symbol.dispose] method"
-                // `use` disposes through `binder[Symbol.dispose]()` — the native well-known
+                // `use` disposes through `boundVar[Symbol.dispose]()` — the native well-known
                 // symbol slot — not a mangled `<Type>__Dispose` free fn.
                 Expect.stringContains js "r[Symbol.dispose]()" "disposes via the native Symbol.dispose member call"
                 Expect.isFalse (js.Contains "Res__Dispose") "no mangled <Type>__Dispose free fn is emitted"
             }
 
-            test "`use` disposes the binder after the body runs" {
+            test "`use` disposes the bound variable after the body runs" {
                 let src =
                     String.concat
                         "\n"
@@ -96,11 +96,11 @@ let useTests =
                     Expect.equal out "body\ndisposed" "canonical interface disposable runs under Node"
             }
 
-            test "`use _ = e` disposes the binder even though the body can't name it" {
-                // A wildcard `use` binder (`use _ = …`, the RAII-guard form): the value is
+            test "`use _ = e` disposes the bound variable even though the body can't name it" {
+                // A wildcard `use` bound variable (`use _ = …`, the RAII-guard form): the value is
                 // still parked in a fresh `_use<tok>` local and disposed in the finally, but
                 // the body has no name for it. A regression that crashed the emitter on the
-                // nameless binder (or skipped disposal) would fail here.
+                // nameless bound variable (or skipped disposal) would fail here.
                 let src =
                     String.concat
                         "\n"
@@ -113,18 +113,22 @@ let useTests =
                         ]
 
                 let js = emitJs src
-                Expect.stringContains js "finally " "the wildcard binder still gets a finally"
+                Expect.stringContains js "finally " "the wildcard bound variable still gets a finally"
 
                 Expect.stringContains
                     js
                     "[Symbol.dispose]()"
-                    "the wildcard `_use<tok>` binder is still disposed via Symbol.dispose"
+                    "the wildcard `_use<tok>` bound variable is still disposed via Symbol.dispose"
 
                 match runJs "js-use-wildcard" src with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "body\ndisposed" "body runs, then disposal — the `_` binder is still disposed"
+
+                    Expect.equal
+                        out
+                        "body\ndisposed"
+                        "body runs, then disposal — the `_` bound variable is still disposed"
             }
 
             test "the body's result survives the finally and is the `use` expression's value" {

@@ -100,7 +100,7 @@ typars are rewritten to `TyTypar` at freeze time.
 - `Members : TypeMemberInfo[]` — augmentation members (`with member …`
   / `static member …`); types linked by `fillUnionMembers`. Empty for a
   plain union.
-- `ThisName` / `ThisKey` — `this`-binder for instance member bodies.
+- `ThisName` / `ThisKey` — `this`-boundVar for instance member bodies.
 - `EqualitySupport` (default `Structural`) / `ComparisonSupport`
   (default `NoComparison`) — postures decoded from attributes at
   registration, read by `checkConstraint`, projected onto the TAST
@@ -144,7 +144,7 @@ Run order (`NameResolution.fs:354`): records, then unions, then classes,
 then expression walks. The three registry populations are mutually
 independent.
 
-Pattern binders: `bindingsOfPat` recognises ctor patterns (the ctor name
+Pattern boundVars: `bindingsOfPat` recognises ctor patterns (the ctor name
 binds nothing; recurse into sub-patterns) and uppercase nullary-ctor
 `NamedSimple` reinterpretations (bind nothing) ahead of the
 "name-binds-itself" arm.
@@ -194,7 +194,7 @@ augmentation member signatures via the shared `fillTypeMembers` driver with
   the parser's single tuple argument, and unifies each sub-pattern
   against the corresponding field type.
 - A lowercase or unknown `NamedSimple` falls through to the ordinary
-  binder arm (`:117`), reusing any TyVar a forward reference pre-minted.
+  boundVar arm (`:117`), reusing any TyVar a forward reference pre-minted.
 
 **Unification engine arms** (`Passes/Unification/Engine.fs`): `zonk`
 (`:42`), `occursAndAdjust` (`:131`), `substituteWith` (`:184`), `unify`
@@ -214,7 +214,7 @@ external (`:441`) unions, threading translated type arguments.
 applications mint a region with one outgoing edge per argument; nullary
 ctors are treated as allocations for uniformity (conservative). No new
 ctor-specific region arm: a ctor application is just an `Expr.App` whose
-result types as `TyUnion`. `bindersOfPat` extracts binders from
+result types as `TyUnion`. `boundVarsOfPat` extracts boundVars from
 `TPat.Union` sub-patterns (`:254`, `:609`).
 
 ### Freeze / TAST (`Tast.fs`, `ElaborateExpr.fs`)

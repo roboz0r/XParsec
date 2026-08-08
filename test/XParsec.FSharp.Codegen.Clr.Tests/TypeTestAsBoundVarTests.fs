@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.TypeTestAsBinderTests
+module XParsec.FSharp.Codegen.Clr.Tests.TypeTestAsBoundVarTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -14,14 +14,14 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "TypeTestAsBinder"
+        "TypeTestAsBoundVar"
         [
-            // Issue (1): many `:? T as x` arms — all binders named `x`, distinct
+            // Issue (1): many `:? T as x` arms — all bound variables named `x`, distinct
             // types — in an INTERFACE-IMPL member body. Each arm reads its own
-            // binder (the `if x > 0` guard), so a dropped/collided slot would
+            // bound variable (the `if x > 0` guard), so a dropped/collided slot would
             // mis-branch or emit invalid IL. Directly refutes the name-collision
             // hypothesis: keys are source-position based, so identically-named
-            // binders in different arms must still route to their own slot.
+            // bound variables in different arms must still route to their own slot.
             test "many same-named `:? T as x` arms in an interface member bind per-arm" {
                 runsSelfHostLines
                     [ "11"; "21"; "31"; "41"; "51" ]
@@ -69,11 +69,11 @@ let tests =
                         ])
             }
 
-            // Interface-DECLARED method on an interface-typed `as`-binder
+            // Interface-DECLARED method on an interface-typed `as`-bound variable
             // (`IFormattable.ToString(string, provider)`). This is the shape the
             // printer's `formatPrimitive` `IFormattable` arm needs — verified to
             // WORK, so that arm can drop its `:?>`-cast workaround.
-            test "interface-declared method on an interface-typed `as`-binder works" {
+            test "interface-declared method on an interface-typed `as`-bound variable works" {
                 runsSelfHost
                     "42"
                     (String.concat
@@ -92,10 +92,10 @@ let tests =
                         ])
             }
 
-            // A method call on a VALUE-TYPE `as`-binder (`d.ToString(...)` on a
+            // A method call on a VALUE-TYPE `as`-bound variable (`d.ToString(...)` on a
             // `double`) inside a module function — the exact shape the printer's
             // `formatPrimitive` needs to drop its `:?>`-cast workaround.
-            test "method call on a value-type `as`-binder works (module fn)" {
+            test "method call on a value-type `as`-bound variable works (module fn)" {
                 runsSelfHostLines
                     [ "1.5"; "2.5f"; "42" ]
                     (String.concat
@@ -113,9 +113,9 @@ let tests =
                         ])
             }
 
-            // A PROPERTY on an interface-typed `as`-binder (`ITuple.Length`) —
+            // A PROPERTY on an interface-typed `as`-bound variable (`ITuple.Length`) —
             // interface-declared, resolves correctly.
-            test "property on an interface-typed `as`-binder works (ITuple.Length)" {
+            test "property on an interface-typed `as`-bound variable works (ITuple.Length)" {
                 runsSelfHost
                     "3"
                     (String.concat

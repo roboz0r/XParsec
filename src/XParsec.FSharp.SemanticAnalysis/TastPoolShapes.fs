@@ -4,7 +4,7 @@ open XParsec.FSharp.Lexer
 
 // What ONE node PROJECTS TO on its way into the columns: the child edges it owns, in the
 // order the columns record them, and the residual payload left once `ty`/`tok`/the child
-// ids/the binder id are lifted out of it. Pure and free of any pool.
+// ids/the bound variable id are lifted out of it. Pure and free of any pool.
 
 module TastPoolShapes =
 
@@ -160,8 +160,8 @@ module TastPoolShapes =
         acc.ToArray()
 
     /// The immediate child *patterns* an expression owns directly, in source order — the
-    /// binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
-    /// (`Match`/`TryWith`). `ForTo`'s loop variable is a bare binder, so it rides the payload.
+    /// bound variables (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
+    /// (`Match`/`TryWith`). `ForTo`'s loop variable is a bare bound variable, so it rides the payload.
     let exprPatChildren (e: TExprG<FrozenType, 'tok, 'id>) : TPatG<FrozenType, 'tok, 'id>[] =
         let acc = ResizeArray<TPatG<FrozenType, 'tok, 'id>>()
 
@@ -202,8 +202,8 @@ module TastPoolShapes =
         | TExprG.InlineCall _
         | TExprG.CallerExpr _ -> ()
         | TExprG.Lambda(param = param) -> acc.Add param
-        | TExprG.Let(binding = binding) -> acc.Add binding
-        | TExprG.Use(binding = binding) -> acc.Add binding
+        | TExprG.Let(pattern = pattern) -> acc.Add pattern
+        | TExprG.Use(pattern = pattern) -> acc.Add pattern
         | TExprG.ForIn(pat = pat) -> acc.Add pat
         | TExprG.Match(arms = arms) ->
             for arm in arms do
@@ -238,20 +238,21 @@ module TastPoolShapes =
 
         acc.ToArray()
 
-    /// The dense id of the binder the node being pooled INTRODUCES — `NamedSimple` and
+    /// The dense id of the bound variable the node being pooled INTRODUCES — `NamedSimple` and
     /// `ForTo` and no other case. A miss is the pooling walk and the payload projection
     /// disagreeing about which node binds, not a defect of the tree.
-    let private introducedBinder (site: string) (binder: BinderId voption) : BinderId =
-        match binder with
+    let private introducedBoundVar (site: string) (boundVar: BoundVarId voption) : BoundVarId =
+        match boundVar with
         | ValueSome id -> id
-        | ValueNone -> failwithf "TastPoolShapes.%s: the node's payload names a binder the walk interned none for" site
+        | ValueNone ->
+            failwithf "TastPoolShapes.%s: the node's payload names a bound variable the walk interned none for" site
 
     /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
-    /// child expr and owned pat ids, and the `Var` binder id. `anchor` narrows a walked
+    /// child expr and owned pat ids, and the `Var` bound variable id. `anchor` narrows a walked
     /// token to its stored index; `ForTo`'s `identTok` is the one anchor a payload carries.
     let exprPayload
         (anchor: 'tok -> Anchor)
-        (binder: BinderId voption)
+        (boundVar: BoundVarId voption)
         (e: TExprG<FrozenType, 'tok, 'id>)
         : ExprPayload =
         // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
@@ -279,7 +280,7 @@ module TastPoolShapes =
         | TExprG.ForTo(identTok = identTok) ->
             ExprPayload.ForTo
                 {|
-                    Var = introducedBinder "exprPayload" binder
+                    Var = introducedBoundVar "exprPayload" boundVar
                     IdentTok = anchor identTok
                 |}
         | TExprG.ForIn(enumerator = enumerator) -> ExprPayload.ForIn enumerator
@@ -366,10 +367,10 @@ module TastPoolShapes =
         | TExprG.CallerExpr(origin = origin) -> ExprPayload.CallerExpr origin
 
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
-    /// child sub-pat ids. `binder` is `NamedSimple`'s own binder, and no other case's.
-    let patPayload (binder: BinderId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
+    /// child sub-pat ids. `boundVar` is `NamedSimple`'s own bound variable, and no other case's.
+    let patPayload (boundVar: BoundVarId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
         match p with
-        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBinder "patPayload" binder)
+        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBoundVar "patPayload" boundVar)
         | TPatG.Wildcard _ -> PatPayload.Wildcard
         | TPatG.Null _ -> PatPayload.Null
         | TPatG.Tuple _ -> PatPayload.Tuple

@@ -40,7 +40,7 @@ module InlineReduction =
     /// package's can collide, and the collision must not answer "is this call recursive?".
     [<RequireQualifiedAccess>]
     type internal TemplateId =
-        | Local of binder: NodeKey
+        | Local of boundVar: NodeKey
         | Foreign of key: SymbolKey
 
     /// One inline reduction IN FLIGHT. The CHAIN of these is what makes a recursive inline
@@ -214,7 +214,7 @@ module InlineReduction =
                 ctx.Report(siteTok, Inline.unsupportedTrait ctx.Store u)
 
             {|
-                // Binders are freshened so two expansions of one template cannot share a
+                // BoundVars are freshened so two expansions of one template cannot share a
                 // codegen local slot; the body is NOT moved off the positions it was written at.
                 Body = Inline.freshen mint expanded
                 // The grounding the specialization table keys on.
@@ -248,13 +248,13 @@ module InlineReduction =
         match arity with
         | 0 -> ValueNone
         | arity ->
-            // Fresh binders, so an eta site cannot alias the binders of the body resolved at it.
-            let binders =
+            // Fresh bound variables, so an eta site cannot alias the bound variables of the body resolved at it.
+            let boundVars =
                 SemTypeQuery.Funs.domains ctx.Store arity refTy
                 |> List.mapi (fun i pty -> mint (), pty, i)
 
             let appBody =
-                binders
+                boundVars
                 |> List.fold
                     (fun acc (k, pty, i) ->
                         let resTy = SemTypeQuery.Funs.resultAfter ctx.Store (i + 1) refTy
@@ -262,7 +262,7 @@ module InlineReduction =
                     )
                     (TExpr.External(name, keyOpt, refTy, tok))
 
-            binders
+            boundVars
             |> List.foldBack (fun (k, pty, _) (innerBody, innerTy) ->
                 let lamTy = TyFun(pty, innerTy)
                 TExpr.Lambda(TPat.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
@@ -280,7 +280,7 @@ module InlineReduction =
         (expanded: TExpr)
         (args: (TExpr * SemType * SyntaxToken) list)
         : Peeled =
-        // Carry the template's own binder token so an entry's parameter keeps the position it was
+        // Carry the template's own bound variable token so an entry's parameter keeps the position it was
         // written at. The application node's is not carried: that position belongs to the EDGE.
         let rec peel
             (fn: TExpr)

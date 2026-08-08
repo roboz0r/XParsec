@@ -15,16 +15,16 @@ module TastNodeViews =
     type DeclId = Handle<DeclPoolId>
 
     /// The `type`-declaration cluster, its member/preamble/ctor BODY slots holding handles.
-    type TypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprId>
-    type TypeKind = TTypeKindG<FrozenType, Anchor, BinderId, ExprId>
-    type Class = TClassG<FrozenType, BinderId, ExprId>
-    type TypeMember = TTypeMemberG<FrozenType, BinderId, ExprId>
+    type TypeDecl = TTypeDeclG<FrozenType, Anchor, BoundVarId, ExprId>
+    type TypeKind = TTypeKindG<FrozenType, Anchor, BoundVarId, ExprId>
+    type Class = TClassG<FrozenType, BoundVarId, ExprId>
+    type TypeMember = TTypeMemberG<FrozenType, BoundVarId, ExprId>
     type ClassLet = TClassLetG<FrozenType, ExprId>
     type PreambleEntry = TPreambleEntryG<FrozenType, ExprId>
-    type CtorLet = TCtorLetG<FrozenType, BinderId, ExprId>
+    type CtorLet = TCtorLetG<FrozenType, BoundVarId, ExprId>
     type CtorFieldInit = TCtorFieldInitG<ExprId>
-    type SecondaryCtor = TSecondaryCtorG<FrozenType, BinderId, ExprId>
-    type BaseCtorCall = TBaseCtorCallG<FrozenType, BinderId, ExprId>
+    type SecondaryCtor = TSecondaryCtorG<FrozenType, BoundVarId, ExprId>
+    type BaseCtorCall = TBaseCtorCallG<FrozenType, BoundVarId, ExprId>
 
     /// One resolved-specialization table entry as a consumer of the TREE reads it. `Origin`
     /// says which file the anchors inside the entry are indices into.
@@ -40,11 +40,11 @@ module TastNodeViews =
     /// The compiled-form cluster, its tuple-group / destructuring patterns held as handles —
     /// whether those came from a file's own pool or from the standalone pool an `.fsi`
     /// contract's patterns are minted into.
-    type StaticParam = StaticParamG<FrozenType, PatId, BinderId>
-    type ArgGroup = ArgGroupG<FrozenType, PatId, BinderId>
-    type ValRepr = ValReprG<FrozenType, PatId, BinderId>
+    type StaticParam = StaticParamG<FrozenType, PatId, BoundVarId>
+    type ArgGroup = ArgGroupG<FrozenType, PatId, BoundVarId>
+    type ValRepr = ValReprG<FrozenType, PatId, BoundVarId>
     type CompiledReturn = CompiledReturnG<FrozenType>
-    type CompiledForm = CompiledFormG<FrozenType, PatId, BinderId>
+    type CompiledForm = CompiledFormG<FrozenType, PatId, BoundVarId>
 
     /// The scalar payload of an `ExternalMember` node; `Receiver` is the member's target.
     [<Struct>]
@@ -73,11 +73,11 @@ module TastNodeViews =
     type LambdaView = { Param: PatId; Body: ExprId }
 
     /// The scalar payload of a `Let` node. `Value`/`Body` are the two `exprChildren`
-    /// entries; `Binding` is a pattern child.
+    /// entries; `Pattern` is a pattern child.
     [<Struct>]
     type LetView =
         {
-            Binding: PatId
+            Pattern: PatId
             Value: ExprId
             Body: ExprId
         }
@@ -207,11 +207,11 @@ module TastNodeViews =
 
     /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`).
     /// `StartExpr`/`EndExpr`/`Body` are the three `exprChildren` entries; `Var` is the loop
-    /// binder, which has no pattern node behind it.
+    /// bound variable, which has no pattern node behind it.
     [<Struct>]
     type ForToView =
         {
-            Var: BinderId
+            Var: BoundVarId
             StartExpr: ExprId
             EndExpr: ExprId
             Body: ExprId
@@ -229,13 +229,13 @@ module TastNodeViews =
             Enumerator: Frozen.ForInEnumerator
         }
 
-    /// The scalar payload of a `Use` node (`use Binding = Value in Body`). `Value`/`Body`
-    /// are the two `exprChildren` entries; `Binding` is a pattern child, and `Dispose` the
+    /// The scalar payload of a `Use` node (`use Pattern = Value in Body`). `Value`/`Body`
+    /// are the two `exprChildren` entries; `Pattern` is a pattern child, and `Dispose` the
     /// resolved disposal path.
     [<Struct>]
     type UseView =
         {
-            Binding: PatId
+            Pattern: PatId
             Value: ExprId
             Body: ExprId
             Dispose: Disposal
@@ -266,7 +266,7 @@ module TastNodeViews =
     [<Struct>]
     type DeclLetView =
         {
-            Binding: PatId
+            Pattern: PatId
             Value: ExprId
             IsInline: bool
             Ty: FrozenType

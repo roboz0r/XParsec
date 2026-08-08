@@ -23,17 +23,17 @@ the wrong arity, say — type-checks against everything instead of degrading to 
 `assertNoDottedStampGap` does not catch it: that DEBUG assert passes as soon as the store serves
 the key at all, regardless of whether a shape was built.
 
-### `Passes/NameResolution/Scope.fs:208` — an or-pattern's binders are dropped in one pass and diagnosed in another
+### `Passes/NameResolution/Scope.fs:208` — an or-pattern's boundVars are dropped in one pass and diagnosed in another
 
 `bindingsOfPat` returns `[]` for `Pat.Or` / `Pat.And`, and `EnterMatchArm` (`:658`) builds the arm's
 scope from it — so in `match x with Some a | Error a -> a`, `a` never enters scope during name
 resolution. `Elaborate/Patterns.fs:126-142` then flattens the or-chain, runs `bindingsOfPat` on
-each LEAF (where it does find binders), and reports
+each LEAF (where it does find boundVars), and reports
 `Kind.NotYetSupported "or-patterns that bind names"`.
 
 So the feature gap is honest and diagnosed — not the silent miscompile the caller's own comment
-implies ("`bindingsOfPat` silently drops the binder"). What is unverified is what the user sees
-FIRST: name resolution has already dropped the binder by the time elaboration reports, so
+implies ("`bindingsOfPat` silently drops the boundVar"). What is unverified is what the user sees
+FIRST: name resolution has already dropped the boundVar by the time elaboration reports, so
 unresolved-identifier noise may precede the real message. Worth a test either way.
 
 Note `Pat.Named` is in the same binds-nothing arm, reached whenever `isCtorPat` fails —
@@ -82,14 +82,14 @@ is a `Pat.OpNamed` and yields `ValueNone`", which currently documents the bug as
 
 ### `FrozenSignature.fs:419` vs `ConformanceTypars.fs:78` — two files disagree about a named binding missing from `ModuleMembers`
 
-Both loops destructure `TastAccessor.DLet { Binding = TastAccessor.PNamed binder }`, and `PNamed`
+Both loops destructure `TastAccessor.DLet { Binding = TastAccessor.PNamed boundVar }`, and `PNamed`
 matches `PatPayload.NamedSimple` alone (`TastAccessor.fs:691-695`) — so a destructuring
 `let (a, b) = …` never reaches either lookup. What each does on a `moduleMembers` miss then
 differs:
 
 - `FrozenSignature.fs:419` — `| _ -> ()`. The binding is dropped from the published signature.
-- `ConformanceTypars.fs:78-84` — recovers the name from the binder column
-  (`TastPoolBuilder.binderNaming` → `BinderNaming.Source n`) and checks it.
+- `ConformanceTypars.fs:78-84` — recovers the name from the boundVar column
+  (`TastPoolBuilder.boundVarNaming` → `BoundVarNaming.Source n`) and checks it.
 
 Either that fallback is dead or `FrozenSignature` has an export hole; both cannot be right. The
 writer is `recordExportedBinding` (`Elaborate.fs:146-160`), which records only when
@@ -205,9 +205,9 @@ gap; listed because the header comment that used to flag it is gone.
 
 It guards only the five `ChildColumn`s. The plain parallel columns are read as independently
 length-prefixed arrays and never cross-checked against the pool they are indexed by: `exprTys`
-(`:504`), `exprToks` (`:505`), `exprVarBinder` (`:508`) against `exprPayloads.Length`; `patTys`
-(`:510`), `patToks` (`:511`) against `patPayloads.Length`; `binderToks` (`:521`) against
-`binderNames.Length`. `TastPoolTypes.fs:160-184` declares these as columns "each indexed by
+(`:504`), `exprToks` (`:505`), `exprVarBoundVar` (`:508`) against `exprPayloads.Length`; `patTys`
+(`:510`), `patToks` (`:511`) against `patPayloads.Length`; `boundVarToks` (`:521`) against
+`boundVarNames.Length`. `TastPoolTypes.fs:160-184` declares these as columns "each indexed by
 `ExprPoolId`", so a truncated one is exactly the corruption `checkSlots` exists to catch — it
 stays internally consistent and faults only at whichever node first indexes past the end.
 
@@ -393,7 +393,7 @@ record. The same treatment would name their slots.
 
 `TClassG.ThisKey` (`Elaborate/TypeDecls.fs:701`) and every instance member's
 `TTypeMemberG.ThisKey` (`Elaborate/ClassMembers.fs:225,247`) are all `info.ThisKey`, itself a
-pure function of the declaration's `NodeKey` (`BinderKey.ofDeclaredThis`,
+pure function of the declaration's `NodeKey` (`BoundVarKey.ofDeclaredThis`,
 `MemberRegistration.fs:607`). The member-level copies are derivable from the class-level one.
 
 ### `TastExpr.fs:37` — `IsDefault` hand-writes the all-default test
@@ -438,9 +438,9 @@ impl from a rejected one.
 ### `TypeInfos.fs:231`, `:293`, `:346` — `ThisKey` defaults to a well-formed wrong value
 
 `RecordTypeInfo`, `UnionTypeInfo` and `IntrinsicAbbrevInfo` default `ThisKey` to
-`Unchecked.defaultof<BinderKey>`. `BinderKeyG` is `[<Struct>]` over `NodeKey`
+`Unchecked.defaultof<BoundVarKey>`. `BoundVarKeyG` is `[<Struct>]` over `NodeKey`
 (`TastDecl.fs:12-16`, `NodeKey.fs:124-127`), so that default is a perfectly well-formed
-`Binder(NodeKey 0UL)` — offset 0, `NodeKind.Unknown` — not a detectable "unset". It is assigned
+`BoundVar(NodeKey 0UL)` — offset 0, `NodeKind.Unknown` — not a detectable "unset". It is assigned
 only when the type has members (`MemberRegistration.fs:1102`, `:1110`, `:1126`). `ClassTypeInfo`
 takes `thisKey` as a constructor parameter instead; the other three could do the same, or carry
 a `voption`.
@@ -798,11 +798,11 @@ which matches `| ReturnOnly, _ | _, ReturnOnly -> ReturnOnly` — pass-through o
 producer the lub cannot yield it either; only the tests construct one directly. Same for
 `SafeContext.ReturnOnly`.
 
-### `TastPoolShapes.fs:244` — `introducedBinder` takes a stringly-typed caller tag
+### `TastPoolShapes.fs:244` — `introducedBoundVar` takes a stringly-typed caller tag
 
 `site: string` exists only to interpolate the caller's name into a `failwithf`, and both call
-sites pass a literal equal to their enclosing function: `introducedBinder "exprPayload"` inside
-`exprPayload` (`:282`) and `introducedBinder "patPayload"` inside `patPayload` (`:372`). It goes
+sites pass a literal equal to their enclosing function: `introducedBoundVar "exprPayload"` inside
+`exprPayload` (`:282`) and `introducedBoundVar "patPayload"` inside `patPayload` (`:372`). It goes
 stale silently on rename. Same shape as `FrozenTypeBridge.fs:131`.
 
 ### `SemTypeWalks.fs:280` — `mapChildren`'s `TyOr` arm defeats the sharing the others preserve
@@ -816,12 +816,12 @@ invariant the code does not hold.
 ### `TastExpr.fs:210` — `Range.step` is the sole reference `option` in the TAST
 
 Every other optional child is a struct `voption` — `ExternalMember.receiver` (`:271`),
-`FormatSegG.DynHole.Width`/`Precision`, `ExprRow.VarBinder`. This one forces `Some`/`None`
+`FormatSegG.DynHole.Width`/`Precision`, `ExprRow.VarBoundVar`. This one forces `Some`/`None`
 handling and is the only `Option.iter` in either walker (`TastWalk.fs:422-438`, `:830`).
 
-### `TastPoolBuilder.fs:238`, `:249` — the binder space has no `readBinder` resolver
+### `TastPoolBuilder.fs:238`, `:249` — the boundVar space has no `readBoundVar` resolver
 
-Both sites open-code the `i < b.BinderBase` layer test and its two branches, while the expr,
+Both sites open-code the `i < b.BoundVarBase` layer test and its two branches, while the expr,
 pat and decl spaces route through `readExpr` / `readPat` / `readDecl` (`:129`, `:140`, `:151`).
 Two sites is small, but it is the one part of the stacking invariant written more than once.
 
@@ -1249,8 +1249,8 @@ lines and stop the host path from having to name fields it does not have.
 
 ### `Passes/NameResolution.fs:204` — the class preamble deliberately cannot name the object
 
-The instance-preamble scope (`:204-208`) holds the ctor params, the static binders and the instance
-binders above it, but never `this` / `base` / the type-level `as` alias, so an F# program that
+The instance-preamble scope (`:204-208`) holds the ctor params, the static boundVars and the instance
+boundVars above it, but never `this` / `base` / the type-level `as` alias, so an F# program that
 writes `type T() as self = let x = self.M()` gets "Unresolved identifier" here where fsc compiles it
 (and throws at run time on initialisation-soundness grounds). That divergence was recorded only in a
 comment; a named failing test would be the honest form, since nothing else states it.
@@ -1361,7 +1361,7 @@ Both enumerator probes decide disposability by scanning for `System.IDisposable`
 `Pattern` descriptor carries the verdict as a bare bool, so it cannot name WHICH `Dispose` to
 call. A `[<IsByRefLike>]` enumerator cannot be boxed to `IDisposable`, so a ref struct exposing
 a public `Dispose()` gets no `finally` at all — a silent resource leak rather than an error.
-The `use`-binder path already prefers a type's own `Dispose` before the interface slot, so the
+The `use`-boundVar path already prefers a type's own `Dispose` before the interface slot, so the
 precedent exists; the blocker is that `SemType` has no byref-like predicate to test with, and
 that the descriptor's `dispose` field would have to become a member reference. Recorded from a
 14-line TODO cut to one line by the comment sweep.
@@ -1421,9 +1421,9 @@ The CLR-side fill happens never to mint `Unit`, so nothing is currently mis-lowe
 ### `Elaborate/Calls.fs:109` — `viaOfReceiver` scans every class on every instance access
 
 To decide `CallVia.Base` vs `CallVia.Self` it walks all of `ctx.Types.Class` comparing
-`BinderKey.identity kv.Value.BaseKey` against the receiver's binding site, and the loop has no
+`BoundVarKey.identity kv.Value.BaseKey` against the receiver's binding site, and the loop has no
 early exit — the `not isBase` guard only skips the comparison, it still iterates the remainder.
-The information wanted is a set of base-binder `NodeKey`s, which could be built once per file
+The information wanted is a set of base-boundVar `NodeKey`s, which could be built once per file
 and consulted in O(1); or the `base` receiver could carry its own `TExpr` case so the question
 never has to be re-derived from a `Var`. Recorded because the six-line header justifying the
 cost (citing a "gap doc" no reader of this repo can open) was cut to three by the sweep.
@@ -1656,14 +1656,14 @@ no-seed branches. `freshTyVar ctx` is already in scope (the same file uses it in
 `prebindModuleFunctionSchemes`); whether it applies the same level treatment is the thing to
 check before collapsing the two.
 
-### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* binder key, not a detectable hole
+### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* boundVar key, not a detectable hole
 
 `RecordTypeInfo`, `UnionTypeInfo` and `IntrinsicAbbrevInfo` all default `ThisKey` to
-`Unchecked.defaultof<BinderKey>`, and the docs cut here said it is "set during registration when
-there are members" — i.e. left at the default for every type without members. `BinderKey` is
-`[<Struct>] Binder of NodeKey` and `NodeKey` is a struct over a `uint64`, so the default is not
-null and cannot fault: it is `Binder(NodeKey 0UL)`, a structurally legal key naming offset 0.
-Anything that reads `ThisKey` off a member-less type therefore aliases whatever binder holds the
+`Unchecked.defaultof<BoundVarKey>`, and the docs cut here said it is "set during registration when
+there are members" — i.e. left at the default for every type without members. `BoundVarKey` is
+`[<Struct>] BoundVar of NodeKey` and `NodeKey` is a struct over a `uint64`, so the default is not
+null and cannot fault: it is `BoundVar(NodeKey 0UL)`, a structurally legal key naming offset 0.
+Anything that reads `ThisKey` off a member-less type therefore aliases whatever boundVar holds the
 zero key rather than failing. `ClassTypeInfo` takes `thisKey` as a constructor parameter instead
 and has no such state, which is the shape the other three should have — or the field should be a
 `voption` so "not registered" is representable.

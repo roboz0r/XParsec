@@ -56,12 +56,12 @@ module ConformanceTypars =
                 // An `inline` binding IS in `Decls`, and is excluded here: its body is
                 // SRTP-solved per call site, so its typar order drives nothing.
                 | TastAccessor.DLet {
-                                        Binding = TastAccessor.PNamed binder
+                                        Pattern = TastAccessor.PNamed boundVar
                                         IsInline = false
                                         Ty = ty
                                     } ->
                     let info =
-                        match moduleMembers.TryGetValue binder with
+                        match moduleMembers.TryGetValue boundVar with
                         | true, mi -> Some mi
                         | _ -> None
 
@@ -71,9 +71,9 @@ module ConformanceTypars =
                         match info with
                         | Some mi -> Some mi.Name
                         | None ->
-                            match TastPoolBuilder.binderNaming pool binder with
-                            | BinderNaming.Source n -> Some n
-                            | BinderNaming.Minted _ -> None
+                            match TastPoolBuilder.boundVarNaming pool boundVar with
+                            | BoundVarNaming.Source n -> Some n
+                            | BoundVarNaming.Minted _ -> None
 
                     match nameOpt with
                     | None -> ()
@@ -114,7 +114,7 @@ module ConformanceTypars =
             Published: FrozenType list
         }
 
-    let private tupledParams (ps: EqArray<BinderKeyG<'id> * FrozenType>) : FrozenType =
+    let private tupledParams (ps: EqArray<BoundVarKeyG<'id> * FrozenType>) : FrozenType =
         match ps.Length with
         | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
         | 1 -> snd ps.[0]

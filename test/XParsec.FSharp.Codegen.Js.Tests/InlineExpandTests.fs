@@ -78,14 +78,14 @@ let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, In
 
     owners
 
-/// Every binder a declaration's patterns INTRODUCE, in walk order and with repeats — so a
-/// binder shared between two expansions of one entry shows up as a duplicate rather than
+/// Every bound variable a declaration's patterns INTRODUCE, in walk order and with repeats — so a
+/// bound variable shared between two expansions of one entry shows up as a duplicate rather than
 /// being silently deduplicated.
-let private introducedBinders (d: TastAccessor.DeclId) : BinderId list =
-    let acc = ResizeArray<BinderId>()
+let private introducedBoundVars (d: TastAccessor.DeclId) : BoundVarId list =
+    let acc = ResizeArray<BoundVarId>()
 
     let rec pat (p: TastAccessor.PatId) =
-        match TastAccessor.patBinder p with
+        match TastAccessor.patBoundVar p with
         | ValueSome b -> acc.Add b
         | ValueNone -> ()
 
@@ -193,7 +193,7 @@ let tests =
             test "a node re-authored REPEATEDLY still names the file it was copied from" {
                 // The chain, which is the whole reason provenance is resolved along one rather
                 // than copied at each re-authorship. `1 + 2` beta-reduces `(+)`'s body to a
-                // `let` chain of pure bindings — one per binder, and `1 + 2` now binds twice
+                // `let` chain of pure bindings — one per bound variable, and `1 + 2` now binds twice
                 // over: the operator's own operands, then `int`'s `(+)` witness below it.
                 // Collapsing them (`reduceInlinableLet`, what every `buildExpr` site does)
                 // re-authors the operator node ONCE PER COLLAPSE — so the node the origin is
@@ -214,25 +214,25 @@ let tests =
                     | [ d ] -> (TastAccessor.declLet d).Value
                     | ds -> failtestf "expected one `let` declaration, got %d" (List.length ds)
 
-                // The operator node as the EXPANSION left it: under EVERY binder `let`, and the
+                // The operator node as the EXPANSION left it: under EVERY bound variable `let`, and the
                 // node the producer origin is filed against. Walked rather than counted — how
-                // many binders the chain has is a fact about the contract's shape, not the
+                // many bound variables the chain has is a fact about the contract's shape, not the
                 // provenance claim under test.
-                let rec underBinders (e: TastAccessor.ExprId) =
+                let rec underBoundVars (e: TastAccessor.ExprId) =
                     match TastAccessor.exprKind e with
-                    | ExprShape.Let -> underBinders (TastAccessor.exprLet e).Body
+                    | ExprShape.Let -> underBoundVars (TastAccessor.exprLet e).Body
                     | _ -> e
 
-                let copied = underBinders body
+                let copied = underBoundVars body
 
-                Expect.notEqual copied body "the expansion left at least one binder `let` to collapse"
+                Expect.notEqual copied body "the expansion left at least one bound variable `let` to collapse"
 
                 let expected =
                     match expansion.Origins.TryGetValue copied with
                     | true, origin -> origin
                     | _ -> failtest "the operator node came out of the table, or the chain below tests nothing"
 
-                // Collapse the WHOLE chain, not a fixed two links: every binder the
+                // Collapse the WHOLE chain, not a fixed two links: every bound variable the
                 // expansion left is one more re-authorship, and how many there are is a fact
                 // about the contract's shape, not about the provenance claim.
                 let rec collapseAll (e: TastAccessor.ExprId) (links: int) =
@@ -255,25 +255,27 @@ let tests =
                     "the repeatedly-derived node resolves to the origin filed against the node it descends from"
             }
 
-            test "two call sites at one grounding get their OWN binders" {
+            test "two call sites at one grounding get their OWN bound variables" {
                 // One entry, two edges (`SpecializationTable` pins the sharing). Each edge
-                // takes its own copy, so the binders — and the codegen local slots they become
+                // takes its own copy, so the bound variables — and the codegen local slots they become
                 // — must not alias; a shared slot is one site's value read at the other's.
                 let input = "let a = 1 + 2\nlet b = 30 + 40\n"
                 let pool, decls = opened input
-                let frozenBinders = TastPoolBuilder.binderCount pool
+                let frozenBoundVars = TastPoolBuilder.boundVarCount pool
 
                 let expanded = (InlineExpand.expand pool decls).Decls
 
-                let binders = expanded |> List.collect introducedBinders
+                let boundVars = expanded |> List.collect introducedBoundVars
 
-                let minted = binders |> List.filter (fun (BinderId i) -> i >= frozenBinders)
+                let minted = boundVars |> List.filter (fun (BoundVarId i) -> i >= frozenBoundVars)
 
-                Expect.isNonEmpty minted "the expansion minted binders, or the fixture outlines nothing that binds"
+                Expect.isNonEmpty
+                    minted
+                    "the expansion minted bound variables, or the fixture outlines nothing that binds"
 
                 Expect.equal
-                    (List.length (List.distinct binders))
-                    (List.length binders)
-                    "no binder is introduced twice — the two copies share no slot"
+                    (List.length (List.distinct boundVars))
+                    (List.length boundVars)
+                    "no bound variable is introduced twice — the two copies share no slot"
             }
         ]

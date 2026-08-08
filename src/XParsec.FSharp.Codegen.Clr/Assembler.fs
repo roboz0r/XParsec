@@ -23,7 +23,7 @@ type private FilePrelude =
     }
 
 /// The per-file emission state the Bind / Prepare passes consume: a fresh `EmitContext`
-/// (its binder- and reference-keyed tables are file-local; its nominal registries and
+/// (its bound-variable- and reference-keyed tables are file-local; its nominal registries and
 /// row space are the Assembler's) plus the two things `EmitContext` does not carry.
 type internal FileEmit =
     {
@@ -389,7 +389,7 @@ type internal Assembler
 
         // Call sites resolve through the layout-derived handle, so recursion and
         // cross-calls need no emission-order discipline.
-        let staticMethods = Dictionary<BinderId, Emit.StaticMethodRef>()
+        let staticMethods = Dictionary<BoundVarId, Emit.StaticMethodRef>()
 
         for fn in plan.StaticFns do
             staticMethods.[fn.Key] <-
@@ -409,7 +409,7 @@ type internal Assembler
                 }
 
         // Module-value bindings resolve to their already-written field rows.
-        let moduleValueFields = Dictionary<BinderId, EntityHandle>()
+        let moduleValueFields = Dictionary<BoundVarId, EntityHandle>()
 
         for mv in plan.AllModuleValues do
             moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.SymbolKey]
@@ -417,7 +417,7 @@ type internal Assembler
         // The trailing top-level values: their field is stored by `Main` (`stsfld`), not
         // a `.cctor`. Same handles as above, split out so the store can be emitted for
         // these and skipped for the cctor-initialised ones.
-        let mainInitValues = Dictionary<BinderId, EntityHandle>()
+        let mainInitValues = Dictionary<BoundVarId, EntityHandle>()
 
         for mv in plan.ProgramMainValues do
             mainInitValues.[mv.Key] <- moduleValueFields.[mv.Key]
@@ -711,7 +711,7 @@ type internal Assembler
     // the enclosing method's `FTTypar(Method, i)` re-projects onto this class's `!i`.
     member this.PrepareClosures(f: FileEmit) =
         for c in f.Layout.Closures do
-            let captureFields = Dictionary<BinderId, EntityHandle>()
+            let captureFields = Dictionary<BoundVarId, EntityHandle>()
             let isGenericClosure = c.Typars > 0
             // This closure's self-instantiation over its OWN typars (`!0 … !{n-1}`), for
             // the capture-field `MemberRef`s on its self-`TypeSpec`. A closure typar is

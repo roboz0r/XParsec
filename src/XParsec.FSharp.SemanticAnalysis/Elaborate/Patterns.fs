@@ -29,12 +29,15 @@ module internal ElaboratePatterns =
         | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> "Cons", "Empty"
         | _ -> "Cons", "Nil"
 
-    /// A `NamedSimple` node, recording HOW THE SOURCE WRITES its binder as the node is built
+    /// A `NamedSimple` node, recording HOW THE SOURCE WRITES its bound variable as the node is built
     /// — the last moment the key and the token that produced it are together. Without that
-    /// spelling the freeze has no name for the binder.
+    /// spelling the freeze has no name for the bound variable.
     let private namedSimple (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TPat =
         let node = TPat.NamedSimple(key, ty, tok)
-        BinderKey.ofPat node |> ValueOption.iter (fun b -> ctx.SpellBinder(b, tok))
+
+        BoundVarKey.ofPat node
+        |> ValueOption.iter (fun b -> ctx.SetBoundVarName(b, tok))
+
         node
 
     let rec translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
@@ -111,7 +114,7 @@ module internal ElaboratePatterns =
 
             // Or-patterns must bind nothing: every downstream consumer assumes an
             // alternative is a pure refutability test, so `(1, x) | (2, x)` would be
-            // miscompiled — a binder lowers to an irrefutable test that eats the disjunction.
+            // miscompiled — a bound variable lowers to an irrefutable test that eats the disjunction.
             for leaf in leaves do
                 match NameResolutionScope.bindingsOfPat ctx leaf with
                 | [] -> ()
@@ -192,7 +195,7 @@ module internal ElaboratePatterns =
             // `null` literal pattern; the node's type is the scrutinee's reference type.
             TPat.Null(ty, tok)
         | Pat.Op _ ->
-            // Operator-named binding (`let (=) x y = …`): a single binder shaped like a
+            // Operator-named binding (`let (=) x y = …`): a single bound variable shaped like a
             // `Pat.NamedSimple`, compiled under `op_Equality`. Being a `NamedSimple` is what
             // gives it a frozen identity, and so an entry the inline-body loader can find.
             namedSimple ctx key ty tok

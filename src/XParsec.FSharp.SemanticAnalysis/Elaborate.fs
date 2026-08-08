@@ -24,8 +24,8 @@ module Elaborate =
                 nthLambdaParam inner (i - 1)
         | _ -> ValueNone
 
-    let private argPatBinderKey (p: Pat<SyntaxToken>) : NodeKey voption =
-        BinderKey.ofCstPat p |> ValueOption.map BinderKey.identity
+    let private argPatBoundVarKey (p: Pat<SyntaxToken>) : NodeKey voption =
+        BoundVarKey.ofCstPat p |> ValueOption.map BoundVarKey.identity
 
     /// The `[<CallAtMostOnce>]` contract: at most one use of `k` in `scope`, and not under a
     /// lambda or loop. A conditional only skips a use, never repeats it.
@@ -38,7 +38,7 @@ module Elaborate =
     let private recordInlineParamAttrs
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)
-        (binderKey: NodeKey)
+        (boundVarKey: NodeKey)
         (valT: TExpr)
         : unit =
         if not b.argumentPats.IsEmpty then
@@ -58,9 +58,9 @@ module Elaborate =
                             // This array and the lambda nest must stay positionally aligned:
                             // the inliner re-derives the same `i` from the nest.
                             match nthLambdaParam valT i with
-                            | ValueSome(pk, _) when ValueSome pk <> argPatBinderKey b.argumentPats.[i] ->
+                            | ValueSome(pk, _) when ValueSome pk <> argPatBoundVarKey b.argumentPats.[i] ->
                                 failwithf
-                                    "Elaborate.recordInlineParamAttrs: parameter %d binder key %A does not match its argument pattern (alignment invariant broken)"
+                                    "Elaborate.recordInlineParamAttrs: parameter %d bound variable key %A does not match its argument pattern (alignment invariant broken)"
                                     i
                                     pk
                             | ValueSome(pk, scope) when paramUsedAtMostOnce pk scope -> ()
@@ -78,7 +78,7 @@ module Elaborate =
                                 )
                     )
 
-                    ctx.InlineParamAttrs.[binderKey] <- attrs
+                    ctx.InlineParamAttrs.[boundVarKey] <- attrs
 
     /// A *value* binding's free typars are method typars only where the generaliser
     /// quantified them: `let empty: SetTree<'T> = null` has a scheme, `let n = null` does not.
@@ -92,7 +92,7 @@ module Elaborate =
     let private recordGenericFnScheme
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)
-        (binder: BinderKey)
+        (boundVar: BoundVarKey)
         (quantEnv: (TyVarId * SemType) list)
         : unit =
         if not (List.isEmpty quantEnv) then
@@ -123,7 +123,7 @@ module Elaborate =
                             | _ -> ()
                     ]
 
-                ctx.GenericFnSchemes.Set(binder, constraints)
+                ctx.GenericFnSchemes.Set(boundVar, constraints)
 
     /// `[<CompiledName>]`, else the source name. Matches the contract extractor, so a
     /// consumer resolving `Set.empty` to `SetModule.Empty` finds the method this emits.
@@ -135,15 +135,15 @@ module Elaborate =
             | ValueNone -> nm
         )
 
-    /// A pattern introducing no binder (`let (a, b) = p`) names no value, so records nothing.
+    /// A pattern introducing no bound variable (`let (a, b) = p`) names no value, so records nothing.
     let private recordExportedBinding
         (ctx: PassContext)
         (holder: ModuleHolder)
         (b: Binding<SyntaxToken>)
         (emittedName: string voption)
-        (binder: BinderKey voption)
+        (boundVar: BoundVarKey voption)
         : SymbolKey voption =
-        match emittedName, binder with
+        match emittedName, boundVar with
         | ValueSome compiledNm, ValueSome bk ->
             let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
             ctx.Bindings.ModuleMembers.[bk] <- info
@@ -178,7 +178,7 @@ module Elaborate =
             | _ -> []
 
     /// `ValueNone` for a format-literal alias, whose `New PrintfFormat` value is dead: it
-    /// reaches the frozen tree as neither a declaration nor a binder.
+    /// reaches the frozen tree as neither a declaration nor a bound variable.
     let private translateModuleLet
         (ctx: PassContext)
         (holder: ModuleHolder)
@@ -189,10 +189,10 @@ module Elaborate =
 
         // Read off the TRANSLATED pattern, never the CST binding: the analysis identity
         // addresses a pattern node that `translatePat` erases for `let (x: int) = …`.
-        let binder = if elided then ValueNone else BinderKey.ofPat tpat
+        let boundVar = if elided then ValueNone else BoundVarKey.ofPat tpat
 
         let emittedName = emittedNameOfBinding ctx b
-        let exportedKey = recordExportedBinding ctx holder b emittedName binder
+        let exportedKey = recordExportedBinding ctx holder b emittedName boundVar
 
         let valT = translateBinding ctx b
         let declTy = typeOfKey ctx (CstKeys.ofBinding b)
@@ -200,13 +200,13 @@ module Elaborate =
         Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
 
         match tpat with
-        | TPat.NamedSimple(binderKey, _, _) -> recordInlineParamAttrs ctx b binderKey valT
+        | TPat.NamedSimple(boundVarKey, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT
         | _ -> ()
 
         let quantEnv = moduleLetQuantEnv ctx b declTy
 
-        // A binder-less pattern has nowhere to file the typar-axis width.
-        match binder with
+        // A bound-variable-less pattern has nowhere to file the typar-axis width.
+        match boundVar with
         | ValueSome bk ->
             recordGenericFnScheme ctx b bk quantEnv
             ctx.Bindings.BindingTyparArities.[bk] <- List.length quantEnv

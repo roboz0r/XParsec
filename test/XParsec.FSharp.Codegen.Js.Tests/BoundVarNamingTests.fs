@@ -1,9 +1,9 @@
-module XParsec.FSharp.Codegen.Js.Tests.BinderNamingTests
+module XParsec.FSharp.Codegen.Js.Tests.BoundVarNamingTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// A binder's emitted name is the frozen naming column, mangled for JS and nothing more.
+// A bound variable's emitted name is the frozen naming column, mangled for JS and nothing more.
 //
 // The column is filled at the freeze by asking the LEXER what the token spells
 // (`Lexed.GetIdentifierAt`), which is the only thing that knows F#'s naming forms — so the
@@ -14,9 +14,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js binder naming"
+        "Codegen.Js bound variable naming"
         [
-            test "a quoted binder emits under its own name" {
+            test "a quoted bound variable emits under its own name" {
                 let js = emit "let ``my value`` = 41\nprintfn \"%d\" (``my value`` + 1)"
 
                 Expect.stringContains js "my_value" "the quoted name is emitted, with the space mangled"
@@ -26,24 +26,24 @@ let tests =
                     "the quoting is the source's, not part of the name — it must not reach the JS"
             }
 
-            test "a quoted binder round-trips under Node" {
-                match runJs "quoted-binder" "let ``my value`` = 41\nprintfn \"%d\" (``my value`` + 1)" with
+            test "a quoted bound variable round-trips under Node" {
+                match runJs "quoted-bound-var" "let ``my value`` = 41\nprintfn \"%d\" (``my value`` + 1)" with
                 | None -> skiptest "node not on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "exit code (output: %s)" out)
                     Expect.equal (out.Trim()) "42" "the mangled name binds and reads back"
             }
 
-            // A binder of an EXPANDED body is named after its slot, never after where it
+            // A bound variable of an EXPANDED body is named after its slot, never after where it
             // sits. The emit-time expansion copies an inline body onto its call site, so the
             // introducing node's token spells the CALL — here the `byte` conversion the
-            // division is written under — while the binder itself is minted and the source
+            // division is written under — while the bound variable itself is minted and the source
             // writes it nowhere. Deriving the name from the node's anchor (rather than from a
-            // record made where the binder was minted) named every one of these after the
+            // record made where the bound variable was minted) named every one of these after the
             // call, which is how this test came to exist.
-            test "an expanded body's binder is named after its slot, not the call site" {
+            test "an expanded body's bound variable is named after its slot, not the call site" {
                 // `int (…)` expands a conversion whose lambda parameter is a freshened —
-                // hence minted — binder, and the expansion puts it on the `int` call site.
+                // hence minted — bound variable, and the expansion puts it on the `int` call site.
                 // The lambda survives only over a division, whose operand the expansion
                 // cannot duplicate; `emitFrozenJs` is the manifest-backed path
                 // `checkedDivisor` resolves through.
@@ -52,16 +52,16 @@ let tests =
 
                 Expect.isFalse
                     (js.Contains "(int)")
-                    (sprintf "no binder is named after the call site it was copied onto:\n%s" js)
+                    (sprintf "no bound variable is named after the call site it was copied onto:\n%s" js)
 
-                Expect.stringContains js "_s" "the expanded body's binder takes a slot name"
+                Expect.stringContains js "_s" "the expanded body's bound variable takes a slot name"
             }
 
             // An apostrophe is legal in an unquoted F# identifier and illegal in JS; it is
             // the case the mangle already covered, kept so widening it to every illegal
             // character cannot quietly drop it.
-            test "a primed binder round-trips under Node" {
-                match runJs "primed-binder" "let x' = 20\nlet x'' = x' + x'\nprintfn \"%d\" (x'' + 2)" with
+            test "a primed bound variable round-trips under Node" {
+                match runJs "primed-bound-var" "let x' = 20\nlet x'' = x' + x'\nprintfn \"%d\" (x'' + 2)" with
                 | None -> skiptest "node not on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "exit code (output: %s)" out)

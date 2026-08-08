@@ -120,7 +120,7 @@ type internal FieldKey =
     | ClassCtorParamField of SymbolKey * name: string
     /// An explicit `val [mutable] x: T` instance field.
     | ClassInstanceField of SymbolKey * name: string
-    /// A class-preamble `let` binder's compiler-generated backing field, stored by the
+    /// A class primary-ctor `let` bound variable's compiler-generated backing field, stored by the
     /// primary `.ctor`. Distinct from `ClassInstanceField` (the user's own `val`), but
     /// both resolve by name at a `this.x` use site.
     | ClassLetField of SymbolKey * name: string

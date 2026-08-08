@@ -25,10 +25,10 @@ module NameResolutionMemberRegistration =
         // The parameter's binding site is the pattern's own — the key a member body's
         // reference to the parameter resolves through.
         let addParam (p: Pat<SyntaxToken>) (annotation: Type<SyntaxToken> voption) =
-            match BinderKey.siteOfCstPat p with
+            match BoundVarKey.siteOfCstPat p with
             | ValueNone -> () // unreachable: every arm below hands a (wrapped) `NamedSimple`
             | ValueSome site ->
-                ctx.SpellBinder(site.Binder, site.Tok)
+                ctx.SetBoundVarName(site.BoundVar, site.Tok)
                 let tv = ctx.NewTypeVar()
                 ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
@@ -189,7 +189,7 @@ module NameResolutionMemberRegistration =
         let walkTy (t: Type<SyntaxToken>) = CstWalk.iterType typarIter t
 
         // Only a `(p : T)` annotation contributes a signature type; an unannotated
-        // binder carries no typar.
+        // bound variable carries no typar.
         let rec walkPat (p: Pat<SyntaxToken>) =
             match p with
             | Pat.Typed(pat = inner; typ = t) ->
@@ -511,8 +511,8 @@ module NameResolutionMemberRegistration =
                 | ValueSome(AsDefn(ident = aid)) -> ctx.NameOf aid
                 | ValueNone -> "this"
 
-            let thisKey = BinderKey.ofDeclaredThis declKey
-            let baseKey = BinderKey.ofDeclaredBase declKey
+            let thisKey = BoundVarKey.ofDeclaredThis declKey
+            let baseKey = BoundVarKey.ofDeclaredBase declKey
 
             let members = memberInfos.ToArray()
 
@@ -911,7 +911,7 @@ module NameResolutionMemberRegistration =
             {|
                 Members = extractMembers ctx id.DeclSite.Tok typarNames elems
                 InterfaceImpls = extractInterfaceImpls ctx typarNames elems
-                ThisKey = BinderKey.ofDeclaredThis declKey
+                ThisKey = BoundVarKey.ofDeclaredThis declKey
             |}
 
         match td with

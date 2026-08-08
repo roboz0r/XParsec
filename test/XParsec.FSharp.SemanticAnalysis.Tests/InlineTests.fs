@@ -412,7 +412,7 @@ let tests =
             }
 
             // Mirrors the minter `InlineExpansion` owns: a monotone counter, shared across
-            // calls, so two expansions never mint the same binder key.
+            // calls, so two expansions never mint the same bound variable key.
             let sharedMinter () =
                 let mutable n = 0
 
@@ -421,9 +421,9 @@ let tests =
                     n <- n + 1
                     k
 
-            // Pull (binder key, body-Var key) out of the frozen `succ` body
+            // Pull (bound variable key, body-Var key) out of the frozen `succ` body
             // shape `fun x -> x + 1`.
-            let succBinderAndVar (e: TExpr) =
+            let succBoundVarAndVar (e: TExpr) =
                 match e with
                 | TExpr.Lambda(TPat.NamedSimple(kb, _, _),
                                TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _), TExpr.Var(kv, _, _), _, _),
@@ -434,29 +434,29 @@ let tests =
                                _) -> kb, kv
                 | other -> failtestf "unexpected succ body: %A" other
 
-            test "freshen renames binders and rewires their references" {
+            test "freshen renames bound variables and rewires their references" {
                 let body =
                     match firstDecl "let inline succ x = x + 1" with
                     | TDecl.Let(_, v, _, _) -> v
                     | other -> failtestf "unexpected %A" other
 
-                let kb0, kv0 = succBinderAndVar body
-                Expect.equal kv0 kb0 "original body Var references the original binder"
+                let kb0, kv0 = succBoundVarAndVar body
+                Expect.equal kv0 kb0 "original body Var references the original bound variable"
 
                 let mint = sharedMinter ()
                 let f1 = Inline.freshen mint body
                 let f2 = Inline.freshen mint body
 
-                let kb1, kv1 = succBinderAndVar f1
-                let kb2, kv2 = succBinderAndVar f2
+                let kb1, kv1 = succBoundVarAndVar f1
+                let kb2, kv2 = succBoundVarAndVar f2
 
-                // (a) every binder key differs from the original and between results.
-                Expect.notEqual kb1 kb0 "first expansion's binder is fresh"
-                Expect.notEqual kb2 kb0 "second expansion's binder is fresh"
-                Expect.notEqual kb1 kb2 "the two expansions don't share a binder"
-                // (b) the internal Var is rewired to the new binder.
-                Expect.equal kv1 kb1 "first expansion's Var follows its fresh binder"
-                Expect.equal kv2 kb2 "second expansion's Var follows its fresh binder"
+                // (a) every bound variable key differs from the original and between results.
+                Expect.notEqual kb1 kb0 "first expansion's bound variable is fresh"
+                Expect.notEqual kb2 kb0 "second expansion's bound variable is fresh"
+                Expect.notEqual kb1 kb2 "the two expansions don't share a bound variable"
+                // (b) the internal Var is rewired to the new bound variable.
+                Expect.equal kv1 kb1 "first expansion's Var follows its fresh bound variable"
+                Expect.equal kv2 kb2 "second expansion's Var follows its fresh bound variable"
             }
 
             test "freshen leaves a free Var untouched" {
@@ -480,7 +480,7 @@ let tests =
                 | TExpr.Let(TPat.NamedSimple(kb, _, _), TExpr.Var(kFree, _, _), TExpr.Var(kRef, _, _), _, _) ->
                     Expect.equal kFree freeKey "free Var passes through unchanged"
                     Expect.notEqual kb boundKey "the bound name is freshened"
-                    Expect.equal kRef kb "the bound reference follows the fresh binder"
+                    Expect.equal kRef kb "the bound reference follows the fresh bound variable"
                 | other -> failtestf "unexpected freshened shape: %A" other
             }
 
@@ -521,9 +521,9 @@ let tests =
 
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {
                 // The published body is expanded at a CONSUMER, where none of this file's
-                // binders exist. A module-level sibling — inline template or ordinary
+                // bound variables exist. A module-level sibling — inline template or ordinary
                 // compiled value, it makes no difference — must therefore leave the file
-                // as `External` + `SymbolKey`, never as a `Var` naming a binder only this
+                // as `External` + `SymbolKey`, never as a `Var` naming a bound variable only this
                 // file's tree has.
                 let input =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
@@ -536,18 +536,18 @@ let tests =
 
                 // `k` is the module's first decl; its published identity is the one its
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
-                let kBinder =
+                let kBoundVar =
                     match sem.Decls.[0] with
                     | TDecl.Let(pattern, _, _, _) ->
-                        match BinderKey.ofPat pattern with
+                        match BoundVarKey.ofPat pattern with
                         | ValueSome b -> b
-                        | ValueNone -> failtest "expected `let k` to introduce a binder"
+                        | ValueNone -> failtest "expected `let k` to introduce a bound variable"
                     | other -> failtestf "expected `let k` first, got %A" other
 
-                let kKey = BinderKey.identity kBinder
+                let kKey = BoundVarKey.identity kBoundVar
 
                 let expected =
-                    match Map.tryFind kBinder sem.ModuleMembers with
+                    match Map.tryFind kBoundVar sem.ModuleMembers with
                     | Some info -> info.Key
                     | None -> failtest "`k` has no ModuleBindingInfo"
 
@@ -581,7 +581,7 @@ let tests =
 
                 // The only `Var` left is the template's own parameter, which the expansion
                 // rebinds.
-                Expect.isFalse (vars.Contains kKey) "no residual Var naming `k`'s binder"
+                Expect.isFalse (vars.Contains kKey) "no residual Var naming `k`'s bound variable"
             }
 
             test "an inline template referencing a TOP-LEVEL binding IS published" {
@@ -602,12 +602,12 @@ let tests =
                 let kKey =
                     match sem.Decls.[0] with
                     | TDecl.Let(pattern, _, _, _) ->
-                        match BinderKey.ofPat pattern with
+                        match BoundVarKey.ofPat pattern with
                         | ValueSome b ->
                             match Map.tryFind b sem.ModuleMembers with
                             | Some info -> info.Key
                             | None -> failtest "the top-level `k` has no ModuleBindingInfo"
-                        | ValueNone -> failtest "expected `let k` to introduce a binder"
+                        | ValueNone -> failtest "expected `let k` to introduce a bound variable"
                     | other -> failtestf "expected `let k` first, got %A" other
 
                 // Held by the file's namespace — the global one here — so it qualifies to

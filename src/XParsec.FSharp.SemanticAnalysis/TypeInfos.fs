@@ -127,9 +127,9 @@ type IInterfaceImplHost =
     abstract member DeclSite: NodeSite
     abstract member TypeParams: EqArray<string * TyVarId>
     /// Source-text name bound to `this` inside member / impl bodies: `"this"` unless
-    /// an `as`-binder renamed it.
+    /// an `as`-bound variable renamed it.
     abstract member ThisName: string
-    abstract member ThisKey: BinderKey
+    abstract member ThisKey: BoundVarKey
     abstract member InterfaceImpls: ClassInterfaceImplInfo[]
     abstract member Members: TypeMemberInfo[]
     abstract member EqualitySupport: EqualityVerdict
@@ -163,7 +163,7 @@ type RecordTypeInfo
     /// Augmentation members (`with member …` / `static member …`); empty for a plain record.
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
-    member val ThisKey = Unchecked.defaultof<BinderKey> with get, set
+    member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `[<Struct>]` record — a `System.ValueType`-based value type.
     member val IsValueType: bool = false with get, set
@@ -201,7 +201,7 @@ type UnionTypeInfo
     /// Augmentation members (`with member …` / `static member …`); empty for a plain union.
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
-    member val ThisKey = Unchecked.defaultof<BinderKey> with get, set
+    member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
     member val EqualitySupport = EqualityVerdict.Structural with get, set
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
     /// `[<RequireQualifiedAccess>]`: `Color.Red` is then required, not a bare `Red`.
@@ -238,7 +238,7 @@ type IntrinsicAbbrevInfo
     member val DeclSite = declSite
     member val Members: TypeMemberInfo[] = [||] with get, set
     member val ThisName = "this" with get, set
-    member val ThisKey = Unchecked.defaultof<BinderKey> with get, set
+    member val ThisKey = Unchecked.defaultof<BoundVarKey> with get, set
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 
     interface IInterfaceImplHost with
@@ -303,7 +303,7 @@ type AbbreviationInfo
 /// A primary- or secondary-constructor parameter. `Type` is always a `TyVar` — the
 /// parameter's binding-site inference cell, even when the parameter is annotated.
 [<Sealed>]
-type ClassCtorParamInfo(name: string, ty: SemType, declSite: BinderSite) =
+type ClassCtorParamInfo(name: string, ty: SemType, declSite: BoundVarSite) =
     member val Name = name
     member val Type = ty
     member val DeclSite = declSite
@@ -325,10 +325,10 @@ type ClassLetInfo(name: string, ty: SemType, declKey: NodeKey, binding: Binding<
     member val Type = ty
     member val DeclKey = declKey
     member val Binding = binding
-    /// `let mutable`. An INSTANCE preamble binder is a mutable *field*, never a ref cell —
+    /// `let mutable`. An INSTANCE preamble bound variable is a mutable *field*, never a ref cell —
     /// a closure over it captures `this`.
     member val IsMutable = binding.mutableToken.IsSome
-    /// `let rec` — the binder is in scope of its OWN initialiser (and only then).
+    /// `let rec` — the bound variable is in scope of its OWN initialiser (and only then).
     member val IsRec = isRec
 
 /// One entry of a class preamble, in declaration order: `static let a = f()` /
@@ -365,8 +365,8 @@ type ClassTypeInfo
         members: TypeMemberInfo[],
         declSite: NodeSite,
         thisName: string,
-        thisKey: BinderKey,
-        baseKey: BinderKey,
+        thisKey: BoundVarKey,
+        baseKey: BoundVarKey,
         key: TypeKey
     ) =
     member val Name = name
@@ -378,7 +378,7 @@ type ClassTypeInfo
     member val DeclSite = declSite
     member val ThisName = thisName
     member val ThisKey = thisKey
-    /// The `base` binder, for `base.M()` non-virtual dispatch and `inherit Base(args)`
+    /// The `base` bound variable, for `base.M()` non-virtual dispatch and `inherit Base(args)`
     /// lowering. Always allocated, read only when `BaseType` is set.
     member val BaseKey = baseKey
     /// Parent type from `inherit Base(args)` once resolved; `ValueNone` for a class with

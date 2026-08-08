@@ -4,7 +4,7 @@ open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
 /// Splice each `TExprG.InlineCall` edge with the body of the specialization it names, and
-/// freshen that body's binders. Anchors stay readable: a copied node records the file it was
+/// freshen that body's bound variables. Anchors stay readable: a copied node records the file it was
 /// WRITTEN in (`NodeOrigin`) while its own anchor moves to the call site.
 module InlineExpand =
 
@@ -91,7 +91,7 @@ module InlineExpand =
         | Producer of OriginFile
 
     /// The state of ONE entry-body copy. Per copy, not per expansion: an entry reached from
-    /// inside another entry's body takes its own, so the two copies' binders cannot collide;
+    /// inside another entry's body takes its own, so the two copies' bound variables cannot collide;
     /// that inner edge's arguments, written in the OUTER body, are copied under the outer one.
     type private Copy =
         {
@@ -99,22 +99,22 @@ module InlineExpand =
             /// one file's tokens, so a producer's node sitting in the consuming file's tree
             /// must be readable against that file. Where it came from is `NodeOrigin`.
             At: Anchor
-            /// This copy's own binders, old → new. A binder not in it is FREE in the body — a
+            /// This copy's own bound variables, old → new. A bound variable not in it is FREE in the body — a
             /// reference to the consuming scope — and passes through: a use is always lexically
-            /// inside its binder, so a pre-order copy has bound it first.
-            Binders: Dictionary<BinderId, BinderId>
+            /// inside its bound variable, so a pre-order copy has bound it first.
+            BoundVars: Dictionary<BoundVarId, BoundVarId>
         }
 
     /// Whether the node being read is rewritten IN PLACE or COPIED — a question about SHARING,
     /// not about which file it was written in (`Domain`): two call sites of one entry must not
-    /// share a binder, so they must not share a node. Everything else keeps its id.
+    /// share a bound variable, so they must not share a node. Everything else keeps its id.
     type private Site =
         | InPlace
         | Copied of Copy
 
     /// One entry the walk is currently INSIDE, and the site the material that called it was
     /// walked at. They pop together: a `CallerExpr`'s subtree is the CALLER's, so keeping the
-    /// site would leave its binder references naming the uncopied body's binders.
+    /// site would leave its bound variable references naming the uncopied body's bound variables.
     [<NoEquality; NoComparison>]
     type private Entered =
         {
@@ -141,15 +141,15 @@ module InlineExpand =
             Derivation.authored derived source result
             result
 
-        // The copy's own binder for `b`, minting one on first sight. A `Var` reference resolves
-        // through the same table, so a binder and its references cannot name different slots.
-        let bind (copy: Copy) (b: BinderId) : BinderId =
-            let fresh = TastPoolBuilder.mintBinder pool
-            copy.Binders.[b] <- fresh
+        // The copy's own bound variable for `b`, minting one on first sight. A `Var` reference resolves
+        // through the same table, so a bound variable and its references cannot name different slots.
+        let bind (copy: Copy) (b: BoundVarId) : BoundVarId =
+            let fresh = TastPoolBuilder.mintBoundVar pool
+            copy.BoundVars.[b] <- fresh
             fresh
 
-        let useBinder (copy: Copy) (b: BinderId) : BinderId =
-            match copy.Binders.TryGetValue b with
+        let useBoundVar (copy: Copy) (b: BoundVarId) : BoundVarId =
+            match copy.BoundVars.TryGetValue b with
             | true, fresh -> fresh
             | _ -> b
 
@@ -222,8 +222,8 @@ module InlineExpand =
             (copy: Copy)
             (e: TastAccessor.ExprId)
             : TastAccessor.ExprId =
-            // EVERY binder this node introduces is bound before any child is copied: a use is
-            // lexically inside its binder, so a child copied first would rewire its reference
+            // EVERY bound variable this node introduces is bound before any child is copied: a use is
+            // lexically inside its bound variable, so a child copied first would rewire its reference
             // through a binding that does not exist yet. A `ForTo` carries its var on the payload.
             let pats =
                 TastAccessor.exprPatChildren e |> Array.map (fun p -> (copyPat copy p).Id)
@@ -237,7 +237,7 @@ module InlineExpand =
                 TastAccessor.exprChildren e
                 |> Array.map (fun c -> (go domain entered (Copied copy) c).Id)
 
-            // The payload's own positions move with the node; its loop variable is the binder
+            // The payload's own positions move with the node; its loop variable is the bound variable
             // taken above.
             let payload (p: ExprPayload) : ExprPayload =
                 match ExprPayload.mapToks (fun _ -> copy.At) p, loopVar with
@@ -256,7 +256,7 @@ module InlineExpand =
                                     Tok = copy.At
                                     Children = kids
                                     PatChildren = pats
-                                    VarBinder = row.VarBinder |> ValueOption.map (useBinder copy)
+                                    VarBoundVar = row.VarBoundVar |> ValueOption.map (useBoundVar copy)
                                     Payload = payload row.Payload
                                 }
                             )
@@ -311,7 +311,7 @@ module InlineExpand =
                     (Copied
                         {
                             At = at
-                            Binders = Dictionary<BinderId, BinderId>()
+                            BoundVars = Dictionary<BoundVarId, BoundVarId>()
                         })
                     entry.Value
 

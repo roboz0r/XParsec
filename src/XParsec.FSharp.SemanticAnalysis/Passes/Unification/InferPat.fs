@@ -30,7 +30,7 @@ module internal UnificationInferPat =
             ->
             // Uppercase-leading bare ident matching a ctor IN SCOPE HERE — reinterpret as a
             // nullary ctor pattern. A case whose union is declared BELOW names nothing here,
-            // so that ident stays an ordinary binder, as in F#.
+            // so that ident stays an ordinary bound variable, as in F#.
             let n = ctx.NameOf t
             let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
 
@@ -59,7 +59,7 @@ module internal UnificationInferPat =
         | Pat.NamedSimple t & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
             // Nullary case of an *external* (referenced-package) union (`None`), stamped
             // upstream and read here by node key. A bare RQA case is NOT stamped, so it
-            // falls to the binder arm below — as in F#, where it is a fresh variable.
+            // falls to the bound variable arm below — as in F#, where it is a fresh variable.
             let unionTy, fields = externalCasePattern ctx uc
 
             if fields.Length <> 0 then
@@ -167,7 +167,7 @@ module internal UnificationInferPat =
                     let subTy = inferPat ctx sub
                     unify ctx (CstKeys.firstTokenOfPat sub) subTy (substituteWith ctx.Store subst i.Fields.[j])
 
-                // Walk any extra sub-patterns so binders still register.
+                // Walk any extra sub-patterns so bound variables still register.
                 for j = m to subPats.Length - 1 do
                     inferPat ctx subPats.[j] |> ignore
 
@@ -200,7 +200,7 @@ module internal UnificationInferPat =
                 let subTy = inferPat ctx sub
                 unify ctx (CstKeys.firstTokenOfPat sub) subTy fields.[j]
 
-            // Walk any extra sub-patterns so binders still register.
+            // Walk any extra sub-patterns so bound variables still register.
             for j = m to subPats.Length - 1 do
                 inferPat ctx subPats.[j] |> ignore
 
@@ -259,27 +259,27 @@ module internal UnificationInferPat =
             // Annotation reconciliation (`x: int | string`) admits value→union, but stays a
             // symmetric `unify` for a nominal/`obj` annotation.
             unifyAnnotation ctx tok innerTy annTy
-            // `(x : T)` writes the binder's type explicitly. Attribute it to the INNER
-            // binder's key: the `Pat.Typed` wrapper is erased in the TAST, so a consumer
+            // `(x : T)` writes the bound variable's type explicitly. Attribute it to the INNER
+            // bound variable's key: the `Pat.Typed` wrapper is erased in the TAST, so a consumer
             // queries the `NamedSimple`.
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, annTy)
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome annTy)
             annTy
         | Pat.TypeTestAs(typ = t; pat = inner) ->
-            // `:? T as x` — the inner binder `x` sees the tested type `T`; the pattern
+            // `:? T as x` — the inner bound variable `x` sees the tested type `T`; the pattern
             // itself matches the scrutinee's type (left free, typically `obj`). Stash `T`
             // keyed on this node so Elaborate can carry it into `TPat.TypeTestAs`.
             let tgtTy = translateType ctx t
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
             let innerTy = inferPat ctx inner
             unify ctx (CstKeys.firstTokenOfPat inner) innerTy tgtTy
-            // Type provenance: `:? T as x` writes the BINDER `x`'s type (the tested
+            // Type provenance: `:? T as x` writes the BOUND VARIABLE `x`'s type (the tested
             // `T`), not this pattern node's (which stays the scrutinee's free type).
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, tgtTy)
             TyVar(freshTv ctx key)
         | Pat.TypeTest(typ = t) ->
-            // `:? T` — the bare type-test, `TypeTestAs` minus the inner binder.
+            // `:? T` — the bare type-test, `TypeTestAs` minus the inner bound variable.
             let tgtTy = translateType ctx t
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
             TyVar(freshTv ctx key)
@@ -334,7 +334,7 @@ module internal UnificationInferPat =
 
             match resolveRecordFor ctx tok (ctx.UseSiteAt key) qualifier names with
             | ValueNone ->
-                // Walk sub-patterns so binders register as free TyVars.
+                // Walk sub-patterns so bound variables register as free TyVars.
                 for _, _, sub in pairs do
                     inferPat ctx sub |> ignore
 

@@ -15,32 +15,32 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // agreeing is the cross-check, not a tautology; the reconstruction follows the id columns
 // into the dense pool arrays, so a mis-wired child edge shows up as a fan-out mismatch.
 
-/// The dense id the pool interned a DU node's own binder under. The unpooled tree already
-/// names its binders in the pool's own space, so this is the node's `BinderKey` widened —
+/// The dense id the pool interned a DU node's own bound variable under. The unpooled tree already
+/// names its bound variables in the pool's own space, so this is the node's `BoundVarKey` widened —
 /// derived from the node rather than read off the payload under test, so a payload that
-/// names its binder is checked against an independent answer instead of against itself.
-let private internedBinderId (pools: FrozenPools) (b: BinderKeyG<BinderId> voption) : BinderId voption =
+/// names its bound variable is checked against an independent answer instead of against itself.
+let private internedBoundVarId (pools: FrozenPools) (b: BoundVarKeyG<BoundVarId> voption) : BoundVarId voption =
     b
     |> ValueOption.map (fun b ->
-        let id = BinderKey.identity b
-        let (BinderId i) = id
+        let id = BoundVarKey.identity b
+        let (BoundVarId i) = id
 
-        if i < 0 || i >= pools.BinderNames.Length then
-            failtestf "the pooled node's binder %O occupies no binder-pool slot" id
+        if i < 0 || i >= pools.BoundVarNames.Length then
+            failtestf "the pooled node's bound variable %O occupies no bound-variable pool slot" id
 
         id
     )
 
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
-    let binder = internedBinderId pools (BinderKey.ofPat du)
-    Expect.equal pools.PatPayloads.[i] (TastPoolShapes.patPayload binder du) "pat payload"
+    let boundVar = internedBoundVarId pools (BoundVarKey.ofPat du)
+    Expect.equal pools.PatPayloads.[i] (TastPoolShapes.patPayload boundVar du) "pat payload"
     let duKids = TastPoolShapes.patChildren du
     Expect.equal (ChildColumn.count pools.PatChildren i) duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) (ChildColumn.slice pools.PatChildren i) duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
-    let binder = internedBinderId pools (BinderKey.ofExpr du)
-    Expect.equal pools.ExprPayloads.[i] (TastPoolShapes.exprPayload id binder du) "expr payload"
+    let boundVar = internedBoundVarId pools (BoundVarKey.ofExpr du)
+    Expect.equal pools.ExprPayloads.[i] (TastPoolShapes.exprPayload id boundVar du) "expr payload"
     let duExprKids = TastPoolShapes.exprChildren du
     let duPatKids = TastPoolShapes.exprPatChildren du
     Expect.equal (ChildColumn.count pools.ExprChildren i) duExprKids.Length "expr child fan-out"
@@ -59,7 +59,7 @@ let private bodySlots (td: TTypeDeclG<FrozenType, Anchor, 'id, 'body>) : 'body[]
         {
             Ty = id
             Tok = id
-            Id = BinderKey.identity
+            Id = BoundVarKey.identity
             Body =
                 fun b ->
                     slots.Add b
@@ -77,12 +77,12 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
     let shapeIs = Expect.equal (DeclPayload.shape pools.DeclPayloads.[i])
 
     match du with
-    | TDeclG.Let(binding = binding; value = value) ->
+    | TDeclG.Let(pattern = pattern; value = value) ->
         shapeIs DeclShape.Let "decl shape"
         Expect.equal (ChildColumn.count pools.DeclExprChildren i) 1 "let decl one value child"
-        Expect.equal (ChildColumn.count pools.DeclPatChildren i) 1 "let decl one binding child"
+        Expect.equal (ChildColumn.count pools.DeclPatChildren i) 1 "let decl one pattern child"
         checkExpr pools (ChildColumn.item pools.DeclExprChildren i 0) value
-        checkPat pools (ChildColumn.item pools.DeclPatChildren i 0) binding
+        checkPat pools (ChildColumn.item pools.DeclPatChildren i 0) pattern
     | TDeclG.Expression(expr = expr) ->
         shapeIs DeclShape.Expression "decl shape"
         Expect.equal (ChildColumn.count pools.DeclExprChildren i) 1 "expression decl one child"
@@ -106,26 +106,28 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
         | p -> failtestf "a Type decl's pool payload is %A, not DeclPayload.Type" p
 
 /// A pooled lambda's `LambdaKey`. `FunVerdicts` is keyed by the lambda id space, not the
-/// binder pool, and the Node that carried the key is gone — so the key is read off the
+/// bound variable pool, and the Node that carried the key is gone — so the key is read off the
 /// `ExprToks` column exactly as `ofPools` does. One home for that, so a test cannot key a
 /// verdict differently from the code under test.
 let private pooledLambdaKey (pools: FrozenPools) (ExprPoolId i) : LambdaKey = LambdaKey pools.ExprToks.[i]
 
-/// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
-/// slots (each to an in-range `BinderId`), and each side table's source keys land on a
-/// `BinderId`/`ExprPoolId`. A binder the enumeration missed shows up as an unresolved
-/// reference (a `toPools` fault). That each `Var` resolves to its OWN binder key is proven
-/// by the round-trip gate (which rebuilds every `Var.binding` from this column). The pooled
+/// The id-resolution gate: the `ExprVarBoundVar` column is populated EXACTLY at the `Var`
+/// slots (each to an in-range `BoundVarId`), and each side table's source keys land on a
+/// `BoundVarId`/`ExprPoolId`. A bound variable the enumeration missed shows up as an unresolved
+/// reference (a `toPools` fault). That each `Var` resolves to its OWN bound variable key is proven
+/// by the round-trip gate (which rebuilds every `Var.boundVar` from this column). The pooled
 /// side tables must also cover the source maps 1:1 — a dropped or duplicated key would
 /// desync the rebuilt map from the original — whether they keep their key (`DenseTable`) or
-/// have given it up for a position (`BinderColumn`).
+/// have given it up for a position (`BoundVarColumn`).
 let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     for i in 0 .. pools.ExprPayloads.Length - 1 do
-        match ExprPayload.shape pools.ExprPayloads.[i], pools.ExprVarBinder.[i] with
-        | ExprShape.Var, ValueSome(BinderId b) ->
-            Expect.isTrue (b >= 0 && b < pools.BinderNames.Length) "Var binder id is an interned binder"
-        | ExprShape.Var, ValueNone -> failtest "a Var pool entry carries no resolved binder id"
-        | _, ValueSome _ -> failtest "a non-Var pool entry carries a binder id"
+        match ExprPayload.shape pools.ExprPayloads.[i], pools.ExprVarBoundVar.[i] with
+        | ExprShape.Var, ValueSome(BoundVarId b) ->
+            Expect.isTrue
+                (b >= 0 && b < pools.BoundVarNames.Length)
+                "Var bound variable id is an interned bound variable"
+        | ExprShape.Var, ValueNone -> failtest "a Var pool entry carries no resolved bound variable id"
+        | _, ValueSome _ -> failtest "a non-Var pool entry carries a bound variable id"
         | _, ValueNone -> ()
 
     // Each dense side table is the source map re-keyed onto its id space: same cardinality,
@@ -140,36 +142,36 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
         for (id, _) in dense do
             Expect.isTrue (Set.contains (resolve id) sourceKeys) (name + " dense key resolves to a source key")
 
-    // A per-binder COLUMN (`BinderColumn`) holds no key, so what is checked is the FILLED
-    // SLOTS: one per source entry, each at the slot of the binder that entry named. The
-    // column is also aligned to the binder pool, which a keyed table has no obligation to be.
-    let checkColumn (name: string) (col: BinderColumn<'v>) (sourceKeys: Set<BinderId>) =
-        Expect.equal col.Length pools.BinderNames.Length (name + " column is aligned with the binder pool")
+    // A per-bound-variable COLUMN (`BoundVarColumn`) holds no key, so what is checked is the FILLED
+    // SLOTS: one per source entry, each at the slot of the bound variable that entry named. The
+    // column is also aligned to the bound variable pool, which a keyed table has no obligation to be.
+    let checkColumn (name: string) (col: BoundVarColumn<'v>) (sourceKeys: Set<BoundVarId>) =
+        Expect.equal col.Length pools.BoundVarNames.Length (name + " column is aligned with the bound variable pool")
 
         let filled =
             [|
                 for i in 0 .. col.Length - 1 do
                     if col.[i].IsSome then
-                        yield BinderId i
+                        yield BoundVarId i
             |]
 
         Expect.equal filled.Length sourceKeys.Count (name + " column covers the source map 1:1")
 
         for k in filled do
-            Expect.isTrue (Set.contains k sourceKeys) (name + " filled slot is a source key's binder")
+            Expect.isTrue (Set.contains k sourceKeys) (name + " filled slot is a source key's bound variable")
 
-    // The source keys in the address space the resolvers answer in: a binder-keyed table is
-    // widened (`BinderKey.widenMap`), `FunVerdicts` is already lambda-key-shaped.
+    // The source keys in the address space the resolvers answer in: a bound-variable-keyed table is
+    // widened (`BoundVarKey.widenMap`), `FunVerdicts` is already lambda-key-shaped.
     let keysOf (m: Map<'k, 'w>) =
         m |> Map.toSeq |> Seq.map fst |> Set.ofSeq
 
-    let binderSource (m: Map<BinderKeyG<BinderId>, 'w>) = keysOf (BinderKey.widenMap m)
+    let boundVarSource (m: Map<BoundVarKeyG<BoundVarId>, 'w>) = keysOf (BoundVarKey.widenMap m)
 
-    checkTable "ModuleMembers" id pools.ModuleMembers (binderSource frozen.ModuleMembers)
-    checkTable "ClosureReprs" id pools.ClosureReprs (binderSource frozen.ClosureReprs)
+    checkTable "ModuleMembers" id pools.ModuleMembers (boundVarSource frozen.ModuleMembers)
+    checkTable "ClosureReprs" id pools.ClosureReprs (boundVarSource frozen.ClosureReprs)
     checkTable "FunVerdicts" (pooledLambdaKey pools) pools.FunVerdicts (keysOf frozen.FunVerdicts)
-    checkTable "GenericFnSchemes" id pools.GenericFnSchemes (binderSource frozen.GenericFnSchemes)
-    checkColumn "BindingTyparArities" pools.BindingTyparArities (binderSource frozen.BindingTyparArities)
+    checkTable "GenericFnSchemes" id pools.GenericFnSchemes (boundVarSource frozen.GenericFnSchemes)
+    checkColumn "BindingTyparArities" pools.BindingTyparArities (boundVarSource frozen.BindingTyparArities)
 
 /// A binding's recorded arity is READ OFF the pooled lambda chain, so a tuple group's pattern must
 /// BE the lambda parameter node it was peeled from. A re-pooled copy would be structurally equal and
@@ -205,35 +207,38 @@ let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
                 | _ -> false)
         )
 
-    Expect.equal pools.BindingValReprs.Length namedLetRoots.Length "one recorded arity per simple-binder Let root"
+    Expect.equal
+        pools.BindingValReprs.Length
+        namedLetRoots.Length
+        "one recorded arity per simple-bound-variable Let root"
 
-// The binder columns' obligation, which is ONE obligation: a binder the SOURCE WRITES is
-// anchored at the token that writes it and named with the text there; a binder no source
-// writes has neither. Both columns are filled from a single record made where the binder's
-// key was minted (`PassContext.BinderSpellings`), so the check is that they agree with each
-// other and with the file's own tokens. Returns the count of written binders, so a test can
+// The bound variable columns' obligation, which is ONE obligation: a bound variable the SOURCE WRITES is
+// anchored at the token that writes it and named with the text there; a bound variable no source
+// writes has neither. Both columns are filled from a single record made where the bound variable's
+// key was minted (`PassContext.BoundVarNames`), so the check is that they agree with each
+// other and with the file's own tokens. Returns the count of written bound variables, so a test can
 // assert non-vacuous coverage.
 //
-// It is deliberately NOT "a binder is anchored where its introducing NODE sits". That holds
+// It is deliberately NOT "a bound variable is anchored where its introducing NODE sits". That holds
 // only until an inline body is copied onto its call site: the node then sits at the call,
-// while its binders — `freshen`-minted — are written nowhere at all. Asserting the node form
+// while its bound variables — `freshen`-minted — are written nowhere at all. Asserting the node form
 // is what made deriving a name from a node's anchor look sound.
-let private checkBinderSpellings (src: string) (pools: FrozenPools) : int =
+let private checkBoundVarNames (src: string) (pools: FrozenPools) : int =
     let lexed, _ = parseFile src
     let mutable written = 0
 
-    for i in 0 .. pools.BinderNames.Length - 1 do
-        match pools.BinderNames.[i], pools.BinderToks.[i].Index with
+    for i in 0 .. pools.BoundVarNames.Length - 1 do
+        match pools.BoundVarNames.[i], pools.BoundVarToks.[i].Index with
         | "", ValueNone -> ()
-        | "", ValueSome t -> failtestf "binder %d is anchored at token %d but has no name" i (int t)
-        | name, ValueNone -> failtestf "binder %d is named '%s' but is written nowhere" i name
+        | "", ValueSome t -> failtestf "bound variable %d is anchored at token %d but has no name" i (int t)
+        | name, ValueNone -> failtestf "bound variable %d is named '%s' but is written nowhere" i name
         | name, ValueSome t ->
             written <- written + 1
 
             Expect.equal
                 (lexed.GetIdentifier(t))
                 name
-                (sprintf "binder %d's name is the identifier at its own anchor" i)
+                (sprintf "bound variable %d's name is the identifier at its own anchor" i)
 
     written
 
@@ -256,13 +261,13 @@ let private checkProgram (src: string) =
     // nothing about `ofPools`. `TastFileG.structurallyEqual` is the equality a whole-file
     // `=` cannot be (two fields are `IReadOnlyDictionary`, reference-equal only). The
     // rebuilt file's decl trees come from the pool ids and its side-table maps are re-keyed
-    // through the binder pool (not shared from the source), so an inequality is a genuine
+    // through the bound variable pool (not shared from the source), so an inequality is a genuine
     // decl-tree OR key-remap divergence.
     Expect.isTrue
         (TastFileG.structurallyEqual (TastUnpool.ofPools pools) frozen)
         "ofPools (rePool f) round-trips to a structurally-equal frozen file"
 
-// Representative programs, spanning binder shapes (lambda / let-in / for), control
+// Representative programs, spanning bound variable shapes (lambda / let-in / for), control
 // flow (if / match), and the type + value forms (record decl, record literal, field
 // access) — enough distinct expr/pat shapes that a broken child edge in any of the
 // common cases trips the walk.
@@ -277,13 +282,13 @@ let private programs =
         "for-to loop with mutable accumulator",
         "let sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n"
 
-        // Binding patterns that introduce NO single binder, or introduce one only behind a
+        // Binding patterns that introduce NO single bound variable, or introduce one only behind a
         // wrapper the frozen tree erases. Each of these once faulted `toPools`: the
         // side tables were filed under `CstKeys.ofBinding` (the bound PATTERN's key),
         // which for these shapes names a node the frozen tree does not bear — a
         // `Pat.EnclosedBlock`/`Pat.As` wrapper `translatePat` drops, or a composite /
         // wildcard pattern that binds no name at all. The producers now file under the
-        // binder the pattern introduces (`BinderKey.ofPat`), or under nothing.
+        // bound variable the pattern introduces (`BoundVarKey.ofPat`), or under nothing.
         "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
         "module-level tuple destructuring without parens", "let p = (1, 2)\nlet a, b = p\nlet s = a + b\n"
         "module-level nested destructuring", "let p = ((1, 2), 3)\nlet ((a, b), c) = p\nlet s = a + b + c\n"
@@ -298,7 +303,7 @@ let private programs =
         "destructuring and wildcard patterns in a named module",
         "module M\n\nmodule N =\n    let p = (1, 2)\n    let (a, b) = p\n    let (z) = a\n    let _ = b\n"
 
-        // The same non-binder patterns INSIDE a body, which reach the pool through
+        // The same non-bound-variable patterns INSIDE a body, which reach the pool through
         // `ClosureReprs` (the escape snapshot) rather than the module-binding tables.
         "wildcard binding in a function body", "let f x =\n    let _ = x\n    x\n"
         "wildcard binding in a lambda body", "let f = fun x ->\n    let _ = x\n    x\n"
@@ -310,8 +315,8 @@ let private programs =
         // Inline bindings: an `inline` binding is in `Decls` like any other (it is
         // emitted as an ordinary module function) and, when publishable, is ALSO a
         // second independent tree under `InlineTemplates`. Both are pooled roots, so
-        // the SAME source binder is reached twice by the enumeration — idempotent in
-        // the key, so it lands on one `BinderId` and the side tables filed against it
+        // the SAME source bound variable is reached twice by the enumeration — idempotent in
+        // the key, so it lands on one `BoundVarId` and the side tables filed against it
         // resolve. A top-level `inline` binding is published nowhere (no top-level
         // binding is exported), so only its `Decls` copy exists.
         "top-level inline binding", "module M\nlet inline f x = x + 1\nlet y = f 2\n"
@@ -319,7 +324,7 @@ let private programs =
         "nullary intrinsic alias binding", "module M\n\nmodule N =\n    let undef = (# \"undefined\" #)\n"
 
         // Shapes that were ALREADY sound, pinned here so a future producer change
-        // cannot silently start filing them under a non-binder key.
+        // cannot silently start filing them under a non-bound-variable key.
         "destructuring let in a function body", "let f (p: int * int) =\n    let (a, b) = p\n    a + b\n"
         "module-level operator binding", "module M\nlet (+.) a b = a + b\n"
         "lambda with a tuple parameter", "let f = fun (a, b) -> a + b\n"
@@ -334,7 +339,7 @@ let private programs =
         // walk the remaining body slots — the static / instance preamble, a secondary
         // ctor's primary-chain args, a base-ctor call's args, an interface impl's members
         // — each of which also binds keys (`this`, member / ctor parameters) that no
-        // pattern node introduces, so a `Var` naming one is exactly what the binder
+        // pattern node introduces, so a `Var` naming one is exactly what the bound variable
         // enumeration must cover.
         "class with static and instance preamble entries",
         "type C(a: int) =\n    static let s = 1\n    let b = a + 1\n    do ()\n    member this.M() = b + s\n"
@@ -384,28 +389,28 @@ let unitOriginTests =
         ]
 
 [<Tests>]
-let binderAnchorTests =
+let boundVarAnchorTests =
     testList
-        "TastPools names a binder where the source writes it"
+        "TastPools names a bound variable where the source writes it"
         [
-            // Each program checks the obligation on its own binders; the aggregate asserts
-            // the set is non-vacuous, so a program mix in which the source wrote no binder
+            // Each program checks the obligation on its own bound variables; the aggregate asserts
+            // the set is non-vacuous, so a program mix in which the source wrote no bound variable
             // at all would fail loud rather than pass trivially.
             for name, src in programs do
                 test name {
                     let pools, _ = poolsFor src
-                    checkBinderSpellings src pools |> ignore
+                    checkBoundVarNames src pools |> ignore
                 }
 
-            test "the program set exercises source-written binders" {
+            test "the program set exercises source-written bound variables" {
                 let total =
                     programs
                     |> List.sumBy (fun (_, src) ->
                         let pools, _ = poolsFor src
-                        checkBinderSpellings src pools
+                        checkBoundVarNames src pools
                     )
 
-                Expect.isGreaterThan total 0 "at least one binder is named at its own anchor"
+                Expect.isGreaterThan total 0 "at least one bound variable is named at its own anchor"
             }
         ]
 
@@ -504,7 +509,7 @@ let pooledCarrierCoverageTests =
 // is not yet reachable), so the round-trip gate above never exercises the lambda id
 // space. These inject a synthetic verdict keyed by a real frozen lambda's own anchor and
 // drive the path directly: `FunVerdicts` is re-keyed onto the
-// lambda's `ExprPoolId` (off the binder pool), `ofPools` inverts back to the original
+// lambda's `ExprPoolId` (off the bound variable pool), `ofPools` inverts back to the original
 // `LambdaKey`, and a key naming no pooled lambda faults.
 //
 // The ARITY of that re-key is the thing to hold: the key is one-to-many over the id space,
@@ -645,35 +650,35 @@ let funVerdictLambdaKeyTests =
             }
         ]
 
-// The REACHABILITY half of side-table identity: an entry keyed by a real binder whose
+// The REACHABILITY half of side-table identity: an entry keyed by a real bound variable whose
 // declaration was then dropped, which is what a producer that prunes a decl and forgets its
-// side-table entry leaves behind. `BinderKey`'s constructor is private, so this cannot be
+// side-table entry leaves behind. `BoundVarKey`'s constructor is private, so this cannot be
 // staged by minting a key from an arbitrary `NodeKey` — the only way in is the defect's own
 // shape, and that is the shape worth pinning anyway.
 //
 // What the fault has to say is WHICH table still holds the entry: several producers file
-// into several binder-keyed tables, and "an entry is stale" does not say whose bug it is.
+// into several bound-variable-keyed tables, and "an entry is stale" does not say whose bug it is.
 
 /// Two module bindings that nothing references, so dropping the second takes nothing with
-/// it — a surviving `Var` naming it would fault as an incomplete binder ENUMERATION, a
+/// it — a surviving `Var` naming it would fault as an incomplete bound variable ENUMERATION, a
 /// different failure under a different message, and the test would pass for the wrong reason.
 let private staleEntrySrc = "module M\n\nmodule N =\n    let a = 1\n    let b = 2\n"
 
 /// `staleEntrySrc` frozen with its LAST binding's declaration removed AND every side-table
-/// entry for that binder stripped — the producer-side fix applied. Re-adding the entry to
+/// entry for that bound variable stripped — the producer-side fix applied. Re-adding the entry to
 /// exactly one table is then what makes the reported table name unambiguous.
 let private lastBindingDropped () =
     let _, frozen = poolsFor staleEntrySrc
     let rePool = rePoolFor staleEntrySrc
     let decls = EqArray.toArray frozen.Decls
 
-    let index, binder =
+    let index, boundVar =
         seq { 0 .. decls.Length - 1 }
         |> Seq.rev
         |> Seq.pick (fun i ->
             match decls.[i] with
-            | TDeclG.Let(binding = binding) ->
-                match BinderKey.ofPat binding with
+            | TDeclG.Let(pattern = pattern) ->
+                match BoundVarKey.ofPat pattern with
                 | ValueSome b -> Some(i, b)
                 | ValueNone -> None
             | TDeclG.Expression _
@@ -681,20 +686,20 @@ let private lastBindingDropped () =
         )
 
     {|
-        Binder = binder
+        BoundVar = boundVar
         // The fill the injected trees below go through, carrying the naming column of the
         // freeze they were unpooled out of.
         RePool = rePool
         // Kept so the stale entry re-added below is the producer's own value, not a
         // fabricated one — the entry is genuine; only its declaration is gone.
-        Member = Map.find binder frozen.ModuleMembers
+        Member = Map.find boundVar frozen.ModuleMembers
         Pruned =
             { frozen with
                 Decls = EqArray.ofArray (Array.removeAt index decls)
-                ModuleMembers = Map.remove binder frozen.ModuleMembers
-                ClosureReprs = Map.remove binder frozen.ClosureReprs
-                GenericFnSchemes = Map.remove binder frozen.GenericFnSchemes
-                BindingTyparArities = Map.remove binder frozen.BindingTyparArities
+                ModuleMembers = Map.remove boundVar frozen.ModuleMembers
+                ClosureReprs = Map.remove boundVar frozen.ClosureReprs
+                GenericFnSchemes = Map.remove boundVar frozen.GenericFnSchemes
+                BindingTyparArities = Map.remove boundVar frozen.BindingTyparArities
             }
     |}
 
@@ -715,7 +720,7 @@ let staleSideTableEntryTests =
 
                 let injected =
                     { dropped.Pruned with
-                        ModuleMembers = Map.add dropped.Binder dropped.Member dropped.Pruned.ModuleMembers
+                        ModuleMembers = Map.add dropped.BoundVar dropped.Member dropped.Pruned.ModuleMembers
                     }
 
                 Expect.throwsC
@@ -728,19 +733,19 @@ let staleSideTableEntryTests =
                     )
             }
 
-            // The SAME dropped binder in a different table: the reported name tracks the
+            // The SAME dropped bound variable in a different table: the reported name tracks the
             // table, so it is diagnostic rather than a constant that happens to read right.
             //
             // This one also pins that giving up the STORED key does not give up the check.
-            // `BindingTyparArities` reaches the pools as a `BinderColumn` — no key at all —
+            // `BindingTyparArities` reaches the pools as a `BoundVarColumn` — no key at all —
             // yet the producer's key still has to name a slot for the fill to have one to
-            // write, so it goes through the same `binderIdOf` and faults the same way.
+            // write, so it goes through the same `boundVarIdOf` and faults the same way.
             test "a retained BindingTyparArities entry faults, naming that table" {
                 let dropped = lastBindingDropped ()
 
                 let injected =
                     { dropped.Pruned with
-                        BindingTyparArities = Map.add dropped.Binder 0 dropped.Pruned.BindingTyparArities
+                        BindingTyparArities = Map.add dropped.BoundVar 0 dropped.Pruned.BindingTyparArities
                     }
 
                 Expect.throwsC

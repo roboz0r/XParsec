@@ -16,7 +16,7 @@ module FrozenSignature =
         (vr: PooledValRepr)
         : TastAccessor.ValRepr =
         // The re-axised copy is a DERIVED tree belonging to no file, so a tuple group's
-        // pattern is copied into the provider's own pool and a simple group's binder re-minted.
+        // pattern is copied into the provider's own pool and a simple group's bound variable re-minted.
         TastConvert.valRepr
             ConformanceTypars.toDeclaringAxis
             (fun id ->
@@ -25,7 +25,7 @@ module FrozenSignature =
                     Id = TastPoolBuilder.copyPatTreeInto pats ConformanceTypars.toDeclaringAxis source id
                 }
             )
-            (fun _ -> TastPoolBuilder.mintBinder pats)
+            (fun _ -> TastPoolBuilder.mintBoundVar pats)
             vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a provider
@@ -356,17 +356,17 @@ module FrozenSignature =
         // A pool of this provider's own, for the re-axised tuple-group patterns it hands out.
         let valReprPats = TastPoolBuilder.openEmpty ()
 
-        // Every binding fact below is read at the binder ID the decl's own pattern carries.
+        // Every binding fact below is read at the bound variable ID the decl's own pattern carries.
         let bindingValReprs = DenseTable.index frozen.BindingValReprs
         let moduleMembers = DenseTable.index frozen.ModuleMembers
 
-        let bindingValRepr (binder: BinderId) : TastAccessor.ValRepr voption =
-            match bindingValReprs.TryGetValue binder with
+        let bindingValRepr (boundVar: BoundVarId) : TastAccessor.ValRepr voption =
+            match bindingValReprs.TryGetValue boundVar with
             // A value has no lambda groups, so it publishes no `ValRepr`.
             | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
             | _ -> ValueNone
 
-        let addValue (bindingKey: BindingKey) (binder: BinderId) (ty: FrozenType) (inlineBody: InlineBody voption) =
+        let addValue (bindingKey: BindingKey) (boundVar: BoundVarId) (ty: FrozenType) (inlineBody: InlineBody voption) =
             let scheme = ConformanceTypars.toDeclaringAxis ty
 
             let sym =
@@ -374,24 +374,26 @@ module FrozenSignature =
                       bindingKey.Decl
                       bindingKey.Name
                       scheme
-                      (FrozenPools.typarArity frozen binder)
+                      (FrozenPools.typarArity frozen boundVar)
                       [] with
                     Origin = originIn bindingKey.Decl.Namespace
-                    ValRepr = bindingValRepr binder
+                    ValRepr = bindingValRepr boundVar
                     InlineBody = inlineBody
                 }
 
             symbols.[sym.Name] <- sym
 
-        // The inline VOCABULARY, indexed by the binder it is published FOR: a template is a
-        // second tree over the SAME source binder as the ordinary function.
+        // The inline VOCABULARY, indexed by the bound variable it is published FOR: a template is a
+        // second tree over the SAME source bound variable as the ordinary function.
         let inlineBodyOf =
-            let d = Dictionary<BinderId, InlineBody>(frozen.InlineTemplates.Length)
+            let d = Dictionary<BoundVarId, InlineBody>(frozen.InlineTemplates.Length)
 
             for iv in frozen.InlineTemplates do
                 match { Pool = pool; Id = iv.Decl } with
-                | TastAccessor.DLet { Binding = TastAccessor.PNamed binder } ->
-                    d.[binder] <- InlineBody.anchoredIn producer (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
+                | TastAccessor.DLet {
+                                        Pattern = TastAccessor.PNamed boundVar
+                                    } ->
+                    d.[boundVar] <- InlineBody.anchoredIn producer (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
                 | _ -> ()
 
             d
@@ -402,19 +404,19 @@ module FrozenSignature =
         for decl in TastAccessor.roots pool do
             match decl with
             | TastAccessor.DLet {
-                                    Binding = TastAccessor.PNamed binder
+                                    Pattern = TastAccessor.PNamed boundVar
                                     Ty = ty
                                 } ->
-                match moduleMembers.TryGetValue binder with
+                match moduleMembers.TryGetValue boundVar with
                 | true, info ->
                     match info.Key with
                     | SymbolKey.Binding bindingKey when exported info.Key ->
                         let inlineBody =
-                            match inlineBodyOf.TryGetValue binder with
+                            match inlineBodyOf.TryGetValue boundVar with
                             | true, body -> ValueSome body
                             | _ -> ValueNone
 
-                        addValue bindingKey binder ty inlineBody
+                        addValue bindingKey boundVar ty inlineBody
                     | _ -> ()
                 | _ -> ()
             | _ -> ()

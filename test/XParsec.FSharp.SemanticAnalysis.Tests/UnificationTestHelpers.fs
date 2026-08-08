@@ -151,7 +151,7 @@ let checkConstraintKind ctx kind ty =
 
     UnificationEngine.checkConstraint ctx c ty
 
-// Binder narrowing + closed-union exhaustiveness. A `match` on a `TyOr` scrutinee narrows
+// BoundVar narrowing + closed-union exhaustiveness. A `match` on a `TyOr` scrutinee narrows
 // each `:? M as x` arm to `M`, narrows a fall-through catch-all to the residual `mkUnion
 // (ts \ matched)`, and — because the union is *closed* — warns when the arms leave a
 // member uncovered.

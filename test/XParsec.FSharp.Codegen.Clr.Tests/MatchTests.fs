@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Layer 1 behavioral corpus: `match`. The deep anchors (TAST shape, the
 // emitted-union deconstruction) live elsewhere; this is the broad net over the
 // pattern forms the backend lowers — literal arms, the wildcard default, a
-// named binder, `when` guards, and bool/char scrutinees. A DU + nested-DU row
+// named bound variable, `when` guards, and bool/char scrutinees. A DU + nested-DU row
 // (multi-line, needs a type decl) closes the loop on constructor patterns.
 
 let private du =
@@ -24,7 +24,7 @@ let tests =
                     // literal arms: hit, and fall through to the wildcard
                     "printfn \"%d\" (match 1 with | 0 -> 10 | 1 -> 20 | _ -> 30)", "20"
                     "printfn \"%d\" (match 7 with | 0 -> 10 | 1 -> 20 | _ -> 30)", "30"
-                    // a named binder used in the body
+                    // a named bound variable used in the body
                     "printfn \"%d\" (match 5 with | 0 -> 100 | n -> n + 1)", "6"
                     // `when` guards: guard passes / guard fails (falls to default)
                     "printfn \"%d\" (match 5 with | n when n > 3 -> 1 | _ -> 0)", "1"
@@ -60,7 +60,7 @@ let tests =
                     "let o = (42 :> obj)\nlet r = match o with | :? int as n -> n | _ -> 0\nprintfn \"%d\" r", "42"
                     "let o = (42 :> obj)\nlet r = match o with | :? bool as b -> 1 | _ -> 0\nprintfn \"%d\" r", "0"
                     // Reference-type target (the `set.clr.fs` shape): isinst + bind the
-                    // cast-down receiver, then read a field off the binder.
+                    // cast-down receiver, then read a field off the bound variable.
                     rec'
                     + "\nlet o = ({ n = 7 } :> obj)\nlet r = match o with | :? R as x -> x.n | _ -> -1\nprintfn \"%d\" r",
                     "7"

@@ -49,7 +49,7 @@ module RefCellPromotion =
         for d in decls do
             match d with
             | TDecl.Let(_, value, _, _) ->
-                // Only NESTED `let mutable` binders are candidates. A module-level mutable
+                // Only NESTED `let mutable` bound variables are candidates. A module-level mutable
                 // is a static field (CLR) / reassignable `let` (JS), shared across closures
                 // natively, and `rewriteDecl` leaves its declaration bare.
                 TastWalk.iterExpr iter value
@@ -116,7 +116,7 @@ module RefCellPromotion =
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
         match d with
         | TDecl.Let(pat, value, isInline, ty) ->
-            // A top-level binder is never promoted, so the pattern's type is unchanged;
+            // A top-level bound variable is never promoted, so the pattern's type is unchanged;
             // the rewrite reaches any inner `let mutable` through the value's tree.
             TDecl.Let(pat, rewriteExpr promote value, isInline, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(rewriteExpr promote e, ty)

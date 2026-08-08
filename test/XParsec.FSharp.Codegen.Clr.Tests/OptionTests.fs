@@ -304,13 +304,13 @@ let layerCFrontEnd =
     testList
         "OptionMatchFrontEnd"
         [
-            // The field binder picks up the union's instantiation (`'T` = int), so
+            // The field bound variable picks up the union's instantiation (`'T` = int), so
             // the match arm types as `int` with no annotation noise.
             test "match Some x binds x : int" {
                 typeChecksOption "let f (o: int option) : int =\n    match o with\n    | Some x -> x\n    | None -> 0"
             }
 
-            // Nullary `None` resolves as a (zero-field) case pattern, not a binder.
+            // Nullary `None` resolves as a (zero-field) case pattern, not a bound variable.
             test "match None arm type-checks" {
                 typeChecksOption
                     "let f (o: int option) : bool =\n    match o with\n    | None -> true\n    | Some _ -> false"
@@ -328,7 +328,7 @@ let layerCRuntime =
     testList
         "OptionMatchRuntime"
         [
-            // Extract the payload through a `Some x` binder; the `None` arm is the
+            // Extract the payload through a `Some x` bound variable; the `None` arm is the
             // declaration-order tag-0 case.
             test "match extracts Some payload, defaults on None" {
                 runsOptionLines
@@ -413,7 +413,7 @@ let layerDRuntime =
                 runsOption "true" "open Vesper\nprintfn \"%b\" (Option.map (fun x -> x + 1) (None: int option)).IsNone"
             }
 
-            // `bind : ('T -> 'U option) -> 'T option -> 'U option` — the binder itself
+            // `bind : ('T -> 'U option) -> 'T option -> 'U option` — the bound variable itself
             // returns an option (constructed cross-package inside the lambda).
             test "Option.bind chains an option-returning function" {
                 runsOption

@@ -12,7 +12,7 @@ module CompiledFns =
     /// a tuple group expands to N, a lone unit group erases to 0, so the lengths differ.
     type CompiledFn =
         {
-            Key: BinderId
+            Key: BoundVarId
             Groups: TastAccessor.ArgGroup list
             Params: TastLower.StaticParam list
             Body: TastAccessor.ExprId
@@ -77,7 +77,7 @@ module CompiledFns =
             for d in decls do
                 match d with
                 | TastAccessor.DLet lv ->
-                    match lv.Binding with
+                    match lv.Pattern with
                     | TastAccessor.PNamed k ->
                         match TastLower.peelValRepr lv.Value with
                         | (_ :: _ as groups), body ->

@@ -404,7 +404,7 @@ module internal LayoutNodes =
                             }
                         // An immutable instance `let` is written exactly once, by the
                         // primary `.ctor` — which is what `initonly` permits — so a
-                        // `let mutable` is the only preamble binder that stays writable.
+                        // `let mutable` is the only preamble bound variable that stays writable.
                         for l in TPreambleEntryG.lets cd.InstancePreamble ->
                             {
                                 Key = FieldKey.ClassLetField(td.Key, l.Name)

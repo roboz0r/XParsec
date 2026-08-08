@@ -135,7 +135,7 @@ module NameResolutionScope =
                     ctx.Report(tok, Kind.Message(sprintf "Unresolved identifier: %s" name))
 
     /// True if `name` is a ctor reference in pattern position: uppercase-leading (per
-    /// the F# spec) AND a case-registry hit, so an unrelated uppercase binder still
+    /// the F# spec) AND a case-registry hit, so an unrelated uppercase bound variable still
     /// binds. Empty strings (virtual tokens) never match.
     let private isCtorName (ctx: PassContext) (useSite: UseSite) (name: string) : bool =
         name.Length > 0
@@ -144,7 +144,7 @@ module NameResolutionScope =
             || resolvesAsBareExternalCase ctx name)
 
     /// True if the `Pat.Named` name `li` is a ctor reference (`Some x` destructures — the
-    /// name itself binds nothing, its sub-patterns are the binders). The two-segment leg
+    /// name itself binds nothing, its sub-patterns are the bound variables). The two-segment leg
     /// covers a qualified external case (`Color.Red`), which an RQA union rejects bare.
     let private isCtorPat (ctx: PassContext) (useSite: UseSite) (li: LongIdent<SyntaxToken>) : bool =
         li.Idents.Length >= 1
@@ -169,23 +169,23 @@ module NameResolutionScope =
         | Pat.Attributed(pat = inner) -> bindingsOfPat ctx inner
         | Pat.As(pat = inner; ident = ident) -> (ctx.NameOf ident, CstKeys.ofPat p) :: bindingsOfPat ctx inner
         | Pat.TypeTestAs(pat = inner) ->
-            // `:? T as x` — the inner pattern is the binder; the test type is not.
+            // `:? T as x` — the inner pattern is the bound variable; the test type is not.
             bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Named(longIdent = li; argumentPats = args) when isCtorPat ctx (ctx.UseSiteAt(CstKeys.ofPat p)) li ->
             // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): the ctor name
-            // binds nothing, sub-patterns introduce binders.
+            // binds nothing, sub-patterns introduce bound variables.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub
             ]
         | Pat.Cons(head = h; tail = t) ->
-            // `h :: t`: the `::` ctor binds nothing; both sub-patterns introduce binders.
+            // `h :: t`: the `::` ctor binds nothing; both sub-patterns introduce bound variables.
             bindingsOfPat ctx h @ bindingsOfPat ctx t
         | Pat.Elems(pats = pats) ->
             // `[a; b; c]` list-literal pattern (the multi-element form, wrapped in
-            // `EnclosedBlock(List, …)`): each element introduces binders.
+            // `EnclosedBlock(List, …)`): each element introduces bound variables.
             [ for sub in pats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Op io ->
             // Operator-named binding (`let (=) x y = …`) binds the compiled name
@@ -193,7 +193,7 @@ module NameResolutionScope =
             match Desugar.opPatCompiledName ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
             | ValueNone -> []
-        // Or/and alternatives bind nothing here: their shared binders are not modelled.
+        // Or/and alternatives bind nothing here: their shared bound variables are not modelled.
         | Pat.Named _
         | Pat.OpNamed _
         | Pat.Or _
@@ -258,7 +258,7 @@ module NameResolutionScope =
         stampPatCasesWith ctx (stampTypeIter ctx) p
 
     /// Lambda args / for-in / match-arm patterns can't carry `mutable`, so every
-    /// binder they introduce is immutable.
+    /// bound variable they introduce is immutable.
     let extendScope (ctx: PassContext) (pats: ImmutableArray<Pat<SyntaxToken>>) (acc: Scope) : Scope =
         let mutable s = acc
 
@@ -271,7 +271,7 @@ module NameResolutionScope =
         s
 
     /// Build the scope additions for a let-group, writing a self-entry
-    /// (`BindingSite = key`) for every binder.
+    /// (`BindingSite = key`) for every bound variable.
     let bindingsToScope (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : Scope =
         let mutable s = Map.empty
 

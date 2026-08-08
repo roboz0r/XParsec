@@ -48,8 +48,8 @@ let private checkAnchors (what: string) (input: string) =
     let rec checkPat (p: TastAccessor.PatId) =
         check "pat" (TastAccessor.patTok p)
 
-        match TastAccessor.patBinder p with
-        | ValueSome b -> check "binder" (TastPoolBuilder.binderTok pool b)
+        match TastAccessor.patBoundVar p with
+        | ValueSome b -> check "bound variable" (TastPoolBuilder.boundVarTok pool b)
         | ValueNone -> ()
 
         for k in TastAccessor.patChildren p do
@@ -76,7 +76,7 @@ let private checkAnchors (what: string) (input: string) =
         |> ignore
 
         match TastAccessor.declKind d with
-        | DeclShape.Let -> checkPat (TastAccessor.declLet d).Binding
+        | DeclShape.Let -> checkPat (TastAccessor.declLet d).Pattern
         | DeclShape.Expression
         | DeclShape.Type -> ()
 

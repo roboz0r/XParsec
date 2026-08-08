@@ -196,7 +196,7 @@ module TastLower =
         | [ ArgGroupG.GUnit _ ] -> true
         | _ -> false
 
-    /// Every source group is a plain single binder — the shape whose flat params map
+    /// Every source group is a plain single bound variable — the shape whose flat params map
     /// one-to-one onto the source applications.
     let allSimpleGroups (groups: ArgGroup list) : bool =
         groups
@@ -244,13 +244,13 @@ module TastLower =
             | TastAccessor.ELambda lam -> ValueSome(struct (lam.Param, lam.Body))
             | _ -> ValueNone
 
-        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts<BinderId> =
+        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts<BoundVarId> =
             let shape = TastAccessor.patKind p
 
             {
                 Shape = shape
                 Ty = TastAccessor.patTy p
-                Binder = TastAccessor.patBinder p
+                BoundVar = TastAccessor.patBoundVar p
                 ConstValue =
                     match shape with
                     | PatShape.Const -> ValueSome(TastAccessor.patConstValue p)
@@ -260,7 +260,7 @@ module TastLower =
         ArgGroups.peel unLambda facts e
 
     /// `peelValRepr` projected to one flat parameter per SOURCE group. A unit group gets a
-    /// PLACEHOLDER binder so a slot is still allocated for the unit value the caller
+    /// PLACEHOLDER bound variable so a slot is still allocated for the unit value the caller
     /// pushes; both placeholders are minted into the lambda chain's own pool.
     let peelLambda (e: TastAccessor.ExprId) : StaticParam list * TastAccessor.ExprId =
         let groups, body = peelValRepr e
@@ -270,13 +270,13 @@ module TastLower =
             | ArgGroupG.GSimple(k, ty) -> { Slot = k; Ty = ty; Pat = None }
             | ArgGroupG.GUnit ty ->
                 {
-                    Slot = TastPoolBuilder.mintBinder e.Pool
+                    Slot = TastPoolBuilder.mintBoundVar e.Pool
                     Ty = ty
                     Pat = None
                 }
             | ArgGroupG.GTuple pat ->
                 {
-                    Slot = TastPoolBuilder.mintBinder e.Pool
+                    Slot = TastPoolBuilder.mintBoundVar e.Pool
                     Ty = TastAccessor.patTy pat
                     Pat = Some pat
                 }
@@ -299,17 +299,17 @@ module TastLower =
     let private flattenTupleItem (p: TastAccessor.PatId) : StaticParam =
         let ty = TastAccessor.patTy p
 
-        match TastAccessor.patKind p, TastAccessor.patBinder p with
+        match TastAccessor.patKind p, TastAccessor.patBoundVar p with
         | PatShape.NamedSimple, ValueSome k -> { Slot = k; Ty = ty; Pat = None }
         | PatShape.Wildcard, _ ->
             {
-                Slot = TastPoolBuilder.mintBinder p.Pool
+                Slot = TastPoolBuilder.mintBoundVar p.Pool
                 Ty = ty
                 Pat = None
             }
         | _ ->
             {
-                Slot = TastPoolBuilder.mintBinder p.Pool
+                Slot = TastPoolBuilder.mintBoundVar p.Pool
                 Ty = ty
                 Pat = Some p
             }
@@ -323,7 +323,7 @@ module TastLower =
             | ArgGroupG.GUnit ty ->
                 [
                     {
-                        Slot = TastPoolBuilder.mintBinder pool
+                        Slot = TastPoolBuilder.mintBoundVar pool
                         Ty = ty
                         Pat = None
                     }
@@ -368,11 +368,11 @@ module TastLower =
                         |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e Anchor.nowhere)
 
                     ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty Anchor.nowhere)
-                | _ -> ArgGroupG.GSimple(TastPoolBuilder.mintBinder contractPats, pty)
+                | _ -> ArgGroupG.GSimple(TastPoolBuilder.mintBoundVar contractPats, pty)
             elif isUnitFrozen pty then
                 ArgGroupG.GUnit pty
             else
-                ArgGroupG.GSimple(TastPoolBuilder.mintBinder contractPats, pty)
+                ArgGroupG.GSimple(TastPoolBuilder.mintBoundVar contractPats, pty)
 
         {
             Typars = typars
@@ -397,7 +397,7 @@ module TastLower =
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
 
-                TastAccessor.mintLetDecl l.Binding l.Value false (TastAccessor.exprTy l.Value)
+                TastAccessor.mintLetDecl l.Pattern l.Value false (TastAccessor.exprTy l.Value)
                 :: flattenTopLevel l.Body
             | _ -> [ TastAccessor.mintExpressionDecl e (TastAccessor.exprTy e) ]
 

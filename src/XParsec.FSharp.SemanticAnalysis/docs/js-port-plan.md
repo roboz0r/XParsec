@@ -313,7 +313,7 @@ this list is derived, not enforced.
 | range in value position (`let r = 1..10`) | `EmitJs`, the `Range` arm — already reported at Elaborate, so reaching it means emitting a program known bad |
 | class `inherit` | `EmitJsTypes` — a SOURCE `inherit` clause only; an `extern class` intrinsic repr (`exn`, and `obj` after §4.1) does not touch it |
 | more than one constructor on a class | `EmitJsTypes` — a JS class has exactly one |
-| duck-typed (`Pattern`) `for … in` enumerator; refutable / non-tuple `for … in` binder | `EmitJs` |
+| duck-typed (`Pattern`) `for … in` enumerator; refutable / non-tuple `for … in` boundVar | `EmitJs` |
 | `nativeint` / `decimal` literal | `JsEmitHelpers` |
 | an `override` whose name clashes with an interface impl | `EmitJsTypes` |
 | a format sink other than `sprintf`/`printfn`/`eprintfn` | `EmitJs` |

@@ -137,7 +137,7 @@ public `Dispose()` when it has one. Closing this needs:
 - the `Pattern` descriptor's `dispose` to carry *which* `Dispose` to call (a member
   key or "own/interface" tag), not just a bool.
 
-This mirrors the `use`-binder precedent `Infer.tryExternalDispose` (prefer the type's
+This mirrors the `use`-boundVar precedent `Infer.tryExternalDispose` (prefer the type's
 own `Dispose`, fall back to the interface slot). See the sited TODO in
 `probeLocalEnumerator`.
 

@@ -485,12 +485,12 @@ module internal ElaborateTypeDecls =
         | ValueSome _, ValueSome argExpr ->
             let ctorParamKeys =
                 EqArray.ofSeq (
-                    seq { for p in info.CtorParams -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) }
+                    seq { for p in info.CtorParams -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) }
                 )
 
             // The args run before `this` exists, so the INSTANCE rewrite must not apply —
             // but the `.cctor` has already run, so a `static let` IS in scope here and IS a
-            // field; unrewritten, its binder survives as a `Var` codegen has no slot for.
+            // field; unrewritten, its bound variable survives as a `Var` codegen has no slot for.
             let args = peelOneArg (translateExpr ctx >> rewriteFieldRefs staticRewrite) argExpr
 
             ValueSome

@@ -40,7 +40,10 @@ let tests =
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
                 | ValueSome info ->
-                    Expect.equal (typeOf ctx (BinderKey.identity info.BaseKey)) (TyClass("B", EqArray.empty)) "base : B"
+                    Expect.equal
+                        (typeOf ctx (BoundVarKey.identity info.BaseKey))
+                        (TyClass("B", EqArray.empty))
+                        "base : B"
                 | ValueNone -> failtest "class type D not registered"
             }
 

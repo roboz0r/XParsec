@@ -242,7 +242,7 @@ module Pipeline =
 
     /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the tree's
     /// diagnostics before freezing it needs both halves: the freeze reads each residual
-    /// typar root's binder out of the context.
+    /// typar root's bound variable out of the context.
     let analyseSemForSelfHostWithContext
         (provider: IExternalSymbolProvider)
         (source: OriginSource)

@@ -135,7 +135,7 @@ slot type and does not, or the accessor is dead — worth deciding which before 
 caller by accident. The doc claiming it is "what a value-producing consumer must preserve when
 it rebuilds the decl" was trimmed of that forward claim here, since nothing does.
 
-### `TastAccessor.fs:651` — `patBinderNaming` is public but reached only through its own active pattern
+### `TastAccessor.fs:651` — `patBoundVarNaming` is public but reached only through its own active pattern
 
 Its sole caller anywhere is `(|PNamedNaming|_|)` three lines below it, which does have three
 production consumers in the JS backend. The function form is therefore public surface nobody
@@ -144,11 +144,11 @@ making the function `private`, or dropping it and inlining the two-line body int
 Not a defect; noted because this sweep deleted the doc that made them look like two distinct
 entry points.
 
-### `TastPoolBuilder.fs:234` — `exprCount` and `binderCount` have no production consumer
+### `TastPoolBuilder.fs:234` — `exprCount` and `boundVarCount` have no production consumer
 
 Both are called only from tests (`test/XParsec.FSharp.SemanticAnalysis.Tests/TastPoolBuilderTests.fs:119,183,187,225,386`
 and `test/XParsec.FSharp.Codegen.Js.Tests/InlineExpandTests.fs:264`), where they assert that a
-rewrite appended nothing or minted exactly one binder. That is a legitimate reason for them to
+rewrite appended nothing or minted exactly one boundVar. That is a legitimate reason for them to
 exist, so this is not a deletion candidate — but it does mean the id-space sizes are an assertion
 surface rather than something the emit path needs, and the comment above them was written as
 though a walker consumed them.

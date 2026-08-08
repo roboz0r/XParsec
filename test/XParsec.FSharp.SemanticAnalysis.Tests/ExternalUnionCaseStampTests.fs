@@ -13,9 +13,9 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // `NodeKey` (`Resolution.ExternalUnionCaseStamp`). Unification's `InferPat` /
 // `InferIdentExpr` and Elaborate's `translatePat` / `tryCtorRef` READ that stamp instead
 // of handing raw spelling back to `TryLookupUnionCase(string)`. A MISSED stamp where a
-// consumer reads is a phantom binder / mis-lowering, so these tests assert the stamp is
+// consumer reads is a phantom bound variable / mis-lowering, so these tests assert the stamp is
 // present at representative pattern sites — including or-pattern alternatives, which the
-// binder-collection walk skips (they bind nothing) and so the stamping walk must reach
+// bound-variable-collection walk skips (they bind nothing) and so the stamping walk must reach
 // independently.
 
 /// A provider that knows two non-RQA unions: `Tests.Hue` (case `Blue`) whose
@@ -131,7 +131,7 @@ let private assertPatStamped (input: string) (caseName: string) (expected: int) 
             (sprintf "external case '%s' stamped at its ctor pattern in: %s" caseName input)
 
 /// Assert every `caseName` ctor in `input` is NOT stamped (its declaring namespace
-/// is not open, so NameResolution treats the name as a binder, not an external
+/// is not open, so NameResolution treats the name as a bound variable, not an external
 /// case — the opens false-accept this gate closes).
 let private assertPatNotStamped (input: string) (caseName: string) (expected: int) =
     let ctx, file = analyse input
@@ -167,13 +167,13 @@ let tests =
             }
 
             // The load-bearing gap: or-pattern alternatives bind nothing, so the
-            // binder-collection walk never visits them; the stamping walk must reach
+            // bound-variable-collection walk never visits them; the stamping walk must reach
             // BOTH alternatives independently.
             test "both alternatives of an or-pattern are stamped" {
                 assertPatStamped "let f (o: obj) = match o with | Blue | Blue -> 1 | _ -> 0" "Blue" 2
             }
 
-            // A bare RQA-free case in a `let` binding pattern still stamps (the binder walk
+            // A bare RQA-free case in a `let` binding pattern still stamps (the bound variable walk
             // treats the head as a nullary ctor).
             test "case in a let binding pattern is stamped" {
                 assertPatStamped "let f (o: obj) = let Blue = o in 1" "Blue" 1

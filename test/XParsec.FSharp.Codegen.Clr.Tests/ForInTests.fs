@@ -490,7 +490,7 @@ let forInTests =
             // (`tryLocalInterfaceEnumeratorOn`); the backend needed nothing new, since a
             // record's synthesised `IEnumerable<'T>` co-slots are exactly the ones the
             // class `Interface` walk already `callvirt`s. Generic on purpose: the record's
-            // typar has to be substituted with the use-site `int` to pin the loop binder.
+            // typar has to be substituted with the use-site `int` to pin the loop bound variable.
             // Only the `Interface` surface is open to a record — a pattern `GetEnumerator()`
             // on a record would need a record member table in `resolveInstanceMember`.
             test "for-in over a generic record implementing the seq capability walks its elements" {

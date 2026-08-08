@@ -91,7 +91,7 @@ module TastAccessor =
         TastPoolBuilder.exprChildren e.Pool e.Id |> Array.map (at e)
 
     /// The immediate child *patterns* an expression owns directly, in source order. `ForTo`'s
-    /// loop variable is a `BinderId`, so it is not among them.
+    /// loop variable is a `BoundVarId`, so it is not among them.
     let exprPatChildren (e: ExprId) : PatId[] =
         TastPoolBuilder.exprPatChildren e.Pool e.Id |> Array.map (at e)
 
@@ -117,22 +117,22 @@ module TastAccessor =
     let exprConstValue (e: ExprId) : TConstValue =
         expect "TastAccessor.exprConstValue: not a Const node" (|EConst|_|) e
 
-    /// A `Var` node → the binder it references. Guards on the reference column rather than
+    /// A `Var` node → the bound variable it references. Guards on the reference column rather than
     /// the payload: only a `Var` fills it.
     [<return: Struct>]
-    let (|EVar|_|) (e: ExprId) : BinderId voption =
-        TastPoolBuilder.exprVarBinder e.Pool e.Id
+    let (|EVar|_|) (e: ExprId) : BoundVarId voption =
+        TastPoolBuilder.exprVarBoundVar e.Pool e.Id
 
-    let exprVarBinding (e: ExprId) : BinderId =
-        expect "TastAccessor.exprVarBinding: not a Var node" (|EVar|_|) e
+    let exprVarBoundVar (e: ExprId) : BoundVarId =
+        expect "TastAccessor.exprVarBoundVar: not a Var node" (|EVar|_|) e
 
     [<return: Struct>]
-    let private (|EVarNaming|_|) (e: ExprId) : BinderNaming voption =
-        TastPoolBuilder.exprVarBinder e.Pool e.Id
-        |> ValueOption.map (TastPoolBuilder.binderNaming e.Pool)
+    let private (|EVarNaming|_|) (e: ExprId) : BoundVarNaming voption =
+        TastPoolBuilder.exprVarBoundVar e.Pool e.Id
+        |> ValueOption.map (TastPoolBuilder.boundVarNaming e.Pool)
 
-    /// What a backend emits the referenced binder's name from.
-    let exprVarNaming (e: ExprId) : BinderNaming =
+    /// What a backend emits the referenced bound variable's name from.
+    let exprVarNaming (e: ExprId) : BoundVarNaming =
         expect "TastAccessor.exprVarNaming: not a Var node" (|EVarNaming|_|) e
 
     [<return: Struct>]
@@ -192,7 +192,7 @@ module TastAccessor =
         | ExprPayload.Let ->
             ValueSome
                 {
-                    Binding = exprPatChild e 0
+                    Pattern = exprPatChild e 0
                     Value = exprChild e 0
                     Body = exprChild e 1
                 }
@@ -559,7 +559,7 @@ module TastAccessor =
         | ExprPayload.Use dispose ->
             ValueSome
                 {
-                    Binding = exprPatChild e 0
+                    Pattern = exprPatChild e 0
                     Value = exprChild e 0
                     Body = exprChild e 1
                     Dispose = dispose
@@ -638,25 +638,25 @@ module TastAccessor =
 
     let private patPayload (p: PatId) : PatPayload = TastPoolBuilder.patPayload p.Pool p.Id
 
-    /// The single binder a `NamedSimple` pattern introduces. `ValueNone` for a pattern that
+    /// The single bound variable a `NamedSimple` pattern introduces. `ValueNone` for a pattern that
     /// binds nothing (`Wildcard`, `Const`) or through sub-patterns (`Tuple`, `Or`).
-    let patBinder (p: PatId) : BinderId voption =
+    let patBoundVar (p: PatId) : BoundVarId voption =
         match patPayload p with
-        | PatPayload.NamedSimple binder -> ValueSome binder
+        | PatPayload.NamedSimple boundVar -> ValueSome boundVar
         | _ -> ValueNone
 
     [<return: Struct>]
-    let (|PNamed|_|) (p: PatId) : BinderId voption = patBinder p
+    let (|PNamed|_|) (p: PatId) : BoundVarId voption = patBoundVar p
 
-    let patBinderNaming (p: PatId) : BinderNaming voption =
+    let patBoundVarNaming (p: PatId) : BoundVarNaming voption =
         match patPayload p with
-        | PatPayload.NamedSimple binder -> ValueSome(TastPoolBuilder.binderNaming p.Pool binder)
+        | PatPayload.NamedSimple boundVar -> ValueSome(TastPoolBuilder.boundVarNaming p.Pool boundVar)
         | _ -> ValueNone
 
-    /// The `PNamed` to reach for when the binder is about to be spelled as an emitted
+    /// The `PNamed` to reach for when the bound variable is about to be spelled as an emitted
     /// identifier rather than looked up.
     [<return: Struct>]
-    let (|PNamedNaming|_|) (p: PatId) : BinderNaming voption = patBinderNaming p
+    let (|PNamedNaming|_|) (p: PatId) : BoundVarNaming voption = patBoundVarNaming p
 
     [<return: Struct>]
     let private (|PConst|_|) (p: PatId) : TConstValue voption =
@@ -735,7 +735,7 @@ module TastAccessor =
                     {
                         Ty = id
                         Tok = id
-                        Id = BinderKey.identity
+                        Id = BoundVarKey.identity
                         Body = at d
                     }
                     td
@@ -772,7 +772,7 @@ module TastAccessor =
         | DeclPayload.Let p ->
             ValueSome
                 {
-                    Binding = declPatChild d 0
+                    Pattern = declPatChild d 0
                     Value = declExprChild d 0
                     IsInline = p.IsInline
                     Ty = p.Ty
@@ -873,14 +873,14 @@ module TastAccessor =
                         Tok = tok
                         Children = children
                         PatChildren = patChildren
-                        VarBinder = ValueNone
+                        VarBoundVar = ValueNone
                         Payload = pl
                     }
         }
 
-    /// A reference to `binding` — the binder's own dense id, so a reference minted before
-    /// (or without) its defining pattern names the same binder either way.
-    let mintVar (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: Anchor) : ExprId =
+    /// A reference to `boundVar` — the bound variable's own dense id, so a reference minted before
+    /// (or without) its defining pattern names the same bound variable either way.
+    let mintVar (pool: PoolBuilder) (boundVar: BoundVarId) (ty: FrozenType) (tok: Anchor) : ExprId =
         {
             Pool = pool
             Id =
@@ -891,7 +891,7 @@ module TastAccessor =
                         Tok = tok
                         Children = [||]
                         PatChildren = [||]
-                        VarBinder = ValueSome binding
+                        VarBoundVar = ValueSome boundVar
                         Payload = ExprPayload.Var
                     }
         }
@@ -909,9 +909,9 @@ module TastAccessor =
     let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr body.Pool ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
 
-    /// `let binding = value in body`, typed with the body's type.
-    let mintLet (binding: PatId) (value: ExprId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
-        mintExpr body.Pool ty tok [| value.Id; body.Id |] [| binding.Id |] ExprPayload.Let
+    /// `let pattern = value in body`, typed with the body's type.
+    let mintLet (pattern: PatId) (value: ExprId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
+        mintExpr body.Pool ty tok [| value.Id; body.Id |] [| pattern.Id |] ExprPayload.Let
 
     /// `receiver.Key args` — an instance call on a project-local member.
     let mintMethodCall
@@ -944,8 +944,8 @@ module TastAccessor =
                     }
         }
 
-    let mintNamedPat (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: Anchor) : PatId =
-        mintPat pool ty tok [||] (PatPayload.NamedSimple binding)
+    let mintNamedPat (pool: PoolBuilder) (boundVar: BoundVarId) (ty: FrozenType) (tok: Anchor) : PatId =
+        mintPat pool ty tok [||] (PatPayload.NamedSimple boundVar)
 
     /// An anonymous `_` pattern.
     let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: Anchor) : PatId =
@@ -954,8 +954,8 @@ module TastAccessor =
     let mintTuplePat (pool: PoolBuilder) (items: PatId[]) (ty: FrozenType) (tok: Anchor) : PatId =
         mintPat pool ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
 
-    /// A top-level `let binding = value` declaration.
-    let mintLetDecl (binding: PatId) (value: ExprId) (isInline: bool) (ty: FrozenType) : DeclId =
+    /// A top-level `let pattern = value` declaration.
+    let mintLetDecl (pattern: PatId) (value: ExprId) (isInline: bool) (ty: FrozenType) : DeclId =
         {
             Pool = value.Pool
             Id =
@@ -963,7 +963,7 @@ module TastAccessor =
                     value.Pool
                     {
                         ExprChildren = [| value.Id |]
-                        PatChildren = [| binding.Id |]
+                        PatChildren = [| pattern.Id |]
                         Payload = DeclPayload.Let {| IsInline = isInline; Ty = ty |}
                     }
         }
@@ -1015,7 +1015,7 @@ module TastAccessor =
                     {
                         Ty = id
                         Tok = id
-                        Id = BinderKey.identity
+                        Id = BoundVarKey.identity
                         Body = fun (b: ExprPoolId) -> (f (at d b)).Id
                     }
                     td

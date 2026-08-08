@@ -14,7 +14,7 @@ module EmitTypes =
         {
             Node: TastAccessor.ExprId
             Name: string
-            ParamKey: BinderId
+            ParamKey: BoundVarId
             ParamTy: FrozenType
             /// The closure's parameter pattern. A `NamedSimple` / unit `Const` binds
             /// `ldarg.1` directly through `ParamKey`; a `fun (a, b) -> …` tuple pattern is
@@ -22,11 +22,11 @@ module EmitTypes =
             ParamPat: TastAccessor.PatId
             ResultTy: FrozenType
             Body: TastAccessor.ExprId
-            Captures: (BinderId * FrozenType) list
+            Captures: (BoundVarId * FrozenType) list
             /// Binding key of the `let [rec] f = <this lambda>` this is the value of. A
             /// recursive self-reference resolves to `this` (`ldarg.0`), so it is not
             /// captured. `ValueNone` for an anonymous lambda.
-            SelfKey: BinderId voption
+            SelfKey: BoundVarId voption
             /// `> 0` ⇒ a generic closure: the TOTAL number of `GenericParam` rows (`T0…`)
             /// on its `TypeDefinition` — the enclosing class's typars, then the enclosing
             /// method's. The construction site `Newobj`s a `MemberRef` on the `TypeSpec`.
@@ -49,7 +49,7 @@ module EmitTypes =
             /// The extra flat parameters beyond the first, in flat order — peeled from
             /// successive inner `Lambda`s of a curried `fun x y … -> …` so they do NOT
             /// become their own closures. `Invoke` binds extra param `i` to `ldarg.(2+i)`.
-            ExtraParams: (BinderId * FrozenType * TastAccessor.PatId) list
+            ExtraParams: (BoundVarId * FrozenType * TastAccessor.PatId) list
         }
 
     /// A capture-free monomorphic heap closure is stateless, so one shared instance
@@ -208,7 +208,7 @@ module EmitTypes =
     /// the holder tree and its `NestedClass` rows are read off.
     type HolderKey = ModuleKey
 
-    /// One flattened parameter of a `StaticFn`. A simple binder's `Slot` key resolves
+    /// One flattened parameter of a `StaticFn`. A simple bound variable's `Slot` key resolves
     /// directly to the parameter's `ldarg` index; a `fun (a, b) -> …` destructuring
     /// parameter carries `Pat = Some …` and a synthetic `Slot` spilled to a local first.
     type StaticParam = TastLower.StaticParam
@@ -218,7 +218,7 @@ module EmitTypes =
     /// never escapes as a value and captures no module-level local.
     type StaticFn =
         {
-            Key: BinderId
+            Key: BoundVarId
             /// The stable handle key, used instead of the per-file `Key`, a bare offset
             /// that collides across files. An exportable binding carries exactly its own
             /// identity, so a cross-file call re-homes here; others carry an unspellable mint.
@@ -253,7 +253,7 @@ module EmitTypes =
     /// module gets that module's holder, a top-level one the anonymous "Program" holder.
     type ModuleValue =
         {
-            Key: BinderId
+            Key: BoundVarId
             /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`.
             SymbolKey: SymbolKey
             Name: string
@@ -311,14 +311,14 @@ module EmitTypes =
             /// Enums emitted into this assembly, by nominal `SymbolKey`. A
             /// `StaticFieldGet` / `EnumCase` resolves a case's literal field here.
             Enums: Dictionary<SymbolKey, EmittedEnum>
-            StaticMethods: Dictionary<BinderId, StaticMethodRef>
+            StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
             /// Module-level value bindings → their emitted `public static` field, so a
             /// module value resolves the same way in any method, `.ctor` or `.cctor`.
-            ModuleValues: Dictionary<BinderId, EntityHandle>
+            ModuleValues: Dictionary<BoundVarId, EntityHandle>
             /// The top-level values `Main` initialises by `stsfld` — those trailing a
             /// top-level `do` — rather than allocating a `Main` local for. Reads still go
             /// through `ModuleValues`; values a `.cctor` initialises are absent.
-            MainInitValues: Dictionary<BinderId, EntityHandle>
+            MainInitValues: Dictionary<BoundVarId, EntityHandle>
         }
 
     /// Per-method codegen state over the run-wide `EmitContext`. `Slots` maps this method's
@@ -328,7 +328,7 @@ module EmitTypes =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
-            Slots: Dictionary<BinderId, int>
+            Slots: Dictionary<BoundVarId, int>
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
             CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// Cached closure singleton fields; a `Lambda` value here `ldsfld`s instead of
@@ -338,9 +338,9 @@ module EmitTypes =
             /// handle per value-struct `Lambda` node.
             ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
             ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            Args: Dictionary<BinderId, int>
-            SelfKey: BinderId voption
-            CaptureFields: Dictionary<BinderId, EntityHandle>
+            Args: Dictionary<BoundVarId, int>
+            SelfKey: BoundVarId voption
+            CaptureFields: Dictionary<BoundVarId, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -348,10 +348,10 @@ module EmitTypes =
             /// Enums emitted into this assembly, so a `StaticFieldGet` / `EnumCase` in any
             /// body resolves a case's field here.
             Enums: Dictionary<SymbolKey, EmittedEnum>
-            StaticMethods: Dictionary<BinderId, StaticMethodRef>
+            StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
             /// Module-level values, each lowered to a `public static` field on its module
-            /// holder and resolved here by binder → field handle (`ldsfld`).
-            ModuleValues: Dictionary<BinderId, EntityHandle>
+            /// holder and resolved here by bound variable → field handle (`ldsfld`).
+            ModuleValues: Dictionary<BoundVarId, EntityHandle>
         }
 
     /// A `Var` bound to an addressable local slot in `env` → its slot index. The shared
@@ -372,14 +372,14 @@ module EmitTypes =
         /// other builder passes neither.
         let create
             (ctx: EmitContext)
-            (selfKey: BinderId voption)
-            (captureFields: Dictionary<BinderId, EntityHandle>)
-            (args: Dictionary<BinderId, int>)
+            (selfKey: BoundVarId voption)
+            (captureFields: Dictionary<BoundVarId, EntityHandle>)
+            (args: Dictionary<BoundVarId, int>)
             : EmitEnv =
             {
                 Provider = ctx.Provider
                 Ctx = ctx.Ctx
-                Slots = Dictionary<BinderId, int>()
+                Slots = Dictionary<BoundVarId, int>()
                 ClosureByNode = ctx.ClosureByNode
                 CtorHandleByNode = ctx.CtorHandleByNode
                 CachedClosureFieldByNode = ctx.CachedClosureFieldByNode
@@ -399,7 +399,7 @@ module EmitTypes =
 
         /// The common builder shape: parameters only — no recursive self, no
         /// captures.
-        let ofContext (ctx: EmitContext) (args: Dictionary<BinderId, int>) : EmitEnv =
+        let ofContext (ctx: EmitContext) (args: Dictionary<BoundVarId, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args
 
     /// The `ldc` for an integral constant. `sbyte` … `uint32` all have int32 as their CIL

@@ -23,7 +23,7 @@ type Anchor =
 module Anchor =
 
     /// A node no source spells: a lowering's own derived node, an `.fsi` contract's
-    /// reconstructed pattern, a declaration's pattern-less binder slot.
+    /// reconstructed pattern, a declaration's pattern-less bound variable slot.
     let nowhere: Anchor = { Raw = -1<token> }
 
     let ofToken (tok: SyntaxToken) : Anchor =

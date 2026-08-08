@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.Codegen.Clr
+namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
@@ -25,7 +25,7 @@ type HolderPlan =
         /// in declaration order; every reference is an `ldsfld` — never a `Main` local or
         /// a closure capture.
         ModuleValues: Emit.ModuleValue list
-        ModuleValueKeys: HashSet<BinderId>
+        ModuleValueKeys: HashSet<BoundVarId>
         /// Top-level (implicit-"Program"-module) ground values placed in the Program
         /// holder's `.cctor` as `static initonly` fields — the leading prefix (no top-level
         /// `do` before them), in declaration order, initialised before `Main` runs.
@@ -35,10 +35,10 @@ type HolderPlan =
         ProgramMainValues: Emit.ModuleValue list
         /// Top-level functions lowered to static methods, in declaration order.
         StaticFns: Emit.StaticFn list
-        StaticFnKeys: HashSet<BinderId>
+        StaticFnKeys: HashSet<BoundVarId>
         /// Each static fn's method-axis typar count by binding key; a closure
         /// walked from a generic static fn's body inherits this.
-        StaticFnTypars: Dictionary<BinderId, int>
+        StaticFnTypars: Dictionary<BoundVarId, int>
         /// Functions on the anonymous "Program" holder: they follow the named holders'
         /// methods, and `Main` follows them.
         HolderlessFns: Emit.StaticFn list
@@ -69,24 +69,24 @@ module HolderPlan =
     /// functions, validate the values' initialisers, and fix the holder /
     /// method / field emission orders.
     let create
-        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
+        (moduleMembers: Map<BoundVarId, ModuleBindingInfo>)
         // Forwarded to populate `StaticFn.Constraints`, which drives the call-site
         // phantom-typar solve; the emitted arity is re-derived independently below.
-        (genericFnSchemes: Map<BinderId, FrozenConstraint list>)
+        (genericFnSchemes: Map<BoundVarId, FrozenConstraint list>)
         (programHolder: Emit.HolderKey)
         (refStructNsNames: HashSet<string * string>)
         (lowered0: TastAccessor.DeclId list)
         : HolderPlan =
         // How every top-level decl of this file emits (name, holder, handle key), decided
         // before bridging — which rewrites expressions inside decls but neither adds nor
-        // removes a top-level binder, so the same table is valid for `lowered` below.
+        // removes a top-level bound variable, so the same table is valid for `lowered` below.
         let emissions = Emit.emissions moduleMembers programHolder lowered0
 
         // Drives bridging: a value-use of a function that survives as a static method
         // becomes a curried bridge; a capture-demoted one keeps its closure. The top-level
         // *storage* set — an `ldsfld` / `call` target, never a capture.
         let preResolvedTopLevel =
-            let s = HashSet<BinderId>()
+            let s = HashSet<BoundVarId>()
 
             for mv in Emit.collectModuleValues emissions lowered0 do
                 s.Add mv.Key |> ignore
@@ -111,7 +111,9 @@ module HolderPlan =
         let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
         let moduleValues = Emit.collectModuleValues emissions lowered
-        let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
+
+        let moduleValueKeys =
+            HashSet<BoundVarId>(moduleValues |> List.map (fun mv -> mv.Key))
 
         // Top-level (implicit-"Program"-module) ground values — holderless `let`s in an
         // exe's last file, collected unclassified; the leading/trailing partition runs
@@ -120,7 +122,7 @@ module HolderPlan =
             Emit.collectProgramValues emissions programHolder refStructNsNames lowered
 
         let programValueKeys =
-            HashSet<BinderId>(programValues |> List.map (fun mv -> mv.Key))
+            HashSet<BoundVarId>(programValues |> List.map (fun mv -> mv.Key))
 
         // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a static
         // FIELD — a non-generic holder has no type parameter to type it — so it lowers to a
@@ -128,7 +130,7 @@ module HolderPlan =
         let genericModuleValues = Emit.collectGenericModuleValues emissions lowered
 
         let genericModuleValueKeys =
-            HashSet<BinderId>(genericModuleValues |> List.map (fun fn -> fn.Key))
+            HashSet<BoundVarId>(genericModuleValues |> List.map (fun fn -> fn.Key))
 
         // The static-method functions: the eligible set (computed pre-bridge) projected
         // onto the bridged decls. A binding bridging newly turned into a lambda whose key
@@ -141,13 +143,13 @@ module HolderPlan =
         // uniformly. Appended last, so each lands after its holder's ordinary functions.
         let staticFns = collectedFns @ genericModuleValues
 
-        let staticFnKeys = HashSet<BinderId>(eligible)
+        let staticFnKeys = HashSet<BoundVarId>(eligible)
         staticFnKeys.UnionWith genericModuleValueKeys
 
         // Partition the top-level program values into the leading prefix (`.cctor`,
         // `initonly`) vs those following a top-level statement (`Main`, mutable): a value
         // runs in the cctor iff nothing that executes in `Main` precedes it.
-        let programByKey = Dictionary<BinderId, Emit.ModuleValue>()
+        let programByKey = Dictionary<BoundVarId, Emit.ModuleValue>()
 
         for mv in programValues do
             programByKey.[mv.Key] <- mv
@@ -161,8 +163,8 @@ module HolderPlan =
                 match TastAccessor.declKind d with
                 | DeclShape.Expression -> seenMainCode <- true
                 | DeclShape.Let ->
-                    // Any pattern but a simple named binder yields `ValueNone`.
-                    match TastAccessor.patBinder (TastAccessor.declLet d).Binding with
+                    // Any pattern but a simple named bound variable yields `ValueNone`.
+                    match TastAccessor.patBoundVar (TastAccessor.declLet d).Pattern with
                     | ValueSome k ->
                         match programByKey.TryGetValue k with
                         | true, mv -> (if seenMainCode then main else cctor).Add mv
@@ -182,14 +184,14 @@ module HolderPlan =
 
         // A leading program value's `.cctor` init may also reference other
         // field-backed program values (`ldsfld`); validate against the union.
-        let cctorRefKeys = HashSet<BinderId>(moduleValueKeys)
+        let cctorRefKeys = HashSet<BoundVarId>(moduleValueKeys)
         cctorRefKeys.UnionWith programValueKeys
         Emit.validateModuleValueInits cctorRefKeys staticFnKeys programCctorValues
 
         // The emitted generic-method arity is the max `FTTypar(Method, i)` index over
         // params + result + BODY. The body sweep catches a phantom constraint typar
         // (`fold`'s enumerator `'E`) that params and result cannot see.
-        let staticFnTypars = Dictionary<BinderId, int>()
+        let staticFnTypars = Dictionary<BoundVarId, int>()
 
         for fn in staticFns do
             staticFnTypars.[fn.Key] <- Emit.staticFnTypars fn

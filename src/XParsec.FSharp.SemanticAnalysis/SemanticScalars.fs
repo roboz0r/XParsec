@@ -179,10 +179,10 @@ type TyparAxis =
 [<Struct>]
 type SchemeId = | SchemeId of int
 
-/// A dense index into `FrozenPools`' binder columns. A binder is a definition site the tree
+/// A dense index into `FrozenPools`' bound variable columns. A bound variable is a definition site the tree
 /// INTRODUCES: a `NamedSimple` pattern, a `ForTo` loop variable, a type's key slots.
 [<Struct>]
-type BinderId = | BinderId of int
+type BoundVarId = | BoundVarId of int
 
 /// A dense index into a file's `Specializations` table — how a `TExprG.InlineCall` names the
 /// body it calls. An entry IS its slot.

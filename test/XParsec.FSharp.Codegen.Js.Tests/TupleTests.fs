@@ -54,7 +54,7 @@ let tests =
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "9" "both destructured binders are in scope in the body"
+                    Expect.equal out "9" "both destructured bound variables are in scope in the body"
             }
 
             test "a nested tuple param destructures recursively (((a,b),c) → a+b+c)" {

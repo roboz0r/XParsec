@@ -10,13 +10,13 @@ open EmitLower
 open EmitResolve
 
 /// Variable loads, tuple destructuring, the match-test compiler and the irrefutable
-/// binder. Nothing here takes a `Recur`, so nothing calls back into `buildExpr`.
+/// bound variable. Nothing here takes a `Recur`, so nothing calls back into `buildExpr`.
 module EmitPattern =
 
     /// Load a variable for the current method: a method parameter (`ldarg.i`),
     /// the recursive self of a closure (`this`, `ldarg.0`), a capture
     /// (`ldarg.0; ldfld`), or a local slot (`ldloc`).
-    let buildVarLoad (env: EmitEnv) (b: IlBuilder) (key: BinderId) : unit =
+    let buildVarLoad (env: EmitEnv) (b: IlBuilder) (key: BoundVarId) : unit =
         match env.Args.TryGetValue key with
         | true, i -> b.Add(ILInstr.Ldarg i)
         | false, _ ->
@@ -106,7 +106,7 @@ module EmitPattern =
         | _ -> false
 
     /// Test a pattern against the value in local `scrutSlot`: branch to `nextLabel` on
-    /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its binder to
+    /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its bound variable to
     /// `scrutSlot` rather than copying, so a later load resolves to the same local.
     let rec buildMatchTest
         (env: EmitEnv)
@@ -127,7 +127,7 @@ module EmitPattern =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
         | PatShape.NamedSimple ->
-            match TastAccessor.patBinder pat with
+            match TastAccessor.patBoundVar pat with
             | ValueSome k -> env.Slots.[k] <- scrutSlot
             | ValueNone -> ()
         | PatShape.EnumCase ->
@@ -326,14 +326,14 @@ module EmitPattern =
             b.Add(ILInstr.Mark matchedLabel)
 
     /// Bind an *irrefutable* pattern against the value in local `srcSlot` — the `let` /
-    /// `for-in` destructuring binder. It emits no branch at all: shape is assumed to
+    /// `for-in` destructuring bound variable. It emits no branch at all: shape is assumed to
     /// match rather than tested, and `NamedSimple` aliases `srcSlot` rather than copying.
     let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: TastAccessor.PatId) : unit =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
         | PatShape.Const -> () // irrefutable in a binding position — no compare, no bind
         | PatShape.NamedSimple ->
-            match TastAccessor.patBinder pat with
+            match TastAccessor.patBoundVar pat with
             | ValueSome k -> env.Slots.[k] <- srcSlot
             | ValueNone -> ()
         | PatShape.Tuple ->

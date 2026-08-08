@@ -209,7 +209,7 @@ module internal UnificationInferControlFlow =
                 | Pat.Attributed(pat = p) -> patTests p
                 | _ -> []
 
-            // A binder / wildcard with no type test catches the whole residual.
+            // A bound variable / wildcard with no type test catches the whole residual.
             let rec isCatchAll pat =
                 match pat with
                 | Pat.Wildcard _
@@ -223,9 +223,9 @@ module internal UnificationInferControlFlow =
             let armScruts = ResizeArray(rules.Length)
 
             for r in rules do
-                // The binder narrows against the members still live *before* this arm. Once
+                // The bound variable narrows against the members still live *before* this arm. Once
                 // the residual is exhausted, fall back to the full scrutinee rather than
-                // pin a redundant trailing binder to an empty union.
+                // pin a redundant trailing bound variable to an empty union.
                 armScruts.Add(
                     if List.isEmpty residual then
                         scrutineeTy

@@ -10,13 +10,13 @@ let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
 // `use` backend tests. `use x = e in body` lowers to `let x = e in try body
 // finally if x <> null then x.Dispose()`: the IL-IR exception region wraps
-// the body, and the binder is disposed on every exit. A `use` binder must
+// the body, and the bound variable is disposed on every exit. A `use` bound variable must
 // implement `disposable` (`System.IDisposable`) — matching
 // real F# — so the project-local mock here implements the interface; its `Dispose`
 // records the call by printing. The front end records nothing (`dispose = ValueNone`)
-// and codegen disposes through the binder's nominal `Dispose` slot (which resolves the
+// and codegen disposes through the bound variable's nominal `Dispose` slot (which resolves the
 // interface impl method). Asserting on captured stdout proves both that `Dispose` ran
-// and that it ran *after* the body. The external (BCL) binder path resolves a keyed
+// and that it ran *after* the body. The external (BCL) bound variable path resolves a keyed
 // `Dispose` (`System.IDisposable`'s, or an own ref-struct `Dispose`) and codegen
 // disposes it through an `ExternalMemberRef` `callvirt` — the `MemoryStream` test
 // below is the gate.
@@ -26,7 +26,7 @@ let useTests =
     testList
         "Use"
         [
-            test "`use` disposes the binder after the body runs" {
+            test "`use` disposes the bound variable after the body runs" {
                 let src =
                     String.concat
                         "\n"
@@ -82,11 +82,11 @@ let useTests =
                     "body runs, then Dispose() in the finally"
             }
 
-            test "`use _ = e` disposes the binder even though the body can't name it" {
-                // A wildcard `use` binder (`use _ = …`) is the RAII-guard form: the
+            test "`use _ = e` disposes the bound variable even though the body can't name it" {
+                // A wildcard `use` bound variable (`use _ = …`) is the RAII-guard form: the
                 // value is still parked in a local and disposed in the finally, but
                 // the body has no name for it. Codegen keys the slot off a synthetic
-                // placeholder (`mintUseBinderKey`); Validation permits `_` as a simple
+                // placeholder (`mintUseBoundVarKey`); Validation permits `_` as a simple
                 // pattern. A regression that rejected it (or crashed the emitter) would
                 // fail here.
                 let src =
@@ -110,7 +110,7 @@ let useTests =
                 Expect.equal
                     (output.Replace("\r", "").Trim())
                     "body\ndisposed"
-                    "body runs, then Dispose() in the finally — the `_` binder is still disposed"
+                    "body runs, then Dispose() in the finally — the `_` bound variable is still disposed"
             }
 
             test "the body's result survives the finally and is the `use` expression's value" {

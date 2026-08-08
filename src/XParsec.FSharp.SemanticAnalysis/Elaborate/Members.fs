@@ -60,7 +60,7 @@ module internal ElaborateMembers =
     /// Member parameter list as `(bindingKey, ty)` pairs in declaration order (`this` is
     /// separate). A tupled member `M(a, b)` is ONE `argumentPats` entry, but F# compiles it
     /// to one .NET parameter per tuple component, so the tuple flattens to one pair each.
-    let memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<BinderKey * SemType> =
+    let memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<BoundVarKey * SemType> =
         let rec flatten (tp: TPat) =
             seq {
                 match tp with
@@ -70,8 +70,8 @@ module internal ElaborateMembers =
                 // A component that binds nothing — a wildcard, a nested destructuring —
                 // yields no pair and so occupies no parameter slot.
                 | _ ->
-                    match BinderKey.ofPat tp with
-                    | ValueSome binder -> yield (binder, TastWalk.patTy tp)
+                    match BoundVarKey.ofPat tp with
+                    | ValueSome boundVar -> yield (boundVar, TastWalk.patTy tp)
                     | ValueNone -> ()
             }
 

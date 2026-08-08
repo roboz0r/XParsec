@@ -41,7 +41,8 @@ module internal ElaborateCalls =
             | _, TyTuple elemTys when arity >= 2 && elemTys.Length = arity ->
                 let argTok = TastWalk.exprTok arg
 
-                let elems = [ for elemTy in EqArray.toList elemTys -> ctx.NewSynthBinder(), elemTy ]
+                let elems =
+                    [ for elemTy in EqArray.toList elemTys -> ctx.NewSynthBoundVar(), elemTy ]
 
                 let tuplePat =
                     TPat.Tuple(
@@ -53,7 +54,7 @@ module internal ElaborateCalls =
                 let recvBind, fn' =
                     match receiver with
                     | ValueSome r ->
-                        let rKey = ctx.NewSynthBinder()
+                        let rKey = ctx.NewSynthBoundVar()
                         let rTy = TastWalk.exprTy r
 
                         [ TPat.NamedSimple(rKey, rTy, memberTok), r ],
@@ -100,7 +101,7 @@ module internal ElaborateCalls =
                 if
                     not isBase
                     && kv.Value.BaseType.IsSome
-                    && BinderKey.identity kv.Value.BaseKey = bindingSite
+                    && BoundVarKey.identity kv.Value.BaseKey = bindingSite
                 then
                     isBase <- true
 

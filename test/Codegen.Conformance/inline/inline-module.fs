@@ -9,7 +9,7 @@ module Scale =
 
     // An inline binding calling an inline SIBLING: the sibling reference is what a
     // published template has to rewrite to an exportable identity, and what the emitted
-    // ordinary function resolves through the module's own binder table. The two forms of
+    // ordinary function resolves through the module's own bound variable table. The two forms of
     // the same body must agree, and only a program that runs it can say so.
     let inline quadruple x = twice (twice x)
 

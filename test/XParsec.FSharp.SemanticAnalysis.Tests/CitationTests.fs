@@ -50,7 +50,7 @@ let private guarded () : (string * Type) list =
         "ExprRow", typeof<ExprRow>
         "PatRow", typeof<PatRow>
         "DeclRow", typeof<DeclRow>
-        "BinderNaming", typeof<BinderNaming>
+        "BoundVarNaming", typeof<BoundVarNaming>
         "TastWalk", moduleType "TastWalk"
         "TastPools", moduleType "TastPools"
         "TastPoolShapes", moduleType "TastPoolShapes"
@@ -60,10 +60,10 @@ let private guarded () : (string * Type) list =
         "TastLower", moduleType "TastLower"
         "Inline", moduleType "Inline"
         "ArgGroups", moduleType "ArgGroups"
-        // Under its compiled name: `BinderKey` is the `BinderKeyG<NodeKey>` abbreviation,
+        // Under its compiled name: `BoundVarKey` is the `BoundVarKeyG<NodeKey>` abbreviation,
         // which erases, and an abbreviation of the module's own name is still a clash — so
         // the module takes the `Module` suffix and no type answers to the bare name.
-        "BinderKey", moduleType "BinderKeyModule"
+        "BoundVarKey", moduleType "BoundVarKeyModule"
         // Likewise: `Anchor` is the type, so its module takes the suffix. Guarding it is
         // what keeps a citation of a position convention honest now that the convention IS
         // the type's surface and nothing else.
@@ -149,7 +149,7 @@ let private ownMembers (t: Type) : string[] =
 /// and — whether `T` is itself a module or merely has a companion one — that module's own
 /// members. These are the things prose spells with the same `T.` qualifier
 /// (`FrozenPools.ExprToks`, `ExprPayload.Lambda`, `FrozenPools.typarArity`,
-/// `TastWalk.declBinders`). Derived off the type for every guard alike, so a guard is a row
+/// `TastWalk.declBoundVars`). Derived off the type for every guard alike, so a guard is a row
 /// in the table and never a derivation of its own.
 let private validMembers (t: Type) : Set<string> =
     // Reflect a non-public representation too: an accessibility that hid the shape would

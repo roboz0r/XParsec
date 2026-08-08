@@ -202,16 +202,18 @@ module FrozenCodecPrimitives =
         | 3uy -> Site.After(r.ReadInt32() * 1<token>)
         | b -> failwithf "FrozenCodec: unknown Site tag %d" b
 
-    /// A binder's dense pool index — the identity every pooled REFERENCE to a definition
+    /// A bound variable's dense pool index — the identity every pooled REFERENCE to a definition
     /// site is written as.
-    let writeBinderId (w: FrozenWriter) (BinderId i) = w.Write i
-    let readBinderId (r: FrozenReader) : BinderId = BinderId(r.ReadInt32())
+    let writeBoundVarId (w: FrozenWriter) (BoundVarId i) = w.Write i
+    let readBoundVarId (r: FrozenReader) : BoundVarId = BoundVarId(r.ReadInt32())
 
-    /// A declaration shape's key SLOT: the same id on the wire, re-admitted as the binder key
+    /// A declaration shape's key SLOT: the same id on the wire, re-admitted as the bound variable key
     /// the slot is typed by — a decoded column carries no key to project one from.
-    let writeBinderSlot (w: FrozenWriter) (k: BinderKeyG<BinderId>) = writeBinderId w (BinderKey.identity k)
+    let writeBoundVarSlot (w: FrozenWriter) (k: BoundVarKeyG<BoundVarId>) =
+        writeBoundVarId w (BoundVarKey.identity k)
 
-    let readBinderSlot (r: FrozenReader) : BinderKeyG<BinderId> = BinderKey.ofInterned (readBinderId r)
+    let readBoundVarSlot (r: FrozenReader) : BoundVarKeyG<BoundVarId> =
+        BoundVarKey.ofInterned (readBoundVarId r)
 
     /// A bare token index, absence and all. The blob is keyed by the source hash, so a reader
     /// resolves it against the same `Lexed` the writer indexed — which is what keeps the

@@ -164,7 +164,7 @@ let tests =
             // error. `Alpha` above `type U` names no case there, and an ident that names
             // nothing in PATTERN position is a variable pattern — so F# accepts this (with
             // FS0049 uppercase-ident and FS0026 rule-never-matched warnings) and binds `Alpha`
-            // as a fresh binder matching anything. `f` is therefore `'a -> int`, not
+            // as a fresh bound variable matching anything. `f` is therefore `'a -> int`, not
             // `U -> int`: probed, `f "a string"` and `f 42` both typecheck and both return 1.
             // Asserting an ERROR here would pin a rule F# does not have.
             test "a union case above its union's declaration is a variable pattern" {
@@ -172,7 +172,9 @@ let tests =
                     analyse
                         "let f x =\n    match x with\n    | Alpha -> 1\n    | Beta -> 2\ntype U =\n    | Alpha\n    | Beta"
 
-                Expect.isEmpty (errors tast) "no diagnostics: an unrecognised ident in pattern position is a binder"
+                Expect.isEmpty
+                    (errors tast)
+                    "no diagnostics: an unrecognised ident in pattern position is a bound variable"
 
                 match soleModuleLetArg tast with
                 | SemType.TyVar _

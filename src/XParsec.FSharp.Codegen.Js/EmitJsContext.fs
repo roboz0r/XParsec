@@ -65,7 +65,7 @@ module EmitJsContext =
             /// Top-level module functions with their flat compiled form. Drives the FLAT
             /// emission: a module function emits as one multi-arg arrow (tuple groups
             /// flattened, lone unit erased); anything unsaturated gets a curried adapter.
-            CompiledFns: Dictionary<BinderId, CompiledFns.CompiledFn>
+            CompiledFns: Dictionary<BoundVarId, CompiledFns.CompiledFn>
             /// Keys of the file's locally-declared interfaces. A member whose declaring type
             /// is in this set lowers to `receiver.<member>(args)`, not the free receiver-first
             /// `<Type>__<member>`. `CallVia` cannot say: an interface-TYPED receiver is `Self`.
@@ -288,7 +288,7 @@ module EmitJsContext =
         | t :: rest ->
             List.fold (fun acc x -> Option.map2 (fun a b -> JsExpr.Logical("||", a, b, ValueNone)) acc x) t rest
 
-    /// Emit a top-level binding. `reassignable` (the binder is mutated elsewhere in the
+    /// Emit a top-level binding. `reassignable` (the bound variable is mutated elsewhere in the
     /// module) selects `export let` / `let` over the default `export const` / `const`, so a
     /// module-scope `let mutable` write is not an assignment-to-const `TypeError`.
     let topLevelBinding (ctx: WalkCtx) (reassignable: bool) (name: string) (init: JsExpr) : JsStatement =
@@ -299,9 +299,9 @@ module EmitJsContext =
         else
             JsStatement.Const(name, init)
 
-    /// Emit a nested `let`/`const` for binder `k`: a reassignable `let` when the body
-    /// mutates the binder (`k <- …`), else a `const`.
-    let localBinding (k: BinderId) (body: TastAccessor.ExprId) (name: string) (init: JsExpr) : JsStatement =
+    /// Emit a nested `let`/`const` for bound variable `k`: a reassignable `let` when the body
+    /// mutates the bound variable (`k <- …`), else a `const`.
+    let localBinding (k: BoundVarId) (body: TastAccessor.ExprId) (name: string) (init: JsExpr) : JsStatement =
         if isAssignedIn k body then
             JsStatement.Let(name, init)
         else
@@ -417,8 +417,8 @@ module EmitJsContext =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> None, []
         | PatShape.NamedSimple ->
-            let k = (TastAccessor.patBinder pat).Value
-            None, [ JsStatement.Const(binderNameOf ctx.Pool k, access) ]
+            let k = (TastAccessor.patBoundVar pat).Value
+            None, [ JsStatement.Const(boundVarNameOf ctx.Pool k, access) ]
         | PatShape.Const ->
             let value = TastAccessor.patConstValue pat
             Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
@@ -486,7 +486,7 @@ module EmitJsContext =
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | PatShape.Null -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
         // `p1 | … | pn`: the arm matches iff SOME alternative matches. Alternatives bind nothing
-        // — name resolution drops or-pattern binders — so their binding lists are discarded.
+        // — name resolution drops or-pattern bound variables — so their binding lists are discarded.
         | PatShape.Or ->
             let alts = TastAccessor.patChildren pat
             let tests = [ for alt in alts -> fst (compileMatchPattern ctx access alt) ]

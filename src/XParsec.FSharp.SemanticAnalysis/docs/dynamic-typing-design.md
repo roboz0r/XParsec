@@ -167,7 +167,7 @@ FSharp.Interop.Dynamic inspects `typeof<'TResult>` at runtime to choose property
 method-invoke via the DLR. On JS we need none of that: `x?foo` is a property get
 (`x["foo"]`), and `x?foo(args)` is just `App` over that get (`x["foo"](args)`) — the JS
 runtime *is* the dynamic dispatch. **FID-style reflection is the CLR story and is
-deferred** (a CLR `dynamic` would need a `Dynamitey`-like runtime binder); our first and
+deferred** (a CLR `dynamic` would need a `Dynamitey`-like runtime boundVar); our first and
 only target here is JS.
 
 ## Extractor / provider
@@ -233,4 +233,4 @@ All uncommitted. Keep as reference, then unwind:
    *only* constraint is `default` (every existing SRTP typar also carries a member
    trait)? And does a 3-arg assignment template `$0[$1] = $2` lower correctly? Both are
    implementation-time verifications, not design forks.
-4. **[DEFERRED]** CLR `dynamic` (FID-style runtime binder). Out of scope; JS-only now.
+4. **[DEFERRED]** CLR `dynamic` (FID-style runtime boundVar). Out of scope; JS-only now.

@@ -431,7 +431,7 @@ let tests =
                 | ValueNone -> failtest "no TypeVar for r"
             }
 
-            // The §3b disposal-model flip: a `use` binder must implement `disposable`
+            // The §3b disposal-model flip: a `use` bound variable must implement `disposable`
             // (`System.IDisposable`), matching real F#. Resolved against the real
             // Vesper.Core contract so `caps.Disposable` is non-null (`Vesper.disposable`
             // ⇒ `System.IDisposable`). NOTE: this contract-only provider does NOT surface

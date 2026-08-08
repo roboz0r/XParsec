@@ -61,19 +61,19 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
-        /// A module-level binding's binder → its named-holder placement (`module Foo`'s
+        /// A module-level binding's bound variable → its named-holder placement (`module Foo`'s
         /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
         /// "Program" holder).
-        ModuleMembers: Map<BinderKeyG<'id>, ModuleBindingInfo>
-        /// A closure binder → its stack-vs-heap verdict. A binder absent here, and any
+        ModuleMembers: Map<BoundVarKeyG<'id>, ModuleBindingInfo>
+        /// A closure bound variable → its stack-vs-heap verdict. A bound variable absent here, and any
         /// anonymous lambda, is `Heap`.
-        ClosureReprs: Map<BinderKeyG<'id>, ClosureRepr>
+        ClosureReprs: Map<BoundVarKeyG<'id>, ClosureRepr>
         /// A SOURCE-lambda argument's `LambdaKey` → its value-struct closure verdict; a
         /// lambda absent here is an ordinary curried closure. Keyed by lambda and not by
-        /// binder because a lambda EXPRESSION is not a definition site.
+        /// bound variable because a lambda EXPRESSION is not a definition site.
         FunVerdicts: Map<LambdaKey, FunVerdict>
-        /// A project-local generalised binding's binder → its frozen typar bounds.
-        GenericFnSchemes: Map<BinderKeyG<'id>, FrozenConstraint list>
+        /// A project-local generalised binding's bound variable → its frozen typar bounds.
+        GenericFnSchemes: Map<BoundVarKeyG<'id>, FrozenConstraint list>
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
         /// UNEXPANDED body — a different tree from the decl of the same name. Empty pre-freeze.
@@ -85,8 +85,8 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// Declared accessibility of each top-level entity (type / module value / inline
         /// value); a key ABSENT here is `Public`. A type MEMBER's rides on the member itself.
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
-        /// A module binding's typar count, keyed by the binder its pattern introduces.
-        BindingTyparArities: Map<BinderKeyG<'id>, int>
+        /// A module binding's typar count, keyed by the bound variable its pattern introduces.
+        BindingTyparArities: Map<BoundVarKeyG<'id>, int>
     }
 
 // Monomorphic `SemType` aliases, over the `NodeKey` identity axis.

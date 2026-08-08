@@ -815,7 +815,7 @@ let unionMemberTests =
     testList
         "UnionMembers"
         [
-            test "augmentation members surface with kind, static-ness, types, and a this binder" {
+            test "augmentation members surface with kind, static-ness, types, and a this bound variable" {
                 let tast = analyse memberSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -843,14 +843,16 @@ let unionMemberTests =
 
                     Expect.equal isEmpty.ReturnTy (TyConst(RuntimeNames.boolKey, EqArray.empty)) "IsEmpty : bool"
 
-                    Expect.isTrue (ValueOption.isSome isEmpty.ThisKey) "an instance member carries a `this` binder"
+                    Expect.isTrue
+                        (ValueOption.isSome isEmpty.ThisKey)
+                        "an instance member carries a `this` bound variable"
 
                     Expect.equal (find "Head").ReturnTy (TyConst(RuntimeNames.intKey, EqArray.empty)) "Head : int"
 
                     let empty = find "Empty"
                     Expect.isTrue empty.IsStatic "Empty is static"
                     Expect.equal empty.ReturnTy (TyUnion("Lst", EqArray.empty)) "Empty : Lst"
-                    Expect.isTrue (ValueOption.isNone empty.ThisKey) "a static member has no `this` binder"
+                    Expect.isTrue (ValueOption.isNone empty.ThisKey) "a static member has no `this` bound variable"
 
                     let single = find "Single"
                     Expect.isTrue single.IsStatic "Single is static"
@@ -938,7 +940,7 @@ let unionInterfaceImplTests =
             // A union whose ONLY member is an interface impl whose body READS `this`
             // (via `match this`). Before the NameResolution guard was relaxed, a
             // members-empty union never had its impl bodies name-resolved, so `this`
-            // (and the case-payload binders) resolved to an unbound `External` →
+            // (and the case-payload bound variables) resolved to an unbound `External` →
             // "unsupported external value". This is the gating fix for a union (e.g.
             // `List`) implementing `seq` whose `GetEnumerator` must reference `this`.
             test "a union interface-impl body can read `this` (match self) without an unbound-external error" {

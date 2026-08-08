@@ -244,7 +244,7 @@ let tests =
             }
 
             test "nullary ctor in pattern binds nothing" {
-                // `Point` is a known ctor, not a binder, so its pattern ident must
+                // `Point` is a known ctor, not a bound variable, so its pattern ident must
                 // have no self-binding entry.
                 let ctx = analyse "type S = | Point\nmatch 0 with | Point -> 0 | _ -> 0"
 
@@ -515,9 +515,9 @@ let tests =
 
                 let info = expectClass ctx "D"
 
-                // The `base` binder gets a self-entry in the instance scope.
-                match ctx.Bindings.Binding.TryGetValue(BinderKey.identity info.BaseKey) with
-                | ValueSome rb -> Expect.equal rb.BindingSite (BinderKey.identity info.BaseKey) "base self-entry"
+                // The `base` bound variable gets a self-entry in the instance scope.
+                match ctx.Bindings.Binding.TryGetValue(BoundVarKey.identity info.BaseKey) with
+                | ValueSome rb -> Expect.equal rb.BindingSite (BoundVarKey.identity info.BaseKey) "base self-entry"
                 | ValueNone -> failtest "base not bound in instance scope"
 
                 // Referencing `base.M()` does not produce an unresolved diagnostic.

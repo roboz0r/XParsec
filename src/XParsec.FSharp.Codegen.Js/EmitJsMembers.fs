@@ -12,8 +12,8 @@ module EmitJsMembers =
 
     /// `const r = this;` — binds the receiver name a member body or a class preamble's
     /// entries already use. Empty when that name is already `this`.
-    let thisAlias (ctx: WalkCtx) (k: BinderKeyG<BinderId>) : JsStatement list =
-        let recvName = binderNameOf ctx.Pool (BinderKey.identity k)
+    let thisAlias (ctx: WalkCtx) (k: BoundVarKeyG<BoundVarId>) : JsStatement list =
+        let recvName = boundVarNameOf ctx.Pool (BoundVarKey.identity k)
 
         if recvName = "this" then
             []
@@ -38,7 +38,7 @@ module EmitJsMembers =
         : JsClassMethod =
         {
             Key = key
-            Params = [ for (pk, _) in m.Params -> binderNameOf ctx.Pool (BinderKey.identity pk) ]
+            Params = [ for (pk, _) in m.Params -> boundVarNameOf ctx.Pool (BoundVarKey.identity pk) ]
             Body = thisBinding ctx m @ [ JsStatement.Return(buildExpr ctx m.Body) ]
             Generator = false
         }
@@ -113,11 +113,11 @@ module EmitJsMembers =
                 []
             else
                 match m.ThisKey with
-                | ValueSome k -> [ binderNameOf ctx.Pool (BinderKey.identity k) ]
+                | ValueSome k -> [ boundVarNameOf ctx.Pool (BoundVarKey.identity k) ]
                 | ValueNone -> [ "this$" ]
 
         let paramNames =
-            [ for (pk, _) in m.Params -> binderNameOf ctx.Pool (BinderKey.identity pk) ]
+            [ for (pk, _) in m.Params -> boundVarNameOf ctx.Pool (BoundVarKey.identity pk) ]
 
         let allNames = receiverNames @ paramNames
         let body = buildExpr ctx m.Body

@@ -70,16 +70,16 @@ module JsEmitHelpers =
         else
             mangled
 
-    let binderName (n: BinderNaming) : string =
+    let boundVarName (n: BoundVarNaming) : string =
         match n with
-        | BinderNaming.Source name -> jsSafe (jsIdent name)
-        | BinderNaming.Minted(BinderId slot) -> "_s" + string slot
+        | BoundVarNaming.Source name -> jsSafe (jsIdent name)
+        | BoundVarNaming.Minted(BoundVarId slot) -> "_s" + string slot
 
-    let binderNameOf (pool: PoolBuilder) (b: BinderId) : string =
-        binderName (TastPoolBuilder.binderNaming pool b)
+    let boundVarNameOf (pool: PoolBuilder) (b: BoundVarId) : string =
+        boundVarName (TastPoolBuilder.boundVarNaming pool b)
 
     let freshTemp (pool: PoolBuilder) (prefix: string) : string =
-        let (BinderId slot) = TastPoolBuilder.mintBinder pool
+        let (BoundVarId slot) = TastPoolBuilder.mintBoundVar pool
         prefix + string slot
 
     // ---- Scalar constants ----------------------------------------------------
@@ -140,7 +140,7 @@ module JsEmitHelpers =
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
-            match TastAccessor.patKind l.Binding with
+            match TastAccessor.patKind l.Pattern with
             | PatShape.NamedSimple -> isPureValue l.Value && isPureValue l.Body
             | _ -> false
         | _ -> false
@@ -148,25 +148,25 @@ module JsEmitHelpers =
     /// Replaces every `Var k` in `e` with `value`; sound only where `value` is duplicable.
     let rec substVar
         (derivation: InlineExpand.Derivation)
-        (k: BinderId)
+        (k: BoundVarId)
         (value: TastAccessor.ExprId)
         (e: TastAccessor.ExprId)
         : TastAccessor.ExprId =
         match TastAccessor.exprKind e with
-        | ExprShape.Var when TastAccessor.exprVarBinding e = k -> value
+        | ExprShape.Var when TastAccessor.exprVarBoundVar e = k -> value
         | _ ->
             let result = TastAccessor.mapChildren (substVar derivation k value) e
             InlineExpand.Derivation.authored derivation e result
             result
 
-    let rec isAssignedIn (k: BinderId) (e: TastAccessor.ExprId) : bool =
+    let rec isAssignedIn (k: BoundVarId) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.Assignment ->
             let a = TastAccessor.exprAssignment e
 
             if
                 TastAccessor.exprKind a.Lhs = ExprShape.Var
-                && TastAccessor.exprVarBinding a.Lhs = k
+                && TastAccessor.exprVarBoundVar a.Lhs = k
             then
                 true
             else
@@ -177,7 +177,7 @@ module JsEmitHelpers =
     /// `let x = m in (m <- e; x)` the uses would see the post-assignment `m`. Purity is not enough.
     let rec valueReadsAssignedIn (body: TastAccessor.ExprId) (value: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind value with
-        | ExprShape.Var -> isAssignedIn (TastAccessor.exprVarBinding value) body
+        | ExprShape.Var -> isAssignedIn (TastAccessor.exprVarBoundVar value) body
         | _ -> TastAccessor.existsChild (valueReadsAssignedIn body) value
 
     /// A `let x = v` whose `v` is safe to inline, reduced to its substituted body.
@@ -186,7 +186,7 @@ module JsEmitHelpers =
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
-            match l.Binding with
+            match l.Pattern with
             | TastAccessor.PNamed k ->
                 if
                     isPureValue l.Value
@@ -206,7 +206,7 @@ module JsEmitHelpers =
     // `JsExpr.Arrow`'s parameter list wants a real pattern type for object-destructuring.
     let rec lambdaParamName (pool: PoolBuilder) (p: TastAccessor.PatId) : string =
         match p with
-        | TastAccessor.PNamedNaming naming -> binderName naming
+        | TastAccessor.PNamedNaming naming -> boundVarName naming
         | _ ->
             match TastAccessor.patKind p with
             | PatShape.Wildcard -> freshTemp pool "_w"
@@ -233,20 +233,24 @@ module JsEmitHelpers =
         | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nestUnaryArrows loc rest innermost), loc)
         | [] -> failwith "EmitJs: nestUnaryArrows on an empty parameter list"
 
-    let (|TailSelfCall|_|) (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
+    let (|TailSelfCall|_|)
+        (selfKey: BoundVarId)
+        (arity: int)
+        (e: TastAccessor.ExprId)
+        : TastAccessor.ExprId list option =
         match TastAccessor.exprKind e with
         | ExprShape.App ->
             match TastAccessor.collectAppChain [] e with
             | fn, appArgs when
                 TastAccessor.exprKind fn = ExprShape.Var
-                && TastAccessor.exprVarBinding fn = selfKey
+                && TastAccessor.exprVarBoundVar fn = selfKey
                 && List.length appArgs = arity
                 ->
                 Some [ for (a, _, _) in appArgs -> a ]
             | _ -> None
         | _ -> None
 
-    let rec hasTailSelfCall (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : bool =
+    let rec hasTailSelfCall (selfKey: BoundVarId) (arity: int) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.IfThenElse ->
             let i = TastAccessor.exprIfThenElse e

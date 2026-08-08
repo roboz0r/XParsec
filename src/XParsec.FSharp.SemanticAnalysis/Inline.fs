@@ -196,8 +196,8 @@ module Inline =
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
         | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"
 
-    /// Rename every binder NodeKey in `body`, and the references to it, to a fresh key from
-    /// `mint`. Two expansions would otherwise share a binder — and so a codegen local slot —
+    /// Rename every bound variable NodeKey in `body`, and the references to it, to a fresh key from
+    /// `mint`. Two expansions would otherwise share a bound variable — and so a codegen local slot —
     /// making nested call sites (`succ (succ x)`) clobber each other. Free vars pass through.
     let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
         let remap = Dictionary<NodeKey, NodeKey>()
@@ -212,8 +212,8 @@ module Inline =
             | true, k' -> k'
             | _ -> k
 
-        // `ForTo`'s binder is a bare `NodeKey`, not a `TPat`, so it needs an override of its
-        // own. A pattern is mapped before its body, so a binder is in the remap before any
+        // `ForTo`'s bound variable is a bare `NodeKey`, not a `TPat`, so it needs an override of its
+        // own. A pattern is mapped before its body, so a bound variable is in the remap before any
         // reference to it is rewritten.
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
@@ -246,7 +246,7 @@ module Inline =
         TastWalk.mapExpr mapper body
 
     /// Beta-reduce a curried lambda against its applied arguments, lowering each application to
-    /// a `TExpr.Let` sited at that application, its binder keeping the lambda parameter's own
+    /// a `TExpr.Let` sited at that application, its bound variable keeping the lambda parameter's own
     /// token. A leftover lambda is a partial application and is returned as it stands.
     let rec betaReduce (fn: TExpr) (args: (TExpr * SemType * SyntaxToken) list) : TExpr =
         match fn, args with
@@ -282,7 +282,7 @@ module Inline =
         | _ -> 0
 
     /// Rewrite what a curried lambda COMPUTES, leaving its abstractions in place: beta reduction
-    /// matches on the lambda chain, and its binders are consumed against the arguments of
+    /// matches on the lambda chain, and its bound variables are consumed against the arguments of
     /// whatever body it is spliced into, so the rewrite applies below them, not around them.
     let rec internal underLambdas (f: TExpr -> TExpr) (e: TExpr) : TExpr =
         match e with

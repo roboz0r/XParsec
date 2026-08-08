@@ -127,7 +127,7 @@ let tests =
                 // comparison the ground guard used to fall back to.
                 match Emit.lower (pooledDecls (Freeze.run ctx tast)) with
                 | [ TastAccessor.DLet lv ] when
-                    (TastAccessor.patBinder lv.Binding).IsSome
+                    (TastAccessor.patBoundVar lv.Pattern).IsSome
                     && not lv.IsInline
                     && TastAccessor.exprKind lv.Value = ExprShape.Lambda
                     && TastAccessor.exprKind (TastAccessor.exprLambda lv.Value).Body = ExprShape.Lambda

@@ -5,7 +5,7 @@ open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 
-/// The per-type binder/preparer shared by unions, records, and classes. `register`
+/// The per-type bound variable/preparer shared by unions, records, and classes. `register`
 /// fills the `EmitContext` registries with layout-derived handles only — no bodies —
 /// so any prepared body can reference any type's ctor, factory, field, or member.
 module internal NominalEmit =

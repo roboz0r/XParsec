@@ -12,21 +12,21 @@ module TastPools =
     /// belongs to.
     [<RequireQualifiedAccess>]
     type PooledEvent<'id> =
-        /// A `Var`'s reference edge, which the walk cannot fill: binder ids are the sink's
-        /// to assign, and a `Var` may name a binder the walk has not reached.
-        | VarRef of binder: 'id * at: ExprPoolId
+        /// A `Var`'s reference edge, which the walk cannot fill: bound variable ids are the sink's
+        /// to assign, and a `Var` may name a bound variable the walk has not reached.
+        | VarRef of boundVar: 'id * at: ExprPoolId
         /// A pooled lambda's id, with the anchor its `LambdaKey` is minted from.
         | LambdaPooled of anchor: Anchor * at: ExprPoolId
 
-    /// Where a pooling walk PUTS its rows. Generic in how the walked tree names a binder
-    /// (`'id`: `NodeKey` from source, `BinderId` from an already-pooled tree) and in how it
+    /// Where a pooling walk PUTS its rows. Generic in how the walked tree names a bound variable
+    /// (`'id`: `NodeKey` from source, `BoundVarId` from an already-pooled tree) and in how it
     /// spells a position (`'tok`).
     type PoolSink<'tok, 'id> =
         {
-            /// Called for every binder a walked node INTRODUCES (a `NamedSimple` pattern's
+            /// Called for every bound variable a walked node INTRODUCES (a `NamedSimple` pattern's
             /// binding, a `ForTo` loop variable), before that node's row is added.
-            /// Idempotent in the binder.
-            InternBinder: BinderKeyG<'id> -> BinderId
+            /// Idempotent in the bound variable.
+            InternBoundVar: BoundVarKeyG<'id> -> BoundVarId
             /// How the walked tree's spelling of a position becomes the stored anchor. A
             /// property of the DESTINATION: a node of a frozen FILE must anchor on a real
             /// lexed token, while an overlay's rows belong to no file.
@@ -41,8 +41,8 @@ module TastPools =
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
     /// itself, so every child id its row names already resolves.
     let rec poolPat (sink: PoolSink<'tok, 'id>) (p: TPatG<FrozenType, 'tok, 'id>) : PatPoolId =
-        // Interned first: the payload names this binder by the id the intern hands back.
-        let binder = BinderKey.ofPat p |> ValueOption.map sink.InternBinder
+        // Interned first: the payload names this bound variable by the id the intern hands back.
+        let boundVar = BoundVarKey.ofPat p |> ValueOption.map sink.InternBoundVar
         let kids = patChildren p |> Array.map (poolPat sink)
 
         sink.AddPat
@@ -50,7 +50,7 @@ module TastPools =
                 Ty = TastWalk.patTy p
                 Tok = sink.Anchor(TastWalk.patTok p)
                 Children = kids
-                Payload = patPayload binder p
+                Payload = patPayload boundVar p
             }
 
     /// Pool an expression subtree post-order (see `poolPat`), its owned sub-patterns
@@ -58,7 +58,7 @@ module TastPools =
     let rec poolExpr (sink: PoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the intern
         // cannot ride `poolPat`.
-        let binder = BinderKey.ofExpr e |> ValueOption.map sink.InternBinder
+        let boundVar = BoundVarKey.ofExpr e |> ValueOption.map sink.InternBoundVar
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 
@@ -68,14 +68,14 @@ module TastPools =
                 Tok = sink.Anchor(TastWalk.exprTok e)
                 Children = exprKids
                 PatChildren = patKids
-                VarBinder = ValueNone
-                Payload = exprPayload sink.Anchor binder e
+                VarBoundVar = ValueNone
+                Payload = exprPayload sink.Anchor boundVar e
             }
 
         let id = sink.AddExpr row
 
         match e with
-        | TExprG.Var(binding = binding) -> sink.OnExprPooled(PooledEvent.VarRef(binding, id))
+        | TExprG.Var(boundVar = boundVar) -> sink.OnExprPooled(PooledEvent.VarRef(boundVar, id))
         | TExprG.Lambda _ -> sink.OnExprPooled(PooledEvent.LambdaPooled(row.Tok, id))
         | _ -> ()
 
@@ -94,7 +94,7 @@ module TastPools =
                     {
                         Ty = id
                         Tok = sink.Anchor
-                        Id = sink.InternBinder
+                        Id = sink.InternBoundVar
                         Body = poolExpr sink
                     }
                     td
@@ -105,8 +105,8 @@ module TastPools =
     let poolDecl (sink: PoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
         let struct (exprKids, patKids) =
             match d with
-            | TDeclG.Let(binding = binding; value = value) ->
-                struct ([| poolExpr sink value |], [| poolPat sink binding |])
+            | TDeclG.Let(pattern = pattern; value = value) ->
+                struct ([| poolExpr sink value |], [| poolPat sink pattern |])
             | TDeclG.Expression(expr = expr) -> struct ([| poolExpr sink expr |], [||])
             | TDeclG.Type _ -> struct ([||], [||])
 
@@ -119,20 +119,20 @@ module TastPools =
 
     /// The SOURCE arity of every module binding, read off the columns just filled — so a
     /// tuple group's pattern IS the lambda parameter node it was peeled from, not a copy.
-    let private bindingValReprs (pools: FrozenPools) : DenseTable<BinderId, PooledValRepr> =
+    let private bindingValReprs (pools: FrozenPools) : DenseTable<BoundVarId, PooledValRepr> =
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
             | ExprPayload.Lambda ->
                 ValueSome(struct (ChildColumn.item pools.ExprPatChildren i 0, ChildColumn.item pools.ExprChildren i 0))
             | _ -> ValueNone
 
-        let facts (PatPoolId i) : ArgGroups.ParamPatFacts<BinderId> =
+        let facts (PatPoolId i) : ArgGroups.ParamPatFacts<BoundVarId> =
             {
                 Shape = PatPayload.shape pools.PatPayloads.[i]
                 Ty = pools.Types.[pools.PatTys.[i]]
-                Binder =
+                BoundVar =
                     match pools.PatPayloads.[i] with
-                    | PatPayload.NamedSimple binder -> ValueSome binder
+                    | PatPayload.NamedSimple boundVar -> ValueSome boundVar
                     | _ -> ValueNone
                 ConstValue =
                     match pools.PatPayloads.[i] with
@@ -147,18 +147,18 @@ module TastPools =
                     let (PatPoolId pattern) = ChildColumn.item pools.DeclPatChildren d 0
 
                     match pools.PatPayloads.[pattern] with
-                    // Only a simple binder has a side-table identity.
-                    | PatPayload.NamedSimple binder ->
+                    // Only a simple bound variable has a side-table identity.
+                    | PatPayload.NamedSimple boundVar ->
                         let groups, body =
                             ArgGroups.peel unLambda facts (ChildColumn.item pools.DeclExprChildren d 0)
 
                         let (ExprPoolId b) = body
 
                         yield
-                            binder,
+                            boundVar,
                             {
                                 // A plain value has no lambda groups: an empty-`Groups` entry.
-                                Typars = FrozenPools.typarArity pools binder
+                                Typars = FrozenPools.typarArity pools boundVar
                                 Groups = groups
                                 ResultTy = pools.Types.[pools.ExprTys.[b]]
                             }
@@ -168,11 +168,11 @@ module TastPools =
         |]
 
     /// Pool a tree, assigning each reachable node a dense id and recording its child edges
-    /// as ids. `spellingOf` fills the two binder columns, `anchor` narrows the tree's
+    /// as ids. `identOf` fills the two bound-variable columns, `anchor` narrows the tree's
     /// spelling of a position to the stored form, `origin` is the file those indices index.
     let private fill
         (origin: OriginFile)
-        (spellingOf: BinderKeyG<'id> -> BinderSpelling)
+        (identOf: BoundVarKeyG<'id> -> BoundVarIdent)
         (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
         : FrozenPools =
@@ -186,7 +186,7 @@ module TastPools =
         let exprPatChildrenCol = ChildColumnBuilder<PatPoolId>()
         let exprPayloads = ResizeArray<ExprPayload>()
 
-        // Each `Var`'s expr id + the binder it references. A `Var` may name a binder pooled
+        // Each `Var`'s expr id + the bound variable it references. A `Var` may name a bound variable pooled
         // after it (a forward / mutually-recursive reference), so the enumeration must
         // complete before the edge can be resolved.
         let varBindings = ResizeArray<struct (int * 'id)>()
@@ -202,37 +202,37 @@ module TastPools =
         let declPatChildrenCol = ChildColumnBuilder<PatPoolId>()
         let declPayloads = ResizeArray<DeclPayload>()
 
-        // The binder pool: each definition site the walk reaches takes a dense `BinderId` on
+        // The bound variable pool: each definition site the walk reaches takes a dense `BoundVarId` on
         // first encounter, its two columns recording the source spelling and where. A
-        // `BinderId` may have no pooled pattern (a `this` slot has none).
-        let binderNames = ResizeArray<string>()
-        let binderToks = ResizeArray<Anchor>()
-        let binderIds = System.Collections.Generic.Dictionary<'id, BinderId>()
+        // `BoundVarId` may have no pooled pattern (a `this` slot has none).
+        let boundVarNames = ResizeArray<string>()
+        let boundVarToks = ResizeArray<Anchor>()
+        let boundVarIds = System.Collections.Generic.Dictionary<'id, BoundVarId>()
 
         // A pooled lambda's `ExprPoolId` paired with the key its `FunVerdicts` entry is filed
         // under. A LIST, not a key→id map: an inline template and the function it was stashed
         // from share a token, so one key stamps several lambdas.
         let lambdaSlots = ResizeArray<struct (ExprPoolId * LambdaKey)>()
 
-        let internBinder (binder: BinderKeyG<'id>) : BinderId =
-            let k = BinderKey.identity binder
+        let internBoundVar (boundVar: BoundVarKeyG<'id>) : BoundVarId =
+            let k = BoundVarKey.identity boundVar
 
-            match binderIds.TryGetValue k with
+            match boundVarIds.TryGetValue k with
             | true, id -> id
             | false, _ ->
-                let id = BinderId binderNames.Count
-                binderIds.Add(k, id)
-                let sp = spellingOf binder
-                binderNames.Add sp.Name
-                binderToks.Add sp.At
+                let id = BoundVarId boundVarNames.Count
+                boundVarIds.Add(k, id)
+                let ident = identOf boundVar
+                boundVarNames.Add ident.Text
+                boundVarToks.Add ident.At
                 id
 
         // Rows land at the end of the column builders, so a node's id is the count at the
-        // moment it is added. `ExprRow.VarBinder` is dropped here and filled by the second
+        // moment it is added. `ExprRow.VarBoundVar` is dropped here and filled by the second
         // pass below.
         let sink: PoolSink<'tok, 'id> =
             {
-                InternBinder = internBinder
+                InternBoundVar = internBoundVar
                 Anchor = anchor
                 AddExpr =
                     fun row ->
@@ -261,7 +261,7 @@ module TastPools =
                 OnExprPooled =
                     fun ev ->
                         match ev with
-                        | PooledEvent.VarRef(binder, ExprPoolId id) -> varBindings.Add(struct (id, binder))
+                        | PooledEvent.VarRef(boundVar, ExprPoolId id) -> varBindings.Add(struct (id, boundVar))
                         | PooledEvent.LambdaPooled(anchor, id) -> lambdaSlots.Add(struct (id, LambdaKey anchor))
             }
 
@@ -269,7 +269,7 @@ module TastPools =
 
         // The inline vocabulary, pooled as its OWN roots: a template is a different tree from
         // the emitted function of the same name. Ordinary pooled decls, so the walk reaches a
-        // template's binders too.
+        // template's bound variables too.
         let inlineTemplates =
             file.InlineBodies
             |> EqArray.toArray
@@ -294,25 +294,28 @@ module TastPools =
                 }
             )
 
-        let internedBinderId (k: 'id) : BinderId voption =
-            match binderIds.TryGetValue k with
+        let internedBoundVarId (k: 'id) : BoundVarId voption =
+            match boundVarIds.TryGetValue k with
             | true, id -> ValueSome id
             | false, _ -> ValueNone
 
-        let binderIdOfRef (referent: string) (k: 'id) : BinderId =
-            match internedBinderId k with
-            | ValueSome id -> id
-            | ValueNone ->
-                failwithf "TastPools.toPools: %s key %O references a binder no definition site introduced" referent k
-
-        let binderIdOf (referent: string) (b: BinderKeyG<'id>) : BinderId =
-            let k = BinderKey.identity b
-
-            match internedBinderId k with
+        let boundVarIdOfRef (referent: string) (k: 'id) : BoundVarId =
+            match internedBoundVarId k with
             | ValueSome id -> id
             | ValueNone ->
                 failwithf
-                    "TastPools.toPools: %s entry %O names a binder no declaration in the frozen file introduces — prune the entry where its declaration is pruned"
+                    "TastPools.toPools: %s key %O references a bound variable no definition site introduced"
+                    referent
+                    k
+
+        let boundVarIdOf (referent: string) (b: BoundVarKeyG<'id>) : BoundVarId =
+            let k = BoundVarKey.identity b
+
+            match internedBoundVarId k with
+            | ValueSome id -> id
+            | ValueNone ->
+                failwithf
+                    "TastPools.toPools: %s entry %O names a bound variable no declaration in the frozen file introduces — prune the entry where its declaration is pruned"
                     referent
                     k
 
@@ -339,23 +342,24 @@ module TastPools =
             rows
 
         // Second pass, the enumeration now complete: route each `Var`'s reference edge to its
-        // binder's dense id. `ValueNone` at every non-`Var` slot.
-        let exprVarBinder: BinderId voption[] = Array.create exprPayloads.Count ValueNone
+        // bound variable's dense id. `ValueNone` at every non-`Var` slot.
+        let exprVarBoundVar: BoundVarId voption[] =
+            Array.create exprPayloads.Count ValueNone
 
         for (struct (id, key)) in varBindings do
-            exprVarBinder.[id] <- ValueSome(binderIdOfRef "Var" key)
+            exprVarBoundVar.[id] <- ValueSome(boundVarIdOfRef "Var" key)
 
         // The resolver is a parameter so that a fault names the table holding the key.
         let remapSideTable (resolve: 'k -> 'dense) (m: Map<'k, 'v>) : ('dense * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
-        // A per-binder SCALAR goes into a column instead: the producer's key is resolved here
-        // and then DROPPED, the fact landing at the binder's own slot.
-        let binderColumn (referent: string) (m: Map<BinderKeyG<'id>, 'v>) : BinderColumn<'v> =
-            let col = Array.create binderNames.Count ValueNone
+        // A per-bound-variable SCALAR goes into a column instead: the producer's key is resolved here
+        // and then DROPPED, the fact landing at the bound variable's own slot.
+        let boundVarColumn (referent: string) (m: Map<BoundVarKeyG<'id>, 'v>) : BoundVarColumn<'v> =
+            let col = Array.create boundVarNames.Count ValueNone
 
             for KeyValue(k, v) in m do
-                let (BinderId i) = binderIdOf referent k
+                let (BoundVarId i) = boundVarIdOf referent k
                 col.[i] <- ValueSome v
 
             col
@@ -369,7 +373,7 @@ module TastPools =
                 ExprToks = exprToks.ToArray()
                 ExprChildren = exprChildrenCol.ToColumn()
                 ExprPatChildren = exprPatChildrenCol.ToColumn()
-                ExprVarBinder = exprVarBinder
+                ExprVarBoundVar = exprVarBoundVar
                 ExprPayloads = exprPayloads.ToArray()
                 PatTys = patTys.ToArray()
                 PatToks = patToks.ToArray()
@@ -381,8 +385,8 @@ module TastPools =
                 Roots = roots
                 InlineTemplates = inlineTemplates
                 Specializations = specializations
-                BinderNames = binderNames.ToArray()
-                BinderToks = binderToks.ToArray()
+                BoundVarNames = boundVarNames.ToArray()
+                BoundVarToks = boundVarToks.ToArray()
                 Residue =
                     {
                         Diagnostics = file.Diagnostics
@@ -390,13 +394,13 @@ module TastPools =
                         GlobalValueKeys = file.GlobalValueKeys
                         Accessibility = file.Accessibility
                     }
-                ModuleMembers = remapSideTable (binderIdOf "ModuleMembers") file.ModuleMembers
-                ClosureReprs = remapSideTable (binderIdOf "ClosureReprs") file.ClosureReprs
+                ModuleMembers = remapSideTable (boundVarIdOf "ModuleMembers") file.ModuleMembers
+                ClosureReprs = remapSideTable (boundVarIdOf "ClosureReprs") file.ClosureReprs
                 FunVerdicts = funVerdicts
-                GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
+                GenericFnSchemes = remapSideTable (boundVarIdOf "GenericFnSchemes") file.GenericFnSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
-                BindingTyparArities = binderColumn "BindingTyparArities" file.BindingTyparArities
+                BindingTyparArities = boundVarColumn "BindingTyparArities" file.BindingTyparArities
             }
 
         { pools with
@@ -404,19 +408,19 @@ module TastPools =
         }
 
     /// Pool a source-shaped frozen file: its tokens become indices against `origin`, and
-    /// `spellings` records how the source writes each binder's name, verbatim.
-    let toPools (origin: OriginFile) (spellings: BinderKey -> BinderSpelling) (file: Frozen.TastFile) : FrozenPools =
-        fill origin spellings Anchor.ofToken file
+    /// `idents` records how the source writes each bound variable's name, verbatim.
+    let toPools (origin: OriginFile) (idents: BoundVarKey -> BoundVarIdent) (file: Frozen.TastFile) : FrozenPools =
+        fill origin idents Anchor.ofToken file
 
-    /// Pool a tree that was UNPOOLED from `pools`: the spelling and the origin come back off
+    /// Pool a tree that was UNPOOLED from `pools`: the names and the origin come back off
     /// the pool it came out of, and its anchors are already in the stored form.
     let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
-        let spellingOf (b: BinderKeyG<BinderId>) =
-            let (BinderId i) = BinderKey.identity b
+        let identOf (b: BoundVarKeyG<BoundVarId>) =
+            let (BoundVarId i) = BoundVarKey.identity b
 
             {
-                Name = pools.BinderNames.[i]
-                At = pools.BinderToks.[i]
+                Text = pools.BoundVarNames.[i]
+                At = pools.BoundVarToks.[i]
             }
 
-        fill pools.Origin spellingOf id file
+        fill pools.Origin identOf id file

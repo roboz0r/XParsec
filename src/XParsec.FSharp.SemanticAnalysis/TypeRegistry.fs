@@ -669,7 +669,7 @@ module TypeRegistry =
         | false, _ -> Array.empty
 
     /// The union cases named `name` VISIBLE from `useSite`. More than one is ambiguous; none
-    /// leaves an uppercase ident an ordinary binder in a pattern, unresolved in an expression.
+    /// leaves an uppercase ident an ordinary bound variable in a pattern, unresolved in an expression.
     let casesNamed (types: PassContextTypes) (useSite: UseSite) (name: string) : UnionCaseInfo[] =
         match types.CtorIndex.TryGetValue name with
         | true, infos ->
@@ -682,7 +682,7 @@ module TypeRegistry =
             hits.ToArray()
         | false, _ -> Array.empty
 
-    /// The ctor-vs-binder test: does `name` name a union case visible from `useSite`?
+    /// The ctor-vs-bound variable test: does `name` name a union case visible from `useSite`?
     let isCaseName (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
         match types.CtorIndex.TryGetValue name with
         | true, infos -> infos |> EqArray.exists (caseVisibleAt types useSite)

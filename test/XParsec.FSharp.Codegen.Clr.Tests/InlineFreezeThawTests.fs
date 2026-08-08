@@ -245,7 +245,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
     let pool = TastPoolBuilder.openOver unitA
 
     // Unpooled the way a provider serves a template — `declTree`, which re-mints the body's
-    // binders into the node space a consuming file's expansion speaks — and anchored in file
+    // bound variables into the node space a consuming file's expansion speaks — and anchored in file
     // A's own file, which is what makes the indices those bodies carry readable at B.
     let source = sourceOf unitASource
 
@@ -610,7 +610,7 @@ let tests =
 
 
             test "cross-file expansion ≡ in-file expansion, over COLLIDING NodeKeys" {
-                // A and B are compiled in the same `NodeKey` space, so A's body binders and
+                // A and B are compiled in the same `NodeKey` space, so A's body bound variables and
                 // B's own collide freely. If the thaw consulted any ambient file state — or
                 // if its freshener cache were keyed by anything B also keys by — the
                 // collision would surface here as a wrong clause or a type error.

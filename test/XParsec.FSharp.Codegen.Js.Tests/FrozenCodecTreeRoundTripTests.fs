@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 //
 // `flatten`/`thaw` route through `TastPools.toPools`/`ofPools`, so this is also the
 // corpus-wide gate on the pool interconversion: the columns must be sufficient to
-// re-author every node, and the binder/lambda id remap must invert exactly. The
+// re-author every node, and the bound variable/lambda id remap must invert exactly. The
 // equality predicate is `TastFileG.structurallyEqual` (a library function — the
 // dictionary carve-out it encodes is a property of `TastFileG`, not of this test).
 
@@ -209,7 +209,7 @@ let tests =
             }
 
             // The conformance corpus declares no binding whose pattern introduces no
-            // binder, so it never exercised the seam where a side table is filed under a
+            // bound variable, so it never exercised the seam where a side table is filed under a
             // key the frozen tree does not bear. These pin the shapes END-TO-END through
             // the stored wire form (`flatten` is `TastPools.toPools` then the column
             // writers): each once threw out of `toPools` — a file containing one could not
@@ -225,7 +225,10 @@ let tests =
                     "inline binding in a named module",
                     "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
                 ] do
-                test ("a binder-less or unpooled-binder binding pattern round-trips: " + name) {
+                test (
+                    "a bound-variable-less or unpooled-bound-variable binding pattern round-trips: "
+                    + name
+                ) {
                     Expect.isTrue
                         (survivesRoundTrip (frozenOfJs src))
                         (name + " did not survive flatten/thaw structurally")

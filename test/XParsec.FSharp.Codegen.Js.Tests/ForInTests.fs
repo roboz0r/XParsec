@@ -16,7 +16,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 let private forInSeqSrc =
     String.concat "\n" [ "let f (s: seq<int>) ="; "    for x in s do"; "        printfn \"%d\" x" ]
 
-// A wildcard binder still drives the loop (effect-only body).
+// A wildcard bound variable still drives the loop (effect-only body).
 let private forInWildcardSrc =
     String.concat
         "\n"
@@ -66,8 +66,8 @@ let private seqClassSrc =
 // resolved on the concrete case instance. This exercises that a union routes its interface
 // impls through the SAME `partitionClassMembers` path the class uses, attaching
 // `*[Symbol.iterator]()` to the union base class. (Referencing the receiver `this` or a
-// case PAYLOAD inside a union interface-impl body hits a separate front-end binder-scoping
-// gap — slice 1 did not scope the self/pattern binders for a union's impl bodies — so the
+// case PAYLOAD inside a union interface-impl body hits a separate front-end bound-variable-scoping
+// gap — slice 1 did not scope the self/pattern bound variables for a union's impl bodies — so the
 // `GetEnumerator` body is receiver-free and the case is nullary.)
 let private seqUnionSrc =
     String.concat
@@ -132,9 +132,14 @@ let tests =
                 Expect.stringContains js "for (const x of s)" "Interface ForIn → `for…of` over the source"
             }
 
-            test "a wildcard `for _ in …` binder gets a fresh slot but still iterates" {
+            test "a wildcard `for _ in …` bound variable gets a fresh slot but still iterates" {
                 let js = emitJs forInWildcardSrc
-                Expect.stringContains js "for (const _forin" "wildcard binder → a fresh `_forin<tok>` of-binding"
+
+                Expect.stringContains
+                    js
+                    "for (const _forin"
+                    "wildcard bound variable → a fresh `_forin<tok>` of-binding"
+
                 Expect.stringContains js " of s)" "still iterates the source"
             }
 

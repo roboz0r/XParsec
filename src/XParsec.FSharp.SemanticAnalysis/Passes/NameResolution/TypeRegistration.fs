@@ -402,7 +402,7 @@ module NameResolutionTypeRegistration =
 
     /// Carries `it` over a module-level term's body. It resolves NO value and introduces NO
     /// scope — the hooks below exist solely to reach the annotations on the patterns they bind
-    /// (`fun (x: A) …`, a nested `let`'s pats, a `for`-in binder, a match arm's type test).
+    /// (`fun (x: A) …`, a nested `let`'s pats, a `for`-in bound variable, a match arm's type test).
     let private classifyingExprWalker (ctx: PassContext) (it: CstWalk.TypeIter) : CstWalk.ExprWalker<unit> =
         let onType = CstWalk.iterType it
         let onPat = NameResolutionScope.stampPatCasesWith ctx it

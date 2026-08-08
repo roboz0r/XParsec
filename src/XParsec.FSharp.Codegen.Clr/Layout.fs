@@ -29,8 +29,8 @@ module internal Layout =
         let expansion = InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)
         let decls = expansion.Decls
 
-        // The binder-keyed side tables this lowering consumes, at the dense id the columns
-        // already address a binder by.
+        // The bound-variable-keyed side tables this lowering consumes, at the dense id the columns
+        // already address a bound variable by.
         let moduleMembers = Map.ofArray pools.ModuleMembers
         let closureReprs = Map.ofArray pools.ClosureReprs
         let genericFnSchemes = Map.ofArray pools.GenericFnSchemes

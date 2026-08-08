@@ -163,7 +163,7 @@ let tests =
             test "a module-level `let mutable` written from a lambda is observed (no ref-cell promotion)" {
                 // A closure writing a MODULE-level mutable. On the CLR the cell is a
                 // static field (RefCellPromotion deliberately never promotes a top-level
-                // binder); on JS the `let count` binding is captured by reference, so the
+                // bound variable); on JS the `let count` binding is captured by reference, so the
                 // lambda's writes are observed with zero boxing. The mutable must stay a
                 // bare reassignable binding — a `.contents` ref cell here would read
                 // `undefined` (bare decl + promoted reads), the pre-fix miscompile.

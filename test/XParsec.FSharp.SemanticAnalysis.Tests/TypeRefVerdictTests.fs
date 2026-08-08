@@ -69,7 +69,7 @@ let private isExternalTypeRef (ctx: PassContext) (ty: Type<SyntaxToken>) : bool 
 
 /// A name nothing resolves is blamed by NAME, exactly ONCE: the annotation is the cause,
 /// and everything downstream of it must recover in silence rather than spray secondary
-/// errors through every expression that touched the binder.
+/// errors through every expression that touched the bound variable.
 ///
 /// Asserted on the VERDICT rather than on a rendered sentence: the diagnostic carries WHICH
 /// type went undefined as data, so this pins the classification and the name it names, and

@@ -279,7 +279,7 @@ module TastWalk =
             | TExpr.Null(ty, tok) ->
                 let ty' = f ty
                 if refEq ty' ty then e else TExpr.Null(ty', tok)
-            // `pp p` before the body walk: a binder is rewritten before any reference
+            // `pp p` before the body walk: a bound variable is rewritten before any reference
             // to it.
             | TExpr.Lambda(p, b, ty, tok) ->
                 let p' = pp p
@@ -355,7 +355,7 @@ module TastWalk =
                 else
                     TExpr.While(c', b', ty', tok)
             // The loop variable is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
-            // it — a pass that renames binders must override `ForTo` at the expr level.
+            // it — a pass that renames bound variables must override `ForTo` at the expr level.
             | TExpr.ForTo(k, it, s, e2, b, ty, tok) ->
                 let s' = pe s
                 let e2' = pe e2
@@ -707,7 +707,7 @@ module TastWalk =
             {
                 Ty = fTy
                 Tok = id
-                Id = BinderKey.identity
+                Id = BoundVarKey.identity
                 Body = fExpr
             }
             td
@@ -897,24 +897,24 @@ module TastWalk =
 
         List.ofSeq acc
 
-    /// Every binder a set of declarations introduces, anywhere in their trees: the pattern
-    /// binders plus the `ForTo` loop variables, which have no pattern node. A `Type` decl
-    /// contributes none, so this is NOT the whole-file binder set.
-    let declBinders (decls: TDeclG<SemType, SyntaxToken, NodeKey> seq) : HashSet<BinderKey> =
-        let acc = HashSet<BinderKey>(HashIdentity.Structural)
+    /// Every bound variable a set of declarations introduces, anywhere in their trees: the pattern
+    /// bound variables plus the `ForTo` loop variables, which have no pattern node. A `Type` decl
+    /// contributes none, so this is NOT the whole-file bound variable set.
+    let declBoundVars (decls: TDeclG<SemType, SyntaxToken, NodeKey> seq) : HashSet<BoundVarKey> =
+        let acc = HashSet<BoundVarKey>(HashIdentity.Structural)
 
         let it =
             { identityIter with
                 VisitPat =
                     fun _ p ->
-                        match BinderKey.ofPat p with
+                        match BoundVarKey.ofPat p with
                         | ValueSome k -> acc.Add k |> ignore
                         | ValueNone -> ()
 
                         true
                 VisitExpr =
                     fun _ e ->
-                        match BinderKey.ofExpr e with
+                        match BoundVarKey.ofExpr e with
                         | ValueSome k -> acc.Add k |> ignore
                         | ValueNone -> ()
 
@@ -931,13 +931,13 @@ module TastWalk =
 
         acc
 
-    /// Every binder-site `NodeKey` introduced by a `TPat`. A `TExpr.Var` carries its
+    /// Every bound-variable-site `NodeKey` introduced by a `TPat`. A `TExpr.Var` carries its
     /// binding-site key directly, so a free variable is a `Var` whose key is not in scope.
-    let rec bindersOfTPat (p: TPat) : NodeKey list =
+    let rec boundVarsOfTPat (p: TPat) : NodeKey list =
         match p with
         | TPat.NamedSimple(k, _, _) -> [ k ]
-        // An or-pattern binds nothing (name resolution drops its binders), so its
-        // alternatives introduce no binders here either.
+        // An or-pattern binds nothing (name resolution drops its bound variables), so its
+        // alternatives introduce no bound variables here either.
         | TPat.Or _
         | TPat.Wildcard _
         | TPat.Null _
@@ -946,19 +946,19 @@ module TastWalk =
         | TPat.Tuple(items, _, _) ->
             [
                 for sub in items do
-                    yield! bindersOfTPat sub
+                    yield! boundVarsOfTPat sub
             ]
         | TPat.Record(fields, _, _) ->
             [
                 for (_, sub) in fields do
-                    yield! bindersOfTPat sub
+                    yield! boundVarsOfTPat sub
             ]
         | TPat.Union(_, fields, _, _) ->
             [
                 for sub in fields do
-                    yield! bindersOfTPat sub
+                    yield! boundVarsOfTPat sub
             ]
-        | TPat.TypeTestAs(_, inner, _, _) -> bindersOfTPat inner
+        | TPat.TypeTestAs(_, inner, _, _) -> boundVarsOfTPat inner
 
     /// Free variables of `body` RELATIVE to the `bound0` seed: every `TExpr.Var` whose
     /// binding site is neither in the seed nor introduced by a scope the walk enters
@@ -970,14 +970,14 @@ module TastWalk =
         for k in bound0 do
             bound.Add k |> ignore
 
-        let addBinders (p: TPat) : NodeKey list =
+        let addBoundVars (p: TPat) : NodeKey list =
             [
-                for k in bindersOfTPat p do
+                for k in boundVarsOfTPat p do
                     if bound.Add k then
                         yield k
             ]
 
-        let removeBinders (added: NodeKey list) =
+        let removeBoundVars (added: NodeKey list) =
             for k in added do
                 bound.Remove k |> ignore
 
@@ -992,21 +992,21 @@ module TastWalk =
 
                             false
                         | TExpr.Lambda(p, b, _, _) ->
-                            let added = addBinders p
+                            let added = addBoundVars p
                             iterExpr it b
-                            removeBinders added
+                            removeBoundVars added
                             false
                         | TExpr.Let(p, v, b, _, _) ->
                             iterExpr it v
-                            let added = addBinders p
+                            let added = addBoundVars p
                             iterExpr it b
-                            removeBinders added
+                            removeBoundVars added
                             false
                         | TExpr.Use(p, v, b, _, _, _) ->
                             iterExpr it v
-                            let added = addBinders p
+                            let added = addBoundVars p
                             iterExpr it b
-                            removeBinders added
+                            removeBoundVars added
                             false
                         | TExpr.ForTo(k, _, st, en, b, _, _) ->
                             iterExpr it st
@@ -1020,17 +1020,17 @@ module TastWalk =
                             false
                         | TExpr.ForIn(p, src, b, _, _, _) ->
                             iterExpr it src
-                            let added = addBinders p
+                            let added = addBoundVars p
                             iterExpr it b
-                            removeBinders added
+                            removeBoundVars added
                             false
                         | _ -> true
                 VisitArm =
                     fun it arm ->
-                        let added = addBinders arm.Pat
+                        let added = addBoundVars arm.Pat
                         arm.Guard |> ValueOption.iter (iterExpr it)
                         iterExpr it arm.Body
-                        removeBinders added
+                        removeBoundVars added
                         false
             }
 

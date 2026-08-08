@@ -136,7 +136,7 @@ module UnificationInfer =
         | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" EqArray.empty 0 MemberKind.Method)
         | ValueNone -> ValueNone
 
-    /// The disposal path of a `use` binder of *external* (BCL) type. PRIMARY: the
+    /// The disposal path of a `use` bound variable of *external* (BCL) type. PRIMARY: the
     /// instantiated interface set carries `ctx.CapabilityIds.Disposable`, which also catches
     /// a `Dispose` declared on a base. `ValueNone` ⇒ not disposable.
     and private tryExternalDispose (ctx: PassContext) (declKey: TypeKey) (args: EqArray<SemType>) : Disposal voption =
@@ -212,11 +212,11 @@ module UnificationInfer =
     /// own-`Dispose` and no `IDisposable` are the carve-out. Neither ⇒ a diagnostic, entry unset.
     and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.pattern with
-        // `use _ = e` disposes exactly like a named binder; the body just has no name for it.
+        // `use _ = e` disposes exactly like a named bound variable; the body just has no name for it.
         | Pat.NamedSimple _
         | Pat.Wildcard _ ->
             let patKey = CstKeys.ofPat b.pattern
-            let binderTy = zonk ctx.Store (TyVar(tvOf ctx patKey))
+            let boundVarTy = zonk ctx.Store (TyVar(tvOf ctx patKey))
 
             let notDisposable (display: string) =
                 ctx.Report(
@@ -238,7 +238,7 @@ module UnificationInfer =
                 | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
                 | ValueNone -> notDisposable simple
 
-            match resolveStep ctx.Store binderTy with
+            match resolveStep ctx.Store boundVarTy with
             | TyClass(tyCtorKey, args)
             | TyUnion(tyCtorKey, args)
             | TyRecord(tyCtorKey, args) ->
@@ -263,7 +263,7 @@ module UnificationInfer =
         : SemType =
         inferBindingGroup ctx bindings
 
-        // `use` binds a disposable: resolve each binder's `Dispose` so disposal can be
+        // `use` binds a disposable: resolve each bound variable's `Dispose` so disposal can be
         // keyed for codegen and a non-disposable diagnosed. `let` skips this.
         match keyword with
         | LetOrUseKeyword.Use _
@@ -342,7 +342,7 @@ module UnificationInfer =
                     | ValueSome(ReturnType(typ = t)) ->
                         let annTy = translateType ctx t
 
-                        // Provenance: `let x : T = e` writes the binder's type explicitly.
+                        // Provenance: `let x : T = e` writes the bound variable's type explicitly.
                         ctx.MarkTypeDeclared(CstKeys.ofPat b.pattern, annTy)
 
                         // A format-string literal bound to a `PrintfFormat`-family annotation

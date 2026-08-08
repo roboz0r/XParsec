@@ -262,8 +262,8 @@ move is to reject any non-lowerable range up front. What landed:
   syntactic and was always independent of the range's type).
 - Rejection is emitted at the ELABORATION choke point (`ElaborateExpr.translateExpr`'s `Range` arms),
   which fire ONLY for a range NOT consumed by the `ForTo` lowering — value position, a stepped range,
-  or a non-simple for-in binder — all genuinely unsupported. Inference can't tell a for-in source
-  from a value, so the position-aware place is lowering. `for i in 1..10` (unit step, simple binder)
+  or a non-simple for-in boundVar — all genuinely unsupported. Inference can't tell a for-in source
+  from a value, so the position-aware place is lowering. `for i in 1..10` (unit step, simple boundVar)
   is unaffected — it never reaches the `Range` arm.
 - `CoverageTests` retyped: the two "types as seq<int>" tests became "range-as-value rejected"; a
   "counted loop accepted" and "stepped for-in rejected" test added; `Tast`/`Intrinsics` doc refs
