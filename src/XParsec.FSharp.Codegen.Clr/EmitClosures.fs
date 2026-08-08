@@ -16,8 +16,8 @@ module EmitClosures =
                 match TastAccessor.patBoundVar p with
                 | ValueSome k -> acc.Add k
                 | ValueNone -> ()
-            // An or-pattern binds nothing — name resolution drops its bound variables — so its
-            // alternatives are not walked; every other composite is.
+            // An or-pattern that binds names is rejected before lowering, so its alternatives
+            // are not walked; every other composite is.
             | PatShape.Or -> ()
             | _ ->
                 for sub in TastAccessor.patChildren p do

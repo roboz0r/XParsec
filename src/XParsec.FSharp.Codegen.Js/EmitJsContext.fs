@@ -485,8 +485,8 @@ module EmitJsContext =
             Some(JsExpr.Binary("===", access, enumCaseAccess ctx ec.EnumKey ec.CaseName ValueNone, ValueNone)), []
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | PatShape.Null -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
-        // `p1 | … | pn`: the arm matches iff SOME alternative matches. Alternatives bind nothing
-        // — name resolution drops or-pattern bound variables — so their binding lists are discarded.
+        // `p1 | … | pn`: the arm matches iff SOME alternative matches. An alternative that binds
+        // names is rejected before lowering, so the alternatives' binding lists are discarded.
         | PatShape.Or ->
             let alts = TastAccessor.patChildren pat
             let tests = [ for alt in alts -> fst (compileMatchPattern ctx access alt) ]

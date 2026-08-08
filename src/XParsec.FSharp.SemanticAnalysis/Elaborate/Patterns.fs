@@ -112,17 +112,11 @@ module internal ElaboratePatterns =
 
             let leaves = flatten [] p |> List.rev
 
-            // Or-patterns must bind nothing: every downstream consumer assumes an
-            // alternative is a pure refutability test, so `(1, x) | (2, x)` would be
-            // miscompiled — a bound variable lowers to an irrefutable test that eats the disjunction.
-            for leaf in leaves do
-                match NameResolutionScope.bindingsOfPat ctx leaf with
-                | [] -> ()
-                | _ ->
-                    ctx.Report(
-                        (CstKeys.firstTokenOfPat leaf),
-                        Kind.NotYetSupported "or-patterns that bind names (e.g. `(1, x) | (2, x)`)"
-                    )
+            // A bound variable would lower to an irrefutable test that eats the disjunction.
+            // One report for the whole chain, however many alternatives bind.
+            match NameResolutionScope.bindingsOfPat ctx p with
+            | [] -> ()
+            | _ -> ctx.Report(tok, Kind.NotYetSupported "or-patterns that bind names (e.g. `(1, x) | (2, x)`)")
 
             let alts = leaves |> List.map (translatePat ctx)
             TPat.Or(EqArray.ofList alts, ty, tok)

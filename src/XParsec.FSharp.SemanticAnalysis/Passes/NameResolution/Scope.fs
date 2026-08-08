@@ -183,6 +183,10 @@ module NameResolutionScope =
         | Pat.Cons(head = h; tail = t) ->
             // `h :: t`: the `::` ctor binds nothing; both sub-patterns introduce bound variables.
             bindingsOfPat ctx h @ bindingsOfPat ctx t
+        // `|` spells the same names on both sides, `&` binds both. Lowering rejects an
+        // or-pattern that binds, so nothing has to choose between the two occurrences.
+        | Pat.Or(left = l; right = r)
+        | Pat.And(left = l; right = r) -> bindingsOfPat ctx l @ bindingsOfPat ctx r
         | Pat.Elems(pats = pats) ->
             // `[a; b; c]` list-literal pattern (the multi-element form, wrapped in
             // `EnclosedBlock(List, …)`): each element introduces bound variables.
@@ -193,11 +197,8 @@ module NameResolutionScope =
             match Desugar.opPatCompiledName ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
             | ValueNone -> []
-        // Or/and alternatives bind nothing here: their shared bound variables are not modelled.
         | Pat.Named _
         | Pat.OpNamed _
-        | Pat.Or _
-        | Pat.And _
         | Pat.StructTuple _
         | Pat.NamedFieldPats _
         | Pat.Optional _
@@ -208,9 +209,9 @@ module NameResolutionScope =
         | Pat.Missing
         | Pat.SkipsTokens _ -> []
 
-    /// Stamp every external union-case ctor in `p` (1- and 2-segment names only), reaching
-    /// sub-patterns `bindingsOfPat` skips — or-alternatives, cons tails, tests. Embedded
-    /// type names go through `typeIter`, which may also diagnose an unknown one.
+    /// Stamp every external union-case ctor in `p` (1- and 2-segment names only), including
+    /// the alternatives and sub-patterns that introduce no bound variable. Embedded type
+    /// names go through `typeIter`, which may also diagnose an unknown one.
     let stampPatCasesWith (ctx: PassContext) (typeIter: CstWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
         let visit (pat: Pat<SyntaxToken>) : unit =
             match pat with

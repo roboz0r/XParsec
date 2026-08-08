@@ -936,8 +936,8 @@ module TastWalk =
     let rec boundVarsOfTPat (p: TPat) : NodeKey list =
         match p with
         | TPat.NamedSimple(k, _, _) -> [ k ]
-        // An or-pattern binds nothing (name resolution drops its bound variables), so its
-        // alternatives introduce no bound variables here either.
+        // An or-pattern that binds names is rejected before lowering, so its alternatives
+        // introduce no bound variables here.
         | TPat.Or _
         | TPat.Wildcard _
         | TPat.Null _

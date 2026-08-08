@@ -307,8 +307,8 @@ module EmitPattern =
                 buildMatchTest env b castSlot nextLabel inner
         | PatShape.Or ->
             let alts = TastAccessor.patChildren pat
-            // Every alternative tests the same scrutinee and binds nothing — name
-            // resolution rejects an or-pattern that binds.
+            // Every alternative tests the same scrutinee and binds nothing: an or-pattern
+            // that binds names is rejected before lowering.
             let matchedLabel = b.Label()
             let n = alts.Length
 

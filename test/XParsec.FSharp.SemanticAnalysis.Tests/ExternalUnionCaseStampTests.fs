@@ -142,8 +142,8 @@ let tests =
                 assertPatStamped "let f (o: obj) = match o with | (Blue, _) -> 1 | _ -> 0" "Blue" 1
             }
 
-            // Or-pattern alternatives bind nothing, so the bound-variable walk never visits
-            // them; the stamping walk must reach both alternatives independently.
+            // A nullary case binds nothing, so no bound-variable collection stamps it;
+            // the stamping walk must reach both alternatives itself.
             test "both alternatives of an or-pattern are stamped" {
                 assertPatStamped "let f (o: obj) = match o with | Blue | Blue -> 1 | _ -> 0" "Blue" 2
             }

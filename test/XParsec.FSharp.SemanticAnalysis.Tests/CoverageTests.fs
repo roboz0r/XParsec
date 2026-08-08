@@ -272,6 +272,21 @@ let tests =
                 Expect.isTrue hasMismatch "or-pattern type mismatch reported"
             }
 
+            // The feature gap is reported once, by the pass that cannot lower it. The
+            // alternatives' bound variables are in scope, so the arm body does not also
+            // raise an unresolved-identifier on the way there.
+            test "or-pattern that binds names is the only diagnostic" {
+                let tast =
+                    analyse "let f p =\n    match p with\n    | (1, a) | (2, a) -> a\n    | _ -> 0\n"
+
+                let msgs = tast.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq
+
+                Expect.equal
+                    msgs
+                    [ "not yet supported: or-patterns that bind names (e.g. `(1, x) | (2, x)`)" ]
+                    "one diagnostic, naming the gap"
+            }
+
             test "unknown qualified name still emits diagnostic" {
                 let tast = analyse "let r = Foo.bar"
 

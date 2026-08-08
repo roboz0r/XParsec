@@ -306,8 +306,8 @@ module internal UnificationInferPat =
             ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Only the alternatives' overall types are unified, for scrutinee consistency.
-            // No name-set reconciliation: an alternative that binds a name is rejected in
-            // Elaborate, so a name can never differ between the two sides here.
+            // The two sides' bound variables are typed independently and never reconciled —
+            // an or-pattern that binds names is rejected before lowering.
             let leftTy = inferPat ctx leftPat
             let rightTy = inferPat ctx rightPat
             unify ctx tok leftTy rightTy

@@ -82,6 +82,24 @@ let tests =
                 Expect.isTrue hasUnresolved "Unresolved diagnostic emitted"
             }
 
+            test "or-pattern alternatives put their bound variables in scope" {
+                // `| (1, a) | (2, a) -> a`: the `a`s at offsets 37 and 46, the body's at 52.
+                // Lowering rejects the arm, but not before the body has a binding site — an
+                // unresolved-identifier here would precede and bury that verdict.
+                let ctx =
+                    analyse "let f p =\n    match p with\n    | (1, a) | (2, a) -> a\n    | _ -> 0\n"
+
+                Expect.isEmpty ctx.Diagnostics "no name-resolution diagnostic"
+                let bodyKey = NodeKey.ofSource 52 NodeKind.ExprIdent
+
+                let alternatives =
+                    [ NodeKey.ofSource 37 NodeKind.PatIdent; NodeKey.ofSource 46 NodeKind.PatIdent ]
+
+                match ctx.Bindings.Binding.TryGetValue bodyKey with
+                | ValueSome rb -> Expect.contains alternatives rb.BindingSite "binds to an alternative's `a`"
+                | ValueNone -> failtest "arm body `a` not resolved"
+            }
+
             test "external symbol from provider does not emit diagnostic" {
                 // `true` resolves through the provider → no diagnostic, no Binding entry (external).
                 let ctx = analyse "let x = true"

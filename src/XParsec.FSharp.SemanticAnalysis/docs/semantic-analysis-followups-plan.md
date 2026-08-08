@@ -12,21 +12,13 @@ subagent report.
 
 ## Defects
 
-### `Passes/NameResolution/Scope.fs:208` — an or-pattern's boundVars are dropped in one pass and diagnosed in another
+### `Passes/NameResolution/Scope.fs` — `bindingsOfPat`'s binds-nothing arm still holds `Pat.Named`
 
-`bindingsOfPat` returns `[]` for `Pat.Or` / `Pat.And`, and `EnterMatchArm` (`:658`) builds the arm's
-scope from it — so in `match x with Some a | Error a -> a`, `a` never enters scope during name
-resolution. `Elaborate/Patterns.fs:126-142` then flattens the or-chain, runs `bindingsOfPat` on
-each LEAF (where it does find boundVars), and reports
-`Kind.NotYetSupported "or-patterns that bind names"`.
-
-So the feature gap is honest and diagnosed — not the silent miscompile the caller's own comment
-implies ("`bindingsOfPat` silently drops the boundVar"). What is unverified is what the user sees
-FIRST: name resolution has already dropped the boundVar by the time elaboration reports, so
-unresolved-identifier noise may precede the real message. Worth a test either way.
-
-Note `Pat.Named` is in the same binds-nothing arm, reached whenever `isCtorPat` fails —
-a different case with the same shape.
+Reached whenever `isCtorPat` fails, so an unrecognised `Foo x` drops `x` with no diagnostic —
+the shape the `Pat.Or` / `Pat.And` entry here used to describe, before those two started
+collecting their sub-patterns' bindings and the or-chain's gap became one report from the
+pass that cannot lower it (`CoverageTests.fs`, "or-pattern that binds names is the only
+diagnostic").
 
 ### `Passes/Unification/EngineCore.fs:526` — a surfaced external interface takes the local-registry path
 

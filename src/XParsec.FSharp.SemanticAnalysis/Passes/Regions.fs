@@ -520,7 +520,7 @@ module Regions =
             for sub in fields do
                 recordBindingRegion s ctx sub r
         | TPat.TypeTestAs(_, inner, _, _) -> recordBindingRegion s ctx inner r
-        // An or-pattern binds nothing (name resolution drops its bound variables).
+        // An or-pattern that binds names is rejected before lowering.
         | TPat.Or _
         | TPat.Wildcard _
         | TPat.Null _
