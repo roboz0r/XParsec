@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// Why an enum case's value expression names no `TEnumLiteral`. These are genuinely
+/// Why an enum case's value expression does not resolve to a `TEnumLiteral`. These are genuinely
 /// different answers: `52I` is not an out-of-range magnitude.
 [<RequireQualifiedAccess>]
 type internal EnumCaseRejection =

@@ -29,7 +29,7 @@ module internal UnificationInferPat =
             && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
             ->
             // Uppercase-leading bare ident matching a ctor IN SCOPE HERE — reinterpret as a
-            // nullary ctor pattern. A case whose union is declared BELOW names nothing here,
+            // nullary ctor pattern. A case whose union is declared BELOW is not in scope here,
             // so that ident stays an ordinary bound variable, as in F#.
             let n = ctx.NameOf t
             let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
@@ -208,7 +208,7 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
             unionTy
         | Pat.Named(longIdent = li; argumentPats = args) ->
-            // No arm above answered for the head: it names no union case and no enum case. The
+            // No arm above answered for the head: it is neither a union case nor an enum case. The
             // sub-patterns still infer, so the bound variables the arm body reads have types.
             let written = (ctx.WrittenTypeNameOf li).Written
             ctx.Report(tok, Kind.UndefinedPatternDiscriminator written)

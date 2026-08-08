@@ -111,7 +111,7 @@ module internal ElaborateApply =
             let externalDom = externalFnDom ctx (CstKeys.ofExpr fn) result
             let mutable isFirst = true
             // The member's own argument is the FIRST one; residual application applies to
-            // its RESULT, so the opened `let`s wrap the whole spine and keep it outermost.
+            // its RESULT, so the opened `let`s wrap the whole application and keep it outermost.
             let mutable opened = []
 
             for a in args do

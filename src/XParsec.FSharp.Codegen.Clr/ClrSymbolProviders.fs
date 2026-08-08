@@ -4,7 +4,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
 /// `Codegen.Common.SymbolProviders` composes a contract stack over an injected leaf
-/// FACTORY and names no concrete leaf; this module supplies the .NET reflection tail.
+/// FACTORY and holds no concrete leaf; this module supplies the .NET reflection tail.
 module ClrSymbolProviders =
 
     /// BCL reflection over the host runtime. A seeded leaf is a pure function of

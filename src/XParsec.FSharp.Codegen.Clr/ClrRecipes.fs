@@ -360,7 +360,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             // A function homed in this compilation's OWN assembly resolves to its local `MethodDef`;
             // on a miss, mint an external `MemberRef` scoped by `openSig.Origin` (the key alone
-            // names no assembly). Only a module gives that ref a declaring type — hence `ValueNone`.
+            // carries no assembly). Only a module gives that ref a declaring type — hence `ValueNone`.
             let callBaseOpt =
                 match env.LocalModuleFns.TryGetValue valueKey with
                 | true, defHandle -> ValueSome defHandle

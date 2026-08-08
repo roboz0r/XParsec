@@ -187,8 +187,8 @@ let emitJsLibrary (input: string) : string =
     if idx >= 0 then src.Substring(0, idx) else src
 
 /// Deps-only JS contract for compiling a package impl. The package's own contract is absent
-/// because `compileLibrary` names no home assembly, so its declarations would be a second
-/// claimant of the types the impl declares; `compileOwnLibrary` names one and takes them both.
+/// because `compileLibrary` carries no home assembly, so its declarations would be a second
+/// claimant of the types the impl declares; `compileOwnLibrary` carries one and takes them both.
 let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
     lazy JsNativeSymbols.jsNativeContractFor Target.Js [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 

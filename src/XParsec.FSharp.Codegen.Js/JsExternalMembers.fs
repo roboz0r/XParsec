@@ -71,7 +71,7 @@ module JsExternalMembers =
         | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape
         | _ -> ValueNone
 
-    /// `ValueNone` when the key names no `Class` shape; every flag then reads as `false`.
+    /// `ValueNone` when the key's shape is not a `Class`; every flag then reads as `false`.
     let classFlagsOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassFlags voption =
         classShapeOf provider declKey |> ValueOption.map (fun shape -> shape.Flags)
 

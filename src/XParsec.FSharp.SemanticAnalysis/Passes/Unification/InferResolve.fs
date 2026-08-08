@@ -48,7 +48,8 @@ module internal UnificationInferResolve =
 
     /// Function value whose argument shape matches the primary constructor and whose result
     /// is the constructed `TyClass`, routing `Point(3, 4)` / `A.Point(3, 4)` (no `new`)
-    /// through function application. `ValueNone` if `written` names no class at `useSite`.
+    /// through function application. `ValueNone` if `written` does not resolve to a class
+    /// at `useSite`.
     let tryWrittenClassCtorAsFunction
         (ctx: PassContext)
         (useSite: UseSite)

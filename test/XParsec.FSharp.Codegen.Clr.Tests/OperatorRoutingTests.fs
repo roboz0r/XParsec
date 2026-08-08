@@ -40,7 +40,7 @@ let private hasIlIntrinsic (op: string) (e: TastAccessor.ExprId) : bool =
         | _ -> false
     )
 
-/// The SYMBOL a node names, rendered, or `ValueNone` if the node names nothing. Lets a
+/// The SYMBOL a node names, rendered — `ValueNone` for a node with no symbol. Lets a
 /// test say "this body reaches `EqualityComparer<_>.Equals`" without rendering the tree.
 let private symbolText (e: TastAccessor.ExprId) : string voption =
     match TastAccessor.exprKind e with

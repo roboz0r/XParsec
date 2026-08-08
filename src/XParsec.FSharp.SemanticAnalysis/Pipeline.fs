@@ -69,7 +69,7 @@ module Pipeline =
             Error
                 {
                     Lexed = ValueNone
-                    // A whole-file lex failure names no place in the file.
+                    // A whole-file lex failure blames no place in the file.
                     Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
                 }
         | Result.Ok lexed ->

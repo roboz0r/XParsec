@@ -1052,7 +1052,7 @@ let globalAttributeTests =
                 Expect.isEmpty tast.GlobalValueKeys "nothing was recorded"
 
                 match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
-                | [ msg ] -> Expect.stringContains msg "this binding names none" "the pattern is blamed"
+                | [ msg ] -> Expect.stringContains msg "this binding has no single name" "the pattern is blamed"
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 

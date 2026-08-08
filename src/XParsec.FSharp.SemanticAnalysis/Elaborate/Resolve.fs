@@ -26,7 +26,7 @@ module internal ElaborateResolve =
                 | ValueSome k -> ValueSome(SymbolKeyOps.typeMetaName k)
                 | ValueNone -> ValueNone
 
-            // Scoped by the reference's own position: a class declared BELOW it names nothing
+            // Scoped by the reference's own position: a class declared BELOW it is not in scope
             // here, so it is not a class reference. The local read comes first, so a local
             // class is never mistaken for an external type of the same spelling.
             let localClass (written: WrittenTypeName) : string voption =
@@ -56,8 +56,8 @@ module internal ElaborateResolve =
             | None -> ValueNone
 
         // The QUALIFIER is resolved from the access's own position: `Foo.Bar` written above
-        // `type Foo` names no type there, so it must not lower to a static access on the
-        // class below.
+        // `type Foo` does not resolve to a type there, so it must not lower to a static
+        // access on the class below.
         match TypeRegistry.tryClass ctx.Types useSite typeName with
         | ValueSome info -> pick info.TypeKey info.Members
         | ValueNone ->

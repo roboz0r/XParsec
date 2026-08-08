@@ -168,7 +168,7 @@ module NameResolutionScope =
             // `Circle r`, `Color.Red`: the head is a discriminator, never a bound variable — a
             // bound variable is a lone ident, which parses as `Pat.NamedSimple`. So the
             // sub-patterns bind whether or not the head resolves; Unification reports one that
-            // names no case.
+            // does not resolve.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub

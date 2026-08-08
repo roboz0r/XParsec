@@ -71,7 +71,7 @@ module Site =
         | Site.At i when i > 0<token> -> Site.After(i - 1<token>)
         | placed -> placed
 
-    /// The place `tok` names, or `fallback` when it names none — for a caller holding an
+    /// The place `tok` names, or `fallback` when `tok` has none — for a caller holding an
     /// ENCLOSING span (the declaration it sits in) that is still a real place when
     /// the named node itself is a recovery insertion.
     let ofTokenOr (fallback: Site) (tok: SyntaxToken) : Site =
@@ -499,7 +499,7 @@ module SyntaxToken =
 
     /// The token a diagnostic blames when the input offers none: the reader is past the
     /// end, or the next token is offside and so is not part of the construct being
-    /// diagnosed. Virtual, so it carries NO index and names no place — the alternative is
+    /// diagnosed. Virtual, so it carries NO index and points nowhere — the alternative is
     /// to invent an offset and point the diagnostic at whatever happens to sit there.
     let nowhere = virtualToken (PositionedToken.Create(Token.EOF, 0))
 

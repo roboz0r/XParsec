@@ -32,7 +32,7 @@ module DiagCode =
         | DiagCode.Vesper code -> code
         | DiagCode.Unpublished -> ""
 
-/// Which NOMINAL shape a type is — the axis a "this names no such type" verdict differs on.
+/// Which NOMINAL shape a type is — the axis a "no such type" verdict differs on.
 [<RequireQualifiedAccess>]
 type NominalKind =
     | Record
@@ -126,7 +126,7 @@ type ConformanceVerdict =
     | ImplWithoutContract of implFile: string
     /// Declared `sig-only`, but a companion implementation exists.
     | StaleSigOnly of name: string
-    /// Declared `sig-only`, but it names no contract `.fsi` in the package at all.
+    /// Declared `sig-only`, but no contract `.fsi` in the package has that name at all.
     | UnknownSigOnly of name: string
     /// Declared `impl-only`, but the target compiles no such contract-less body — the name
     /// is a typo, or the `.fsi` it disclaims has since appeared.
@@ -214,7 +214,7 @@ module InternalBreak =
 [<RequireQualifiedAccess>]
 type Kind =
     // ── Types and members that do not resolve ──────────────────────────────────
-    /// `name` names no type: no scope of this file claims it and the target's external
+    /// `name` does not resolve to a type: no scope of this file claims it and the target's external
     /// universe does not hold it.
     | UndefinedType of name: string
     /// An intrinsic type the compiling target binds no representation for. Naming it is
@@ -241,8 +241,8 @@ type Kind =
     | DimensionlessMeasureMismatch of measure: string
 
     // ── Constructors and patterns ──────────────────────────────────────────────
-    /// The head of an applied or dotted pattern (`Foo x`, `Bar.Baz`) names no union case
-    /// and no enum case.
+    /// The head of an applied or dotted pattern (`Foo x`, `Bar.Baz`) is neither a union case
+    /// nor an enum case.
     | UndefinedPatternDiscriminator of name: string
     | NullaryConstructorPattern of name: string * arity: int
     | AmbiguousConstructor of name: string * candidates: int
@@ -260,7 +260,7 @@ type Kind =
     /// `attribute` is the posture attribute (`[<CustomEquality>]`); `capability` the
     /// resolved interface it demands, as this compilation's provider names it.
     | CapabilityNotImplemented of attribute: string * capability: string
-    /// The same demand, where the provider names no such capability at all.
+    /// The same demand, where the provider does not resolve that capability at all.
     | CapabilityNotNamed of attribute: string * capabilityWord: string
     | MissingGetHashCodeOverride
     | CustomComparisonNeedsEquality

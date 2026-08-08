@@ -189,7 +189,7 @@ module Validation =
 
     /// A `use` binding requires a simple variable pattern: `use x = e`, `use x : T = e`,
     /// `use (x) = e`, `use _ = e`. A destructuring pattern is rejected because the bound
-    /// value itself is what gets disposed, and a decomposition names no single resource.
+    /// value itself is what gets disposed, and a decomposition leaves no single such value.
     let rec private isSimpleUsePat (p: Pat<SyntaxToken>) : bool =
         match p with
         | Pat.NamedSimple _

@@ -64,7 +64,7 @@ type JsHome =
 
 module JsHome =
 
-    /// The backend home a provider `Origin` names. `ValueNone` for one naming no assembly.
+    /// The backend home a provider `Origin` names. `ValueNone` for one carrying no assembly.
     let tryOfOrigin (home: Origin) : JsHome voption =
         match home.AssemblyOption with
         | ValueNone -> ValueNone
@@ -75,7 +75,7 @@ module JsHome =
                     DeclaringFile = home.DeclaringFile
                 }
 
-    /// The home an `Origin` names; fails when it names no assembly, quoting `what`.
+    /// The home an `Origin` names; fails when it carries no assembly, quoting `what`.
     let ofOrigin (what: string) (home: Origin) : JsHome =
         match tryOfOrigin home with
         | ValueSome h -> h

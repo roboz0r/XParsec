@@ -56,7 +56,7 @@ module internal UnificationInferLiterals =
                     | NumericKind.BigIntegerN
                     | NumericKind.BigIntegerG -> ctx.Intrinsics.BigInt
                     // `NumericKind` is an enum, so the wildcard is required: a reserved or
-                    // otherwise meaningless suffix names no type.
+                    // otherwise meaningless suffix does not map to a type.
                     | _ -> unknown ()
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =

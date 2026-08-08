@@ -201,7 +201,7 @@ module internal UnificationTranslate =
             | ValueNone -> resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)
         | Type.NamedType li ->
             // Qualified named type (`A.T`, `System.Text.StringBuilder`); not external ⇒ the
-            // qualifier names a scope of THIS file, or the reference names nothing.
+            // qualifier names a scope of THIS file, or the reference does not resolve.
             let site = CstKeys.typeRefSite t
 
             match tryResolveExternalTypeStamped ctx site.Key EqArray.empty with

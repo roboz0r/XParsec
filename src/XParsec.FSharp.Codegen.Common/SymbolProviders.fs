@@ -27,7 +27,7 @@ module SymbolProviders =
         | None -> manifestPaths
 
     /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf FACTORY.
-    /// Common names no concrete leaf — the CLR backend injects its BCL reflection tail. Uncached.
+    /// Common supplies no concrete leaf — the CLR backend injects its BCL reflection tail. Uncached.
     let buildWith (metaTail: MetaTailFactory) (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
         ReferencedProject.composeContract metaTail target manifestPaths
 

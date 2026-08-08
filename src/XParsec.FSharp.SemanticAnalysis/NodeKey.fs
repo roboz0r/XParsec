@@ -108,7 +108,7 @@ type NodeKind =
     /// `inherit Base(...)`, shared across members.
     | SynthBaseBinding = 1006us
     /// Freshened bound variable of an inline template, so independent call sites don't alias each
-    /// other's bound names. Counter-minted; it names no source position.
+    /// other's bound names. Counter-minted; it has no source position.
     | SynthPreFreezeInline = 1007us
     /// BoundVar of a template UNPOOLED onto the cross-file wire, whose slot means nothing in the
     /// consuming file and so is re-minted. Counter-minted, on its own counter.
@@ -123,7 +123,7 @@ type NodeKey =
     new(raw: uint64) = { Raw = raw }
 
     /// Source offset for real nodes / the spawning offset for a synthetic one. NEGATIVE for a
-    /// counter-minted key, which names no source position.
+    /// counter-minted key, which has no source position.
     member this.Offset: int = int (uint32 this.Raw)
 
     /// False only in the uniqueness-counter space.
@@ -163,13 +163,13 @@ module SourcePos =
     /// The whole-file view, for a query with no source position to scope by.
     let unbounded: SourcePos = { Pos = System.Int32.MaxValue }
 
-    /// Fails on a counter-minted key: it names no place, so a pass needing a scoped read from
+    /// Fails on a counter-minted key: it has no source position, so a pass needing a scoped read from
     /// such a node must carry the position of the SOURCE construct that spawned it.
     let ofNodeKey (key: NodeKey) : SourcePos =
         if key.IsSourcePosition then
             { Pos = key.Offset }
         else
-            failwithf "Internal error: NodeKey %O is counter-minted and names no source position" key
+            failwithf "Internal error: NodeKey %O is counter-minted and has no source position" key
 
 module NodeKey =
 

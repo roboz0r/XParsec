@@ -50,7 +50,7 @@ type FrozenReader =
 
 /// The bottom of the FROZEN binary codec: the seam above, the generic length- and
 /// tag-prefixed container conventions, and the value structs that carry no children. It
-/// names no frozen domain beyond those leaves.
+/// mentions no frozen domain beyond those leaves.
 module FrozenCodecPrimitives =
 
     // ── stream primitives ──────────────────────────────────────────────────

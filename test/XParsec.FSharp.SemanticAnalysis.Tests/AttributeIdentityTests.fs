@@ -52,8 +52,8 @@ let tests =
                     "the qualifier is honoured because it resolves"
             }
 
-            test "a qualified path that names no type is blamed for spelling a marker" {
-                // Nothing declares `Microsoft.FSharp.Core` here, so the path resolves to nothing,
+            test "a qualified path that does not resolve to a type is blamed for spelling a marker" {
+                // Nothing declares `Microsoft.FSharp.Core` here, so the path does not resolve,
                 // and silence would ship the structural default the attribute refuses.
                 let ctx =
                     analyse (src [ "[<Microsoft.FSharp.Core.ReferenceEquality>]"; "type Point = { X: int }" ])

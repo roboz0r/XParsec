@@ -30,7 +30,7 @@ module Anchor =
         match tok.Index with
         | TokenIndex.Regular i -> { Raw = i }
         | TokenIndex.Virtual ->
-            failwithf "Anchor.ofToken: the VIRTUAL token %A names no place in the source, so it anchors nothing" tok
+            failwithf "Anchor.ofToken: the VIRTUAL token %A has no place in the source, so it anchors nothing" tok
 
     /// The wire form; `nowhere` travels as `-1`.
     let toStored (a: Anchor) : int =

@@ -135,7 +135,8 @@ module Elaborate =
             | ValueNone -> nm
         )
 
-    /// A pattern introducing no bound variable (`let (a, b) = p`) names no value, so records nothing.
+    /// A pattern with no single bound variable (`let (a, b) = p`) has no name to export,
+    /// so records nothing.
     let private recordExportedBinding
         (ctx: PassContext)
         (container: ModuleContainer)

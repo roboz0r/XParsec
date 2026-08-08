@@ -863,7 +863,7 @@ let tests =
                         Expect.isFalse (List.contains "x.mjs" inputs) "a runtime asset is not a parsed source"
                     }
 
-                    test "a manifest naming no target names nothing target-shaped" {
+                    test "a manifest naming no target yields nothing target-shaped" {
                         let m =
                             loadOrFail (writeManifest "TargetBlind" "[core]\nfiles = [\"contract.fsi\"]\n")
 

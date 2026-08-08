@@ -136,9 +136,9 @@ let tests =
                 expectRejected "let f () = { a = 1 }\ntype R = { a: int }"
             }
 
-            // The ONE place where "does not resolve" is not an error: an ident naming nothing
-            // in PATTERN position is a variable pattern, so F# accepts this (FS0049 / FS0026
-            // warnings) and `f` is `'a -> int`, not `U -> int`. Probed with `f "s"` and `f 42`.
+            // The ONE place where "does not resolve" is not an error: an ident that does not
+            // resolve in PATTERN position is a variable pattern, so F# accepts this (FS0049 /
+            // FS0026 warnings) and `f` is `'a -> int`, not `U -> int`. Probed with `f "s"` and `f 42`.
             test "a union case above its union's declaration is a variable pattern" {
                 let tast =
                     analyse
@@ -170,7 +170,7 @@ let tests =
             }
 
             // VALUES, the same file-order rule: a module `let` is visible from where it is
-            // WRITTEN, so a use above it names nothing — whether that use is another module
+            // WRITTEN, so a use above it does not resolve — whether that use is another module
             // `let` or a class member body. `module rec` / `namespace rec` is the opt-out.
             test "a module let calling a let below it does not resolve" {
                 expectRejected "let f () = g ()\nlet g () = 1"

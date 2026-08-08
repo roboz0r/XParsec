@@ -262,7 +262,7 @@ module UnificationEngineCore =
 
     /// `funSlotArityOfArgs` for a KIND-BLIND caller — one holding the canonicalised key
     /// `subtypeNominalOf` surfaces, whose domain includes keys of every kind. A non-type
-    /// key names no interface, so it is no `Fun` slot.
+    /// key cannot be an interface, so it is no `Fun` slot.
     let funSlotArityOfSymbol (tyCtor: SymbolKey) (genericArity: int) : int option =
         match tyCtor with
         | SymbolKey.Type t -> funSlotArityOfArgs t genericArity

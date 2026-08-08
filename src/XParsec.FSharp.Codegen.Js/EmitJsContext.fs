@@ -332,7 +332,7 @@ module EmitJsContext =
         match ctx.Classes.TryGetValue declKey with
         | true, className ->
             JsExpr.Member(JsExpr.Identifier(className, loc), JsExpr.Identifier(fieldName, ValueNone), false, loc)
-        | _ -> failwithf "EmitJs: static field '%s' resolves to no emitted class ('%A')" fieldName declKey
+        | _ -> failwithf "EmitJs: static field '%s' does not resolve to an emitted class ('%A')" fieldName declKey
 
     /// The import reference for an external VALUE: home and import FORM both read off the one
     /// `ExternalSymbol` the provider resolved. `Default` means a TS `export default`, lowered

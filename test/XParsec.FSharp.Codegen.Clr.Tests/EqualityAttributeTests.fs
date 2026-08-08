@@ -195,7 +195,7 @@ let tests =
                 Expect.isFalse (implementsIEquatable ty) "no IEquatable<Point> on qualified ReferenceEquality"
             }
 
-            test "a qualified path that names no type is silently ignored" {
+            test "a qualified path that does not resolve to a type is silently ignored" {
                 // `Microsoft.FSharp.Core` declares nothing here, so the attribute decodes
                 // to nothing and the record keeps its default structural equality
                 // instead of taking a same-leaf name's meaning.

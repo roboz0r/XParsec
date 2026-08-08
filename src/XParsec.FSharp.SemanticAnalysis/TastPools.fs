@@ -337,7 +337,7 @@ module TastPools =
 
             for KeyValue(k, _) in file.FunVerdicts do
                 if not (matched.Contains k) then
-                    failwithf "TastPools.toPools: FunVerdicts key %O names no pooled lambda" k
+                    failwithf "TastPools.toPools: FunVerdicts key %O does not resolve to a pooled lambda" k
 
             rows
 

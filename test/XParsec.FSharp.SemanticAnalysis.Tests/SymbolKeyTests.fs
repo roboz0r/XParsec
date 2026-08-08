@@ -207,7 +207,7 @@ let tests =
                 Expect.equal
                     unstamped.Home.AssemblyOption
                     ValueNone
-                    "SymbolOrigin.Empty is unstamped, so it names no home assembly"
+                    "SymbolOrigin.Empty is unstamped, so it has no home assembly"
 
                 Expect.equal
                     (Origin.InAssembly(AssemblyName "Vesper.Core")).AssemblyOption

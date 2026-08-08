@@ -408,7 +408,7 @@ let tests =
                 let placeless: Label =
                     {
                         Site = Site.Nowhere
-                        Message = "a label that names no place"
+                        Message = "a label with no place"
                     }
 
                 let labelled =
@@ -543,7 +543,7 @@ let tests =
                         DiagnosticCode.ExpectedQuotationUntypedRight
                         DiagnosticCode.UnclosedDelimiter(Token.KWLParen, Site.At 4<token>, Token.KWRParen)
                         DiagnosticCode.MismatchedDelimiter(Token.KWLBraceBar, Site.At 2<token>, Token.KWRBraceBar)
-                        // A delimiter the parser itself inserted names no place of its own.
+                        // A delimiter the parser itself inserted has no place of its own.
                         DiagnosticCode.UnclosedDelimiter(Token.KWLBracket, Site.Nowhere, Token.KWRBracket)
                     ]
 

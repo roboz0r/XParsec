@@ -228,7 +228,7 @@ type NumericLiteralRejection =
     /// into whatever `NumericLiteral<suffix>` module is in scope
     /// (`52I` = `NumericLiteralI.FromInt32 52`), so there is no constant to project, by
     /// construction. `ReservedNumericLiteral` is a suffix F# reserves and gives no meaning
-    /// to, and so likewise names no value.
+    /// to, and so likewise carries no value.
     | CustomLiteral
     /// The lexed magnitude or sign does not fit the width the lexer classified: a
     /// negative-signed *unsigned* literal (`-1uy`, formed by the negative-literal merge)

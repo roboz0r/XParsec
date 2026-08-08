@@ -88,7 +88,7 @@ let tests =
                         "Direction.Up enum key stamped in pattern position"
             }
 
-            // The enum resolves but declares no `Sideways`, so nothing is stamped.
+            // The enum resolves but does not declare `Sideways`, so nothing is stamped.
             test "unknown enum case is not stamped" {
                 let ctx, file = analyse "let x = Direction.Sideways"
                 let e = firstBindingExpr file

@@ -594,7 +594,7 @@ module internal UnificationInferRecordAccess =
         | _ ->
             // An intrinsic object argument mapped to a BCL type — `string` (`s.[i]`), whose indexer
             // is `System.String.get_Chars(int) : char`. On JS no surface publishes it, since
-            // `string`'s platform repr is the bare `"string"`, which names no class.
+            // `string`'s platform repr is the bare `"string"`, which is not a class.
             let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
                 match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
                 | ValueSome resultTy -> Some resultTy

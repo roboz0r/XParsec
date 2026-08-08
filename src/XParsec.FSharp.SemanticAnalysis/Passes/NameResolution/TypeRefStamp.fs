@@ -203,7 +203,7 @@ module NameResolutionTypeRefStamp =
                     typeRef.Site.Tok,
                     Kind.Message(
                         sprintf
-                            "'%s' names no type here, so this attribute is not the compiler marker it spells and would have no effect. Reference the contract that declares it, or qualify the path to the type meant."
+                            "'%s' does not resolve to a type here, so this attribute is not the compiler marker it spells and would have no effect. Reference the contract that declares it, or qualify the path to the type meant."
                             written.Written
                     )
                 )

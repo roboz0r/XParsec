@@ -465,7 +465,7 @@ module VesperLibTypeTranslate =
                 | ValueNone -> Ok(FTConst(RuntimeNames.primitiveKey name, EqArray.empty))
             else
                 match resolveTypeName ctx opens name 0 with
-                // A name that resolves to nothing in scope bakes an `FTUnknown` leaf.
+                // A name that does not resolve in scope bakes an `FTUnknown` leaf.
                 | Error _ -> Ok(FTUnknown name)
                 | Ok compiled -> Ok(mkNominal ctx compiled EqArray.empty)
 
@@ -498,7 +498,7 @@ module VesperLibTypeTranslate =
             | Error e -> Error e
             | Ok fb ->
                 // `'T array` is the rank-1 array intrinsic — the postfix-keyword spelling
-                // of `'T[]`. It resolves to no registered type shape, so route it to the
+                // of `'T[]`. It does not resolve to a registered type shape, so route it to the
                 // same intrinsic the bracket form bakes rather than `FTUnknown "array"`.
                 if name = "array" then
                     Ok(FTConst(RuntimeNames.arrayKey 1, EqArray.singleton fb))

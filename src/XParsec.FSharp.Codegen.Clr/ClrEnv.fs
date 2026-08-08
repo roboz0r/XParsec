@@ -480,7 +480,7 @@ type internal ClrEnv
         | _ -> ValueNone
 
     let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
-        // A non-type key names no type, so it mints no `TypeRef` — `ValueNone`, never a
+        // Only a type key mints a `TypeRef` — any other kind gives `ValueNone`, never a
         // fabricated `(ns = "", name = <whole dotted name>)` ref that only fails at load.
         match key, externalRecordShape key arity with
         | SymbolKey.Type t, ValueSome(fields, origin) ->

@@ -22,7 +22,7 @@ let private expectClean (tast: TastFile) =
 /// pinned, not the wording: F# blames these with FS0039 ("The type 'T' is not defined").
 let private expectRejected (source: string) =
     let es = errors (analyse source)
-    Expect.isNonEmpty es "expected a diagnostic: the name names nothing in scope here"
+    Expect.isNonEmpty es "expected a diagnostic: the name does not resolve in scope here"
 
 /// Selected by the declaration's own HOLDER and its own ARITY: two sibling `T`s, or two `T`s
 /// of different arity, are two different types that a bare name cannot tell apart.

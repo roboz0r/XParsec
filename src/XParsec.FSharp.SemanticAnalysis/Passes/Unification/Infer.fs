@@ -130,7 +130,7 @@ module UnificationInfer =
 
     /// The disposal capability's `Dispose` member key, taken from the resolved
     /// `ctx.CapabilityIds.Disposable` rather than a hardcoded `System.IDisposable`.
-    /// `ValueNone` only for a compile that names no disposable capability at all.
+    /// `ValueNone` only for a compile with no disposable capability at all.
     and private capabilityDisposeSlot (ctx: PassContext) : SymbolKey voption =
         match ctx.CapabilityIds.Disposable with
         | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" EqArray.empty 0 MemberKind.Method)

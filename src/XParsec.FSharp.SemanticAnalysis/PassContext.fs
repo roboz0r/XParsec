@@ -260,7 +260,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member _.Resolver: IExternalSymbolResolver = provider
 
     /// A field name → every external record declaring it. Not a spelling lookup: a bare
-    /// `{ X = … }` names no record — the field set IS the identity, pinned at inference.
+    /// `{ X = … }` does not name a record — the field set IS the identity, pinned at inference.
     member _.TryRecordsWithField(fieldName: string) : ExternalRecordCandidate[] = provider.TryRecordsWithField fieldName
 
     /// The language-capability identities (enumerable, enumerator, disposable, equatable,
@@ -417,7 +417,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
 
-    /// Mint a bound-variable key for a synthesised node. It names no source position, so one
+    /// Mint a bound-variable key for a synthesised node. It has no source position, so one
     /// construct may mint several, and stays unnamed — a backend names it after its slot.
     member _.NewSynthBoundVar() : NodeKey =
         let k = NodeKey.ofSyntheticCounter synthBoundVars NodeKind.SynthElaborateBoundVar
@@ -545,8 +545,9 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.Report(site: Site, kind: Kind) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
 
-    /// Blame the written type name at `site`: `name` names no type, here or outside. `site` is
-    /// what once-per-name counts over, so a parser-inserted name widens it to the decl's span.
+    /// Blame the written type name at `site`: `name` does not resolve to a type, here or
+    /// outside. `site` is what once-per-name counts over, so a parser-inserted name widens
+    /// it to the decl's span.
     member this.UndefinedType(site: Site, name: string) =
         this.UndefinedTypeNames.Add name |> ignore
 

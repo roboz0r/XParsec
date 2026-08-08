@@ -202,9 +202,9 @@ type internal ClrEncoder(env: ClrEnv) =
         | FTLocalTypar(scheme, i) ->
             // A typar of a body-local `let`'s own generalized scheme. Legal to reach the backend
             // — it is phantom wherever a closure over it is `Vesper.Fun`-boxed — but not HERE:
-            // unlike an `FTTypar` it names no slot in any enclosing generic parameter list.
+            // unlike an `FTTypar` it occupies no slot in any enclosing generic parameter list.
             failwithf
-                "ClrProvider: local typar #%d of body-local %O reached signature encoding — it names no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
+                "ClrProvider: local typar #%d of body-local %O reached signature encoding — it occupies no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
                 i
                 scheme
         // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's own `!!i`.
