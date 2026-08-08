@@ -175,6 +175,7 @@ other same-package miss is a genuine `TyUnknown`, not an ordering artefact.
    | `Union`     | `TyUnion(compiled, args)` |
    | `Class`     | `TyClass(compiled, args)` |
    | `Record`    | `TyRecord(compiled, args)` |
+   | `Enum`      | `TyEnum compiled` — no args; enums are never generic |
    | `Abbrev`    | expand `build args` (already kind-correct from the defining package) |
    | `Intrinsic` | `TyConst <shortName>` |
    | `Unmodelled` | **raise** `BodylessExternalShape` — no body, no kind to bake |
@@ -188,21 +189,24 @@ body is never named by a shipping contract.
 ### Shapes — `ExternalTypeShape`
 
 [`ExternalTypeShape`](../ExternalSymbols.fs) is the kind vocabulary `shapeOf`
-returns: `Abbrev`, `Record`, `Union`, `Class`, `Intrinsic`, and `Unmodelled of
-reason * arity`. `Unmodelled` is the residue: a type whose *name + arity* the
-extractor registered but whose body it does not model. Its `UnmodelledReason`
-says which gap — `Enum` / `Delegate` / `TypeExtension` for a declaration form the
-`.fsi` extractor still stubs, or `ExtractionFailed reason` for a body that used a
-form it could not translate. Carrying the reason is what lets a use site name the
-gap instead of degrading silently; carrying the arity is what lets the name
+returns: `Abbrev`, `Record`, `Union`, `Class`, `Enum`, `Intrinsic`, and
+`Unmodelled of reason * arity`. `Unmodelled` is the residue: a type whose *name +
+arity* the extractor registered but whose body it does not model. Its
+`UnmodelledReason` says which gap — `Delegate` / `TypeExtension` for a declaration
+form the `.fsi` extractor still stubs, or `ExtractionFailed reason` for a body that
+used a form it could not translate. Carrying the reason is what lets a use site name
+the gap instead of degrading silently; carrying the arity is what lets the name
 resolve at all. Coupling registration so that **every** `registerTypeDecl` also
 writes a shape is what makes `shapeOf` total over resolvable names and
 `mkNominal`'s `ValueNone` unreachable.
 
-Note the asymmetry with `Enum`: a TS manifest builds a real `ExternalTypeShape.Enum`
-(cases, values, `TyEnum`, `match` lowering), so an external enum is fully modelled
-through that door and stubbed through this one. Teaching the `.fsi` extractor to
-build `Enum` would retire one of the three stub reasons.
+An `Enum` body needs no deferral: a case value is a literal, never a type
+reference, so `extractEnumBody` reads the case → value table outright. It reads it
+through [`EnumCaseValues.tryResolve`](../EnumCaseValues.fs), the same projection
+the Elaborate pass runs, so a referenced package's `E.C1` and a locally-compiled
+`E.C1` cannot disagree about the constant. One case that projects to no literal
+downgrades the WHOLE enum to `ExtractionFailed`, as an unnamed case does a union: a
+partial case table would answer for the cases that survived and deny the rest.
 
 A type the extractor *does* model contributes a real shape and kinds normally.
 The cons-list `Vesper.Collections.List` is the worked example: its `.fsi`

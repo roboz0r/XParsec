@@ -788,6 +788,44 @@ module VesperLib =
                     interfaces
                 )
 
+    /// An enum body needs no finalize pass: a case value is a literal, never a type
+    /// reference, so nothing here can forward-reference a later declaration.
+    let private extractEnumBody
+        (ctx: ExtractCtx)
+        (file: LibFile)
+        (lexed: Lexed)
+        (compiled: string)
+        (arity: int)
+        (cases: EnumTypeCases<SyntaxToken>)
+        : unit =
+        let nameOf = nameOfTok lexed
+        let caseShapes = ResizeArray<ExternalEnumCaseShape>(cases.Length)
+        let mutable err = None
+
+        for i in 0 .. cases.Length - 1 do
+            if err.IsNone then
+                let (EnumTypeCase(ident = ident; constValue = v)) = cases.[i]
+                let name = nameOf ident
+
+                match EnumCaseValues.tryResolve nameOf v with
+                // The declaring package's own compilation reported WHICH literal form failed.
+                | Error _ -> err <- Some(sprintf "enum case '%s' has no constant value" name)
+                | Ok lit ->
+                    let value =
+                        match lit with
+                        | TEnumLiteral.Int v -> ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue v))
+                        | TEnumLiteral.String s -> ExternalEnumCaseValue.StringVal s
+
+                    caseShapes.Add { Name = name; Value = value }
+
+        // One unreadable case downgrades the whole enum: a partial case table would answer
+        // `E.C1` for the cases that survived and "no such case" for the rest.
+        match err with
+        | Some e -> skipBodyUnmodelled ctx file compiled arity e
+        | None ->
+            // `Origin` is stamped later by the resolving source; the extractor records `Empty`.
+            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Enum(caseShapes.ToArray(), SymbolOrigin.Empty)
+
     /// Extract the augmentation `member`s declared inside a type body's `with`-block
     /// (`member Value: 'T` on `Option`), translated over the *type's* typar collector.
     let private extractTypeMembers
@@ -1178,9 +1216,13 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
 
+        | TypeSignature.Enum(typeName = typeName; cases = cases) ->
+            match registerTypeDecl ctx lexed decl typeName with
+            | ValueNone -> ()
+            | ValueSome(struct (compiled, arity)) -> extractEnumBody ctx file lexed compiled arity cases
+
         // No body shape: register the name+arity plus the gap, so every registered name
         // carries a shape and a use site can say which form is missing.
-        | TypeSignature.Enum(typeName = typeName) -> registerUnmodelled ctx lexed decl typeName UnmodelledReason.Enum
         | TypeSignature.Delegate(typeName = typeName) ->
             registerUnmodelled ctx lexed decl typeName UnmodelledReason.Delegate
         | TypeSignature.TypeExtension(typeName = typeName) ->

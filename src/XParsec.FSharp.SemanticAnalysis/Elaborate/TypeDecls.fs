@@ -201,90 +201,37 @@ module internal ElaborateTypeDecls =
                 List.ofSeq env
             )
 
-    /// Resolve one enum case's value `Expr` to a `TEnumLiteral`, classified `Int` or
-    /// `String`. Anything else — a non-literal expression, an interpolated string, a bool /
-    /// char / float / decimal constant — is a hard error reported at `idTok`.
-    let rec private resolveEnumCaseValue
+    /// Resolve one enum case's value `Expr` to a `TEnumLiteral`, reporting whatever the
+    /// shared projection declined as a hard error at `idTok`.
+    let private resolveEnumCaseValue
         (ctx: PassContext)
         (idTok: SyntaxToken)
         (v: Expr<SyntaxToken>)
         : TEnumLiteral voption =
-        match v with
-        // A value-grouping paren (`| C = (1)`) is not itself the constant; peel it.
-        | Expr.EnclosedBlock(expr = inner) -> resolveEnumCaseValue ctx idTok inner
-        | Expr.Const c ->
-            // The lexer merges `-<numeric>` into ONE negative literal token only when the
-            // `-` follows an opening bracket or trivia, so a bare `| A = -1` is NOT merged
-            // (it reaches the unary-minus arm below) while `| A = (-1)` arrives here.
-            match ElaborateLiterals.tryParseConst ctx c with
-            // Any integral width a CLR enum may be based on; `isEnumBase` excludes exactly
-            // the pointer pair, which falls to the error below.
-            | Ok(TConstValue.Integral(w, _) as iv) when IntWidth.isEnumBase w -> ValueSome(TEnumLiteral.Int iv)
-            // Two distinct reasons the user needs told apart: `52I` is not out of range.
-            | Error ConstRejection.OutOfRange ->
-                ctx.Report(
-                    idTok,
+        match EnumCaseValues.tryResolve ctx.NameOf v with
+        | Ok lit -> ValueSome lit
+        | Error e ->
+            let kind =
+                match e with
+                | EnumCaseRejection.NotRepresentable ->
                     Kind.Message
                         "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
-                )
-
-                ValueNone
-            | Error ConstRejection.CustomLiteral ->
-                ctx.Report(
-                    idTok,
+                | EnumCaseRejection.CustomLiteral ->
                     Kind.Message
                         "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
-                )
-
-                ValueNone
-            | Ok other ->
-                ctx.Report(
-                    idTok,
+                | EnumCaseRejection.NotAnEnumConstant spelling ->
                     Kind.Message(
                         sprintf
-                            "An enum case value must be an integer or string literal; '%A' is not a valid enum constant"
-                            other
+                            "An enum case value must be an integer or string literal; '%s' is not a valid enum constant"
+                            spelling
                     )
-                )
-
-                ValueNone
-        | Expr.String _ ->
-            // Plain / verbatim / triple-quoted strings are constants; an interpolated
-            // `$"…"` is the only `String` kind the shared projection declines.
-            match StringLiterals.tryEnumCaseStringLiteral ctx v with
-            | ValueSome s -> ValueSome(TEnumLiteral.String s)
-            | ValueNone ->
-                ctx.Report(
-                    idTok,
+                | EnumCaseRejection.InterpolatedString ->
                     Kind.Message "An enum case value must be a literal string; an interpolated string is not a constant"
-                )
-
-                ValueNone
-        // `| A = -1` parses as a unary-minus `PrefixApp`, not an `Expr.Const`, yet negative
-        // enum members are legal and common (`None = -1`). Only a single minus directly on
-        // an integral literal is admitted; `1 + 1` / `-(1 + 1)` still reach the error below.
-        | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
-            match resolveEnumCaseValue ctx idTok operand with
-            // Negation is defined on the signed widths only, and wraps AT THE WIDTH:
-            // `-(-128y)` stays `-128y`.
-            | ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, bits))) when IntWidth.isSigned w ->
-                ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, IntWidth.negate w bits)))
-            | ValueSome(TEnumLiteral.Int(TConstValue.Integral _)) ->
-                ctx.Report(
-                    idTok,
+                | EnumCaseRejection.NegativeUnsigned ->
                     Kind.Message "A negative enum case value has no unsigned representation; use a signed integer width"
-                )
+                | EnumCaseRejection.NotConstant -> Kind.EnumCaseNotConstant
 
-                ValueNone
-            // `-"abc"` or a deeper non-int form: nothing negatable came back.
-            | ValueSome(TEnumLiteral.String _)
-            | ValueSome(TEnumLiteral.Int _) ->
-                ctx.Report(idTok, Kind.EnumCaseNotConstant)
-
-                ValueNone
-            | ValueNone -> ValueNone
-        | _ ->
-            ctx.Report(idTok, Kind.EnumCaseNotConstant)
+            ctx.Report(idTok, kind)
 
             ValueNone
 

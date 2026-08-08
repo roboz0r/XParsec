@@ -43,6 +43,10 @@
          alone. -->
     <Compile Include="TastConvert.fs" />
     <Compile Include="TEnumCases.fs" />
+    <!-- Ahead of the `.fsi` package extractor as well as the passes: both read the enum-case
+         value grammar, so the reading is one function taking a token → text read. -->
+    <Compile Include="StringLiterals.fs" />
+    <Compile Include="EnumCaseValues.fs" />
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastPoolNodes.fs" />
     <!-- Immediately after the `Wire` shapes it consumes and the `TastConvert` functor it
@@ -92,7 +96,6 @@
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />
     <Compile Include="PassContext.fs" />
-    <Compile Include="StringLiterals.fs" />
     <Compile Include="Passes\Desugar.fs" />
     <Compile Include="Passes\NameResolution\TypeRefStamp.fs" />
     <!-- After name resolution: an attribute is decoded by RESOLVING its long-ident

@@ -6,9 +6,6 @@ open System.Collections.Generic
 /// Why a registered type name carries no modelled body.
 [<RequireQualifiedAccess>]
 type UnmodelledReason =
-    /// The `.fsi` extractor stubs `type E = | A = 0`; a TS manifest builds a real `Enum`
-    /// for the same declaration, so only this side is missing.
-    | Enum
     | Delegate
     | TypeExtension
     /// The kind IS modelled; this declaration's body did not translate.
@@ -17,7 +14,6 @@ type UnmodelledReason =
     /// The phrase a diagnostic or fault names this by.
     member this.Description: string =
         match this with
-        | Enum -> "an enum declared in a signature file"
         | Delegate -> "a delegate type"
         | TypeExtension -> "a type extension"
         | ExtractionFailed reason -> sprintf "a body that did not translate (%s)" reason

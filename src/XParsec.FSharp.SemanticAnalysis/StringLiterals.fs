@@ -4,9 +4,9 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// String-literal folding primitives shared by the NameResolution enum-case reader and the
-// Elaborate constant parsers. Depends only on `PassContext.NameOf` and the parser's
-// string-part shape, so it sits ahead of the passes.
+// String-literal folding primitives shared by the enum-case value projection and the
+// Elaborate constant parsers. Takes the token → text read as a function, so it sits ahead of
+// the `.fsi` package extractor as well as the passes.
 
 module internal StringLiterals =
 
@@ -46,10 +46,10 @@ module internal StringLiterals =
             char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
         | other -> failwithf "StringLiterals.decodeEscape: unsupported escape '\\%c' in %s" other inner
 
-    /// Concatenate the literal text of every string part via `ctx.NameOf`, rendering an
+    /// Concatenate the literal text of every string part via `nameOf`, rendering an
     /// interpolation hole (`StringPart.Expr`) through `onHole`.
     let foldStringParts
-        (ctx: PassContext)
+        (nameOf: SyntaxToken -> string)
         (onHole: unit -> string)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         : string =
@@ -57,29 +57,19 @@ module internal StringLiterals =
 
         for part in parts do
             match part with
-            // A `Text` part can carry an escape-sequence TOKEN, whose `ctx.NameOf` is the
+            // A `Text` part can carry an escape-sequence TOKEN, whose `nameOf` is the
             // raw source span — backslash then `n`, two chars. Decoding it here is what
             // makes a literal `"\n"` a newline instead of two characters.
             | StringPart.Text t ->
                 match t.Token with
-                | Token.EscapeSequence -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
-                | _ -> sb.Append(ctx.NameOf t) |> ignore
-            | StringPart.EscapeSequence t -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
+                | Token.EscapeSequence -> sb.Append(decodeEscape (nameOf t)) |> ignore
+                | _ -> sb.Append(nameOf t) |> ignore
+            | StringPart.EscapeSequence t -> sb.Append(decodeEscape (nameOf t)) |> ignore
             | StringPart.FormatSpecifier t
             | StringPart.EscapePercent t
             | StringPart.VerbatimEscapeQuote t
             | StringPart.OrphanFormatSpecifier t
-            | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
+            | StringPart.InvalidText t -> sb.Append(nameOf t) |> ignore
             | StringPart.Expr _ -> sb.Append(onHole ()) |> ignore
 
         sb.ToString()
-
-    /// An enum case VALUE expression as its decoded string constant: peels a value-grouping
-    /// paren (`| A = ("auto")`) and admits plain / verbatim / triple-quoted strings.
-    /// `ValueNone` for an interpolated string (`$"…"`, no constant value) or a non-string.
-    let rec tryEnumCaseStringLiteral (ctx: PassContext) (v: Expr<SyntaxToken>) : string voption =
-        match v with
-        | Expr.EnclosedBlock(expr = inner) -> tryEnumCaseStringLiteral ctx inner
-        | Expr.String(kind = (StringKind.String _ | StringKind.VerbatimString _ | StringKind.String3 _); parts = parts) ->
-            ValueSome(foldStringParts ctx (fun () -> "") parts)
-        | _ -> ValueNone

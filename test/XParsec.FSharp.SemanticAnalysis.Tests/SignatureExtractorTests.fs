@@ -202,13 +202,59 @@ let tests =
                 Expect.equal (compiledReturn "voidRet") CompiledReturnG.RVoid "unit return → RVoid"
             }
 
-            test "A body-less type registers an Unmodelled shape naming the gap, not absence" {
-                // Enum and delegate bodies are unmodelled, so the name registers an explicit
-                // `Unmodelled` shape carrying WHICH form is missing — `TryLookupType` answers, never misses.
+            test "An enum body extracts as an Enum shape carrying its case → value table" {
+                // The `.fsi` extractor reads the enum-case value grammar through the same
+                // projection the Elaborate pass uses, so a referenced package's `E.C1`
+                // resolves to the same constant a locally-compiled `E.C1` does. `-1` lexes as
+                // one negative literal, `- 3` as a unary minus — the two arms that reach it.
                 let parsed =
                     parseFsi
                         "app.fsi"
-                        "namespace App\n\nmodule M =\n    type Thing =\n        | Red = 0\n        | Green = 1\n"
+                        "namespace App\n\nmodule M =\n    type Colour =\n        | Red = -1\n        | Green = 2uy\n        | Amber = - 3\n\n    type Verb =\n        | Get = \"GET\"\n        | Put = \"PUT\"\n"
+
+                let ctx = VesperLib.ExtractCtx.empty "clr"
+                VesperLib.extractSymbols ctx parsed
+
+                let casesOf (suffix: string) : ExternalEnumCaseShape[] =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.TypeShapes do
+                        if found.IsNone && kv.Key.EndsWith suffix then
+                            found <- ValueSome kv.Value
+
+                    match found with
+                    | ValueSome(ExternalTypeShape.Enum(cases = cases)) -> cases
+                    | ValueSome other -> failtestf "expected an Enum shape for '%s'; got %A" suffix other
+                    | ValueNone ->
+                        failtestf "'%s' registered no shape. Shapes: %A" suffix (Seq.toList ctx.TypeShapes.Keys)
+
+                Expect.equal
+                    [ for c in casesOf "Colour" -> c.Name, c.Value ]
+                    [
+                        "Red", ExternalEnumCaseValue.IntVal -1L
+                        "Green", ExternalEnumCaseValue.IntVal 2L
+                        "Amber", ExternalEnumCaseValue.IntVal -3L
+                    ]
+                    "numeric cases keep source order, and every width lands as int64"
+
+                Expect.equal
+                    [ for c in casesOf "Verb" -> c.Name, c.Value ]
+                    [
+                        "Get", ExternalEnumCaseValue.StringVal "GET"
+                        "Put", ExternalEnumCaseValue.StringVal "PUT"
+                    ]
+                    "a string enum's case values are the decoded literals"
+            }
+
+            test "An enum case with no constant value downgrades the whole enum" {
+                // A partial case table would answer `E.Red` and then deny `E.Green`, so one
+                // unreadable case makes the whole body Unmodelled — the union extractor's
+                // rule for an unnamed case. The reason names the case, not the literal form:
+                // the declaring package's own compilation reported that.
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Thing =\n        | Red = true\n        | Green = 1\n"
 
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
@@ -223,14 +269,41 @@ let tests =
                     found
 
                 match thingShape with
-                | ValueSome(ExternalTypeShape.Unmodelled(reason, arity)) ->
-                    Expect.equal reason UnmodelledReason.Enum "the shape names the enum stub as the gap"
+                | ValueSome(ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, arity)) ->
+                    Expect.stringContains reason "Red" "the reason names the case that did not read"
                     Expect.equal arity 0 "Unmodelled carries the declared arity"
                 | ValueSome other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
                 | ValueNone ->
                     failtestf
                         "enum registered no shape (name-without-shape gap). Shapes: %A"
                         (Seq.toList ctx.TypeShapes.Keys)
+            }
+
+            test "A val naming an enum bakes FTEnum, not an opaque nominal" {
+                // The kind-correct bake for an `Enum` shape. Before the extractor built one,
+                // `mkNominal`'s `Enum` arm was reachable only from a dependency's frozen
+                // shapes, so a `.fsi`-declared enum in a val signature raised instead.
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Colour =\n        | Red = 0\n        | Green = 1\n\n    val paint: Colour -> int\n"
+
+                let ctx = VesperLib.ExtractCtx.empty "clr"
+                VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
+
+                let mutable found = ValueNone
+
+                for kv in ctx.Symbols do
+                    if found.IsNone && kv.Key.EndsWith ".paint" then
+                        found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
+
+                match found with
+                | ValueSome(TyFun(TyEnum key, TyConst(intKey, _))) ->
+                    Expect.equal key.Name "Colour" "the param is the enum's own nominal"
+                    Expect.equal (SymbolKeyOps.simpleName intKey) (DisplayName "int") "the return type still bakes"
+                | ValueSome other -> failtestf "expected (Colour -> int) with a TyEnum param, got %A" other
+                | ValueNone -> failtestf "val 'paint' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
             }
 
             test "A `struct … end` value type extracts as a Class shape flagged IsValueType" {

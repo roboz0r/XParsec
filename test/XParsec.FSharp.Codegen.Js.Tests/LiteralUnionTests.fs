@@ -139,10 +139,9 @@ let tests =
 
             test "(4b) parenthesized string case values still admit (shared projection peels the paren)" {
                 // A value-grouping paren (`| Auto = ("auto")`) is a legal string case.
-                // The enum-registration reader now shares `Elaborate`'s projection
-                // (`StringLiterals.tryEnumCaseStringLiteral`), which peels the paren, so
-                // the case-VALUE set is populated early and the enum admits — before the
-                // fix the bare-string-only reader declined this silently.
+                // The enum-registration reader shares the enum-case value projection, which
+                // peels the paren, so the case-VALUE set is populated early and the enum
+                // admits — a bare-string-only reader declines this silently.
                 let program =
                     String.concat
                         "\n"

@@ -12,17 +12,6 @@ subagent report.
 
 ## Defects
 
-### `Passes/Unification/Translate.fs:423` — one unresolved-type residue is a free `TyVar`, two are opaque
-
-The unresolved-type helper takes the residue from its caller. `resolveBareTypeName` (`:394`) and
-`resolveLocalNamedGeneric` (`:470`) both pass `TyConst(RuntimeNames.opaqueKey name, EqArray.empty)`;
-`resolveQualifiedTypeName` (`:423`) passes `TyVar(freshTyVar ctx)`. A free `TyVar` unifies with
-ANYTHING, so a stamped qualified name whose shape fails to build — an external generic written at
-the wrong arity, say — type-checks against everything instead of degrading to an opaque nominal.
-
-`assertNoDottedStampGap` does not catch it: that DEBUG assert passes as soon as the store serves
-the key at all, regardless of whether a shape was built.
-
 ### `Passes/NameResolution/Scope.fs:208` — an or-pattern's boundVars are dropped in one pass and diagnosed in another
 
 `bindingsOfPat` returns `[]` for `Pat.Or` / `Pat.And`, and `EnterMatchArm` (`:658`) builds the arm's
@@ -187,14 +176,6 @@ returns a `Result` or faults; this one is the outlier.
 uses `EndsWith(suffix, StringComparison.Ordinal)` for the same class of test. Same latent
 inconsistency at `VesperLib/Manifest.fs:49` (`.EndsWith ".fsi"`) and `Elaborate/Strings.fs:53`
 (`.StartsWith ":"`).
-
-### `VesperLib/TypeTranslate.fs:378` — `mkNominal`'s `Enum` arm is unreachable from its own path
-
-No VesperLib extractor site constructs `ExternalTypeShape.Enum`; the only producers are
-`Codegen.Js/TsManifestMembers.fs:231`, `FrozenSignature.fs:445` and
-`Passes/NameResolution/Scope.fs:632`. The arm is reachable only if `ctx.AmbientShapes` returns a
-frozen-decoded dependency shape, which no current test exercises. Wants a test or a narrower
-shape type, not a comment.
 
 ### `CstKeys.fs:105`, `CstKeys.fs:127` — unimplemented shapes fail at runtime
 

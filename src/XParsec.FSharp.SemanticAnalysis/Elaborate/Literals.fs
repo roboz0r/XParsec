@@ -85,4 +85,4 @@ module internal ElaborateLiterals =
     /// Stitch a value-level `Expr.ILIntrinsic` instruction string, trimming surrounding
     /// whitespace: `(# "ceq" … #)` → `"ceq"`.
     let stitchIlInstruction (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
-        (foldStringParts ctx (fun () -> "") parts).Trim()
+        (foldStringParts ctx.NameOf (fun () -> "") parts).Trim()

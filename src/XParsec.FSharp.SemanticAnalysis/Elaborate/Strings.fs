@@ -18,7 +18,7 @@ module internal ElaborateStrings =
     /// `{<expr>}` placeholders. Only reached for plain strings, printf format
     /// literals, and interpolations a hole kept off the `TExpr.Format` path.
     let private stitchLiteralString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
-        foldStringParts ctx (fun () -> "{<expr>}") parts
+        foldStringParts ctx.NameOf (fun () -> "{<expr>}") parts
 
     /// Classify one interpolation hole into the `HoleSpecSource` a `FormatSeg.Hole` carries,
     /// or `None` if it can't be rendered faithfully. `%d{x}` becomes `Classified`, a plain

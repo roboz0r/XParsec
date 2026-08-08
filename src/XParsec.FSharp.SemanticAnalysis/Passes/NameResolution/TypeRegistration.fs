@@ -739,9 +739,9 @@ module NameResolutionTypeRegistration =
                 let vals =
                     [|
                         for EnumTypeCase(constValue = v) in cases do
-                            match StringLiterals.tryEnumCaseStringLiteral ctx v with
-                            | ValueSome s -> yield s
-                            | ValueNone -> ()
+                            match EnumCaseValues.tryResolve ctx.NameOf v with
+                            | Ok(TEnumLiteral.String s) -> yield s
+                            | _ -> ()
                     |]
 
                 if vals.Length = cases.Length && cases.Length > 0 then
