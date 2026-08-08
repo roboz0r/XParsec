@@ -153,11 +153,9 @@ let tests =
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
 
-            // A registrar addresses its own type by the `TypeKey` on the identity it is
-            // handed, never by short name — a bare name does not address an arity-overloaded
-            // type, so a name lookup here would silently discard the declaration's `inherit`
-            // clause / `with member …` block. One test per registrar that has detail to
-            // write BACK onto an already-registered type.
+            // A registrar writes detail back by `TypeKey`, never by short name — a bare name
+            // does not address an arity-overloaded type, so the `inherit` clause / `with
+            // member …` block would be silently discarded. One test per registrar.
             test "every arity of an overloaded class gets its inherit clause" {
                 let ctx =
                     analyse
@@ -312,9 +310,8 @@ let tests =
             }
 
             test "implicit free typar in type-def diagnoses" {
-                // `type Bad = { X: 'a }` with no `<'a>` defn — Unification's
-                // strict-mode walk over field types should fire a
-                // "Free type parameter" diagnostic.
+                // No `<'a>` on the definition — Unification's strict-mode walk over field
+                // types fires "Free type parameter".
                 let lexed, file = parseFile "type Bad = { X: 'a }"
 
                 let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
@@ -370,10 +367,8 @@ let tests =
             }
 
             test "stamped *TypeInfo.Key carries the declared name and arity" {
-                // Every registered type carries a project-local `SymbolKey`: the SOURCE name
-                // and the declared arity as an int. `(name, arity)` is the whole identity —
-                // the `` `N `` is a CLR spelling produced only when a metadata name is
-                // rendered, never carried in a key.
+                // A registered type's key is (SOURCE name, declared arity as an int); the
+                // `` `N `` suffix is a rendering, never carried in the key.
                 let ctx =
                     analyse (
                         "type R = { X: int }\n"
@@ -404,8 +399,6 @@ let tests =
 
                 Expect.equal (abbrevKey "Name" 0) (SymbolKeyOps.typeKeyArity "" "Name" 0) "non-generic abbrev → arity 0"
 
-                // The metadata spelling is a RENDERING of the key, not part of it — and it is
-                // what codegen emits as the `TypeDef` name.
                 match unionKey "Choice" with
                 | SymbolKey.Type t ->
                     Expect.equal t.Name "Choice" "the key's Name is the source name, unmangled"
@@ -440,8 +433,6 @@ let tests =
                 Expect.equal info.Members.[0].Name "M" "member named M"
             }
 
-            // `[<Sealed>]` and `[<AllowNullLiteral>]` decode through
-            // `Attributes.decodeClassAttributes` onto `ClassTypeInfo`.
             test "[<Sealed>] stamps ClassTypeInfo.IsSealed" {
                 let ctx = analyse "[<Sealed>]\ntype C() = member this.M () = 1"
 
@@ -520,7 +511,6 @@ let tests =
                 | ValueSome rb -> Expect.equal rb.BindingSite (BoundVarKey.identity info.BaseKey) "base self-entry"
                 | ValueNone -> failtest "base not bound in instance scope"
 
-                // Referencing `base.M()` does not produce an unresolved diagnostic.
                 let unresolvedBase =
                     ctx.Diagnostics
                     |> Seq.exists (fun d -> d.Message.Contains "Unresolved" && d.Message.Contains "base")
@@ -567,16 +557,12 @@ let tests =
                 Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
             }
 
-            // Heritability is recorded on the KEY axis: the `class`-tag verdict rides the
-            // same `IntrinsicReprKeys` entry as the repr, read by name via `intrinsicKeyOf`.
             let isHeritable (ctx: PassContext) (name: string) =
                 match ctx.Types.IntrinsicReprKeys.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
                 | true, repr -> repr.Heritable
                 | _ -> false
 
             test "heritable extern class (# class repr #) registers without diagnostic" {
-                // The `class`-tagged intrinsic is admitted as a heritable external base
-                // (`IntrinsicReprInfo.Heritable`), not rejected.
                 let ctx = analyse "type Attribute = (# class \"System.Attribute\" #)"
 
                 Expect.equal ctx.Diagnostics.Count 0 "no diagnostic for a class-tagged intrinsic"
@@ -584,9 +570,8 @@ let tests =
             }
 
             test "heritable extern interface (# interface repr #) is rejected (not yet supported)" {
-                // `interface`-tagged intrinsics parse (the AST carries the species) but
-                // have no emit path: rejected at registration rather than mis-emitted as
-                // a class base, and NOT recorded as a heritable base.
+                // `interface`-tagged intrinsics parse, but have no emit path, so
+                // registration rejects one rather than admitting it as a class base.
                 let ctx = analyse "type IFoo = (# interface \"System.IFoo\" #)"
 
                 let rejected =
@@ -597,9 +582,9 @@ let tests =
                 Expect.isFalse (isHeritable ctx "IFoo") "not recorded as a heritable base"
             }
 
-            // An inheritance cycle is only WRITABLE inside one `type … and …` group: file-order
-            // scoping means a class can only inherit from a type declared above it, and a
-            // cycle needs a back-edge.
+            // A cycle is only WRITABLE inside one `type … and …` group: file-order scoping
+            // lets a class inherit only from a type declared above it, so the back-edge
+            // needs the group.
             test "cyclic inheritance diagnoses" {
                 let ctx = analyse "type A() =\n    inherit B()\nand B() =\n    inherit A()"
 
@@ -609,9 +594,9 @@ let tests =
             }
 
             test "Union decl sites stamp ResolvedType with arity-qualified keys" {
-                // NameResolution stamps each union's decl-site NodeKey → the union's
-                // minted `SymbolKey`; the type-decl emitter (`Elaborate.tryUnionType`)
-                // reads it back by key rather than re-deriving `(name, arity)`.
+                // NameResolution stamps each union's decl-site NodeKey → the union's minted
+                // `SymbolKey`, which the type-decl emitter reads back instead of
+                // re-deriving `(name, arity)`.
                 let ctx =
                     analyse "type Color = | Red | Green\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b"
 
@@ -623,17 +608,14 @@ let tests =
                 Expect.isTrue (hasValue (SymbolKeyOps.typeKeyOf "" ("Color"))) "Color decl site stamped"
                 Expect.isTrue (hasValue (SymbolKeyOps.typeKeyOf "" ("Choice`2"))) "Choice`2 decl site stamped"
 
-                // The stamped key round-trips back to the union through the same
-                // reader-side seam the emitter uses.
                 match TypeRegistry.tryUnionByKey ctx.Types (SymbolKeyOps.typeKeyOf "" ("Choice`2")) with
                 | ValueSome info -> Expect.equal info.Name "Choice" "Choice`2 key resolves to the Choice union"
                 | ValueNone -> failtest "Choice`2 key did not resolve via tryUnionByKey"
             }
 
             test "Union annotation use site stamps ResolvedType" {
-                // `translateType` (via Unification) stamps the use-site type-reference
-                // NodeKey as the `Choice<int, string>` annotation resolves — the
-                // populate half a downstream use-site-type consumer keys off.
+                // Unification stamps the use-site type-reference NodeKey as the
+                // `Choice<int, string>` annotation resolves.
                 let input =
                     "type Choice<'a, 'b> = | C1 of 'a | C2 of 'b\nlet f (x: Choice<int, string>) = x"
 
@@ -654,11 +636,9 @@ let tests =
             }
 
             test "Declaring namespace is threaded into the minted SymbolKey" {
-                // A type under `namespace Foo.Bar` mints `TypeKey("Foo.Bar", name\`arity)`
-                // — the identity it emits as (`TDecl.Namespace` + arity-suffixed metadata
-                // name) — not the ns="" construction-time placeholder. Proves the
-                // declaring path actually survives the module-tree flatten (which used to
-                // drop it) and reaches the registry mint.
+                // A type under `namespace Foo.Bar` mints `TypeKey("Foo.Bar", name\`arity)`,
+                // not the ns="" construction-time placeholder — the declaring path survives
+                // the module-tree flatten and reaches the registry mint.
                 let ctx =
                     analyse "namespace Foo.Bar\n\ntype Rec = { x: int }\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b"
 
@@ -675,9 +655,8 @@ let tests =
             }
 
             test "Arity-overloaded types under one namespace mint unique keys" {
-                // The uniqueness gate: every accepted type mints a distinct key, so
-                // `recordKeyOrigin` reports no collision. `Choice\`2` / `Choice\`3` share a
-                // namespace and short name yet stay distinct by arity-suffix.
+                // `Choice\`2` / `Choice\`3` share a namespace and short name yet mint
+                // distinct keys, so no collision is reported.
                 let ctx =
                     analyse
                         "namespace Foo\n\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b\ntype Choice<'a, 'b, 'c> = | D1 of 'a | D2 of 'b | D3 of 'c"

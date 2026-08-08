@@ -3,28 +3,12 @@ module XParsec.FSharp.SemanticAnalysis.Tests.ExternalSignatureOracleTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The external-signature realiser oracle. The dual-path window is closed: every
-// external descriptor now carries ONLY its `FrozenType` template (the
-// `SemType[] -> SemType` closures that producers once derived templates from are
-// gone). What remains load-bearing is that the
-// production realisers correctly turn a template back into the `SemType` a use
-// site unifies against:
-//
-//   * `instantiateDeclaring` — a declaring-only type-shape descriptor (record
-//     field, union-case field, abbreviation body): `FTTypar(Declaring,i) →
-//     declaringArgs.[i]`.
-//   * `instantiateSignature` — a member's two-axis signature: declaring
-//     placeholders resolve to the caller's args, method placeholders freshen to
-//     fresh `TyVar`s (shared per method index, stamped at the requested level).
-//
-// Each case below is a HAND-WRITTEN template paired with the `SemType` it must
-// realise to on `groundArgs` — no closure derives the expected value, so the test
-// pins the realisers directly. (The end-to-end `translateType` path — CST to
-// template — is covered by `SignatureExtractorTests` and `ReferencedProjectTests`.)
+// Each case is a HAND-WRITTEN `FrozenType` template paired with the `SemType` it must
+// realise to on `groundArgs`. `instantiateDeclaring` maps `FTTypar(Declaring,i)` to
+// `declaringArgs.[i]`; `instantiateSignature` also freshens the method axis to `TyVar`s.
 
-/// Ground (`TyVar`-free, `TyTypar`-free) types to substitute for declaring
-/// args, so `instantiate*` produces structurally-comparable `SemType`s (no
-/// reference-identity `TyVar` leaves to defeat `=`).
+/// Ground (`TyVar`-free, `TyTypar`-free) types for the declaring args, so `instantiate*`
+/// produces structurally-comparable `SemType`s — a `TyVar` leaf would defeat `=`.
 let private groundArgs: SemType[] =
     [|
         TyConst(RuntimeNames.intKey, EqArray.empty)
@@ -35,15 +19,12 @@ let private groundArgs: SemType[] =
 let private kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
 let private kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
 
-/// A declaring-typar `i` as a template leaf, and the ground `SemType` it must
-/// realise to (`groundArgs.[i]`). Pairing them keeps each oracle case honest:
-/// the template names `FTTypar(Declaring,i)`, the expected names `groundArgs.[i]`
-/// by hand.
+/// The declaring-typar template leaf `FTTypar(Declaring, i)`, which must realise to
+/// `groundArgs.[i]`.
 let private d (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
 
-/// A representative template paired with its declaring arity and the `SemType`
-/// `instantiateDeclaring` must yield on `groundArgs`. None bake a method typar;
-/// the method axis is exercised by the member tests below.
+/// Name, declaring arity, template, and the `SemType` `instantiateDeclaring` must yield
+/// on `groundArgs`. None bake a method typar.
 let private declaringTemplates: (string * int * FrozenType * SemType) list =
     [
         "argless const", 0, FTConst(RuntimeNames.boolKey, EqArray.empty), TyConst(RuntimeNames.boolKey, EqArray.empty)
@@ -69,8 +50,8 @@ let private declaringTemplates: (string * int * FrozenType * SemType) list =
         "unknown head", 0, FTUnknown "Unresolved.Head", TyUnknown "Unresolved.Head"
     ]
 
-/// Slice `groundArgs` to the template's arity (the declaring substitution the
-/// caller mints fresh at a use site — here, ground stand-ins).
+/// Slice `groundArgs` to the template's arity — the declaring substitution a use site
+/// would mint fresh.
 let private argsForArity (arity: int) : SemType[] = Array.sub groundArgs 0 arity
 
 [<Tests>]
@@ -86,9 +67,8 @@ let tests =
             }
 
             test "substituteDeclaring is the frozen sibling of instantiateDeclaring" {
-                // Codegen substitutes declaring args in frozen-space directly; it
-                // must agree with `toFrozen ∘ instantiateDeclaring` (the path
-                // inference takes) on the post-freeze subset.
+                // Codegen substitutes declaring args in frozen-space directly; it must agree
+                // with `toFrozen ∘ instantiateDeclaring`, the path inference takes.
                 for name, arity, template, _ in declaringTemplates do
                     let frozenArgs = argsForArity arity |> Array.map toFrozen
                     let viaSubstitute = substituteDeclaring frozenArgs template
@@ -101,12 +81,9 @@ let tests =
             }
 
             test "method placeholders freshen to one shared TyVar per index at the given level" {
-                // A two-axis signature baking method index 0 twice and index 1 once
-                // — exactly the shape `MetadataMapping.tryBuildType` produces for a
-                // generic method (`Dictionary.TryGetValue<...>`-style). Routed
-                // through the production realiser `instantiateSignature`, which must
-                // freshen one var per method index, shared across
-                // `Parameters`/`Return`, stamped at `level`.
+                // Method index 0 baked twice and index 1 once — the shape a generic method
+                // (`Dictionary.TryGetValue<…>`-style) produces. The var for index 0 must be
+                // shared across `Parameters` and `Return`.
                 let signature: ExternalSignature =
                     TestHelpers.mkSignature
                         1
@@ -152,12 +129,9 @@ let tests =
 
             // --- Member path: hand-written ExternalSignature + instantiateSignature ---
 
-            /// Build a member from a hand-written two-axis `ExternalSignature` and
-            /// assert `instantiateSignature` realises it to `expected` on ground
-            /// args. `declTyparArity` is the declaring type's arity; `expected` is
-            /// `None` for a generic member (method axis freshens to `TyVar`s, which
-            /// have no structural counterpart — only the arities + `TyFun` shape are
-            /// asserted there).
+            /// Assert `instantiateSignature` realises `signature` to `expected` on ground
+            /// args. `expected` is `None` for a generic member: the method axis freshens to
+            /// `TyVar`s, so only the arities and the `TyFun` shape are asserted.
             let memberOracle
                 name
                 isProperty
@@ -187,9 +161,6 @@ let tests =
                             exp
                             "instantiateSignature ≡ expected"
                     | None ->
-                        // With a method axis the realiser freshens `TyVar`s;
-                        // structural value-equality doesn't apply, so assert the
-                        // arities round-trip and the signature is a `TyFun`.
                         Expect.equal m.Signature.DeclaringTyparArity declTyparArity "declaring arity preserved"
                         Expect.equal m.Signature.MethodTyparArity methodTyparArity "method arity preserved"
 

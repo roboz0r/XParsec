@@ -4,51 +4,36 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// The home assembly is a physical LOCATION, not part of a nominal identity: it lives
-/// on a resolved shape's `SymbolOrigin`, never in the key. So the same type minted via
-/// ANY path — from a resolved external origin (`mkNominal` / `Translate` /
-/// `InferResolve`), from a bare fully-qualified compiled name (the ten string-fed sites
-/// that have no assembly in hand at all), or by local definition (`LocalSymbolKey.ofType`,
-/// whose output for a well-known type IS the `RuntimeNames.*Key` literal) — must compare
-/// EQUAL, by construction rather than by assertion. Unification compares nominal
-/// `SemType`s by full `SymbolKey` equality, so a mint path that disagreed would silently
-/// fail to unify with no diagnostic. These pin the agreement for the well-known
-/// singletons the rest of the pipeline matches on, INCLUDING across differing homes.
 let private originIn (asm: string) (ns: string) : SymbolOrigin =
     {
         Home = Origin.InAssembly(AssemblyName asm)
         Namespace = SymbolKeyOps.namespaceKey ns
     }
 
+// Unification compares nominal types by full `SymbolKey` equality, so two mint paths that
+// disagreed would fail to unify with no diagnostic.
 [<Tests>]
 let tests =
     testList
         "SymbolKey mint-path invariant"
         [
             test "cons-list: every mint path yields the canonical key, whatever the home" {
-                // External ref resolved from a `SymbolOrigin` (the consumer path:
-                // `mkNominal` / `Translate` / `InferResolve`).
                 let viaOrigin =
                     SymbolKeyOps.externalTypeKeyOf
                         (originIn "Vesper.List" "Vesper.Collections")
                         "Vesper.Collections.List"
                         1
 
-                // External ref minted from a qualified compiled name alone — no assembly
-                // in hand (the string-fed codegen / metadata path).
+                // No assembly in hand at all: the compiled name alone.
                 let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.List" 1
 
-                // The SAME type resolved from a shape homed in a DIFFERENT assembly. The
-                // home is not part of the identity, so this is the same key — the fact the
-                // deleted "asm is load-bearing" test asserted the negation of.
                 let viaOtherHome =
                     SymbolKeyOps.externalTypeKeyOf
                         (originIn "Other.Asm" "Vesper.Collections")
                         "Vesper.Collections.List"
                         1
 
-                // The local-def path (`LocalSymbolKey.ofType` over the same containment —
-                // namespace `Vesper.Collections`) produces exactly this literal.
+                // A local definition in namespace `Vesper.Collections` mints this literal too.
                 Expect.equal viaOrigin RuntimeNames.vesperListKey "origin mint = canonical"
                 Expect.equal viaQualified RuntimeNames.vesperListKey "qualified mint = canonical"
                 Expect.equal viaOrigin viaQualified "both external mint paths agree"
@@ -70,11 +55,9 @@ let tests =
                 Expect.equal viaOtherHome viaOrigin "a differing home assembly does NOT change the identity"
             }
 
-            // A package origin is a BLANKET fact (`Vesper`), but a type in that package can
-            // live DEEPER (`Vesper.Collections.seq`). Deriving the namespace by stripping the
-            // blanket origin off the compiled name mis-cuts it into ns=`Vesper` /
-            // name=`Collections.seq`, which then fails to match the capability's canonical
-            // key. The namespace must come from the name the type belongs to.
+            // A package origin is a BLANKET fact (`Vesper`), but a type in it can live DEEPER
+            // (`Vesper.Collections.seq`). Stripping the origin off the compiled name would
+            // mis-cut that into ns=`Vesper` / name=`Collections.seq`.
             test "blanket package origin does not mis-cut a deeper compiled name" {
                 let blanket = originIn "Vesper.Core" "Vesper"
 
@@ -93,10 +76,8 @@ let tests =
                 Expect.equal viaOrigin.TyparArity 1 "the arity is an int field, not a suffix in the name"
             }
 
-            // `typeMetaName` is THE renderer and `typeKeyOf` THE parser for the `+`-mangled,
-            // arity-suffixed reflection display name of a CLR nested type. They must invert
-            // each other; the nesting lands in the containment chain and the arity in `TyparArity` —
-            // neither survives inside a key's `Name`.
+            // Parsing `` List`1+Enumerator `` lands the nesting in the containment chain and
+            // the arity in `TyparArity` — neither survives inside a key's `Name`.
             test "nested type: the `+` chain becomes containers, and renders back unchanged" {
                 let k = SymbolKeyOps.typeKeyOf "System.Collections.Generic" "List`1+Enumerator"
 
@@ -118,8 +99,6 @@ let tests =
                     "System.Collections.Generic"
                     "a nested type reports its OUTER's namespace, as the CLR does"
 
-                // A nested type's arity is spelled by the segment that OWNS it, so a caller's
-                // single `arity` — the shape's total — must not be re-appended to the inner.
                 Expect.equal
                     (SymbolKeyOps.qualifiedTypeKeyOf "N.List`1+Enumerator" 1
                      |> SymbolKeyOps.typeMetaName)
@@ -127,22 +106,15 @@ let tests =
                     "the arity is already spelled by the outer; it is not re-appended to the inner"
             }
 
-            // Each CLR metadata segment's `` `N `` is that segment's OWN typar count, so a
-            // generic type nested in a generic type spells BOTH (`` Outer`1+Inner`1 ``). With
-            // the arity mangled into `Name` this shape was unwritable — a producer could not
-            // suffix an inner whose outer already carried a backtick. Per-segment `Arity: int`
-            // makes it fall out.
             test "renderer and parser are inverses, per segment" {
                 let roundTrip (ns: string) (name: string) =
                     let k = SymbolKeyOps.typeKeyOf ns name
 
-                    // NAME round-trip: render ∘ parse = id on the metadata spelling.
                     Expect.equal
                         (SymbolKeyOps.typeMetaName k)
                         (if ns = "" then name else ns + "." + name)
                         (sprintf "render(parse(%s)) = %s" name name)
 
-                    // KEY round-trip: parse ∘ render = id on the key.
                     Expect.equal
                         (SymbolKeyOps.typeKeyOf ns (SymbolKeyOps.typeNestedName k))
                         k
@@ -162,25 +134,20 @@ let tests =
                 | TypeContainer.InType outer -> Expect.equal outer.TyparArity 1 "the OUTER declares one of its own"
                 | other -> failtestf "expected InType, got %A" other
 
-                // The array's source spelling is BACKTICK-ESCAPED (F# requires it — `[]` is not
-                // a bare identifier). Those backticks are an escape, NOT an arity, so the name
-                // must survive the parser whole and render back verbatim.
+                // The array's declared name is backtick-escaped, F# having no bare `[]`
+                // identifier. Those backticks are an escape, not an arity.
                 let arr = roundTrip "Vesper" RuntimeNames.arrayContractName
 
                 Expect.equal arr.Name RuntimeNames.arrayContractName "the escape is not mangled into a name + arity"
 
                 Expect.equal arr.TyparArity 0 "a backtick ESCAPE is not a `` `N ``"
 
-                // ...and a mint that is HANDED an arity for it must not invent a suffix the
-                // renderer cannot spell, or the key would stop equalling the contract's.
                 Expect.equal
                     (SymbolKeyOps.qualifiedTypeKeyOf ("Vesper." + RuntimeNames.arrayContractName) 1)
                     arr
                     "an escaped name takes no arity, however it is minted"
             }
 
-            // `moduleFullName` is the ONE rendering of a module's containment. Nothing parses
-            // it back, so its correctness argument is that it renders each container shape whole.
             test "module full name renders the containment chain" {
                 Expect.equal
                     (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace "Vesper" "Unchecked"))
@@ -193,10 +160,6 @@ let tests =
                     "a module in the global namespace"
             }
 
-            // A NESTED module: the containment chain no producer could mint while `moduleKeyOf`
-            // took a dotted name (its last segment became the module and the rest the
-            // namespace, so `Inner` and `Outer` both flattened into the namespace path).
-            // `Outer` must be a MODULE here, not a namespace segment.
             test "nested module: the chain nests, and the namespace stops where it stops" {
                 let outer = SymbolKeyOps.moduleInNamespace "Vesper" "Outer"
 
@@ -217,9 +180,7 @@ let tests =
                     "a binding in a nested module qualifies through the whole chain"
             }
 
-            // The UNQUALIFIED binding — a flat package's export / a global extern. Its container
-            // is the GLOBAL NAMESPACE, not an absent one: the empty path is a real value, so
-            // every container shape is inhabited and no site has to model "no container".
+            // The UNQUALIFIED binding — a flat package's export, or a global extern.
             test "unqualified binding: the container is the global namespace, not a sentinel" {
                 let b = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"
 
@@ -236,11 +197,8 @@ let tests =
                     "qualifiedName drops the empty container rather than emitting a leading dot"
             }
 
-            // `Origin.AssemblyOption` is TOTAL: an `Unstamped` origin has no home, so it
-            // answers `ValueNone` rather than throwing — the caller decides what "no home"
-            // means. This pins that a stamped origin surfaces its home name and an unstamped
-            // one surfaces the honest absence, so a future change that fabricated a
-            // placeholder home would break the test.
+            // "No home" is answered as `ValueNone`, never a placeholder name the caller would
+            // have to recognise.
             test "an unstamped origin has no home assembly, a stamped one has its name" {
                 Expect.equal Origin.Unstamped.AssemblyOption ValueNone "Origin.Unstamped has no home assembly"
 
@@ -251,7 +209,6 @@ let tests =
                     ValueNone
                     "SymbolOrigin.Empty is unstamped, so it names no home assembly"
 
-                // ...but a stamped origin answers plainly.
                 Expect.equal
                     (Origin.InAssembly(AssemblyName "Vesper.Core")).AssemblyOption
                     (ValueSome "Vesper.Core")
@@ -259,11 +216,8 @@ let tests =
             }
         ]
 
-// The two typar axes and the method-arity axis that together make `MemberKey` a TOTAL
-// overload identity. Each case below is a real F# overload set (verified against `dotnet
-// fsi`), so a key that collapsed any one axis would silently intern two distinct overloads
-// under one identity — the exact failure the `FrozenType` argSig + `MethodTyparArity`
-// upgrade removes.
+// Each case below is a real F# overload set (checked against `dotnet fsi`), so a key that
+// collapsed any one axis would intern two distinct overloads under one identity.
 [<Tests>]
 let memberKeyIdentity =
     let cKey = SymbolKeyOps.qualifiedTypeKeyOf "C" 1 // the OPEN `C<'T>`
@@ -277,16 +231,11 @@ let memberKeyIdentity =
     testList
         "MemberKey overload identity"
         [
-            // `M<'a>()` and `M<'a,'b>()` — identical (empty) value-param signature, differing
-            // ONLY in method-typar count — are legal, distinct overloads.
             test "method-typar ARITY is an identity axis: M<'a>() <> M<'a,'b>()" {
                 Expect.notEqual (mk [] 1) (mk [] 2) "the method-typar arity alone separates them"
             }
 
-            // On `C<'T>`: `M(x:'T)` (a DECLARING typar), `M<'U>(x:'U)` (a METHOD typar), and
-            // `M(x:int)` (concrete) are three coexisting overloads. A flat string argSig
-            // (`!0`/`!!0`/`int`) is exactly what would collapse the two typar arms; the
-            // structural `FTTypar` axis keeps them apart.
+            // On `C<'T>`, `M(x:'T)`, `M<'U>(x:'U)` and `M(x:int)` coexist as three overloads.
             test "the FTTypar axis separates declaring / method / concrete param types" {
                 let mDecl = mk [ declTypar ] 0
                 let mMethod = mk [ methodTypar ] 1
@@ -296,10 +245,7 @@ let memberKeyIdentity =
                 Expect.notEqual mMethod mConcrete "method-typar arg <> concrete int arg"
             }
 
-            // The declaring-type typar indices are over the OPEN `C<'T>`, never a `C<int>`
-            // instantiation — so a member keyed at a `C<int>` use site (whose `'T`-typed param
-            // is STILL `FTTypar(Declaring,0)`, not `int`) equals one keyed from the open
-            // declaration, and never collapses into the concrete-`int` overload.
+            // A `'T`-typed param at a `C<int>` use site is STILL `FTTypar(Declaring, 0)`.
             test "argSig is keyed on the OPEN declaring form, not an instantiation" {
                 Expect.equal
                     (mk [ declTypar ] 0)
@@ -313,18 +259,10 @@ let memberKeyIdentity =
             }
         ]
 
-// The DECLARING containment of a project-local type, as minted by
-// `NameResolutionTypeRegistration.stampLocalTypeKey`. A type declared inside a `module`
-// is held by that module (`TypeContainer.InModule`), not by the namespace the module sits in
-// — the module name is neither folded into the namespace path nor dropped.
-//
-// The `(name, arity)` CLAIM table stays namespace- and module-blind, so this does not yet
-// admit two same-named sibling-module types (see `Codegen.Clr.Tests.LocalModuleTests`),
-// and the emitted metadata name is unchanged: `typeMetaName` renders an `InModule` key
-// exactly as the namespace-held key it replaces.
+// The DECLARING containment of a project-local type: `type T` inside `module M` is held by
+// `M`, so the module name is neither folded into the namespace path nor dropped.
 module private Local =
 
-    /// The `TypeKey` NameResolution minted for the local type `name` at `arity`.
     let typeKeyOf (arity: int) (name: string) (src: string) : TypeKey =
         let ctx, _ = analyseNameRes (realProvider.Force()) src
 
@@ -371,9 +309,8 @@ let localTypeContainment =
                     [ "N" ]
                     "`TypeKey.Namespace` walks the chain to its root"
 
-                // A module compiles to a static class, so a type it holds is a class NESTED
-                // in it: the metadata name `+`-joins the container, and the namespace column is
-                // the outermost container's — exactly what the CLR does with a nested type.
+                // A module compiles to a static class, so the metadata name `+`-joins it and
+                // the namespace column is the outermost container's.
                 Expect.equal
                     (SymbolKeyOps.typeMetaName k)
                     "N.M+T"
@@ -409,17 +346,9 @@ let localTypeContainment =
                     | other -> failtestf "expected B's container to be module A, got %A" other
                 | other -> failtestf "expected InModule, got %A" other
 
-                // EVERY module in the chain is a container class, so the rendering nests as far
-                // as the source does. This is what makes the renderer INJECTIVE: `N.A.T` and
-                // `N.B.T` no longer collapse onto one name.
                 Expect.equal (SymbolKeyOps.typeMetaName k) "N.A+B+T" "the whole module chain nests, outermost first"
             }
 
-            // `ModuleKey.Name` carries the COMPILED container name — the static class the module
-            // compiles to — which is what a `ModuleKey` means at every other mint (the
-            // contract view bakes the suffix in at mint time too). The rule has ONE
-            // implementation (`compiledModuleName`), so the key and the emitted container cannot
-            // disagree about which class holds what.
             test "the module's key carries its COMPILED container name (…Module on a type collision)" {
                 let k =
                     Local.typeKeyOf

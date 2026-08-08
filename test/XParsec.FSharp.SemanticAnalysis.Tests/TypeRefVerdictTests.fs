@@ -6,23 +6,12 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// NameResolution — the one resolve-once layer — resolves every written external
-// TYPE REFERENCE (opens-aware, at its syntactic arity) and records its `SymbolKey`
-// in `Resolution.TypeRefVerdicts`, keyed by the `Type` node's `NodeKey`
-// (`CstKeys.ofTypeRef`). `Translate.tryResolveExternalTypeStamped` reads that
-// verdict and fetches the shape through the key-addressed store view instead of
-// re-resolving the spelling. These tests assert the external verdict is present
-// at representative type-annotation positions, that the reusable
-// `CstWalk.iterType` recursion reaches references nested in type arguments,
-// and — end to end — that the recorded key round-trips through the store view
-// during inference. A project-local / unknown reference records a non-external
-// verdict (Translate takes its local-registry / opaque paths).
+// Name resolution records a `TypeRefVerdict` for every written type reference, keyed by the
+// `Type` node. These tests pin the verdict at representative annotation positions and, end
+// to end, the round-trip of the recorded key through the store view during inference.
 
-/// A provider knowing a non-generic `Tests.Widget` and a generic `Tests.Box`1`,
-/// both auto-opened via `AmbientOpenPrefixes` (as the real prelude opens the
-/// package namespace). `ofNamedLeaf` derives the store view from the same by-name
-/// table, so it resolves the SAME keys the resolver mints by construction — the
-/// round-trip the stamp read relies on.
+/// `ofNamedLeaf` derives the store view from the same by-name table the resolver reads, so a
+/// key the resolver mints is served back by construction.
 let private provider: IExternalSymbolProvider =
     let widget =
         ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty))
@@ -67,15 +56,8 @@ let private isExternalTypeRef (ctx: PassContext) (ty: Type<SyntaxToken>) : bool 
         | _ -> false
     | ValueNone -> false
 
-/// A name nothing resolves is blamed by NAME, exactly ONCE: the annotation is the cause,
-/// and everything downstream of it must recover in silence rather than spray secondary
-/// errors through every expression that touched the bound variable.
-///
-/// Asserted on the VERDICT rather than on a rendered sentence: the diagnostic carries WHICH
-/// type went undefined as data, so this pins the classification and the name it names, and
-/// a reworded message cannot break it — nor can a differently-worded diagnostic sneak past
-/// it by happening to contain the same substring. The severity it filters on is read off
-/// the same kind, so both halves of the assertion are one fact.
+/// One error, naming the type: the annotation is the cause, so uses of the bound variable
+/// must recover in silence rather than spray secondaries.
 let private expectSoleUndefinedType (name: string) (input: string) =
     let ctx, file = analyse input
     Unification.run ctx file
@@ -85,15 +67,7 @@ let private expectSoleUndefinedType (name: string) (input: string) =
 
     Expect.equal errors [ Kind.UndefinedType name ] (sprintf "one diagnostic, naming the type, for: %s" input)
 
-// ---------------------------------------------------------------------------
-// Locators for the expression-embedded type positions `CstWalk.iterExprEmbeddedTypes`
-// enumerates. Each returns the `Type` nodes at ONE syntactic position, so a test can
-// assert the found COUNT before asserting the stamp — a locator that silently found
-// nothing (a parser shape drift) then fails instead of passing vacuously.
-// ---------------------------------------------------------------------------
-
-/// The `rhsType` of every `when ^T : Tycon` static-optimization constraint on the
-/// first binding's body (`(e :?> 'T) when 'T: Widget = alt`).
+/// The `rhsType` of each constraint in `(x :?> 'T) when 'T: Widget = x`.
 let private staticOptRhsTypes (file: ImplementationFile<SyntaxToken>) : Type<SyntaxToken> list =
     match firstBindingExpr file with
     | Expr.LibraryOnlyStaticOptimization(clauses = clauses) ->
@@ -106,7 +80,6 @@ let private staticOptRhsTypes (file: ImplementationFile<SyntaxToken>) : Type<Syn
         ]
     | _ -> failtest "expected the binding body to parse as Expr.LibraryOnlyStaticOptimization"
 
-/// A member signature's return type — the type an SRTP trait call names.
 let private memberSigReturnType (ms: MemberSig<SyntaxToken>) : Type<SyntaxToken> =
     match ms with
     | MemberSig.MethodOrPropSig(sign = CurriedSig(returnType = ret))
@@ -118,7 +91,6 @@ let private staticMemberInvocationReturnTypes (file: ImplementationFile<SyntaxTo
     | Expr.StaticMemberInvocation(membersign = ms) -> [ memberSigReturnType ms ]
     | _ -> failtest "expected the binding body to parse as Expr.StaticMemberInvocation"
 
-/// Every method/property RETURN-type annotation in an object-expression member block.
 let private objectMemberReturnTypes (ObjectMembers(memberDefns = defns)) : Type<SyntaxToken> list =
     [
         for d in defns do
@@ -131,17 +103,14 @@ let private objectMemberReturnTypes (ObjectMembers(memberDefns = defns)) : Type<
             | _ -> ()
     ]
 
-/// The object expression that is the first binding's body.
 let private objectExprOf (file: ImplementationFile<SyntaxToken>) =
     match firstBindingExpr file with
     | Expr.Object(members = members; interfaceImpls = impls) -> members, impls
     | _ -> failtest "expected the binding body to parse as Expr.Object"
 
-/// Member return annotations in the object expression's own `with` block.
 let private objectExprMemberReturnTypes (file: ImplementationFile<SyntaxToken>) : Type<SyntaxToken> list =
     objectExprOf file |> fst |> objectMemberReturnTypes
 
-/// Member return annotations inside the object expression's `interface … with` blocks.
 let private objectExprInterfaceReturnTypes (file: ImplementationFile<SyntaxToken>) : Type<SyntaxToken> list =
     let _, impls = objectExprOf file
 
@@ -152,10 +121,8 @@ let private objectExprInterfaceReturnTypes (file: ImplementationFile<SyntaxToken
             | ValueNone -> ()
     ]
 
-/// The house discipline for a stamp position: locate the `Type` nodes at ONE
-/// syntactic position, pin how many were found (so a locator that drifted to zero
-/// nodes fails rather than passing vacuously), then assert each carries — or, for a
-/// negative control, does NOT carry — an `ExternalType` verdict.
+/// Pin how many nodes the locator found before asserting the verdict, so a locator that
+/// drifted to zero nodes fails rather than passing vacuously.
 let private assertTypeNamesStamped
     (expected: bool)
     (count: int)
@@ -172,20 +139,14 @@ let private assertTypeNamesStamped
             expected
             (sprintf "expected stamped=%b at the position under test in: %s" expected input)
 
-// Each source builder takes the type name to write at the position under test, so a
-// positive case (`Widget`, provider-known) and its negative control (`Nope`,
-// unknown) differ ONLY in that name — nothing else about the shape can drift
-// between the two.
-
-/// A static-optimization clause whose tycon-equality constraint names `typeName`.
+// Each builder takes the name to write at the position under test, so the positive case
+// (`Widget`, provider-known) and its control (`Nope`, unknown) differ only in that name.
 let private staticOptSrc (typeName: string) =
     String.concat "\n" [ "let f (x: obj) : 'T ="; sprintf "    (x :?> 'T) when 'T: %s = x" typeName ]
 
-/// An SRTP trait call whose member signature returns `typeName`.
 let private staticMemberInvocationSrc (typeName: string) =
     sprintf "let inline f (x: ^T) = (^T: (static member Make: unit -> %s) x)" typeName
 
-/// An object expression whose own `with`-block member returns `typeName`.
 let private objExprSrc (typeName: string) =
     String.concat
         "\n"
@@ -195,7 +156,6 @@ let private objExprSrc (typeName: string) =
             sprintf "        member _.Get() : %s = x }" typeName
         ]
 
-/// An object expression whose `interface … with` block's member returns `typeName`.
 let private objExprInterfaceSrc (typeName: string) =
     String.concat
         "\n"
@@ -212,16 +172,13 @@ let tests =
     testList
         "TypeRefVerdict"
         [
-            // A binding return-type annotation naming an external class: the name is
-            // resolved once here, so translation reads the store view by key.
             test "return-type annotation type reference is external" {
                 let ctx, file = analyse "let f (x: Widget) : Widget = x"
                 let t = returnTypeOf (firstBinding file)
                 Expect.isTrue (isExternalTypeRef ctx t) "Widget return-type type reference is external"
             }
 
-            // A parameter annotation naming an external class is stamped too — pattern
-            // annotations route through `stampPatCases`.
+            // A pattern annotation is a separate walk site from the return annotation above.
             test "parameter annotation type reference is external" {
                 let ctx, file = analyse "let f (x: Widget) = x"
 
@@ -233,9 +190,6 @@ let tests =
                 | None -> failtest "expected a typed parameter annotation"
             }
 
-            // The reusable `CstWalk.iterType` recursion reaches a nested generic
-            // ARGUMENT position: `Box<Widget>` records BOTH the `Box` verdict and the inner
-            // `Widget` one in a single walk.
             test "nested generic argument type reference is external (walker recursion)" {
                 let ctx, file = analyse "let f (x: Widget) : Box<Widget> = box x"
                 let boxTy = returnTypeOf (firstBinding file)
@@ -250,10 +204,8 @@ let tests =
                 | other -> failtestf "expected Box<Widget> GenericType, got %A" other
             }
 
-            // An unknown (not-provider-known) annotation records no EXTERNAL verdict — the
-            // resolve-once layer records only what it resolved, never a stale key. The
-            // ABSENCE of a stamp is what tells `translateType` the name is undefined, so this
-            // is the read the undefined-type diagnostic below rests on.
+            // Nothing is recorded for a name that did not resolve, and that ABSENCE is what
+            // makes the name undefined — the read the diagnostic tests below rest on.
             test "unknown annotation type reference is not external" {
                 let ctx, file = analyse "let f (x: Nope) = x"
 
@@ -265,13 +217,9 @@ let tests =
                 | None -> failtest "expected a typed parameter annotation"
             }
 
-            // End-to-end: the stamped key round-trips through the store view during
-            // inference. This must assert the annotation's resulting IDENTITY, not merely
-            // that it type-checks free of diagnostics: `Widget` is a name the provider
-            // serves, so it is the ROUND-TRIP — stamp minted, store view served — that the
-            // identity witnesses, and a diagnostics-only assertion would witness only that
-            // the name was not diagnosed as undefined. Pinning `TyClass(externalTypeKey …)`
-            // is what excludes it.
+            // End to end: the minted key round-trips through the store view. Pinning the
+            // resulting `TyClass(externalTypeKey …)` is what excludes the opaque residue a
+            // missed stamp would mint; a diagnostics-only assertion would not.
             test "external verdicts resolve through the store view during inference" {
                 let ctx, file = analyse "let f (x: Widget) : Widget = x"
                 Unification.run ctx file
@@ -279,8 +227,8 @@ let tests =
                 // pat `x` at offset 7: `let f (` is 7 chars.
                 let patKey = NodeKey.ofSource 7 NodeKind.PatIdent
 
-                // `SemType.TyClass`, not TestHelpers' string-keyed `TyClass` shim: the
-                // whole point is to pin the KEY the resolver minted, not a name.
+                // `SemType.TyClass`, not TestHelpers' string-keyed `TyClass` shim — the KEY
+                // the resolver minted, not a name.
                 let expected =
                     SemType.TyClass(SymbolKeyOps.externalTypeKeyOf SymbolOrigin.Empty "Tests.Widget" 0, EqArray.empty)
 
@@ -295,40 +243,25 @@ let tests =
                     "Widget -> Widget round-trips with no error"
             }
 
-            // The negative control for the assertion above, and the rule itself: a name
-            // NOTHING resolves — no scope of this file, no shape the provider serves — is not
-            // a type, whatever it is spelled like. It is diagnosed where it is written, so
-            // the positive test above is not vacuous: an annotation that type-checks in
-            // silence is one the target really could name.
+            // Negative control for the test above: a name nothing resolves is diagnosed where
+            // it is written, so an annotation that type-checks in silence really named a type.
             test "a bare name nothing resolves is not a type — it is diagnosed" {
                 expectSoleUndefinedType "Gadget" "let f (x: Gadget) = x"
             }
 
-            // The DOTTED spelling is the one a free TyVar left decorative: a free variable
-            // unifies with anything, so `Foo.Bar.Baz` typed as readily as `System.IO.TextWriter`
-            // and the annotation asserted nothing about the value it named.
+            // The dots make no difference: `Foo.Bar.Baz` is blamed whole, by the name written.
             test "a dotted name nothing resolves is not a type — it is diagnosed" {
                 expectSoleUndefinedType "Foo.Bar.Baz" "let f (x: Foo.Bar.Baz) = x"
             }
 
-            // An APPLIED name is resolved no differently: undefined is undefined whether or not
-            // type arguments follow it (which it has no parameters to take). The argument names
-            // a type this provider DOES serve, so the applied name alone is blamed — the args
-            // resolve exactly as they would under a defined one.
+            // Type arguments do not change the verdict on the name they are applied to.
+            // `Widget` is provider-known, so `Gadget` alone is blamed.
             test "an applied name nothing resolves is not a type — it is diagnosed" {
                 expectSoleUndefinedType "Gadget" "let f (x: Gadget<Widget>) = x"
             }
 
-            // The three expression-embedded positions below sit BEHIND an expression
-            // node, not behind a binding/pattern annotation, so they are reached only
-            // by `CstWalk.iterExprEmbeddedTypes`. Each recorded no verdict before
-            // that walk enumerated it — and a missing verdict is invisible on the read
-            // side (`Translate.tryResolveExternalTypeStamped` has no by-name fallback),
-            // so nothing else in the suite would catch a regression here.
-
-            // A static-optimization clause's tycon-equality constraint names a type on
-            // its RHS (`when ^T : System.DateTime`): `Expr.LibraryOnlyStaticOptimization`'s
-            // `WhenTyparTyconEqualsTycon.rhsType`.
+            // The three positions below sit behind an EXPRESSION node rather than a binding
+            // or pattern annotation, so only the expression-embedded type walk reaches them.
             test "static-optimization constraint rhs type type reference is external" {
                 assertTypeNamesStamped true 1 staticOptRhsTypes (staticOptSrc "Widget")
             }
@@ -337,9 +270,6 @@ let tests =
                 assertTypeNamesStamped false 1 staticOptRhsTypes (staticOptSrc "Nope")
             }
 
-            // An SRTP trait call's member signature (`(^T: (static member Make: unit ->
-            // Widget) x)`): `Expr.StaticMemberInvocation`'s membersig, walked through
-            // `iterTypeMemberSig`.
             test "SRTP trait-call membersig return type reference is external" {
                 assertTypeNamesStamped true 1 staticMemberInvocationReturnTypes (staticMemberInvocationSrc "Widget")
             }
@@ -348,9 +278,6 @@ let tests =
                 assertTypeNamesStamped false 1 staticMemberInvocationReturnTypes (staticMemberInvocationSrc "Nope")
             }
 
-            // An object-expression member's RETURN-type annotation, in the expression's
-            // own `with` block. The base-call type was always stamped; the member's
-            // signature types were not, until `memberDefnSigs`.
             test "object-expression member return-type type reference is external" {
                 assertTypeNamesStamped true 1 objectExprMemberReturnTypes (objExprSrc "Widget")
             }
@@ -359,9 +286,7 @@ let tests =
                 assertTypeNamesStamped false 1 objectExprMemberReturnTypes (objExprSrc "Nope")
             }
 
-            // The same annotation inside an `interface … with` block of the object
-            // expression — a SEPARATE `memberDefnSigs` call site in the walk, so it needs
-            // its own coverage.
+            // The same annotation in an `interface … with` block is a separate walk site.
             test "object-expression interface-impl member return-type type reference is external" {
                 assertTypeNamesStamped true 1 objectExprInterfaceReturnTypes (objExprInterfaceSrc "Widget")
             }

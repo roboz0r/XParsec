@@ -40,9 +40,6 @@ let tests =
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other
             }
 
-            // The parser now grows `a | b | c` (TypeParsing.pUnionType loops into a
-            // left-nested CST chain); translateType already fed that tree to mkUnion,
-            // so a >2-case union canonicalises to a 3-member TyOr.
             test "int | string | bool translates to a 3-member canonical TyOr" {
                 let dom = unionDomainOf "let f (x: int | string | bool) = x"
 
@@ -110,13 +107,6 @@ let tests =
                     "(int | string) ⋠ int — the consumer must narrow first"
             }
 
-            // Committing coercion at expected-type positions. The annotation sites
-            // (let return / parameter `Pat.Typed`) switched from symmetric `unify` to
-            // directional `unifyAnnotation`, so a value flows into a union-typed slot
-            // the annotation writes down — while every non-union annotation (`obj`, a
-            // base class, a plain nominal) still grounds via symmetric `unify`. The
-            // assignment site `x <- e` stays on `unify` — inference never synthesises
-            // a union.
             test "let binding annotated with a union accepts a member value" {
                 let ctx = analyse "let x: int | string = 1"
                 Expect.isEmpty ctx.Diagnostics "int flows into (int | string) annotation"
@@ -133,10 +123,9 @@ let tests =
             }
 
             test "passing a member into a union slot does NOT narrow the slot" {
-                // `f 1` returns the *union* `int | string`, not `int` — the slot
-                // accepted `1` by assignability without unifying the parameter down
-                // to the actual. (The body returns `x`, so the return type is the
-                // parameter's union.)
+                // `f 1` returns the *union* `int | string`, not `int`: the slot accepted `1`
+                // by assignability without unifying the parameter down to the actual. (The
+                // body is `x`, so the return type is the parameter's.)
                 let ctx = analyse "let f (x: int | string) = x\nlet y = f 1"
 
                 let yKey =
@@ -155,9 +144,8 @@ let tests =
             }
 
             test "assignment stays symmetric: `x <- 1` on a string is an error" {
-                // The assignment site was deliberately NOT switched to `unifyArg` —
-                // it has no annotation, so inference must not silently widen to
-                // `string | int`. This is the principality rule made mechanical.
+                // There is no annotation here, so inference must not silently widen the
+                // binding to `string | int`.
                 let ctx = analyse "let mutable x = \"\"\nx <- 1"
 
                 let hasMismatch =
@@ -167,10 +155,8 @@ let tests =
             }
 
             test "a union slot accepts a value by assignability WITHOUT pinning its typar" {
-                // The no-box-pin invariant generalised from `obj`: a value that
-                // subsumes into a member flows in without `unify`, so the actual's
-                // typar stays free. A plain `unify` against the union would link the
-                // var; the `TyOr` arm of `tryCoerceUpcast` must not.
+                // A value that subsumes into a member flows in without `unify`, so the
+                // actual's typar stays free — a plain `unify` against the union would link it.
                 let ctx = subsumeCtx ()
                 let tv = ctx.Store.NewTypeVar()
                 let actual = TyVar tv
@@ -219,10 +205,9 @@ let tests =
             }
 
             test "comparison on (int | string) is Violated though each member is comparable" {
-                // Unlike equality, comparison does NOT reduce member-wise: generic
-                // `compare` throws across distinct runtime types, so a heterogeneous
-                // union is non-comparable as a whole — admitting it would let
-                // `List.sort` on a `(int | string) list` type-check then throw.
+                // Unlike equality, comparison does NOT reduce member-wise: generic `compare`
+                // throws across distinct runtime types, so admitting it would let `List.sort`
+                // on a `(int | string) list` type-check and then throw.
                 let ctx = subsumeCtx ()
 
                 Expect.equal
@@ -269,12 +254,9 @@ let tests =
             }
 
             test "an annotated `int | string` binding freezes to a canonical FTOr signature" {
-                // The signature under test: domain AND return both `int |
-                // string`, so the frozen decl type is `FTFun(FTOr, FTOr)`. The
-                // expected `FrozenType` is built by freezing the *same* canonical
-                // SemType (`toFrozen ∘ mkUnion`), so the member order under test is
-                // exactly the canonical one `freeze` preserves — not a hand-written
-                // guess at the sort order.
+                // Domain and return are both `int | string`, so the decl freezes to
+                // `FTFun(FTOr, FTOr)`. Expected is built by freezing the SAME canonical
+                // SemType, not by guessing the member order.
                 let file = freezeDecls "let f (x: int | string) : int | string = x"
                 let union = mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
                 let expected = toFrozen (TyFun(union, union))
@@ -299,9 +281,8 @@ let tests =
             }
 
             test "the frozen FTOr round-trips through the SemType bridge" {
-                // The backend handoff contract rests on `ofFrozen`/`toFrozen` being
-                // mutual inverses (FrozenTypeTests proves it on synthetic samples);
-                // assert it holds on a union that travelled the *real* freeze.
+                // `ofFrozen`/`toFrozen` are mutual inverses on synthetic samples; assert it
+                // also holds for a union that travelled the *real* freeze.
                 let frozen = frozenLetTy (freezeDecls "let f (x: int | string) : int | string = x")
 
                 Expect.equal

@@ -13,9 +13,8 @@ let private key query codeVersion (hex: string) : CacheKey =
 
 let private freezeKey = key QueryId.Freeze Cache.CodeVersion "abcdef01"
 
-/// A fresh directory under the repo `./tmp` for a filesystem-store test, isolated per test by
-/// name. The repo convention keeps scratch files out of the system temp; each test removes its
-/// own tree on the way in so a prior run cannot leak a hit.
+/// A directory under the repo `./tmp`, per test name, emptied on the way in so a prior run
+/// cannot leak a hit.
 let private freshRoot (name: string) : string =
     let root =
         Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "tmp", "cache-tests", name)
@@ -81,10 +80,8 @@ let tests =
         [
             roundTripSuite "InMemoryStore" (fun () -> Cache.InMemoryStore() :> ICacheStore)
 
-            // Every case in the suite wipes and recreates the one `roundtrip` root, so the cases
-            // must not run concurrently — a sibling's `freshRoot` would delete this one's blob
-            // between its store and load. Sequencing the shared-root suite is what makes that safe;
-            // the in-memory suite and the distinct-root persistence test below stay parallel.
+            // Every case wipes and recreates the one `roundtrip` root, so run concurrently a
+            // sibling's `freshRoot` would delete this case's blob between its store and load.
             testSequenced (
                 roundTripSuite "FileSystemStore" (fun () -> Cache.FileSystemStore(freshRoot "roundtrip") :> ICacheStore)
             )
@@ -93,8 +90,6 @@ let tests =
                 let root = freshRoot "persistence"
                 let payload = [| 7uy; 8uy; 9uy |]
                 (Cache.FileSystemStore root :> ICacheStore).Store freezeKey payload
-                // A brand-new store over the same root sees the on-disk blob — the persistence
-                // property an in-memory store cannot have.
                 let reopened = Cache.FileSystemStore root :> ICacheStore
                 Expect.equal (reopened.TryLoad freezeKey) (ValueSome payload) "reads back from disk"
                 Directory.Delete(root, true)

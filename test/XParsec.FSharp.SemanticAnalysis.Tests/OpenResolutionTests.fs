@@ -5,13 +5,10 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// NameResolution routes its provider-probe
-// sites through `OpenScope.tryQualify`, so a short name resolves against the
-// `open`s in scope — and only those declared before it (running accumulator).
+// A short name resolves against the `open`s in scope, and only those declared above it.
 
-/// A provider that knows one qualified *value* (`A.B.thing`) and one qualified
-/// generic *type* (`Some.Where.Foo`1`) — enough to exercise the value and type
-/// channels of short-name resolution without standing up real metadata.
+/// A provider knowing one qualified *value* (`A.B.thing`) and one qualified generic *type*
+/// (`Some.Where.Foo`1`) — the value and type channels of short-name resolution, no real metadata.
 let private provider: IExternalSymbolProvider =
     let mono name =
         ValueSome(
@@ -19,8 +16,7 @@ let private provider: IExternalSymbolProvider =
         )
 
     // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
-    // `Hue` is an ordinary union (`Blue` does not). Drives the RQA-suppression
-    // tests below.
+    // `Hue` is an ordinary union (`Blue` does not).
     let mkCase union rqa name =
         ValueSome
             {
@@ -80,14 +76,13 @@ let tests =
             }
 
             test "an open after a binding is not visible to that earlier binding" {
-                // `thing` (element 0) precedes `open A.B` (element 1); the running
-                // accumulator means the open does not reach back to it.
+                // `thing` (element 0) precedes `open A.B` (element 1), so the open never
+                // reaches back to it.
                 let ctx = analyse "let x = thing\nopen A.B"
                 Expect.isTrue (hasUnresolved ctx) "the open below does not reach the binding above"
             }
 
             test "short external type name resolves under its open (no unresolved error)" {
-                // Mirrors the external-type qualifier shape at the NameResolution layer:
                 // `Foo<int>` is suppressed as an external-type reference once
                 // `open Some.Where` is in scope.
                 let ctx = analyse "open Some.Where\nlet f = Foo<int>"
@@ -99,17 +94,14 @@ let tests =
                 Expect.isTrue (hasUnresolved ctx) "Foo is unresolved with no open"
             }
 
-            // A nested module sees an `open` declared in its enclosing scope.
             test "a nested module inherits an enclosing open" {
                 let ctx = analyse "open A.B\nmodule M =\n    let x = thing"
                 Expect.isFalse (hasUnresolved ctx) "thing resolves inside nested M via the enclosing open A.B"
             }
 
-            // `[<RequireQualifiedAccess>]` suppression — isolated from the opens gate
-            // by opening `Tests` first, so the ONLY reason `Red` is rejected is RQA.
+            // `open Tests` isolates this from the opens gate: the ONLY reason `Red` is
+            // rejected is that `Color` is RQA, so F# requires `Color.Red`.
             test "a bare RQA case name is unresolved even when its namespace is open" {
-                // `Color` is RQA, so the short `Red` must not resolve — F# requires
-                // `Color.Red` — regardless of `open Tests`.
                 let ctx = analyse "open Tests\nlet x = Red"
                 Expect.isTrue (hasUnresolved ctx) "bare Red is rejected for an RQA union"
             }
@@ -121,23 +113,20 @@ let tests =
                 Expect.isFalse (hasUnresolved ctx) "Color.Red resolves (qualified form is allowed)"
             }
 
-            // The opens gate on bare external cases: F# has no global reverse case
-            // index, so a bare non-RQA case is visible only once its declaring
-            // namespace is opened/auto-opened.
+            // F# has no global reverse case index, so a bare non-RQA case is visible only
+            // once its declaring namespace is opened or auto-opened.
             test "a bare non-RQA case name resolves once its namespace is opened" {
                 let ctx = analyse "open Tests\nlet x = Blue"
                 Expect.isFalse (hasUnresolved ctx) "bare Blue resolves under open Tests"
             }
 
             test "a bare non-RQA case name without its open is unresolved" {
-                // `Hue` lives in `Tests`, which is neither opened here nor in the
-                // (empty) ambient prelude, so bare `Blue` must not resolve — the
-                // opens false-accept this gate closes.
+                // `Hue` lives in `Tests`, neither opened here nor in the (empty) ambient
+                // prelude, so bare `Blue` must not resolve.
                 let ctx = analyse "let x = Blue"
                 Expect.isTrue (hasUnresolved ctx) "bare Blue is unresolved with Tests not opened"
             }
 
-            // Operator-form qualified long idents.
             test "a qualified operator long-ident resolves to its compiled name" {
                 let ctx = analyse "let f = A.B.(+)"
                 Expect.isFalse (hasUnresolved ctx) "A.B.(+) resolves via A.B.op_Addition"

@@ -91,11 +91,9 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // A generic member's *signature* annotation may name the enclosing
-            // class typar. `inferBinding` mints a fresh typar scope per binding; it
-            // must seed it with the class typars (via `Resolution.EnclosingTypars`)
-            // first, else `translateType` on the annotation finds an empty strict
-            // scope and falsely diagnoses "Free type parameter 'a".
+            // A member signature may name the enclosing class typar. The fresh typar scope
+            // minted per binding must be seeded with the class typars first, else the
+            // annotation hits an empty strict scope and falsely diagnoses "Free type parameter".
             test "instance member signature names the class typar" {
                 let ctx =
                     analyse
@@ -122,12 +120,9 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // A generic member may introduce an *implicit* type parameter —
-            // one named only in a param/return annotation, neither a class typar nor
-            // an explicit `<'U>` on the member. MemberRegistration must register it
-            // into `MethodTypeParams`, and Unification must keep it in scope across
-            // the member-body walk (signature *and* nested lets) — else strict member
-            // scope falsely diagnoses "Free type parameter 'U".
+            // An *implicit* member typar — named only in a param/return annotation, neither a
+            // class typar nor an explicit `<'b>` on the member — must be registered and stay in
+            // scope for the whole member body, else strict scope diagnoses "Free type parameter".
             test "implicit member typar in return annotation" {
                 let ctx =
                     analyse
@@ -142,9 +137,8 @@ let tests =
             }
 
             test "implicit member typar in a nested-let body annotation" {
-                // `'b` is named in the return *and* in `Comparer<'b>` inside a nested
-                // `let` in the body — it must persist past the member's own binding
-                // into nested scopes (the set.clr.fs `s.Map` shape).
+                // `'b` is named in the return *and* in the nested `let g : 'b -> 'b`, so it
+                // must persist past the member's own binding into nested scopes.
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    member this.Map (f: 'a -> 'b) : Box<'b> =\n        let g : 'b -> 'b = fun x -> x\n        Box(g (f value))"
@@ -248,11 +242,9 @@ let tests =
             }
 
             test "`[| 1; 2 ]` (mismatched close) emits semantic-analysis diagnostic" {
-                // Parser virtual-inserts `|]` after seeing the real `]`, plus
-                // its own UnclosedDelimiter diagnostic. The semantic-analysis
-                // backstop must surface the breakage on `ctx.Diagnostics` so
-                // downstream consumers that don't read the parser stream
-                // (Elaborate, codegen) still see a problem.
+                // The parser virtual-inserts `|]` and reports it on its own stream. Semantic
+                // analysis must repeat the breakage on `ctx.Diagnostics`, which is all a
+                // downstream consumer reads.
                 let ctx = analyseRecovered "let xs = [| 1; 2 ]"
 
                 let hasCloseDiag =
@@ -261,10 +253,8 @@ let tests =
                 Expect.isTrue hasCloseDiag "mismatched-delimiter diagnostic emitted"
             }
 
-            // `[<AllowNullLiteral>]` lets `let x: C = null` unify without
-            // diagnostics. The current implementation relies on the existing
-            // fresh-TyVar behaviour for `null` — the surrounding annotation drives
-            // the link to `TyClass`.
+            // `null` types as a fresh TyVar that the annotation links to `TyClass C`; nothing
+            // yet consults the attribute, so this passes without it too.
             test "[<AllowNullLiteral>] permits `let x: C = null`" {
                 let ctx =
                     analyse "[<AllowNullLiteral>]\ntype C() = member this.M () = 1\nlet x : C = null"

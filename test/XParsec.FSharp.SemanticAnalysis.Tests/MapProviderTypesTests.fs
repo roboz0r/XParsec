@@ -3,15 +3,9 @@ module XParsec.FSharp.SemanticAnalysis.Tests.MapProviderTypesTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbolProviders.mapProviderTypes` — the TOTAL value-flow surface mapper. These
-// pin only the SURFACE coverage (which `FrozenType` field is threaded, and at which
-// ROOT variance) — NOT the variance algebra, which `FrozenType.mapVariant` owns and
-// `FrozenTypeTests` exercises. So the `transform` here is deliberately non-threading:
-// it replaces a marker `FTConst("M", [])` with a witness `FTConst("<co|contra|inv>",
-// [])` recording the variance it was CALLED at, and leaves any other node alone. A
-// surface that got mapped therefore shows a witness (proving it was reached AND its
-// root variance); a surface deliberately left out (an `Abbrev` body) still shows the
-// bare marker.
+// The fixture plants `marker` at every value-flow surface of a fake provider and asserts
+// which ones come back as a `witness` of the variance they were mapped at. Coverage and
+// ROOT variance only — not the variance algebra under a nested node.
 
 let private origin = SymbolOrigin.Empty
 let private marker = FTConst(RuntimeNames.opaqueKey "M", EqArray.empty)
@@ -25,9 +19,8 @@ let private witness (v: Variance) : FrozenType =
 
     FTConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-/// Resolve ONLY the marker, to a witness of the variance the surface was mapped at;
-/// pass every other node through. A witness in the output ⇒ that surface was reached
-/// at that root variance; a surviving marker ⇒ the surface was left unmapped.
+/// Resolve ONLY the marker, to a witness of the variance the surface was mapped at.
+/// A surviving marker in the output ⇒ that surface was left unmapped.
 let private resolveMarker (v: Variance) (t: FrozenType) : FrozenType = if t = marker then witness v else t
 
 let private markerMember: ExternalMember =
@@ -50,12 +43,7 @@ let private markerCase: ExternalCaseShape =
         FrozenFieldTypes = [| marker |]
     }
 
-/// A fake provider whose every value-flow surface carries the marker: a `Scheme`, a
-/// class (member params/return, an interface arg, a base type), a record field, a
-/// union case + interface, an `Abbrev` body (the deliberate non-surface), a lone
-/// member, and a reverse union case.
-// The type/member lookups are string-keyed internally; the store view projects the
-// resolved key to its qualified name and shares these helpers with the resolver view.
+// The by-key channels reach this leaf as the key's qualified name — `Cls`, `Rec`, `Uni`.
 let private typeByName (name: string) : ExternalTypeShape voption =
     match name with
     | "Cls" ->

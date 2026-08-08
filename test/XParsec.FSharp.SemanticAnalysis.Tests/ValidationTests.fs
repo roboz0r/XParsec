@@ -31,54 +31,43 @@ let tests =
             }
 
             test "assignment to an unresolved name does not crash" {
-                // NameResolution already emits an Unresolved diagnostic.
-                // Validation's mutability check has no Binding entry to read,
-                // so it must skip without throwing or double-reporting.
+                // The mutability check has no binding entry to read, so it must skip rather
+                // than throw or report a second time over the Unresolved diagnostic.
                 let ctx = analyse "unknownName <- 1"
                 Expect.isFalse (hasMessage ctx "immutable") "no immutability diagnostic on unresolved name"
                 Expect.isTrue (hasMessage ctx "Unresolved") "the original unresolved diagnostic still fires"
             }
 
             test "value restriction: free TyVar at end of analysis fires a diagnostic" {
-                // `let mutable id = fun x -> x` — `'a -> 'a` with no use to
-                // pin `'a`. Validation walks the binding's TyVar after
-                // Unification has run and sees a free root → diagnostic.
+                // No use pins `'a`, and Validation runs after Unification, so it sees a
+                // free root.
                 let ctx = analyse "let mutable id = fun x -> x"
                 Expect.isTrue (hasMessage ctx "value restriction") "VR diagnostic on unconstrained mutable"
             }
 
             test "value restriction: pinned by use → no diagnostic" {
-                // `id 1` unifies the binding's `'a -> 'a` with `int -> _`,
-                // pinning `'a`. By the time Validation runs, the TyVar is no
-                // longer free.
+                // `id 1` unifies `'a -> 'a` with `int -> _`, pinning `'a` before Validation
+                // runs.
                 let ctx = analyse "let mutable id = fun x -> x\nlet a = id 1"
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when use pinned the var"
             }
 
             test "value restriction: pinned by assignment → no diagnostic" {
-                // The headline case for putting the VR check in Validation
-                // rather than Unification: the assignment is seen AFTER
-                // the binding, so let-time can't decide. After Unification,
-                // `'a` is pinned to int and VR is clean.
+                // Why the check lives in Validation and not Unification: the assignment is
+                // seen AFTER the binding, so let-time cannot decide.
                 let ctx = analyse "let mutable r = fun x -> x\nr <- (fun (n : int) -> n + 1)"
 
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when assignment pinned the var"
             }
 
             test "value restriction: concretely-typed mutable is clean" {
-                // `let mutable n = 0` — `int` has no free TyVars; VR doesn't
-                // fire regardless of whether the binding is used.
                 let ctx = analyse "let mutable n = 0"
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic for a concretely-typed mutable"
             }
 
             test "value restriction: parameter-annotated mutable is clean" {
-                // The inner lambda's `(n : int)` pin propagates through unification
-                // to f's TyVar, so f : int -> int has no free vars at VR time.
-                // (Binding-level return-type annotations like
-                // `let mutable f : int -> int = ...` would work the same way,
-                // but Unification doesn't process them yet — see the TODO in
-                // Passes/Unification.fs.)
+                // The inner lambda's `(n : int)` propagates through unification, so
+                // `f : int -> int` has no free vars at value-restriction time.
                 let ctx = analyse "let mutable f = fun (n : int) -> n + 1"
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when params are annotated"
             }
@@ -98,7 +87,7 @@ let tests =
             }
 
             test "unresolved field access diagnoses" {
-                // `let f r = r.X` with no use — the object argument's TyVar stays free.
+                // Nothing uses `f`, so the object argument's TyVar stays free.
                 let ctx = analyse "let f r = r.X"
                 Expect.isTrue (hasMessage ctx "Cannot resolve member") "deferred-dot-access diagnostic emitted"
             }
@@ -118,16 +107,14 @@ let tests =
             }
 
             test "value restriction passes on a DU value" {
-                // TyUnion is ground, so a `let mutable c = Circle 1.0`
-                // binding has no free TyVar — value-restriction check
-                // should not fire.
+                // `TyUnion` is ground, so the mutable binding has no free TyVar.
                 let ctx = analyse "type S = | Circle of float\nlet mutable c = Circle 1.0"
 
                 Expect.isFalse (hasMessage ctx "value restriction") "no value-restriction on mutable DU"
             }
 
             test "mutable generic record literal is clean once pinned" {
-                // `let mutable b = { Value = 1 }` — resolved Box<int>, no free TyVar.
+                // The literal pins `'a`, so the binding is `Box<int>` — no free TyVar.
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet mutable b = { Value = 1 }"
 
                 Expect.isFalse (hasMessage ctx "value restriction") "no VR diagnostic when the literal pins the typar"
@@ -151,8 +138,8 @@ let tests =
                 Expect.isFalse (hasMessage ctx "Cannot resolve member") "no deferred-dot diagnostic"
             }
 
-            // FS3200 — in a recursive declaration
-            // group, `open`s must come first in each module/namespace scope.
+            // FS3200 — in a recursive declaration group, `open`s must come first in each
+            // module or namespace scope.
             test "module rec: an open after a binding is rejected (FS3200)" {
                 let ctx = analyse "module rec R\n\nlet a = 1\nopen Q\nlet b = 2"
                 Expect.isTrue (hasMessage ctx "must come first") "interspersed open in a module rec diagnoses"
@@ -171,9 +158,8 @@ let tests =
             }
 
             test "namespace rec: a nested module's interspersed open is rejected (FS3200)" {
-                // §3.2/§9: each module under a rec group is independently an
-                // opens-first scope — the open inside module B (under `namespace
-                // rec N`) is misplaced even though N's own opens lead.
+                // Each module under a rec group is independently an opens-first scope, so
+                // the open in `module B` is misplaced even though N's own opens lead.
                 let ctx =
                     analyse "namespace rec N\n\nopen A\n\nmodule B =\n    let a = 1\n    open C\n    let b = 2"
 
@@ -182,11 +168,9 @@ let tests =
                     "interspersed open in a rec-namespace submodule diagnoses"
             }
 
-            // A fieldless [<Struct>] whose body is ONLY an interface impl is valid
-            // F# (a stateless captureless struct closure — the ideal lambda
-            // shape). It previously tripped parse recovery: the implicit-class
-            // lookahead in TypeDefnParsing didn't admit a leading `interface`, so
-            // the body fell to abbreviation parsing and skipped tokens.
+            // A fieldless `[<Struct>]` whose body is only an interface impl is valid F# — a
+            // stateless struct closure. The implicit-class lookahead must admit the leading
+            // `interface` rather than fall to abbreviation parsing and skip tokens.
             test "fieldless [<Struct>] with only an interface impl parses cleanly" {
                 let ctx =
                     analyse
@@ -196,8 +180,7 @@ let tests =
             }
 
             test "fieldless (plain) type with only an interface impl parses cleanly" {
-                // Same shape without [<Struct>] — exercises the implicit-class path
-                // for a reference type too.
+                // The same shape without `[<Struct>]` takes the implicit-class path too.
                 let ctx =
                     analyse
                         "type Fun<'a, 'b> =\n    abstract member Invoke: 'a -> 'b\n\ntype AddOne =\n    interface Fun<int, int> with\n        member _.Invoke(x: int) : int = x + 1"

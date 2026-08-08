@@ -6,17 +6,13 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Covers the `Inline` marker on `TDecl.Let` and the codegen-facing
-// `Inline.inlineExpand` body-substitution helper.
-
 let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// `Inline.inlineExpand`'s trait-call resolution point needs a `PassContext` to mint a
-/// dispatched operator's total key. These direct-expansion tests are all primitive-`int`
-/// (no nominal operator dispatch reaches the minter), so an empty context suffices — no
-/// local type or provider member is consulted.
+/// Resolving a trait call needs a `PassContext` to mint the dispatched operator's key.
+/// These expansions are all primitive-`int`, so no nominal dispatch reaches the minter and
+/// an empty context is never read.
 let private ctx0: PassContext =
     let lexed, _ = parseFile "module M"
     PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
@@ -34,45 +30,25 @@ let private declType (tast: TastFile) : SemType =
     | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
-/// The template as a CONSUMER receives it: published by `Freeze` into the file's inline
-/// vocabulary (typars named on the self-describing `FTTypar` axis) and THAWED back into
-/// fresh `TyVar` cells.
-///
-/// This — not `tast.Decls` — is the shape `Inline.inlineExpand` runs on for any GENERIC
-/// template. The post-`freezeTypars` SemType decl in `tast.Decls` carries `TyTypar`, not
-/// roots — that cut is what lets freeze NAME the typars — so a decl read out of
-/// `tast.Decls` cannot stand in for the published template. (A SAME-file splice does see
-/// the roots, because `Passes.InlineExpansion` runs BEFORE that cut.)
-///
-/// The `namespace` + nested `module` wrapper is not incidental: only a binding with a
-/// declaring MODULE has a containment chain, hence an exportable identity, hence a vocabulary
-/// entry. A top-level binding lives in the anonymous Program container and is published
-/// nowhere — it is spliceable only within its own file.
-// Returns the thaw `TypeStore` alongside the decl: the thawed typars are fresh roots in
-// THAT store, so a test reading them back (`Inline.quantifiedTypars`) must use the same one.
+/// The template as a CONSUMER receives it: published into the file's inline vocabulary, then
+/// thawed into fresh `TyVar` roots of the RETURNED store — the only store they read back
+/// against. A decl from `tast.Decls` carries named `TyTypar`s instead and cannot stand in.
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
     let source = Hashing.originSourceOfText lexed
-    // The vocabulary is a pool root array; `declTree` unpools a template to the DU form the
-    // cross-file wire (and `InlineThaw`) speaks — the very path a provider serves it through.
+    // The vocabulary is a pool root array; unpooling it gives the DU form the wire speaks.
     let pools = Pipeline.analyse realProvider.Value source file
 
     let pool = TastPoolBuilder.openOver pools
 
     match List.ofArray pools.InlineTemplates with
-    // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
-    // `Inline.quantifiedTypars` read the thawed roots' dense ids against.
     | [ v ] -> ctx0.Store, thawPublished ctx0.Store source (TastPoolBuilder.declTree pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
-// ── the anchor domain a wire body carries ──────────────────────────────────────────────
-//
-// An unpooled body keeps the PRODUCER's token indices. Which file they index is not in them, so a
-// consumer names the producer file and reads them there (`InlineThaw.bodyAtOrigin`) — the one
-// reading there is. It is sound only while that file still holds the text the indices were taken
-// against: every index stays in range across an edit, so nothing downstream could notice the
-// difference.
+// A wire body keeps the PRODUCER's token indices and does not say which file they index, so a
+// consumer names that file and reads them there. An edit leaves every index still in range, so
+// the file's hash is the only thing that can tell a stale anchor from a live one.
 
 let private producerSrc =
     "namespace Ns\n\nmodule M =\n    let inline sq x = x * x\n"
@@ -83,8 +59,7 @@ let private editedProducerSrc =
     "namespace Ns\n\nmodule M =\n    let inline twice x = x + x\n    let inline sq x = x * x\n"
 
 /// A producer file retained the way a real collection retains one: hashed off the very text
-/// that was parsed, which is what makes its hash the one an entry's `OriginFile` is checked
-/// against.
+/// that was parsed, so its hash is the one an entry's `OriginFile` is checked against.
 let private retainedSource (input: string) : OriginSource =
     let lexed, _ = parseFile input
 
@@ -95,8 +70,8 @@ let private retainedSource (input: string) : OriginSource =
         }
         lexed
 
-/// Every position a decl carries, in `TastConvert`'s own traversal order — the total walk of
-/// the position axis, so a body and its thaw are directly comparable node for node.
+/// Every position a decl carries, in one fixed traversal order, so a body and its thaw
+/// compare node for node.
 let private positions (d: TDeclG<'ty, 'tok, 'id>) : 'tok list =
     let acc = ResizeArray<'tok>()
 
@@ -119,16 +94,14 @@ let private tokenIndices (toks: SyntaxToken list) : int list =
         | TokenIndex.Virtual -> -1
     )
 
-/// The abstraction of the entry `spec` names. EVERY inline call is outlined — a template of the
-/// file being compiled included — so what a use site expands TO is read off the table rather
-/// than out of the declaration the call sits in.
+/// The abstraction the entry `spec` names. An inline call is outlined, so what a use site
+/// expands TO is read off the specialization table, not out of the decl the call sits in.
 let private entryValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
     snd (TSpecializationG.binding spec tast.Specializations.[i])
 
-/// What a `do` declaration's inline call expanded to, with the entry's own abstraction peeled
-/// off. Peeled because the edge's arguments are positional against those leading lambdas: they
-/// are the reduction's surviving PARAMETERS, not a closure anything allocates.
+/// What a `do` declaration's inline call expanded to, with the entry's leading lambdas peeled:
+/// the edge's arguments are positional against them, not a closure anything allocates.
 let private expandedCore (tast: TastFile) (d: TDecl) : string =
     let rec peel (n: int) (e: TExpr) : TExpr =
         match n, e with
@@ -183,9 +156,7 @@ let tests =
 
             test "a producer edited since the body was anchored FAULTS rather than re-attributing it" {
                 let body = publishedTemplate ()
-                // What the entry recorded, against what the same path now holds. Both parse, both
-                // hold the binding, and every recorded index is still in range against the edited
-                // file — so the hash is the only thing that can tell them apart.
+                // What the entry recorded, against what the same path now holds.
                 let anchoredAgainst = (retainedSource producerSrc).File
                 let onDisk = retainedSource editedProducerSrc
 
@@ -199,9 +170,8 @@ let tests =
                     onDisk.File.Content
                     "…at different contents, which is the whole of the difference"
 
-                // The MESSAGE is asserted, not merely that something threw: every other way this
-                // could throw (a missing file, an out-of-range index) is a different bug, and a
-                // bare `throws` would call the guard proven by any of them.
+                // The MESSAGE is asserted: a missing file or an out-of-range index throws here
+                // too, and a bare `throws` would call the guard proven by either.
                 Expect.throwsC
                     (fun () ->
                         InlineThaw.bodyAtOrigin (TypeStore()) (OriginSources.ofSeq [ onDisk ]) anchoredAgainst body
@@ -288,12 +258,9 @@ let tests =
 
                 let expanded, unresolved = Inline.inlineExpand ctx0 decl [||]
 
-                // Structurally the same body — there is no typar to substitute. It is
-                // NOT the same object, and must not be: the substituting walk is also
-                // what resolves `StaticOptimization` and `TraitCall` nodes, and neither
-                // backend can emit those. Short-circuiting an empty substitution to
-                // return the body by reference (the shape this once asserted) let both
-                // node kinds ride an unwalked body straight through to codegen.
+                // Structurally the same body — there is no typar to substitute — but not the
+                // same object: the substituting walk is also what resolves `StaticOptimization`
+                // and `TraitCall`, neither of which a backend can emit.
                 Expect.equal expanded body "body structurally unchanged"
                 Expect.isEmpty unresolved "a monomorphic `+` on int resolves"
             }
@@ -302,8 +269,7 @@ let tests =
                 let _, decl = thawedTemplate "let inline id x = x"
                 let expanded, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |]
 
-                // `id`'s body is `fun x -> x`; instantiating 'a := int makes
-                // every position concrete int.
+                // `id`'s body is `fun x -> x`; at 'a := int every position is concrete int.
                 match expanded with
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                TExpr.Var(_, TyConst(k2, _), _),
@@ -347,16 +313,9 @@ let tests =
             }
 
             test "`let inline succ x = x + 1 in succ 41` keeps the inline template and outlines its use site" {
-                // At module level the parser lifts `let inline succ … in body`
-                // into a top-level inline binding followed by the body as its
-                // own expression — so the marker lands on a TDecl.Let. The
-                // template (decl 0) is retained verbatim, and the use site `succ
-                // 41` is resolved *pre-freeze* by `InlineExpansion` into an EDGE
-                // naming the entry `succ`'s resolved body went into. The
-                // `op_Addition` node survives inside that entry because
-                // `realProvider` is a CONTRACT-only stack (`.fsi` signatures, no
-                // `.fs` inline bodies), so there is no `(+)` body to resolve; a
-                // codegen provider serves one and it is outlined in turn.
+                // At module level the parser lifts `let inline succ … in body` into a top-level
+                // inline binding plus the body as its own decl, whose use site is outlined into
+                // an edge. `op_Addition` survives in the entry: `realProvider` serves `.fsi` only.
                 let tast = analyse "let inline succ x = x + 1 in succ 41"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -411,8 +370,8 @@ let tests =
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
 
-            // Mirrors the minter `InlineExpansion` owns: a monotone counter, shared across
-            // calls, so two expansions never mint the same bound variable key.
+            // A monotone counter shared across calls, so two expansions never mint the same
+            // bound variable key.
             let sharedMinter () =
                 let mutable n = 0
 
@@ -460,9 +419,8 @@ let tests =
             }
 
             test "freshen leaves a free Var untouched" {
-                // `let bound = <free> in bound`: `free`'s key is never bound
-                // inside the body, so it must pass through; `bound` is rebound
-                // and its reference rewired.
+                // `let bound = <free> in bound`: `free`'s key is never bound inside the body, so
+                // it must pass through; `bound` is rebound and its reference rewired.
                 let tyInt = BuiltinTypes.tyInt
                 let freeKey = NodeKey.ofSource 999 NodeKind.ExprIdent
                 let boundKey = NodeKey.ofSource 1 NodeKind.PatIdent
@@ -484,20 +442,15 @@ let tests =
                 | other -> failtestf "unexpected freshened shape: %A" other
             }
 
-            // inline-first soundness, beta-reduction half:
-            // a lambda argument bound to an inline parameter and FULLY APPLIED in
-            // the body is inlined away — its closure never exists. A stored /
-            // partially-applied lambda parameter survives as a real closure.
+            // A lambda argument bound to an inline parameter and FULLY APPLIED in the body is
+            // inlined away; a stored or partially-applied one survives as a real closure.
 
-            // The parameter annotations keep these inlines monomorphic so the
-            // expanded use grounds fully (a polymorphic inline use leaves the
-            // template's typars free, an orthogonal front-end limitation). The
-            // lambda-elimination logic under test is independent of polymorphism.
+            // The parameter annotations keep these inlines monomorphic so the expanded use
+            // grounds fully — a polymorphic use would leave the template's typars free.
 
             test "a fully-applied inline lambda parameter is eliminated (no surviving closure)" {
-                // `apply` saturates `f` (one arg, arity 1), so the lambda is
-                // substituted at its use and beta-reduced — the reduction has no `fun` beyond
-                // the parameter its entry abstracts.
+                // `apply` saturates `f`, so the lambda is substituted at its use and
+                // beta-reduced — no `fun` survives beyond the parameter the entry abstracts.
                 let tast =
                     analyse "let inline apply (f: int -> int) (x: int) = f x in apply (fun y -> y + 1) 41"
 
@@ -520,11 +473,9 @@ let tests =
             }
 
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {
-                // The published body is expanded at a CONSUMER, where none of this file's
-                // bound variables exist. A module-level sibling — inline template or ordinary
-                // compiled value, it makes no difference — must therefore leave the file
-                // as `External` + `SymbolKey`, never as a `Var` naming a bound variable only this
-                // file's tree has.
+                // The published body is expanded at a CONSUMER, where none of this file's bound
+                // variables exist, so a module-level sibling must leave the file as `External` +
+                // `SymbolKey`, never as a `Var` naming a bound variable only this tree has.
                 let input =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 
@@ -585,11 +536,9 @@ let tests =
             }
 
             test "an inline template referencing a TOP-LEVEL binding IS published" {
-                // A top-level binding declares no module, but it is held by the file's
-                // namespace and so has a `SymbolKey` like any other module-level binding.
-                // The sibling rewrite bakes that key in, so the template publishes — this is
-                // the case the publish-time free-`Var` check used to refuse for want of an
-                // identity to name.
+                // A top-level binding declares no module, but is held by the file's namespace and
+                // so has a `SymbolKey` like any module-level binding — an identity the sibling
+                // rewrite can bake in, so the template publishes.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
                 let source = Hashing.originSourceOfText lexed
@@ -645,9 +594,8 @@ let tests =
             }
 
             test "an inline template referencing a DESTRUCTURING module binding is diagnosed, not published" {
-                // The residue the publish-time free-`Var` check still catches: `let (a, b) =
-                // …` binds two names at once, so it has no single `ModuleBindingInfo` and
-                // nothing for the sibling rewrite to bake in.
+                // `let (a, b) = …` binds two names at once, so it has no single
+                // `ModuleBindingInfo` and nothing for the sibling rewrite to bake in.
                 let input = "module M =\n    let (a, b) = (1, 2)\n    let inline addA x = x + a\n"
                 let lexed, file = parseFile input
 
@@ -666,10 +614,8 @@ let tests =
             }
 
             test "a stored inline lambda parameter survives as a closure" {
-                // `pick f = f` returns its parameter rather than applying it, so
-                // the lambda cannot be inlined away — it stays a real closure (the
-                // 3A-3 fallback; the byref-capture reject of such a survivor is the
-                // deferred half).
+                // `pick f = f` returns its parameter rather than applying it, so the lambda
+                // cannot be inlined away — it stays a real closure.
                 let tast = analyse "let inline pick (f: int -> int) = f in pick (fun y -> y + 1)"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 let body = TastShape.prettyDecl tast.Decls.[1]

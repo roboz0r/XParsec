@@ -12,11 +12,9 @@ let tests =
         "Unification.Overloads"
         [
             test "a rejected overload trial leaves the caller TyVar free (no residue)" {
-                // The FIRST candidate `M(int, int)` binds the caller-side free var to
-                // `int` at position one, then FAILS at position two (`string` vs `int`);
-                // its scratch substitution is dropped. `M(string, string)` then wins (its
-                // own fresh scratch binds the free var to `string`). The trial must never
-                // touch the shared union-find, so the free var stays free afterwards.
+                // `M(int, int)` binds the caller's free var to `int` at position one, then
+                // fails at position two (`string` vs `int`), dropping its scratch. The trial
+                // never touches the shared union-find, so the var is free after the pick.
                 let overloadCtx = overloadCtx ()
                 let freeTv = overloadCtx.Store.NewTypeVar()
 
@@ -42,12 +40,9 @@ let tests =
             }
 
             test "a shared method typar must bind consistently across argument positions" {
-                // `M<'T>('T, 'T)` called with `(int, string)` is NOT applicable: `'T`
-                // binds `int` at position one, so `string` at position two rejects it.
-                // `M(int, string)` wins. fsi confirms the shared-typar overload is rejected.
-                // A LONE `M<'T>('T,'T)` would instead surface as a commit-seam type error
-                // (the picker is never entered for a single name/arity candidate), so the
-                // second candidate is essential.
+                // `M<'T>('T, 'T)` at `(int, string)` is NOT applicable: `'T` binds `int` at
+                // position one, so `string` at position two rejects it. A lone candidate never
+                // enters the picker, so the second `M(int, string)` is essential — and wins.
                 let overloadCtx = overloadCtx ()
 
                 let pick candidates args =
@@ -70,11 +65,9 @@ let tests =
             }
 
             test "a non-ground argument resolves against a concrete-parameter overload" {
-                // The argument type is still a free `TyVar`. It must BIND against the
-                // concrete `int` parameter rather than falling to `| _ -> false` and
-                // reporting "no applicable overload". Fails TODAY: `TyVar` vs `TyConst`
-                // is not matched by the pre-`matchTypes` filter. The arity-2 sibling is
-                // filtered out by arity, leaving `M(int)` the unique survivor.
+                // The argument type is still a free `TyVar`: it must BIND against the concrete
+                // `int` parameter rather than reporting "no applicable overload". The arity-2
+                // sibling is filtered out by arity, leaving `M(int)` the unique survivor.
                 let overloadCtx = overloadCtx ()
 
                 let pick candidates args =
@@ -88,10 +81,9 @@ let tests =
             }
 
             test "the more derived parameter wins the applicable-tier ranking" {
-                // `M(Base)` / `M(GrandBase)`, argument `Derived`: neither is an exact match, so
-                // both enter the applicable tier by subsumption. `Base` is the more derived of
-                // the two (`Base :> GrandBase`), so `compareTypes` ranks `M(Base)` strictly
-                // above `M(GrandBase)`. fsi confirms the nearer base wins.
+                // `M(Base)` / `M(GrandBase)`, argument `Derived`: neither is exact, so both enter
+                // the applicable tier by subsumption, and `Base :> GrandBase` ranks `M(Base)`
+                // strictly above `M(GrandBase)` — the nearer base wins.
                 let hierCtx = hierCtx ()
                 let candidates = [| classMember baseTy; classMember grandBaseTy |]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
@@ -102,9 +94,8 @@ let tests =
 
             test "an exact match beats an applicable supertype" {
                 // `M(Base)` / `M(Derived)`, argument `Derived`: the exact tier finds a single
-                // structural survivor (`M(Derived)`) and returns it with no betterness
-                // reasoning — `M(Base)`, applicable only by subsumption, never competes. fsi
-                // confirms `M(Derived)`.
+                // structural survivor and returns it with no betterness reasoning, so `M(Base)`
+                // — applicable only by subsumption — never competes.
                 let hierCtx = hierCtx ()
                 let candidates = [| classMember baseTy; classMember derivedTy |]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
@@ -127,10 +118,9 @@ let tests =
             }
 
             test "an overload on a generic class substitutes the class typar before ranking" {
-                // `Box<'a>` with `M('a)` / `M(string)`, at `Box<int>`: `openSignature`
-                // substitutes the declaring typar so `M('a)` presents an `int` parameter, and
-                // the exact tier then selects by the SUBSTITUTED shape. fsi confirms `M('a)`
-                // for an `int` argument and `M(string)` for a `string` argument.
+                // `Box<'a>` with `M('a)` / `M(string)`, at `Box<int>`: the declaring typar is
+                // substituted before ranking, so `M('a)` presents an `int` parameter and the
+                // exact tier selects by the SUBSTITUTED shape.
                 let overloadCtx = overloadCtx ()
 
                 let candidates =
@@ -157,9 +147,8 @@ let tests =
 
             test "the non-generic overload is preferred over an equally-applicable generic one" {
                 // `M<'a>('a)` / `M(int)`, argument `int`: both are applicable (the method typar
-                // binds `int`), their arguments compare equal, so the non-generic tiebreaker
-                // selects `M(int)`. A `string` argument instead makes only the generic overload
-                // applicable. fsi confirms both.
+                // binds `int`) and compare equal, so the non-generic tiebreaker selects
+                // `M(int)`. A `string` argument leaves only the generic one applicable.
                 let overloadCtx = overloadCtx ()
 
                 let pick candidates args =
@@ -180,9 +169,8 @@ let tests =
 
             test "a user-declared overload resolves by parameter type" {
                 // `Show(int)` returns int, `Show(string)` returns bool, so the RESULT type
-                // witnesses which overload each call selected. Without overload-by-parameter
-                // resolution both calls pick the first `Show`. fsi confirms `Show(1) : int`,
-                // `Show("hi") : bool`.
+                // witnesses which overload each call selected — without resolution by
+                // parameter type both calls would pick the first `Show`.
                 let input =
                     "type Printer() =\n    member this.Show(x: int) = x\n    member this.Show(x: string) = true\nlet p = Printer()\nlet a = p.Show(1)\nlet b = p.Show(\"hi\")"
 

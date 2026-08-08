@@ -101,9 +101,8 @@ let tests =
             }
 
             test "generic type named bare back-fills fresh typars" {
-                // `Box` is arity 1; naming it with NO arguments is the lenient tail — the
-                // any-arity claim answers and its single typar is back-filled with a fresh
-                // TyVar, which the record literal then pins to int. No arity diagnostic.
+                // `Box` is arity 1 but named bare: its typar is back-filled with a fresh
+                // TyVar, which the record literal then pins to `int`. No arity diagnostic.
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b : Box = { Value = 1 }"
                 // pat b at 33: 28-char type decl + "\n" + "let ".
                 let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
@@ -117,11 +116,9 @@ let tests =
             }
 
             test "generic intrinsic named bare back-fills an element arg, not empty" {
-                // A GENERIC intrinsic (`Vec<'a>`) written with NO args must still carry one
-                // back-filled TyVar so its `TyConst` has the arity the type declares. A niladic
-                // `TyConst(k, [])` is malformed: it fails every arg-count-matched unification
-                // (`Engine`) and the downstream array-element guard. The bare tail resolves it
-                // through the SAME back-fill as every other kind — no intrinsic special case.
+                // `Vec<'a>` written bare must still carry one back-filled TyVar: a niladic
+                // `TyConst(k, [])` has the wrong arity, so it fails every arg-count-matched
+                // unification and the array-element guard downstream.
                 let ctx = analyse "type Vec<'a> = (# \"System.Int32\" #)\nlet f (v : Vec) = v"
                 // pat f at 40: 35-char type decl + "\n" + "let ".
                 let patKey = NodeKey.ofSource 40 NodeKind.PatIdent
@@ -133,9 +130,6 @@ let tests =
             }
 
             test "arity-0 type given a type argument diagnoses yet still names the local type" {
-                // `Color<int>` — a niladic union written with a stray type argument. The
-                // any-arity claim reaches the local `Color`, blames the arity ("expects 0 …")
-                // and still resolves to it, never falling through to an undefined-type verdict.
                 let ctx = analyse "type Color = | Red | Green\nlet f (c : Color<int>) = c"
 
                 let hasArity =
@@ -146,11 +140,6 @@ let tests =
             }
 
             test "arity-0 enum given a type argument is blamed, not left an unresolved type" {
-                // An enum is the kind the OLD cascade had no arm for: `E<int>` fell straight
-                // through to the undefined-type verdict, silently NOT blaming the arity of a
-                // type that plainly exists. Routed through the same any-arity claim as every
-                // other kind, it now blames the arity. The "expects 0 type argument" text is
-                // itself the proof: the old path could not emit it for an enum.
                 let ctx = analyse "type Dir = | Up = 0 | Down = 1\nlet f (d : Dir<int>) = d"
 
                 let hasArity =
@@ -216,9 +205,8 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // An alias cycle is only WRITABLE inside one `type … and …` group: file-order
-            // scoping means an alias can only name a type declared above it, and a cycle
-            // needs a back-edge.
+            // A cycle is only WRITABLE inside one `type … and …` group: file-order scoping
+            // lets an alias name only a type declared above it, and a cycle needs a back-edge.
             test "cycle diagnoses without infinite-looping" {
                 let ctx = analyse "type A = B\nand B = A"
 

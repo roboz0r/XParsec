@@ -8,9 +8,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // A file whose parse RECOVERS still has something to report: the tree came out complete
-// only because the parser patched it, and every patch is a diagnostic. These assert at the
-// seam itself (`Pipeline.parse`) — the one place a parse diagnostic becomes a semantic one
-// — and on the two ways such a diagnostic then reaches a line and column.
+// only because the parser patched it, and every patch is a diagnostic.
 
 /// `(1 + 2` — the paren is never closed, so the parser inserts a virtual `)` and the file
 /// still parses to a complete tree.
@@ -25,9 +23,6 @@ let private parsed (source: string) : Pipeline.ParsedFile =
     | Ok p -> p
     | Error f -> failtestf "expected a recovered parse, not a failure: %A" f.Diagnostics
 
-/// The diagnostic whose VERDICT is the one asked for. Asked of the `Kind` and not of a
-/// message substring or a stringly code: the classification is the thing the diagnostic
-/// carries, so a consumer selecting on it cannot be broken by a reworded sentence.
 let private ofKind (wanted: Kind -> bool) (what: string) (p: Pipeline.ParsedFile) : Diagnostic =
     match p.Diagnostics |> List.tryFind (fun d -> wanted d.Kind) with
     | Some d -> d
@@ -74,9 +69,8 @@ let tests =
                 Expect.isEmpty (parsed "let f () = 1 + 2\n").Diagnostics "nothing to recover, nothing to report"
             }
 
-            // The two delimiter codes exist to say different things about the same shape of
-            // mistake, and the ONLY observable difference is the primary site. Asserting
-            // them together is what stops one collapsing back into the other.
+            // The two delimiter codes say different things about the same shape of mistake,
+            // and the only observable difference is the primary site.
             test "an INSERTED close blames the hole it went into" {
                 let d = parsed unclosedParen |> unclosedDelimiter
 
@@ -103,11 +97,9 @@ let tests =
                 | other -> failtestf "expected the '{|' token, got %A" other
             }
 
-            // `AssemblyFiles.failureDiagnostics` resolves a failed file's diagnostics, and
-            // `unpositionedDiagnostics` FAULTS on a positioned one rather than printing a
-            // plausible line — so a mistake in the `Lexed` plumbing is a crash, not a bad
-            // message. Built by hand because the top-level parser is infallible: it recovers
-            // to a tree rather than failing, so no source reaches the positioned branch yet.
+            // Built by hand: the top-level parser recovers to a tree rather than failing, so
+            // no source produces a failed file. A file with no `Lexed` FAULTS on a positioned
+            // diagnostic, so a mistake in the plumbing is a crash, not a plausible bad line.
             test "a failed file's diagnostics resolve against its own token stream" {
                 // No trailing newline, so the end of the file is a column on line 1.
                 let source = "let f () = (1 + 2"
@@ -136,9 +128,8 @@ let tests =
                 Expect.isNonEmpty anchored "the failed file's diagnostics came out"
                 Expect.all anchored (fun a -> a.Path = "broken.fs") "each anchored to the failed file"
 
-                // The `)` belonged past the last token written, which is the end of the
-                // file: line 1, one column past `2`. A resolved position, not a fault and
-                // not the (1, 1) a placeless diagnostic would render at.
+                // The `)` belonged past the last token written: line 1, one column past `2`
+                // — resolved against the text, not the (1, 1) of a placeless diagnostic.
                 Expect.all
                     anchored
                     (fun a -> (a.Line, a.Col) = (1, source.Length + 1))

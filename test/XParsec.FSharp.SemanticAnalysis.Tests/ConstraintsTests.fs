@@ -181,16 +181,15 @@ let tests =
                 let ctx =
                     analyseUnif "let f<'a when 'a : equality and 'a : comparison> (x: 'a) = x\nlet _ = f (fun a -> a)"
 
-                // Function fails both equality and comparison. We expect both
-                // to fire as separate diagnostics on the same use site.
+                // A function type fails equality AND comparison, so both constraints
+                // on the one typar are checked at the same use site.
                 let n = countMessage ctx "equality" + countMessage ctx "comparison"
                 Expect.isGreaterThan n 0 "at least one constraint diagnostic"
             }
 
             test "duplicate constraints in source dedupe to one" {
-                // `equality and equality` should not double-fire; dedupe in
-                // translation collapses to a single Equality constraint, so
-                // a violating use site produces exactly one message.
+                // `equality and equality` collapses to one Equality constraint in
+                // translation, so a violating use site produces exactly one message.
                 let ctx =
                     analyseUnif "let f<'a when 'a : equality and 'a : equality> (x: 'a) = x\nlet _ = f (fun a -> a)"
 

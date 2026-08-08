@@ -4,10 +4,9 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Type provenance: `PassContext.IsTypeDeclared` (a node's type was written in source)
-// and `IsInferenceHole` / `HasInferenceHoleIn` (a `_`-wildcard position inside an
-// otherwise-declared annotation, e.g. `Box<_>` — `Box` declared, the arg inferred).
-// Read off the LIVE (pre-freeze) ctx: Elaborate zonks holes to their inferred fill.
+// `IsTypeDeclared` = the node's type was written in source; `HasInferenceHoleIn` finds a
+// `_` inside an otherwise-written annotation (`Box<_>`: `Box` written, the arg inferred).
+// Both read the LIVE ctx — Elaborate zonks holes to their inferred fill.
 
 let private analyse (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
@@ -84,9 +83,8 @@ let tests =
             }
 
             test "a bare wildcard annotation `(x: _)` is a request to infer, so inferred" {
-                // Unlike `Box<_>` (written type constructor, inferred arg), a *whole-type* `_` writes
-                // no structure — it asks inference to fill it, so the bound variable is inferred,
-                // not declared.
+                // Unlike `Box<_>` (written type constructor, inferred arg), a whole-type `_` writes
+                // no structure at all — it asks inference to fill the lot.
                 let ctx, tast = analyse "let f (x: _) = x + 1"
                 Expect.isFalse (ctx.IsTypeDeclared(lastParamKey tast)) "(x: _) → inferred"
             }

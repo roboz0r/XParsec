@@ -26,8 +26,6 @@ let private expectClean (source: string) =
     let es = errors (analyse source)
     Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
 
-/// The RESOLVED type of one record field, off the elaborated TAST — so a scoping test can
-/// pin what a name BOUND to, not merely that it was accepted.
 let private recordFieldType (source: string) (typeName: string) (fieldName: string) : SemType =
     let tast = analyse source
 
@@ -49,10 +47,8 @@ let private recordFieldType (source: string) (typeName: string) (fieldName: stri
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one field '%s' on '%s', got %A" fieldName typeName other
 
-/// The RESOLVED type of one class member, off the elaborated TAST. A member's type is
-/// INFERRED from its body (Unification owns it), so this is the other half of the shadowing
-/// rule: the signature annotations in that body must bind what the classification made of
-/// them at registration, not what the registry says once the whole file is in it.
+/// A member's type is INFERRED from its body, so its signature annotations must bind what
+/// they were classified as at registration, not what the registry says once the file is in.
 let private classMemberParamType (source: string) (typeName: string) (memberName: string) : SemType =
     let tast = analyse source
 
@@ -74,9 +70,8 @@ let private classMemberParamType (source: string) (typeName: string) (memberName
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one parameter on '%s.%s', got %A" typeName memberName other
 
-/// The RESOLVED return type of one class member, off the elaborated TAST. A preamble bound variable
-/// carries no name of its own once it is a field, so this is how a SHADOWING test pins which
-/// bound variable a name bound to: give the shadowing `let` a different type and read it back here.
+/// A preamble bound variable carries no name of its own once it is a field, so a SHADOWING
+/// test gives the shadowing `let` a different type and reads back which one a member bound.
 let private classMemberReturnType (source: string) (typeName: string) (memberName: string) : SemType =
     let tast = analyse source
 
@@ -98,9 +93,6 @@ let private classMemberReturnType (source: string) (typeName: string) (memberNam
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one member '%s.%s', got %A" typeName memberName other
 
-/// The RESOLVED type of the unit's ONE module-level `let`, off the elaborated TAST — the
-/// module-`let` counterpart of the two accessors above, so a scoping test can pin what a
-/// `let`'s annotation BOUND to rather than merely that it was accepted.
 let private soleModuleLetType (source: string) : SemType =
     let tast = analyse source
 
@@ -117,19 +109,15 @@ let private soleModuleLetType (source: string) : SemType =
     | other -> failtestf "expected exactly one module-level let, got %A" other
 
 // F# type scoping is strictly file-ordered: a type sees the types declared ABOVE it and
-// nothing below, and `type X = … and Y = …` — one `ModuleElem.Type` group — is the one
-// unit of mutual recursion. Registration walks the file top-down one group at a time, so
-// the rule holds by construction; these pin the accept/reject verdicts against the
-// reference compiler's (a forward reference is FS0039 "not defined", a group-local
-// inheritance cycle FS0954, a group-local alias cycle FS0953).
+// nothing below, and `type X = … and Y = …` is the one unit of mutual recursion. These pin
+// the verdicts against F#'s: FS0039 forward reference, FS0954 inheritance / FS0953 alias cycle.
 [<Tests>]
 let tests =
     testList
         "TypeScopeOrder"
         [
-            // A reference to a type declared BELOW, in a later group, is a plain
-            // unknown-type error — not a special "forward reference" one. Every position
-            // that names a type is the same rule.
+            // A reference to a type declared BELOW is a plain unknown-type error, not a
+            // special "forward reference" one, and every position that names a type is alike.
             for position, source in
                 [
                     "record field", "type A = { x: B }\ntype B = { y: int }"
@@ -141,9 +129,8 @@ let tests =
                     "type argument", "type A = { x: Wrap<B> }\ntype Wrap<'a> = { w: 'a }\ntype B = { y: int }"
                 ] -> test $"forward reference from a {position} is rejected" { expectError "'B' is not defined" source }
 
-            // The `inherit` clause is the one reference resolved against the parent's
-            // registered DETAIL rather than its identity, so it fills at group close — and
-            // a parent below the group is never going to fill it.
+            // `inherit` is the one reference resolved against the parent's registered DETAIL
+            // rather than its identity, so it fills at group close — never from below.
             yield
                 test "forward reference from an inherit clause is rejected" {
                     expectError
@@ -151,9 +138,8 @@ let tests =
                         "type Derived() =\n    inherit Base()\ntype Base() =\n    member this.X = 1"
                 }
 
-            // `and` is the recursive group: every member's name and arity is claimed before
-            // any member's detail registers, which is all a field / case / signature
-            // reference to a sibling needs.
+            // `and` is the recursive group: every name and arity in it is claimed before any
+            // detail registers, which is all a field / case / signature reference needs.
             for shape, source in
                 [
                     "records", "type A = { x: B }\nand B = { y: A[] }"
@@ -165,10 +151,9 @@ let tests =
                     "abbreviation of a sibling declared below it", "type A = B\nand B = { y: int }"
                 ] -> test $"and-joined mutual recursion of {shape} is accepted" { expectClean source }
 
-            // THE case a naive cycle check would break, and the exact pair the struct test
-            // below rejects — modulo `[<Struct>]`. The cycle here runs through REFERENCE-type
-            // record fields, and the indirection breaks it, so F# compiles this clean. Only
-            // inheritance edges and STRUCT-field edges make a real cycle.
+            // The exact pair the struct test below rejects, modulo `[<Struct>]`: a cycle
+            // through REFERENCE-type record fields is broken by the indirection, so F#
+            // compiles it clean. Only inheritance and STRUCT-field edges are real cycles.
             yield
                 test "reference-type record mutual recursion is accepted" {
                     expectClean "type A = { x: B }\nand B = { y: A }"
@@ -186,10 +171,9 @@ let tests =
                     expectError "is cyclic" "type A = B\nand B = A"
                 }
 
-            // A STRUCT stores its fields inline, so a struct field is an immediate
-            // containment edge and a cycle through one has no finite layout. F# rejects this
-            // with FS0954 — the same code an inheritance cycle gets, because both are the
-            // same immediate-containment relation.
+            // A STRUCT stores its fields inline, so a cycle through one has no finite layout.
+            // F# gives it FS0954, the same code an inheritance cycle gets: both are the same
+            // immediate-containment relation.
             yield
                 test "struct-field cycle within a group is diagnosed" {
                     expectError
@@ -198,19 +182,15 @@ let tests =
                 }
 
             // A type declared below shadows nothing above it: above its declaration the
-            // external `exn` is the only `exn` there is, so the reference resolves rather
-            // than diagnosing. This is what keeps the file-order rule from firing on every
-            // external name that a unit happens to redeclare later.
+            // external `exn` is the only `exn` there is, so the reference resolves.
             yield
                 test "an external type of the same name still resolves above a local declaration" {
                     expectClean "type Container = { e: exn }\ntype exn = { message: int }"
                 }
 
-            // …and it BINDS to the external type, not merely accepts. Diagnostics and
-            // resolution are one mechanism here: the name was classified external where it
-            // was written (nothing had claimed `exn` yet), so it stays external once the
-            // local `exn` registers. Pinned against the SAME program without the local
-            // declaration, so the assertion is "identical resolution", not a hardcoded key.
+            // …and it BINDS to the external type, not merely accepts: `exn` was classified
+            // external where it was written, nothing having claimed the name yet. Pinned
+            // against the SAME program without the local declaration, not a hardcoded key.
             yield
                 test "a shadowing local declaration below a use does not capture it" {
                     let external = recordFieldType "type Container = { e: exn }" "Container" "e"
@@ -224,10 +204,9 @@ let tests =
                         "Container.e binds the external `exn`, not the local one declared below"
                 }
 
-            // The same rule through a member SIGNATURE, whose annotation is translated by
-            // the body walk long after the whole file is registered. It still binds the
-            // external type, because the type name's classification — made where it was written,
-            // with nothing yet claiming `exn` — is what the translation reads.
+            // The same rule through a member SIGNATURE, whose annotation is translated long
+            // after the whole file is registered: classification at the write site is what
+            // the translation reads.
             yield
                 test "a shadowing local declaration below a member signature does not capture it" {
                     let src = "type Container() =\n    member this.M(e: exn) = e"
@@ -241,9 +220,8 @@ let tests =
                 }
 
             // Types and module `let`s are ONE ordered sequence, not two passes: a `let` sees
-            // the types declared above it and nothing below. Every annotation a `let` writes —
-            // in its signature or anywhere in its body — is that same rule, so all of these
-            // are the ordinary unknown-type error.
+            // the types above it and nothing below, and every annotation it writes — in its
+            // signature or anywhere in its body — is that same rule.
             for position, source in
                 [
                     "parameter annotation", "let f (a: A) = a\ntype A = { x: int }"
@@ -262,12 +240,8 @@ let tests =
                     expectClean "type A = { x: int }\nlet f (a: A) = a.x\ntype B = { y: A }\nlet g (b: B) = f b.y"
                 }
 
-            // The shadowing rule, through a module `let` — the third site of the same
-            // mechanism (record field, member signature, module let). The name was classified
-            // where it was written, with nothing yet claiming `exn`, so it stamped external
-            // and stays bound there once the local `exn` registers. Pinned against the SAME
-            // program without the local declaration, so the assertion is "identical
-            // resolution", not a hardcoded key.
+            // The shadowing rule at its third site (record field, member signature, module
+            // let), pinned the same way: against the SAME program without the local `exn`.
             yield
                 test "a shadowing local declaration below a module let does not capture it" {
                     let src = "let f (e: exn) = e"
@@ -278,12 +252,9 @@ let tests =
                     Expect.equal shadowed external "f's parameter binds the external `exn`, not the local one below"
                 }
 
-            // A type BODY has the module's two-tier shape: its `let`/`do` preamble is one
-            // strictly top-down sequence (each binding sees only the ones ABOVE it), and its
-            // MEMBERS are a mutually-recursive group that may reference each other in any
-            // order and see every let. Confirmed against the reference compiler: a preamble
-            // `let` naming a later `let` is FS0039 "not defined" (static and instance alike),
-            // while a member calling a member declared below it compiles.
+            // A type BODY is two-tier: the `let`/`do` preamble is strictly top-down, while
+            // MEMBERS are one mutually-recursive group seeing every let. Probed: a preamble
+            // `let` naming a later `let` is FS0039; a member calling a later member compiles.
             yield
                 test "a class static let referencing a later static let is rejected" {
                     expectError
@@ -307,9 +278,8 @@ let tests =
                         "type C() =\n    static let k = 10\n    member this.P() = k + this.Q()\n    member _.Q() = 2"
                 }
 
-            // Member names are not in the preamble's LEXICAL scope — a let is evaluated
-            // during construction, so it may only reach a member through the type (`C.Q()`)
-            // or the self-identifier, never by bare name. F# agrees: bare `Q` is FS0039.
+            // Member names are not in the preamble's LEXICAL scope: a let may reach a member
+            // only through the type (`C.Q()`) or the self-identifier (F#: bare `Q` is FS0039).
             yield
                 test "a class let referencing a member by bare name is rejected" {
                     expectError
@@ -323,18 +293,16 @@ let tests =
                         "type C() =\n    static let a = C.Q()\n    static member Q() = 2\n    static member A = a"
                 }
 
-            // The preamble and the primary `inherit` args are scoped and inferred like any
-            // other expression, so an operator in either must carry a compiled name through to
-            // Elaborate — the same requirement a member body has.
+            // The preamble and the primary `inherit` args are ordinary expressions, so an
+            // operator in either must carry its compiled name through to elaboration.
             yield
                 test "an operator in a primary inherit argument is accepted" {
                     expectClean
                         "type B(n: int) =\n    member _.N = n\ntype D() =\n    inherit B(1 + 2)\n    member this.M = 3"
                 }
 
-            // The instance preamble obeys the same two-tier rule: it is one top-down sequence
-            // (a later `let` sees an earlier one), and every bound variable is in scope for the
-            // mutually-recursive member group.
+            // The instance preamble obeys the same two-tier rule: one top-down sequence, every
+            // bound variable in scope for the mutually-recursive member group.
             yield
                 test "a member referencing an instance let is accepted" {
                     expectClean "type C() =\n    let b = 1\n    let a = b + 1\n    member _.A = a"
@@ -356,9 +324,8 @@ let tests =
                         "type C() =\n    let a = 1\n    static let k = a + 1\n    member _.K = k"
                 }
 
-            // An instance `let`/`do` runs in the PRIMARY ctor. The `val`-field form has none,
-            // so there is nowhere for it to run — F# rejects it (FS0963) rather than picking a
-            // secondary ctor.
+            // An instance `let`/`do` runs in the PRIMARY ctor; the `val`-field form has none,
+            // so F# rejects it (FS0963) rather than picking a secondary ctor.
             yield
                 test "an instance let in a class with no primary constructor is rejected" {
                     expectError
@@ -387,10 +354,8 @@ let tests =
                     Expect.equal (List.length es) 1 (sprintf "one error for three offending entries, got %A" es)
                 }
 
-            // A struct's zero-arg default ctor is not ours to write, so an instance bound variable's field
-            // would be left unset by `Unchecked.defaultof<S>` — F# rejects both shapes (FS0901 /
-            // FS0035), and so must we: `buildClassPrimaryCtor` would otherwise happily run the
-            // preamble in the ctor we DO emit and leave the default-constructed value inconsistent.
+            // A struct's zero-arg default ctor is not ours to write, so a preamble field would
+            // be left unset by `Unchecked.defaultof<S>`. F# rejects both shapes, FS0901 / FS0035.
             yield
                 test "an instance let on a struct is rejected" {
                     expectError
@@ -412,16 +377,13 @@ let tests =
                     expectClean "[<Struct>]\ntype S(x: int) =\n    static let k = 41\n    member _.X = x + k"
                 }
 
-            // A `static let mutable` bound variable IS the static field, so a write stores to it
-            // (`TExpr.StaticFieldSet`, emitted `stsfld` / a class-object property assign).
+            // A `static let mutable` bound variable IS the static field, so a write stores to
+            // it: `TExpr.StaticFieldSet`, emitted `stsfld` / a class-object property assign.
             yield
                 test "a write to a `static let mutable` is accepted" {
                     expectClean "type C() =\n    static let mutable n = 0\n    member _.Bump () = n <- n + 1"
                 }
 
-            // …but a write to a NON-mutable `static let` is still an immutable-binding error —
-            // the mutability gate reads `IsMutable` faithfully off the bound variable, so only the
-            // `mutable` form is writable.
             yield
                 test "a write to a non-mutable `static let` is rejected" {
                     expectError
@@ -429,10 +391,9 @@ let tests =
                         "type C() =\n    static let n = 0\n    member _.Bump () = n <- n + 1"
                 }
 
-            // The object is NOT nameable from the preamble: F# only exposes it through an
-            // explicit `as self`, and even then a member call from a `let` throws at run time
-            // (initialisation soundness). Absent that analysis, rejecting is the only
-            // alternative to silently reading a not-yet-initialised field.
+            // F# exposes the object to the preamble only through an explicit `as self`, and
+            // even then a member call from a `let` throws at run time (initialisation
+            // soundness). We reject rather than read a not-yet-initialised field.
             yield
                 test "a preamble let calling a member through the `as` alias is rejected" {
                     expectError
@@ -440,12 +401,9 @@ let tests =
                         "type C(n: int) as self =\n    let m = self.Double n\n    member _.Double x = x * 2\n    member _.M = m"
                 }
 
-            // Ctor params, `val` fields, `static let`s and instance `let`s ALL mint a field
-            // carrying their source name, so any two of them sharing a name mint two fields of one
-            // name — and on the CLR that is one duplicate Field row, static-ness being in the
-            // flags rather than the identity. F# accepts every one of these (it uniquifies the
-            // backing-field names by source position); until that pass exists — local `let`s need
-            // it just as much — reject rather than miscompile. A LIMITATION, not invalid F#.
+            // Ctor params, `val` fields and preamble `let`s all mint a field carrying their
+            // source name, so two of one name are one duplicate CLR Field row (static-ness is
+            // a flag, not identity). F# uniquifies by position; until we do, reject. NOT invalid F#.
             for form, source in
                 [
                     "an instance let shadowing a ctor param", "type C(n: int) =\n    let n = n + 1\n    member _.N = n"
@@ -459,15 +417,13 @@ let tests =
                     "type C() =\n    static let v = 1\n    let v = v + 1\n    member _.V = v\n    static member SV = v"
                     "an instance let colliding with a val field",
                     "type C(n: int) =\n    [<DefaultValue>]\n    val mutable x: int\n    let x = n + 1\n    member _.X = x"
-                    // Pre-existing hazard, not one the preamble introduced: a ctor param and a
-                    // `val` of one name were always two fields of one name.
+                    // A ctor param and a `val` of one name were always two fields of one name.
                     "a val field colliding with a ctor param",
                     "type C(x: int) =\n    [<DefaultValue>]\n    val mutable x: int\n    member this.X = this.x + x"
                 ] -> test $"{form} is rejected" { expectError "Duplicate field name" source }
 
-            // FS0905 — unlike the collisions above this is a REAL F# rule, and one that bound variable
-            // uniquification would not lift: a member's name is its public surface, so a class
-            // `let` may not share it. Both sides being static makes no difference (probed).
+            // FS0905 is a REAL F# rule, not a limitation of ours: a member's name is its public
+            // surface, so a class `let` may not share it. Both sides static is no different (probed).
             for form, source in
                 [
                     "an instance let colliding with a member name",
@@ -487,10 +443,9 @@ let tests =
                     Expect.equal ty BuiltinTypes.tyBool "the member is typed from its own body, not the param"
                 }
 
-            // …and the non-shadowing neighbours of those programs still resolve, pinned by TYPE
-            // rather than by acceptance: the member reads the bound variable it names, not a same-shaped
-            // one — a blanket rejection of anything that merely LOOKS like a preamble let would
-            // pass an acceptance test.
+            // …and the non-shadowing neighbours still resolve, pinned by TYPE: the member reads
+            // the bound variable it names, which an acceptance test could not tell from a
+            // blanket rejection of anything that merely LOOKS like a preamble let.
             yield
                 test "a distinctly-named instance let over a ctor param binds the let in a member" {
                     let ty =
@@ -513,9 +468,8 @@ let tests =
                         "the member sees the second let, whose initialiser read the first"
                 }
 
-            // The static/instance neighbours of the cross-family rejections above: distinctly
-            // named, each member must read the bound variable it NAMES — a static field and an instance
-            // field of one class are not interchangeable.
+            // The static/instance neighbours of the cross-family rejections above: a static
+            // field and an instance field of one class are not interchangeable.
             yield
                 test "distinctly-named static and instance lets each bind their own member" {
                     let source =
@@ -538,26 +492,24 @@ let tests =
                         "`Y` reads the `int` val field"
                 }
 
-            // An operator in a preamble initialiser / `do` body must carry a compiled name
-            // through to Elaborate (`InfixApp … missing DesugaredForm` is a hard crash), and a
-            // preamble `let` may capture a `let mutable` — which is a FIELD, so the closure and
-            // the member bodies read the same storage.
+            // A preamble `let` may capture a `let mutable` — which is a FIELD, so the closure
+            // and the member bodies read the same storage.
             yield
                 test "an instance do body and a let-bound closure over a let mutable are accepted" {
                     expectClean
                         "type C() =\n    let mutable c = 0\n    let bump () = c <- c + 1\n    do bump ()\n    member _.C = c"
                 }
 
-            // `let rec` puts its bound variable in scope of its OWN initialiser: recursion, not shadowing,
-            // so the shadowing rejection above must not swallow it.
+            // `let rec` puts its bound variable in scope of its OWN initialiser: recursion,
+            // not shadowing, so the shadowing rejection above must not swallow it.
             yield
                 test "a recursive instance let is accepted" {
                     expectClean
                         "type C() =\n    let rec fact k = if k <= 1 then 1 else k * fact (k - 1)\n    member _.F = fact 5"
                 }
 
-            // Instance lets in a GENERIC class: a preamble bound variable is an instance field, and
-            // those already work generically (a ctor param is one).
+            // A preamble bound variable is an instance field, and those already work
+            // generically (a ctor param is one).
             yield
                 test "instance lets in a generic class are accepted" {
                     expectClean

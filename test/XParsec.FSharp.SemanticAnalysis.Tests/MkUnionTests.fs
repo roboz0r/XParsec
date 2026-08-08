@@ -4,12 +4,9 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// The `mkUnion` smart constructor and the SET-semantic member identity it rests on
-// (`EqSet`, NOT a canonical sort — a total order on `SemType` does not exist). `mkUnion`
-// is the ONLY sanctioned producer of `TyOr`, and the equality layer's `n1 = n2`
-// discipline relies on its canonical set form — so `string | int` and `int | string`
-// are the *same* value. These pin flatten / dedup / collapse / order-insensitivity /
-// idempotence directly on the constructor, with no parser or unifier in the loop.
+// `mkUnion` rests on SET-semantic member identity (`EqSet`, not a canonical sort — a
+// total order on `SemType` does not exist), so `string | int` and `int | string` are
+// the *same* value. Pinned on the constructor, with no parser or unifier in the loop.
 
 let private tc (n: string) : SemType =
     TyConst(RuntimeNames.primitiveKey n, EqArray.empty)
@@ -18,11 +15,9 @@ let private tInt = tc "int"
 let private tString = tc "string"
 let private tBool = tc "bool"
 
-// A raw, pre-resolution union: `UnionMembers.OfSeq` flattens/dedups but (unlike
-// `mkUnion`) does NOT collapse, so a 2-member set holding an unresolved `TyVar`
-// stays a `TyOr` — the only way to hand `zonk` a union to resolve, since `mkUnion`
-// is fed ground members in canonical use. The raw DU ctor is private, so this is
-// the sole construction path; that privacy is the type-enforced invariant.
+// A raw, pre-resolution union: `UnionMembers.OfSeq` flattens and dedups but (unlike
+// `mkUnion`) does NOT collapse, so a 2-member set holding an unresolved `TyVar` stays
+// a `TyOr` — the only way to hand `zonk` a union that still has resolving to do.
 let private rawOr (xs: SemType list) : SemType = TyOr(UnionMembers.OfSeq xs)
 
 [<Tests>]
@@ -81,9 +76,8 @@ let tests =
             }
 
             test "members compare set-equal across input orders (the canonical set)" {
-                // Two different input orders yield SET-EQUAL member sets (EqSet's
-                // order-insensitive equality) — the property freeze/unify identity rests
-                // on. Storage keeps insertion order, but identity is set-based.
+                // Storage keeps insertion order, but identity is set-based: two input
+                // orders yield SET-EQUAL member sets under `EqSet`'s equality.
                 let a = mkUnion [ tString; tInt; tBool ]
                 let b = mkUnion [ tBool; tInt; tString ]
 
@@ -92,11 +86,9 @@ let tests =
                 | _ -> failtest "both should be unions"
             }
 
-            // The Stage-2 follow-up (fix #1): substitution / resolution traversals
-            // rebuild a `TyOr` through `mkUnion`, not a bare `EqArray.map`, so a
-            // member resolving onto another member re-canonicalises (collapses) the
-            // set rather than leaving a stale `string | string`. `zonk` is the
-            // exemplar; `substituteWith` / `Inline.substType` share the path.
+            // Substitution and resolution rebuild a `TyOr` through `mkUnion`, not a
+            // bare map, so a member resolving ONTO another member re-canonicalises
+            // rather than leaving a stale `string | string`.
             test "zonk collapses a union when a member resolves to another member" {
                 let store = TypeStore()
                 let tv = store.NewTypeVar()
@@ -118,11 +110,8 @@ let tests =
                     "('a | string)[a:=int] ≡ int | string"
             }
 
-            // Stage 3a: the canonical-set form is type-enforced, not convention.
             // `UnionMembers`' constructor is private, so `OfSeq` is the only way to
-            // build one and it always normalises — a non-canonical `UnionMembers`
-            // cannot exist (the privacy is a compile-time guarantee; here we pin that
-            // the one public path canonicalises).
+            // build one, and it always normalises.
             test "UnionMembers.OfSeq normalises regardless of input order" {
                 let a = UnionMembers.OfSeq [ tString; tInt ]
                 let b = UnionMembers.OfSeq [ tInt; tString ]

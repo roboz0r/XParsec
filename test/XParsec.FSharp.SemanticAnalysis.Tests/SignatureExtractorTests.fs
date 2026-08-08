@@ -6,11 +6,9 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Lex + parse an in-memory `.fsi` snippet into the `ParsedFile` the extractor
-/// consumes. The extractor reads no FIELD of the `LibFile` — it only carries the
-/// record through as the tag on a `ctx.Diagnostics` / `ctx.Skipped` entry — so one
-/// fixture name stands for every field, and `relative` exists solely to name the
-/// snippet in a fixture-level (lex/parse) failure.
+/// Lex + parse an in-memory `.fsi` snippet into the `ParsedFile` the extractor consumes.
+/// No FIELD of the `LibFile` is read — it is only the tag on a `ctx.Diagnostics` /
+/// `ctx.Skipped` entry — so `relative` just names the snippet in a lex/parse failure.
 let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
     let lexed =
         match Lexing.lexString input with
@@ -38,12 +36,9 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
         Ast = ast
     }
 
-/// The whole extraction pipeline over one in-memory `.fsi`, for a fixture that seeds
-/// NOTHING on the ctx beforehand. Vals are stashed during extraction and built into
-/// `ctx.Symbols` only by the finalize pass, once the registry is complete — so a
-/// fixture that instead pins the PRE-finalize state, or that must seed
-/// `AmbientShapes` / the intrinsic repr extraction before the `.fsi` walk runs, spells the
-/// steps out rather than coming through here.
+/// extract + finalize over one in-memory `.fsi`. A fixture that must seed the ctx first
+/// (`AmbientShapes`, intrinsic reprs) or pin the PRE-finalize state spells the steps out
+/// instead of coming through here.
 let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
     let ctx = VesperLib.ExtractCtx.empty "clr"
     VesperLib.extractSymbols ctx (parseFsi relative input)
@@ -56,16 +51,9 @@ let tests =
         "SignatureExtractor"
         [
             test "cross-package nominal resolves through ambient shapes and bakes kind-correct" {
-                // A dependency package contributes its type shapes through
-                // `ExtractCtx.AmbientShapes`, keyed by qualified compiled name. A downstream
-                // package's signature that references one of those types — by its
-                // fully-qualified name and, separately, via an `open` — must (a)
-                // RESOLVE (the reference is no longer silently skipped because the
-                // name is absent from this package's own index) and (b) bake the
-                // correct kind (`TyUnion` here, since the dependency contributes a
-                // `Union` shape) at extraction time. The corpus's
-                // real cross-package references are all abbreviations to unresolvable
-                // BCL/GADT types, so this synthetic fixture exercises the path directly.
+                // `AmbientShapes` is a dependency package's type shapes, keyed by qualified
+                // compiled name. A `Union` ambient must bake `TyUnion` at extraction time,
+                // whether the reference is fully qualified or reached via an `open`.
                 let widgetShape = ExternalTypeShape.Union(1, [||], [||], SymbolOrigin.Empty)
 
                 let ambient name =
@@ -82,12 +70,11 @@ let tests =
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.AmbientShapes <- ambient
                 VesperLib.extractSymbols ctx parsed
-                // Vals are stashed during extraction and built into `ctx.Symbols` by
-                // the finalize pass once the registry is complete.
+                // Vals are stashed during extraction; the finalize pass builds them into
+                // `ctx.Symbols` once the registry is complete.
                 VesperLib.finalizeDeferred ctx
 
-                // Locate each val by its source name suffix so the assertion does
-                // not hinge on the exact module-path compilation.
+                // By source-name suffix, so the assertion does not hinge on the module path.
                 let instOf (suffix: string) : SemType =
                     let mutable found = ValueNone
 
@@ -119,12 +106,9 @@ let tests =
             }
 
             test "a signature naming an out-of-scope type bakes TyUnknown" {
-                // No ambient shape and no local type declares `Missing.Thing`, so
-                // `resolveTypeName` fails. Instead of a silent skip
-                // (the val landing in `ctx.Skipped`), extraction retains the val and
-                // bakes a `TyUnknown` leaf carrying the unresolved name — which a
-                // consumer surfaces as a use-site diagnostic (see the unify arm in
-                // `Passes/Unification/Engine.fs`).
+                // Nothing declares `Missing.Thing`, so the val is RETAINED with a `TyUnknown`
+                // leaf carrying the unresolved name — a use-site diagnostic — rather than
+                // dropped into `ctx.Skipped`.
                 let ctx =
                     extractFsi "app.fsi" "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
 
@@ -147,14 +131,9 @@ let tests =
             }
 
             test "module-function ValRepr / CompiledForm captured from the .fsi arity" {
-                // The cross-assembly preserved-signatures path: a
-                // `.fsi` `val`'s `CurriedSig`/`ArgsSpec` already encodes the source
-                // arity the bare curried type erases, so `finalizeVal` records BOTH
-                // the source `ValRepr` and the derived flat `CompiledForm` on the
-                // symbol. The crux is `tupleGroup` vs `singleTuple`: identical bare
-                // type `int * int -> int`, but the first is a tupled GROUP (flattens
-                // to two CLR params) and the second a single tuple PARAM (stays one) —
-                // a distinction only the recorded `ValRepr` carries.
+                // A bare curried type erases the source arity, so the symbol records the
+                // `.fsi`'s `ValRepr`. The crux is `tupleGroup` vs `singleTuple`: both are
+                // `int * int -> int`, but the first flattens to two params, the second stays one.
                 let ctx =
                     extractFsi
                         "testc.fsi"
@@ -179,9 +158,7 @@ let tests =
                 let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
                 let pairF = FTTuple(EqArray.ofList [ intF; intF ])
 
-                // The compiled form is derived from the captured `ValRepr` on demand —
-                // the same `TastLower.compiledOf` rule the codegen boundary applies, so
-                // the test pins the single-sourced derivation, not a stored copy.
+                // Derived from the captured `ValRepr` on demand, not stored on the symbol.
                 let compiledOf (suffix: string) : TastAccessor.CompiledForm =
                     match (symOf suffix).ValRepr with
                     | ValueSome vr -> TastLower.compiledOf (TastPoolBuilder.openEmpty ()) vr
@@ -207,35 +184,27 @@ let tests =
                         )
                     | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
 
-                // Curried: two single-arg groups, two flat params, value return.
                 Expect.equal (groupTags "curried") [ "simple"; "simple" ] "curried source arity"
                 Expect.equal (compiledParamTys "curried") [ intF; intF ] "curried flat params"
                 Expect.equal (compiledReturn "curried") (CompiledReturnG.RValue intF) "curried return"
 
-                // Tupled group: one width-2 group flattens to TWO flat params.
                 Expect.equal (groupTags "tupleGroup") [ "tuple2" ] "tupled-group source arity"
                 Expect.equal (compiledParamTys "tupleGroup") [ intF; intF ] "tupled group flattens to 2 params"
 
-                // Single tuple param: SAME bare type, but stays ONE param.
                 Expect.equal (groupTags "singleTuple") [ "simple" ] "single-tuple-param source arity"
                 Expect.equal (compiledParamTys "singleTuple") [ pairF ] "single tuple param stays one ValueTuple param"
 
-                // Lone unit param erases to a parameterless method.
                 Expect.equal (groupTags "loneUnit") [ "unit" ] "lone-unit source arity"
                 Expect.equal (compiledParamTys "loneUnit") [] "lone unit param erased (parameterless)"
                 Expect.equal (compiledReturn "loneUnit") (CompiledReturnG.RValue intF) "lone-unit return"
 
-                // Unit return → RVoid.
                 Expect.equal (compiledParamTys "voidRet") [ intF ] "void fn keeps its real param"
                 Expect.equal (compiledReturn "voidRet") CompiledReturnG.RVoid "unit return → RVoid"
             }
 
             test "A body-less type registers an Opaque residue shape, not absence" {
-                // An `enum` carries no front-end-modelled body shape
-                // (enum/delegate kinds are deferred). The
-                // deferral registers an explicit `Opaque` residue, so every
-                // registered name carries a shape and `TryLookupType` returns
-                // `ValueSome(Opaque)` rather than absence.
+                // Enum and delegate bodies are unmodelled, so the name registers an explicit
+                // `Opaque` residue carrying the arity — `TryLookupType` answers, never misses.
                 let parsed =
                     parseFsi
                         "app.fsi"
@@ -263,13 +232,9 @@ let tests =
             }
 
             test "A `struct … end` value type extracts as a Class shape flagged IsValueType" {
-                // A `type X = struct … end` value type in a `.fsi`
-                // must surface its value-type-ness through the provider, or a consumer's
-                // encoder emits `ELEMENT_TYPE_CLASS` for a referenced-package struct and
-                // the loader faults "value type mismatch". Extraction registers a
-                // `Class` shape (no front-end-modelled body) whose `Flags.IsValueType`
-                // is `true` — the contract-layer twin of the metadata layer's
-                // `Type.IsValueType` read.
+                // If value-type-ness does not surface through the provider, a consumer's
+                // encoder emits `ELEMENT_TYPE_CLASS` for a referenced-package struct and the
+                // loader faults "value type mismatch".
                 let parsed =
                     parseFsi
                         "app.fsi"
@@ -296,16 +261,9 @@ let tests =
             }
 
             test "A type's `interface <ty>` impls publish into FrozenInterfaces" {
-                // The contract-layer twin of the metadata layer's `buildClassInterfaces`:
-                // a type's directly-declared `interface IBox<'T>` must surface on the
-                // extracted shape's `FrozenInterfaces` (args over the declaring typars),
-                // so a consumer's interface-impl witness (`tryInterfaceWitness`' external
-                // arm) can recover a phantom typar from a struct seq's `IStructSeq<'T,'E>`
-                // impl — the `.fsi` half of the struct-seq external-function graduation. Filled
-                // by the deferred finalize pass (the interface type may forward-reference a
-                // sibling), so the previously-empty `basic` default is overwritten.
-                // `FrozenInterfaces` is deferred (the interface type may forward-reference a
-                // sibling), so it is only filled once the finalize pass runs.
+                // A directly-declared `interface IBox<'T>` surfaces on the extracted shape's
+                // `FrozenInterfaces`, args over the declaring typars, so a consumer can recover
+                // a typar from it. Deferred — the interface may forward-reference a sibling.
                 let ctx =
                     extractFsi
                         "app.fsi"
@@ -336,13 +294,9 @@ let tests =
             }
 
             test "`extern with` publishes interfaces into FrozenInterfaces and members" {
-                // A NON-intrinsic `extern` type whose trailing `with` body declares
-                // interfaces + members publishes a capability surface: it registers
-                // exactly as a bodied class would — `interface IBar<'T>` lands in
-                // `FrozenInterfaces` (deferred → filled by `finalizeDeferred`) and
-                // `member M` lands in `ctx.TypeMembers`. (The intrinsic-primitive
-                // `extern with` form — `type string = extern with …` — is deferred
-                // separately; this exercises only the class/interface branch.)
+                // A NON-intrinsic `extern … with` body registers exactly as a bodied class
+                // would. The intrinsic-primitive form (`type string = extern with …`) takes
+                // another branch.
                 let ctx =
                     extractFsi
                         "app.fsi"
@@ -371,8 +325,7 @@ let tests =
                 | ValueSome other -> failtestf "expected a Class shape for the extern type; got %A" other
                 | ValueNone -> failtestf "Foo registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
-                // The `with member M` rides `ctx.TypeMembers` (a non-interface class's
-                // members are served through `TryLookupMember`, not the shape).
+                // A non-interface class's members ride `ctx.TypeMembers`, not the shape.
                 let fooMembers =
                     let mutable found = ValueNone
 
@@ -392,15 +345,9 @@ let tests =
             }
 
             test "A GADT-cased union extracts as a genuine Union shape" {
-                // The cons-list shape (operator cases with explicit return types):
-                // `([])` and `(::)` are GADT-syntax. GADT-case extraction
-                // registers a real `Union` — cases named by their canonical *ctor*
-                // form (`Empty` / `Cons`, via the shared
-                // `OperatorNames.unionCaseCtorName`), matching `ElaborateExpr` and
-                // codegen, fields drawn from the `(::)` signature's args, the
-                // return type ignored. (`Thing<'T>` stands in for `'T list` to keep
-                // the fixture self-contained — the self-referential field resolves
-                // because the type's name is registered before its body is kinded.)
+                // Operator cases with explicit return types (`([])`, `(::)`) are GADT syntax:
+                // the cases are named by their canonical ctor form (`Empty` / `Cons`), fields
+                // come from the `(::)` args, and the declared return type is ignored.
                 let parsed =
                     parseFsi
                         "app.fsi"
@@ -433,10 +380,8 @@ let tests =
             }
 
             test "extraction records [<RequireQualifiedAccess>] unions and stamps their cases" {
-                // The `[<RequireQualifiedAccess>]` attribute
-                // on an extracted union is read into `ctx.RqaTypes` and rides through
-                // the reverse case-name index as `ExternalUnionCase.IsRequireQualifiedAccess`,
-                // so a consumer's bare reference to an RQA case can be rejected.
+                // `[<RequireQualifiedAccess>]` on an extracted union reads into `ctx.RqaTypes`,
+                // so a consumer's bare reference to one of its cases can be rejected.
                 let parsed =
                     parseFsi
                         "app.fsi"
@@ -453,7 +398,7 @@ let tests =
                     (ctx.RqaTypes |> Seq.exists (fun n -> n.EndsWith "Hue"))
                     "the ordinary Hue union is not recorded as RQA"
 
-                // The flag rides through the reverse case-name index built by toProvider.
+                // The flag rides the reverse case-name index as `IsRequireQualifiedAccess`.
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 match provider.TryLookupUnionCase "Red" with
@@ -466,14 +411,9 @@ let tests =
             }
 
             test "A reference to an Opaque-shaped type is refused at bake time" {
-                // The consumer half of the residue: a signature naming a type whose
-                // in-scope shape is `Opaque` (an enum / delegate / unmodelled body)
-                // has no kind to bake. The val signature is translated in the finalize
-                // pass, where `mkNominal`'s `Opaque` arm raises `BodylessExternalShape`;
-                // the pass tolerates it as a per-val skip (the symbol is dropped and
-                // recorded in `ctx.Skipped`) rather than minting a placeholder or
-                // aborting the whole provider build. Seeded through the ambient so the
-                // path is exercised directly.
+                // A type whose in-scope shape is `Opaque` has no kind to bake, so translating
+                // the val in the finalize pass raises `BodylessExternalShape`. The pass
+                // tolerates it as a PER-VAL skip rather than aborting the whole build.
                 let ambient name =
                     if name = "Dep.Widget" then
                         ValueSome(ExternalTypeShape.Opaque 1)
@@ -488,9 +428,6 @@ let tests =
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.AmbientShapes <- ambient
 
-                // Extraction stashes the val; the finalize pass translates it, hits
-                // the `Opaque` arm, and drops the val (recording the reason) rather
-                // than minting a placeholder or aborting the build.
                 VesperLib.extractSymbols ctx parsed
                 VesperLib.finalizeDeferred ctx
 
@@ -505,17 +442,9 @@ let tests =
             }
 
             test "objnull abbrev (`obj | null`) extracts to the union `FTOr [obj; null]`" {
-                // `type objnull = obj | null` (prim-types-object.fsi) is a *nullable
-                // reference type*; its abbrev RHS parses to `Type.UnionType(obj, |,
-                // null)`. `objnull` is NOT a primitive — it is the ordinary `obj | null`
-                // union, so its abbrev body freezes to the anonymous union `FTOr [obj;
-                // null]` (the `null` member is the cross-backend `nullKey` intrinsic),
-                // matching the front end's `Type.Null` mint so an extracted `objnull`
-                // unifies with a written `T | null`. (Earlier this collapsed to the
-                // non-null part `obj`, dropping the `null` member; the union is the
-                // faithful representation.) Gated through the synthetic-`.fsi`
-                // extract+finalize path (sibling to "finalize fills real templates",
-                // which guards the dual sentinel).
+                // `type objnull = obj | null` is not a primitive but the ordinary union, so its
+                // abbrev body freezes to `FTOr [obj; null]` — matching the front end's
+                // `Type.Null` mint, so an extracted `objnull` unifies with a written `T | null`.
                 let ctx =
                     extractFsi
                         "app.fsi"
@@ -523,9 +452,6 @@ let tests =
 
                 let unfreezable = FTUnknown "<unfreezable external template>"
 
-                // The abbrev body, post-finalize, must be the union `FTOr [obj; null]` —
-                // not the sentinel the blanket UnionType-refusal used to leave, nor the
-                // collapse to bare `obj`.
                 let objnullShape =
                     let mutable found = ValueNone
 
@@ -561,17 +487,9 @@ let tests =
             }
 
             test "extern interface with abstract member extracts as an interface Class carrying its member surface" {
-                // The BCL-free neutral capability surface `type disposable = extern interface
-                // with abstract member Dispose : unit -> unit` extracts to a
-                // `Class{IsInterface=true}` carrying `Dispose`, when NO `(# … #)` repr is
-                // present (isIntrinsic=false → the `not isIntrinsic` bodied arm in
-                // `VesperLib.extractTypeSig` runs `extractBodiedClassLike`). Interface-ness is
-                // the EXPLICIT `interface` tag, not inferred from the all-abstract body. The
-                // member-surface
-                // half of a BCL-free capability is therefore free; the per-target IDENTITY is
-                // supplied separately (a `.fs` `(# … #)` repr → an `IntrinsicInterface` on CLR, the
-                // `capabilities-compat.js.fsi` shim on JS — NOT a plain `.fs` abbreviation,
-                // which is extracted only for `(# … #)` while the `.fsi` walk runs only on `.fsi`).
+                // With NO `(# … #)` repr, `type disposable = extern interface with abstract
+                // member Dispose …` extracts to a `Class{IsInterface=true}` carrying `Dispose`.
+                // Interface-ness is the EXPLICIT tag, not inferred from an all-abstract body.
                 let ctx =
                     extractFsi
                         "capabilities.fsi"
@@ -603,10 +521,8 @@ let tests =
                 | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
             }
 
-            // The `.fsi` half of the `member inline` constraint. A primitive has no type in
-            // the output to hang a method on, so a member on one can ONLY be spliced — and
-            // the `.fsi` is the contract, so it states that rather than leaving a consumer
-            // to infer it from the paired `.fs`.
+            // A primitive has no type in the output to hang a method on, so a concrete member
+            // on one can only be spliced — and the `.fsi` contract must say so.
             test "a concrete member on an intrinsic must be declared inline" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 // Intrinsic-ness is the target-blind marker, not the compiling target's repr.
@@ -628,8 +544,8 @@ let tests =
                     (sprintf "the member-inline diagnostic fired; got %A" (List.ofSeq ctx.Diagnostics))
             }
 
-            // The carve-out. A capability's slots declare no body, so there is nothing to
-            // splice and nothing to mark — the rule is about members WITH a body.
+            // A capability's slots declare no body, so there is nothing to splice: the rule
+            // is about members WITH a body.
             test "an extern interface's abstract members do not want inline" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "disposable" |> ignore
@@ -673,8 +589,8 @@ let tests =
                     "an override is not asked to be inline — the grammar gives it no inline slot"
             }
 
-            // The carve-out a heritable primitive needs: `new: unit -> obj` NAMES a
-            // target-provided constructor, so there is no body to splice.
+            // `new: unit -> obj` NAMES a target-provided constructor, so there is no body
+            // to splice.
             test "a heritable primitive's constructor signature is exempt" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "obj" |> ignore
@@ -697,18 +613,9 @@ let tests =
 
             test
                 "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT a reverse-canon entry" {
-                // A capability anchor whose `.fsi` declares an interface member surface AND
-                // whose `.fs` binds a platform type (`type disposable = (# "System.IDisposable"
-                // #)`) must extract to ONE two-name shape: an `IntrinsicInterface` carrying the
-                // member surface plus `{ Canon; Platform }`, so it reconciles to its BCL
-                // spelling. UNLIKE `exn === System.Exception`, reconciliation rides that
-                // identity — NOT the reverse-canon map: a capability interface resolves to a
-                // `TyClass` constraint, so a reverse entry would be dead weight (its only reader
-                // canonicalizes to `TyConst` and guards interfaces out). This is the CLR build's
-                // shape; on JS the `.fs` omits the repr and the canonical identity stands alone
-                // (see the compat-shim path).
-                // (Synthetic: mirroring the CLR build, where a `.fs` `(# … #)` both marks the
-                // name a primitive and supplies the platform repr.)
+                // A `.fsi` interface member surface plus a `.fs` `(# "System.IDisposable" #)`
+                // repr extract to ONE `IntrinsicInterface` carrying the members and
+                // `{ Canon; Platform }`, so the type reconciles to its BCL spelling.
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
@@ -753,25 +660,18 @@ let tests =
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
-                // A capability interface is deliberately ABSENT from the reverse-canon map —
-                // reconciliation flows through the identity above, not this map (the entry would
-                // be dead weight, and keeping it would force an `IsInterface` guard back into
-                // the reverse-map readers).
+                // The reverse map's reader turns a hit into an `FTConst` leaf, so an interface
+                // entry would mis-present `System.IDisposable` as a scalar canon.
+                // Reconciliation rides the `IntrinsicInterface` identity above instead.
                 match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
                 | None -> ()
                 | Some canons -> failtestf "capability interface must NOT enter the reverse-canon map; found %A" canons
             }
 
             test "CONCRETE member surface on an intrinsic primitive keeps the Intrinsic shape" {
-                // A CONCRETE (non-interface) member surface over an intrinsic repr is a general
-                // platform-binding capability: the `(# … #)`-bound member's body is served as a
-                // member-keyed inline splice. The shape stays `Intrinsic` — a primitive that
-                // declares its operator surface (`int` with `static member (+)`) must keep the
-                // `TyConst` identity every intrinsic recogniser, repr lookup, and literal
-                // inference keys on; publishing it as a `Class` would resolve it `TyClass` and
-                // break all of them. Members ride their own table, not the shape, so both hold
-                // at once. The heritable case is the EXPLICIT `extern class` tag; a capability
-                // INTERFACE (all-abstract body) republishes to an `IntrinsicInterface`.
+                // The shape stays `Intrinsic`: a primitive declaring an operator surface (`int`
+                // with `static member (+)`) must keep the `TyConst` identity that intrinsic
+                // recognisers, repr lookup and literal inference key on. Members ride a table.
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
                 ctx.IntrinsicMarkers.Add "widget" |> ignore
@@ -791,8 +691,6 @@ let tests =
                     | Some k -> k
                     | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
-                // The identity axis is untouched by the member surface: still the nullary
-                // `Intrinsic` carrying its platform repr, so use sites resolve `TyConst`.
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.Intrinsic shape ->
                     Expect.equal
@@ -803,15 +701,14 @@ let tests =
                     Expect.equal shape.Class ValueNone "an untagged member surface is not a heritable class"
                 | other -> failtestf "expected the Intrinsic shape to survive for widget; got %A" other
 
-                // No rejection diagnostic — the old inert-leaf guardrail is lifted.
                 let rejected =
                     ctx.Diagnostics
                     |> Seq.exists (fun (_, msg) -> msg.Contains "concrete member surface on an intrinsic primitive")
 
                 Expect.isFalse rejected "the lifted guardrail must NOT emit a rejection diagnostic"
 
-                // The load-bearing pair: the member is published even though the shape carries no
-                // member slots — it is served from the member table, keyed by the type.
+                // The member is published from the type-keyed member table, even though the
+                // `Intrinsic` shape carries no member slots.
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "M") with
@@ -819,17 +716,14 @@ let tests =
                 | ValueNone -> failtest "concrete member surface `M` was dropped when the Intrinsic shape was restored"
             }
 
-            // The equality the contract's key mint exists to buy. `T` is declared inside
-            // `module M` in `namespace Test.A`, so the identity a consumer's local containment
-            // mints is an `InModule` chain — and the contract's store must answer THAT key, not
-            // a separately-spelled string. The store's index is the key's own rendering, so the
-            // two agree by construction rather than by coincidence.
+            // `T` is declared inside `module M` in `namespace Test.A`, so a consumer's local
+            // containment mints an `InModule` key — and the contract's store must answer THAT
+            // key, not a separately-spelled string.
             test "a module-held contract type answers the KEY a module containment mints" {
                 let ctx =
                     extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
-                // The key a CONSUMER's local containment mints for `T` — built from the
-                // containment chain, never from a name.
+                // Built from the containment chain, never from a name.
                 let key: TypeKey =
                     {
                         Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
@@ -850,18 +744,13 @@ let tests =
                 | ValueNone -> failtest "the contract store must be addressable by the module-held type's key"
             }
 
-            // …and the SOURCE still names it with dots (`Test.A.M.T`, as `byref<'T,
-            // ByRefKinds.In>` names `In`). The written spelling is not the metadata name, so
-            // it reaches the identity through a redirect (`SymbolKeyOps.tryDottedInModule`
-            // over the DECLARED module containment) — never by being re-cut into a key of its
-            // own, which would absorb the module into the namespace path and mint an unequal
-            // identity.
+            // …and the SOURCE still writes `Test.A.M.T`, which is not the metadata name
+            // `Test.A.M+T`, so it reaches the identity by a redirect over the declared module
+            // containment — re-cutting a key would absorb `M` into the namespace path.
             test "a module-held contract type still resolves by the name the source WRITES" {
                 let ctx =
                     extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
-                // The dotted source spelling is NOT an index entry of its own — the index is
-                // the KEY's canonical rendering, so the redirect is the only route in.
                 Expect.isTrue
                     (ctx.TypeKeys.ContainsKey "Test.A.M+T")
                     "the identity index is keyed by the canonical `+`-nested rendering"
@@ -872,8 +761,6 @@ let tests =
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                // …and it lands on the REGISTERED identity: the same `InModule` key the
-                // module containment mints, not a key re-cut from the dotted string.
                 let expected: TypeKey =
                     {
                         Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
@@ -887,20 +774,16 @@ let tests =
                 | ValueSome(struct (_, other)) -> failtestf "the name resolved, but with the wrong shape: %A" other
                 | ValueNone -> failtest "the written dotted spelling must still resolve"
 
-                // A spelling that names nothing still resolves to nothing — the redirect is a
-                // containment lookup, not a name-shaped guess.
+                // The redirect is a containment lookup, not a name-shaped guess.
                 Expect.isTrue
                     (provider.TryLookupType "Test.A.M.Nope" |> ValueOption.isNone)
                     "an unknown member of M misses"
             }
 
             test "`when 'T : equality` is captured, and applied to the fresh TyVar at instantiation" {
-                // A `when 'T : equality` clause on a `.fsi` val is a trait-table
-                // constraint, and it has to land on BOTH halves to be worth anything:
-                // the symbol's structured `Constraints` list (what an introspecting
-                // consumer reads) AND — via `instantiateSymbol` — the fresh `TypeVar`
-                // minted for that typar slot, which is the only half a use site's
-                // inference actually consults.
+                // `when 'T : equality` must land on BOTH the symbol's structured `Constraints`
+                // and — via `instantiateSymbol` — the fresh `TypeVar` minted for that typar
+                // slot, which is the only half a use site's inference consults.
                 let ctx =
                     extractFsi
                         "app.fsi"
@@ -943,13 +826,9 @@ let tests =
             }
 
             test "SRTP member-trait clause is captured as a MemberTrait over the val's typars" {
-                // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as an
-                // `ExternalConstraint.MemberTrait`: the member's COMPILED name plus
-                // arg/return `FrozenType` templates over the val's declaring typars
-                // (`FTTypar(Declaring, 0)`), NOT the source spelling `(+)` and not raw
-                // CST. Instantiation realises the templates against the fresh TyVars
-                // and stamps the signature on `SrtpBounds`, which is what
-                // `Unification.dischargeSrtpBounds` later fires on.
+                // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as a `MemberTrait`:
+                // the COMPILED name (`op_Addition`) plus `FTTypar(Declaring, 0)` templates, not
+                // the source spelling. Instantiation realises them and stamps `SrtpBounds`.
                 let ctx =
                     extractFsi
                         "app.fsi"
@@ -987,8 +866,8 @@ let tests =
 
                     Expect.equal ret (FTTypar(TyparAxis.Declaring, 0)) "the trait returns the declaring typar"
 
-                // The instantiation half: the realised signature lands in the store's
-                // `Srtp` table under the fresh TyVar's representative id.
+                // The realised signature lands in the store's `Srtp` table under the fresh
+                // TyVar's representative id.
                 let store = TypeStore()
 
                 match ExternalSymbols.instantiateSymbol store sym 0 with

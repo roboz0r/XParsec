@@ -8,9 +8,6 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// This pass's verdict, asked of the KIND rather than of a substring of its sentence: what
-/// the pass found is what the diagnostic carries, so a reworded message cannot make these
-/// tests silently stop looking at anything.
 let private isUnresolvedTyVars (d: Diagnostic) =
     match d.Kind with
     | Kind.Internal(InternalBreak.UnresolvedTyVars _) -> true
@@ -30,9 +27,8 @@ let tests =
             }
 
             test "polymorphic let generalisation is allowed (free TyVars are in the scheme)" {
-                // `id`'s TyVar stays free after generalisation, but it's
-                // captured in the scheme's Quantified set — the validator
-                // must accept it.
+                // `id`'s TyVar stays free but is captured in the scheme's Quantified set,
+                // so the validator must accept it.
                 let tast = analyse "let id = fun x -> x"
                 Expect.isFalse (hasResolvedTypesDiag tast) "no diagnostic on quantified TyVar"
             }
@@ -43,26 +39,21 @@ let tests =
             }
 
             test "list literal generalises its element type" {
-                // `let xs = []` types as `'a list` — the element TyVar
-                // belongs to `xs`'s scheme.
+                // `xs` types as `'a list` — the element TyVar belongs to its scheme.
                 let tast = analyse "let xs = []"
                 Expect.isFalse (hasResolvedTypesDiag tast) "no diagnostic"
             }
 
             test "try-with arm pattern carries a resolved type (regression: free exn TyVar)" {
-                // Previously the arm-pattern scrutinee was a fresh TyVar
-                // that no use site pinned — wildcard arms shipped a free
-                // TyVar into the TAST. Pinning the scrutinee to `TyConst
-                // "exn"` resolves it.
+                // A wildcard arm has no use site to pin its scrutinee, so the scrutinee is
+                // pinned to `TyConst "exn"` rather than left a fresh TyVar.
                 let tast = analyse "let r = try 1 with | _ -> 2"
                 Expect.isFalse (hasResolvedTypesDiag tast) "no ResolvedTypes diagnostic"
             }
 
             test "synthetic TAST with a free TyVar surfaces a diagnostic" {
-                // The validator runs against any TastFile, not just one
-                // produced by Elaborate. Build a minimal pathological TAST by
-                // hand: a TDecl.Let whose pattern carries a fresh,
-                // unlinked TypeVar with no scheme registered for it.
+                // The validator runs against any TastFile, not only one Elaborate produced:
+                // a hand-built decl carrying an unlinked TypeVar with no scheme must fire.
                 let lexed, file = parseFile "let x = 1"
 
                 let ctx, _ =
@@ -110,10 +101,8 @@ let tests =
             }
 
             test "synthetic TAST with a TyVar covered by an outer scheme is silent" {
-                // If a synthetic decl's TyVar matches a quantified TyVar
-                // from the enclosing decl's scheme, the validator must
-                // skip it. Build the scenario via analysing `let id = fun
-                // x -> x` and reusing one of id's quantified TyVars.
+                // A TyVar matching one quantified by the enclosing decl's scheme must be
+                // skipped, so the synthetic decl reuses one of `id`'s quantified TyVars.
                 let lexed, file = parseFile "let id = fun x -> x"
 
                 let ctx, tast =
@@ -170,13 +159,9 @@ let tests =
                 Expect.equal added 0 "TyVar bound by the matching scheme is allowed"
             }
 
-            // With the hardcoded `"int" -> BuiltinTypes.tyInt` arms deleted from
-            // `translateType`, a primitive type annotation must still pin to
-            // `TyConst("int", EqArray.empty)` — now resolved through the real
-            // `prim-types-*` contract (`ExternalTypeShape.Intrinsic` → `TyConst
-            // name`) rather than a hardcoded arm. Resolves against `realProvider`
-            // (the same contract the literal RHS `1`/`true` resolves its intrinsic
-            // through), so the annotation and the literal agree on `Vesper.int`.
+            // A primitive annotation pins through the real `prim-types-*` contract
+            // (`ExternalTypeShape.Intrinsic` → `TyConst name`), not a hardcoded arm — the
+            // same contract the literal RHS uses, so both agree on `Vesper.int`.
             test "primitive annotations pin to TyConst through the real contract" {
                 let bindingTy (src: string) : SemType =
                     let lexed, file = parseFile src

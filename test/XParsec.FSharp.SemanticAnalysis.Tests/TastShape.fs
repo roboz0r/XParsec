@@ -5,24 +5,12 @@ open System.Text
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
-// Test DSL for asserting TAST shape without manually nesting pattern matches
-// on every TExpr.App / TExpr.Lambda / TExpr.External tuple.
-//
-// `prettyDecl tast.Decls.[0]` renders as F#-like text:
-//   "let v0 = fun v1 -> ((-v1) + 0)"
-//
-// `v0`, `v1`, … are short fresh names assigned to NodeKeys in first-encounter
-// order, so test strings are stable under source-offset changes that don't
-// reorder bindings. Types and offsets are dropped — assert those separately
-// with `declType` or `Expect.equal someTy …`.
-//
-// Known operators (op_Addition, op_UnaryNegation, …) render as their source
-// form (+, -, …) so the output reads like the F# the user actually wrote.
+// Renders the TAST as F#-like text for a test to assert on: `prettyDecl tast.Decls.[0]` gives
+// `"let v0 = fun v1 -> ((-v1) + 0)"`. `v0`, `v1`, … are fresh names assigned to `NodeKey`s in
+// first-encounter order, so a string survives a source-offset change. Types and offsets dropped.
 
-/// Compiled-name → source form. Used by the prefix/infix detector so binary
-/// ops render as `(L + R)` and unary minus as `(-X)`. Anything not in this
-/// map renders as `(External arg arg)` — fine for diagnostic purposes, plain
-/// ugly for high-frequency operators.
+/// Compiled name → source form, so binary ops render as `(L + R)` and unary minus as `(-X)`.
+/// Anything not in this map renders as `(External arg arg)`.
 let private opSym =
     [
         "op_Addition", "+"
@@ -47,11 +35,9 @@ let private opSym =
 
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
-/// A constant's source form, carrying the AUTHORED WIDTH as its F# suffix, so a
-/// width-preservation regression — a `10us` silently arriving as an `int` — is visible in
-/// every snapshot. Both halves of an integral constant come off its `IntWidth`
-/// (`render` + `suffix`), so a new width renders correctly here with no edit. One renderer
-/// for the `Const` expression, the `Const` pattern and an enum case's literal.
+/// A constant's source form, carrying the AUTHORED WIDTH as its F# suffix, so a `10us` silently
+/// arriving as an `int` is visible in every snapshot. Both halves of an integral constant come
+/// off its `IntWidth`, so a new width renders here with no edit.
 let private constText (v: TConstValue) : string =
     let inv (x: 'a :> System.IFormattable) =
         x.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
@@ -67,9 +53,8 @@ let private constText (v: TConstValue) : string =
     | TConstValue.String s -> "\"" + s + "\""
     | TConstValue.Unit -> "()"
 
-/// A key's display name, unwrapped — this whole module is a HUMAN-facing renderer (it
-/// prints the TAST as F#-like text for a test to assert on), which is exactly what
-/// `SymbolKeyOps.simpleName`'s `DisplayName` is for. Nothing here resolves anything by it.
+/// A key's display name, unwrapped: this module is a HUMAN-facing renderer, which is what a
+/// `DisplayName` is for. Nothing here resolves anything by it.
 let shownName (key: SymbolKey) : string =
     let (DisplayName name) = SymbolKeyOps.simpleName key
     name
@@ -79,9 +64,8 @@ let shownTypeName (key: TypeKey) : string =
     let (DisplayName name) = SymbolKeyOps.typeSimpleName key
     name
 
-/// The declaring type's simple name for a member key — `StaticMethodCall` /
-/// `StaticPropertyGet` carry a `SymbolKey.MemberKey`, whose `decl` is
-/// the class. Falls back to the key's own simple name for any other shape.
+/// The declaring type's simple name for a member key — `StaticMethodCall` / `StaticPropertyGet`
+/// carry a `SymbolKey.Member`, whose `Decl` is the class. Any other shape falls back to its own.
 let private memberDeclName (key: SymbolKey) : string =
     match key with
     | SymbolKey.Member mk -> SymbolKeyOps.bareName mk.Decl.Name
@@ -402,14 +386,12 @@ type private Renderer() =
 
         | TExpr.MethodCall(objArg, key, via, args, _, _) ->
             this.Expr objArg
-            // `base.M(...)` renders with a `^` dot so it reads distinctly from a
-            // virtual `this.M(...)`.
+            // `base.M(…)` renders `^`, a constrained call on a typar coerced to an interface `:`,
+            // so both read distinctly from a virtual `this.M(…)`.
             push (
                 match via with
                 | CallVia.Base -> "^"
                 | CallVia.Self -> "."
-                // Constrained dispatch on a typar coerced to an
-                // interface — render with `:` to read distinctly from `.`/`^`.
                 | CallVia.Interface _ -> ":"
             )
 
@@ -433,8 +415,6 @@ type private Renderer() =
                 match via with
                 | CallVia.Base -> "^"
                 | CallVia.Self -> "."
-                // Constrained dispatch on a typar coerced to an
-                // interface — render with `:` to read distinctly from `.`/`^`.
                 | CallVia.Interface _ -> ":"
             )
 
@@ -592,9 +572,8 @@ type private Renderer() =
 
             push ")"
 
-        // The entry is a separate root, so the rendering shows the SLOT and the call's own
-        // args; a golden that inlined the body here would print one body per call site and
-        // stop showing that the two calls share it.
+        // The entry is a separate root, so render the SLOT and the call's own args: inlining the
+        // body here would print one body per call site.
         | TExpr.InlineCall(spec = SpecializationId spec; args = args) ->
             push "spec#"
             push (string spec)

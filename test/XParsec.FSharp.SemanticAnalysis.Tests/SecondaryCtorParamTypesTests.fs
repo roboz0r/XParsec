@@ -34,8 +34,6 @@ let private secondaryCtorParamTypes (tast: TastFile) : SemType list =
         | other -> failwithf "expected exactly one secondary ctor, got %d" other.Length
     | other -> failtestf "expected TTypeKind.Class, got %A" other
 
-/// Asked of the VERDICT, not of a message substring: the walker's restriction is that the
-/// shape is not implemented, and that is what the diagnostic classifies itself as.
 let private isCtorArgShapeError (tast: TastFile) =
     tast.Diagnostics
     |> Seq.exists (fun d ->
@@ -44,13 +42,9 @@ let private isCtorArgShapeError (tast: TastFile) =
         | _ -> false
     )
 
-// Primary and secondary ctors share ONE parameter walker
-// (`MemberRegistration.ctorParamsOfPat`), which collects and resolves each parameter in
-// order: every parameter-shaped arm must add exactly one entry, or a later annotation lands
-// on an earlier param. That walker only handles a bare identifier with an optional
-// annotation — which is sound ONLY because ctor args are restricted to exactly that shape.
-// These tests pin both halves of that contract: the shapes the walker handles, and the
-// restriction that keeps richer shapes away from it.
+// Primary and `new(...)` ctor params share one walker: it adds one entry per param, in
+// order, and handles only a bare identifier with an optional annotation (`x`, `(x: T)`).
+// Richer shapes are reported as not-yet-supported rather than silently dropped.
 [<Tests>]
 let tests =
     testList
@@ -66,11 +60,6 @@ let tests =
                     "a : int, b : string"
             }
 
-            // An attributed or parenthesised ctor arg is REJECTED, for both ctor kinds.
-            // This is what makes the walker's narrow set of arms complete rather than
-            // lossy: were these shapes ever admitted, they would reach the walker, match
-            // no arm, and silently fail to advance the cursor. Lift the restriction and
-            // the walker must be taught the new shapes in the same commit.
             test "attributed param is rejected on a primary ctor" {
                 let tast = analyse "type C([<System.Obsolete>] x: int) =\n    member this.X = x"
                 Expect.isTrue (isCtorArgShapeError tast) "attributed primary-ctor arg is rejected"

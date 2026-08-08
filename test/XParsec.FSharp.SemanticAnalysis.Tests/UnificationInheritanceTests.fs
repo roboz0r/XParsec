@@ -12,9 +12,6 @@ let tests =
         "Unification.Inheritance"
         [
             // --- base-ctor typing + `base` binding ---
-            // Types `inherit Base(args)` against the parent's primary
-            // ctor and mints the `base` TyVar. Inherited member access / `base.M()`
-            // resolution gate on the member-chain walk.
 
             test "base-ctor argument types correctly against parent ctor" {
                 let ctx =
@@ -66,10 +63,8 @@ let tests =
                 Expect.isTrue hasMismatch "string arg vs Box<int>'s int 'a diagnosed"
             }
 
-            // An intrinsic-class base (`exn`): the inherit args are checked against the
-            // CONTRACT `.ctor`s riding the provider's `IntrinsicClass` shape
-            // (`new: message: string -> exn`), so a mis-typed arg is a source diagnostic
-            // here, not a codegen internal error.
+            // Inheriting the intrinsic `exn` checks the args against its contract ctors
+            // (`new: message: string -> exn`), so a mis-typed arg diagnoses here, not in codegen.
 
             test "inherit exn(message) types against the contract base ctor" {
                 let ctx = analyse "type MyErr(m: string) =\n    inherit exn(m)"
@@ -88,9 +83,6 @@ let tests =
             }
 
             // --- member-chain lookup + `subsumes` ---
-            // `resolveFieldStep` / `dischargePendingDotAccess` recurse into the
-            // parent's members on a derived-class miss; override declarations on
-            // the derived class shadow the inherited member of the same name.
 
             test "inherited member access resolves through parent" {
                 let input =
@@ -131,12 +123,9 @@ let tests =
             }
 
             test "instance member on arity-overloaded class resolves per arity" {
-                // `Box`1`/`Box`2` overload one short name by arity; the bare alias is
-                // withdrawn. `walkClassBodies` must resolve each class by its arity-key
-                // to name-resolve its member bodies — a bare-name miss would skip BOTH
-                // classes' bodies, leaving `this`/ctor params unbound so the member type
-                // decouples from the class typar (`.Peek` would type as a free var).
-                // `.Peek` returns the last typar, so the two arities yield distinct types.
+                // `Box`1`/`Box`2` share a short name, so each class's body must be walked by
+                // its arity-key: a bare-name miss leaves `this`/ctor params unbound and
+                // `.Peek` — the last typar of each — would type as a free var.
                 let input =
                     "type Box<'a>(v: 'a) =\n    member this.Peek = v\n"
                     + "type Box<'a, 'b>(x: 'a, y: 'b) =\n    member this.Peek = y\n"
@@ -152,12 +141,9 @@ let tests =
             }
 
             test "typar-interface member walk resolves per generic arity" {
-                // `IBox`1` and `IBox`2` overload one short name by arity; the bare
-                // alias is withdrawn. A typar constrained to a specific arity
-                // (`'S :> IBox<int>`) must resolve `.Peek()` through the arity-keyed
-                // interface, not a bare-name strip. `Peek` returns the LAST typar on
-                // each, so per-arity resolution yields distinct results — an
-                // arity-blind walk would collapse them.
+                // A typar constrained to one arity (`'S :> IBox<int>`) must resolve `.Peek()`
+                // through the arity-keyed interface, not a bare-name strip. `Peek` returns the
+                // LAST typar of each, so an arity-blind walk would collapse int and string.
                 let src =
                     String.concat
                         "\n"
@@ -195,13 +181,9 @@ let tests =
             }
 
             test "`:>` upcast resolves interfaces of an arity-overloaded local host" {
-                // `Base`1`/`Base`2` overload one short name by arity; the bare alias is
-                // withdrawn. Upcasting a `Base<int, string>` value to the interface it
-                // declares drives the subtype walk (`tryUpcastWitness` →
-                // `subtypeInterfacesOf`) onto the arity-2 host. Resolving its
-                // `interface … with` impls must key on the object argument's `SymbolKey`, not a
-                // bare-name strip — a bare read misses the withdrawn alias, finds no
-                // witness, and diagnoses a spurious upcast failure.
+                // Upcasting a `Base<int, string>` to the interface it declares walks onto the
+                // arity-2 host: its `interface … with` impls must be found by the object
+                // argument's `SymbolKey`, since a bare-name read misses `Base`2` and diagnoses.
                 let input =
                     String.concat
                         "\n"

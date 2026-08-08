@@ -4,13 +4,6 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.RecordFieldClassifier
 
-// `classifyRecordCandidates` is the pure, stateless, PUBLIC core of record-literal
-// resolution — no domain types, no `ctx`. It is tested here DIRECTLY with plain
-// `(string, Set<string>)` candidates (`fst` the dedup key, `snd` the declared field set):
-// nothing but the two-field-set verdict, no analyse harness. This is the open-box
-// replacement for a rejected IVT white-box test — publicness is the whole point of the
-// extraction.
-
 /// Classify tuple candidates, projecting `fst` as the dedup key and `snd` as the field set.
 let private classify candidates typed =
     classifyRecordCandidates fst snd candidates typed
@@ -47,8 +40,7 @@ let tests =
             }
 
             test "subset filter: a candidate missing a typed field is excluded" {
-                // The crux of correctness: `R` declares only `X`, so it does NOT declare all
-                // of `{X;Y}` and must be pruned — proving the subset (typed ⊆ declared) test.
+                // `R` declares only `X`, so typed ⊆ declared fails and it is pruned.
                 let c = classify [ "R", set [ "X" ] ] (set [ "X"; "Y" ])
                 Expect.equal c.Partial [] "a candidate missing a typed field is not a partial match"
                 Expect.equal c.Exact ValueNone "and certainly not an exact match"
@@ -62,8 +54,6 @@ let tests =
             }
 
             test "empty typed set → every candidate is a (trivial) partial match" {
-                // The empty set is a subset of every declared set, so every candidate survives;
-                // an exact match still requires a UNIQUE declared set equal to empty.
                 let c = classify [ "R", set [ "X" ]; "S", set [ "Y" ] ] Set.empty
                 Expect.equal (c.Partial |> List.map fst) [ "R"; "S" ] "empty typed ⊆ every declared set"
                 Expect.equal c.Exact ValueNone "no candidate has an empty declared set"

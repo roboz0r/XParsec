@@ -3,21 +3,18 @@ module XParsec.FSharp.SemanticAnalysis.Tests.CompositeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbolProviders.composite` is the first-hit-wins composition primitive
-// These tests pin the priority semantics
-// with trivial in-line providers, independent of any real `.fsi` extraction.
+// `composite` is first-hit-wins. These pin the priority semantics with trivial
+// in-line providers, independent of any real `.fsi` extraction.
 
-/// A provider that answers exactly `name` (value, type, and member channels)
-/// with a `TyConst tag` payload, so a winning source is identifiable by its tag.
+/// A provider that answers exactly `name` on the value, type and member channels,
+/// tagging each payload with `tag` — a `TyConst` on the value channel, the
+/// `Origin.Namespace` on the other two — so the winning source is identifiable.
 let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
     let origin =
         { SymbolOrigin.Empty with
             Namespace = SymbolKeyOps.namespaceKey tag
         }
 
-    // The tag rides each channel's payload (the `TyConst` on the value channel, the
-    // `Origin.Namespace` on the type/member ones), so a winning source stays
-    // distinguishable through `composite`'s first-hit-wins fall-through.
     let taggedMember (t: string) (m: string) : ExternalMember voption =
         if t = name && m = name then
             ValueSome

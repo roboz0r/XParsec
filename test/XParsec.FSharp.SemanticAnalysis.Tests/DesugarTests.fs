@@ -41,7 +41,7 @@ let tests =
             }
 
             test "nested InfixApp records both operators" {
-                // Left-assoc parsing: outer InfixApp ('+') at 8, inner ('*') at 12.
+                // `*` binds tighter, so the outer InfixApp is `+` (at 10) over the inner `*` (14).
                 let ctx = analyse "let x = 1 + 2 * 3"
                 Expect.isGreaterThanOrEqual ctx.Desugared.Count 2 "at least two ops"
             }

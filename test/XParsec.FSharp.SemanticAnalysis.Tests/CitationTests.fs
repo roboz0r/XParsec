@@ -7,26 +7,13 @@ open System.Text.RegularExpressions
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The pool columns, the node payloads/rows they carry, and the modules that fill and unpool
-// them are cited BY NAME throughout the SemanticAnalysis and codegen sources — the layout
-// rationale in `TastPoolTypes.fs`, the ordering coupling in `TastPools.fs`, the layer
-// arithmetic in `TastPoolBuilder.fs`. A citation is prose, so deleting what it names does
-// not break it, and both halves of that have happened: `TastPoolBuilder`'s read-surface
-// header went on naming `FrozenPools.ExprShapes` for the whole life of the branch that
-// deleted that column, and six citations went on naming a `TastWalk` function after its
-// last caller was gone.
-//
-// This is the guard for that one bug class, and deliberately only that one: a citation of
-// `T.X` for a guarded `T` must name a field, case, or module member that exists. It is
-// cheap because the valid set is reflected off `T` rather than restated, so a renamed or
-// deleted member fails here with no allowlist to update.
+// A citation is prose, so deleting the member it names does not break it. This guards that
+// one bug class: a backticked `T.X` for a guarded `T` must name a field, case, or module
+// member that exists. The valid set is reflected off `T`, so there is no allowlist to update.
 
-/// A bare `module M`, as the `System.Type` it compiles to. A module has no `typeof<_>`, and
-/// it is the case the guard exists FOR — the citation that went stale for a whole branch
-/// named a module member — so it is resolved by name rather than left out.
-///
-/// A miss is LOUD, and must be: answering `null` would silently drop the module's members
-/// from the valid set and report every citation of one as dangling.
+/// A bare `module M` as the `System.Type` it compiles to — a module has no `typeof<_>`.
+/// A miss fails loudly: answering `null` would drop the module's members from the valid set
+/// and report every citation of one as dangling.
 let private moduleType (name: string) : Type =
     let fullName = "XParsec.FSharp.SemanticAnalysis." + name
 
@@ -35,12 +22,8 @@ let private moduleType (name: string) : Type =
     | t -> t
 
 /// The guarded citation prefixes, each paired with the type whose members DEFINE its valid
-/// set. Adding a guard is one line — nothing here restates what an entity carries, and a
-/// module is a row like any other because a module IS a type.
-///
-/// A function, not a value: `moduleType` fails when a lookup goes stale, and a failure
-/// raised from a module initializer surfaces as a type-init error at test DISCOVERY rather
-/// than as this test failing with its own message.
+/// set. A function, not a value: a stale-lookup failure raised from a module initializer
+/// would surface as a type-init error at test DISCOVERY, not as this test's own message.
 let private guarded () : (string * Type) list =
     [
         "FrozenPools", typeof<FrozenPools>
@@ -60,13 +43,10 @@ let private guarded () : (string * Type) list =
         "TastLower", moduleType "TastLower"
         "Inline", moduleType "Inline"
         "ArgGroups", moduleType "ArgGroups"
-        // Under its compiled name: `BoundVarKey` is the `BoundVarKeyG<NodeKey>` abbreviation,
-        // which erases, and an abbreviation of the module's own name is still a clash — so
-        // the module takes the `Module` suffix and no type answers to the bare name.
+        // `BoundVarKey` abbreviates `BoundVarKeyG<NodeKey>`; an abbreviation still clashes
+        // with the module's own name, so the module compiles with the `Module` suffix.
         "BoundVarKey", moduleType "BoundVarKeyModule"
-        // Likewise: `Anchor` is the type, so its module takes the suffix. Guarding it is
-        // what keeps a citation of a position convention honest now that the convention IS
-        // the type's surface and nothing else.
+        // Likewise `Anchor`: the type owns the bare name, so its module takes the suffix.
         "Anchor", moduleType "AnchorModule"
     ]
 
@@ -74,28 +54,22 @@ let private isFSharpModule (t: Type) =
     t.GetCustomAttributes(typeof<CompilationMappingAttribute>, false)
     |> Array.exists (fun a -> (a :?> CompilationMappingAttribute).SourceConstructFlags = SourceConstructFlags.Module)
 
-/// The name a module was DECLARED under: F# compiles `module X` that shares its name with
-/// a type as `XModule` (`CompilationRepresentationFlags.ModuleSuffix`), which is the form
-/// every guarded companion here takes.
+/// The name a module was DECLARED under: F# compiles a `module X` that shares its name with
+/// a type as `XModule` (`CompilationRepresentationFlags.ModuleSuffix`).
 let private moduleSourceName (t: Type) =
     if t.Name.EndsWith("Module", StringComparison.Ordinal) then
         t.Name.Substring(0, t.Name.Length - "Module".Length)
     else
         t.Name
 
-/// The companion module of `t`, or `ValueNone` when `t` genuinely declares none
-/// (`ExprRow`/`PatRow`/`DeclRow`).
-///
-/// A companion that exists but fails to resolve is a LOUD failure rather than an empty
-/// member set: answering "no members" to a moved or renamed module would shrink the valid
-/// set to the type's own fields and report every module-member citation as dangling —
-/// blaming the prose for a fault in this lookup. So a miss is confirmed against the
-/// assembly's actual module set before it is believed.
+/// The companion module of `t`, or `ValueNone` when `t` declares none (`ExprRow`, `PatRow`,
+/// `DeclRow`). A companion compiled under an unexpected name fails loudly: answering "no
+/// members" would report every citation of one as dangling, blaming the prose for this bug.
 let private companionModule (t: Type) : Type voption =
     let asm = t.Assembly
 
-    // A module has no companion: its members are its OWN (`ownMembers`), and the search
-    // below would otherwise match it against itself and read that as a stale lookup.
+    // A module has no companion: the search below would match it against itself and read
+    // that as a stale lookup.
     if isFSharpModule t then
         ValueNone
     else
@@ -116,11 +90,8 @@ let private companionModule (t: Type) : Type voption =
         | m -> ValueSome m
 
 /// The names an F# ENTITY spells behind its own qualifier: its values, functions, and the
-/// types nested in it. Both the module rows and the companion modules of the type rows go
-/// through this, which is what keeps a module an ordinary row instead of a derivation.
-///
-/// An active pattern is compiled under its whole bracketed name (`|EApp|_|`), but prose
-/// cites the CASE (`TastAccessor.EApp`), so the cases are unpacked out of it.
+/// types nested in it. An active pattern compiles under its whole bracketed name
+/// (`|EApp|_|`) but prose cites the CASE (`EApp`), so the cases are unpacked out of it.
 let private ownMembers (t: Type) : string[] =
     let unpackActivePattern (name: string) =
         if name.StartsWith("|", StringComparison.Ordinal) then
@@ -128,9 +99,7 @@ let private ownMembers (t: Type) : string[] =
         else
             [| name |]
 
-    // Non-public members too, for the reason `validMembers` states of the record/union
-    // representation: prose cites a helper by name whether or not it is `private`, and a
-    // visibility filter here would report every citation of one as dangling.
+    // Non-public too: prose cites a `private` helper by name like any other.
     let anyVisibility =
         BindingFlags.Public
         ||| BindingFlags.NonPublic
@@ -145,15 +114,11 @@ let private ownMembers (t: Type) : string[] =
             t.GetNestedTypes anyVisibility |> Array.map (fun x -> x.Name)
         ]
 
-/// The names a `` `T.X` `` citation may carry: `T`'s record fields, its union case names,
-/// and — whether `T` is itself a module or merely has a companion one — that module's own
-/// members. These are the things prose spells with the same `T.` qualifier
-/// (`FrozenPools.ExprToks`, `ExprPayload.Lambda`, `FrozenPools.typarArity`,
-/// `TastWalk.declBoundVars`). Derived off the type for every guard alike, so a guard is a row
-/// in the table and never a derivation of its own.
+/// The names a `` `T.X` `` citation may carry: `T`'s record fields, its union cases, and the
+/// members of its companion module — or its own, when `T` IS a module. As prose spells them:
+/// `FrozenPools.ExprToks`, `ExprPayload.Lambda`, `TastWalk.declBoundVars`.
 let private validMembers (t: Type) : Set<string> =
-    // Reflect a non-public representation too: an accessibility that hid the shape would
-    // otherwise yield an empty set, and prose is cited by name regardless of visibility.
+    // A non-public representation would otherwise reflect as an empty field/case set.
     let anyVisibility = BindingFlags.Public ||| BindingFlags.NonPublic
 
     let recordFields =
@@ -179,14 +144,9 @@ let private validMembers (t: Type) : Set<string> =
 
     Set.ofArray (Array.concat [ recordFields; unionCases; selfMembers; companionMembers ])
 
-/// Only BACKTICKED citations: an unquoted `T.` is real code, which the compiler already
-/// checks. Two look-aheads carve out the forms that share this shape without naming a
-/// member:
-///
-///   * a FILE (`TastPools.fs`) — a module's prose names its own file as often as its
-///     members, and the file exists whether or not a member called `fs` does;
-///   * a column FAMILY (`FrozenPools.Expr*`) — that names the parallel columns, not one of
-///     them, so the wildcard must not be read as a name.
+/// Only BACKTICKED citations: an unquoted `T.` is real code the compiler already checks. Two
+/// look-aheads exclude the shapes that name no member — a file (`TastPools.fs`) and a column
+/// family (`FrozenPools.Expr*`, the parallel columns rather than one of them).
 let private citationRegex (guards: (string * Type) list) =
     guards
     |> List.map (fst >> Regex.Escape)
@@ -230,8 +190,6 @@ let tests =
                     )
                     |> List.ofSeq
 
-                // The offenders are IN the message: a citation is prose, so the only way to
-                // act on this failure is to be told which line to read.
                 Expect.isEmpty
                     dangling
                     (sprintf

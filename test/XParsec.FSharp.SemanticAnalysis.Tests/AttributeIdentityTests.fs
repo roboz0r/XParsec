@@ -5,11 +5,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// An attribute name is RESOLVED as a type and its `TypeKey` compared against the
-// `Vesper.Core` marker identities, so these pin what only an identity can decide:
-// which declaration a spelling reached. `realProvider` composes the real
-// `compiler-attributes.fsi`, so `Vesper.ReferenceEqualityAttribute` is genuinely
-// resolvable, bare or qualified, with or without the suffix.
+// An attribute's long-ident is resolved as a type and compared by `TypeKey`, so these pin
+// which DECLARATION a spelling reached. `realProvider` supplies the real `Vesper.Core`
+// markers, so bare, suffixed and qualified spellings are all genuinely resolvable.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
@@ -55,10 +53,8 @@ let tests =
             }
 
             test "a qualified path that names no type is blamed for spelling a marker" {
-                // The old leaf-segment rule accepted this on the strength of its last
-                // segment alone. Nothing declares `Microsoft.FSharp.Core` here, so it
-                // decodes to nothing — and silence would ship the very default the author
-                // wrote the attribute to refuse.
+                // Nothing declares `Microsoft.FSharp.Core` here, so the path resolves to nothing,
+                // and silence would ship the structural default the attribute refuses.
                 let ctx =
                     analyse (src [ "[<Microsoft.FSharp.Core.ReferenceEquality>]"; "type Point = { X: int }" ])
 
@@ -85,9 +81,7 @@ let tests =
             }
 
             test "a same-named user type does NOT take the compiler marker's meaning" {
-                // THE case a short-name match cannot decide. `ReferenceEquality` here
-                // reaches the user's own class — a local claim beats the contract — so
-                // it is their attribute, not Vesper's, and the record keeps its default.
+                // `ReferenceEquality` reaches the user's own class — not the marker's `TypeKey`.
                 let ctx =
                     analyse (
                         src

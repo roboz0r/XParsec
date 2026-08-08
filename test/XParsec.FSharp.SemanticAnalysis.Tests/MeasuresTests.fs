@@ -4,9 +4,8 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Returns the `PassContext` alongside the tast so tests can read the measure /
-// carrier off the per-file `TypeStore` (the union-find state lives there now, not
-// on the `TypeVar` node).
+// Returns the `PassContext` too: the carrier and measure live on the per-file
+// `TypeStore`'s union-find state, not on the `TypeVar` node.
 let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
@@ -19,9 +18,8 @@ let private declType (tast: TastFile) : SemType =
 let private hasMeasureMismatch (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Measure mismatch")
 
-/// Read the (carrier, measure) from a measure-bearing `TyVar`. Goes through
-/// `UnionFind.find` so a stale (non-root) TyVar pointer still finds the
-/// authoritative Link/Units on the union-find root.
+/// Read the (carrier, measure) from a measure-bearing `TyVar`, via `UnionFind.find`
+/// so a stale non-root pointer still reaches the authoritative Link/Units.
 let private measuredOf (store: TypeStore) (ty: SemType) : SemType * MeasureTerm =
     match ty with
     | TyVar tv ->
@@ -117,9 +115,8 @@ let tests =
             }
 
             test "speed example: d / t : float<m/s>" {
-                // The headline case from the plan. `speed` takes annotated
-                // params, divides them; the application's result type
-                // carries the divided measure.
+                // `speed` divides two annotated params, and the measure survives
+                // through the application: `v : float<m/s>`.
                 let ctx, tast =
                     analyse "let speed (d : float<m>) (t : float<s>) = d / t\nlet v = speed 100.0<m> 5.0<s>"
 

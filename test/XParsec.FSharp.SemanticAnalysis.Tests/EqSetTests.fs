@@ -3,11 +3,8 @@ module XParsec.FSharp.SemanticAnalysis.Tests.EqSetTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `EqSet<'T>` is the set-semantic sibling of `EqArray`: insertion-ordered
-// storage, order-INSENSITIVE equality + hash, dedupe-on-construction (keep first).
-// It backs anonymous-union (`FTOr`/`TyOr`) members (codegen-js-symbol-provider
-// design §"Literal types stay structural … EqSet sub-decision"). These pin the
-// primitive directly, with nothing else in the loop.
+// `EqSet<'T>` is the set-semantic sibling of `EqArray`; it backs anonymous-union
+// (`FTOr`/`TyOr`) members.
 
 [<Tests>]
 let tests =

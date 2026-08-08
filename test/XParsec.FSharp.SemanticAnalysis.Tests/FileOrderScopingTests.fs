@@ -20,13 +20,11 @@ let private expectClean (source: string) =
     Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
 
 /// A use ABOVE the declaration it names must not resolve. Only the VERDICT is pinned, not
-/// the wording: F# blames these with FS0039 ("not defined"), we word them our own way — but
-/// an accepted program here is a name resolving to a declaration that is not in scope.
+/// the wording: F# blames these with FS0039 ("not defined"), we word them our own way.
 let private expectRejected (source: string) =
     let es = errors (analyse source)
     Expect.isNonEmpty es "expected a diagnostic: the name is used above its declaration"
 
-/// The inferred type of the file's ONE module-level `let`, off the elaborated TAST.
 let private soleModuleLetType (tast: TastFile) : SemType =
     let found =
         [
@@ -40,10 +38,8 @@ let private soleModuleLetType (tast: TastFile) : SemType =
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one module-level let, got %A" other
 
-/// The `SymbolKey` a named type declaration was registered under — the identity a use of
-/// that name must resolve to. Taken off the TAST rather than reconstructed, so a
-/// resolution assertion compares the use site against the DECLARATION, not against a
-/// hand-spelled key that could agree with neither.
+/// The key the declaration itself was registered under — so an assertion compares the use
+/// site against the DECLARATION, never against a hand-spelled key.
 let private typeDeclKey (tast: TastFile) (typeName: string) : TypeKey =
     let found =
         [
@@ -57,8 +53,6 @@ let private typeDeclKey (tast: TastFile) (typeName: string) : TypeKey =
     | [ k ] -> k
     | other -> failtestf "expected exactly one type declaration named '%s', got %A" typeName other
 
-/// The nominal identity a `SemType` names — the whole point of a positive control: a
-/// program that merely COMPILES proves nothing about what its names bound to.
 let private nominalKey (ty: SemType) : TypeKey =
     match ty with
     | SemType.TyClass(k, _)
@@ -80,19 +74,7 @@ let private soleModuleLetArg (tast: TastFile) : SemType =
 
 // F# declaration scoping is file-ordered: a use sees what is written above it and nothing
 // below, with the `type … and …` group (and a type's own members) as the one recursive
-// exception. A by-name registry read therefore answers against the claims visible AT THE USE
-// (`TypeIdentity.VisibleFrom` vs the use's `SourcePos`), not against the whole file.
-//
-// These pin the AFFIRMATIVE half of that rule — what a type name written in a legal position
-// must still resolve to — because it is the half a visibility bound gets wrong SILENTLY, by
-// refusing a reference that is perfectly in scope. Every one asserts the RESOLVED IDENTITY
-// where it can: acceptance alone cannot tell a correctly scoped read from an unscoped one.
-//
-// The recursive-group cases carry the most weight. `VisibleFrom` is the first token of the
-// claim's GROUP, never of the individual type, and every member body sits after that token —
-// so a group's members see their own type and their `and`-siblings by CONTAINMENT, with no
-// special case in the lookup. Mistake the group offset for the individual type's own offset
-// and these are what break.
+// exception. Every test asserts the RESOLVED IDENTITY where it can, not mere acceptance.
 [<Tests>]
 let tests =
     testList
@@ -109,9 +91,8 @@ let tests =
                     "mk () constructs the class Foo declared above it"
             }
 
-            // The static member returns a RECORD, so the `let`'s inferred result type names
-            // the member's own type — acceptance alone would not distinguish `Foo.Bar`
-            // resolving to the static member from it degenerating to a free TyVar.
+            // The static member returns a RECORD, so the `let`'s result type names the
+            // member's own type rather than degenerating to a free TyVar.
             test "a static-member access below the class's declaration resolves to the member" {
                 let tast =
                     analyse
@@ -140,11 +121,9 @@ let tests =
                     "type A() =\n    member _.M() = B(5).N\nand B(n: int) =\n    member _.N = n\n    static member Zero = B(0)"
             }
 
-            // The NEGATIVES: the same three surfaces, written ABOVE the declaration. The
-            // diagnostic is not a separate check — the kind index misses at the use site, so
-            // the ctor / static / record-label simply does not resolve, and the "unresolved"
-            // report IS that miss. F# blames the ctor and the QUALIFIER (not the member) with
-            // FS0039, and the record LABEL with FS0039.
+            // The NEGATIVES: the same surfaces written ABOVE the declaration. The name simply
+            // misses at the use site, and the "unresolved" report IS that miss. F# blames the
+            // ctor, the QUALIFIER (not the member) and the record LABEL, all with FS0039.
             test "a ctor call above the class's declaration does not resolve" {
                 expectRejected "let mk () = Foo(1)\ntype Foo(n: int) =\n    member this.N = n"
             }
@@ -153,20 +132,13 @@ let tests =
                 expectRejected "let s () = Foo.Bar\ntype Foo() =\n    static member Bar = 1"
             }
 
-            // The record-label surface: `FieldIndex` is a reverse index off a *record*, so a
-            // literal above the record's declaration has no candidate to intersect and matches
-            // no record at all.
             test "a record literal above the record's declaration does not resolve" {
                 expectRejected "let f () = { a = 1 }\ntype R = { a: int }"
             }
 
-            // The union-case surface, and the ONE place where "does not resolve" is not an
-            // error. `Alpha` above `type U` names no case there, and an ident that names
-            // nothing in PATTERN position is a variable pattern — so F# accepts this (with
-            // FS0049 uppercase-ident and FS0026 rule-never-matched warnings) and binds `Alpha`
-            // as a fresh bound variable matching anything. `f` is therefore `'a -> int`, not
-            // `U -> int`: probed, `f "a string"` and `f 42` both typecheck and both return 1.
-            // Asserting an ERROR here would pin a rule F# does not have.
+            // The ONE place where "does not resolve" is not an error: an ident naming nothing
+            // in PATTERN position is a variable pattern, so F# accepts this (FS0049 / FS0026
+            // warnings) and `f` is `'a -> int`, not `U -> int`. Probed with `f "s"` and `f 42`.
             test "a union case above its union's declaration is a variable pattern" {
                 let tast =
                     analyse
@@ -183,8 +155,7 @@ let tests =
             }
 
             // The positive control for the above: with the union declared ABOVE, the very same
-            // arms are union-case patterns, so the argument is the union. Acceptance alone
-            // cannot tell these two programs apart — the argument type is what does.
+            // arms are union-case patterns, so the argument is the union.
             test "a union case below its union's declaration is a case pattern" {
                 let tast =
                     analyse
@@ -198,12 +169,9 @@ let tests =
                     "the arms are cases of U, so f takes a U"
             }
 
-            // VALUES. The same file-order rule, on the other half of the language. A module
-            // `let` is visible from where it is WRITTEN, so a use above it names nothing —
-            // whether the use is another module `let` or a class member body. F# grants
-            // whole-scope forward visibility only under `module rec` / `namespace rec`, which
-            // is opt-in: `VisibleFrom` is then the `rec` keyword's offset instead of the
-            // binding's, and the lookup itself does not change.
+            // VALUES, the same file-order rule: a module `let` is visible from where it is
+            // WRITTEN, so a use above it names nothing — whether that use is another module
+            // `let` or a class member body. `module rec` / `namespace rec` is the opt-out.
             test "a module let calling a let below it does not resolve" {
                 expectRejected "let f () = g ()\nlet g () = 1"
             }
@@ -212,14 +180,13 @@ let tests =
                 expectRejected "type C() =\n    member _.M() = helper ()\nlet helper () = 1"
             }
 
-            // The control that proves the grant was GATED, not deleted: a member body reaching
-            // an EARLIER module let is ordinary F# and must keep working.
+            // The control for the two rejections above: a member body reaching an EARLIER
+            // module let is ordinary F#.
             test "a class member calling a module let above the type resolves" {
                 expectClean "let helper () = 1\ntype C() =\n    member _.M() = helper ()"
             }
 
-            // `module rec` — the feature the two forward grants were an unconditional
-            // implementation of. Both programs above are accepted verbatim inside one.
+            // Both rejected programs above are accepted verbatim inside a `module rec`.
             test "module rec restores forward visibility for a module let" {
                 expectClean "module rec M\n\nlet f () = g ()\nlet g () = 1"
             }

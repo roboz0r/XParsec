@@ -7,20 +7,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// NameResolution — the one resolve-once layer — classifies a ≥2-segment qualified
-// reference `Q.member` whose qualifier `Q` names an external UNION or RECORD and
-// stamps `Q`'s resolved key under the node's `NodeKey`
-// (`Resolution.ExternalUnionRecordQualifier`). Unification's
-// `tryQualifiedExternalMemberMiss` READS that stamp (presence) to raise "Type 'Q'
-// has no value or member 'm'" for an unresolved tail, instead of re-resolving the
-// qualifier through the resolver-view `TryLookupType(string)` at inference time. A
-// CLASS qualifier is NOT stamped: its unmodelled-static silence stays a fresh TyVar.
-
-/// A provider that knows a union `Tests.Colour` and a record `Tests.Widget` (whose
-/// namespace `Tests` is AUTO-OPENED), a class `Tests.Gadget`, and a union
-/// `Other.Palette` whose namespace `Other` is NOT ambient (short name `Palette`
-/// resolves only under an explicit `open Other`). No union case ever resolves, so a
-/// qualified tail is always an unresolved member.
+/// Union `Tests.Colour`, record `Tests.Widget` and class `Tests.Gadget` sit in the
+/// ambient namespace `Tests`; union `Other.Palette` needs an explicit `open Other`.
+/// No union case resolves at all, so every `.Nope` tail below is an unresolved member.
 let private provider: IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedLeaf
         { ExternalSymbolProviders.NamedLeaf.empty with
@@ -49,9 +38,6 @@ let tests =
     testList
         "ExternalUnionRecordQualifier"
         [
-            // A union qualifier with an unresolved tail: `Colour.Nope` (anchor `Colour`
-            // qualifies to the auto-opened `Tests.Colour`) stamps the qualifier key so
-            // Unification diagnoses the member miss.
             test "union qualifier with unresolved tail is stamped" {
                 let ctx, file = analyse "let x = Colour.Nope"
                 let e = firstBindingExpr file
@@ -61,8 +47,6 @@ let tests =
                     "Colour.Nope — union qualifier stamped"
             }
 
-            // A record qualifier is stamped identically (records also expose no static
-            // fields).
             test "record qualifier with unresolved tail is stamped" {
                 let ctx, file = analyse "let x = Widget.Nope"
                 let e = firstBindingExpr file
@@ -72,8 +56,8 @@ let tests =
                     "Widget.Nope — record qualifier stamped"
             }
 
-            // A CLASS qualifier is NOT stamped: a class may carry unmodelled static
-            // fields, so its unresolved tail stays a fresh TyVar (silent), not a miss.
+            // A class may carry unmodelled static fields, so an unresolved tail on one
+            // stays a fresh TyVar rather than becoming a miss.
             test "class qualifier is not stamped" {
                 let ctx, file = analyse "let x = Gadget.Nope"
                 let e = firstBindingExpr file
@@ -83,7 +67,6 @@ let tests =
                     "Gadget.Nope — class qualifier not stamped"
             }
 
-            // An unknown qualifier resolves to no external type — not stamped.
             test "unknown qualifier is not stamped" {
                 let ctx, file = analyse "let x = Unknown.Nope"
                 let e = firstBindingExpr file
@@ -93,8 +76,6 @@ let tests =
                     "Unknown.Nope — unknown qualifier not stamped"
             }
 
-            // The opens gate: `Other.Palette`'s namespace `Other` is not auto-opened, so
-            // the short qualifier `Palette` does not resolve — `Palette.Nope` unstamped.
             test "union qualifier whose namespace is not opened is not stamped" {
                 let ctx, file = analyse "let x = Palette.Nope"
                 let e = firstBindingExpr file
@@ -104,7 +85,6 @@ let tests =
                     "Palette.Nope — namespace Other unopened, not stamped"
             }
 
-            // Positive: the SAME access stamps once its namespace is explicitly opened.
             test "union qualifier is stamped once its namespace is opened" {
                 let ctx, file = analyse "open Other\nlet x = Palette.Nope"
                 let e = firstBindingExpr file
@@ -114,7 +94,6 @@ let tests =
                     "Palette.Nope — stamped under open Other"
             }
 
-            // End-to-end: the stamp drives Unification's member-miss diagnostic.
             test "unresolved tail on a union qualifier raises the member-miss diagnostic" {
                 let ctx = diagnose "let x = Colour.Nope"
 
@@ -124,8 +103,6 @@ let tests =
                     "Colour.Nope diagnosed as a missing member"
             }
 
-            // The class-qualifier miss is silent (no member-miss diagnostic) — a class's
-            // unmodelled static field is not a resolution error.
             test "unresolved tail on a class qualifier raises no member-miss diagnostic" {
                 let ctx = diagnose "let x = Gadget.Nope"
 

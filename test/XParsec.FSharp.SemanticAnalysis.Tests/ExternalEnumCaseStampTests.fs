@@ -7,20 +7,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// NameResolution — the one resolve-once layer — recognises an external enum-case access
-// `E.C1` in BOTH expression and pattern position: `E` is qualified opens-aware to an
-// external `ExternalTypeShape.Enum` declaring `C1`, and the enum's nominal `SymbolKey`
-// is stamped under the anchor's `NodeKey` (`Resolution.ExternalEnumCaseStamp`).
-// Unification's `InferIdentExpr` / `InferPat` enum arms READ that stamp and type the node
-// `TyEnum key`, instead of re-recognising the spelling through the resolver-view
-// `TryLookupType(string)`. These tests assert the stamp is present at a representative
-// expression and pattern site, absent for an unknown case, and gated on the enum's
-// namespace being open (short-name type resolution is opens-sensitive).
-
-/// A provider that knows two external enums: `Tests.Direction` (cases `Up`/`Down`) whose
-/// namespace `Tests` is AUTO-OPENED via `AmbientOpenPrefixes`, and `Other.Mode` (case
-/// `On`) whose namespace `Other` is NOT ambient, so its short name `Mode` resolves only
-/// under an explicit `open Other`.
+/// `Tests.Direction` (cases `Up`/`Down`) sits in the ambient namespace `Tests`;
+/// `Other.Mode` (case `On`) does not, so `Mode` resolves only under `open Other`.
 let private provider: IExternalSymbolProvider =
     let enum names =
         ExternalTypeShape.Enum(
@@ -78,9 +66,7 @@ let tests =
     testList
         "ExternalEnumCaseStamp"
         [
-            // Expression position: `Direction.Up` (anchor `Direction` qualifies to the
-            // auto-opened `Tests.Direction`) is stamped with the enum nominal key so
-            // `InferIdentExpr` types it `TyEnum key`.
+            // The stamp is the enum's nominal key, held under the anchor `Direction`.
             test "external enum-case access is stamped (expression)" {
                 let ctx, file = analyse "let x = Direction.Up"
                 let e = firstBindingExpr file
@@ -90,8 +76,6 @@ let tests =
                     "Direction.Up enum key stamped in expression position"
             }
 
-            // Pattern position: `| Direction.Up` is stamped so `InferPat`'s enum arm types
-            // the pattern `TyEnum key` and the scrutinee unifies.
             test "external enum-case pattern is stamped" {
                 let ctx, file = analyse "let f (o: obj) = match o with | Direction.Up -> 1 | _ -> 0"
                 let arms = matchArmPats file |> List.filter (isDirectionUp ctx)
@@ -104,7 +88,7 @@ let tests =
                         "Direction.Up enum key stamped in pattern position"
             }
 
-            // An unknown case name on a known enum resolves to nothing — not stamped.
+            // The enum resolves but declares no `Sideways`, so nothing is stamped.
             test "unknown enum case is not stamped" {
                 let ctx, file = analyse "let x = Direction.Sideways"
                 let e = firstBindingExpr file
@@ -114,8 +98,7 @@ let tests =
                     "Direction.Sideways (no such case) is not stamped"
             }
 
-            // The opens gate: `Other.Mode`'s namespace `Other` is not auto-opened, so the
-            // short enum name `Mode` does not resolve — `Mode.On` is not stamped.
+            // Short-name type resolution is opens-sensitive: `Mode` does not resolve at all.
             test "enum case whose namespace is not opened is not stamped" {
                 let ctx, file = analyse "let x = Mode.On"
                 let e = firstBindingExpr file
@@ -125,7 +108,6 @@ let tests =
                     "Mode.On is not stamped with Other unopened"
             }
 
-            // Positive: the SAME access stamps once its namespace is explicitly opened.
             test "enum case is stamped once its namespace is opened" {
                 let ctx, file = analyse "open Other\nlet x = Mode.On"
                 let e = firstBindingExpr file

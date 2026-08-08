@@ -62,9 +62,7 @@ let private escapeOf (input: string) (name: string) : EscapeState option =
     | ValueSome s -> Some s
     | ValueNone -> None
 
-/// Region of a binding (via its binding-pattern TyVar). Used by tests that need
-/// to check identity (e.g. two names sharing a region) rather than just
-/// the escape state.
+/// Region of a binding, via its binding-pattern type variable.
 let private regionOf (input: string) (name: string) : RegionId option =
     let ctx, file = analyse input
     let key = patternKeyOf ctx file name
@@ -79,8 +77,7 @@ let private regionOf (input: string) (name: string) : RegionId option =
             None
     | ValueNone -> None
 
-/// Axis-2 representation verdict of a *module-level* binding.
-/// Mirrors `escapeOf` over the `Repr` side table.
+/// Axis-2 representation verdict of a MODULE-LEVEL binding, over the `Repr` side table.
 let private reprOf (input: string) (name: string) : RegionRepr option =
     let ctx, file = analyse input
     let key = patternKeyOf ctx file name
@@ -89,9 +86,8 @@ let private reprOf (input: string) (name: string) : RegionRepr option =
     | ValueSome r -> Some r
     | ValueNone -> None
 
-/// Find the binding-pattern NodeKey of the first `let`-binding named `name` reachable
-/// from `e` (searching binding RHSs, let bodies, and lambda bodies). Lets the
-/// repr tests key a *nested* closure (`let g = fun x -> x` inside a function).
+/// The binding-pattern NodeKey of the first `let` named `name` reachable from `e`, through
+/// binding RHSs, let bodies and lambda bodies — e.g. `let g = fun x -> x` inside a function.
 let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToken>) : NodeKey voption =
     match e with
     | Expr.LetOrUse(bindings = bs; body = body) ->
@@ -116,8 +112,7 @@ let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToke
     | Expr.Fun(expr = body) -> findLetKey ctx name body
     | _ -> ValueNone
 
-/// Axis-2 verdict of a *nested* binding named `name` (under the first
-/// module-level binding's RHS).
+/// Axis-2 verdict of a NESTED binding, under the first module-level binding's RHS.
 let private reprOfNested (input: string) (name: string) : RegionRepr option =
     let ctx, file = analyse input
 
@@ -144,10 +139,8 @@ let tests =
         "Regions"
         [
             test "local closure doesn't escape" {
-                // `f` is defined and called within `useLocal`'s body; it
-                // never flows out of the call frame. `useLocal` itself
-                // returns the `int` result of `f 3`, so it doesn't escape
-                // either.
+                // `f` is called inside `useLocal`'s body and never flows out; `useLocal`
+                // returns the `int` result of `f 3`.
                 let input = "let useLocal () = let f x = x + 1 in f 3"
                 let useLocalEscape = escapeOf input "useLocal"
                 Expect.equal useLocalEscape (Some LocalStack) "useLocal returns int → LocalStack"
@@ -205,15 +198,11 @@ let tests =
 
             test "local tuple in a function-bound let is CallerStack" {
                 let escape = escapeOf "let useLocal () = let p = (1, 2) in p" "useLocal"
-                // useLocal's body returns the tuple p, so useLocal escapes.
-                // The bare tuple `p` at module level (`let r = let p = ...`)
-                // doesn't, but we test that variant in a separate test.
                 Expect.equal escape (Some CallerStack) "useLocal returns the tuple"
             }
 
             test "module-level tuple binding is LocalStack" {
-                // No enclosing function — the tuple lives at module level
-                // and doesn't escape any frame.
+                // No enclosing function frame for the tuple to escape.
                 let escape = escapeOf "let p = (1, 2)" "p"
                 Expect.equal escape (Some LocalStack) "p is LocalStack"
             }
@@ -224,12 +213,11 @@ let tests =
             }
 
             test "doubly-captured closure becomes HeapShared" {
-                // x is captured by both fun y and fun z (which is itself
-                // returned by fun y). x reaches ≥ 2 distinct lambda regions
-                // → HeapShared.
+                // `x` is captured by both `fun y` and `fun z`, so it reaches 2 distinct
+                // lambda regions → HeapShared.
                 let input = "let mk x = fun y -> fun z -> x + y + z"
                 let ctx, file = analyse input
-                // mk itself classifies as CallerStack (returns a closure).
+
                 let mkEscape =
                     let k = patternKeyOf ctx file "mk"
 
@@ -273,10 +261,8 @@ let tests =
             }
 
             test "identifier reuse: bindings share a region" {
-                // `let r = let x = (1, 2) in let y = x in y` — x and y
-                // should map to the same RegionId via the Ident pass-through
-                // rule. The binding patterns are inside r's RHS, so we walk the
-                // CST to find them.
+                // `x` and `y` must map to one RegionId through the Ident pass-through rule;
+                // their binding patterns are inside `r`'s RHS, so the walk goes via the CST.
                 let input = "let r = let x = (1, 2) in let y = x in y"
                 let ctx, file = analyse input
 
@@ -335,8 +321,8 @@ let tests =
             }
 
             test "recursive binding doesn't crash the solver" {
-                // `let rec f x = f x` — region(f) edges may form a self-loop
-                // through the App rule; the fixpoint solver should converge.
+                // region(f) edges may form a self-loop through the App rule; the fixpoint
+                // solver must still converge.
                 let ctx, file = analyse "let rec f x = f x"
                 let k = patternKeyOf ctx file "f"
 
@@ -344,32 +330,23 @@ let tests =
                     match ctx.Bindings.Escape.TryGetValue k with
                     | ValueSome s -> Some s
                     | ValueNone -> None
-                // Either a classification or no entry is acceptable — what
-                // matters is that the pass terminates and doesn't throw.
+                // Either verdict is acceptable; the test is that the pass terminates.
                 ignore escape
                 Expect.isTrue true "solver converged on recursive binding"
             }
 
             test "Fun param region uses the lambda's own frame depth" {
-                // `let mk = fun a -> a` at module level. The lambda's
-                // parameter `a` must mint with MintFunctionLevel equal to
-                // the lambda's own frame (not the outer scope's), so the
-                // non-strict level rule (1<=1) seeds it CallerStack and
-                // the closure→body edge lifts `mk` to CallerStack.
-                // Regression: previously lambdaRegion registered params
-                // BEFORE enterFun, leaving a's MintFunctionLevel at 0
-                // and mk classified as LocalStack.
+                // `a` mints with MintFunctionLevel equal to the LAMBDA's own frame, not the
+                // outer scope's, so the non-strict level rule (1 <= 1) seeds it CallerStack
+                // and the closure→body edge lifts `mk` to CallerStack.
                 let escape = escapeOf "let mk = fun a -> a" "mk"
                 Expect.equal escape (Some CallerStack) "mk returns its argument → CallerStack"
             }
 
             test "as-pattern parameter surfaces its inner bound variable with a region" {
-                // `let f (x as y) = x` — Elaborate's `translatePat` drops the `as`
-                // node and surfaces only the inner bound variable `x` (the alias `y`
-                // isn't a `TPat` bound variable yet; downstream `Var`s find it via the
-                // side tables). Regions now walks the
-                // post-Elaborate `TExpr`, so it stamps the surviving inner bound variable's
-                // region — the `as`-node key no longer exists to stamp.
+                // `translatePat` drops the `as` node and surfaces only the inner bound
+                // variable `x`; the alias `y` is not a `TPat` bound variable, and downstream
+                // `Var`s find it via the side tables. So only `x`'s region is stamped.
                 let input = "let f (x as y) = x"
                 let ctx, file = analyse input
 
@@ -411,9 +388,8 @@ let tests =
             }
 
             test "tuple-pattern parameter bound variables share a region" {
-                // `let f (a, b) = a` — `a` and `b` project parts of the
-                // same tuple parameter; both should land on the parameter's
-                // single region.
+                // `a` and `b` project parts of the same tuple parameter, so both land on
+                // the parameter's single region.
                 let input = "let f (a, b) = a"
                 let ctx, file = analyse input
 
@@ -458,42 +434,31 @@ let tests =
             }
 
             test "mutual recursion: sibling region is visible during body walk" {
-                // `let rec a () = b and b () = (1, 2)`. a's body is
-                // `Ident b`, so a's closure→body edge points to b. With
-                // sibling regions pre-recorded in processBindingGroup,
-                // BindingRegions[b] is set when a's body is walked → the
-                // edge exists → CallerStack propagates from b's tuple
-                // back through r_b to r_a. Without the pre-record pass,
-                // a's body would resolve `b` as Unknown, the
-                // closure→body edge would be dropped, and a would stay
-                // LocalStack.
+                // `a`'s body is `Ident b`, so its closure→body edge points at `b`. Sibling
+                // regions are pre-minted before the group's bodies are walked, so the edge
+                // exists and CallerStack propagates from `b`'s tuple back to `a`.
                 let escape = escapeOf "let rec a () = b\nand b () = (1, 2)" "a"
                 Expect.equal escape (Some CallerStack) "a returns b, which returns a tuple"
             }
 
             test "let mutable at module level is LocalStack" {
-                // No enclosing function frame; no closure capture. The cell
-                // mints at MintFunctionLevel = 0, so the level rule doesn't
-                // fire, and the cell doesn't reach any lambda → LocalStack.
+                // The cell mints at MintFunctionLevel = 0, so the level rule does not fire,
+                // and it reaches no lambda → LocalStack.
                 let escape = escapeOf "let mutable r = (1, 2)" "r"
                 Expect.equal escape (Some LocalStack) "module-top mutable cell is LocalStack"
             }
 
             test "uncaptured mutable cell inside a function is CallerStack" {
-                // `let useLocal () = let mutable n = (1, 2) in n` — the cell
-                // is minted inside useLocal's frame; useLocal returns it, so
-                // the level rule fires and the cell goes CallerStack. The
-                // tuple `(1, 2)` separately escapes too (RHS-to-cell edge
-                // propagates from the cell upward).
+                // The cell is minted inside `useLocal`'s frame and returned, so the level
+                // rule fires; the tuple escapes with it through the RHS-to-cell edge.
                 let input = "let useLocal () = let mutable n = (1, 2) in n"
                 let escape = escapeOf input "useLocal"
                 Expect.equal escape (Some CallerStack) "useLocal returns the mutable cell's value"
             }
 
             test "mutable cell captured by an escaping closure is HeapShared" {
-                // `let mkCounter () = let mutable n = 0 in fun () -> n` —
-                // the cell is captured by the returned closure. With
-                // threshold-of-1, any closure capture forces HeapShared.
+                // The cell is captured by the returned closure; with a threshold of 1, any
+                // closure capture forces HeapShared.
                 let input = "let mkCounter () = let mutable n = 0 in fun () -> n"
                 let ctx, file = analyse input
 
@@ -537,13 +502,9 @@ let tests =
             }
 
             test "list literal at module top is precisely analysed (no spurious HeapShared)" {
-                // `let xs = [ 1; 2 ]` lowers to nested `UnionCons("Cons", …)`
-                // before Regions runs (the pass walks the
-                // post-Elaborate `TExpr`), so the list allocation is modelled
-                // precisely as a module-top composite — `LocalStack`, not the
-                // old pessimistic `HeapShared` fallback the CST pass produced for
-                // an unrecognised list-literal node. (A `None` no-region posture
-                // is also acceptable.)
+                // The literal lowers to nested `UnionCons("Cons", …)` before Regions walks
+                // it, so the allocation is modelled as an ordinary module-top composite:
+                // LocalStack, or no region entry at all.
                 let escape = escapeOf "let xs = [ 1; 2 ]" "xs"
 
                 match escape with
@@ -590,8 +551,8 @@ let tests =
             }
 
             test "abbreviation to a record at module top is LocalStack" {
-                // Abbreviations vanish at translateType, so the binding's
-                // region shape is identical to a direct `Box<int>` literal.
+                // Abbreviations vanish at translateType, so the region shape is identical
+                // to a direct `Box<int>` literal.
                 let escape =
                     escapeOf "type Box<'a> = { Value: 'a }\ntype IntBox = Box<int>\nlet b : IntBox = { Value = 1 }" "b"
 
@@ -599,11 +560,8 @@ let tests =
             }
 
             // --- Axis 1 lattice -------------------------------------------
-            // The `ReturnOnly` tier and the two coarsening maps. v1 lays the
-            // tier down but `solve` does not mint it yet (a returned closure
-            // stays `CallerStack` per the tests above — the `ReturnOnly`
-            // refinement is Consumer B). These tests guard the lattice's CLR /
-            // native projections so the documented tables can't silently drift.
+            // `solve` does not mint `ReturnOnly`: a returned closure stays `CallerStack`,
+            // per the tests above. These pin the tier's CLR and native projections.
 
             test "toClrRefSafe maps each tier to its Roslyn safe-context" {
                 Expect.equal
@@ -638,13 +596,9 @@ let tests =
             }
 
             test "ReturnOnly slots between CallerStack and LocalStack in the CLR projection" {
-                // The lattice order is `HeapShared > CallerStack > ReturnOnly >
-                // LocalStack`. `lub` is private, but the safe-context image
-                // preserves the ordering distinction (ReturnOnly is its own
-                // Roslyn tier, strictly more permissive than CallingMethod and
-                // strictly less than CurrentMethod), guarding against the tier
-                // being collapsed into a neighbour when Consumer B starts
-                // minting it.
+                // Lattice order: `HeapShared > CallerStack > ReturnOnly > LocalStack`. `lub`
+                // is private, but the safe-context image keeps `ReturnOnly` its own Roslyn
+                // tier, so it cannot be collapsed into a neighbour.
                 Expect.notEqual
                     (EscapeState.toClrRefSafe ReturnOnly)
                     (EscapeState.toClrRefSafe CallerStack)
@@ -657,51 +611,35 @@ let tests =
             }
 
             // --- Axis 2 representation fixpoint ----------------------------------
-            // Orthogonal to Axis 1: a closure can be frame-local by lifetime yet
-            // pinned to a heap representation by a containment / boxing channel.
-            // The ref-struct-eligibility predicate is the conjunction
-            // `LocalStack ∧ StackOnlyEligible`; these tests pin the second
-            // conjunct. Codegen is untouched.
+            // Ref-struct eligibility is `LocalStack ∧ StackOnlyEligible`; these pin the
+            // second conjunct. A closure can be frame-local yet heap-pinned by containment.
 
             test "frame-local applied closure is StackOnlyEligible" {
-                // `let useLocal () = let f x = x + 1 in f 3` — `f` is only ever
-                // the direct callee of an application: no aggregate, no box, no
-                // heap escape reaches it, so its representation is stack-eligible
-                // (it is also LocalStack by Axis 1 — the unconditional green-light).
+                // `f` is only ever the direct callee of an application: no aggregate, box
+                // or heap escape reaches it, so its representation is stack-eligible.
                 let repr = reprOfNested "let useLocal () = let f x = x + 1 in f 3" "f"
                 Expect.equal repr (Some RegionRepr.StackOnlyEligible) "f has no heap-repr channel"
             }
 
             test "closure stored in a ValueTuple requires heap repr" {
                 // `g` is frame-local by lifetime, but `(g, g)` puts it in a
-                // `System.ValueTuple` — which cannot carry a ref-struct field —
-                // so the aggregate-containment channel pins it to the heap. This
-                // is exactly the lifetime/representation split: Axis 1 and Axis 2
-                // disagree on the same region.
+                // `System.ValueTuple`, which cannot carry a ref-struct field — so aggregate
+                // containment pins it to the heap. Axis 1 and Axis 2 disagree here.
                 let repr = reprOfNested "let f () = let g = fun x -> x in (g, g)" "g"
                 Expect.equal repr (Some RegionRepr.RequiresHeapRepr) "tuple containment pins g to the heap"
             }
 
             test "returned closure stays StackOnlyEligible — only Axis 1 disqualifies it" {
-                // `mkAdder` returns `fun x -> x + n` but is never itself applied
-                // and stored: no aggregate / box / heap channel reaches it, so
-                // Axis 2 is `StackOnlyEligible`; it is the Axis-1 `CallerStack`
-                // lifetime that fails the ref-struct conjunction. Guards the
-                // orthogonality — the repr fixpoint must NOT fold escape into
-                // itself (the `ReturnOnly` by-value-return refinement that would
-                // re-admit such a closure is Consumer B's job). Note the *applied
-                // and stored* form `let a = mkAdder 5` does reach the heap
-                // (`a` is a static field holding a closure that reaches two
-                // lambdas → `HeapShared` → `RequiresHeapRepr`); that is a
-                // genuine heap-escape channel, not an Axis-1 leak.
+                // Never applied and stored here, so no repr channel reaches it and Axis 2
+                // says `StackOnlyEligible`; the Axis-1 `CallerStack` lifetime is what fails
+                // the conjunction. Add `let a = mkAdder 5` and `a` → `RequiresHeapRepr`.
                 let input = "let mkAdder n = fun x -> x + n"
                 Expect.equal (reprOf input "mkAdder") (Some RegionRepr.StackOnlyEligible) "no heap-repr channel"
                 Expect.equal (escapeOf input "mkAdder") (Some CallerStack) "but it escapes by lifetime"
             }
 
             test "non-aggregated module-level closure is StackOnlyEligible" {
-                // A plain top-level function binding with no containment or box
-                // channel — the baseline stack-eligible case.
+                // A top-level function binding with no containment or box channel.
                 let repr = reprOf "let add x = x + 1" "add"
                 Expect.equal repr (Some RegionRepr.StackOnlyEligible) "add rides no heap-repr channel"
             }

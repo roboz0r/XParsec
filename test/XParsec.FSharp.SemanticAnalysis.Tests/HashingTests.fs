@@ -4,19 +4,13 @@ open System.IO
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-/// A few distinct dependency-signature hashes to fold, built off the pure string hash so the
-/// tests need no on-disk manifest for the fold-shape properties.
+/// Stand-in dependency signatures, so the fold-shape tests need no on-disk manifest.
 let private depA = Hashing.hashString "dependency-A"
 let private depB = Hashing.hashString "dependency-B"
 let private depC = Hashing.hashString "dependency-C"
 
-/// A fresh directory under the repo `./tmp` for the contract-bytes fixture, isolated per test
-/// by name and wiped ON ENTRY so a prior run cannot leak stale `.fsi` bytes. The repo keeps
-/// scratch out of the system temp.
-///
-/// Wipe-on-entry is the WHOLE cleanup story, deliberately: a trailing delete in each test is
-/// redundant when the test passes and is skipped exactly when it fails — which is the one run
-/// whose directory a person wants to look at. Nothing here deletes on the way out.
+/// A per-test scratch directory under the repo `./tmp`, wiped ON ENTRY and never on exit: a
+/// failing run's files survive for inspection.
 let private freshRoot (name: string) : string =
     let root =
         Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "tmp", "hashing-tests", name)
@@ -28,7 +22,7 @@ let private freshRoot (name: string) : string =
     root
 
 /// Stand up a `<root>/<pkg>/manifest.toml` naming `contract.fsi`, plus the `.fsi` bytes, and
-/// return the manifest path. The package directory name is the package identity.
+/// return the manifest path. The directory name is the package identity.
 let private writePackage (root: string) (pkg: string) (contract: string) : string =
     let dir = Path.Combine(root, pkg)
     Directory.CreateDirectory dir |> ignore
@@ -37,11 +31,8 @@ let private writePackage (root: string) (pkg: string) (contract: string) : strin
     File.WriteAllText(manifestPath, "[core]\nfiles = [\"contract.fsi\"]\n")
     manifestPath
 
-/// The flexible sibling of `writePackage`: an explicit manifest body plus an explicit set of
-/// `(relative path, contents)` files. The coverage tests below each gate a DIFFERENT manifest
-/// key, so each stands up its own package rather than sharing a fixture that would have to
-/// name every key at once. `pkg` is the DIRECTORY name, which is the package identity a
-/// sibling's `depends-on` resolves against.
+/// `writePackage` with an explicit manifest body and `(relative path, contents)` files, for
+/// the tests that each gate a different manifest key.
 let private writePackageFiles
     (root: string)
     (pkg: string)
@@ -58,15 +49,13 @@ let private writePackageFiles
     File.WriteAllText(manifestPath, manifestBody)
     manifestPath
 
-/// The shape every coverage test has: hash, rewrite ONE file of the package, hash again. The
-/// test then states only which file it is gating, not the mechanics of gating it.
+/// Hash, rewrite ONE file of the package, hash again.
 let private hashAcrossWrite (manifestPath: string) (rel: string) (contents: string) =
     let before = Hashing.dependencySignatureHash manifestPath
     File.WriteAllText(Path.Combine(Path.GetDirectoryName manifestPath, rel), contents)
     struct (before, Hashing.dependencySignatureHash manifestPath)
 
-/// A minimal `CompilationInputs` the coverage tests perturb ONE field of at a time, so each
-/// states only the determinant it gates.
+/// A minimal `CompilationInputs` the tests below perturb ONE field of at a time.
 let private compilation: Hashing.CompilationInputs =
     {
         HomeAssembly = "Consumer"
@@ -76,13 +65,10 @@ let private compilation: Hashing.CompilationInputs =
         SelfManifest = None
     }
 
-/// The fixture source. Fixed wherever a test is gating a COMPILATION determinant, so a moved
-/// key can only be the field the test perturbed.
+/// Held fixed wherever a test gates a COMPILATION determinant, so a moved key can only be
+/// the field the test perturbed.
 let private fixtureSource = "let x = 1"
 
-/// A whole cache key, folded as a driver folds one: `compilationDigest` for the compilation,
-/// `fileInputHash` for this file's text. The coverage tests below each move one input and
-/// compare two of these.
 let private keyOf (source: string) (inputs: Hashing.CompilationInputs) : InputHash =
     Hashing.fileInputHash (Hashing.textOriginPath source) source (Hashing.compilationDigest inputs)
 
@@ -150,8 +136,7 @@ let tests =
                     }
 
                     test "a duplicated dependency does not perturb the set hash" {
-                        // A set ignores multiplicity: referencing the same project twice is the
-                        // same dependency set, so the fold must deduplicate before hashing.
+                        // Referencing the same project twice is the same dependency set.
                         let a = Hashing.inputHash "source" [ depA; depB ]
                         let b = Hashing.inputHash "source" [ depA; depB; depA ]
                         Expect.equal a b "a set ignores duplicate members"
@@ -165,7 +150,6 @@ let tests =
                         let root = freshRoot "contract-change"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
                         let before = Hashing.dependencySignatureHash manifest
-                        // Rewrite the SAME contract file with different bytes.
                         File.WriteAllText(Path.Combine(root, "Pkg", "contract.fsi"), "type b = extern\n")
                         let after = Hashing.dependencySignatureHash manifest
                         Expect.notEqual before after "the exported contract determines the signature hash"
@@ -175,8 +159,6 @@ let tests =
                         let root = freshRoot "unrelated-change"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
                         let before = Hashing.dependencySignatureHash manifest
-                        // A sibling file NOT listed in `[core] files` is not part of the
-                        // contract, so it must not perturb the signature hash.
                         File.WriteAllText(Path.Combine(root, "Pkg", "notes.txt"), "irrelevant\n")
                         let after = Hashing.dependencySignatureHash manifest
                         Expect.equal before after "only the listed contract files feed the hash"
@@ -214,9 +196,6 @@ let tests =
                             "so is the file's own text"
                     }
 
-                    // A frozen tree's nodes carry the `OriginFile` their anchors index, so two
-                    // files with identical text and different paths freeze to different trees.
-                    // A key blind to the path would hand the first one's blob to the second.
                     test "moving ONLY the file's path moves its key" {
                         let digest = Hashing.compilationDigest compilation
 
@@ -236,8 +215,8 @@ let tests =
 
                         Expect.notEqual (under a) (under { a with BucketName = "Other" }) "…and so is the bucket"
 
-                        // The two are a record, not a set: a fold that handed them to
-                        // `inputHash` separately would deduplicate and lose which held which.
+                        // Bucket and relative path are a record, not a set: `("x", "y")` is a
+                        // different file from `("y", "x")`.
                         Expect.notEqual
                             (under
                                 { a with
@@ -252,9 +231,8 @@ let tests =
                             "transposing two fields is a different file, not the same one"
                     }
 
-                    // The two halves have different lifetimes, and the digest is the reusable
-                    // one: a driver folds it once and keys every file of the compilation off
-                    // it. That is only sound if it is a pure function of its inputs.
+                    // A driver folds the digest once and keys every file of the compilation
+                    // off it, which is sound only if it is pure.
                     test "a compilation digest is a pure function of its inputs" {
                         let root = freshRoot "digest-purity"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
@@ -278,18 +256,15 @@ let tests =
                     }
                 ]
 
-            // The key is the driver's whole cache guard, so its obligation is COVERAGE: every
-            // input the frozen tree is a function of has to move it. The manifest closure is
-            // the subtle one — a driver hands over the roots it was configured with, while the
-            // provider build resolves and splices from the transitive closure.
+            // Every input the frozen tree is a function of has to move the key. The manifest
+            // closure is the subtle one: a driver hands over ROOTS, the provider build reads
+            // the transitive closure.
             testList
                 "the cache key covers every determinant of the frozen tree"
                 [
                     test "an edited TRANSITIVE dependency changes the key" {
-                        // `Root` names only `Dep` in `depends-on`; the consumer names only
-                        // `Root`. The provider build reaches `Dep` through the closure and
-                        // splices its inline bodies, so its bytes are a determinant even though
-                        // no caller ever spelled its manifest path.
+                        // `Root` names only `Dep` in `depends-on` and the consumer only `Root`,
+                        // so no caller ever spells `Dep`'s manifest path.
                         let root = freshRoot "transitive-dep"
 
                         writePackageFiles
@@ -321,11 +296,8 @@ let tests =
                     }
 
                     test "the self manifest changes the key" {
-                        // It seeds the metadata leaf's `{ platform -> canon }` map, so it
-                        // decides what a BCL name resolves to inside the package's own
-                        // compile. Naming it as SELF differs from naming it as a REFERENCE:
-                        // same bytes, different provider, so path equality alone must not
-                        // let the two share a blob.
+                        // Naming a package as SELF and as a REFERENCE is the same bytes under a
+                        // different provider, so the two must not share a blob.
                         let root = freshRoot "self-manifest"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
 
@@ -348,10 +320,6 @@ let tests =
                     }
 
                     test "an edited self package changes the key" {
-                        // Its `.fs` companions carry the `(# … #)` reprs the seed is folded
-                        // from, so editing one moves what a BCL signature resolves to with no
-                        // `.fsi` touched — the same stale hit `dependencySignatureHash`
-                        // documents for a reference, one role over.
                         let root = freshRoot "self-manifest-edit"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
 
@@ -367,9 +335,6 @@ let tests =
                     }
 
                     test "the home assembly changes the key" {
-                        // The front end roots every minted key at it, so a blob frozen under one
-                        // home assembly names its own symbols differently from one frozen under
-                        // another — identical source or not.
                         Expect.notEqual
                             (keyUnder compilation)
                             (keyUnder
@@ -380,8 +345,7 @@ let tests =
                     }
 
                     test "the target changes the key" {
-                        // A target selects the `[targets.<t>]` manifest lists, so two targets
-                        // over one manifest set are two providers.
+                        // Two targets over one manifest set are two providers.
                         Expect.notEqual
                             (keyUnder compilation)
                             (keyUnder { compilation with Target = "js" })
@@ -389,8 +353,6 @@ let tests =
                     }
 
                     test "the reference assembly set changes the key" {
-                        // Folded by identity (path + presence + length + mtime), never contents:
-                        // a ref pack dwarfs everything else the key touches.
                         let root = freshRoot "reference-assemblies"
                         let refPath = Path.Combine(root, "Ref.dll")
 
@@ -411,8 +373,7 @@ let tests =
                     }
 
                     test "reordering the reference assemblies changes the key" {
-                        // Resolution is first-hit by simple name, so the order IS the
-                        // resolution — unlike the dependency SET, which the fold sorts.
+                        // The dependency SET, by contrast, is sorted before folding.
                         let a = Path.Combine("refs", "A.dll")
                         let b = Path.Combine("refs", "B.dll")
 
@@ -429,7 +390,6 @@ let tests =
                     }
 
                     test "the dependency set is order- and multiplicity-insensitive" {
-                        // The other half of the same contract: what must NOT move the key.
                         let root = freshRoot "dependency-set"
                         let one = writePackage root "One" "type a = extern\n"
                         let two = writePackage root "Two" "type b = extern\n"
@@ -452,17 +412,14 @@ let tests =
                     }
                 ]
 
-            // The contract `.fsi` set is NOT the whole determinant of a consumer's output, and
-            // treating it as one was a stale hit: a dependency's inline bodies are spliced into
-            // the consumer's tree before it is frozen, and the `.fs` companions decide what a
-            // primitive resolves to. Each test below gates one path in
-            // `ReferencedProject.sourceInputs` — the coverage set the fold is defined over.
+            // The contract `.fsi` set is NOT the whole determinant of a consumer's output: a
+            // dependency's inline bodies splice into the consumer's tree before it is frozen,
+            // and the `.fs` companions decide what a primitive resolves to.
             testList
                 "dependencySignatureHash covers every source the provider build reads"
                 [
                     test "an edited cross-package inline body changes the signature hash" {
-                        // THE regression. `impl` bodies are re-analysed and spliced into the
-                        // CONSUMER pre-freeze, so editing one changes what the consumer emits
+                        // Editing `let inline f x = x + 1` changes what the consumer emits
                         // while touching no `.fsi`.
                         let root = freshRoot "inline-bodies-change"
 
@@ -498,9 +455,8 @@ let tests =
                     }
 
                     test "an edited intrinsic-repr body changes the signature hash" {
-                        // The `.fs` beside a contract is scanned for the intrinsic reprs a
-                        // consumer's primitives resolve through, so it moves the resolution
-                        // without touching the `.fsi`.
+                        // `type a = (# "A" #)` is what a consumer's `a` resolves through, and it
+                        // moves with no `.fsi` touched.
                         let root = freshRoot "companion-change"
 
                         let manifest =
@@ -517,8 +473,7 @@ let tests =
                     }
 
                     test "an edited per-target extra contract changes the signature hash" {
-                        // `[targets.<t>] files` APPENDS to the contract surface, so it is
-                        // contract the shared `files` fold never saw.
+                        // `[targets.<t>] files` APPENDS to the contract surface.
                         let root = freshRoot "files-target-change"
 
                         let manifest =
@@ -535,9 +490,8 @@ let tests =
                     }
 
                     test "an edited per-target body changes the signature hash" {
-                        // TARGET-BLIND: the key is folded with no target in hand, so a
-                        // `[targets.js]` body moves a CLR consumer's key too. Over-folding
-                        // costs a rebuild; under-folding serves a wrong blob.
+                        // TARGET-BLIND: the fold has no target in hand, so a `[targets.js]` body
+                        // moves a CLR consumer's key too. Over-folding costs only a rebuild.
                         let root = freshRoot "target-companion-change"
 
                         let manifest =
@@ -557,8 +511,7 @@ let tests =
                     }
 
                     test "reordering the manifest's file list changes the signature hash" {
-                        // Compile order is a determinant and lives in the manifest, not in any
-                        // file's contents — so it is the manifest's own bytes that carry it.
+                        // Compile order lives in the manifest, not in any file's contents.
                         let root = freshRoot "manifest-order-change"
 
                         let manifest =
@@ -575,8 +528,7 @@ let tests =
                     }
 
                     test "creating a file the manifest already named changes the signature hash" {
-                        // Absent and present-but-empty must differ: length prefixes alone cannot
-                        // say which, so the fold writes a presence byte per named path.
+                        // Absent and present-but-empty both length-prefix as zero.
                         let root = freshRoot "absent-to-empty"
 
                         let manifest =

@@ -1,11 +1,5 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.EnumTests
 
-// Enum case-literal resolution + numeric / string / mixed classification +
-// diagnostics. Each test drives an enum declaration (`type E = | C = v`) through
-// the full pass pipeline and asserts (a) the resolved case→literal table + derived
-// variant via the `TastShape` renderer (`enum<variant> | C = <lit>`), and
-// (b) the reported diagnostics (the mixed warning / the illegal-case error).
-
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -14,26 +8,22 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// The single surfaced enum decl, rendered.
 let private enumShape (tast: TastFile) : string =
     match tast.Decls with
     | EqList [ d ] -> TastShape.prettyDecl d
     | other -> failwithf "expected a single enum TDecl.Type, got %A" other
 
-/// The resolved case table of the single surfaced enum decl.
 let private enumCases (tast: TastFile) =
     match tast.Decls with
     | EqList [ TDecl.Type { Kind = TTypeKindG.Enum cases } ] -> cases
     | other -> failwithf "expected a single enum TDecl.Type, got %A" other
 
-/// The derived underlying primitive type identity of the single surfaced enum.
 let private underlying (input: string) : SymbolKey voption =
     analyse input |> enumCases |> TEnumCases.underlyingTypeKey
 
 let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
-/// The body expression + declared type of the single `let` decl in `tast` (the
-/// enum `TDecl.Type` is skipped). Used by the step-3 member-access tests.
+/// The single `let` decl's body + declared type; the enum `TDecl.Type` is skipped.
 let private singleLet (tast: TastFile) : TExpr * SemType =
     match
         tast.Decls
@@ -48,8 +38,6 @@ let private singleLet (tast: TastFile) : TExpr * SemType =
     | [ one ] -> one
     | other -> failwithf "expected exactly one let decl, got %d" (List.length other)
 
-/// The enum's simple name when `t` is a `TyEnum`, else `ValueNone` — proves the
-/// value's static type is the enum nominal (NOT its underlying int/string).
 let private enumTypeName (t: SemType) : string voption =
     match t with
     | TyEnum k ->
@@ -77,10 +65,9 @@ let tests =
             }
 
             test "numeric enum preserves the authored integral width (suffix)" {
-                // `1uy` → `IntWidth.Byte`, `2L` → `IntWidth.Int64`: the authored width rides
-                // through on the constant's `IntWidth`, surfaced by the renderer's suffix.
-                // Width is preserved, never defaulted here (step 2/freeze maps an unsuffixed
-                // `int` → I32).
+                // `1uy` → `IntWidth.Byte`: the authored width rides through on the
+                // constant's `IntWidth` and is never defaulted, so the renderer
+                // re-prints the `uy` suffix.
                 let tast = analyse "type Widths = | A = 1uy | B = 2uy"
 
                 Expect.equal
@@ -122,9 +109,8 @@ let tests =
             test "illegal case (non-literal expression) is a hard ERROR; siblings survive" {
                 let tast = analyse "type Bad = | A = 0 | B = 1 + 1"
 
-                // A resolves; B (a `1 + 1` expression) errors → `<unresolved>`.
-                // The enum + the good sibling are still recorded (numeric, derived
-                // from the one resolved int case).
+                // B (`1 + 1`) errors to `<unresolved>`; the enum and the resolved
+                // sibling A are still recorded, and A alone derives `numeric`.
                 Expect.equal
                     (enumShape tast)
                     "type Bad = enum<numeric> | A = 0 | B = <unresolved>"
@@ -219,7 +205,6 @@ let tests =
             // --- member / value access (E.C1) ------------------------------------
 
             test "E.C1 infers the enum type and lowers to a static-field access" {
-                // Cases are static members on the enum type (CLR enum field access):
                 // `E.A` resolves to `StaticFieldGet(E, A)` typed `TyEnum E` — the
                 // enum nominal, not the underlying int.
                 let tast = analyse "type E = | A = 0 | B = 1\nlet c = E.A"
@@ -280,13 +265,12 @@ let tests =
 
             test "enum-case pattern lowers to a `TPat.EnumCase` rendering `E.C`" {
                 // The pattern carries the case *identity* (enumKey + caseName), not
-                // the underlying literal — it renders identically to the `E.C`
-                // expression form, the producer/consumer split codegen reads.
+                // the underlying literal, so it renders as `E.A` like the expression.
                 let tast =
                     analyse "type E = | A = 0 | B = 1\nlet f (x: E) = match x with | E.A -> 1 | _ -> 0"
 
-                // The arm pattern is reachable via the function body's match; rather
-                // than dig the TAST, assert the whole decl renders the enum-case arm.
+                // The arm pattern sits inside the function body's match, so assert on
+                // the whole decl's rendering rather than digging out the arm.
                 let rendered =
                     tast.Decls
                     |> EqArray.toList
@@ -298,11 +282,9 @@ let tests =
             }
 
             test "wildcard-less enum match is an incomplete match (exhaustiveness deferred)" {
-                // v1 is equality-only: an enum match without `| _` is NOT proven
-                // exhaustive (closed-enum completeness is a deliberate follow-up).
-                // It behaves like an int/string-literal match — no *error*; the
-                // arms still type-check. Adding `| _` (the test above) is the way
-                // to silence the incomplete match until exhaustiveness lands.
+                // Enum matching is equality-only: `| E.A | E.B` behaves like an
+                // int-literal match, so omitting `| _` is not proven exhaustive and
+                // is not an error either — the arms still type-check.
                 let tast =
                     analyse "type E = | A = 0 | B = 1\nlet f (x: E) = match x with | E.A -> 1 | E.B -> 2"
 
@@ -337,22 +319,13 @@ let tests =
             }
 
             test "enum equality `x = E.A` types both operands as the enum (no enum-specific failure)" {
-                // The equality form `x = E.A` is the other half of v1 enum matching.
-                // Both operands are `TyEnum E`, so under the real *polymorphic* `=`
-                // (`'a -> 'a -> bool`) the comparison checks cleanly. The codegen test
-                // fixture (`MockBuiltins`) declares `op_Equality` MONOMORPHICALLY as
-                // `int -> int -> bool` — a divergence its own module header flags — so
-                // under THIS provider the comparison reports the mock's int-vs-enum
-                // shape clash. That is a fixture limitation, NOT an enum gap: there is
-                // no enum-specific resolution failure (no "has no case" / unknown enum),
-                // and step 4's actual deliverable — the `match` path — lowers to
-                // underlying-value equality at codegen independent of the `=` operator.
+                // `x = E.A` is the other half of enum matching: both operands are
+                // `TyEnum E`, which satisfies `(=) : 'T -> 'T -> bool when 'T : equality`.
                 let tast =
                     analyse "type E = | A = 0 | B = 1\nlet f (x: E) = if x = E.A then 1 else 0"
 
-                // Whatever the mock's monomorphic `=` reports is a plain type mismatch;
-                // none of it is an enum resolution error. (Under a polymorphic `=`
-                // this list is empty.)
+                // Nothing here is an enum resolution error ("has no case" / unknown enum);
+                // any leftover would be a plain operand-shape mismatch.
                 Expect.all
                     (errors tast)
                     (fun d -> d.Message.Contains "mismatch")

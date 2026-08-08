@@ -6,8 +6,8 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 open XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
 
-/// Did each spelling accept `t` on `e`? Both route through `unifyAnnotation`, so a
-/// disagreement between them is a defect rather than a policy difference.
+/// Did `((e) : t)` and `let g : t = e` each accept? Both spellings are one seam, so a
+/// disagreement between the two results is a defect, not a policy difference.
 let private annotationSeams (decls: string) (e: string) (t: string) =
     let ascribed = analyse (sprintf "%slet f = ((%s) : %s)" decls e t)
     let bound = analyse (sprintf "%slet g : %s = %s" decls t e)
@@ -62,11 +62,9 @@ let tests =
                 Expect.isTrue hasMismatch "Type mismatch diagnostic emitted"
             }
 
-            // `null` / `undefined` are distinct absence sentinels (the members of a
-            // TS-style `T | null` / `T | undefined`), NOT folded onto `unit` — even
-            // though `unit` *also* lowers to JS `undefined` at the VALUE level. The
-            // type identities stay distinct: each resolves to its own opaque
-            // `TyConst`, so neither unifies with `unit`.
+            // `null`, `undefined` and `unit` each resolve to their own opaque `TyConst`, so
+            // no two of them unify — even though a `unit` VALUE also lowers to JS
+            // `undefined`.
             test "`undefined` and `unit` resolve to distinct types and do not unify" {
                 let ctx = analyse "let f (x: undefined) : unit = x"
                 // `x : undefined`, pat at offset 7.
@@ -123,7 +121,6 @@ let tests =
             }
 
             test "a ground function is admitted the same way in both spellings" {
-                // Ground domains reach `subsumes`' `TyFun ≤ Fun`k`` arm.
                 let ground = annotationSeams "let h (x: int) : int = x\n" "h" "Fun<int, int>"
                 Expect.equal ground (true, true) "`Fun<int,int>` accepted, ascribed and bound"
             }
@@ -139,12 +136,9 @@ let tests =
             }
 
             test "Using a TyUnknown-typed external value emits a use-site diagnostic" {
-                // A contract val whose signature named an out-of-scope type bakes a
-                // `TyUnknown` leaf. Referencing that symbol must fire a diagnostic when
-                // its `TyUnknown` type reaches unification — not silently succeed.
-                // The malformation is in the PAYLOAD (a symbol whose frozen type is an
-                // unresolved `FTUnknown` leaf), not in the provider shape — so the leaf
-                // carries it verbatim.
+                // A contract val whose signature named an out-of-scope type bakes an
+                // `FTUnknown` leaf into the symbol itself. Referencing it must diagnose once
+                // that leaf reaches unification, not silently succeed.
                 let brokenProvider =
                     ExternalSymbolProviders.ofNamedLeaf
                         { ExternalSymbolProviders.NamedLeaf.empty with
@@ -225,8 +219,7 @@ let tests =
             }
 
             test "record obj field accepts a value initialiser (implicit box)" {
-                // `{ X = 5 }` into an `obj` field: F# boxes the int, so field-init COERCES via
-                // `unifyArg` (was a spurious `int vs obj` mismatch under symmetric `unify`).
+                // `{ X = 5 }` into an `obj` field: F# boxes the int, so the field init coerces.
                 // pat r at 24: 19-char type decl + "\n" + "let r = ".
                 let ctx = analyse "type R = { X: obj }\nlet r = { X = 5 }"
 
@@ -237,7 +230,7 @@ let tests =
 
             test "record field still rejects an unrelated initialiser type" {
                 // The coercion is obj / subtype only: a string into an `int` field is not
-                // assignable, so `unifyArg` falls through to `unify` and diagnoses.
+                // assignable, so it stays a mismatch.
                 let ctx = analyse "type R = { X: int }\nlet r = { X = \"s\" }"
 
                 let hasError = ctx.Diagnostics |> Seq.exists Diagnostic.isError

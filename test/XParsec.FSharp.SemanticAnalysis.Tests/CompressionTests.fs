@@ -4,14 +4,10 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Compression is a pure size optimization decoupled from cache correctness (the key hashes
-// inputs, not the blob), so the ONLY contract to gate is the exact round-trip
-// `decompress (compress b) = b`. Exercise it over representative blobs — empty, a fixed small
-// run, a large low-entropy run, and a REAL frozen-file blob — then a light sanity check that a
-// realistic blob actually shrinks.
+// A cache key hashes inputs, not the blob, so compression is a pure size optimization and the
+// contract to gate is the exact round-trip `decompress (compress b) = b`.
 
-/// A real `FrozenCodec.flatten` blob: freeze a small program the shared contract stack resolves,
-/// then flatten it. This is the representative payload the cache actually stores.
+/// A real flattened blob — the payload the cache stores.
 let private realFrozenBlob () : byte[] =
     FrozenCodec.flatten (freezeFor "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n")
 
@@ -40,9 +36,8 @@ let tests =
                 Expect.equal (Compression.decompress (Compression.compress b)) b "frozen blob survives"
             }
 
-            // A light sanity check, not a hard ratio: a realistic frozen blob has enough
-            // redundancy (repeated keys, offsets, tags) that Brotli must shrink it. If it does
-            // not, the seam is not compressing at all.
+            // Not a ratio: a frozen blob's repeated keys, offsets and tags mean any shrink at
+            // all, and a failure here says the seam is not compressing.
             test "a realistic frozen blob compresses smaller" {
                 let b = realFrozenBlob ()
                 let z = Compression.compress b

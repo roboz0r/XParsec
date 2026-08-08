@@ -30,8 +30,7 @@ let tests =
         "Generalisation"
         [
             test "polymorphic identity used at two types" {
-                // The headline case. `id` generalises to `∀'a. 'a -> 'a`,
-                // each use at a different type mints its own variable.
+                // `id` generalises to `∀'a. 'a -> 'a`; each use mints its own variable.
                 let tast = analyse "let r = let id = fun x -> x in id 1, id true"
 
                 Expect.equal
@@ -43,7 +42,6 @@ let tests =
             }
 
             test "polymorphic identity in arithmetic and boolean position" {
-                // The example from the README's "What this is not (yet)".
                 let tast =
                     analyse "let r = let id = fun x -> x in id 1 + (if id true then 0 else 1)"
 
@@ -74,7 +72,6 @@ let tests =
                 // Within `f`'s RHS, `f` is monomorphic. Pinning to `bool -> ?`
                 // via `f true` makes `f 1` outside the binding mismatch.
                 let tast = analyse "let r = let rec f x = f true in f 1"
-                // f's type pins to bool -> ?, so `f 1` at int triggers a mismatch.
                 Expect.isTrue (hasMismatch tast) "mismatch on f 1 after f's RHS pinned bool"
             }
 
@@ -96,13 +93,8 @@ let tests =
             }
 
             test "local scheme coexists with external polymorphic provider" {
-                // A custom provider with `myId : 'a -> 'a`. Local `f` aliases
-                // `myId`; both schemes mint independent vars per use site.
-                // (NameRes doesn't yet handle the `(|>)` operator-form path
-                // from the plan's example, so we exercise the same shape via
-                // a regular-name external symbol.)
-                // `myId : 'a -> 'a` as a one-typar FrozenType scheme; `scheme` mints a
-                // fresh var per use site (replaces the former freshAt closure).
+                // `myId : 'a -> 'a` as a one-typar FrozenType scheme. Local `f`
+                // aliases it; both schemes mint independent vars per use site.
                 let myIdSymbol: ExternalSymbol =
                     ExternalSymbols.scheme
                         (SymbolKeyOps.inNamespace "")
@@ -111,11 +103,8 @@ let tests =
                         1
                         []
 
-                // Only `myId` is custom; everything else (including the `int`/`bool`
-                // literal intrinsics the RHS types through) resolves against the real
-                // contract underneath. Layer the one-symbol stub OVER `realProvider`
-                // via `composite` (first-hit-wins) rather than hand-delegating each
-                // channel — so the intrinsic surface stays honest.
+                // First-hit-wins: only `myId` comes from the stub; the `int`/`bool`
+                // intrinsics the RHS types through fall through to `realProvider`.
                 let myIdStub: IExternalSymbolProvider =
                     ExternalSymbolProviders.ofNamedLeaf
                         { ExternalSymbolProviders.NamedLeaf.empty with
@@ -145,10 +134,8 @@ let tests =
             }
 
             test "mutual recursion + generalisation: id used inside pair at two types" {
-                // `let rec id x = x and pair x = id x, id x`.
-                // id generalises to `∀'a. 'a -> 'a`; pair generalises to
-                // `∀'b. 'b -> 'b * 'b`. Two uses of `id` inside pair share
-                // pair's argument variable, not id's quantified one.
+                // id : `∀'a. 'a -> 'a`; pair : `∀'b. 'b -> 'b * 'b`. Both uses of
+                // `id` inside pair share pair's argument var, not id's quantified one.
                 let tast = analyse "let rec id x = x\nand pair x = id x, id x"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -166,9 +153,8 @@ let tests =
             }
 
             test "local scheme: two uses do not share variables" {
-                // `let id = fun x -> x` followed by two top-level uses at
-                // different types. id's scheme is at module level; each
-                // top-level binding is its own group.
+                // id's scheme is at module level; each top-level binding below is its
+                // own generalisation group, so `a` and `b` do not share variables.
                 let tast = analyse "let id = fun x -> x\nlet a = id 1\nlet b = id true"
 
                 match tast.Decls with
@@ -181,9 +167,8 @@ let tests =
             }
 
             test "tuple-destructuring let does NOT generalise" {
-                // Compound binding patterns skip the scheme table. `let (f, _) = ...`
-                // doesn't get a scheme even if the RHS would otherwise generalise.
-                // No mismatch expected — this just confirms it type-checks.
+                // Compound binding patterns skip the scheme table: `let (f, _) = …`
+                // gets no scheme even though the RHS would otherwise generalise.
                 let tast = analyse "let r = let (f, _) = (fun x -> x), 0 in f 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics for monomorphic tuple-destructure"
                 Expect.equal (declType tast) BuiltinTypes.tyInt "r : int"
@@ -199,21 +184,16 @@ let tests =
             }
 
             test "mutable binding is monomorphic across two use sites" {
-                // First use pins the binding's TyVar. Second use at a different
-                // type triggers a mismatch — mirrors the pre-generalisation
-                // behaviour of lambda parameters.
+                // `id 1` pins the binding's TyVar to `int -> int`, so `id true`
+                // mismatches — the same behaviour as a lambda parameter.
                 let tast = analyse "let mutable id = fun x -> x\nlet a = id 1\nlet b = id true"
                 Expect.isTrue (hasMismatch tast) "second use at bool conflicts with int from first use"
             }
 
             test "chained generic combinator with constraint-bound result typar" {
-                // Minimal isolation of the multi-map chain wall — NO Fun/AddN/struct.
-                // `wrap` is a generic combinator: `'S :> I<'T,'E>` carries a PHANTOM
-                // enumerator typar `'E` (also in the result `W<'S,'E,'T>`). Chaining
-                // `wrap` twice (the second over a `W<…>` produced by the first) must
-                // freshen `'E` per call; if the first call grounds the SHARED scheme
-                // `'E` to `A<'T>` (the inner seq's enumerator), the second call's
-                // result-`'E` is poisoned and the subtype check on `W :> I` fails.
+                // `wrap`'s constraint `'S :> ISeq<'T, 'E>` carries a phantom typar `'E`
+                // that also appears in its result, so chaining must freshen `'E` per call:
+                // if `wrap s0` grounds the shared `'E` to `ArrEnum<'T>`, `wrap s1` fails.
                 let src =
                     String.concat
                         "\n"
@@ -258,9 +238,8 @@ let tests =
             }
 
             test "mutable binding: assignment unifies LHS and RHS types" {
-                // `let mutable r = fun x -> x` starts with `'a -> 'a`. The
-                // assignment unifies it with `int -> int`, pinning the free
-                // var globally. No mismatch; subsequent reads see int -> int.
+                // `r` starts at `'a -> 'a`; the assignment unifies it with
+                // `int -> int`, pinning the free var globally rather than mismatching.
                 let ctx, _ =
                     analyseWithCtx "let mutable r = fun x -> x\nr <- (fun (n : int) -> n + 1)"
 

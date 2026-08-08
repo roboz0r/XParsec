@@ -3,22 +3,14 @@ module XParsec.FSharp.SemanticAnalysis.Tests.MemoizeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbolProviders.memoize` — the general per-lookup cache. Two properties: it changes
-// NO result (a hit or a miss reads the same as the inner provider), and it consults the
-// inner AT MOST ONCE per key (subsequent calls, including cached MISSES, never re-hit).
-// A counting inner provider pins both.
+// The general per-lookup cache: it changes no result, and consults the inner AT MOST ONCE per
+// key — cached MISSES included.
 
 let private origin = SymbolOrigin.Empty
 
-/// An inner provider that answers only `name` on the value channel and records how many
-/// times each channel's factory reached it, so the cache's at-most-once contract is
-/// observable.
-///
-/// Hand-rolled deliberately — NOT an `ExternalSymbolProviders.ofNamedLeaf` leaf. `memoize`
-/// caches per INTERFACE channel, so the double must count per interface channel; a
-/// `NamedLeaf` has no `TryLookupMemberByKey` field (`ofKeyedLeaf` DERIVES that channel
-/// from `TryLookupMembers`), so `MemberKeyHits` would silently become a count of a
-/// different channel. Keep this implementing the interface directly.
+/// An inner provider answering only `name`, counting per-channel hits. It implements the
+/// interface directly rather than wrapping a leaf, because a leaf's `TryLookupMemberByKey` is
+/// derived from `TryLookupMembers` — `MemberKeyHits` would count a different channel.
 type private CountingProvider(name: string) =
     let mutable lookupHits = 0
     let mutable typeHits = 0
@@ -65,8 +57,7 @@ type private CountingProvider(name: string) =
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
 
-        // Models no members — but the MISS is counted, so the cache's at-most-once
-        // contract is observable on this channel too.
+        // A miss, but a counted one: at-most-once is observable on this channel too.
         member _.TryLookupMemberByKey(_: MemberKey) =
             memberKeyHits <- memberKeyHits + 1
             ValueNone

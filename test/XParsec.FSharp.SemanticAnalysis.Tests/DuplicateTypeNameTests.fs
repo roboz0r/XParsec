@@ -8,9 +8,8 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// `analyse`, naming the unit being compiled. The assembly name is not part of any
-/// `SymbolKey`; it identifies the UNIT, which is what the "a unit may declare the types
-/// its own contract publishes" exemption is a statement about.
+/// `analyse`, naming the unit being compiled. The assembly name is in no `SymbolKey`; it
+/// identifies the UNIT, which is what the own-contract exemption below turns on.
 let private analyseAs (assemblyName: string) (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSemFor assemblyName realProvider.Value (Hashing.originSourceOfText lexed) file
@@ -25,9 +24,8 @@ let private errors (tast: TastFile) =
 let private has (tast: TastFile) (s: string) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
 
-/// A duplicate is a plain user diagnostic, never the `stampLocalTypeKey` collision
-/// backstop — that branch witnesses a MINT that dropped something the claim kept, and the
-/// claim is `(container, name, arity)`, which is exactly what the key is minted from.
+/// A duplicate is a plain user diagnostic, never the internal key-collision backstop: that
+/// backstop witnesses a mint that dropped part of `(container, name, arity)`.
 let private expectDuplicate (source: string) =
     let tast = analyse source
     Expect.isTrue (has tast "Duplicate type definition") "duplicate-type diagnostic emitted"
@@ -39,17 +37,14 @@ let private expectNoDuplicate (source: string) =
     Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
 
 // One declaration claims one NAME at one ARITY in the MODULE that holds it, and a claim may
-// be held by at most one type of ANY kind (`TypeRegistry.TypeClaims`). Every pair below is
-// the same predicate over the same table, so a kind added later cannot be wired into some
-// guards and forgotten in others — the drift that once let an `enum` name be silently
-// re-declared as an abbreviation or a class.
+// be held by at most one type of any kind.
 [<Tests>]
 let tests =
     testList
         "DuplicateTypeName"
         [
-            // Every ordered kind-pair. Source order is what matters now (the identity pass
-            // walks the file in order); the KINDS involved are irrelevant to the verdict.
+            // Every ordered kind-pair: the second declaration in source order loses, and
+            // which kinds are involved is irrelevant to the verdict.
             for first, second, source in
                 [
                     "record", "record", "type T = { a: int }\ntype T = { b: int }"
@@ -74,10 +69,9 @@ let tests =
                     "class", "class", "type T() =\n    member this.X = 1\ntype T() =\n    member this.Y = 2"
                 ] -> test $"{second} after {first} collides" { expectDuplicate source }
 
-            // An intrinsic binding declares a NAME in the type namespace, so that name is a
-            // name-table citizen like any other type's — it collides with every kind, at its
-            // declared arity. (Its target-representation string is NOT a name-table concern:
-            // two types sharing a repr is an identity/origin question, handled elsewhere.)
+            // An intrinsic binding declares a NAME in the type namespace, so it collides with
+            // every kind at its declared arity. Its repr string is not a name-table concern —
+            // two types sharing a repr is an identity question, not a duplicate name.
             for kind, source in
                 [
                     "record", "type widget = (# \"System.Int32\" #)\ntype widget = { a: int }"
@@ -88,9 +82,8 @@ let tests =
                     "intrinsic", "type widget = (# \"System.Int32\" #)\ntype widget = (# \"System.Int64\" #)"
                 ] -> test $"{kind} after intrinsic-repr alias collides" { expectDuplicate source }
 
-            // Arity overloading is ACROSS THE BOARD, as in F#: `Foo` and `Foo`1` are distinct
-            // claims and may be held by different kinds. Abbreviations and intrinsic bindings
-            // are ordinary arity-keyed citizens, not bare-name special cases.
+            // Arity overloading is across the board, as in F#: `Foo` and `Foo`1` are distinct
+            // claims and may be held by different kinds, abbreviations and intrinsics included.
             for kinds, source in
                 [
                     "non-generic enum, generic record", "type E = | A = 1\ntype E<'a> = { X: 'a }"
@@ -104,11 +97,8 @@ let tests =
                 ] -> test $"{kinds} of the same name coexist" { expectNoDuplicate source }
 
             // The FIRST declaration to claim `(name, arity)` owns it; the duplicate registers
-            // nothing at all — it never reaches a registrar, so none of its detail (fields,
-            // cases, `with member …` augmentation, `inherit`) leaks onto the type that does
-            // own the name. A use site naming detail that existed only on the rejected
-            // declaration therefore fails ORDINARY lookup, which is the correct answer: a
-            // member-not-found diagnostic alongside the duplicate one, not a crash.
+            // nothing, so its `with member Bar` does not leak onto the owner. `v.Bar()` then
+            // fails ordinary lookup: a member-not-found diagnostic beside the duplicate one.
             yield
                 test "detail of a rejected duplicate does not leak onto the claim's owner" {
                     let tast =
@@ -136,26 +126,17 @@ let tests =
 
             yield
                 test "a bare name resolves to the type CLAIMING it at arity 0, not a generic alias" {
-                    // The reason arity-keying the abbreviation table is the right fix. With a
-                    // bare-keyed alias table, `Foo` at a use site resolved through
-                    // `Abbreviation` — which the resolution cascade consulted BEFORE `Record` —
-                    // and found the GENERIC alias applied to no arguments. Now the `(Foo, 0)`
-                    // claim decides, and it belongs to the record. The alias here is a function
-                    // type, so were it picked, `v.X` could not type.
+                    // The `(Foo, 0)` claim decides, and the record holds it. The generic alias
+                    // is a FUNCTION type, so were it picked instead, `v.X` could not type.
                     let tast =
                         analyse "type Foo = { X: int }\ntype Foo<'a> = 'a -> 'a\nlet f (v: Foo) = v.X"
 
                     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "bare `Foo` is the record, so `v.X` types"
                 }
 
-            // THE PREMISE, ENFORCED — the CS0433 analogue. A `SymbolKey` carries no home
-            // assembly, which is licensed by exactly one fact: within one compilation a
-            // fully-qualified name names at most one type. So a declaration whose key a
-            // REFERENCED assembly already answers for is an error, not a silent shadow —
-            // without it, codegen would still be right (the local table is checked first)
-            // but the unifier would unify two genuinely different types under one key.
-            //
-            // `Vesper.Collections.List<'T>` is Vesper.List's; `realProvider` references it.
+            // A `SymbolKey` carries no home assembly, licensed by one fact: within a
+            // compilation a fully-qualified name names at most one type. The `List`1` below is
+            // already Vesper.List's, so re-declaring it is an error, not a silent shadow.
             yield
                 test "a type a referenced assembly already claims is an error naming both" {
                     let src =
@@ -173,11 +154,8 @@ let tests =
                 }
 
             // A unit's OWN contract is not a "referenced assembly": compiling `Vesper.List`
-            // against a stack that mounts `Vesper.List`'s own `.fsi` (which is what
-            // `SymbolProviders.inlineBodies` does for every package's impl, and what the
-            // self-host suites drive) means the unit declares the very types its contract
-            // publishes — that is what compiling it MEANS. Same source, same provider, same
-            // key: only the identity of the unit differs, and that is what decides.
+            // against a stack mounting its own `.fsi` means declaring the types it publishes.
+            // Same source and provider as above — only the unit's identity differs.
             yield
                 test "the unit that OWNS the contract may declare the types it publishes" {
                     let src =
@@ -192,8 +170,7 @@ let tests =
                 }
 
             // The claim is `(container, name, arity)`, so the MODULE is part of it: sibling
-            // modules each declaring `T` declare two types, not one name twice. Only a second
-            // `T` in the SAME module contests a claim.
+            // modules each declaring `T` declare two types, not one name twice.
             yield
                 test "sibling modules may each declare the same type name — different containers, different claims" {
                     let src =

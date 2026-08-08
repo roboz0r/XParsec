@@ -5,13 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// the scope-preserving module walk
-// (`CstWalk.walkModuleTree`) and the qualification primitive (`OpenScope.tryQualify`
-// / `tryResolve`). No pass consumes the scope yet — these pin the computed scope
-// directly.
-
-/// Flatten a source string to `(label, prefixes)` per leaf element, where `label`
-/// names the element and `prefixes` is the `OpenScope.Prefixes` active there.
+/// Flatten a source string to `(label, prefixes)` per leaf element — the prefixes in force there.
 let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
     let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
@@ -36,9 +30,6 @@ let tests =
         "OpenScope"
         [
             test "non-recursive: running accumulator, open visible only after it, inherited by nested module" {
-                // `open B` sits inside M after `let x`; it must not reach `let x`
-                // but must reach `let y` and the nested `Inner.let z`. The
-                // enclosing `open A` (and the namespace `N`) reach everything below.
                 let src =
                     "namespace N\n\nopen A\n\nmodule M =\n    let x = 1\n    open B\n    let y = 2\n\n    module Inner =\n        let z = 3\n"
 
@@ -57,9 +48,8 @@ let tests =
             }
 
             test "recursive module: constant prelude, every open applies to the whole body" {
-                // `module rec`: `open Q` declared *after* `let a` is still visible to
-                // `let a` (FS3200's whole-scope-prelude semantics, §3.2). Every
-                // element sees the same constant scope.
+                // `open Q`, declared *after* `let a`, is still visible to `let a`:
+                // FS3200 whole-scope-prelude semantics, §3.2.
                 let src = "module rec R\n\nopen P\nlet a = 1\nopen Q\nlet b = 2\n"
 
                 let got = walk src
@@ -93,13 +83,11 @@ let tests =
                         Prefixes = [ "B"; "A" ]
                     }
 
-                // A name present at the root resolves bare, before any prefix.
                 Expect.equal
                     (OpenScope.tryQualify scope (fun n -> n = "Foo") "Foo")
                     (ValueSome "Foo")
                     "bare name wins when present at root"
 
-                // When both prefixes could answer, the most-recent (head) wins.
                 Expect.equal
                     (OpenScope.tryQualify scope (fun n -> n = "A.x" || n = "B.x") "x")
                     (ValueSome "B.x")

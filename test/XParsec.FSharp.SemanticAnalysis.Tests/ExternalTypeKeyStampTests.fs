@@ -7,22 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// NameResolution — the one resolve-once layer — resolves an expression-position
-// external TYPE identity (opens-aware, longest-type-prefix) ONCE and stamps its
-// `SymbolKey` in `Resolution.ResolvedType`, keyed by the applied function's `NodeKey`.
-// Unification's `tryExternalTypeQualifier` / `splitExternalStaticPrefix` /
-// `tryInferExternalCtorApp` READ that stamp and do a key-addressed store-view
-// member/ctor lookup instead of re-running `OpenScope.tryQualify` + a string
-// provider lookup at inference time. A MISSED stamp is a resolution failure (the
-// consumer no longer re-resolves), so these tests assert the stamp is present at
-// the three representative expression positions: a static member on a named type,
-// an external ctor-sugar application, and a generic external-type static qualifier.
-
-/// A provider that knows two external classes in namespace `Tests` (auto-opened via
-/// `AmbientOpenPrefixes`, as the real prelude opens the package namespace): a
-/// non-generic `Tests.Widget` and a generic `Tests.Box`1`. `ofNamedLeaf` derives the
-/// store view, so the consumers that confirm a stamped key's shape by key
-/// (`inferNew`'s Class check) resolve against the same table.
+/// `Tests` is ambient because the real prelude auto-opens the package namespace.
 let private provider: IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedLeaf
         { ExternalSymbolProviders.NamedLeaf.empty with
@@ -55,10 +40,6 @@ let tests =
     testList
         "ExternalTypeKeyStamp"
         [
-            // A folded static-member LongIdent: the qualifier PREFIX (`Widget`) is
-            // stamped in the DEDICATED qualifier table (not `ResolvedType`, so a ctor-app
-            // consumer never mistakes it for a constructible type);
-            // `splitExternalStaticPrefix` reads it and looks the member up by key.
             test "static-member qualifier prefix is stamped" {
                 let ctx, file = analyse "let x = Widget.Make"
                 let e = firstBindingExpr file
@@ -66,8 +47,6 @@ let tests =
                 Expect.isFalse (isStamped ctx e) "a static-member node is NOT a whole-name ResolvedType stamp"
             }
 
-            // The `new`-less ctor-sugar application (`Widget "a"`): `tryInferExternalCtorApp`
-            // reads the type name's stamped key to construct by key.
             test "external ctor-sugar application is stamped" {
                 let ctx, file = analyse "let f = Widget \"a\""
 
@@ -80,9 +59,7 @@ let tests =
                 Expect.isTrue (isStamped ctx fn) "Widget ctor-sugar type key stamped"
             }
 
-            // A generic external-type static qualifier (`Box<int>.Empty`): NameResolution's
-            // `Expr.TypeApp` visit stamps the qualifier name at its exact arity;
-            // `tryExternalTypeQualifier` reads it.
+            // Stamped at the written arity: the provider knows `Box` only as ``Tests.Box`1``.
             test "generic static qualifier name is stamped" {
                 let ctx, file = analyse "let e = Box<int>.Empty"
 
@@ -94,12 +71,8 @@ let tests =
                 Expect.isTrue (isStamped ctx fn) "Box<int> qualifier type key stamped"
             }
 
-            // The `new T(…)` type: the written type `t` is a `Type` node, so it
-            // carries the general written-type verdict (written by
-            // `stampExprEmbeddedTypes`' `Expr.New` arm) — no dedicated `new`
-            // table. `inferNew`'s `TyConst` arm reads that verdict and confirms the
-            // CLASS shape by key instead of re-resolving the written spelling through
-            // opens at inference time (the written-platform-class ctor opt-in).
+            // The type in `new T(…)` is a `Type` node, so it carries the general
+            // written-type verdict — hence `TypeRefVerdicts`, not `ResolvedType`.
             test "new-expression external class is stamped" {
                 let ctx, file = analyse "let w = new Widget(\"a\")"
 
@@ -111,9 +84,6 @@ let tests =
                 Expect.isTrue (isExternalTypeName ctx nameKey) "new Widget(...) type key stamped"
             }
 
-            // A `new` type the provider does not know as a class is not stamped —
-            // `inferNew`'s `TyConst` arm then falls to the intrinsic constructible-surface
-            // path (`new exn "boom"`), never re-resolving a spelling.
             test "unknown new-expression type is not stamped" {
                 let ctx, file = analyse "let w = new Unknown(\"a\")"
 
@@ -125,8 +95,6 @@ let tests =
                 Expect.isFalse (isExternalTypeName ctx nameKey) "unknown new type is not stamped"
             }
 
-            // A name the provider does not know is not stamped — the consumer then
-            // declines (a resolution failure surfaces, it never re-resolves).
             test "unknown external name is not stamped" {
                 let ctx, file = analyse "let x = Unknown.Member"
                 let e = firstBindingExpr file
@@ -134,19 +102,9 @@ let tests =
                 Expect.isFalse (isStaticQualifier ctx e) "unknown name is not a qualifier-prefix stamp"
             }
 
-            // THE CLASSIFICATION RULE, pinned. A written name is classified against the
-            // external universe ONCE: the first hit in candidate order IS what the name
-            // names, and only then is its shape checked. It does NOT keep probing past a
-            // hit whose shape a particular consumer happens to dislike.
-            //
-            // Here `Thing` is a UNION under the higher-priority open and a CLASS under
-            // the lower-priority one. Under first-hit-wins the name means the union, so
-            // the ctor-sugar class stamp is absent — even though a class of that name is
-            // reachable. A shape-FILTERED scan would instead skip the union and stamp the
-            // shadowed class, i.e. resolve one spelling to a different entity than the
-            // suppression logic saw. That disagreement is the whole thing the
-            // resolve-once layer exists to make impossible, so the shadowed class must
-            // stay shadowed.
+            // The first hit in candidate order IS what the name names; its shape is
+            // checked only afterwards. `Thing` is a union under `Early` and a class under
+            // `Late`, so it names the union and no constructible-class stamp appears.
             test "classification commits to the first hit — a shadowed class stays shadowed" {
                 let shadowingProvider: IExternalSymbolProvider =
                     ExternalSymbolProviders.ofNamedLeaf
@@ -178,8 +136,6 @@ let tests =
                     (isStamped ctx fn)
                     "`Thing` names the UNION under the winning open — it is not stamped as a constructible class"
 
-                // It still resolves to *something* external, so it is not diagnosed as an
-                // unresolved name: the suppression reads the same one hit the stamp did.
                 Expect.isFalse
                     (ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Unresolved"))
                     "the name resolves externally (to the union), so no unresolved-name diagnostic"

@@ -4,10 +4,9 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The front end now ELABORATES an inline intrinsic-abbrev
-// augmentation `type X = (# "repr" #) with member _.M p = (# … #)` into a
-// liftable `TDecl.Type(Class)` carrying `this`-first member bodies, while KEEPING
-// the abbrev's `TyConst` identity (it stays intrinsic at every other use site).
+// An inline intrinsic-abbrev augmentation `type X = (# "repr" #) with member _.M p =
+// (# … #)` elaborates to a liftable `TDecl.Type(Class)` of `this`-first member bodies,
+// while `X` keeps its `TyConst` identity at every other use site.
 
 let private analyse (input: string) : TastFile =
     let lexed, file = parseFile input
@@ -29,8 +28,6 @@ let tests =
     testList
         "ExternMemberElab"
         [
-            // 2a: the impl elaborates to a `TDecl.Type(Class)` whose `Poke` member is
-            // an instance `this`-first member with an `ILIntrinsic` body and one param.
             test "inline intrinsic-abbrev with member elaborates to a Class TDecl.Type" {
                 let tast = analyse widgetSource
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -72,13 +69,9 @@ let tests =
                     | other -> failtestf "expected TTypeKind.Class, got %A" other
             }
 
-            // Identity: a reference to `widget` as a type elsewhere resolves to
-            // `TyConst "widget"` (still intrinsic) — NOT `TyClass` — and to the SAME
-            // key the member self-type carries. `widget` is declared in `module Widgets`
-            // (a NON-`Vesper` namespace), so its contract-sourced key is `Widgets.widget`;
-            // the self-type mint must route through `intrinsicKeyOf` too, else it would
-            // hardcode `Vesper.widget` (`primitiveKey name`) and split-brain the identity.
-            // Asserting FULL-key equality (not just `simpleName`) is what catches that.
+            // `widget` is declared in `module Widgets`, so its key is `Widgets.widget`; a
+            // self-type minted as `Vesper.widget` would split the identity in two. Full-key
+            // equality, not `simpleName`, is what catches that.
             test "a `widget`-typed reference resolves to the member self-type key, not a Vesper twin" {
                 let tast = analyse widgetSource
 
@@ -90,7 +83,6 @@ let tests =
                         | _ -> None
                     )
 
-                // The self-type key the elaborated member's `ThisTy` carries.
                 let selfKey =
                     EqArray.toList tast.Decls
                     |> List.tryPick (fun d ->
@@ -111,7 +103,6 @@ let tests =
                 match selfKey with
                 | None -> failtestf "no widget member self-type key found, decls: %A" tast.Decls
                 | Some sk ->
-                    // Contract-sourced, NOT the hardcoded `Vesper.widget` twin.
                     Expect.notEqual
                         (SymbolKeyOps.qualifiedName sk)
                         "Vesper.widget"
@@ -125,12 +116,8 @@ let tests =
                     | None -> failtestf "no `idW` let decl found, decls: %A" tast.Decls
             }
 
-            // The SRTP arm reaches a DECLARED operator on an intrinsic. `widget` is not a
-            // numeric primitive, so the unifier's operator-name synthesis declines it
-            // outright — before this arm existed, `w + w` reported "widget has no
-            // built-in static member op_Addition". Resolving now can only mean the
-            // declaration on the type was found, which is what makes this a probe of the
-            // lookup rather than a restatement of the synthesis.
+            // `widget` is not a numeric primitive, so operator-name synthesis declines it:
+            // `a + b` can only resolve through the operator declared on the type.
             test "an operator declared on an intrinsic satisfies the SRTP bound" {
                 let source =
                     "module Widgets\n\
@@ -154,8 +141,6 @@ let tests =
                         | _ -> None
                     )
 
-                // The bound dispatched to the declared `widget * widget -> widget`, so
-                // the result grounds as `widget` — not a parked TyVar.
                 match addWTy with
                 | Some(TyFun(TyConst _, TyFun(TyConst _, TyConst(k, _)))) ->
                     Expect.equal (SymbolKeyOps.simpleName k) (DisplayName "widget") "addW returns widget"
@@ -163,10 +148,6 @@ let tests =
                 | None -> failtestf "no `addW` let decl found, decls: %A" tast.Decls
             }
 
-            // The `.fs` half of the `member inline` constraint. The host has no
-            // representation in the output to hang a method on, so a member on it can only
-            // be spliced; without `inline` the use site would call a method that is never
-            // emitted. Its `.fsi` counterpart is asserted in `SignatureExtractorTests`.
             test "a member on an intrinsic host must be declared inline" {
                 let bad =
                     "module Widgets\n\
@@ -186,8 +167,6 @@ let tests =
                 Expect.isTrue diagnosed (sprintf "the member-inline diagnostic fired; got %A" tast.Diagnostics)
             }
 
-            // The parser gives `override`/`default` no `inline` token at all, so asking a
-            // member on a table-less host to be inline is a remedy it cannot take.
             test "an override on an intrinsic host is rejected outright, not asked for inline" {
                 let bad =
                     "module Widgets\n\
@@ -211,8 +190,6 @@ let tests =
                     "an override is not asked to be inline — the parser gives it no inline token"
             }
 
-            // A secondary constructor's body must be emitted as a real `.ctor`, which needs
-            // a type in the output; `inline` cannot splice it away.
             test "a secondary constructor on an intrinsic host is rejected" {
                 let bad =
                     "module Widgets\n\
@@ -232,8 +209,7 @@ let tests =
                 Expect.isTrue diagnosed (sprintf "the constructor diagnostic fired; got %A" tast.Diagnostics)
             }
 
-            // Guardrail: a transparent-alias abbrev with members (non-ILIntrinsic RHS)
-            // is rejected with a diagnostic.
+            // `type bad = int` is a transparent alias: an ILIntrinsic RHS is what admits members.
             test "a transparent-alias abbrev with members is rejected" {
                 let bad =
                     "module Bad\n\

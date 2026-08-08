@@ -184,7 +184,6 @@ let tests =
             }
 
             test "let rec: self-reference resolves" {
-                // Without `rec`, the inner `f` would be unresolved (or shadowed).
                 let tast = analyse "let rec f x = if x = 0 then 0 else f (x - 1)"
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
@@ -340,9 +339,8 @@ let tests =
             }
 
             test "`fun _ -> 0` types as 'a -> int" {
-                // The wildcard's TypeVar stays free, so the function type is
-                // 'a -> int. We just check that the body returns int and no
-                // diagnostics fired.
+                // The domain stays a free TypeVar with no stable name, so only the
+                // return is assertable.
                 let tast = analyse "let k = fun _ -> 0"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 

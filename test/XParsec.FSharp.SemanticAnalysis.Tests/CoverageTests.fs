@@ -8,8 +8,7 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// Every instance/static method-call key in the file's value bindings, in a pre-order
-/// walk — the identity the total-key mint stamps on `MethodCall` / `StaticMethodCall`.
+/// Every instance/static method-call key in the file's value bindings, in pre-order.
 let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
     let calls = ResizeArray<SymbolKey>()
 
@@ -32,7 +31,6 @@ let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
 
     calls
 
-/// The file's single class declaration.
 let private soleClass (tast: TastFile) : TClass =
     let found =
         [
@@ -50,8 +48,7 @@ let private soleClass (tast: TastFile) : TClass =
     | other -> failwithf "expected exactly one class declaration, got %d" (List.length other)
 
 let private declType (tast: TastFile) : SemType =
-    // A surfaced `TDecl.Type` (unions) is ignored here — these tests
-    // assert the *value* binding's inferred type.
+    // A surfaced `TDecl.Type` is ignored: the assertion is about the value binding.
     let valueDecls =
         EqArray.toList tast.Decls
         |> List.filter (fun d ->
@@ -64,10 +61,9 @@ let private declType (tast: TastFile) : SemType =
     | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
-/// A range materialises no seq value in this compiler, so it is legal ONLY as the
-/// direct source of a `for i in a..b do` counted loop; using one as a first-class
-/// value (or a stepped range, which has no counted lowering) is rejected at
-/// elaboration (`ElaborateExpr`).
+/// A range materialises no seq value, so it is legal ONLY as the direct source of a
+/// `for i in a..b do` counted loop; a first-class range value, or a stepped range
+/// (which has no counted lowering), is rejected at elaboration.
 let private hasRangeValueError (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "first-class value")
 
@@ -212,8 +208,7 @@ let tests =
             }
 
             test "`x <- y` types as file" {
-                // The LHS must be a mutable binding (otherwise Validation flags it —
-                // see ValidationTests).
+                // The LHS must be a mutable binding, or validation flags the write.
                 let tast = analyse "let r = let mutable x = 0 in x <- 1"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
@@ -361,9 +356,8 @@ let tests =
             }
 
             test "range constrains adjacent context: `let r = (1..n) ; n + 0` forces n : int" {
-                // The variable `n` flows through both the range endpoint (forcing int)
-                // and the use site `n + 0` (also int) — the endpoint constraint holds
-                // even though binding the range to `r` is itself rejected as a value.
+                // `n` flows through both the range endpoint and the use site `n + 0`, so
+                // the endpoint constraint holds even though binding `r` is itself rejected.
                 let tast = analyse "let f n = let r = 1..n in n + 0"
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
@@ -467,8 +461,7 @@ let tests =
             test "record literal TAST shape" {
                 let tast = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
 
-                // `type R = { … }` surfaces as a `TDecl.Type`, so the value binding
-                // is the *second* decl.
+                // `type R = { … }` surfaces as a `TDecl.Type`, so `r` is the second decl.
                 let resultDecl =
                     match tast.Decls with
                     | EqList [ _; d ] -> d
@@ -509,7 +502,7 @@ let tests =
                 let tast =
                     analyse "type R = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet q = { p with Y = 5 }"
 
-                // The type decl now surfaces too — [type; p; q].
+                // The type decl surfaces too — [type; p; q].
                 let qDecl =
                     match tast.Decls with
                     | EqList [ _; _; d ] -> d
@@ -752,8 +745,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // `TypeDefn.Class` surfaces as `TDecl.Type` with `TTypeKind.Class`
-            // carrying the ctor params and member list.
             test "TAST: class surfaces as TTypeKind.Class" {
                 let tast =
                     analyse "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y"
@@ -818,8 +809,6 @@ let tests =
                 | TTypeKind.Class c ->
                     Expect.equal c.CtorParams.Length 1 "one ctor param"
                     Expect.equal (c.CtorParams.[0].Name) "value" "ctor param name"
-                    // The declaring typar freezes to `TyTypar(Declaring, 0)`, which
-                    // the backend reads as a `GenericTypeParameter` index.
                     Expect.equal (c.CtorParams.[0].Type) (TyTypar(TyparAxis.Declaring, 0)) "ctor param type marker"
                     Expect.equal c.Members.Length 1 "one member"
                     Expect.equal (c.Members.[0].Name) "Value" "member name"
@@ -829,8 +818,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // A `static let` surfaces in the class's static preamble with its
-            // inferred type, and a member reference to it lowers to `TExpr.StaticFieldGet`.
             test "TAST: `static let` surfaces in TTypeKind.Class.StaticPreamble" {
                 let tast = analyse "type C() =\n    static let x = 42\n    static member Get () = x"
 
@@ -865,11 +852,6 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // `static let` on a *generic* class is now
-            // supported — the field rides the open generic `TypeDefinition` (one per
-            // closed instantiation, `.cctor`-initialised) and codegen mints the
-            // read/store as a `MemberRef` on the self-`TypeSpec`. The front-end no
-            // longer rejects it; it surfaces in the static preamble like the mono case.
             test "TAST: `static let` on a generic class surfaces with no diagnostic" {
                 let tast =
                     analyse "type Box<'a>() =\n    static let x = 42\n    static member Get () = x"
@@ -894,9 +876,8 @@ let tests =
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
             }
 
-            // A preamble binding carries `argumentPats`, so `let f x = …` binds a FUNCTION
-            // value — reading only the bound pattern and taking the bare body as the
-            // initialiser would register `f` as an `int` whose value is `x + 1`.
+            // A preamble binding carries its argument patterns, so `let f x = …` binds a
+            // FUNCTION value — `int -> int`, not an `int` whose value is `x + 1`.
             test "TAST: a preamble `let f x = …` surfaces as a function value" {
                 let tast =
                     analyse "type C() =\n    static let f x = x + 1\n    static member Get () = f 1"
@@ -916,9 +897,8 @@ let tests =
                     | other -> failtestf "expected one static let, got %A" other
             }
 
-            // An instance `let` is a private instance field: the same lowering a primary-ctor
-            // param gets. So its initialiser reads the ctor param through `this`, and a member
-            // reads the bound variable through `this` — codegen never sees either bound variable's NodeKey.
+            // An instance `let` is a private instance field, the same lowering a primary-ctor
+            // param gets: both its initialiser and every member read go through `this`.
             test "TAST: an instance `let` surfaces in InstancePreamble and lowers to a field" {
                 let tast = analyse "type C(x: int) =\n    let a = x + 1\n    member _.A = a"
 
@@ -940,9 +920,9 @@ let tests =
                 | other -> failtestf "expected a FieldGet body, got %A" other
             }
 
-            // A preamble `let mutable` IS the field, so a write to it must be a field STORE —
-            // never a `TExpr.Let` bound variable, which `RefCellPromotion` would promote to a ref cell
-            // and fork the storage away from the field every member reads.
+            // A preamble `let mutable` IS the field, so a write must be a field STORE: a
+            // `TExpr.Let` bound variable would be promoted to a ref cell, forking the
+            // storage away from the field every member reads.
             test "TAST: a write to an instance `let mutable` lowers to a FieldSet" {
                 let tast =
                     analyse "type C() =\n    let mutable c = 0\n    do c <- c + 1\n    member _.Bump () = c <- c + 1"
@@ -968,9 +948,6 @@ let tests =
                 | other -> failtestf "expected a FieldSet body, got %A" other
             }
 
-            // A `new(...)` overload surfaces in `TTypeKind.Class.secondaryCtors`
-            // with its params and the primary-ctor chain arguments; the primary ctor
-            // list is unaffected.
             test "TAST: secondary constructor surfaces in TTypeKind.Class.secondaryCtors" {
                 let tast = analyse "type C(x: int) =\n    new() = C(0)\n    member this.X = x"
 
@@ -996,9 +973,8 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // A `base.M(...)` access carries the `CallVia.Base` discriminator so
-            // codegen emits a non-virtual `call` against the parent slot; an
-            // ordinary `this.M(...)` stays `CallVia.Self`.
+            // A `base.M(...)` access carries `CallVia.Base` (a non-virtual call against
+            // the parent slot); an ordinary `this.M(...)` stays `CallVia.Self`.
             test "TAST: `base.M ()` carries CallVia.Base" {
                 let tast =
                     analyse
@@ -1079,11 +1055,8 @@ let tests =
                 Expect.stringContains (TastShape.prettyDecl last) ":?> D" "downcast rendered"
             }
 
-            // A nullable-reference source `T | null` downcasts EXACTLY as its non-null
-            // part `T` (reference-null erasure). `obj | null` downcasts like `obj`,
-            // which HAS proper subtypes, so `(x: obj | null) :?> C` is admitted — the
-            // `objnull ≡ obj` ABI story; mirrors `Vesper.Set`'s `(that: objnull) :?>
-            // Set<'T>`.
+            // `T | null` downcasts EXACTLY as its non-null part `T`. `obj` HAS proper
+            // subtypes, so `(x: obj | null) :?> C` is admitted.
             test "`:?>` from `obj | null` is permitted (downcasts as `obj`)" {
                 let tast =
                     analyse "type C() =\n    member this.X = 1\nlet g (x: obj | null) = x :?> C\n"
@@ -1091,9 +1064,8 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "nullable-obj downcast is admitted"
             }
 
-            // `string | null` downcasts as `string`, which is sealed / has no proper
-            // subtypes, so the coercion is impossible — matching F#'s FS0016 ("does not
-            // have any proper subtypes"). The `null` member does NOT rescue it.
+            // `string | null` downcasts as `string`, which is sealed, so the coercion is
+            // impossible (F#'s FS0016). The `null` member does NOT rescue it.
             test "`:?>` from `string | null` is rejected (downcasts as sealed `string`)" {
                 let tast =
                     analyse "type C() =\n    member this.X = 1\nlet g (x: string | null) = x :?> C\n"
@@ -1112,12 +1084,9 @@ let tests =
                 Expect.stringContains (TastShape.prettyDecl last) ":? D" "type test rendered"
             }
 
-            // --- Numeric spelling aliases resolve-through-alias to their canonical
-            // intrinsic identity (no distinct `TyConst`). A written alias annotation
-            // (`int8`) unifies cleanly with the canonical literal (`5y : sbyte`),
-            // proving `Translate.tryResolveExternalType` dealiases the abbreviation to
-            // the canon `TyConst` a literal produces — a mismatch here would mean the
-            // alias leaked as its own identity.
+            // --- Numeric spelling aliases dealias to their canonical intrinsic identity:
+            // a written `int8` annotation unifies with the canonical literal `5y : sbyte`.
+            // A mismatch would mean the alias leaked as a `TyConst` of its own.
 
             let aliasResolvesTo (src: string) (canonical: SemType) (label: string) =
                 let tast = analyse src
@@ -1148,13 +1117,9 @@ let tests =
                 aliasResolvesTo "let r = (5.0 : double)" BuiltinTypes.tyFloat "double = float"
             }
 
-            // A written `bigint` annotation resolves to the CONTRACT intrinsic
-            // (`prim-types-bigint`, canon `Vesper.bigint`) — before its contract landed the
-            // name fell to an opaque `TyConst(ns="")`. The identity is read off the resolved
-            // shape via the provider, not minted front-end. (A bigint LITERAL like `42I` is a
-            // custom numeric literal — F#'s `NumericLiteralI`, a CONSTRUCTED value — not a
-            // primitive constant, so it can't freeze via `parseConst`; that mechanism is its
-            // own pending stage. Annotation-only here so it exercises just the type contract.)
+            // A written `bigint` annotation resolves to the CONTRACT intrinsic (canon
+            // `Vesper.bigint`) read off the resolved shape via the provider, not to an
+            // opaque `TyConst(ns="")`. Annotation only: `42I` is a custom numeric literal.
             test "written `bigint` annotation resolves to the contract intrinsic" {
                 let tast = analyse "let f (x: bigint) = x"
 
@@ -1169,10 +1134,8 @@ let tests =
             }
 
             test "an overloaded user member call carries a total, overload-distinguishing key" {
-                // The two `Show` calls must lower to `MethodCall` nodes whose keys DIFFER —
-                // the frozen `MemberKey.ArgSig` distinguishes `Show(int)` from `Show(string)`.
-                // Freeze reads the inference-recorded key verbatim (no re-pick), so the
-                // elaborated tree already carries the distinguishing identity.
+                // The two `Show` calls lower to `MethodCall` nodes whose keys DIFFER: the
+                // frozen `MemberKey.ArgSig` distinguishes `Show(int)` from `Show(string)`.
                 let tast =
                     analyse
                         "type Printer() =\n    member this.Show(x: int) = x\n    member this.Show(x: string) = true\nlet p = Printer()\nlet a = p.Show(1)\nlet b = p.Show(\"hi\")"
@@ -1214,9 +1177,8 @@ let tests =
             }
 
             test "a non-overloaded local instance method call mints a TOTAL member key" {
-                // No overload set, so no `LocalMemberCall` handshake: the fallback mints
-                // from the resolved member itself. Its `ArgSig` type is the DECLARED
-                // parameter type (`int`), not the retired `FTUnknown ""` placeholder, and
+                // No overload set, so the fallback mints from the resolved member itself:
+                // `ArgSig` is the DECLARED parameter type `int`, never a placeholder, and
                 // `MethodTyparArity` is the member's real `0`.
                 let tast =
                     analyse "type C() =\n    member this.Inc (x: int) = x + 1\nlet f (c: C) = c.Inc(3)"
@@ -1260,10 +1222,8 @@ let tests =
             }
 
             test "an interface-dispatched method call mints a TOTAL member key" {
-                // `'T :> IShow` coerces the object argument's typar to a local interface, so the call
-                // lowers through `mkInterfaceMethodCall` — its key must resolve the member on
-                // the interface (the local-registry arm of the shared minter), total by
-                // construction like every other method mint.
+                // `'T :> IShow` coerces the object argument's typar to a local interface,
+                // so the key must resolve `Show` on the INTERFACE, not on the typar.
                 let tast =
                     analyse
                         "type IShow =\n    abstract member Show: int -> int\nlet f (x: 'T when 'T :> IShow) = x.Show(1)"
@@ -1283,15 +1243,8 @@ let tests =
             }
 
             // --- `totalMemberKey` EXTERNAL arm: operand-precise overload discrimination ---
-            //
-            // The external arm was minting through `IExternalSymbolStore.TryLookupMember`
-            // (singular), which collapses an overload set to a best-by-arity pick — arbitrary
-            // among SAME-arity overloads. These drive the minter directly against a stub
-            // provider whose `M` carries two same-arity overloads distinguished only by operand
-            // type; no green end-to-end path forms a same-arity EXTERNAL overload set (BCL calls
-            // resolve to `TExpr.ExternalMember` at inference; the mk* arm's live external
-            // consumers are SRTP-trait / interface dispatch, and the contract stack ships no
-            // heterogeneous same-arity operator), so this closes that coverage gap at the seam.
+            // A singular lookup collapses an overload set to an arbitrary best-by-arity pick,
+            // so the stub gives `M` two same-arity overloads differing only in operand type.
             let extDeclKey = SymbolKeyOps.qualifiedTypeKeyOf "Vec2" 0
             let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
             let stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
@@ -1307,11 +1260,9 @@ let tests =
                     Signature = TestHelpers.mkSignature 0 0 (FTTuple ps) unitFt
                 }
 
-            // A `PassContext` whose provider is the stub `leaf` layered OVER `realProvider`
-            // (`Vec2` is answered by the stub; the primitives / ambient opens the passes need
-            // fall through to the real contract stack). `Vec2` is NOT a local type, so
-            // `totalMemberKey` takes the external arm. The passes run over the trivial file so
-            // the intrinsics / registries the picker reads are initialised.
+            // The stub `leaf` layered OVER `realProvider`: `Vec2` is answered by the stub,
+            // everything else falls through. `Vec2` is NOT a local type, so `totalMemberKey`
+            // takes the external arm. The trivial file initialises what the picker reads.
             let extCtx (leaf: ExternalSymbolProviders.NamedLeaf) : PassContext =
                 let provider =
                     ExternalSymbolProviders.composite [ ExternalSymbolProviders.ofNamedLeaf leaf; realProvider.Value ]
@@ -1334,8 +1285,7 @@ let tests =
                             TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "M" then ValueSome mII else ValueNone)
                         }
 
-                // No ground operands ⇒ keep the best-by-arity single: the exact pre-picker
-                // behaviour (the collapsing singular pick, here `M(int, int)`).
+                // No ground operands ⇒ keep the best-by-arity singular pick, `M(int, int)`.
                 let collapsed = LocalMemberKeys.totalMemberKey ctx extDeclKey "M" ValueNone
 
                 Expect.equal
@@ -1343,8 +1293,7 @@ let tests =
                     (ValueSome(SymbolKey.Member mII.Key))
                     "ValueNone operands keep the singular collapse"
 
-                // Ground operands `(int, string)` select `M(int, string)` — the overload the
-                // collapse would have MISSED.
+                // Ground operands `(int, string)` select the overload the collapse MISSES.
                 let operands =
                     LocalMemberKeys.externalOperands ctx.Store [||] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
 
@@ -1354,9 +1303,8 @@ let tests =
             }
 
             test "the external arm preserves the singular pick for a non-overloaded member" {
-                // A name with ONE overload: `TryLookupMembers` returns a singleton, so the mint
-                // is forced and equals `TryLookupMember`'s — byte-identical to the pre-picker
-                // mint, operands or not.
+                // A name with ONE overload: `TryLookupMembers` returns a singleton, so the
+                // mint is forced and equals `TryLookupMember`'s, operands or not.
                 let m1 =
                     { ExternalMember.OfKey(
                           SymbolKeyOps.memberKeyOf extDeclKey "N" (EqArray.singleton intFt) 0 MemberKind.Method
@@ -1389,10 +1337,8 @@ let tests =
             }
 
             test "a method call's key carries its real MethodTyparArity, not the collapsed 0" {
-                // The placeholder hardcoded `MethodTyparArity = 0` for EVERY method, so
-                // `M<'a>` and `M<'a, 'b>` (the axis that tells generic-arity overloads apart)
-                // minted colliding keys. The total mint reads the member's real method-typar
-                // count: a generic `Id<'a>` keys with arity 1, a non-generic `Plain` with 0.
+                // `MethodTyparArity` is what tells `M<'a>` and `M<'a, 'b>` apart: the mint
+                // reads the member's real count, so `Id<'a>` keys 1 and `Plain` keys 0.
                 let tast =
                     analyse
                         "type C() =\n    member this.Id<'a> (x: 'a) = x\n    member this.Plain (x: int) = x\nlet c = C()\nlet a = c.Id(3)\nlet b = c.Plain(4)"

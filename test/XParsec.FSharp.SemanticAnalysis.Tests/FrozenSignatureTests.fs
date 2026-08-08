@@ -7,15 +7,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The frozen-implementation-file → `IExternalSymbolProvider` projection: file N's
-// inferred signature as a provider view, so file N+1 resolves N's exports by name
-// with no DLL emitted. Asserts against the provider INTERFACE (both views), never
-// the projector's internal tables; identities are read out of the frozen file (the
-// projection's INPUT) and the provider is asked to answer them.
+// inferred signature as a provider view, so file N+1 resolves N's exports with no DLL
+// emitted. Identities are read out of the frozen file and the provider asked to answer.
 
-/// The pooled file as the `Frozen.TastFile` DU. The assertions below read whole decl
-/// trees and the bound-variable-keyed side tables, which is what `ofPools` re-authors
-/// verbatim — the projection's INPUT is the pools, but its shape reads most directly
-/// here.
+/// The pools re-authored as the `Pooled.TastFile` DU, so the assertions can read whole
+/// decl trees and the bound-variable-keyed side tables.
 let private duOf (frozen: FrozenPools) : Pooled.TastFile = TastUnpool.ofPools frozen
 
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
@@ -36,10 +32,8 @@ let private membersOfType (frozen: FrozenPools) (name: string) : Pooled.TTypeMem
         | _ -> None
     )
 
-/// Every module-level binding's `(source name, SymbolKey)`. An `inline` binding is
-/// EMITTED as an ordinary module function AND published as a template, so it rides both
-/// `Decls` and the inline vocabulary; the two halves are unioned and deduplicated by the
-/// callers' `List.find`.
+/// Every module-level binding's `(source name, SymbolKey)`. An `inline` binding rides
+/// BOTH `Decls` and the inline vocabulary, so the concatenation can list it twice.
 let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
     let file = duOf frozen
 
@@ -70,9 +64,8 @@ let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
 let private bindingKey (frozen: FrozenPools) (name: string) : SymbolKey =
     moduleBindings frozen |> List.find (fun (n, _) -> n = name) |> snd
 
-/// The grouping SHAPE of a `ValRepr` — one integer per curried group (`0` = lone
-/// `file`, `1` = simple, `N` = a tuple of `N`). Typar-axis-independent, so it pins
-/// the curried/tupled/mixed grouping without depending on primitive canon keys.
+/// One integer per curried group (`0` = a `unit` group, `1` = simple, `N` = a tuple of
+/// `N`), so it pins the curried/tupled/mixed grouping without naming any type.
 let private groupShape (vr: TastAccessor.ValRepr voption) : int list option =
     match vr with
     | ValueNone -> None
@@ -222,8 +215,8 @@ let tests =
             test "IntrinsicForwardRepr passes this file's IntrinsicReprKeys through verbatim" {
                 let origin, frozen = freezeWithOrigin projectionSrc
                 let store = FrozenSignature.toProvider origin frozen :> IExternalSymbolStore
-                // A plain impl file declares no intrinsics, so the forward axis is its
-                // (empty) `IntrinsicReprKeys` — the wiring is the assertion.
+                // A plain impl file declares no intrinsics, so both sides are empty and the
+                // wiring is all that is asserted.
                 Expect.equal
                     (Seq.length store.IntrinsicForwardRepr)
                     (Seq.length frozen.Residue.IntrinsicReprKeys)
@@ -231,12 +224,8 @@ let tests =
             }
 
             // --- parity oracle: projected ExternalSymbol ≡ the .fsi-extracted one -------
-            //
-            // The `schemesAgree` / `normAxis` style: the projection reads a frozen `.fs`,
-            // the extractor reads the matching `.fsi`; for the same signature the two must
-            // agree on typar arity, axis-normalized scheme, and `ValRepr` grouping. Covers
-            // mono / generic value, curried / tupled / mixed function, an operator, and a
-            // nested-module binding.
+            // The projection reads a frozen `.fs`, the extractor the matching `.fsi`; for one
+            // signature the two must agree on typar arity, scheme, and `ValRepr` grouping.
 
             test "projected symbols agree with the .fsi-extracted ones (schemesAgree oracle)" {
                 let implSrc =
@@ -336,11 +325,8 @@ module M =
                 Expect.isGreaterThanOrEqual checked' 7 "all parity bindings compared"
             }
 
-            // --- reverse record-field index (`TryRecordsWithField`) ---------------------
-            //
-            // The record analogue of the union-case index: a `field-name -> [records]`
-            // MULTIMAP. Asserts the resolver view only, against each candidate's identity
-            // (`TypeKey` / `TyparArity` / `FieldNames`), never object identity.
+            // --- reverse record-field index ---------------------------------------------
+            // `TryRecordsWithField` is a `field-name -> [records]` MULTIMAP, not first-wins.
 
             test "TryRecordsWithField indexes each record under every field name" {
                 let src =
@@ -372,13 +358,9 @@ module M =
                 Expect.equal (resolver.TryRecordsWithField "Z") [||] "unknown field 'Z' has no candidates"
             }
 
-            // --- enum projection (`ExternalTypeShape.Enum`) --------------------------------
-            //
-            // A frozen enum projects its closed case→literal table to an `Enum` shape under
-            // its nominal key, so a later file resolves `(x: E)` / `E.Ci` against it (was
-            // left unregistered — a nominal `TyConst` fallback). Numeric and string cases
-            // carry their compile-time value; the numeric width is intentionally dropped
-            // (`ExternalEnumCaseValue` has none).
+            // --- enum projection: a frozen enum's case→literal table projects to an `Enum`
+            // shape under its nominal key, so a later file resolves `(x: E)` / `E.Ci`. The
+            // numeric width is dropped — `ExternalEnumCaseValue` is `int64` or `string`.
 
             test "numeric enum projects its cases with int64 values under home origin" {
                 let src =

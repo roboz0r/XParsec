@@ -196,12 +196,8 @@ let tests =
 
         ]
 
-// Every pass — not just Elaborate — walks `namespace`-rooted files, so
-// declarations under a `namespace` are fully analysed (name-resolved,
-// inferred, frozen) exactly like a module file. Earlier, Desugar /
-// NameResolution / Unification / Regions / Validation dropped namespace
-// files, so a `let` under a `namespace` silently froze to an untyped /
-// unresolved TAST.
+// Every pass walks `namespace`-rooted files, so a `let` under a `namespace` is
+// name-resolved, inferred and frozen exactly as in a module file.
 [<Tests>]
 let namespaceTests =
     testList
@@ -234,10 +230,9 @@ let namespaceTests =
             }
 
             test "name resolution + inference run across namespace elements" {
-                // `y`'s body references the earlier `x`; it only resolves and
-                // types if NameResolution and Unification actually walked the
-                // namespace. Asserting the namespace form matches the module form
-                // locks that in without hard-coding the freshly-named TAST rendering.
+                // `y`'s body references the earlier `x`, so it types only if the passes walked
+                // the namespace. Comparing against the module form avoids hard-coding the
+                // freshly-named TAST rendering.
                 let nsForm = analyse "namespace Foo\n\nlet x = 1\nlet y = x + 1"
                 let modForm = analyse "let x = 1\nlet y = x + 1"
 
@@ -255,12 +250,8 @@ let namespaceTests =
             }
         ]
 
-// Every pass + Elaborate descend into a nested `module Foo = …`. Its body is
-// flattened to the enclosing scope (v1 has no module-scoped types), the same
-// simplification `CstWalk.implFileElems` applies to namespace groups. Earlier
-// the analysis passes never descended into `ModuleElem.Module` (Validation
-// `failwith`'d on it) and Elaborate dropped the body, so a `let` inside a nested
-// module silently vanished.
+// A nested `module Foo = …` is descended into and its body flattened to the enclosing
+// scope, the same simplification applied to namespace groups.
 [<Tests>]
 let nestedModuleTests =
     testList
@@ -280,10 +271,8 @@ let nestedModuleTests =
             }
 
             test "name resolution + inference run inside the nested module body" {
-                // `y`'s body references the outer `top`; it only resolves and
-                // types if NameResolution and Unification actually descended into
-                // the nested module (both dropped it before this slice). Inferring
-                // `y : int` (not a free TyVar) proves Unification walked the body.
+                // `y`'s body references the outer `top`, and inferring `y : int` rather than a
+                // free TyVar is what shows the passes descended into the nested module.
                 let tast = analyse "let top = 1\nmodule Inner =\n    let y = top + 1"
 
                 Expect.equal tast.Decls.Length 2 "top + the nested binding"
@@ -306,10 +295,8 @@ let nestedModuleTests =
             }
 
             // The DECL flattens; the CONTAINMENT does not. A binding's container is the whole
-            // chain of modules it is written in — the same chain a type declared there gets
-            // (`SymbolKeyTests`, "a NESTED module produces a nested InModule chain"), because
-            // both read `ModuleRules.containerChain`. Dropping the outer module here would give
-            // one source location two containments depending on what was declared in it.
+            // chain of modules it is written in, the same chain a type declared there gets —
+            // otherwise one source location would have two containments.
             test "a binding in a nested module is held by the WHOLE module chain" {
                 let tast =
                     analyse "namespace N\n\nmodule A =\n    module B =\n        let f (x: int) = x + 1"
@@ -357,22 +344,17 @@ let nestedModuleTests =
             }
         ]
 
-// An interface-shaped `TypeDefn.Anon` surfaces as
-// `TDecl.Type` whose method signatures are read from the *resolved* member types
-// in `ctx.Types.Class` (NameResolution registers the abstract member; Unification
-// fills its signature), with the declaring typars remapped to the `TyConst("'A", EqArray.empty)`
-// markers the backend consumes. Elaborate no longer re-translates the CST signature.
+// An interface-shaped type surfaces as a `TDecl.Type` whose method signatures come from the
+// RESOLVED member types, not from a re-translation of the CST signature.
 [<Tests>]
 let interfaceTests =
     testList
         "InterfaceFreeze"
         [
             test "`Fun` interface freezes to TDecl.Type with the resolved Invoke signature" {
-                // `Vesper.Fun` is Vesper.Core's OWN type, and the provider mounts Vesper.Core's
-                // contract — so this file must be compiled AS Vesper.Core. A file is allowed to
-                // declare the types its own contract publishes (that is what compiling it means);
-                // any other assembly name here is the CS0433 analogue
-                // (`claimTypeIdentity`'s external-claim diagnostic).
+                // `Vesper.Fun` is Vesper.Core's OWN type and the provider mounts Vesper.Core's
+                // contract, so this file must be compiled AS Vesper.Core: only the declaring
+                // assembly may declare the types its contract publishes.
                 let src =
                     "namespace Vesper\n\ntype Fun<'A, 'B> =\n    abstract member Invoke: arg: 'A -> 'B"
 
@@ -381,8 +363,6 @@ let interfaceTests =
                 let tast =
                     Pipeline.analyseSemFor "Vesper.Core" realProvider.Value (Hashing.originSourceOfText lexed) file
 
-                // Registering the abstract member (rather than rejecting it with a
-                // "member kind not supported" error) means a clean analysis.
                 Expect.isEmpty tast.Diagnostics "no diagnostics for an abstract member"
 
                 match tast.Decls with
@@ -395,7 +375,7 @@ let interfaceTests =
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Invoke" "method name"
                         Expect.isTrue m.MethodTypeParams.IsEmpty "Invoke has no method typars"
-                        // 'A -> 'B, declaring typars as frozen `TyTypar(Declaring, i)`.
+
                         Expect.equal
                             m.Signature
                             (TyFun(TyTypar(TyparAxis.Declaring, 0), TyTypar(TyparAxis.Declaring, 1)))
@@ -404,11 +384,9 @@ let interfaceTests =
                 | other -> failtestf "expected single TDecl.Type, got %A" other
             }
 
-            // An abstract method may carry its *own* generic parameters
-            // (`abstract Map<'B> : 'A -> 'B`). Its `'B`
-            // is no longer diagnosed as a free typar; it surfaces on the method as
-            // `MethodTypeParams` and rides the signature as a `TyConst("'B", EqArray.empty)` marker,
-            // distinct from the declaring type's `'A`.
+            // An abstract method may carry its OWN generic parameters (`abstract Map<'B> : 'A ->
+            // 'B`). `'B` is not a free typar: it surfaces in `MethodTypeParams` and rides the
+            // signature on the `Method` axis, distinct from the declaring type's `'A`.
             test "generic abstract method surfaces its own typars distinct from the declaring type's" {
                 let tast =
                     analyse "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
@@ -424,7 +402,7 @@ let interfaceTests =
                     | TTypeKind.Interface(EqList [ m ]) ->
                         Expect.equal m.Name "Map" "method name"
                         Expect.equal (EqArray.toList m.MethodTypeParams) [ "'B" ] "method's own typar 'B"
-                        // 'A is the declaring typar (Declaring 0), 'B the method's own (Method 0).
+
                         Expect.equal
                             m.Signature
                             (TyFun(TyTypar(TyparAxis.Declaring, 0), TyTypar(TyparAxis.Method, 0)))
@@ -433,12 +411,9 @@ let interfaceTests =
                 | other -> failtestf "expected single TDecl.Type, got %A" other
             }
 
-            // A module free function orders its method typars by the F# rule:
-            // explicitly-declared `<'b,'a>` first IN DECLARATION ORDER, not by
-            // first-appearance. So `'b` is `Method 0` and `'a` is `Method 1` even
-            // though `'a` appears first in the signature (`x: 'a`). The frozen
-            // `declTy` is `'a -> 'b -> ('a * 'b)` =
-            // `!!1 -> !!0 -> (!!1 * !!0)`.
+            // Explicitly-declared typars are ordered by DECLARATION order, not first appearance:
+            // in `f<'b,'a> (x: 'a) (y: 'b)`, `'b` is `Method 0` and `'a` is `Method 1` even
+            // though `'a` appears first in the signature.
             test "free function honours declared `<'b,'a>` typar order over appearance" {
                 let tast = analyse "let f<'b,'a> (x: 'a) (y: 'b) = (x, y)"
 
@@ -446,17 +421,14 @@ let interfaceTests =
 
                 match declType tast with
                 | TyFun(xTy, TyFun(yTy, TyTuple(EqList [ rx; ry ]))) ->
-                    // x : 'a -> declared second -> Method 1
                     Expect.equal xTy (TyTypar(TyparAxis.Method, 1)) "x : 'a is Method 1 (declared second)"
-                    // y : 'b -> declared first -> Method 0
                     Expect.equal yTy (TyTypar(TyparAxis.Method, 0)) "y : 'b is Method 0 (declared first)"
                     Expect.equal rx (TyTypar(TyparAxis.Method, 1)) "tuple .0 is 'a (Method 1)"
                     Expect.equal ry (TyTypar(TyparAxis.Method, 0)) "tuple .1 is 'b (Method 0)"
                 | other -> failtestf "expected 'a -> 'b -> ('a * 'b), got %A" other
             }
 
-            // Control: when declared order matches appearance order, the result is
-            // unchanged — `'a` (declared first, appears first) is `Method 0`.
+            // Control: declared order matching appearance order leaves `'a` at `Method 0`.
             test "free function declared order == appearance order is unchanged" {
                 let tast = analyse "let g<'a,'b> (x: 'a) (y: 'b) = (x, y)"
 
@@ -470,12 +442,9 @@ let interfaceTests =
             }
         ]
 
-// A project-local generic *member* orders its method typars by the F# rule
-// (`GeneralizedTypars.canonical`): explicitly-declared `<'C>` typars first in
-// source order, then ALL other typars (annotation-derived AND body-inferred) by a
-// single first-left-to-right-appearance walk over the final member type. This
-// replaced the old 3-tier `explicit @ annotation @ body` append, which diverged
-// from F# when an annotated param followed an unannotated (body-inferred) one.
+// A generic member orders its method typars by the F# rule: explicitly-declared ones first in
+// source order, then all others — annotation-derived and body-inferred alike — by a single
+// left-to-right appearance walk over the final member type.
 [<Tests>]
 let memberTyparOrderTests =
     let classMember (input: string) =
@@ -499,16 +468,12 @@ let memberTyparOrderTests =
     testList
         "MemberTyparOrder"
         [
-            // Annotated-after-unannotated: `x` is body-inferred (no annotation), `y`
-            // is annotated `'a`. The F# rule walks the final member type
-            // `'x -> 'a -> ('x * 'a)`, so `'x` (first appearance) is `Method 0` and
-            // `'a` is `Method 1` — NOT `'a` first (the old append put the annotation
-            // typar ahead of the body-inferred one). The body-inferred typar gets a
-            // synthetic `M0` name; the annotation typar keeps its source name `'a`.
+            // Annotated-after-unannotated: in `M x (y: 'a)` the walk over `'x -> 'a -> ('x * 'a)`
+            // puts body-inferred `'x` at `Method 0` and annotated `'a` at `Method 1`. The
+            // body-inferred one is named `M0`; the annotation keeps its source name `'a`.
             test "member orders annotated-after-unannotated by appearance, not annotation-first" {
                 let m = classMember "type C() =\n    member this.M x (y: 'a) = (x, y)"
 
-                // x (body-inferred) appears first ⇒ Method 0; y : 'a ⇒ Method 1.
                 match EqArray.toList m.Params with
                 | [ (_, xTy); (_, yTy) ] ->
                     Expect.equal xTy (TyTypar(TyparAxis.Method, 0)) "x (body-inferred) is Method 0"
@@ -520,18 +485,14 @@ let memberTyparOrderTests =
                     (TyTuple(EqArray.ofList [ TyTypar(TyparAxis.Method, 0); TyTypar(TyparAxis.Method, 1) ]))
                     "returns (x * y) = (Method 0 * Method 1)"
 
-                // Name preservation: the annotation typar keeps `'a`; the body-
-                // inferred one gets the synthetic `M0`.
                 Expect.equal
                     [ for (n, _) in m.MethodTypeParams -> n ]
                     [ "M0"; "'a" ]
                     "names: synthetic body typar, preserved 'a"
             }
 
-            // Control: an explicit `<'a>` member still orders explicit-first. `'a`
-            // is declared, `y` is body-inferred — so `'a` is `Method 0` (declared)
-            // even though `y` could appear first by some walks; here `x : 'a`
-            // appears first anyway, but the declared rule pins it regardless.
+            // Control: an explicit `<'a>` is `Method 0` because it is declared, ahead of the
+            // body-inferred `y`.
             test "member with explicit `<'a>` orders the declared typar first" {
                 let m = classMember "type C() =\n    member this.M<'a> (x: 'a) y = (x, y)"
 
@@ -548,12 +509,9 @@ let memberTyparOrderTests =
             }
         ]
 
-// The front-end union *shape* needed to compile `Vesper.Collections.List`
-// verbatim — operator-named cases (`([])` → Empty, `(::)` → Cons) and the
-// explicit-return (GADT-syntax) case forms FSharp.Core's list uses
-// (`| ([]) : 'T list`, `| (::) : Head: 'T * Tail: 'T list -> 'T list`).
-// Earlier `inspectCaseData` returned `""` for any operator name (the
-// case was dropped) and `GadtNary`/`GadtNullary` were diagnosed "not supported".
+// The union shape a verbatim `list` declaration needs: operator-named cases (`([])` → Empty,
+// `(::)` → Cons), in the plain form and in the explicit-return one
+// (`| (::) : Head: 'T * Tail: 'T list -> 'T list`).
 module private UnionCaseSyntaxHelpers =
     let union (tast: TastFile) =
         let acc = ResizeArray<TTypeDecl * EqArray<TUnionCase>>()
@@ -575,8 +533,7 @@ let unionCaseSyntaxTests =
     testList
         "UnionCaseSyntax"
         [
-            // Operator-named cases in the plain (non-GADT) forms: `([])` is the
-            // empty case (named `Empty`), `(::)` the cons case (named `Cons`).
+            // In the plain form, `([])` is named `Empty` and `(::)` is named `Cons`.
             test "operator-named cases `([])` / `(::)` surface as Empty / Cons" {
                 let tast = analyse "type Ops =\n    | ([])\n    | (::) of int * Ops"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -591,8 +548,7 @@ let unionCaseSyntaxTests =
                 | other -> failtestf "unexpected unions: %A" other
             }
 
-            // The verbatim FSharp.Core list shape: operator cases written with the
-            // explicit-return (GADT) syntax, generic over the element type, the
+            // Operator cases in explicit-return syntax, generic over the element type, with the
             // tail referencing the declaring union recursively.
             test "explicit-return list cases surface with names, arity, and field names" {
                 let tast =
@@ -613,10 +569,9 @@ let unionCaseSyntaxTests =
                     match cons.Fields with
                     | EqList [ (hn, ht); (tn, tt) ] ->
                         Expect.equal hn (ValueSome "Head") "first field named Head"
-                        // The element typar surfaces as the backend marker.
                         Expect.equal ht (TyTypar(TyparAxis.Declaring, 0)) "Head : 'T"
                         Expect.equal tn (ValueSome "Tail") "second field named Tail"
-                        // Tail refers back to the declaring union, applied to 'T.
+
                         Expect.equal
                             tt
                             (TyUnion("List", EqArray.singleton (TyTypar(TyparAxis.Declaring, 0))))
@@ -626,13 +581,9 @@ let unionCaseSyntaxTests =
             }
         ]
 
-// The `and 'T list = List<'T>` recursive abbreviation retargets `[…]` list
-// literals onto a program-declared list union (the self-host shape) instead
-// of FSharp.Core's `FSharpList`. Additive:
-// a normal program declares no `list` abbreviation, so its list literals keep
-// the `Microsoft.FSharp.Collections.list` nominal + `Cons`/`Nil` case names.
-// The generic-union *backend emission* that makes `[1;2;3]` runnable against
-// our own list is the next slice; this slice is the front-end resolution.
+// An `and 'T list = List<'T>` abbreviation retargets `[…]` literals onto the program's own
+// list union. A program declaring no such abbreviation keeps the
+// `Microsoft.FSharp.Collections.list` nominal with `Cons`/`Nil`.
 [<Tests>]
 let listAbbrevTests =
     let listSrc =
@@ -648,9 +599,8 @@ let listAbbrevTests =
     testList
         "ListAbbrev"
         [
-            // The verbatim `list.fs` shape: the abbreviation's RHS references
-            // the union it shares an `and` group with, and the union's `Tail`
-            // field references back through the `'T list` abbreviation.
+            // The abbreviation's RHS references the union it shares an `and` group with, and the
+            // union's `Tail` field references back through the `'T list` abbreviation.
             test "`and 'T list = List<'T>` type-checks with the verbatim list.fs case shape" {
                 let src =
                     String.concat
@@ -673,7 +623,7 @@ let listAbbrevTests =
                     match cons.Fields with
                     | EqList [ (_, ht); (_, tt) ] ->
                         Expect.equal ht (TyTypar(TyparAxis.Declaring, 0)) "Head : 'T"
-                        // `'T list` resolved through the abbrev back to the union.
+
                         Expect.equal
                             tt
                             (TyUnion("List", EqArray.singleton (TyTypar(TyparAxis.Declaring, 0))))
@@ -682,9 +632,8 @@ let listAbbrevTests =
                 | other -> failtestf "unexpected unions: %A" other
             }
 
-            // The headline: a `[1; 2; 3]` literal in a program that declares the
-            // list union + abbrev types as that union and freezes to a Cons chain
-            // terminated by the union's own empty case (`Empty`, not `Nil`).
+            // A literal in a program declaring the union + abbrev types as that union and
+            // freezes to a Cons chain ending in the union's own `Empty`, not `Nil`.
             test "`[1; 2; 3]` resolves to the declared list union and freezes a Cons/Empty chain" {
                 let src = listSrc + "\nlet xs = [1; 2; 3]"
                 let tast = analyse src
@@ -747,9 +696,7 @@ let listAbbrevTests =
                 | ValueNone -> failtest "no `let e` binding surfaced"
             }
 
-            // Regression: with no `list` abbreviation in scope, a list literal
-            // stays the FSharp.Core nominal with `Cons`/`Nil` (additive — every
-            // existing list-bearing program is untouched).
+            // With no `list` abbreviation in scope the literal stays the FSharp.Core nominal.
             test "a list literal with no `list` abbrev keeps the FSharp.Core nominal" {
                 let tast = analyse "let xs = [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -787,9 +734,8 @@ let listAbbrevTests =
 
 [<Tests>]
 let unionMemberTests =
-    // P3d.3: union augmentation members (`with member …` / `static member …`)
-    // type-check through the whole pipeline and surface on `TTypeKind.Union`
-    // with their lowered bodies.
+    // Union augmentation members type-check through the whole pipeline and surface on
+    // `TTypeKind.Union` with their lowered bodies.
     let memberSrc =
         String.concat
             "\n"
@@ -875,13 +821,9 @@ let unionMemberTests =
 
 [<Tests>]
 let unionInterfaceImplTests =
-    // A union implementing an interface (`interface IFace with member …`) now
-    // CARRIES the impl in its frozen representation
-    // (`TTypeKind.Union(cases, members, interfaces)`) instead of being silently
-    // dropped for lack of one. Front-end only this slice — the impl resolves +
-    // conformance-checks and surfaces on the frozen union; codegen emits nothing
-    // for it yet. A project-local interface is used so the resolution does not lean
-    // on the external provider knowing any BCL interface.
+    // A union implementing an interface carries the impl in its frozen representation, the
+    // third positional of `TTypeKind.Union(cases, members, interfaces)`. The interface is
+    // project-local so resolution does not lean on the provider knowing a BCL one.
     let src =
         String.concat
             "\n"
@@ -906,8 +848,6 @@ let unionInterfaceImplTests =
                 let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                // Pre-slice this froze as `Union(cases, members)` with the impl gone;
-                // post-slice the third positional `interfaces` carries it.
                 let interfaces =
                     tast.Decls
                     |> EqArray.tryFind (fun d ->
@@ -937,12 +877,9 @@ let unionInterfaceImplTests =
                 | ValueNone -> failtest "no union U carrying interface impls surfaced"
             }
 
-            // A union whose ONLY member is an interface impl whose body READS `this`
-            // (via `match this`). Before the NameResolution guard was relaxed, a
-            // members-empty union never had its impl bodies name-resolved, so `this`
-            // (and the case-payload bound variables) resolved to an unbound `External` →
-            // "unsupported external value". This is the gating fix for a union (e.g.
-            // `List`) implementing `seq` whose `GetEnumerator` must reference `this`.
+            // A union whose ONLY member is an interface impl: its impl bodies must still be
+            // name-resolved, or `this` and the case-payload bound variables resolve to an
+            // unbound `External`. `List` implementing `seq` is the case that needs it.
             test "a union interface-impl body can read `this` (match self) without an unbound-external error" {
                 let src =
                     String.concat
@@ -992,11 +929,8 @@ let unionInterfaceImplTests =
 
 [<Tests>]
 let recordInterfaceImplTests =
-    // §14.6 slice 5 (front-end): a record implementing a local interface CARRIES
-    // the impl in its frozen representation (`TTypeKind.Record(fields, members,
-    // interfaces)`) — the same machinery as the union slice. The impl resolves +
-    // conformance-checks and surfaces on the frozen record. A project-local
-    // interface keeps the resolution off the external provider.
+    // A record implementing a local interface carries the impl in its frozen representation,
+    // `TTypeKind.Record(fields, members, interfaces, _)` — the union case's machinery.
     let src =
         String.concat
             "\n"
@@ -1054,10 +988,9 @@ let recordInterfaceImplTests =
             }
         ]
 
-// `[<Global>]` DECLARES a module value to BE a target global: the binding's SYMBOL is
-// recorded (the JS backend emits no definition for it), and the declaration is checked
-// against the body BOTH ways — a marked binding must be a bare intrinsic template, and an
-// unmarked one may not restate its own emitted name.
+// `[<Global>]` DECLARES a module value to BE a target global, recording its symbol so no
+// definition is emitted. Checked both ways: a marked binding must be a bare intrinsic
+// template, and an unmarked one may not restate its own emitted name.
 [<Tests>]
 let globalAttributeTests =
     let errorsOf (input: string) =
@@ -1104,8 +1037,8 @@ let globalAttributeTests =
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 
-            // The ordinary nullary-intrinsic binding the old inference rule could not tell
-            // apart from a global: its name is NOT the template text, so it defines a value.
+            // The name is NOT the template text, so this defines a value rather than
+            // restating a global.
             test "a nullary intrinsic whose name differs from its template is an ordinary binding" {
                 Expect.isEmpty (errorsOf "module M\n\nlet emptyDocs = (# \"[]\" #)\n") "no diagnostic"
             }
@@ -1124,9 +1057,8 @@ let globalAttributeTests =
             }
 
             test "a same-named user type does NOT take [<Global>]'s meaning" {
-                // THE case a short-name match cannot decide: `Global` here reaches the
-                // user's own class — a local claim beats the contract — so the binding is
-                // NOT declared a target global, and it is blamed for restating one instead.
+                // `Global` here reaches the user's own class — a local claim beats the contract
+                // — so the binding is blamed for restating a global rather than declaring one.
                 let src =
                     String.concat
                         "\n"

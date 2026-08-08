@@ -5,12 +5,9 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The stacking gate. `PoolBuilder` stacks an append-only overlay over an immutable
-// `FrozenPools` and presents ONE flat id space, and everything a consumer may assume rests
-// on base ids being preserved exactly — through reads and through mints. These tests pin
-// that: a base id reads the base column even after the overlay has grown, every base root
-// still unpools to the decl it was pooled from, and an overlay node may name base children
-// and unpools into the right tree.
+// The stacking gate. `PoolBuilder` stacks an append-only overlay over an immutable `FrozenPools`
+// and presents ONE flat id space, so what is pinned here is that base ids survive exactly: a base
+// id reads the base column after the overlay has grown, and every base root unpools unchanged.
 
 /// The value expr of the file's first `Let` decl, as a DU node — a real frozen subtree to
 /// hand a mint site, and (with its root's `DeclExprChildren`) its base pool id.
@@ -22,14 +19,9 @@ let private firstLetValue (frozen: Pooled.TastFile) : Pooled.TExpr =
         | _ -> None
     )
 
-/// Every base id, in every domain, resolves through the builder to EXACTLY the column
-/// value the base pool holds. Run against a builder that has already grown an overlay, so
-/// a layer check that got its boundary wrong (or an overlay that shadowed the base) shows
-/// up here rather than only at the freeze.
-///
-/// A child column has TWO read paths — the whole list and one child by position, each with
-/// its own layer arithmetic over the CSR form — so both are asserted against the same
-/// column, which is also what pins them to each other.
+/// Every base id, in every domain, resolves through the builder to EXACTLY the column value the
+/// base pool holds — run against a builder that has already grown an overlay. Both child read
+/// paths (whole list, one child by position) are asserted: each has its own layer arithmetic.
 let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     let inline positionally (kids: 'id[]) (byIndex: int -> 'id) (what: string) =
         for k in 0 .. kids.Length - 1 do
@@ -37,9 +29,8 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         let id = ExprPoolId i
-        // The `ty` column holds a row of the base pool's own type table, so the expected
-        // value is that row resolved — which is also the check that the accessor resolves it
-        // against the table the id belongs to.
+        // The `ty` column holds a row of the base pool's own type table, so the expected value
+        // is that row resolved against the table the id belongs to.
         Expect.equal (TastPoolBuilder.exprTy b id) pools.Types.[pools.ExprTys.[i]] "base expr ty"
         Expect.equal (TastPoolBuilder.exprTok b id) pools.ExprToks.[i] "base expr tok"
         let kids = ChildColumn.slice pools.ExprChildren i
@@ -80,17 +71,14 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
             (BoundVarNaming.ofColumn pools.BoundVarNames.[i] id)
             "base bound variable naming"
 
-/// Every base root unpools to the SAME decl before and after the overlay grows — the
-/// end-to-end half of id preservation, through the ONE way out of a builder that production
-/// uses (`declTree`, the cross-file inline wire's unpool). An id-space boundary error shows
-/// up as a wrong or missing subtree; the unpool is deterministic within a builder (its
-/// re-minted bound variable keys are the builder's), so the two unpools are directly comparable.
+/// Every base root unpools to the SAME decl before and after the overlay grows — the end-to-end
+/// half of id preservation. The unpool is deterministic within one builder (its re-minted bound
+/// variable keys are the builder's), so two unpools are directly comparable.
 let private unpoolRoots (b: PoolBuilder) : Wire.TDecl[] =
     TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
 // Programs spanning the domains the stack has to keep straight: a bound variable reference across
-// decls (`Var` into the bound variable pool), a composite expr with swappable children, a pattern
-// with sub-patterns, and a `for` loop's bound variable.
+// decls, a composite expr with swappable children, a sub-patterned pattern, a `for` loop variable.
 let private programs =
     [
         "let-bound reference", "let x = 1\nlet y = x\n"
@@ -140,14 +128,12 @@ let appendTests =
                 let (ExprPoolId i) = id
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
-                // The bound variable the DU node introduces — already this pool's own id, the tree
-                // being one unpooled from it, so the payload is checked against the identity
-                // the NODE carries rather than against the payload itself.
+                // The bound variable the DU node introduces — already this pool's own id, the
+                // tree being one unpooled from it.
                 let duBoundVar = BoundVarKey.ofExpr du |> ValueOption.map BoundVarKey.identity
 
-                // The tree is already in the stored anchor form, so the payload's own
-                // anchor needs no narrowing — `Operators.id` because `id` is the pool id
-                // in scope here.
+                // The tree is already in the stored anchor form, so the anchor needs no narrowing
+                // — `Operators.id` because `id` is the pool id in scope here.
                 Expect.equal
                     (TastPoolBuilder.exprPayload b id)
                     (TastPoolShapes.exprPayload Operators.id duBoundVar du)
@@ -263,9 +249,8 @@ let rowCopyTests =
                 let kids = TastPoolBuilder.exprChildren b tuple
                 Expect.equal kids.Length 2 "a two-element tuple"
 
-                // The overlay node names BASE children (the two element ids, reversed) —
-                // the stack's load-bearing case: an edge minted above the boundary
-                // addressing a node below it.
+                // The overlay node names BASE children (the two element ids, reversed): an edge
+                // minted above the boundary addressing a node below it.
                 let swapped =
                     TastPoolBuilder.copyExprWith
                         b
@@ -298,9 +283,8 @@ let rowCopyTests =
                             }
                         )
 
-                // The oracle: the ORIGINAL root's own unpool with the tuple's items reversed.
-                // Taken through `declTree` so both sides speak the identity an unpool hands
-                // out — within one builder that is stable, so the comparison is exact.
+                // The oracle: the ORIGINAL root's own unpool with the tuple's items reversed, so
+                // both sides speak the identity an unpool hands out.
                 let original = TastPoolBuilder.declTree b root
 
                 let expected =
@@ -313,10 +297,8 @@ let rowCopyTests =
                         TDeclG.Let(pattern, reversed, isInline, declTy)
                     | _ -> failtest "the decl is not a `let` over a Tuple"
 
-                // Unpooled through `declTree`: the derived decl is a node like any other,
-                // reached by the id the copy returned. Nothing repoints the root — a
-                // rewrite hands its caller the new id (`TastAccessor.mapDeclExpr`), which
-                // is why the builder has no root-repointing seam.
+                // The derived decl is a node like any other, reached by the id the copy returned.
+                // Nothing repoints the root: a rewrite hands its caller the new id.
                 Expect.equal
                     (TastPoolBuilder.declTree b newRoot)
                     expected

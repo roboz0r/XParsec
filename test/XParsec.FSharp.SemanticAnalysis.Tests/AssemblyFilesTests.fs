@@ -1,18 +1,16 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.AssemblyFilesTests
 
 open Expecto
-// Ahead of the SemanticAnalysis open so the bare `Diagnostic` stays the semantic one; this
-// is here for the parser's `DiagnosticCode`, which `Kind.Parse` wraps.
+// Before the SemanticAnalysis open, so a bare `Diagnostic` stays the semantic one; opened
+// here for `DiagnosticCode`, which `Kind.Parse` wraps.
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The FRONT-END multi-file assembly pipeline.
-// NO codegen here. It proves cross-file NAME RESOLUTION — file N+1 resolves file N's
-// symbols by name through file N's projected provider view — plus forward-only scoping,
-// nearest-first shadowing, and per-file diagnostic anchoring. Each file owns its own
-// Input/Lexed, so `NodeKey` offsets are per-file and never collide across files.
+// Cross-file name resolution: file N+1 resolves file N's symbols through file N's
+// projected provider view. Each file owns its own Input/Lexed, so `NodeKey` offsets are
+// per-file.
 
 let private asm = "MultiFileAsm"
 
@@ -25,17 +23,14 @@ let private files (results: Result<FrozenFile, UnparsedFile> list) : FrozenFile 
         | Error e -> failtestf "file %s failed to parse: %A" e.Path e.Failure.Diagnostics
     )
 
-/// A file's unresolved-symbol error diagnostics (the front end phrases both the bare and
-/// the qualified miss with an "Unresolved" message).
+/// A file's unresolved-symbol errors — both the bare and the qualified miss say "Unresolved".
 let private unresolvedErrors (f: FrozenFile) : Diagnostic list =
     f.Frozen.Residue.Diagnostics
     |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "Unresolved")
 
-/// A file's TYPE-RESOLUTION-miss errors, both message families. An unresolved VALUE name
-/// is phrased "Unresolved …"; a TYPE name that fails to resolve in annotation / signature
-/// position is phrased "The type '…' is not defined" (`PassContext.Error`). A faithful
-/// cross-file type-resolution check must catch BOTH — filtering only "Unresolved" let an
-/// annotation-position type miss pass silently (a false green).
+/// A file's resolution-miss errors, both message families: a VALUE name misses as
+/// "Unresolved …", a TYPE name in annotation or signature position as "The type '…' is
+/// not defined".
 let private definitionErrors (f: FrozenFile) : Diagnostic list =
     f.Frozen.Residue.Diagnostics
     |> List.filter (fun d ->
@@ -43,7 +38,7 @@ let private definitionErrors (f: FrozenFile) : Diagnostic list =
         && (d.Message.Contains "Unresolved" || d.Message.Contains "is not defined")
     )
 
-// --- shared file-1 export surface: a type T and a saturated function f -----------------
+// --- shared file-1 export surface ------------------------------------------------------
 
 let private file1Qualified =
     "\
@@ -61,7 +56,6 @@ let tests =
         "AssemblyFiles (multi-file front end)"
         [
             test "file 2 resolves file 1's type + saturated function by QUALIFIED name" {
-                // file 2 references file 1 fully qualified: `Test.A.M.T` / `Test.A.M.f`.
                 let file2 =
                     "\
 namespace Test.B
@@ -87,7 +81,6 @@ module N =
             }
 
             test "file 2 resolves file 1's exports through an OPEN-ed bare reference" {
-                // file 2 `open`s file 1's module and references `T` / `f` bare.
                 let file2 =
                     "\
 namespace Test.B
@@ -114,8 +107,6 @@ module N =
             }
 
             test "FORWARD-only: file 1 cannot resolve a symbol defined only in file 2" {
-                // file 1 (analysed FIRST) references `Test.B.beta`, which only file 2
-                // declares — a later file's export is invisible to an earlier file.
                 let file1 =
                     "\
 namespace Test.A
@@ -140,14 +131,11 @@ module B =
                 let f2 = all.[1]
 
                 Expect.isNonEmpty (unresolvedErrors f1) "file 1's forward reference to file 2 is unresolved"
-                // file 2 references nothing forward; it is clean.
                 Expect.isEmpty (unresolvedErrors f2) "file 2 (which sees file 1) is clean"
             }
 
             test "NEAREST file wins a name clash (compose ordering)" {
-                // Two files declare the SAME qualified binding `Test.Shared.dup` with
-                // DIFFERENT schemes (int vs string). The compose puts the nearer file
-                // first, so its symbol shadows the farther one's.
+                // The composite's FIRST provider is the nearest file.
                 let earlier =
                     "\
 namespace Test
@@ -183,7 +171,7 @@ module Shared =
                     | ValueSome s -> s
                     | ValueNone -> failtest "later file did not export dup"
 
-                // Guard: the two views really disagree, so the shadowing test is meaningful.
+                // Without this the shadowing checks below could not tell the two apart.
                 Expect.notEqual symEarlier.Scheme symLater.Scheme "the two files' dup schemes differ (int vs string)"
 
                 // Nearest-first: `later` shadows `earlier`.
@@ -194,7 +182,7 @@ module Shared =
                 | ValueSome s -> Expect.equal s.Scheme symLater.Scheme "nearest (later) file's dup wins"
                 | ValueNone -> failtest "composed provider did not resolve dup"
 
-                // And the reverse ordering proves it is ORDER, not identity: nearest=earlier wins.
+                // The reverse ordering proves it is ORDER, not identity: nearest=earlier wins.
                 let composedNearestEarlier =
                     ExternalSymbolProviders.composite [ viewEarlier; viewLater ] :> IExternalSymbolResolver
 
@@ -205,9 +193,6 @@ module Shared =
             }
 
             test "diagnostics anchor to their OWN file's path + (line, col)" {
-                // file 1 is clean; file 2 has an undefined name on line 4. The anchored
-                // diagnostic must carry file 2's PATH and a (line, col) from file 2's text
-                // — not file 1's.
                 let file1 =
                     "\
 namespace Test
@@ -238,23 +223,17 @@ module B =
                 | None -> failtestf "no diagnostic mentioned undefinedThing; got %A" anchored
                 | Some a ->
                     Expect.equal a.Path "two.fs" "anchored to file 2's path"
-                    // Line 4 is `    let b = undefinedThing`; `undefinedThing` starts after
-                    // the 4-space indent + "let b = " (col 13, 1-based).
+                    // `    let b = undefinedThing`: 4-space indent + "let b = " ⇒ col 13, 1-based.
                     Expect.equal a.Line 4 "line resolved against file 2's own text"
                     Expect.equal a.Col 13 "column resolved against file 2's own text"
 
-                // No file-1 diagnostic bled into this: file 1 is clean.
                 Expect.isEmpty
                     (anchored |> List.filter (fun a -> a.Path = "one.fs"))
                     "file 1 contributes no diagnostics"
             }
 
             test "file 2 reads a record FIELD declared in file 1 (cross-file provider fallback)" {
-                // A record field read on an object argument whose record type is declared in a PRIOR
-                // file. File 1 declares `R = { X: int }` and a factory returning it; file 2
-                // reads `.X`. `resolveFieldStep`'s `TyRecord` arm must consult the provider on
-                // a local miss — records are otherwise the one nominal kind with no
-                // provider field-read path.
+                // The record arm of field resolution must consult the provider on a local miss.
                 let file1 =
                     "\
 namespace Test.A
@@ -282,7 +261,6 @@ module N =
 
                 let f2 = all.[1]
 
-                // No provider-miss field-read error leaked.
                 let unknownRecord =
                     f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "Unknown record")
@@ -297,8 +275,6 @@ module N =
                     (unresolvedErrors f2)
                     (sprintf "cross-file field read resolves clean (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
 
-                // The read types as `int`: `z`'s exported scheme is the field's type,
-                // resolved through the provider's frozen record shape.
                 match (f2.View :> IExternalSymbolResolver).TryLookup "Test.B.N.z" with
                 | ValueSome sym ->
                     Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-file"
@@ -306,11 +282,8 @@ module N =
             }
 
             test "file 2 CONSTRUCTS a record declared in file 1 — bare + qualified (cross-file provider)" {
-                // A record LITERAL whose record type is declared in a PRIOR file.
-                // File 1 declares `R = { X: int; Y: int }`; file 2 builds it two ways — bare
-                // `{ X = 1; Y = 2 }` (resolved through the provider field-set reverse index)
-                // and qualified `{ R.X = 3; R.Y = 4 }` (local `tryRecord` miss → the qualified
-                // external filter). Both need `recordFieldSetVerdict` to consult the provider.
+                // Bare `{ X = 1; Y = 2 }` resolves through the provider's field-set reverse
+                // index; qualified `{ R.X = 3; R.Y = 4 }` through the qualified-external filter.
                 let file1 =
                     "\
 namespace Test.A
@@ -357,8 +330,7 @@ module N =
                         "cross-file record construction has no unresolved symbols (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
-                // Both literals type as `R` (an `FTRecord` whose type key's simple name is R),
-                // proving the construction resolved to file 1's record, not a fresh TyVar.
+                // Typing as `R` and not a fresh TyVar is what proves it found file 1's record.
                 let expectRecordR (name: string) =
                     match (f2.View :> IExternalSymbolResolver).TryLookup name with
                     | ValueSome sym ->
@@ -374,9 +346,8 @@ module N =
             }
 
             test "file 2 PATTERN-MATCHES a record declared in file 1 (cross-file provider)" {
-                // Pattern position: the record-literal arm of `inferPat` routes through
-                // the SAME shared resolver, so a `{ X = x; Y = y }` pattern resolves to file 1's
-                // record by field set cross-file.
+                // Pattern position takes the same provider route: `{ X = x; Y = y }` resolves
+                // to file 1's record by field set.
                 let file1 =
                     "\
 namespace Test.A
@@ -428,19 +399,8 @@ module N =
             }
 
             test "file 2 ANNOTATES a value + parameter with a record type declared in file 1" {
-                // Value-position + parameter-position annotation of a prior-file record:
-                // `let h (r : R) = r` and `let g (r : R) : int = r.X`, `R` opened from file 1.
-                // The annotated type name is name-resolved + stamped external, and its dotted
-                // open-expansion (`Test.A.M.R`) resolves through the frozen provider's
-                // module-containment fallback to file 1's record shape. Before that fallback the
-                // dotted spelling missed the `+`-keyed identity index and the annotation errored
-                // "The type 'R' is not defined".
-                //
-                // The annotations here are PURE (parameter type + field read): the name resolves
-                // to one identity used consistently, so there is no error at all. A form that
-                // also CONSTRUCTS the record (`let r : R = { X = 1 }`) does NOT belong here — see
-                // the `ptest` below: construction pins the registered `InModule` identity while
-                // the annotation carries the re-cut flattened one, and they disagree.
+                // The annotation's dotted open-expansion (`Test.A.M.R`) resolves through the
+                // frozen provider's module-containment fallback to file 1's record shape.
                 let file1 =
                     "\
 namespace Test.A
@@ -472,9 +432,8 @@ module N =
                         "value/parameter annotation of a cross-file record resolves clean (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
-                // Honest guard: a pure annotation must raise NO error at all (a hidden
-                // unification mismatch would slip past `definitionErrors`, which filters only
-                // the not-defined / unresolved families).
+                // A unification mismatch would slip past `definitionErrors`, which filters only
+                // the not-defined / unresolved families — so require zero errors too.
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
@@ -483,11 +442,8 @@ module N =
             }
 
             test "file 2's MEMBER signature annotates a type declared in file 1" {
-                // Member-signature return + constructor-parameter annotation of a prior-file
-                // type: a class in file 2 captures a `T` (ctor param annotation) and returns it
-                // from a member (return annotation). Both annotated type names are prior-file type
-                // names brought in by `open`, resolved through the same module-containment
-                // fallback.
+                // Ctor-parameter and member-return annotations of a prior-file type, both
+                // resolved through the same module-containment fallback.
                 let file1 =
                     "\
 namespace Test.A
@@ -519,8 +475,7 @@ module N =
                         "member-signature annotation of a cross-file type resolves clean (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
-                // Ctor param + member return both annotate the SAME prior-file type, so their
-                // one (flattened) identity is used consistently — no error at all.
+                // Both annotate the SAME prior-file type, so one identity is used throughout.
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
@@ -529,9 +484,8 @@ module N =
             }
 
             test "same offset-0 decl in both files does not break resolution" {
-                // Both files open with `namespace` at offset 0 and a decl at identical
-                // early offsets; because each file owns its own Lexed/PassContext the keys
-                // never collide, and the cross-file reference still resolves.
+                // Each file owns its own Lexed/PassContext, so decls at identical early
+                // offsets still mint distinct keys.
                 let file2 =
                     "\
 namespace Test.B
@@ -544,21 +498,13 @@ module N =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
                     |> files
 
-                // Both files carry a binding whose NodeKey offset is small/overlapping,
-                // yet file 2 resolves file 1's `f` — the separate-file invariant holds.
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
             }
 
             test "cross-file MODULE-HELD type: annotation identity matches construction identity" {
-                // A module-held type's identity agrees across resolution paths:
-                //   * construction / field-set (`{ X = 1 }`) pins the REGISTERED `InModule` key,
-                //     carried structurally on `ExternalRecordCandidate.TypeKey`;
-                //   * annotation (`r : R`) goes through NameResolution's `useSiteTypeKey`, which
-                //     stamps the SAME registered key the provider resolved — the one that came
-                //     back WITH the shape from `TryLookupType` — rather than re-cutting the
-                //     dotted spelling into a flattened `InNamespace` container.
-                // So `let r : R = { X = 1 }` unifies the annotation against the literal with a
-                // matching identity — no type mismatch.
+                // `let r : R = { X = 1 }` unifies an annotation against a literal, so both paths
+                // must pin the same registered key: construction through the record candidate's
+                // type key, annotation through the key the provider returned with the shape.
                 let file1 =
                     "\
 namespace Test.A
@@ -590,19 +536,9 @@ module N =
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            // Two cross-file resolution rules that were OVER-PERMISSIVE while records
-            // landed (an INVALID program wrongly resolved — never a miscompile). Each
-            // asserts the CORRECT, rejecting behaviour now that the gap is closed.
-
             test "RQA record is NOT bare-constructible across files (RequireQualifiedAccess honoured)" {
-                // file 1 marks a record `[<RequireQualifiedAccess>]`; file 2 `open`s the
-                // module and builds it with a BARE field-set literal. F# requires the
-                // qualifier for an RQA record, so bare construction must NOT resolve — an
-                // error. The RQA flag is threaded from the declaration's attributes through
-                // freeze (`TTypeDecl.IsRequireQualifiedAccess` →
-                // `ExternalRecordCandidate.IsRequireQualifiedAccess`) and honoured in the
-                // bare-construction candidate filter (`InferResolve.admitsBareExternalRecord`),
-                // so the projected RQA record is excluded from the bare field-set index.
+                // F# requires the qualifier for an RQA record, so freeze carries the flag
+                // through and the projected record is excluded from the bare field-set index.
                 let file1 =
                     "\
 namespace Test.A
@@ -638,13 +574,9 @@ module N =
             }
 
             test "record in an UNOPENED namespace is NOT bare-constructible across files (ambient-scope gate)" {
-                // file 1 declares a record; file 2 does NOT `open` its module, yet builds it
-                // with a BARE field-set literal matching its fields. F#'s unqualified field
-                // index (`eFieldLabels`) holds only `open`-ed records, so without the `open`
-                // the bare literal must NOT resolve — an error. `recordFieldSetVerdict` gates
-                // its provider `TryRecordsWithField` candidates by the live open scope
-                // (`InferResolve.admitsBareExternalRecord` via `OpenScope.tryQualify`), so a
-                // record whose declaring module is not reachable unqualified is excluded.
+                // F#'s unqualified field index holds only `open`-ed records, so the provider's
+                // field-set candidates are gated by the live open scope: a record whose
+                // declaring module is unreachable unqualified is excluded.
                 let file1 =
                     "\
 namespace Test.A
@@ -677,16 +609,9 @@ module N =
             }
 
             test "a cross-file `member private` does NOT resolve for dispatch (member-level accessibility honoured)" {
-                // file 1 declares a class with a PUBLIC method and a `member private` one;
-                // file 2 dispatches on each. A `private` member is not visible to another
-                // file, so the private dispatch must NOT resolve — an error — while the
-                // public one stays clean. Member accessibility rides
-                // `TTypeMemberG.Accessibility` (captured from the CST `access` token) and
-                // `FrozenSignature.membersOf` drops `Private` on the same internal-or-better
-                // threshold `exported` applies to top-level entities, so the private member
-                // never reaches the projected class shape's member set. The paired
-                // public/private cases make the drop falsifiable: before this landed BOTH
-                // resolved (OVER-PERMISSIVE — a leak, never a miscompile).
+                // A `private` member is not visible to another file, so the private dispatch
+                // must error while the public one stays clean: freeze drops `Private` members
+                // on the same internal-or-better threshold it applies to top-level entities.
                 let file1 =
                     "\
 namespace Test.A
@@ -736,10 +661,8 @@ module N =
             }
 
             test "a prior file's inline template is OUTLINED, not spliced" {
-                // A view carries the file it was projected from, so a template it serves has
-                // both readings available and the expansion abstracts the call into a
-                // specialization entry. Anchored in file 1, which is the whole point: an entry
-                // keeps the producer's positions, and a spliced body cannot.
+                // The specialization entry is anchored in the declaring file: it keeps the
+                // producer's positions, which a spliced body could not.
                 let file1 =
                     "\
 namespace Test.A
@@ -771,8 +694,8 @@ module N =
                     Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING file"
                 | other -> failtestf "expected exactly one specialization entry, got %d" (List.length other)
 
-                // The other half, and the one a relative pop cannot state: the EDGE is file 2's
-                // own node, so it names file 2 while the entry it points at names file 1.
+                // The call-site EDGE is file 2's own node, so it names file 2 while the entry
+                // it points at names file 1.
                 let edgeOrigins =
                     [
                         for p in consumer.Frozen.ExprPayloads do
@@ -787,12 +710,9 @@ module N =
             }
 
             test "cross-file INTRINSIC: a prior file's primitive resolves in a later file's annotation" {
-                // file 1 declares an intrinsic-repr primitive (`type x = (# "…" #)` — an
-                // `ILIntrinsic` abbrev kept OUT of `Decls`); file 2 annotates a binding with
-                // it. It resolves cross-file only because `FrozenSignature.toProvider`
-                // publishes each `IntrinsicReprKeys` entry as an
-                // `ExternalTypeShape.Intrinsic`, so `TryLookupType` answers the name — the
-                // repr axes alone never did.
+                // An intrinsic-repr primitive (`type myint = (# "System.Int32" #)`) is an
+                // abbrev kept OUT of `Decls`, so it resolves cross-file only because freeze
+                // publishes its repr entry as a lookup-answering intrinsic type shape.
                 let file1 =
                     "\
 namespace Test.A
@@ -824,13 +744,9 @@ module N =
             }
 
             test "cross-file INTERFACE MEMBER: a prior file's abstract method resolves for dispatch + conformance" {
-                // file 1 declares an interface with an abstract method; file 2 both
-                // DISPATCHES on it (`g.Apply …`) and IMPLEMENTS it (`interface … with member
-                // …`). Both resolve only because the interface arm of
-                // `FrozenSignature.toProvider` now decurries each abstract method to an
-                // `ExternalMember` under the interface key (the member set was `ValueNone`
-                // before), so `TryLookupMembers` answers the dispatch and the conformance
-                // check finds the required slot.
+                // file 2 both DISPATCHES on the abstract method and IMPLEMENTS it. Both need
+                // freeze to decurry each abstract method into the interface's projected member
+                // set — one answers the dispatch, the other the conformance check's slot.
                 let file1 =
                     "\
 namespace Test.A
@@ -865,24 +781,12 @@ type IdInt() =
             }
 
             // --- the enclosing-namespace rule, both directions ---------------------------
-            //
-            // F# makes a prior file's namespace-direct type bare-visible through an implicit
-            // open of the CONSUMER's own `namespace N` header (`ImplicitlyOpenOwnNamespace`,
-            // `CheckDeclarations.fs:355` — "Inside "namespace X.Y.Z" there is an implicit open
-            // of "X.Y.Z""). A prior file contributes only its root NAME
-            // (`AddLocalRootModuleOrNamespace`), never its contents — a producer never says
-            // "open me". Vesper mints that implicit open in `CstWalk.addNamespacePrefix`.
-            //
-            // The pair below pins both directions, which is what makes the rule falsifiable:
-            // publishing a file's declared namespaces as `AmbientOpenPrefixes` would pass the
-            // SAME-namespace test while silently failing the DIFFERENT-namespace one.
+            // A file's own `namespace X.Y.Z` header implicitly opens `X.Y.Z` (F# compiler
+            // `ImplicitlyOpenOwnNamespace`); a prior file contributes only its root NAME.
 
             test "SAME-namespace later file resolves a prior file's type by BARE name (no open)" {
-                // The consumer declares the SAME namespace as the producer, so its own header
-                // implicitly opens `Test.A` and `Widget` resolves unqualified — with no `open`
-                // written and nothing published by file 1's view. This is the case `Vesper.Core`
-                // relies on: every Core file is `namespace Vesper`, so `compiler-attributes.fs`
-                // reaches `prim-types-attr.clr.fs`'s `Attribute` this way.
+                // Every `Vesper.Core` file is `namespace Vesper`, so this is how one Core file
+                // reaches a prior Core file's type with no `open` written.
                 let file1 =
                     "\
 namespace Test.A
@@ -912,11 +816,9 @@ module N =
             }
 
             test "DIFFERENT-namespace later file does NOT resolve a prior file's type by bare name" {
-                // The consumer declares a DIFFERENT namespace and writes no `open`, so `Test.A`
-                // is not in its scope and `Widget` must not resolve. Its own header opens only
-                // `Test.B`. Guards the leak that a producer-published ambient reintroduces: with
-                // file 1's view publishing `Test.A` as `AmbientOpenPrefixes`, this resolved
-                // clean — an implicit `open Test.A` no source line asked for.
+                // The consumer's header opens only `Test.B`. Publishing file 1's declared
+                // namespaces as ambient prefixes would resolve `Widget` here — an implicit
+                // `open Test.A` no source line asked for.
                 let file1 =
                     "\
 namespace Test.A
@@ -945,9 +847,6 @@ module N =
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            // A file that analysed only because RECOVERY patched its tree is not silent: its
-            // parse diagnostics ride on the file and anchor against that file's own text,
-            // exactly as the analysis residue does.
             test "a RECOVERED file's parse diagnostics anchor to its own file" {
                 let clean =
                     "\
@@ -971,8 +870,8 @@ module B =
 
                 let anchored = consolidatedDiagnostics all
 
-                // Selected on the VERDICT, not on a rendered code: the classification is what
-                // the diagnostic carries, so this cannot be broken by a renumbering.
+                // Selected on the verdict the diagnostic carries, not a rendered code, so a
+                // renumbering cannot break it.
                 let isUnclosed (a: AssemblyFiles.AnchoredDiagnostic) =
                     match a.Diagnostic.Kind with
                     | Kind.Parse(DiagnosticCode.UnclosedDelimiter _) -> true

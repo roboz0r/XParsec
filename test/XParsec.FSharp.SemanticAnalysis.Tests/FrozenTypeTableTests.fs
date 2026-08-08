@@ -3,31 +3,15 @@ module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTableTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The hash-consing gate for the per-file type tables. Four obligations, and they are the
-// whole of what the rest of the frozen format rests on:
-//
-//   * `table.[intern t] = t` — a row materialises back to the type it was interned from, so
-//     swapping a `FrozenType[]` column for a `TypeId[]` one loses nothing.
-//   * intern is INJECTIVE on structural equality — two types intern to one id iff they are
-//     equal, which is what makes a within-file id compare a type comparison.
-//   * the tables are SHARED — a repeated type mints no second row.
-//   * the rows survive `FrozenCodecRows` unchanged, so an id resolves to the same value
-//     after a trip through a blob as before it.
-//
-// The samples reach every `TypeRow` and every key-cluster row, and a coverage assertion
-// fails if one stops being produced, so a new constructor cannot ride the existing arms.
-// The codec obligation is stated HERE, against those samples, for that reason: the corpus
-// gate in `FrozenCodecRoundTripTests` exercises the row codec over realistic breadth but
-// proves nothing about which row cases it reached.
+// The hash-consing gate for the per-file type tables — what lets a `FrozenType[]` column become
+// a `TypeId[]` one: `table.[intern t] = t`, and within one file `=` on two ids IS structural
+// type equality. A coverage assertion below fails if a sample stops reaching a row case.
 
 let private intKey = RuntimeNames.intKey
 let private stringKey = RuntimeNames.stringKey
 let private intTy = FTConst(intKey, EqArray.empty)
 let private stringTy = FTConst(stringKey, EqArray.empty)
 
-/// The key cluster at full depth: a segmented namespace, nested modules, a type in a
-/// module, a type nested in that type, a binding with no declaring module, and a member
-/// whose `ArgSig` reaches back into the type domain.
 let private globalNs: NamespaceKey = NamespaceKey.Global
 
 let private ns: NamespaceKey =
@@ -87,8 +71,7 @@ let private moduleBindingKey: BindingKey =
         Name = "f"
     }
 
-/// A member key per `MemberKind`, so the two interface cases (which carry a second
-/// `TypeKey`) are interned as well as the two plain ones.
+/// A member key per `MemberKind` — the two interface kinds carry a second `TypeKey`.
 let private memberKeyOf (kind: MemberKind) (argSig: FrozenType list) : MemberKey =
     {
         Decl = boxKey
@@ -98,9 +81,8 @@ let private memberKeyOf (kind: MemberKind) (argSig: FrozenType list) : MemberKey
         Kind = kind
     }
 
-/// Every `FrozenType` constructor, at depth, plus the shapes that only appear inside a KEY
-/// (a member's `ArgSig`, a nested containment chain) — the type table and the key tables are one
-/// interning problem, so the samples have to exercise the edge in both directions.
+/// Every `FrozenType` constructor at depth, plus the shapes that only appear inside a KEY (a
+/// member's `ArgSig`, a nested containment chain).
 let private samples: FrozenType list =
     [
         intTy
@@ -140,8 +122,8 @@ let private samples: FrozenType list =
         FTUnknown "Unresolved.Head"
     ]
 
-/// The key-cluster values interned in their own right, as `FrozenCodecTypes`' nominal
-/// reference codecs write them — an `FTConst` type constructor is not the only way one reaches the wire.
+/// The keys interned in their own right — an `FTConst` type constructor is not the only way
+/// one reaches the wire.
 let private keySamples: SymbolKey list =
     [
         SymbolKey.Type nestedKey
@@ -152,23 +134,20 @@ let private keySamples: SymbolKey list =
         SymbolKey.Member(memberKeyOf (MemberKind.InterfaceMethod ifaceKey) [ intTy ])
     ]
 
-/// A builder with every sample interned, and the table its rows make — the fixture the
-/// obligations below are all stated against.
+/// A builder with every sample interned, and the table its rows make.
 let private internedSamples () =
     let builder = FrozenTypeTableBuilder()
     let ids = samples |> List.map builder.Intern
     ids, FrozenTypeTable.OfRows builder.Rows
 
-/// The rows through `FrozenCodecRows` and back. EMPTY tables on both sides of the seam, and
-/// that is half the assertion: the row codec resolves no type reference — its children are
-/// already ids — so anything here reaching for `w.Types` would fault rather than quietly
-/// resolve against a stand-in.
+/// The rows through the row codec and back, on EMPTY tables both sides — half the assertion:
+/// the codec resolves no type reference (a row's children are already ids), so a lookup would
+/// fault rather than resolve against a stand-in.
 let private throughRowCodec (rows: FrozenTypeRows) : FrozenTypeRows =
     FrozenCodecPrimitives.toBytes (FrozenTypeTableBuilder()) FrozenCodecRows.writeTypeRows rows
     |> FrozenCodecPrimitives.ofBytes FrozenTypeTable.Empty FrozenCodecRows.readTypeRows
 
-/// A `TypeRow`'s constructor name, for the coverage assertion. Exhaustive with no
-/// catch-all, so a new row case fails to compile here rather than going uncounted.
+/// A `TypeRow`'s constructor name, for the coverage assertion.
 let private rowTag (row: TypeRow) : string =
     match row with
     | TypeRow.Const _ -> "Const"
@@ -199,8 +178,7 @@ let tests =
                     Expect.equal table.[id] ty (sprintf "round-trips: %A" ty)
             }
 
-            // The whole point of the id column: within one file, `=` on two `TypeId`s IS
-            // structural type equality. Both directions, over every pair of samples.
+            // Both directions, over every pair of samples.
             test "interning is injective on structural equality" {
                 let ids, _ = internedSamples ()
                 let pairs = List.zip samples ids
@@ -223,11 +201,9 @@ let tests =
                 Expect.equal builder.Rows.Types.Length rowsAfterFirst "re-interning appends no rows"
             }
 
-            // What `FrozenCodec.flatten` rests on: it must intern the types a PAYLOAD embeds
-            // into the tables the freeze already built, and the `ty` columns it is about to
-            // write hold ids from that first build. If re-admitting the stored rows moved a
-            // single one, every column entry in the file would silently name a different
-            // type.
+            // `flatten` re-admits the freeze's own rows to intern the types a PAYLOAD embeds,
+            // while the `ty` columns it writes hold ids from that first build. Move one id on
+            // re-admission and every column entry names a different type.
             test "a re-admitted table keeps every id, and grows only at the end" {
                 let frozen = FrozenTypeTableBuilder()
                 let originals = samples |> List.map frozen.Intern
@@ -237,8 +213,7 @@ let tests =
                 Expect.equal (reopened.Rows.Types.Length) rows.Types.Length "re-admission mints nothing"
                 Expect.equal (samples |> List.map reopened.Intern) originals "every id survives re-admission"
 
-                // The payload type the columns never carried: it takes the next row, and the
-                // ids already handed out still name what they named.
+                // A payload type the columns never carried: it takes the NEXT row.
                 let fresh = FTKeyOf(FTFun(intTy, FTUnknown "payload-only"))
                 let freshId = reopened.Intern fresh
                 Expect.isFalse (List.contains freshId originals) "a new type takes a new row"
@@ -250,11 +225,9 @@ let tests =
                     Expect.equal table.[id] ty (sprintf "still named by its original id: %A" ty)
             }
 
-            // The other side of that invariant. Re-admission reproduces the stored indices
-            // only because a stored array is DISTINCT and in mint order, and the arrays
-            // reaching it come off the wire — so a reader bug that repeated a row would
-            // compact it here, shift every id after it, and leave every `ty` column entry in
-            // the file naming a different, valid type. Nothing types that away; it faults.
+            // Re-admission reproduces the stored indices only because a stored array is DISTINCT
+            // and in mint order, and the arrays reaching it come off the wire. A reader bug that
+            // repeated a row would compact it, shifting later ids onto a different, valid type.
             test "a stored table whose rows repeat is rejected, not silently compacted" {
                 let builder = FrozenTypeTableBuilder()
                 samples |> List.iter (builder.Intern >> ignore)
@@ -270,8 +243,6 @@ let tests =
                     "a repeated row cannot be re-admitted"
             }
 
-            // A sub-type shared between two samples occupies ONE row, which is what makes
-            // the table smaller than the occurrences it stands for.
             test "a shared subtree is interned once" {
                 let builder = FrozenTypeTableBuilder()
                 builder.Intern(FTFun(intTy, intTy)) |> ignore
@@ -282,9 +253,8 @@ let tests =
                 Expect.equal builder.Rows.Types.Length (rowsBefore + 1) "only the new node takes a row"
             }
 
-            // `FTOr` is a SET. Two spellings of one union intern to one row, and the row
-            // keeps the order the first spelling declared — `SemanticInfo`'s `FTOr`
-            // insertion-order rule, now carried by the row's `EqSet<TypeId>`.
+            // `FTOr` is a SET: two spellings intern to one row, and the row keeps the order the
+            // first declared them, since its `EqSet<TypeId>` preserves insertion order.
             test "a union interns order-insensitively and keeps the declared order" {
                 let builder = FrozenTypeTableBuilder()
                 let forward = builder.Intern(FrozenType.MkUnion [ intTy; stringTy ])
@@ -308,18 +278,9 @@ let tests =
                     Expect.equal table.[id] k (sprintf "round-trips: %A" k)
             }
 
-            // The row CODEC, gated on the very samples the coverage assertions below prove
-            // reach every `TypeRow` case and populate every key table. It needs its own gate
-            // because the two halves of the pair are not held to each other by the compiler:
-            // `writeTypeRow` matches on the DU exhaustively, so a new row case fails to
-            // compile there, but `readTypeRow` matches on BYTES with a catch-all and is under
-            // no such obligation — a case the writer is forced to emit is not a case the
-            // reader is forced to accept.
-            //
-            // Materialising through the REREAD table is what makes this reach further than
-            // the type rows: every key row (`SymbolRow`, `MemberKindRow`, the two container
-            // rows, `LiteralRow`) has a byte-tag reader with the same catch-all, and the only
-            // way to resolve a sample's id is through all of them.
+            // The writer matches the row DU, but the reader matches BYTES under a catch-all, so
+            // a case the writer must emit is not one the reader must accept. Materialising
+            // through the REREAD table is the only way to reach every key row's byte-tag reader.
             test "every row case survives the row codec at the id it was minted with" {
                 let builder = FrozenTypeTableBuilder()
                 let typeIds = samples |> List.map builder.Intern
@@ -346,8 +307,7 @@ let tests =
                     Expect.equal reread.[id] k (sprintf "key survives the wire: %A" k)
             }
 
-            // Two overloads differing ONLY in their argument types must not collapse: the
-            // `MemberKey` identity reaches into the type table, so its row does too.
+            // A `MemberKey`'s identity reaches into the type table, so its row does too.
             test "overloads differing only by argument type take distinct rows" {
                 let builder = FrozenTypeTableBuilder()
 
@@ -387,9 +347,8 @@ let tests =
                 Expect.equal (Set.difference expected produced) Set.empty "every row case is exercised"
             }
 
-            // Every KEY row array is populated too — the samples reach the key cluster only
-            // through `FTConst` type constructors and nominal keys, so a table that stopped interning
-            // one of them would otherwise pass every assertion above.
+            // The samples reach the key cluster only through `FTConst` type constructors and
+            // nominal keys, so a table that stopped interning one would pass everything above.
             test "the samples populate every key table" {
                 let _, table = internedSamples ()
                 let rows = table.Rows

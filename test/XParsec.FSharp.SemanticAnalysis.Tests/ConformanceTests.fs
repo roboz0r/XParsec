@@ -1,9 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ConformanceTests
 
-// Sig/impl conformance. Proves the Vesper.Core contract
-// (`.fsi`) `extern` capability set coincides with the implementation (`.fs`)
-// `(# … #)` intrinsic representation set, and exercises each drift the check
-// catches. A source-level check, so it does not depend on codegen.
+// Sig/impl conformance: the `.fsi` `extern` set coincides with the `.fs`
+// `(# … #)` intrinsic set. A source-level check, so codegen plays no part.
 
 open System.IO
 
@@ -12,8 +10,6 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Path to a `src/<package>/<fileName>` source file (mirrors
-/// VesperCoreContractTests' resolution from the test project root).
 let private vesperPath (package: string) (fileName: string) =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", package, fileName)
 
@@ -22,7 +18,6 @@ let private vesperCorePath (fileName: string) = vesperPath "Vesper.Core" fileNam
 let private readNormalised (path: string) =
     (File.ReadAllText path).Replace("\r\n", "\n")
 
-/// Run the conformance check over a `.fsi` / `.fs` source pair.
 let private conform (sigSrc: string) (implSrc: string) : Conformance.ConformanceError list =
     let sigLexed, sigFile = parseSigFile sigSrc
     let implLexed, implFile = parseFile implSrc
@@ -51,7 +46,7 @@ let tests =
     testList
         "Conformance"
         [
-            // ---- The real contract/impl pair: the load-bearing P4 assertion ----
+            // ---- The real contract/impl pair ----
 
             test "prim-types-min.fsi conforms to prim-types-min.clr.fs (no drift)" {
                 let sigSrc = readNormalised (vesperCorePath "prim-types-min.fsi")
@@ -131,9 +126,8 @@ let tests =
             }
 
             test "concrete type declared in .fsi but absent from .fs → MissingInImpl" {
-                // `bar` is a CONCRETE type (a union) — it requires an implementation, so its
-                // absence is real drift. (A transparent abbreviation would be exempt; see the
-                // dedicated abbreviation test below.)
+                // `bar` is a CONCRETE type (a union), so it requires an implementation and
+                // its absence is real drift; a transparent abbreviation would be exempt.
                 let errors =
                     conform
                         "namespace V\n\ntype foo = extern\n\ntype bar = | BarCase"
@@ -168,9 +162,8 @@ let tests =
             }
 
             test "sig-only abbreviation needs no impl companion → no error" {
-                // `type myalias = int` in the .fsi resolves transitively to `int`; F# needs
-                // no `.fs` companion for a transparent abbreviation (the `ref`/`ResizeArray`/
-                // `seq` pattern), so the check does not flag it MissingInImpl.
+                // `type myalias = int` resolves transitively to `int`; F# needs no `.fs`
+                // companion for a transparent abbreviation, so it is not MissingInImpl.
                 let errors =
                     conform
                         "namespace V\n\ntype foo = extern\n\ntype myalias = int"
@@ -240,8 +233,8 @@ let tests =
             }
 
             test "module-nested val with no let → ValueMissingInImpl (flattened)" {
-                // `CstWalk` flattens nested modules, so a `val` inside `module M` pairs
-                // with a `let` inside `module M` on the impl side.
+                // Nested modules are flattened, so a `val` inside `module M` pairs with
+                // a `let` inside `module M` on the impl side.
                 let errors =
                     conform
                         "namespace V\n\nmodule M =\n\n    val gone: int -> int"
@@ -254,35 +247,13 @@ let tests =
             }
         ]
 
-// ---- Manifest-driven conformance over every package -------------------
-//
-// The pairing is no longer a hand-maintained file list: `ConformancePass.checkManifest`
-// reads each `Vesper.*/manifest.toml` and derives the `.fsi`↔`.fs` pairs from it
-// (the manifest's own pairing key over the resolved `impl` set), so a newly-added
-// `.fsi`/`.fs` is conformance-checked automatically and can no longer be silently
-// dropped from a curated list. The packages themselves are discovered from the
-// source tree for the same reason.
-//
-// Each package is driven through `ConformancePass.enforce`, which
-// promotes every discrepancy to a hard `Severity.Error` diagnostic — the FS0240
-// family for a contract binding with no implementation (`MissingInImpl` /
-// `ValueMissingInImpl`), extern/intrinsic drift, an un-exempted impl-free `SigOnly`
-// `.fsi`, a leading-module-decl mismatch, or a contract-less `.fs`. The exemption
-// list is no longer a test-side constant: it is the manifest's `[core] sig-only`
-// (front-end-intrinsic `printf.fsi`, FSharp.Core-interop `printf-format.fsi`,
-// per-target `exceptions.fsi`), so a `.fsi` whose `.fs` was deleted — and which is
-// not declared impl-free — is a hard error by construction, NOT a pinned golden.
-//
-// The conformance check is codegen-independent (CST-level), so it
-// runs on all the Vesper.* packages — Set included — and is the cheapest way to
-// catch `.fsi`/`.fs` drift the parser alone can't see. Only the CLR target is driven;
-// JS-only contracts (`[targets.js] files`) are not in the CLR file set, so they need
-// no CLR exemption.
+// ---- Manifest-driven conformance over every package (CLR target) -------
+// The `.fsi`↔`.fs` pairs and the impl-free `[core] sig-only` set are both read from
+// each `Vesper.*/manifest.toml`; every discrepancy becomes a hard `Severity.Error`.
 
 let private vesperSrcDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src")
 
-/// Every `Vesper.*` package, discovered from the source tree → (dir name, manifest
-/// path). Sorted for stable test ordering.
+/// Every `Vesper.*` package in the source tree → (dir name, manifest path).
 let private packageManifests: (string * string) list =
     Directory.GetDirectories(vesperSrcDir, "Vesper.*")
     |> Array.map (fun d -> Path.GetFileName d, Path.Combine(d, "manifest.toml"))
@@ -290,8 +261,7 @@ let private packageManifests: (string * string) list =
     |> Array.sortBy fst
     |> List.ofArray
 
-/// Run the manifest-driven pass for a package, failing the test on a manifest /
-/// parse error (the pass returns `Error`).
+/// The manifest-driven pass's outcome; a manifest or parse error fails the test.
 let private outcomeFor (target: string) (manifestPath: string) : ConformancePass.PackageOutcome =
     match ConformancePass.checkManifest target manifestPath with
     | Ok o -> o
@@ -308,11 +278,6 @@ let packageConformanceTests =
                 test $"{package}: manifest-driven conformance is enforced (no hard errors)" {
                     let outcome = outcomeFor "clr" manifestPath
 
-                    // `enforce` subsumes every drift species — the FS0240 family
-                    // (`MissingInImpl`/`ValueMissingInImpl`), extern/intrinsic drift, an
-                    // un-exempted impl-free `SigOnly` (`sig-only` is now the manifest's,
-                    // not a test constant), a module-decl mismatch, and a contract-less
-                    // `.fs`. Every package must produce zero hard errors.
                     let errors = ConformancePass.enforce outcome
 
                     Expect.isEmpty
@@ -325,16 +290,8 @@ let packageConformanceTests =
         ]
 
 // ---- The SAME pass, run for JS --------------------------------------------
-//
-// The pass now runs for a second target, which it could not before: a contract JS binds
-// no representation for is `Unrepresentable` — derived from the file's own content, not
-// from a key someone remembered to add — so no JS exemption list has to be guessed. What
-// remains on JS is not exemptions but MISSING WORK: most Vesper packages ship no JS
-// bodies at all yet, and each of those is a hard error the run is right to keep making.
-// So the JS assertions below are about the axis this outcome closes — every contract JS
-// cannot represent is accepted, and no manifest anywhere carries a JS-specific
-// `sig-only` key — rather than a blanket "no hard errors" the unported library cannot
-// satisfy.
+// A contract JS binds no representation for is `Unrepresentable`, derived from the
+// file's own content rather than from a key, so no JS exemption list has to be guessed.
 
 /// The contracts a target accepts as declared-but-unrepresentable, with the `extern`
 /// types each names.
@@ -369,8 +326,7 @@ let private manifestOf (package: string) : string =
     |> Option.defaultWith (fun () -> failtestf "%s manifest not found" package)
 
 /// Materialise a throwaway package from `files` (file name → content, `manifest.toml`
-/// among them) and run the js pass over it. A verdict pinned on one of these cannot be
-/// retired by porting a library file.
+/// among them) and run the js pass over it.
 let private syntheticOutcome (files: (string * string) list) : ConformancePass.PackageOutcome =
     let dir =
         Path.Combine(Path.GetTempPath(), "vesper.synthetic." + System.Guid.NewGuid().ToString("N"))
@@ -385,9 +341,8 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
     finally
         Directory.Delete(dir, true)
 
-/// A one-contract package — a manifest, a contract declaring the single `val` `served`,
-/// and a committed runtime asset exporting `exportedAs`. The export NAME is the only
-/// variable, so the two verdicts this produces differ in nothing else.
+/// A one-contract package: a manifest, a contract declaring the single `val` `served`,
+/// and a runtime asset exporting `exportedAs` — the export name is the only variable.
 let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
     syntheticOutcome
         [
@@ -416,9 +371,8 @@ let jsPackageConformanceTests =
 
             test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
                 // A record needs a real `.fs`: absence is missing work, not a statement that
-                // JS cannot represent it — the split that keeps a forgotten `.fs` from
-                // reading as polite. Synthetic, and the asset even exports the type's NAME,
-                // so neither escape hatch is merely untested here.
+                // JS cannot represent it. The asset exports the type's NAME, so the
+                // runtime-served hatch is under test too, not merely absent.
                 let outcome =
                     syntheticOutcome
                         [
@@ -461,11 +415,9 @@ let jsPackageConformanceTests =
             }
 
             test "js: the hard-error set is exactly the un-ported library surface" {
-                // EMPTY: every contract in the in-scope library surface now has a JS body,
-                // is unrepresentable there, or is declared impl-free. The list stays rather
-                // than becoming an `isEmpty`, and stays pinned rather than counted — a NEW
-                // entry means a contract lost its body, and an entry that vanishes without
-                // the corresponding source appearing means the pass stopped asking.
+                // EMPTY: every in-scope contract has a JS body, is unrepresentable, or is
+                // declared impl-free. Pinned as a list, so a new entry names the contract
+                // that lost its body.
                 let expected: string list = []
 
                 let actual =
@@ -478,10 +430,8 @@ let jsPackageConformanceTests =
             }
 
             test "js: a contract is runtime-served only when the asset exports every val it declares" {
-                // The bodies of these two contracts live in the committed `.mjs`, not in a
-                // `.fs`, so no `.fs` is owed. That the verdict is CHECKED against the asset —
-                // and not merely asserted from the manifest's `runtime` key — is pinned
-                // directly by the synthetic-package pair below.
+                // These bodies live in the committed `.mjs`, not in a `.fs`, so no `.fs`
+                // is owed.
                 Expect.equal
                     (runtimeServedOf (outcomeFor "js" (manifestOf "Vesper.Core")))
                     [
@@ -500,10 +450,8 @@ let jsPackageConformanceTests =
             }
 
             test "js: rename the asset's export and the contract owes a `.fs` again" {
-                // The rule's negative half, pinned on a synthetic package so it cannot be
-                // retired by porting a library file: the whole difference between the two
-                // runs is one identifier in the `.mjs`. Nothing else guards a hand-authored
-                // asset — its consumers are Node tests that skip when node is absent.
+                // The whole difference between the two runs is one identifier in the `.mjs`:
+                // the verdict is checked against the asset, not read off the `runtime` key.
                 let served = runtimeAssetOutcome "served"
 
                 Expect.equal
@@ -524,9 +472,9 @@ let jsPackageConformanceTests =
             }
 
             test "js: capabilities-compat.js.fsi is accepted as pure abbreviation, naming no extern" {
-                // Five transparent abbreviations and nothing else. F# needs no `.fs` for an
+                // Transparent abbreviations and nothing else. F# needs no `.fs` for an
                 // abbreviation, so the contract owes no body — and it says so with an EMPTY
-                // extern list, which is what distinguishes it from the nativeint family.
+                // extern list, unlike the nativeint family.
                 match
                     unrepresentableOf (outcomeFor "js" (manifestOf "Vesper.Core"))
                     |> List.tryFind (fun (f, _) -> f = "capabilities-compat.js.fsi")
@@ -536,9 +484,9 @@ let jsPackageConformanceTests =
             }
 
             test "js: array-index.js.fsi PAIRS with its body rather than being waved through" {
-                // Both halves of the old two-way bug: the `.fsi` was accepted as owing no
-                // body (though its body exists) while the body was reported as contract-less.
-                // The key now names one pair, and it conforms — `extern` ↔ `(# "!0[]" #)`.
+                // The manifest names one pair and it conforms: `extern` ↔ `(# "!0[]" #)`.
+                // Neither half is waved through — the `.fsi` as owing no body, or the
+                // `.fs` as contract-less.
                 let paired =
                     [
                         for p in (outcomeFor "js" (manifestOf "Vesper.Core")).Pairs do
@@ -556,8 +504,7 @@ let jsPackageConformanceTests =
 
             test "js: a contract-less body is declared, not inferred, and raises nothing" {
                 // `structural-printer.js.fs` is a standalone `%A` engine whose published
-                // surface IS its contract. Declared `impl-only`, so it neither pairs with the
-                // CLR `structural-printer.fsi` nor counts as an orphaned body.
+                // surface IS its contract, so it is declared `impl-only` rather than paired.
                 let outcome = outcomeFor "js" (manifestOf "Vesper.Printf")
 
                 Expect.equal
@@ -569,19 +516,9 @@ let jsPackageConformanceTests =
             }
 
             test "every target-specific `sig-only` entry is pinned, not an open list" {
-                // The exemption list that would otherwise have to be guessed per target.
-                // Whether a target can REPRESENT a contract is derived from the file's own
-                // content (`Unrepresentable`), so that axis needs no key from anyone — and
-                // this used to assert the lists were empty everywhere.
-                //
-                // Erasure is the axis content cannot decide. `compiler-attributes.fsi`
-                // declares 8 compile-time markers: the CLR owes them TypeDefs (its metadata
-                // cannot reference a type that has none), JS owes nothing at all. Identical
-                // content, different answer per target, so the manifest is where it is said.
-                //
-                // PINNED rather than forbidden, for the reason the hard-error set is pinned
-                // rather than counted: a second entry has to be argued for here, in front of
-                // someone, instead of accruing quietly in a manifest.
+                // Erasure is the axis content cannot decide: `compiler-attributes.fsi`'s
+                // compile-time markers owe the CLR TypeDefs but owe JS nothing. Pinned, so a
+                // second entry is argued for here rather than accruing in a manifest.
                 let expected = [ "Vesper.Core", "js", [ "compiler-attributes.fsi" ] ]
 
                 let actual =
@@ -601,11 +538,8 @@ let jsPackageConformanceTests =
         ]
 
 // ---- conformance findings are HARD errors ----------------------------
-//
-// `enforce` is the flip from "a finding a test inspects" to "an FS0240-style hard
-// error that fails the build". These pin the promotion directly on a synthetic
-// `PackageOutcome` (no manifest round-trip): a `.fsi` with no `.fs` and no `sig-only`
-// exemption, a kernel `MissingInImpl`, and the conforming/exempt controls.
+// `enforce` turns a finding into an FS0240-style error that fails the build. Pinned
+// on a synthetic `PackageOutcome`, so no manifest round-trip is involved.
 
 let private mkOutcome
     (pairs: ConformancePass.PairOutcome list)
@@ -637,9 +571,8 @@ let enforcementTests =
             }
 
             test "an Unrepresentable .fsi → no error, with no exemption declared" {
-                // The third verdict: declared, unrepresentable, accepted. The reject is
-                // owed at the use site, so nothing is enforced here — and unlike the
-                // `SigOnly` above, the empty exemption set is what it is accepted against.
+                // Declared, unrepresentable, accepted: the reject is owed at the use site.
+                // Unlike the `SigOnly` above, it is accepted against an EMPTY exemption set.
                 let outcome =
                     mkOutcome
                         [
@@ -692,9 +625,8 @@ let enforcementTests =
             }
 
             test "a contract-less .fs → V242, unless the manifest declares it `impl-only`" {
-                // F# requires no `.fsi`, but a Vesper package publishes a contract surface —
-                // so an undeclared body with none is the hard error, and the declaration is
-                // what turns it into a statement.
+                // F# requires no `.fsi`, but a Vesper package publishes a contract surface,
+                // so an UNDECLARED body with none is the hard error.
                 let orphaned =
                     { mkOutcome [] Set.empty with
                         ImplOnly = [ "engine.js.fs" ]
@@ -713,9 +645,8 @@ let enforcementTests =
             }
 
             test "an `impl-only` naming a body the target does not compile → V243 hygiene error" {
-                // The mirror of a stale `sig-only`: the declaration outlived the file, or the
-                // `.fsi` it disclaims came back (in which case that contract's own V240 fires
-                // alongside).
+                // The mirror of a stale `sig-only`: the declaration outlived the file, or
+                // the `.fsi` it disclaims came back.
                 let errors =
                     ConformancePass.enforce
                         { mkOutcome [] Set.empty with
@@ -728,9 +659,8 @@ let enforcementTests =
             }
 
             test "a RuntimeServed .fsi → no error, with no exemption declared" {
-                // The fourth verdict: the bodies are the committed runtime asset's exports,
-                // checked against the asset, so the absent `.fs` is correct rather than
-                // waived.
+                // The bodies are the committed runtime asset's exports, checked against the
+                // asset, so the absent `.fs` is correct rather than waived.
                 let outcome =
                     mkOutcome
                         [
@@ -746,9 +676,8 @@ let enforcementTests =
             }
 
             test "a parse failure is a per-contract V244 error, not an abort that masks the rest" {
-                // `checkManifest` collects a parse failure as a `ParseFailed` verdict
-                // rather than returning `Error`, so a sibling contract's drift on the
-                // same package is still reported — both errors surface, in order.
+                // A parse failure is collected as a `ParseFailed` verdict rather than
+                // aborting the package, so a sibling contract's drift still surfaces.
                 let outcome =
                     mkOutcome
                         [
@@ -767,22 +696,8 @@ let enforcementTests =
         ]
 
 // ---- Semantic typar-order conformance ---------------------------------
-//
-// `ConformanceTypars.checkFile` is the SEMANTIC half: it compares a `.fs`-inferred
-// generic module binding's frozen scheme (typars `FTTypar(Method, i)`, in
-// `GeneralizedTypars.canonical` order) against the `.fsi`-declared scheme an
-// `IExternalSymbolProvider` publishes (typars `FTTypar(Declaring, i)`, in
-// `translateCurriedSig` appearance order). Because `FTTypar` is positional, a
-// structural `FrozenType` equality after axis normalization IS α-equivalence-WITH-
-// ORDER: it fails exactly when the two sides number their typars differently.
-//
-// The contract side is a stub provider so the test pins the exact declared order
-// without a manifest round-trip; the impl side runs the REAL frozen pipeline
-// (`Pipeline.analyseForSelfHost`), so the inferred order is genuinely inference's, not
-// a hand-built `FrozenType`. The canonical case is the plan's `<'b,'a>`-reorder: a
-// `.fs` that declares its typars in a different order than the `.fsi`'s appearance
-// order is the one species of drift this catches (see `ElaborateTests`' "free function
-// honours declared `<'b,'a>` typar order over appearance").
+// The `.fs`-inferred scheme (`FTTypar(Method, i)`) vs the `.fsi`-declared one
+// (`FTTypar(Declaring, i)`): positional, so `=` fails on a typar-ORDER difference.
 
 /// A contract provider that publishes exactly `entries` (name → declared scheme) and
 /// nothing else — the `.fsi` side of one `checkFile` run.
@@ -798,10 +713,8 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
                     | None -> ValueNone
         }
 
-/// Run the `.fs` through the real frozen self-host pipeline (so a generic binding's
-/// typar order is inference's own). The snippets reference no external symbols, so
-/// the provider only matters for its absence of interference — the real contract
-/// resolves them identically.
+/// Run the `.fs` through the real frozen self-host pipeline, so a generic binding's
+/// typar order is inference's own rather than a hand-built `FrozenType`.
 let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
     Pipeline.analyseForSelfHost "M" realProvider.Value (Hashing.originSourceOfText lexed) file
@@ -871,27 +784,13 @@ let typarConformanceTests =
         ]
 
 // ---- Semantic typar-order conformance for type MEMBERS ----------------------
-//
-// `ConformanceTypars.checkMembers` is the member-level twin of `checkFile`: a
-// generic `.fs` type member (`member M<'a,'b>(x,y) = …`) is compared against the
-// `.fsi`-published overload set (`TryLookupMembers`). A member carries two typar
-// axes, so the comparison is a DIRECT structural equality of the two frozen member
-// signatures (no axis collapse): both sides write the declaring type's typars on
-// `FTTypar(Declaring,_)` and the method's own on `FTTypar(Method,_)`, each in
-// canonical order, so `=` is α-equivalence-with-order across both axes. A member
-// with no matching-arity published overload is skipped (presence is a separate check).
-//
-// The real `formatter.clr.fs ↔ formatter.fsi` end-to-end check lives in
-// `Codegen.Clr.Tests/ConformanceTyparsTests.fs` (it needs `ClrSymbolProviders` to
-// EXTRACT the contract); here the contract side is a stub publishing an exact member
-// overload set, so the drift case is pinned without a manifest round-trip.
+// A generic `.fs` member (`member M<'a,'b>(x,y) = …`) vs the published overload set.
+// Both sides write `FTTypar(Declaring,_)`/`FTTypar(Method,_)`, so `=` needs no collapse.
 
-/// A method-axis typar marker (`FTTypar(Method, i)`).
 let private mAxis (i: int) : FrozenType = FTTypar(TyparAxis.Method, i)
 
-/// A non-property, non-static external member named `name` with `methodTyparArity` own
-/// typars and the given (already method-axised) tupled `parameters` / `ret` — the
-/// `.fsi`-published overload the stub serves.
+/// The `.fsi`-published overload the stub serves: an instance method with
+/// `methodTyparArity` own typars over already method-axised `parameters` / `ret`.
 let private mkMember
     (name: string)
     (methodTyparArity: int)
@@ -905,12 +804,9 @@ let private mkMember
         MethodTyparArity = methodTyparArity
     }
 
-/// A contract provider publishing exactly `overloads` as the member set of every
-/// type (keyed by member name; the declaring-type name is ignored, so the stub
-/// serves whatever qualified name the `.fs` type resolves under).
+/// A contract provider publishing exactly `overloads`, keyed by member name only:
+/// the stub serves whatever qualified name the `.fs` type resolves under.
 let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
-    // The declaring-type name of each member channel is ignored, so the stub serves its
-    // overload set to whatever qualified name the `.fs` type resolves under.
     ExternalSymbolProviders.ofNamedLeaf
         { ExternalSymbolProviders.NamedLeaf.empty with
             TryLookupMember =
@@ -939,8 +835,7 @@ let memberTyparConformanceTests =
             test "published `<'b,'a>` reorder vs `.fs` `<'a,'b>` → MemberMismatch" {
                 // `.fs` declares `<'a,'b>`: `x:'a` = Method 0, `y:'b` = Method 1, so the
                 // inferred signature is `(M0 * M1) -> M0`. The published overload is the
-                // REVERSED `<'b,'a>` numbering — `(M1 * M0) -> M1` — the member-level twin
-                // of `checkFile`'s `<'b,'a>` drift, caught by the same positional equality.
+                // REVERSED `<'b,'a>` numbering, `(M1 * M0) -> M1`.
                 let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
                 Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
 

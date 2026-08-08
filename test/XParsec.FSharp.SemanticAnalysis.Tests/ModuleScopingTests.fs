@@ -24,10 +24,8 @@ let private expectRejected (source: string) =
     let es = errors (analyse source)
     Expect.isNonEmpty es "expected a diagnostic: the name names nothing in scope here"
 
-/// The `SymbolKey` of the type `typeName` at `arity` declared in the module `moduleName` —
-/// selected by the declaration's own HOLDER and its own ARITY, because the whole point here
-/// is that two sibling `T`s (or two `T`s of different arity) are two types and a name cannot
-/// tell them apart.
+/// Selected by the declaration's own HOLDER and its own ARITY: two sibling `T`s, or two `T`s
+/// of different arity, are two different types that a bare name cannot tell apart.
 let private typeDeclKeyInArity (tast: TastFile) (moduleName: string) (typeName: string) (arity: int) : SymbolKey =
     let found =
         [
@@ -51,8 +49,7 @@ let private typeDeclKeyInArity (tast: TastFile) (moduleName: string) (typeName: 
 let private typeDeclKeyIn (tast: TastFile) (moduleName: string) (typeName: string) : SymbolKey =
     typeDeclKeyInArity tast moduleName typeName 0
 
-/// The `SymbolKey` of the non-generic `typeName` declared in the module `inner` NESTED in the
-/// module `outer` — the whole chain, because a sibling module of the same short name as
+/// Matched on the whole `outer.inner` chain: a sibling module of the same short name as
 /// `inner` may declare the same type name, and only the chain tells the two apart.
 let private typeDeclKeyInNested (tast: TastFile) (outer: string) (inner: string) (typeName: string) : SymbolKey =
     let found =
@@ -102,8 +99,7 @@ let private nominalKey (ty: SemType) : SymbolKey =
     | other -> failtestf "expected a nominal type, got %A" other
 
 /// The ARGUMENT type of the file's sole module-level `let` — for `let f (v: T) = v`, what
-/// the written `T` bound to. Every program below writes exactly one `let`, so the use site
-/// under test is the only one there is.
+/// the written `T` bound to. Every program below writes exactly one `let`.
 let private soleLetArg (tast: TastFile) : SemType =
     let found =
         [
@@ -120,12 +116,8 @@ let private soleLetArg (tast: TastFile) : SemType =
 let private src (lines: string list) = String.concat "\n" lines
 
 // A bare type name resolves INNERMOST-OUTWARD: the use's own module, the `open`s in that
-// scope, then each enclosing module, then the enclosing namespace. A SIBLING module
-// contributes nothing without an `open` — `module A`'s types are simply not in scope in
-// `module B`, and F# says so (FS0039).
-//
-// Every one of these asserts the RESOLVED IDENTITY, not acceptance: a shadowing rule got
-// backwards still compiles, and only the key it bound to says which type the name meant.
+// scope, then each enclosing module, then the namespace. A SIBLING module contributes nothing
+// without an `open` (F#: FS0039). Each test pins the RESOLVED IDENTITY, not acceptance.
 [<Tests>]
 let tests =
     testList
@@ -189,8 +181,8 @@ let tests =
             }
 
             // Innermost wins. The control is the SAME program with the inner declaration
-            // removed: it binds to the outer `T`, so the shadowed case is pinned against the
-            // type it would otherwise have bound to, not merely against acceptance.
+            // removed, so the shadowed case is pinned against the type it would otherwise
+            // have bound to.
             test "a nested module's own type shadows the enclosing module's" {
                 let shadowed =
                     analyse (
@@ -237,8 +229,7 @@ let tests =
             }
 
             // An `open` is added to the name environment where it is WRITTEN, and the last
-            // thing added wins — so an `open` inside the inner module outranks the enclosing
-            // module's declaration.
+            // thing added wins.
             test "an `open` beats an enclosing module's declaration" {
                 let tast =
                     analyse (
@@ -289,9 +280,8 @@ let tests =
             }
 
             // Within ONE scope a declaration and an `open` are ordered by nothing but the
-            // text — F# adds each to the name environment where it is written, and the last
-            // one added is what the name means. (Probed against `dotnet fsi`: with
-            // `type T` then `open A`, `typeof<T>` is A's T.)
+            // text: the last one written is what the name means. (Probed against `dotnet
+            // fsi`: with `type T` then `open A`, `typeof<T>` is A's T.)
             test "in one scope, a declaration and an `open` are ordered by the text" {
                 let openThenDecl =
                     analyse (
@@ -341,13 +331,9 @@ let tests =
             }
         ]
 
-// A type is reached from outside the module holding it by NAMING that module: the qualifier
-// is a path through the scopes this file declares, resolved from the use — its own scopes
-// (innermost first), the `open`s in force, or the root (a fully-qualified path). The type it
-// selects there is as local as a bare one.
-//
-// Every program below declares a SECOND `T`, in a sibling module, so nothing can pass by
-// conflating the two: only the key the name bound to says which `T` it meant.
+// A type outside the module holding it is reached by NAMING that module; the qualifier is
+// resolved from the use — its own scopes innermost-first, the `open`s in force, or the root.
+// Every program below declares a SECOND `T` in a sibling module, so nothing passes by luck.
 [<Tests>]
 let qualifiedTests =
     testList
@@ -397,8 +383,7 @@ let qualifiedTests =
                 Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "N.A.T is A's T"
             }
 
-            // The namespace is not an ancestor scope of the use, so the path is resolved from
-            // the ROOT — the only route left, and the one F# leaves open from everywhere.
+            // `N` is not an ancestor scope of the use, so the path is resolved from the ROOT.
             test "a fully-qualified path names the type from ANOTHER namespace" {
                 let tast =
                     analyse (
@@ -482,8 +467,7 @@ let qualifiedTests =
                     Expect.equal (EqArray.toList args) [ BuiltinTypes.tyInt ] "the written type argument is applied"
                 | other -> failtestf "expected a record, got %A" other
 
-                // The same path at the OTHER arity names the other type — the arity is not
-                // decoration on one name, it is part of which claim is held.
+                // The same path at the OTHER arity names the other type.
                 let nonGeneric =
                     analyse (
                         src
@@ -533,19 +517,16 @@ let qualifiedTests =
 
                 expectClean tast
 
-                // `M` also holds an `A.T`, and `M` is an ancestor scope of the use — so the
-                // `open N` must OUTRANK it (it is written deeper, and later), or the name
-                // would mean M's.
+                // `M` also holds an `A.T` and is an ancestor scope of the use, so the `open N`
+                // — written deeper and later — must outrank it.
                 match soleLetArg tast with
                 | SemType.TyRecord(k, _) -> Expect.equal k.Namespace.Dotted "N" "the `open N` qualifies A.T to N.A.T"
                 | other -> failtestf "expected a record, got %A" other
             }
 
-            // A qualifier that names a module of THIS file wins over an external type of the
-            // same dotted spelling: `Vesper.Collections.seq` is a real external type (the
-            // contract's `seq` interface), and the local module chain shadows it. F#'s answer,
-            // probed against `dotnet fsi`: the nearest scope that can name the qualifier wins,
-            // and the enclosing namespace holds this one.
+            // `Vesper.Collections.seq` is a real external type (the contract's `seq`
+            // interface), and the local module chain of the same spelling shadows it. Probed:
+            // the nearest scope that can name the qualifier wins, here the enclosing namespace.
             test "a project-local qualified type beats an external type of the same spelling" {
                 let tast =
                     analyse (
@@ -571,11 +552,8 @@ let qualifiedTests =
             }
 
             // A name a scope OF THIS UNIT does not hold is a DIAGNOSTIC: we know every type
-            // our own scopes hold. A fresh type variable would unify with anything and
-            // surface the mistake as unencodable output far from it.
-            //
-            // The same cannot be said under a qualifier we do not declare: what an external
-            // name means is the provider's to answer, and the provider is a partial view.
+            // our own scopes hold, and a fresh type variable would unify with anything. Under
+            // a qualifier we do NOT declare the provider answers, and its view is partial.
             test "a name a module of this file does not hold is not defined" {
                 expectRejected (
                     src
@@ -605,9 +583,8 @@ let qualifiedTests =
                 )
             }
 
-            // The name denotes A's `T`, at an arity A does not hold it at — so the ARITY is
-            // blamed. A local claim is never abandoned for an external type of the same
-            // spelling just because the arity is wrong.
+            // The name denotes A's `T` at an arity A does not hold it at, so the ARITY is
+            // blamed — a local claim is not abandoned for an external type over a bad arity.
             test "a qualified name at the wrong arity blames the arity" {
                 let es =
                     errors (

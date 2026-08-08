@@ -4,11 +4,8 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// `FrozenCache.freezeResult` is the error-aware store wrapper the production driver keys on:
-// an errored front end must be returned as `Error` and NEVER stored (storing it would serve a
-// stale failure back), while an `Ok` stores once and re-serves on the next call as a hit. These
-// tests pin exactly that — an errored `produce` leaves the store empty; an `Ok` stores once and
-// the second call hits without re-running `produce`.
+// `freezeResult` is the error-aware store wrapper: an errored front end is returned as `Error`
+// and NEVER stored, since storing it would serve a stale failure back on every later compile.
 
 let private freezeKey (hex: string) : CacheKey =
     {
@@ -17,8 +14,7 @@ let private freezeKey (hex: string) : CacheKey =
         Input = InputHash.ofHex hex
     }
 
-/// Counts `Store` calls over a real `InMemoryStore`, so a test can assert an errored produce
-/// stored nothing (count stays 0) and an `Ok` stored exactly once.
+/// Counts `Store` calls over a real `InMemoryStore`.
 type private CountingStore() =
     let inner = Cache.InMemoryStore() :> ICacheStore
     let mutable stores = 0
@@ -31,8 +27,7 @@ type private CountingStore() =
             stores <- stores + 1
             inner.Store key bytes
 
-/// A real frozen tree for a small program the shared contract stack resolves — the payload the
-/// cache actually round-trips.
+/// A real frozen tree — the payload the cache round-trips.
 let private frozenSample () : FrozenPools =
     freezeFor "let add x y = x + y\nlet answer = add 1 40\n"
 
@@ -77,11 +72,9 @@ let tests =
                 Expect.equal produced 1 "the hit did NOT re-run produce"
                 Expect.equal store.Stores 1 "the hit stored nothing new"
 
-                // A hit thaws the STORED blob, so its own re-flatten equals the bytes that were
-                // stored — the serialization round-trip that makes the cache sound (asserting the
-                // whole `TastFile` by `=` is the wrong contract: side-table map ordering is free to
-                // differ, and the codegen-invariance the cache actually needs is gated at the CLR
-                // layer by digest, not here).
+                // A hit thaws the STORED blob, so its own re-flatten equals the bytes stored.
+                // Asserting the whole tree by `=` would be the wrong contract: side-table map
+                // ordering is free to differ.
                 match second with
                 | Ok f ->
                     Expect.equal

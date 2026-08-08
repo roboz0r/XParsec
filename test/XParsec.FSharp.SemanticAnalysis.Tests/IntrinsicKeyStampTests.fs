@@ -4,27 +4,16 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The desugared-operator and synthesised-intrinsic `External` nodes Elaborate mints
-// (`a + b` → `op_Addition`, `arr.[i]` → `GetArray`, `arr.Length` → `GetArrayLength`,
-// `arr.[i] <- v` → `SetArray`, …) MUST carry the resolved `SymbolKey` Unification
-// stamped in `Resolution.IntrinsicKey`. That key is the SOLE channel by which
-// `InlineExpansion` splices the cross-package `let inline` body (the by-name inline
-// channel is gone): a `ValueNone` key here is a silent mis-splice / phantom `call`
-// downstream, not a graceful miss — exactly the failure mode the boundary plan warns
-// of. These are the front-end shape twins of the codegen end-to-end splice suites
-// (`OpsPlatform*Tests`, array/dynamic tests): this harness resolves the `Vesper.Core`
-// contract from its `.fsi` alone, so no body is served and the `External` node
-// SURVIVES `InlineExpansion` unspliced — letting us assert the KEY is present on the
-// node that a body-serving stack would splice by.
+// A desugared `External` node (`a + b` → `op_Addition`, `arr.[i]` → `GetArray`) carries
+// the key its cross-package inline body is spliced by. This harness resolves contracts
+// from `.fsi` alone, so no body is served and the node survives unspliced, key readable.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// The `key` field of the first `TExpr.External` named `name` anywhere in the
-/// program's lowered decls (`None` if no such node survives). Asserts the program
-/// froze without diagnostics first — a diagnostic means the intrinsic never resolved,
-/// so there would be nothing to stamp.
+/// The `key` of the first `TExpr.External` named `name` in the lowered decls (`None` if
+/// none survives). Diagnostics are checked empty first: an unresolved intrinsic stamps nothing.
 let private externalKey (name: string) (input: string) : SymbolKey voption option =
     let tast = analyse input
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics for: %s" input)
@@ -64,13 +53,10 @@ let tests =
     testList
         "IntrinsicKeyStamp"
         [
-            // Group 1 — desugared operators (`inferInfix` / `inferPrefix` stamp).
             test "infix `+` stamps op_Addition" { assertStamped "op_Addition" "let f (a: int) (b: int) : int = a + b" }
 
             test "prefix `-` stamps op_UnaryNegation" { assertStamped "op_UnaryNegation" "let f (a: int) : int = -a" }
 
-            // Group 2 — synthesised element/length intrinsics (`inferIndexedLookup`,
-            // `resolveFieldStep`, `inferAssignment` stamp).
             test "array index read `arr.[i]` stamps GetArray" {
                 assertStamped "GetArray" "let f (a: int[]) (i: int) : int = a.[i]"
             }

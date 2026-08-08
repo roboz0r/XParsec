@@ -9,7 +9,6 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// Type of the last `let` declaration's binding.
 let private lastDeclType (tast: TastFile) : SemType =
     if tast.Decls.IsEmpty then
         failwith "expected a trailing TDecl.Let, got no decls"
@@ -26,7 +25,6 @@ let private lastDeclValue (tast: TastFile) : TExpr =
         | TDecl.Let(_, v, _, _) -> v
         | other -> failwithf "expected a trailing TDecl.Let, got %A" other
 
-/// FormatType of a single specifier, via the canonical lexer parser.
 let private specType (s: string) : FormatType =
     match Lexing.parseFormatSpecifier s with
     | ValueSome ph -> ph.Type
@@ -36,8 +34,7 @@ let private tyUnit = BuiltinTypes.tyUnit
 let private tyInt = BuiltinTypes.tyInt
 let private tyString = BuiltinTypes.tyString
 
-/// A dimensionless placeholder over a type letter — the shape `argTypes`
-/// reduces to a single value argument for.
+/// A placeholder with no width or precision: `%d`, never `%5d` or `%*d`.
 let private ph (t: FormatType) : FormatPlaceholder =
     {
         Flags = ""
@@ -47,9 +44,8 @@ let private ph (t: FormatType) : FormatPlaceholder =
         TypeChar = ' '
     }
 
-/// Assert `src` analyses to an error diagnostic naming `fragment` — a cold
-/// residual the printf gate re-errors rather than lowering (there is no
-/// FSharp.Core fallback once the family lowers natively).
+/// Assert `src` analyses to an error diagnostic naming `fragment` — a specifier
+/// the printf gate re-errors rather than lowering.
 let private rejectsResidual (fragment: string) (src: string) =
     let tast = analyse src
 
@@ -279,8 +275,8 @@ let tests =
             }
 
             test "star width fully applied types as unit and stays off the happy path" {
-                // %*d types fine (a silent cold-path degrade, no diagnostic) —
-                // classify still defers star, so no Format marker is stamped.
+                // Classification defers star widths, so `%*d` types fine but no
+                // Format marker is stamped — a silent degrade, not a diagnostic.
                 let tast = analyse "let r = printfn \"%*d\" 5 42"
                 Expect.equal (lastDeclType tast) tyUnit "result unit"
                 Expect.isEmpty tast.Diagnostics "no diagnostics for star width"
@@ -346,7 +342,6 @@ let tests =
             }
 
             test "format / argument mismatch emits a diagnostic" {
-                // %d wants int, but `true` is bool.
                 let tast = analyse "let r = printfn \"%d\" true"
 
                 let hasMismatch =
@@ -366,17 +361,10 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // The sink families (`fprintf`, `bprintf`) name their leading argument's type —
-            // `System.IO.TextWriter`, `System.Text.StringBuilder` — and this provider, which
-            // carries no BCL, cannot resolve either. A writer/builder ANNOTATION here is
-            // therefore a name that is not defined, and is blamed as one; the lowering of an
-            // annotated sink argument to a real writer/builder class is pinned where a
-            // provider CAN name it (`Codegen.Clr.Tests.PrintfHappyPathTests`).
+            // `fprintf`'s leading argument is a `System.IO.TextWriter` and this provider
+            // carries no BCL, so a sink annotation is an undefined name. It must NOT become
+            // a free TyVar that unifies with the sink as readily as a real writer would.
             test "an fprintf writer annotated with an undefined type is blamed at the annotation" {
-                // The motivating nonsense: a free TyVar for an unresolved dotted name made the
-                // annotation decorative — `Foo.Bar.Baz` unified with the writer sink as readily
-                // as a real `TextWriter`, so the mistake type-checked in silence and detonated
-                // in the backend. One diagnostic, at the annotation, naming what was written.
                 let tast = analyse "let go (w: Foo.Bar.Baz) = fprintf w \"%d\" 42"
 
                 let errors = tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message)
@@ -400,13 +388,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- Cold residuals: re-errored at the gate (no FSharp.Core fallback) ----
-            // These specifiers have no faithful native lowering: the runtime-width zero-pad
-            // forms (`%0*d`, `%0*.Nf`) have no handler taking a runtime width, and `%0*A` is
-            // the `0`-flag-on-`%*A` parsing quirk (renders flat AND discards the width).
-            // With the FSharp.Core cold printf being removed there is no fallback, so the
-            // gate turns each into an error naming the offending specifier rather than
-            // routing it silently.
+            // ---- Residuals: re-errored at the gate, with no fallback ----
+            // No handler takes a runtime width, so `%0*d` / `%0*.Nf` cannot lower; `%0*A`
+            // is the `0`-flag-on-`%*A` quirk (renders flat AND discards the width).
 
             test "`%0*d` (runtime-width zero-pad) is a diagnosed residual" {
                 rejectsResidual "%0*d" "let r = printfn \"%0*d\" 5 42"
@@ -427,10 +411,8 @@ let tests =
             }
 
             // ---- `%+08.2f` / `% 08.2f`: forced-sign zero-pad float lowers natively ----
-            // The sign is forced onto a half-to-even `"F<prec>"` body then zero-padded
-            // after it (`FieldFormat.ForcedSign` carrying a `zeroPad` width), so it lowers
-            // rather than routing cold. Byte parity (incl. midpoint rounding) is exercised
-            // by the Codegen PrintfHappyPath run-tests.
+            // The sign is forced onto a half-to-even `"F<prec>"` body, then zero-padded
+            // after it — `FieldFormat.ForcedSign` carrying the pad width.
 
             test "`%+08.2f` lowers to a ForcedSign fixed-float carrying its zero-pad width" {
                 let tast = analyse "let r = printfn \"%+08.2f\" 1234.5"
@@ -466,8 +448,7 @@ let tests =
 
             // ---- `%-*A` / `%+*A`: the `-`/`+` flags are no-ops on `%A` ----
             // A flagged star-`%A` renders byte-identically to a bare `%*A`, so it lowers
-            // to the same `PrintWidth.Star` structural hole (no diagnostic), unlike the
-            // declined `%0*A`.
+            // to the same `PrintWidth.Star` hole — unlike the declined `%0*A` above.
 
             test "`%-*A` lowers as a PercentA(Star) hole (flag is a no-op)" {
                 let tast = analyse "let r = printfn \"%-*A\" 20 42"
@@ -493,11 +474,8 @@ let tests =
                 | ValueNone -> failtest "expected a placeholder"
             }
 
-            // A fully-applied literal call with lowerable specifiers now freezes
-            // to a `TExpr.Format` — no `New PrintfFormat`
-            // / `App printfn`. The non-lowerable cases above (`%x`, `%a`, partial
-            // application, `fprintf`, shadowing) still type the same and keep the
-            // FSharp.Core path; this section pins the lowered shape.
+            // A fully-applied literal call with lowerable specifiers freezes to a
+            // `TExpr.Format`, not a `New PrintfFormat` + `App printfn`.
 
             test "printfn \"%d\" 42 freezes to a Format node (stdout + newline, one int hole)" {
                 let tast = analyse "let r = printfn \"%d\" 42"
@@ -518,9 +496,8 @@ let tests =
                     | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
 
-                        // step (d): the hole carries its classified `Source`; `%d` (no
-                        // flags) is a plain verbatim field with no alignment (no .NET
-                        // format string, no padding).
+                        // `%d` carries no flags, so its classified `Source` is a
+                        // verbatim field: no .NET format string, no padding.
                         match hole.Source with
                         | HoleSpecSource.Classified hf ->
                             Expect.equal
@@ -546,13 +523,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // ---- E1: format literal bound to a name / ascribed ----
-            // A `PrintfFormat`-annotated `let` (or `(… : Fmt)` ascription) types the
-            // string literal AS the format (not `string`) — `tryTypeFormatLiteral` —
-            // and records it for const-propagation. A later `sprintf fmt …` recovers
-            // the literal at the gate and lowers to the SAME native `TExpr.Format` a
-            // syntactic literal would, rather than a cold `New PrintfFormat` + `App`
-            // (which has no runtime in the self-host contract).
+            // ---- format literal bound to a name / ascribed ----
+            // Typing the literal AS the format (not `string`) lets a later `sprintf fmt …`
+            // recover it and lower natively, not to a `New PrintfFormat` + `App`.
 
             test "E1: an annotated format binding types the literal as the PrintfFormat (no mismatch)" {
                 let tast =
@@ -600,10 +573,9 @@ let tests =
             }
 
             test "E1: a mismatched format annotation diagnoses an error, does not throw" {
-                // `Format<int -> string>` declares one hole but the literal has two —
-                // real F# rejects this. Malformed source must surface an ERROR
-                // diagnostic; elaboration degrades to diagnostics-only rather than
-                // crashing on a Elaborate invariant.
+                // `Format<int -> string>` declares one hole but the literal has two.
+                // Malformed source must surface an ERROR diagnostic; elaboration
+                // degrades to diagnostics-only rather than tripping an invariant.
                 let tast =
                     analyse
                         "open Vesper\nlet fmt : Format<int -> string, unit, string, string> = \"%d %s\"\nlet s = sprintf fmt 1 \"a\""
@@ -614,9 +586,8 @@ let tests =
             }
 
             test "E1: an unannotated `let fmt = \"%d\"` stays a plain string (not const-propagated)" {
-                // Real F# rejects `sprintf fmt 42` here (fmt : string). We must NOT
-                // recover the literal: the binding is a plain string, so no
-                // `PrintfFormatLiterals` entry, and the printf gate never fires on it.
+                // Unannotated, `fmt : string`, so the literal must NOT be recovered:
+                // no format-literal entry is recorded and the printf gate never fires.
                 let tast = analyse "let fmt = \"%d\"\nlet s = fmt"
 
                 match lastDeclValue tast with

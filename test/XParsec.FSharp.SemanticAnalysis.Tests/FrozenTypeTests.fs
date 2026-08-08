@@ -3,25 +3,17 @@ module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ofFrozen` mints local-typar metavars through an arena; the round-trip samples
-// carry no `FTLocalTypar`, so this store stays empty — it only satisfies the seam.
+// The arena `ofFrozen` mints local-typar metavars through. No sample carries an `FTLocalTypar`,
+// so it stays empty and only satisfies the seam.
 let private store = TypeStore()
 
-// The `SemType` ↔ `FrozenType` round-trip oracle. The
-// bridge is the keystone of the 3B cutover: every later slice (3B-2's encoder
-// flip, 3B-4's tree flip) relies on `toFrozen` / `ofFrozen` being mutual
-// inverses on the post-freeze subset, so an IL-byte-identical claim can rest on
-// "the encoder was proven equivalent via the round trip". This pins that.
-//
-// Two laws (the plan's wording):
-//   * `ofFrozen >> toFrozen = id` on all `FrozenType`   (no `FrozenType` is lost)
-//   * `toFrozen >> ofFrozen = id` on the post-freeze `SemType` subset
-// `TyVar` — the one `SemType` case with no `FrozenType` counterpart — is the
-// hard-error boundary, also asserted.
+// The `SemType` ↔ `FrozenType` round-trip oracle: `ofFrozen >> toFrozen = id` over the sample
+// below, and `toFrozen >> ofFrozen = id` on its post-freeze `SemType` images. `TyVar` has no
+// `FrozenType` counterpart and is a hard error at the boundary.
 
-/// A deterministic, depth-bounded enumeration of `FrozenType` shapes covering
-/// every constructor, including nesting and the two `TyparAxis`es. No RNG (no
-/// FsCheck dependency); the set is small but exhaustive over the constructors.
+/// A deterministic, depth-bounded enumeration of `FrozenType` constructors, nested, over both
+/// `TyparAxis`es — but no `FTLocalTypar`, whose `ofFrozen` image is a `TyVar` that `toFrozen`
+/// then rejects.
 let private sampleFrozenTypes: FrozenType list =
     let kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
     let kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
@@ -39,13 +31,11 @@ let private sampleFrozenTypes: FrozenType list =
             FTTypar(TyparAxis.Method, 0)
             FTTypar(TyparAxis.Method, 2)
             FTUnknown "Unresolved.Head"
-            // Niladic nominal enum — a key-only leaf, no args.
             FTEnum kEnum
         ]
 
-    // One level of every branching constructor over a couple of leaves, then a
-    // second level nesting branches inside branches so the recursive `EqArray.map`
-    // arms are all exercised.
+    // One level of every branching constructor over a couple of leaves; `branch2` then nests
+    // branches inside branches, so the recursive `EqArray.map` arms are exercised.
     let branch1 =
         [
             FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty)))
@@ -54,9 +44,7 @@ let private sampleFrozenTypes: FrozenType list =
             FTRecord(kRec, EqArray.singleton (FTTypar(TyparAxis.Declaring, 0)))
             FTUnion(kUnion, EqArray.singleton (FTConst(RuntimeNames.stringKey, EqArray.empty)))
             FTClass(kClass, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 1) ])
-            // Anonymous (structural) union — built through the smart constructor
-            // (`EqSet` members, set-semantic identity). The round-trip is purely
-            // structural, so the map preserves the member set either way.
+            // Anonymous union through the smart constructor: `EqSet` members, set identity.
             FrozenType.MkUnion
                 [
                     FTConst(RuntimeNames.intKey, EqArray.empty)
@@ -67,10 +55,8 @@ let private sampleFrozenTypes: FrozenType list =
             FTLiteral(LiteralConst.Int 42L)
             // A literal union — the canonical `"ping" | "pong"` shape.
             FrozenType.MkUnion [ FTLiteral(LiteralConst.String "ping"); FTLiteral(LiteralConst.String "pong") ]
-            // The carried type-level computations, in their mitt shapes: `keyof Events`,
-            // `Events[Key]`, and `undefined extends Events[Key] ? Key : never`. The
-            // bridge must round-trip them structurally (children carry declaring/method
-            // typars), so include them in the oracle.
+            // The type-level operators, with typar children: `keyof E`, `E[K]`, and
+            // `undefined extends E[K] ? K : never`.
             FTKeyOf(FTTypar(TyparAxis.Declaring, 0))
             FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0))
             FTConditional
@@ -128,16 +114,13 @@ let tests =
             }
 
             test "toFrozen >> ofFrozen = id on the post-freeze SemType subset" {
-                // Each `ofFrozen ft` is a representative of the post-freeze subset
-                // (the cases `freeze` can legally produce — no `TyVar`).
+                // Each `ofFrozen ft` represents the post-freeze subset: no `TyVar`.
                 for ft in sampleFrozenTypes do
                     let ty = ofFrozen store ft
                     Expect.equal (ofFrozen store (toFrozen ty)) ty (sprintf "round-trips: %A" ty)
             }
 
             test "every post-freeze SemType case is covered by the sample" {
-                // Guards against the sample silently dropping a constructor: assert
-                // every expected case tag appears among the `ofFrozen` images.
                 let tag (ty: SemType) =
                     match ty with
                     | TyConst _ -> "TyConst"
@@ -196,21 +179,13 @@ let tests =
             }
         ]
 
-// `FrozenType.mapVariant` — the variance-tracking rebuild skeleton. These pin the
-// variance ALGEBRA directly (a pure `FrozenType -> FrozenType`, no provider
-// scaffolding) so every position rule is a one-liner and every constructor arm is
-// reachable — including the type-level operators (`keyof`/indexed/conditional) a
-// stored member signature can only awkwardly carry. The `mapProviderTypes` decorator
-// tests cover only the SURFACE mapping (which field → which root variance); the number
-// POLICY is tested end-to-end elsewhere. Here the leaf is a position-witness: a marker
-// `FTConst("M", [])` is replaced by `FTConst("<co|contra|inv>", [])`, so the output
-// records the variance at which the marker was reached.
+// `FrozenType.mapVariant` — the variance algebra, pinned as a pure `FrozenType -> FrozenType`.
+// The leaf is a position-witness: a marker `FTConst("M", [])` is replaced by
+// `FTConst("co"|"contra"|"inv", [])`, so the output records where the marker was reached.
 [<Tests>]
 let mapVariantTests =
     let marker = FTConst(RuntimeNames.opaqueKey "M", EqArray.empty)
 
-    /// Replace the marker with a witness naming the variance it was reached at; defer
-    /// (recurse) everywhere else.
     let witnessLeaf (v: Variance) (t: FrozenType) : FrozenType voption =
         match t with
         | FTConst(key, args) when args.Length = 0 && SymbolKeyOps.simpleName key = DisplayName "M" ->
@@ -223,8 +198,7 @@ let mapVariantTests =
             ValueSome(FTConst(RuntimeNames.opaqueKey name, EqArray.empty))
         | _ -> ValueNone
 
-    /// The reachability sample from the round-trip oracle, reused to assert a
-    /// `ValueNone` leaf is the identity on EVERY constructor (faithful recursion).
+    /// Reused from the round-trip oracle: reaches every constructor.
     let allShapes = sampleFrozenTypes
 
     let run v t = FrozenType.mapVariant witnessLeaf v t
@@ -242,9 +216,8 @@ let mapVariantTests =
             }
 
             test "a ValueNone leaf is the identity on every constructor shape" {
-                // The skeleton must rebuild faithfully — recursion changes nothing when
-                // the leaf never fires (structural arms route `FTOr` through `MkUnion`,
-                // which is idempotent on already-canonical input).
+                // `FTOr` rebuilds through `MkUnion`, idempotent on already-canonical input, so a
+                // never-firing leaf is the identity there too.
                 for ft in allShapes do
                     Expect.equal (run Variance.Co ft) ft (sprintf "identity: %A" ft)
             }
@@ -292,9 +265,8 @@ let mapVariantTests =
 
             test "invariance dominates a contravariant enclosing position" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
-                // `Box<M> -> M` under Co: the domain is contra, but `Box`'s ARG is a
-                // generic slot → inv wins over the contra it sits inside; the result `M`
-                // stays co.
+                // `Box<M> -> M` under Co: the domain is contra, but `Box`'s ARG is a generic
+                // slot → inv wins over the contra it sits inside; the result `M` stays co.
                 let t = FTFun(FTClass(kBox, EqArray.singleton marker), marker)
 
                 Expect.equal
@@ -393,15 +365,13 @@ let mapVariantTests =
             }
         ]
 
-// `iterChildren2` pairs the members of an `FTOr` — a SET, so storage order is not a
-// semantic invariant across instantiation. These pin the tyctor-keyed fallback that
-// recovers the pairing when the members line up NON-positionally (the case
-// `ClrEncoder.recoverOpenTypars` rests on): a positional-only walk would silently
-// mis-recover an open typar buried under a reordered union member.
+// `iterChildren2` pairs the members of an `FTOr` — a SET, so storage order is not preserved
+// across instantiation, and a positional-only walk would mis-recover an open typar buried
+// under a reordered member. These pin the tyctor-keyed fallback that recovers the pairing.
 [<Tests>]
 let iterChildren2FTOrTests =
-    // A minimal mirror of `ClrEncoder.recoverOpenTypars`' descent: record what each
-    // method-axis `FTTypar` slot instantiates to as `iterChildren2` pairs children.
+    // A minimal mirror of the CLR encoder's open-typar recovery: record what each method-axis
+    // `FTTypar` slot instantiates to as `iterChildren2` pairs children.
     let recoverMethodTypars (openT: FrozenType) (instT: FrozenType) =
         let recovered = System.Collections.Generic.Dictionary<int, FrozenType>()
 
@@ -418,10 +388,9 @@ let iterChildren2FTOrTests =
         [
             test "recovers a typar buried under a REORDERED FTOr member by tyctor key, not position" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
-                // open template `Box<!!0> | int`; instantiated view `int | Box<string>`.
-                // `EqSet` preserves insertion order, so the two are stored REORDERED —
-                // a positional pairing would match `Box<!!0>` against `int` and lose the
-                // typar; the tyctor-keyed fallback pairs `Box` with `Box`.
+                // Open `Box<!!0> | int` against instantiated `int | Box<string>`: `EqSet` keeps
+                // insertion order, so a positional pairing would match `Box<!!0>` with `int` and
+                // lose the typar. The tyctor-keyed fallback pairs `Box` with `Box`.
                 let openOr =
                     FrozenType.MkUnion
                         [
@@ -448,10 +417,9 @@ let iterChildren2FTOrTests =
 
             test "fails loudly when an open FTOr member's type constructor matches TWO instantiated members" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
-                // open `int | Box<!!0>`; instantiated `Box<string> | Box<float>`. Positional
-                // type constructors mismatch (int vs Box) so the fallback runs; the concrete `int` open
-                // member has no partner, and `Box<!!0>` matches BOTH instantiated members —
-                // genuinely ambiguous, so guessing is a bug: fail.
+                // Open `int | Box<!!0>` against `Box<string> | Box<float>`: positional type
+                // constructors mismatch so the fallback runs, and `Box<!!0>` then matches BOTH
+                // instantiated members. Genuinely ambiguous, so guessing would be a bug.
                 let openOr =
                     FrozenType.MkUnion
                         [
