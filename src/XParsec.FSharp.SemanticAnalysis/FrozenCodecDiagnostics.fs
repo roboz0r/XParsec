@@ -248,6 +248,9 @@ module FrozenCodecDiagnostics =
         | Kind.OperatorFormQualifiedName firstSegment ->
             w.Write 8uy
             w.Write firstSegment
+        | Kind.UndefinedPatternDiscriminator name ->
+            w.Write 9uy
+            w.Write name
         | Kind.ConstraintNotSupported(ty, constraintName) ->
             w.Write 10uy
             w.Write ty
@@ -395,7 +398,7 @@ module FrozenCodecDiagnostics =
             Kind.TypeArgArity(name, expected, r.ReadInt32())
         | 7uy -> Kind.UnresolvedQualifiedName(r.ReadString())
         | 8uy -> Kind.OperatorFormQualifiedName(r.ReadString())
-        // Tag 9 is free — a retired case, which nothing writes. Reuse it deliberately.
+        | 9uy -> Kind.UndefinedPatternDiscriminator(r.ReadString())
         | 10uy ->
             let ty = r.ReadString()
             Kind.ConstraintNotSupported(ty, r.ReadString())

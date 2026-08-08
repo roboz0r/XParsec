@@ -12,14 +12,6 @@ subagent report.
 
 ## Defects
 
-### `Passes/NameResolution/Scope.fs` — `bindingsOfPat`'s binds-nothing arm still holds `Pat.Named`
-
-Reached whenever `isCtorPat` fails, so an unrecognised `Foo x` drops `x` with no diagnostic —
-the shape the `Pat.Or` / `Pat.And` entry here used to describe, before those two started
-collecting their sub-patterns' bindings and the or-chain's gap became one report from the
-pass that cannot lower it (`CoverageTests.fs`, "or-pattern that binds names is the only
-diagnostic").
-
 ### `Passes/Unification/EngineCore.fs:526` — a surfaced external interface takes the local-registry path
 
 `subtypeInterfacesOf` mints an external interface as `TyClass(qualifiedTypeKeyOf n ta.Length, …)`,

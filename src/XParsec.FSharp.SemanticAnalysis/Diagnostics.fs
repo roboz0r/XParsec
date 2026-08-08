@@ -241,6 +241,9 @@ type Kind =
     | DimensionlessMeasureMismatch of measure: string
 
     // ── Constructors and patterns ──────────────────────────────────────────────
+    /// The head of an applied or dotted pattern (`Foo x`, `Bar.Baz`) names no union case
+    /// and no enum case.
+    | UndefinedPatternDiscriminator of name: string
     | NullaryConstructorPattern of name: string * arity: int
     | AmbiguousConstructor of name: string * candidates: int
     | ConstructorArity of name: string * expected: int * got: int
@@ -317,6 +320,7 @@ module Kind =
         | Kind.NoMember _
         | Kind.NoCase _
         | Kind.UnknownNominalType _
+        | Kind.UndefinedPatternDiscriminator _
         | Kind.UnresolvedQualifiedName _ -> DiagCode.FSharp 39 // UndefinedName
         | Kind.TypeArgArity _ -> DiagCode.FSharp 33 // TyconBadArgs
         // ── Constructors: fsc's "union case expects N arguments" covers both the wrong
@@ -409,6 +413,7 @@ module Kind =
             sprintf "Cannot downcast type '%s' to unrelated type '%s'" source target
         | Kind.MeasureMismatch(left, right) -> sprintf "Measure mismatch: <%s> vs <%s>" left right
         | Kind.DimensionlessMeasureMismatch measure -> sprintf "Measure mismatch: dimensionless vs <%s>" measure
+        | Kind.UndefinedPatternDiscriminator name -> sprintf "The pattern discriminator '%s' is not defined" name
         | Kind.NullaryConstructorPattern(name, arity) ->
             sprintf "Constructor '%s' takes %d argument(s) but is used nullary in pattern position" name arity
         | Kind.AmbiguousConstructor(name, candidates) ->
@@ -501,6 +506,7 @@ module Kind =
         | Kind.DowncastUnrelated _
         | Kind.MeasureMismatch _
         | Kind.DimensionlessMeasureMismatch _
+        | Kind.UndefinedPatternDiscriminator _
         | Kind.NullaryConstructorPattern _
         | Kind.AmbiguousConstructor _
         | Kind.ConstructorArity _

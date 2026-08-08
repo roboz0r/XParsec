@@ -143,15 +143,6 @@ module NameResolutionScope =
         && (TypeRegistry.isCaseName ctx.Types useSite name
             || resolvesAsBareExternalCase ctx name)
 
-    /// True if the `Pat.Named` name `li` is a ctor reference (`Some x` destructures — the
-    /// name itself binds nothing, its sub-patterns are the bound variables). The two-segment leg
-    /// covers a qualified external case (`Color.Red`), which an RQA union rejects bare.
-    let private isCtorPat (ctx: PassContext) (useSite: UseSite) (li: LongIdent<SyntaxToken>) : bool =
-        li.Idents.Length >= 1
-        && (isCtorName ctx useSite (ctx.NameOf li.Idents.[li.Idents.Length - 1])
-            || (li.Idents.Length = 2
-                && (tryExternalCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1])).IsSome))
-
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
     /// bind nothing (Wildcard, Const, nullary ctors).
     let rec bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
@@ -173,9 +164,11 @@ module NameResolutionScope =
             bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
-        | Pat.Named(longIdent = li; argumentPats = args) when isCtorPat ctx (ctx.UseSiteAt(CstKeys.ofPat p)) li ->
-            // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): the ctor name
-            // binds nothing, sub-patterns introduce bound variables.
+        | Pat.Named(argumentPats = args) ->
+            // `Circle r`, `Color.Red`: the head is a discriminator, never a bound variable — a
+            // bound variable is a lone ident, which parses as `Pat.NamedSimple`. So the
+            // sub-patterns bind whether or not the head resolves; Unification reports one that
+            // names no case.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub
@@ -197,7 +190,6 @@ module NameResolutionScope =
             match Desugar.opPatCompiledName ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
             | ValueNone -> []
-        | Pat.Named _
         | Pat.OpNamed _
         | Pat.StructTuple _
         | Pat.NamedFieldPats _

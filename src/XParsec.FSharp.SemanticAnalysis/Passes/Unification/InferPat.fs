@@ -207,6 +207,16 @@ module internal UnificationInferPat =
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
             unionTy
+        | Pat.Named(longIdent = li; argumentPats = args) ->
+            // No arm above answered for the head: it names no union case and no enum case. The
+            // sub-patterns still infer, so the bound variables the arm body reads have types.
+            let written = (ctx.WrittenTypeNameOf li).Written
+            ctx.Report(tok, Kind.UndefinedPatternDiscriminator written)
+
+            for sub in args do
+                inferPat ctx sub |> ignore
+
+            TyVar(freshTv ctx key)
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.Null _ ->
             // A `null` pattern matches a reference value. The node type is left a free TyVar

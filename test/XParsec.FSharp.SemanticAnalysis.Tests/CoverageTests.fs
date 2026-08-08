@@ -287,6 +287,37 @@ let tests =
                     "one diagnostic, naming the gap"
             }
 
+            // The head is reported once, by the pass that resolves it. Its sub-patterns bind, so
+            // the arm body does not also raise an unresolved-identifier on the way there.
+            test "undefined pattern discriminator is the only diagnostic" {
+                let tast = analyse "let f p =\n    match p with\n    | Foo x -> x\n    | _ -> 0\n"
+
+                let msgs = tast.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq
+
+                Expect.equal msgs [ "The pattern discriminator 'Foo' is not defined" ] "one diagnostic, naming the head"
+            }
+
+            // A head binding nothing raised no diagnostic at all, so elaboration — which asserts
+            // rather than diagnoses, and degrades only after a reported error — faulted instead.
+            test "undefined pattern discriminator binding nothing is diagnosed, not faulted" {
+                let tast = analyse "let f p =\n    match p with\n    | Foo.Bar -> 1\n    | _ -> 0\n"
+
+                let msgs = tast.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq
+
+                Expect.equal
+                    msgs
+                    [ "The pattern discriminator 'Foo.Bar' is not defined" ]
+                    "one diagnostic, naming the whole dotted head"
+            }
+
+            test "a union-case pattern's bound variables are still in scope" {
+                let tast =
+                    analyse
+                        "type Shape = Circle of int | Square of int\nlet area s =\n    match s with\n    | Circle r -> r\n    | Square w -> w\n"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "unknown qualified name still emits diagnostic" {
                 let tast = analyse "let r = Foo.bar"
 
