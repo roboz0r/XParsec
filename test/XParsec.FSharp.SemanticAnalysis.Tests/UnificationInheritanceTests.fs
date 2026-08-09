@@ -168,6 +168,50 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — both arities resolve: %A" ctx.Diagnostics)
             }
 
+            // --- `override` conforms to the slot it targets ---
+
+            test "override of a base-declared virtual conforms to the base slot" {
+                // `Equals : B -> bool` is B's own slot; conforming it to `obj -> bool`
+                // instead would blame a correct override.
+                let ctx =
+                    analyse
+                        "type B() =\n    abstract member Equals : B -> bool\ntype D() =\n    inherit B()\n    override this.Equals (that: B) = true"
+
+                Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — B declares the slot: %A" ctx.Diagnostics)
+            }
+
+            test "an unannotated override takes its parameter type from the base slot" {
+                let ctx =
+                    analyse
+                        "type B() =\n    abstract member Store : int -> unit\ntype D() =\n    inherit B()\n    override this.Store x = ()"
+
+                let d = expectClass ctx "D"
+
+                match d.Members |> Array.tryFind (fun m -> m.Name = "Store") with
+                | Some m ->
+                    Expect.equal
+                        (Unification.zonk ctx.Store m.Type)
+                        (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyUnit))
+                        "D.Store : int -> unit"
+                | None -> failtest "D.Store not registered"
+            }
+
+            test "override Equals under a base declaring none pins the Object slot" {
+                let ctx =
+                    analyse
+                        "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\n    override this.Equals that = true"
+
+                let d = expectClass ctx "D"
+
+                match d.Members |> Array.tryFind (fun m -> m.Name = "Equals") with
+                | Some m ->
+                    Expect.equal
+                        (Unification.zonk ctx.Store m.Type)
+                        (TyFun(TyConst(RuntimeNames.objKey, EqArray.empty), BuiltinTypes.tyBool))
+                        "D.Equals : obj -> bool"
+                | None -> failtest "D.Equals not registered"
+            }
+
             // --- `:>` / `:?` / `:?>` arms ---
 
             test "`:>` upcast to declared base types as the base" {

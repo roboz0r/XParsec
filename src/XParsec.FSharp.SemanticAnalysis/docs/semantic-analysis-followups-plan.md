@@ -46,18 +46,27 @@ Covered by `SubtypeExternalInterfaceKeyTests` (a module-held interface, a namesp
 and the re-cut spelling failing to reach it) and by `SignatureExtractorTests`, which now asserts
 the published `IBox` identity is `InModule` rather than that its rendering ends in `` IBox`1 ``.
 
-### `Passes/Unification.fs:600` — `checkObjectOverrideConformance` pins EVERY override to the `System.Object` slot
+### `Passes/Unification.fs:600` — `checkObjectOverrideConformance` pins EVERY override to the `System.Object` slot — DONE
 
-The loop tests `mInfo.IsOverride && mInfo.Kind = ClassMemberKind.Method` and then matches on the
-NAME alone (`"Equals"` / `"GetHashCode"` / `"ToString"`), unifying `mInfo.Type` against the fixed
-`TyFun(objTy, boolTy)` / `TyFun(unitTy, intTy)` / `TyFun(unitTy, stringTy)`. There is no
-`info.BaseType` guard in the loop, and none at the sole call site (`:826`). So a class deriving a
-project-local base and overriding a base virtual that happens to be named `Equals` with a
-non-Object signature (`abstract Equals: MyType -> bool`) is unified against the Object slot and
-raises a spurious type error.
+The pin now asks which slot the `override` targets. `checkOverrideConformance` (renamed, since the
+Object slot is no longer the whole story) reads the nearest same-named instance member up the
+`inherit` chain — `tryBaseSlotType`, over the existing `tryClassChainMember` — and unifies against
+THAT. The three `System.Object` signatures are the fallback for a chain declaring none, which
+covers both the `inherit`-less class and a base that never names `Equals` / `GetHashCode` /
+`ToString`.
 
-A deleted comment claimed the pass was restricted to `inherit`-less classes ("a class deriving a
-project-local base … is a later slice"). Nothing enforces that.
+The fallback shape also widens the pin past those three names: `override this.Store x = ()`
+against a base `abstract Store : int -> unit` now types `x` as `int` rather than generalising it
+into a method typar — the same defect the pass existed to prevent, one name-space wider.
+
+Covered by three rows in `UnificationInheritanceTests`, two of which fail without the change: a
+base-declared `Equals : B -> bool` (previously "Type mismatch: B vs obj"), an unannotated
+parameter taking the base slot's type, and the Object fallback still applying under an `inherit`.
+
+Two limits stand, both pre-existing and neither spurious-error-free: the base member is found by
+NAME, so an overloaded slot picks the first match — what every `tryClassChainMember` caller does —
+and an EXTERNAL base's slots are not read, so `inherit`ing a BCL class and overriding one of its
+non-Object `Equals` overloads still meets the Object slot.
 
 ### `Conformance.fs:352` — an operator `let` with parameters is reported as missing
 

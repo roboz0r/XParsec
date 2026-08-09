@@ -298,8 +298,8 @@ Goal: `objnull` is NOT a primitive — it is the ordinary `obj | null` union.
   a null-type repr. The real, previously-unscoped work Tier A forced: **CLR reference-null erasure**
   (`T | null → T`, `obj | null` ≡ the `System.Object` slot), applied at the three CLR-ABI seams so
   `objnull` behaves as `obj` there — (1) `UnificationEngineCore.stripReferenceNull` on both sides of
-  interface/Object-override conformance (`Unification.checkInterfaceConformance` /
-  `checkObjectOverrideConformance`); (2) `InferTypeOps.inferDynamicDowncast` erases the source's `null`
+  interface/override-slot conformance (`Unification.checkInterfaceConformance` /
+  `checkOverrideConformance`); (2) `InferTypeOps.inferDynamicDowncast` erases the source's `null`
   member so `(x: T|null) :?> U` is governed by `T` exactly as F# governs it (`obj | null` downcasts
   like `obj` — admitted; `string | null` like sealed `string` — FS0016 "no proper subtypes"); (3)
   `ClrEncoder.encodeType`'s new `FTOr` arm erases the `null` member and encodes the single reference

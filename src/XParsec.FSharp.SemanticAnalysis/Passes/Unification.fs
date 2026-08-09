@@ -566,10 +566,22 @@ module Unification =
             | _ -> ()
         | _ -> ()
 
-    /// Pin each `override` member to its `System.Object` virtual slot (`Equals(obj):bool`,
-    /// `GetHashCode():int`, `ToString():string`), so an unannotated `override _.Equals that`
-    /// does not leave `that` free and emit as the generic `bool Equals<M0>(!!0)`.
-    let private checkObjectOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
+    /// The declared slot a same-named `override` conforms to: the nearest instance member
+    /// of that name up the `inherit` chain, at the parent's type args. `ValueNone` where the
+    /// chain leaves the project — an external base's slots are not read here.
+    let private tryBaseSlotType (ctx: PassContext) (info: ClassTypeInfo) (memberName: string) : SemType voption =
+        match info.BaseType with
+        | ValueSome parentTy ->
+            match resolveStep ctx.Store parentTy with
+            | TyClass(parentKey, parentArgs) -> tryClassChainMember ctx parentKey parentArgs memberName
+            | _ -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// Pin each `override` member to the virtual slot it conforms to, so an unannotated
+    /// `override _.Equals that` does not leave `that` free and emit as the generic
+    /// `bool Equals<M0>(!!0)`. A base class declaring the name owns the slot; where none
+    /// does, the slot is `System.Object`'s.
+    let private checkOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
         let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
         let boolTy = TyConst(RuntimeNames.boolKey, EqArray.empty)
         let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
@@ -578,18 +590,25 @@ module Unification =
 
         for mInfo in info.Members do
             if mInfo.IsOverride && mInfo.Kind = ClassMemberKind.Method then
-                // The expected Object-slot type, keyed by name. A nullary method's
-                // inferred type is `unit -> ret`, a 1-arg method's `arg -> ret`.
                 let expected =
-                    match mInfo.Name with
-                    | "Equals" -> ValueSome(TyFun(objTy, boolTy))
-                    | "GetHashCode" -> ValueSome(TyFun(unitTy, intTy))
-                    | "ToString" -> ValueSome(TyFun(unitTy, stringTy))
-                    | _ -> ValueNone
+                    match tryBaseSlotType ctx info mInfo.Name with
+                    | ValueSome slotTy -> ValueSome slotTy
+                    // The three Object slots, keyed by name. A nullary method's inferred
+                    // type is `unit -> ret`, a 1-arg method's `arg -> ret`.
+                    | ValueNone ->
+                        match mInfo.Name with
+                        | "Equals" -> ValueSome(TyFun(objTy, boolTy))
+                        | "GetHashCode" -> ValueSome(TyFun(unitTy, intTy))
+                        | "ToString" -> ValueSome(TyFun(unitTy, stringTy))
+                        | _ -> ValueNone
 
                 match expected with
                 | ValueSome expectedTy ->
-                    unify ctx mInfo.DeclSite.Tok (stripReferenceNull ctx.Store mInfo.Type) expectedTy
+                    unify
+                        ctx
+                        mInfo.DeclSite.Tok
+                        (stripReferenceNull ctx.Store mInfo.Type)
+                        (stripReferenceNull ctx.Store expectedTy)
                 | ValueNone -> ()
 
     /// Reject authoring a BCL interface a capability already publishes (`interface seq<'T>`
@@ -782,7 +801,7 @@ module Unification =
 
                         // Before the impls: an interface-impl `Equals` reads the same-named
                         // override's typars, so pin the override non-generic first.
-                        checkObjectOverrideConformance ctx info
+                        checkOverrideConformance ctx info
                         fillSecondaryCtors ctx info
                         fillInterfaceImpls ctx (info :> IInterfaceImplHost)
                     | ValueNone -> ()
