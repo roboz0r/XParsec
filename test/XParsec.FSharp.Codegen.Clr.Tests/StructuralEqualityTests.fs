@@ -229,11 +229,11 @@ let tests =
 
                 Expect.isTrue
                     (comparerEquals.Invoke(defaultComparer, [| c3a; c3b |]) :?> bool)
-                    "comparer.Equals(Circle 3, Circle 3) — through the typed path"
+                    "comparer.Equals(Circle 3, Circle 3) is true on the typed path"
 
                 Expect.isFalse
                     (comparerEquals.Invoke(defaultComparer, [| c3a; c5 |]) :?> bool)
-                    "comparer.Equals(Circle 3, Circle 5) — through the typed path"
+                    "comparer.Equals(Circle 3, Circle 5) is false on the typed path"
             }
         ]
 

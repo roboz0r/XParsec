@@ -18,7 +18,7 @@ let private errorsOf (src: string) : Diagnostic list =
 
 let private clean (label: string) (src: string) : unit =
     let errs = errorsOf src
-    Expect.isEmpty errs (sprintf "%s — expected clean, got: %A" label (errs |> List.map (fun d -> d.Message)))
+    Expect.isEmpty errs (sprintf "%s: expected clean, got: %A" label (errs |> List.map (fun d -> d.Message)))
 
 /// The inferred type of the program's last top-level `let`, for asserting a precise
 /// grounding: an over-generalised `int -> 'b -> int` is error-free yet wrong.

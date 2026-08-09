@@ -826,9 +826,9 @@ let staticTests =
                 let field n = programStaticField program n
 
                 Expect.isNotNull (field "a") "a is a public static field on Program"
-                Expect.isTrue (field "a").IsInitOnly "a (leading) is initonly — set by the Program .cctor"
+                Expect.isTrue (field "a").IsInitOnly "a (leading) is initonly, because the Program .cctor sets it"
                 Expect.isNotNull (field "b") "b is a public static field on Program"
-                Expect.isTrue (field "b").IsInitOnly "b (leading) is initonly — set by the Program .cctor"
+                Expect.isTrue (field "b").IsInitOnly "b (leading) is initonly, because the Program .cctor sets it"
             }
 
             test "a member reads a top-level (leading) value via a Program-class initonly field" {
@@ -852,7 +852,10 @@ let staticTests =
                 let providerField = programStaticField program "provider"
 
                 Expect.isNotNull providerField "the top-level value `provider` is a public static field on Program"
-                Expect.isTrue providerField.IsInitOnly "provider (leading) is initonly — set by the Program .cctor"
+
+                Expect.isTrue
+                    providerField.IsInitOnly
+                    "provider (leading) is initonly, because the Program .cctor sets it"
 
                 let readerTy = asm.GetType "Reader"
                 let inst = readerTy.GetConstructors().[0].Invoke [||]
@@ -943,14 +946,14 @@ let staticTests =
                 let pField = programStaticField program "p"
 
                 Expect.isNotNull pField "the leading value p is a public static field on Program"
-                Expect.isTrue pField.IsInitOnly "p (leading) is initonly — set by the Program .cctor"
+                Expect.isTrue pField.IsInitOnly "p (leading) is initonly, because the Program .cctor sets it"
 
                 // The parser folds `let r = …` into the preceding statement's sequential,
                 // so `r` has no recorded source name and is field-named `value$<offset>`.
                 // The test therefore identifies it by mutability rather than by name.
                 let mutables = statics |> Array.filter (fun f -> not f.IsInitOnly) |> Array.toList
 
-                Expect.equal mutables.Length 1 "exactly one trailing (mutable) Program static field — r"
+                Expect.equal mutables.Length 1 "the source's r is the only trailing (mutable) Program static field"
                 Expect.equal mutables.[0].FieldType typeof<int> "the trailing value r is an int field"
             }
         ]
@@ -1163,7 +1166,11 @@ let genericTests =
                 let getV = boxInt.GetMethod("get_V", declaredInstance, null, [||], null)
                 let instance = Activator.CreateInstance(boxInt, [| box 42 |])
                 let result = getV.Invoke(instance, [||]) :?> int
-                Expect.equal result 42 "Box(42).V = 42 — ctor-param field reads through `MemberRef` on TypeSpec"
+
+                Expect.equal
+                    result
+                    42
+                    "Box(42).V = 42, because the ctor-param field reads through a `MemberRef` on TypeSpec"
             }
 
             test "Box<string>(\"hi\").V returns \"hi\": the same emitted body works at any instantiation" {
@@ -2023,9 +2030,7 @@ let interfaceImplCodegenTests =
                     ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
                     |> Array.find (fun m -> m.Name = "get_Value")
 
-                Expect.isTrue
-                    getValue.ReturnType.IsGenericParameter
-                    "get_Value returns the class typar (not obj) — the class typar was not ground to obj"
+                Expect.isTrue getValue.ReturnType.IsGenericParameter "get_Value returns the class typar, not obj"
 
                 // The implied box is materialised: `box !0` (0x8C) before the call.
                 let il = peMethodIl bytes "Holder`1" "HashVia"
@@ -2291,7 +2296,11 @@ let classPreambleTests =
 
                 let field = backingField ty "m"
                 Expect.isNotNull field "the instance `let` m takes a backing field"
-                Expect.isTrue field.IsAssembly "m is `assembly` — a closure class is a sibling type, not a nested one"
+
+                Expect.isTrue
+                    field.IsAssembly
+                    "m is `assembly`, because a closure class is a sibling type, not a nested one"
+
                 Expect.isTrue field.IsInitOnly "a non-`mutable` let is written once, by the ctor"
 
                 let instance = Activator.CreateInstance(ty, [| box 4 |])

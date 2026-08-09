@@ -46,7 +46,7 @@ let tests =
                     Expect.notEqual
                         (Convert.ToHexString b1)
                         (Convert.ToHexString b2)
-                        "raw PE bytes differ per compile (fresh MVID) — why the gate digests structure, not bytes"
+                        "raw PE bytes differ per compile (fresh MVID), which is why the gate digests structure, not bytes"
 
                     Expect.equal
                         (ClrStructuralDigest.ofBytes b2)

@@ -149,7 +149,7 @@ let tests =
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
-                    Expect.equal (output.Trim()) "42" "twice 21 = 42 — the nested-module function ran"
+                    Expect.equal (output.Trim()) "42" "twice 21 = 42, so the nested-module function ran"
 
                     let twice = moduleStaticMethod bytes "M" "twice"
                     Expect.isTrue twice.IsStatic "twice is a static method on the M module class"
@@ -269,7 +269,7 @@ let tests =
                     Expect.equal
                         (output.Trim())
                         "7"
-                        "addPair (3, 4) = 7 — the tupled arg flattened to two pushed values"
+                        "addPair (3, 4) = 7, so the tupled arg flattened to two pushed values"
 
                     let m = moduleStaticMethod bytes "M" "addPair"
                     let ps = m.GetParameters()
@@ -365,7 +365,7 @@ let tests =
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
-                    Expect.equal (output.Trim()) "42" "useIt 41 = 42 — the void self-call reified unit"
+                    Expect.equal (output.Trim()) "42" "useIt 41 = 42, so the void self-call reified unit"
 
                     let doNothing = moduleStaticMethod bytes "M" "doNothing"
                     Expect.equal doNothing.ReturnType typeof<System.Void> "doNothing is CLR void"

@@ -315,7 +315,7 @@ let tests =
                 Expect.equal
                     (List.length (lowered (kindOfUnit "Lib" "Kinds")))
                     1
-                    "a static-optimization body lowers — each backend emits its default clause"
+                    "a static-optimization body lowers, because each backend emits its default clause"
 
                 Expect.isEmpty
                     (lowered (traitUnit "Lib" "Traits"))
@@ -387,7 +387,7 @@ let tests =
                 Expect.equal
                     (leaves |> List.distinct |> List.length)
                     2
-                    "…and two distinct (scheme, index) pairs — each local scheme quantifies exactly one typar here"
+                    "…and two distinct (scheme, index) pairs, because each local scheme quantifies exactly one typar here"
 
                 // The USE-SITE instantiations (the four occurrences in `(g, g, h, h)`) ARE
                 // in `f`'s type, so they are mapped onto the ordinary declared axis and `f`'s
@@ -396,7 +396,7 @@ let tests =
 
                 Expect.isEmpty
                     (localLeavesIn declTy)
-                    "f's own type carries no local-typar residue — that is exactly why mkMethodQuantEnv cannot map it"
+                    "f's own type carries no local-typar residue, which is exactly why mkMethodQuantEnv cannot map it"
 
                 // The thaw mints on all three axes, so the expected count is every leaf the
                 // frozen decl names, not just the local ones.
@@ -411,7 +411,7 @@ let tests =
                 Expect.equal
                     cells.Length
                     (distinctLeafCount fDecl)
-                    "a decl-scoped thaw mints EXACTLY one fresh cell per distinct leaf — sharing it across every occurrence"
+                    "a decl-scoped thaw mints EXACTLY one fresh cell per distinct leaf, sharing it across every occurrence"
             }
 
             test "freeze: the same source freezes local-typar leaves to the same (scheme, index)s" {
@@ -453,7 +453,7 @@ let tests =
                 Expect.equal
                     (fst pLeaves.Head)
                     (fst cLeaves.Head)
-                    "the two files' local schemes collide on the same SchemeId (an id is body-relative — by design)"
+                    "the two files' local schemes collide on the same SchemeId (an id is body-relative by design)"
 
                 Expect.equal
                     pLeaves.Head
@@ -501,11 +501,11 @@ let tests =
 
                 Expect.isEmpty
                     (disjointFrom pCells cCells)
-                    "the colliding scheme id does NOT conflate the two files' local typars — each thaw mints its own cells"
+                    "the colliding scheme id does NOT conflate the two files' local typars, because each thaw mints its own cells"
 
                 Expect.isEmpty
                     (disjointFrom consumerOwnCells pCells)
-                    "the producer's thawed cells are fresh — none is a cell of the consumer's own inference state, colliding id notwithstanding"
+                    "the producer's thawed cells are fresh: none is a cell of the consumer's own inference state, colliding id notwithstanding"
             }
 
             // ─── Cross-file EXPANSION: freeze in A, resolve in B ────────────────────────

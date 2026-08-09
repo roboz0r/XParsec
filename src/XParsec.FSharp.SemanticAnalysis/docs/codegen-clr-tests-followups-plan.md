@@ -312,21 +312,7 @@ Acceptance test: after it lands, none of those four sentences needs writing.
   plus once in `ClosureTests.fs`. A shared binding or a `data/*.fs` file makes it editable in
   one place.
 
-## A24. More plan-doc milestone labels in assertion strings and test names
-
-Beyond A4: `SelfHostTests.fs` has `"the DLL does not reference FSharp.Core (R1)"` and
-`"Vesper.Core.dll shipped — Vesper.Printf references it (step 3.2)"`, and test names in the
-same file carry `(G7)`. Batch 3 adds more, all in test names rather than comments, so all out
-of a sweep's reach: `"Layer B emit smoke"` (×3) and `"Gap 2 Layer D"` across the module suites,
-and `PackageBuildTriage.fs`'s
-`"Vesper.Printf builds BCL-only (structural-printer.clr.fs + formatter.clr.fs, PP7d)"`.
-Batch 4 adds design-doc section refs in test names: `HashTests.fs`'s
-`"… (eq §4: it rides the BCL comparer, not a runtime library)"` and two in
-`StructuralEqualityTests.fs` citing `eq §4`. Also `UnionTests.fs` (`(P3c)`, `(P3d.3)` ×3,
-`(P3d.4)`, `(R2)` ×2), `EnumTests.fs` (`"SEQUENCING: …"`) and `SetModuleTests.fs`
-(`"(static-operator wall)"`), and `InferResolutionTests.fs` (`[gap A]`, `[gap A/B]`,
-`[gap A/B/C]`, `[root 2: …]`, `[root 3: …]`, `[root 4: …]`, plus a `testList` named
-`"SetG5Roots"`). Strip when next touched.
+## A24. More plan-doc milestone labels in assertion strings and test names — DONE
 
 ## A25. Two known gaps recorded only as prose
 
@@ -592,21 +578,7 @@ Either bare application does resolve by written arity, and the `new` spelling is
 or the last test passes for some other reason. The surviving comment is phrased neutrally
 pending an answer.
 
-## A56. 45 em-dashes remain in assertion messages and test names
-
-Out of reach of a comment sweep, and carrying the same H19 defect verbatim:
-`"a static-optimization body lowers — each backend emits its default clause"` (causal),
-`"f's own type carries no local-typar residue — that is exactly why mkMethodQuantEnv cannot
-map it"` (stacked consequence), and test names such as
-`"freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same
-(scheme, index)s"`.
-
-Spread: `InlineFreezeThawTests` 10, `ClassTests` 12, `CapturedMutableTests` 6, `StructTests` 5,
-`FrozenCacheIncrementalTests` 4, `SelfHostTests` 3, `FunctionTests` 3, `ClosureTests` 1,
-`UseTests` 1. Editing a test name moves a test identifier, so this wants a decision rather than
-a sweep. The same files also carry H17 residue in names (`"a published StaticOptimization
-clause carries no SemType cell"`, `"C has no backing fields"`), which the A58 rename pass
-should take together with these.
+## A56. 45 em-dashes remain in assertion messages and test names — DONE
 
 ## A57. Five claims the H19 pass falsified
 
@@ -633,11 +605,7 @@ A sixth shape appeared eight times: a dash written immediately before the connec
 already had (`— for`, `— and`, `— but`, `— hence`, `— otherwise`). Each was fixed by deleting
 the mark alone, which is the tell that the mark was reflex rather than meaning.
 
-## A58. A retired negation survives in a test name
-
-`EqualityAttributeTests.fs`: `"a qualified path that names no type is silently ignored"`.
-The verdict is that lookup ran and resolved nothing, so the phrasing is
-"does not resolve to a type".
+## A58. A retired negation survives in a test name — DONE
 
 ---
 
@@ -839,7 +807,11 @@ Per-batch record, all with zero non-comment lines changed and Fantomas clean:
 
 The suite is green at 1452 after batches 3, 4 and the H19 pass.
 
-What a sweep structurally cannot reach, now the largest remaining surface: **test names and
-assertion-message string literals**. A24 (milestone labels), A56 (em-dashes), A58 (retired
-negations) and the `Holder` fixture names of A46 are all the same defect class, found in
-strings. They want one rename pass taken as a unit, since each moves test identifiers.
+What a sweep structurally cannot reach is string literals: test names and assertion messages.
+A24, A56 and A58 covered that surface and are done; the suite is green at 1452 throughout,
+Fantomas clean, with no non-string line changed. The 31 em-dashes left in the project are all
+the sanctioned `` `literal` — gloss `` form.
+
+The one string-literal item still open is the `Holder` fixture names of A46. Those are source
+text fed to the compiler under test rather than prose, so they belong with that item's dedupe
+rather than with a rename pass.

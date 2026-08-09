@@ -253,7 +253,7 @@ let lambdaParamTests =
             test "a tuple-param closure capturing an outer var keeps a/b as params, z as capture" {
                 let r = invokeIntFn "let f (z: int) = let g = fun (a, b) -> a + b + z in g (1, 2)" 5
 
-                Expect.equal r 8 "1 + 2 + 5 — z is captured, a/b are not"
+                Expect.equal r 8 "1 + 2 + 5 = 8, because z is captured while a/b stay params"
             }
 
             test "a wildcard tuple param element binds nothing (fun (a, _) -> a)" {

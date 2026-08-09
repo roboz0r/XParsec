@@ -94,7 +94,7 @@ let useTests =
                 Expect.equal
                     (output.Replace("\r", "").Trim())
                     "body\ndisposed"
-                    "body runs, then Dispose() in the finally — the `_` bound variable is still disposed"
+                    "body runs, then Dispose() in the finally, so the `_` bound variable is still disposed"
             }
 
             test "the body's result survives the finally and is the `use` expression's value" {

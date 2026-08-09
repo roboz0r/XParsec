@@ -188,7 +188,7 @@ let tests =
 
                 Expect.isEmpty
                     artifact.FSharpCoreDependencies
-                    "the function-typed parameter is Vesper.Fun now — no FSharp.Core construct"
+                    "the function-typed parameter is Vesper.Fun, so it pins no FSharp.Core construct"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
@@ -466,7 +466,7 @@ let tests =
 
                 Expect.isTrue
                     (File.Exists(Path.Combine(outDir, "Vesper.List.dll")))
-                    "Vesper.List.dll shipped — the self-hosted %A engine references the Vesper cons-list"
+                    "Vesper.List.dll shipped because the self-hosted %A engine references the Vesper cons-list"
             }
 
             // The emitted FSharp.Core reference identity is read off the referenced FILE, not

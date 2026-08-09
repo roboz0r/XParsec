@@ -41,7 +41,9 @@ let tests =
                         | _ -> false
                     )
 
-                Expect.isFalse hasLocalRefDecl "no Ref<'T> decl synthesised locally — the cell lives in Vesper.Core.dll"
+                Expect.isFalse
+                    hasLocalRefDecl
+                    "no Ref<'T> decl synthesised locally, because the cell lives in Vesper.Core.dll"
             }
 
             test "TAST: a non-captured `let mutable` is not promoted (no rewrite either)" {
@@ -60,7 +62,7 @@ let tests =
                         | _ -> false
                     )
 
-                Expect.isFalse hasRefDecl "no Ref<'T> decl synthesised — the cell stayed local"
+                Expect.isFalse hasRefDecl "no Ref<'T> decl synthesised, because the cell stayed local"
             }
 
             test "TAST: a captured cell's use/write/init sites all lower through Vesper.Ref<_>" {
@@ -155,7 +157,7 @@ let tests =
 
                 Expect.isNull
                     localRef
-                    "the consumer PE must NOT declare a local Vesper.Ref`1 — the cell lives in Vesper.Core.dll"
+                    "the consumer PE must NOT declare a local Vesper.Ref`1, because the cell lives in Vesper.Core.dll"
 
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
@@ -289,7 +291,7 @@ let tests =
                 Expect.equal (List.length closures) 1 "exactly one closure: `fun () -> x` inside `mkConst`"
                 let c = List.head closures
 
-                Expect.equal c.Typars 1 "the inner closure inherits `mkConst`'s one typar (`'a`) — count 1"
+                Expect.equal c.Typars 1 "the inner closure inherits `mkConst`'s one typar (`'a`)"
             }
 
             test "a closure inside a monomorphic static fn has empty Typars" {
@@ -494,7 +496,7 @@ let tests =
                     Expect.stringContains
                         name
                         "`1"
-                        (sprintf "closure metadata name carries the arity suffix (`1) — got '%s'" name)
+                        (sprintf "closure metadata name carries the arity suffix `1; got '%s'" name)
 
                     let gpCount = td.GetGenericParameters().Count
 

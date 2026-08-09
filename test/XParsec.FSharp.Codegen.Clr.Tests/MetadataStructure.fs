@@ -102,7 +102,7 @@ let private assertRangePartition (label: string) (md: MetadataReader) =
             | first :: _ ->
                 if first <> cursor then
                     failwithf
-                        "%s: %s range of '%s' starts at row %d but the previous types claim through %d — the ranges are not consecutive"
+                        "%s: %s range of '%s' starts at row %d but the previous types claim through %d, so the ranges are not consecutive"
                         label
                         table
                         typeName
@@ -153,7 +153,7 @@ let private assertRangePartition (label: string) (md: MetadataReader) =
 
 let private assertModuleRow (label: string) (md: MetadataReader) =
     match List.ofSeq md.TypeDefinitions with
-    | [] -> failwithf "%s: the TypeDef table is empty — not even the <Module> pseudo-type" label
+    | [] -> failwithf "%s: the TypeDef table is empty, not even the <Module> pseudo-type" label
     | first :: _ ->
         let td = md.GetTypeDefinition first
         let name = md.GetString td.Name
@@ -198,14 +198,14 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
             // empty, because the namespace belongs to the OUTERMOST container.
             if not (String.IsNullOrEmpty(md.GetString td.Namespace)) then
                 failwithf
-                    "%s: nested type '%s' carries namespace '%s' — a nested TypeDef's namespace column is empty"
+                    "%s: nested type '%s' carries namespace '%s', but a nested TypeDef's namespace column is empty"
                     label
                     name
                     (md.GetString td.Namespace)
 
             if name.Contains "." then
                 failwithf
-                    "%s: nested type name '%s' is dotted — the containment chain belongs in NestedClass, not the name"
+                    "%s: nested type name '%s' is dotted, but the containment chain belongs in NestedClass, not the name"
                     label
                     name
 
@@ -218,7 +218,7 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
 
     if rows <> nestedCount then
         failwithf
-            "%s: the NestedClass table has %d rows but %d TypeDefs carry nested visibility — a nesting row is orphaned or duplicated"
+            "%s: the NestedClass table has %d rows but %d TypeDefs carry nested visibility, so a nesting row is orphaned or duplicated"
             label
             rows
             nestedCount
@@ -257,7 +257,7 @@ let private assertPreOrderContiguity (label: string) (md: MetadataReader) =
 
         if sub <> expected then
             failwithf
-                "%s: '%s' (row %d) encloses %d types but they are not the contiguous block %A — got %A"
+                "%s: '%s' (row %d) encloses %d types but they are not the contiguous block %A; got %A"
                 label
                 (nameOf md h)
                 row

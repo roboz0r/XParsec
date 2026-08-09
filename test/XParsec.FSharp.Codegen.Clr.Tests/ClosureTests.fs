@@ -164,7 +164,7 @@ let tests =
             yield
                 test "`let add = (+)` analyses clean to an eta-reified closure over the operator body" {
                     let tast = analyse "let add = (+)\nprintfn \"%d\" (add 40 2)"
-                    Expect.isEmpty tast.Diagnostics "no diagnostics — (+) resolves as a value"
+                    Expect.isEmpty tast.Diagnostics "no diagnostics, because (+) resolves as a value"
 
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _),

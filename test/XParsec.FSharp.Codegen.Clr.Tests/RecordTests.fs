@@ -74,7 +74,7 @@ let monoTests =
                 Expect.equal
                     (output.Replace("\r", "").Trim())
                     "20\n39"
-                    "a : Point`2 reads Y=20; b : Point`3 reads Z=39 — resolved to the right arity"
+                    "a : Point`2 reads Y=20; b : Point`3 reads Z=39, so each resolved to the right arity"
             }
 
             test "field-set on a mutable field updates in place (prints 42)" {
@@ -629,7 +629,7 @@ let instanceMemberTests =
                 Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Trim()) "7" "v.Sum() computes X+Y (=7) — the member body, not a field read"
+                Expect.equal (output.Trim()) "7" "v.Sum() computes X+Y (=7) via the member body, not a field read"
             }
 
             test "a record instance method with an argument resolves + passes the arg (prints 17)" {

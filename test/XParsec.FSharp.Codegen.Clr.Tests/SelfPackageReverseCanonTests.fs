@@ -47,7 +47,7 @@ module ConcatProbe =
             [
                 test "without the self manifest a BCL call over Vesper.string finds no overload" {
                     match compileProbeAsCore None with
-                    | Ok _ -> failtest "expected no overload — the seed would then be guarding nothing"
+                    | Ok _ -> failtest "expected no overload; otherwise the seed would be guarding nothing"
                     | Error diags ->
                         let text = diags |> List.map (fun d -> d.Diagnostic.Message) |> String.concat "\n"
 

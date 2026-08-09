@@ -603,7 +603,7 @@ let tests =
                 Expect.equal
                     outLines
                     [| "7"; "0" |]
-                    "Hi 7 ranks 7 (reads `this`), Lo ranks 0 — both via interface dispatch"
+                    "Hi 7 ranks 7 (reads `this`) and Lo ranks 0, both via interface dispatch"
             }
 
             // The union also synthesises `IEquatable<V>`, so the authored impl and the

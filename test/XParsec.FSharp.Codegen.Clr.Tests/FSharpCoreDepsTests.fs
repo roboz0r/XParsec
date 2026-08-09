@@ -64,7 +64,7 @@ let tests =
                     (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
                     "% A does NOT take the PrintFormatLine cold path"
 
-                Expect.isEmpty deps (sprintf "%% A is pure Vesper — no FSharp.Core dependency (%A)" deps)
+                Expect.isEmpty deps (sprintf "%% A is pure Vesper, so it pins no FSharp.Core dependency (%A)" deps)
             }
 
             // `%+08.2f` (forced sign + zero-pad float) lowers natively: a half-to-even
@@ -114,7 +114,10 @@ let tests =
 
                     Expect.isEmpty
                         artifact.FSharpCoreDependencies
-                        (sprintf "%s lowers natively — no FSharp.Core (%A)" src artifact.FSharpCoreDependencies)
+                        (sprintf
+                            "%s lowers natively, so it pins no FSharp.Core (%A)"
+                            src
+                            artifact.FSharpCoreDependencies)
             }
 
             // `%.*A` feeds the runtime print-size budget to the structural engine. The list
@@ -160,7 +163,9 @@ let tests =
                     (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
                     "%A of a record does NOT take the PrintFormatLine cold path"
 
-                Expect.isEmpty deps (sprintf "record %%A is pure Vesper — no FSharp.Core dependency (%A)" deps)
+                Expect.isEmpty
+                    deps
+                    (sprintf "record %%A is pure Vesper, so it pins no FSharp.Core dependency (%A)" deps)
             }
 
             test "`%A` of a synthesised union pins no FSharp.Core (cold path cut)" {
@@ -173,7 +178,7 @@ let tests =
                     (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
                     "%A of a union does NOT take the PrintFormatLine cold path"
 
-                Expect.isEmpty deps (sprintf "union %%A is pure Vesper — no FSharp.Core dependency (%A)" deps)
+                Expect.isEmpty deps (sprintf "union %%A is pure Vesper, so it pins no FSharp.Core dependency (%A)" deps)
             }
 
             // An EXTERNAL Vesper-package union resolves as Vesper-compiled, so it carries
@@ -191,7 +196,7 @@ let tests =
 
                 Expect.isEmpty
                     deps
-                    (sprintf "the external-union %%A program is BCL-only + Vesper — no FSharp.Core dependency (%A)" deps)
+                    (sprintf "the external-union %%A program is BCL-only + Vesper, so it pins no FSharp.Core (%A)" deps)
             }
 
             // `%A` of an arbitrary BCL type renders through the `IFormattable` / `ToString`
@@ -262,7 +267,7 @@ let tests =
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecNoCoreApp.dll")
                 Expect.isTrue (IO.File.Exists dllPath) "PE written"
-                Expect.isFalse (IO.File.Exists coreDst) "FSharp.Core.dll NOT copied — no dependency"
+                Expect.isFalse (IO.File.Exists coreDst) "FSharp.Core.dll NOT copied, because there is no dependency"
 
                 let exitCode, output = runOnDisk dllPath
                 Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)

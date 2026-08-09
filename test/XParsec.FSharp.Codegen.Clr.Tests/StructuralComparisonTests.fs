@@ -143,7 +143,7 @@ let tests =
                 Expect.equal
                     (signOf (compareTyped ty (mkBox 1 9) (mkBox 2 0)))
                     -1
-                    "Box(1,9) < Box(2,0) — lex on payload"
+                    "Box(1,9) < Box(2,0), because comparison is lexicographic on the payload"
             }
 
             test "CompareTo(object) boxing entry routes through the typed CompareTo" {

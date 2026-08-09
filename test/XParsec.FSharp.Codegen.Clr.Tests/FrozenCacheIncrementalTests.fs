@@ -63,7 +63,11 @@ let tests =
                 Expect.equal (store :?> CountingStore).Stores 1 "the first compile is a MISS and stores once"
 
                 let second = okArtifact "hit" (ClrDriver.compileCached store inputs src)
-                Expect.equal (store :?> CountingStore).Stores 1 "the identical recompile is a HIT — no new store"
+
+                Expect.equal
+                    (store :?> CountingStore).Stores
+                    1
+                    "the identical recompile is a HIT, so it does not store again"
 
                 Expect.equal
                     (digestOf second)
@@ -86,7 +90,7 @@ let tests =
                 Expect.equal
                     (store :?> CountingStore).Stores
                     2
-                    "the edited source is a new key — a MISS that stores again"
+                    "the edited source is a new key, so it is a MISS that stores again"
 
                 Expect.notEqual
                     (digestOf second)
@@ -126,7 +130,7 @@ let tests =
                 Expect.equal
                     (store :?> CountingStore).Stores
                     1
-                    "an unchanged recompile hits — dependency bytes unchanged"
+                    "an unchanged recompile hits, because the dependency bytes are unchanged"
 
                 // Change the referenced contract's bytes: the dependency signature hash changes,
                 // so the SAME source against the SAME manifest path is now a distinct key.
@@ -142,7 +146,7 @@ let tests =
                 Expect.equal
                     (digestOf second)
                     (digestOf first)
-                    "the program is unchanged, so it still emits identically — only the dependency key moved"
+                    "the program is unchanged, so it still emits identically; only the dependency key moved"
             }
 
             test "a changed dependency INLINE BODY misses" {

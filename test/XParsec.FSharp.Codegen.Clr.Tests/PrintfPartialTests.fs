@@ -54,7 +54,7 @@ let tests =
                 Expect.isEmpty
                     artifact.FSharpCoreDependencies
                     (sprintf
-                        "the printf partial is pure Vesper — no FSharp.Core dependency (%A)"
+                        "the printf partial is pure Vesper, so it pins no FSharp.Core dependency (%A)"
                         artifact.FSharpCoreDependencies)
             }
         ]
