@@ -512,21 +512,19 @@ module EmitJs =
         | None -> [ JsStatement.Block inner ]
         | Some t -> [ JsStatement.If(t, inner, []) ]
 
-    /// The body of a function whose params are `names`: a `while (true)` trampoline when
-    /// `selfKey`'s body makes a saturated tail self-call at `arity`, else the plain expression.
-    /// `arity` is the SOURCE-group count, which for a flat module fn differs from `names`.
+    /// The body of a function with parameters `ps`: a `while (true)` trampoline when
+    /// `selfKey`'s body makes a saturated tail self-call, else the plain expression.
     and private trampolineOrExpr
         (ctx: WalkCtx)
         (selfKey: BoundVarId voption)
-        (arity: int)
-        (names: string list)
+        (ps: TailParams)
         (body: TastAccessor.ExprId)
         : JsFnBody =
         match selfKey with
-        | ValueSome k when hasTailSelfCall k arity body ->
+        | ValueSome k when hasTailSelfCall k ps body ->
             JsFnBody.Block
                 [
-                    JsStatement.While(JsExpr.Literal(JsLiteral.Boolean true, ValueNone), buildTailBody ctx k names body)
+                    JsStatement.While(JsExpr.Literal(JsLiteral.Boolean true, ValueNone), buildTailBody ctx k ps body)
                 ]
         | _ -> JsFnBody.Expr(buildExpr ctx body)
 
@@ -536,7 +534,7 @@ module EmitJs =
     and emitFunction (ctx: WalkCtx) (selfKey: BoundVarId voption) (lam: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx lam
         let names, body = peelLambdas ctx.Pool lam
-        nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (List.length names) names body)
+        nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (TailParams.Unary names) body)
 
     /// Build the statements of a self-tail-call trampoline's loop body, walking tail
     /// position. A saturated tail self-call writes its arguments back to the parameter
@@ -544,22 +542,29 @@ module EmitJs =
     and buildTailBody
         (ctx: WalkCtx)
         (selfKey: BoundVarId)
-        (paramNames: string list)
+        (ps: TailParams)
         (e: TastAccessor.ExprId)
         : JsStatement list =
-        let arity = List.length paramNames
-        let recur = buildTailBody ctx selfKey paramNames
+        let recur = buildTailBody ctx selfKey ps
 
         match e with
         | InlinableLet ctx reduced -> recur reduced
-        | TailSelfCall selfKey arity args ->
+        | TailSelfCall selfKey ps args ->
+            // Args arrive one per SOURCE application: a tuple group opens onto several flat
+            // params (an impure tuple spilling to `_tg`), a lone unit group onto none.
+            let flatArgs, spills =
+                match ps with
+                | TailParams.Unary _ -> [ for a in args -> buildExpr ctx a ], []
+                | TailParams.Flat(groups, _) -> JsFlatFns.flattenGroupArgs ctx.Pool (buildExpr ctx) groups args
+
             // `_tc<i>` temporaries: evaluate every new argument before any write-back, so a
             // self-call arg mentioning a parameter reads its pre-iteration value.
             let tmp i = "_tc" + string i
 
-            [ for i, a in List.indexed args -> JsStatement.Const(tmp i, buildExpr ctx a) ]
+            [ for (n, v) in spills -> JsStatement.Const(n, v) ]
+            @ [ for i, a in List.indexed flatArgs -> JsStatement.Const(tmp i, a) ]
             @ [
-                for i, name in List.indexed paramNames -> JsStatement.Assign(name, JsExpr.Identifier(tmp i, ValueNone))
+                for i, name in List.indexed ps.Names -> JsStatement.Assign(name, JsExpr.Identifier(tmp i, ValueNone))
             ]
             @ [ JsStatement.Continue ]
         | _ ->
@@ -614,16 +619,8 @@ module EmitJs =
         (loc: JsLoc voption)
         : JsExpr =
         let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Pool p ]
-
-        // Only the all-`GSimple` shape maps a self-call's arguments one-to-one onto the flat
-        // params, so the trampoline is gated on it; otherwise no self-key is offered.
-        let selfKey =
-            if TastLower.allSimpleGroups cf.Groups then
-                ValueSome k
-            else
-                ValueNone
-
-        JsExpr.Arrow(names, trampolineOrExpr ctx selfKey (List.length cf.Groups) names cf.Body, loc)
+        let ps = TailParams.Flat(cf.Groups, names)
+        JsExpr.Arrow(names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
 
     /// `objArg.<member>` for a call dispatched through a local interface slot. The member
     /// resolves to the attached method emitted on the object argument's class, under its JS name.

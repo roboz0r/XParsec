@@ -233,9 +233,30 @@ module JsEmitHelpers =
         | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nestUnaryArrows loc rest innermost), loc)
         | [] -> failwith "EmitJs: nestUnaryArrows on an empty parameter list"
 
+    /// The parameters a `while (true)` trampoline writes back to. `Arity` is the applications
+    /// a saturated tail self-call consumes and `Names` the parameters it assigns; the two are
+    /// carried together because a tuple group makes `Names` the longer of them.
+    [<RequireQualifiedAccess>]
+    type TailParams =
+        /// Nested unary arrows: one parameter per application.
+        | Unary of names: string list
+        /// One flat arrow: `groups` flattened, so a tuple group spans several of `names` and
+        /// a lone unit group none.
+        | Flat of groups: TastAccessor.ArgGroup list * names: string list
+
+        member this.Arity =
+            match this with
+            | Unary names -> List.length names
+            | Flat(groups, _) -> List.length groups
+
+        member this.Names =
+            match this with
+            | Unary names
+            | Flat(_, names) -> names
+
     let (|TailSelfCall|_|)
         (selfKey: BoundVarId)
-        (arity: int)
+        (ps: TailParams)
         (e: TastAccessor.ExprId)
         : TastAccessor.ExprId list option =
         match TastAccessor.exprKind e with
@@ -244,25 +265,23 @@ module JsEmitHelpers =
             | fn, appArgs when
                 TastAccessor.exprKind fn = ExprShape.Var
                 && TastAccessor.exprVarBoundVar fn = selfKey
-                && List.length appArgs = arity
+                && List.length appArgs = ps.Arity
                 ->
                 Some [ for (a, _, _) in appArgs -> a ]
             | _ -> None
         | _ -> None
 
-    let rec hasTailSelfCall (selfKey: BoundVarId) (arity: int) (e: TastAccessor.ExprId) : bool =
+    let rec hasTailSelfCall (selfKey: BoundVarId) (ps: TailParams) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.IfThenElse ->
             let i = TastAccessor.exprIfThenElse e
-
-            hasTailSelfCall selfKey arity i.ThenExpr
-            || hasTailSelfCall selfKey arity i.ElseExpr
-        | ExprShape.Let -> hasTailSelfCall selfKey arity (TastAccessor.exprLet e).Body
+            hasTailSelfCall selfKey ps i.ThenExpr || hasTailSelfCall selfKey ps i.ElseExpr
+        | ExprShape.Let -> hasTailSelfCall selfKey ps (TastAccessor.exprLet e).Body
         | ExprShape.Sequential ->
             let xs = TastAccessor.exprChildren e
-            xs.Length > 0 && hasTailSelfCall selfKey arity xs.[xs.Length - 1]
+            xs.Length > 0 && hasTailSelfCall selfKey ps xs.[xs.Length - 1]
         | ExprShape.App ->
             match e with
-            | TailSelfCall selfKey arity _ -> true
+            | TailSelfCall selfKey ps _ -> true
             | _ -> false
         | _ -> false

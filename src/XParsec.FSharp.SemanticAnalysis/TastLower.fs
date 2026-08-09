@@ -196,16 +196,6 @@ module TastLower =
         | [ ArgGroupG.GUnit _ ] -> true
         | _ -> false
 
-    /// Every source group is a plain single bound variable: the shape whose flat params map
-    /// one-to-one onto the source applications.
-    let allSimpleGroups (groups: ArgGroup list) : bool =
-        groups
-        |> List.forall (
-            function
-            | ArgGroupG.GSimple _ -> true
-            | _ -> false
-        )
-
     /// Does a value-use of a function with these source groups need a curried
     /// adapter (its flat call shape differs from the curried one)? Only for arity ≥ 2
     /// or a tuple group; a single `GSimple` / lone `GUnit` is flat-==-curried.

@@ -166,4 +166,39 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "55" "1+2+…+10, temps capture old param values"
             }
+
+            test "a tupled parameter group trampolines onto its flattened parameters" {
+                // One source application carries two flat params, so the write-back must open
+                // the tuple rather than assume one argument per parameter.
+                Expect.equal
+                    (emitJs "let rec loop (n, acc) = if n = 0 then acc else loop (n - 1, acc + n)")
+                    ("const loop = (n, acc) => {\n"
+                     + "  while (true) {\n"
+                     + "    if (((n) === (0))) {\n"
+                     + "      return acc;\n"
+                     + "    } else {\n"
+                     + "      const _tc0 = (((n) - (1)) | 0);\n"
+                     + "      const _tc1 = (((acc) + (n)) | 0);\n"
+                     + "      n = _tc0;\n"
+                     + "      acc = _tc1;\n"
+                     + "      continue;\n"
+                     + "    }\n"
+                     + "  }\n"
+                     + "};\n")
+                    "tuple group opened onto both flat params, then `continue`"
+            }
+
+            test "tail recursion through a tupled group runs in constant stack (sum (60000, 0))" {
+                // 60000 frames overflow the JS call stack untrampolined; the sum stays in `int`.
+                match
+                    runJs
+                        "fn-loop-tupled"
+                        ("let rec sum (n, acc) = if n = 0 then acc else sum (n - 1, acc + n)\n"
+                         + "printfn \"%d\" (sum (60000, 0))")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1800030000" "deep tail recursion over a tuple group does not grow the stack"
+            }
         ]

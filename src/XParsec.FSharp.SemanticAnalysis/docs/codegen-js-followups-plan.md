@@ -8,49 +8,44 @@ Raised by the comment overhaul of `XParsec.FSharp.Codegen.Js` (all 20 files, 254
 comment lines). Reading every comment against the code it claimed to describe turned up two
 kinds of work that the sweep itself could not do, because both change code:
 
-- **Part A — defects.** Four. One is a real miscompilation-adjacent bug; the rest are traps
-  and dead weight.
+- **Part A — defects.** Two. Neither is a miscompile; A1 was a missed optimisation with a
+  stack-overflow consequence, A2 emits a dangling import.
 - **Part B — prose that should be a type.** Eight. Each is a comment that was genuinely
   load-bearing and long, where the durable fix is a type that makes the sentence
   unnecessary. This is the half that stops the regrowth: a fact the compiler enforces cannot
   rot, and there is nothing left to narrate.
 
-The two overlap once: **A3 is fixed by B6**, not by prose.
+The two overlap once: **A1 and B6 are the same confusion**, and landing A1 closed B6's
+JS half.
 
 Nothing here is urgent. Nothing here is blocked on anything else, and no item touches
-another's files except A3/B6.
+another's files except A1/B6.
 
 ---
 
 # Part A — code defects
 
-## A1. The self-tail-call trampoline is entered on one arity and rewritten on another
+## A1. A tupled parameter group forgoes tail-call optimisation — DONE
 
-`EmitJs.trampolineOrExpr` decides whether to open a trampoline with `hasTailSelfCall k arity
-body`, where `arity` is the SOURCE-group count — `emitFlatModuleFn` passes `List.length
-cf.Groups`. It then hands the rewrite to `buildTailBody ctx k names body`, which recomputes
-`let arity = List.length paramNames` from the FLAT names.
+The predicted symptom (a dead `while (true) { return f(…); }`) turned out not to be
+reachable: `emitFlatModuleFn` declined the self-key unless `TastLower.allSimpleGroups
+cf.Groups`, so the two counts never met. That gate was the defect — a `let rec` over a tuple
+group, or a lone `()` group, got no trampoline at all and recursed on the JS stack, which is
+the overflow this entry was after.
 
-For a flat module function with a tuple group the two disagree. `let rec f (a, b) c` is 2
-groups and 3 flat params, so the detector opens a `while (true)` trampoline that the rewriter
-then never matches, and the body emits:
+Fixed by lowering the write-back through `JsFlatFns.flattenGroupArgs`, which already opens a
+saturated call's source arguments onto the flat parameter vector, spilling an impure tuple to
+a `_tg` temporary. The gate is gone, and `TastLower.allSimpleGroups` with it — its only
+caller.
 
-```js
-while (true) { return f(…); }
-```
+**Also does B6's work, JS-side.** `TailParams` (`Unary of names | Flat of groups * names`,
+with `Arity` and `Names` members) replaces the arity/names pair through `hasTailSelfCall`,
+`(|TailSelfCall|_|)`, `trampolineOrExpr` and `buildTailBody`, so there is one arity in the
+system and no recomputation. It does NOT cover Part C's `Codegen.Clr` `EmitCall` finding,
+which needs a shared value below both backends.
 
-Not a miscompile — it returns on the first iteration, so the result is correct — but the tail
-call is NOT optimised, and a dead loop wraps every such function. Anything that recurses
-deeply through a tupled first group will still blow the JS stack despite being written for
-TCO.
-
-Fixed by **B6**: one `FlatParams` value carrying both counts removes the possibility of
-passing one where the other is meant. A direct patch (thread the same `arity` into
-`buildTailBody`) works too and is smaller, but leaves the two bare `int`s free to diverge
-again.
-
-Wants a test: a `let rec` with a tupled group, asserting the emitted body contains a
-`continue`, not a `return` inside a `while`.
+Two tests in `FunctionEmissionTests`: the emitted body for a tupled group (both flat params
+written back, then `continue`), and a 60000-deep tupled tail recursion under Node.
 
 ## A2. `JsRuntime.assets` takes no transitive closure
 
@@ -134,12 +129,15 @@ the prose asserted "equals the map key by construction" twice, in two blocks. A 
 keying by `TypeKey` and rendering at the edge, makes the pairing structural.
 `declaredIdentity` and `structuralKey` return the same bare pair and want the same treatment.
 
-## B6. `EmitJs.trampolineOrExpr`'s `arity`
+## B6. `EmitJs.trampolineOrExpr`'s `arity` — DONE JS-side by A1
 
 Three lines existed only to say `arity` is the SOURCE-group count and NOT `names.Length`,
-because both are bare (`int`, `string list`) and nothing ties them. One `FlatParams` value
-carrying the groups and the flat names together deletes the note — **and fixes A1**, which is
-that exact confusion happening one function away.
+because both are bare (`int`, `string list`) and nothing ties them. `TailParams` now carries
+the groups and the flat names together; the note is gone.
+
+What remains is Part C's move: `Codegen.Clr`'s `EmitCall` indexes the flat parameter list
+with a source-group index, and `TailParams` is trampoline-shaped, so it does not serve that
+call site. A shared value in `Codegen.Common` is still wanted.
 
 ## B7. `EmitJsCapabilities`'s capability table
 
@@ -175,9 +173,9 @@ that sweep: the `flattenGroupArgs` clone twin, the `RefCellPromotion` clone, and
 One finding there belongs to THIS list rather than that one. `EmitCall` indexes the flat
 parameter list with a source-group index — **the same confusion as A1's trampoline, arrived
 at independently in the other backend**, and also defended by a comment claiming the two
-counts cannot diverge. That moves **B6's `FlatParams` below both backends, into
-`Codegen.Common`**, rather than being a JS-local fix. See `codegen-clr-followups-plan.md`
-A1/B1.
+counts cannot diverge. A1's `TailParams` is trampoline-shaped and JS-local, so it does not
+reach that call site: the CLR half still wants a value in **`Codegen.Common`** pairing the
+groups with the flat vector. See `codegen-clr-followups-plan.md` A1/B1.
 
 ## Diagnostic STRINGS carry the H19 causal hedge — one decision, three projects
 
