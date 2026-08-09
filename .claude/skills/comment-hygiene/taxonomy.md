@@ -27,7 +27,7 @@ most of the deletable bulk.
 | H15 | Known-limitation hedge | a parenthetical pre-empting an objection: "(Not collision-proof against a source param literally named `_tc0` …)" | delete; the honest form is a failing test name |
 | H16 | Jargon without an instance | states a what AND a why, but only in vocabulary defined in other files | replace with the concrete emitted shape, or delete |
 | H17 | Collapsed verdict | one negation phrase standing for several distinct verdicts: "`name` names no type" covers *structurally has none*, *lookup found nothing*, and *found the wrong kind* | rephrase — pick the verdict, then negate the VERB (`does not resolve to a type`), never the object |
-| H18 | Overloaded term | one noun or verb naming several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
+| H18 | Overloaded term | one noun or verb naming several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest`, `flow` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
 | H19 | Causal hedge | an em-dash standing in for a connective the code DETERMINES: "constructs by its BARE export name with NO import — the JS runtime provides it intrinsically" (*because*), "produces NO symbol — only its members do" (*but*), "are LEAVES — never expanded" (*namely*) | rephrase — name the relation; keep the dash only as `literal — gloss`, literal LEFT |
 
 ## Grep signatures — the part that becomes a lint
@@ -68,6 +68,10 @@ Found to catch essentially every instance in a file, without reading any code:
   `Holder<'T>` fixture type in test source. Triage is one pass. The general test needs no word
   list: **a term appearing across three unrelated subsystems is either genuinely universal or
   overloaded, and there are very few genuinely universal terms.**
+  For `flow`, `\bflow(s|ing|ed)?\b` then subtract the legitimate compounds:
+  `control.flow|flow-sensitiv|flow-typing|flow-narrow|guard-flow|flow environment|data flow`.
+  Measured over this tree — 72 occurrences, 27 of them on a compound line, 45 residue of which
+  30 were defects. Two in three, so read the residue; do not treat it as a hit list.
 - **H19** — three signatures, in yield order. The parenthetical pair has the best precision:
   7 hits over the worked files, every one a genuine defect. That precision is about DETECTION
   only, and the fix is NOT positional, so read the entry before acting on a hit. Match it
@@ -168,7 +172,8 @@ rather than delete. That is a licence to fiddle, so each has to earn its place b
 comment that is false or empty, not one that is merely ugly. Both do.
 
 Evidence base is a different pass from the rest of this file: `SemanticAnalysis`, both
-backends and the parser, ~800 file-touches across nine commits.
+backends and the parser, ~800 file-touches across nine commits. H18's ninth word, `flow`, came
+later still, from a review that started on one comment and ended in a 30-site sweep.
 
 ### H17 — the negation that stood for three verdicts
 
@@ -212,6 +217,10 @@ Eight words, each naming several independent things. The replacement count is th
 - `holder` → `Container` (`ModuleContainer`, `TypeContainer`, `ContainerKey`) — 75 files
 - `harvest` → `extract` (read a value out), `lift` (member → this-first function) — 53 files
 - `drain` → `discharge` (constraints), `finalize` (refs, diagnostics), `collect` — 52 files
+- `flow` → `passed to` (an argument), `assigned to` (a field), `is accepted by` (assignability),
+  `propagates` (a verdict down graph edges), `escapes` (a closure), `comes from` / `derives
+  from` (an origin), `is preserved` (an order), `re-enters` (recursion); kept for `control
+  flow` and for dataflow analysis — 23 files
 
 Every replacement is a word the codebase ALREADY used for that concept. None is a coinage,
 and that is the acceptance test: **when a rename cannot find an existing word, the concept is
@@ -222,13 +231,29 @@ Two diagnostics that name the mode before any renaming:
 - **The word is a metaphor, not a term of art** — `holder`, `spine`, `drain`, `face`,
   `harvest`. A picture accepts any concept that fits it, so it accretes.
 - **The word IS a term of art, for something else** — `head` (cons), `binder` (monadic
-  `'a -> M<'b>`), `receiver` (the OO sense), `arrow` (the JS function form). Used for their
-  approximate meaning, these are worse than metaphors: a reader who knows the term is
-  actively misled rather than merely uninformed.
+  `'a -> M<'b>`), `receiver` (the OO sense), `arrow` (the JS function form), `flow` (control
+  flow, and dataflow analysis). Used for their approximate meaning, these are worse than
+  metaphors: a reader who knows the term is actively misled rather than merely uninformed.
 
 > Those eight renames touched ~800 files because the vocabulary had reached the identifiers,
 > and the comments only inherited it. **Catch it in the comment and you catch it before it is
 > an API.**
+
+`flow` is the case where that already held, and it is the reason it was added late. It reached
+exactly one identifier — `Cil.fs`'s `flow`, correctly bound to a `ControlFlowBuilder` — so the
+whole defect sat in prose and no rename pressure ever surfaced it. A word can be this
+overloaded and still be invisible to every tool the compiler gives you.
+
+**Its disposition is heavier than the other eight, and that is the point.** Renaming `holder`
+to `Container` is a substitution. Replacing `flow` means first deciding WHICH relation was
+meant, so it forces the verification H19 forces: *"that order flows through UNCHANGED"* is
+**preservation**, *"never flows out"* is **escape** — and `escapes` was already the codebase's
+word, sitting in `bridgeStaticFnEscapes` — *"flows to the caller's diagnostic"* is **left for
+the caller to diagnose**. Three different facts behind one verb, none recoverable from it.
+
+The user's own formulation is the rule to apply: **control flow is a genuine concept; values
+are passed to a function or assigned to a field.** Anything using the word for a value is
+naming a relation it declined to pick.
 
 And the reason this belongs in a COMMENT doc rather than a naming one: re-running the
 signature after all eight renames had landed found three surviving sites, and every one was a
