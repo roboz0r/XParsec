@@ -89,6 +89,65 @@ and FTConditionalPayload =
         WhenFalse: FrozenType
     }
 
+/// A nominal `interface <ty>` reference, over the declaring type's typars. Only a nominal
+/// reference witnesses anything at a use site, so a non-nominal one cannot be built.
+type FrozenInterface =
+    private
+        {
+            /// Kept whole, because realising the reference keeps its nominal FLAVOUR: an
+            /// `FTUnion` realises as a `TyUnion`, not a `TyClass`.
+            Ref: FrozenType
+            RefKey: SymbolKey
+            RefArgs: EqArray<FrozenType>
+        }
+
+    /// The reference as a type, to realise at a use site.
+    member this.Frozen: FrozenType = this.Ref
+
+    /// A `SymbolKey`, because an intrinsic interface (`seq<'T>` on JS) freezes as `FTConst`.
+    member this.Key: SymbolKey = this.RefKey
+
+    member this.Args: EqArray<FrozenType> = this.RefArgs
+
+    static member OfClass(key: TypeKey, args: EqArray<FrozenType>) : FrozenInterface =
+        {
+            Ref = FTClass(key, args)
+            RefKey = SymbolKey.Type key
+            RefArgs = args
+        }
+
+    /// `ValueNone` for a non-nominal freeze, which carries no witness to match.
+    static member TryOfFrozen(ft: FrozenType) : FrozenInterface voption =
+        match ft with
+        | FTClass(k, args)
+        | FTUnion(k, args)
+        | FTRecord(k, args) ->
+            ValueSome
+                {
+                    Ref = ft
+                    RefKey = SymbolKey.Type k
+                    RefArgs = args
+                }
+        | FTConst(k, args) -> ValueSome { Ref = ft; RefKey = k; RefArgs = args }
+        | _ -> ValueNone
+
+    /// Rebuild over the type ARGUMENTS; the identity is untouched.
+    member this.MapArgs(f: FrozenType -> FrozenType) : FrozenInterface =
+        let args = EqArray.map f this.RefArgs
+
+        let rebuilt =
+            match this.Ref with
+            | FTClass(k, _) -> FTClass(k, args)
+            | FTUnion(k, _) -> FTUnion(k, args)
+            | FTRecord(k, _) -> FTRecord(k, args)
+            | _ -> FTConst(this.RefKey, args)
+
+        {
+            Ref = rebuilt
+            RefKey = this.RefKey
+            RefArgs = args
+        }
+
 /// The mutable inference type IR. Every `TyVar` is a dense `TyVarId` index into the
 /// per-file `TypeStore` union-find graph.
 type SemType =

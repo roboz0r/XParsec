@@ -16,13 +16,6 @@ open XParsec.FSharp.SemanticAnalysis
 /// A shape that doesn't map yields `None`.
 module private MetadataMapping =
 
-    /// Open-generic-definition name for a constructed generic, else `FullName`.
-    let metadataName (t: Type) : string =
-        if t.IsGenericType && not t.IsGenericTypeDefinition then
-            t.GetGenericTypeDefinition().FullName
-        else
-            t.FullName
-
     /// `reverseCanon` maps a platform repr to the canons it stands for (`"System.Int32"` →
     /// `[int]`), so a BCL member's `System.Int32` parameter presents as `int` and is
     /// callable. On the CLR the list is a singleton; a name absent from it is a real class.
@@ -437,26 +430,16 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
         Array.concat [| properties; methods; indexers; fields; ctors |]
 
-    /// Interface set as nominal templates. Unmappable interfaces are skipped. Must hold
-    /// `gate`. Metadata nesting really is CLR-nested, so the compiled name cuts the right
-    /// identity here, unlike a contract-layer name over a module-held type.
-    let buildClassInterfaces (t: Type) : FrozenType[] =
+    /// Interface set. An interface whose own type args do not map is skipped. Must hold `gate`.
+    let buildClassInterfaces (t: Type) : FrozenInterface[] =
         t.GetInterfaces()
         |> Array.choose (fun i ->
-            let args =
-                if i.IsGenericType then
-                    i.GetGenericArguments() |> Array.map (MetadataMapping.tryBuildType reverseCanon)
-                else
-                    [||]
-
-            if Array.exists Option.isNone args then
-                None
-            else
-                let ta = args |> Array.map Option.get
-
-                let key = SymbolKeyOps.qualifiedTypeKeyOf (MetadataMapping.metadataName i) ta.Length
-
-                Some(FTClass(key, EqArray.ofArray ta))
+            match MetadataMapping.tryBuildType reverseCanon i with
+            | Some frozen ->
+                match FrozenInterface.TryOfFrozen frozen with
+                | ValueSome iface -> Some iface
+                | ValueNone -> None
+            | None -> None
         )
 
     /// Declared base type as a `FrozenType` template. `ValueNone` for interfaces and

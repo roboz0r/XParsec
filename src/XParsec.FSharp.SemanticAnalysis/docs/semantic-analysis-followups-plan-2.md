@@ -360,10 +360,11 @@ Identity is the key, never a string." Roughly a third of the module is the oppos
 platform-repr STRING axis: `objAbbrevName`, `systemObjectQualifiedName`, `textWriterTypeName`,
 `stringBuilderTypeName`, `stringWriterTypeName`, `arrayName`, `arrayContractName`, `byrefName`,
 `arrayOfListName`, `nullTypeName`, `undefinedTypeName`, plus the `Set<string>` tables
-`numericTypeNames` / `referencePrimitiveNames` and the by-name recognisers `matchesName`,
-`isVesperListName`, `isStructuralConstructorName`. Nothing in the types tells a caller which axis
-it is on, so `matchesKey` / `matchesName` and `vesperListKey` / `isVesperListName` are pairs kept
-in step only by naming discipline. The `(|PlatformName|_|)` pattern already gestures at the type
+`numericTypeNames` / `referencePrimitiveNames` and the by-name recognisers `isVesperListName`,
+`isStructuralConstructorName`. Nothing in the types tells a caller which axis it is on, so
+`vesperListKey` / `isVesperListName` is a pair kept in step only by naming discipline. (The
+`matchesKey` / `matchesName` pair was the same shape; `matchesName` has since been deleted
+along with its last caller.) The `(|PlatformName|_|)` pattern already gestures at the type
 that would fix this — a single-case wrapper for the platform-repr string, so `opaqueKey` takes one
 and the name sets are keyed by it. Recording, not fixing; the type change would delete the pair of
 comments now sited on `primitiveKey` and `opaqueKey`.
@@ -545,3 +546,28 @@ Belong in `.claude/skills/comment-hygiene/taxonomy.md`, recorded here so they ar
    `and` is the correct answer and a manufactured `because` is a new false claim. Observed
    working correctly at `EmitExpr.TryWith`, `TypeRegistration.localContainerChain` and
    `Elaborate/Printf.fs`.
+
+---
+
+## From the `FrozenInterface` review
+
+### `Passes/Unification.fs:611` — the capability-collision closure is keyed by bare NAME strings
+
+`checkCapabilityInterfaceCollisions` walks the transitive interface closure of a capability's
+platform interface as a `Set<string>` of `SymbolKeyOps.bareName` values, seeded at `:630` from
+`IntrinsicInterfaceShape.Platform`, which is a bare `string` (`ExternalSymbols.fs:426`). Now
+that `FrozenInterfaces` carries a `FrozenInterface`, the fold at `:621` takes a `SymbolKey`
+and puts it back through `SymbolKeyOps.qualifiedName` purely to feed that set — a key that was
+unstringified upstream and re-stringified here. `Platform` and this `Set<string>` are the two
+remaining string carriers on the path.
+
+It is NOT simply a key comparison spelled with strings: it compares the BARE name, arity
+suffix stripped, and the comment at `:598` gives the reason — the metadata layer keys
+`` IEnumerable`1 `` while the contract layer keys `IEnumerable`. So a `Set<TypeKey>` would
+compare MORE than the current code does and would stop matching across the two layers.
+
+The fix therefore has a prerequisite, not just a shape: settle whether that arity mismatch is
+a real difference between the layers or a defect in one of them. If it is a defect, `Platform`
+becomes a `TypeKey` (`ExternalSymbols.fs:687` already cuts one from it with
+`qualifiedTypeKeyOf platform 0`) and the closure a `Set<TypeKey>`. The comment the fix would
+delete is the two-line bare-name justification at `:598`.

@@ -271,16 +271,6 @@ module FrozenSignature =
                     registerCases caseArr caseShapes
 
                 | TTypeKindG.Class c ->
-                    // A non-nominal `interface <ty>` carries no witness a use site could
-                    // match, so it is dropped rather than published as an opaque template.
-                    let isNominal (ity: FrozenType) : bool =
-                        match ity with
-                        | FTClass _
-                        | FTUnion _
-                        | FTRecord _
-                        | FTConst _ -> true
-                        | _ -> false
-
                     let members = membersOf typeKey arity c.Members
 
                     let shape: ExternalClassShape =
@@ -291,8 +281,9 @@ module FrozenSignature =
                             FrozenInterfaces =
                                 [|
                                     for (ity, _) in c.Interfaces do
-                                        if isNominal ity then
-                                            ity
+                                        match FrozenInterface.TryOfFrozen ity with
+                                        | ValueSome i -> i
+                                        | ValueNone -> ()
                                 |]
                             FrozenBaseType = c.BaseType
                             Flags =

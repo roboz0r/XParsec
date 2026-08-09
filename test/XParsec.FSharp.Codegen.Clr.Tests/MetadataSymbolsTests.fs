@@ -73,7 +73,7 @@ let tests =
                     let impls =
                         ExternalSymbols.instantiateInterfaces info [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                         |> Array.choose (fun ty ->
-                            match ExternalSymbols.interfaceNominal ty with
+                            match RuntimeNames.interfaceNominal ty with
                             | ValueSome(struct (k, _)) -> Some(SymbolKeyOps.qualifiedName k)
                             | ValueNone -> None
                         )
@@ -202,7 +202,7 @@ let tests =
                     match
                         ExternalSymbols.instantiateInterfaces info intArg
                         |> Array.tryPick (fun ty ->
-                            match ExternalSymbols.interfaceNominal ty with
+                            match RuntimeNames.interfaceNominal ty with
                             | ValueSome(struct (k, args)) when k = enumerableKey -> Some args
                             | _ -> None
                         )

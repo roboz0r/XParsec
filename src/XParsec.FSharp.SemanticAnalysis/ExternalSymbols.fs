@@ -337,7 +337,7 @@ type ExternalClassShape =
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
         Members: ExternalMember[]
-        FrozenInterfaces: FrozenType[]
+        FrozenInterfaces: FrozenInterface[]
         /// The declared base type; `ValueNone` for an interface and for `System.Object`.
         FrozenBaseType: FrozenType voption
         Flags: ExternalClassFlags
@@ -426,9 +426,9 @@ type IntrinsicInterfaceShape =
         Platform: string
         /// The abstract member surface (`Dispose`).
         Members: ExternalMember[]
-        /// The directly-inherited interfaces as nominal templates: `enumerator` inherits
-        /// `disposable`. Empty for a leaf capability.
-        Interfaces: FrozenType[]
+        /// The directly-inherited interfaces: `enumerator` inherits `disposable`. Empty for
+        /// a leaf capability.
+        Interfaces: FrozenInterface[]
         Origin: SymbolOrigin
     }
 
@@ -440,8 +440,8 @@ type ExternalTypeShape =
     /// Field order matches source.
     | Record of arity: int * fields: ExternalFieldShape[] * origin: SymbolOrigin
     /// Case order matches source. `interfaces` are the union's directly-declared
-    /// `interface <ty>` impls as nominal templates.
-    | Union of arity: int * cases: ExternalCaseShape[] * interfaces: FrozenType[] * origin: SymbolOrigin
+    /// `interface <ty>` impls.
+    | Union of arity: int * cases: ExternalCaseShape[] * interfaces: FrozenInterface[] * origin: SymbolOrigin
     /// An external enum: named constant cases in source order. No `arity`, because enums are
     /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
     | Enum of cases: ExternalEnumCaseShape[] * origin: SymbolOrigin
@@ -782,51 +782,11 @@ module ExternalSymbols =
 
     /// Realise a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
     /// at a use site.
-    let instantiateInterfacesOf (interfaces: FrozenType[]) (declaringArgs: SemType[]) : SemType[] =
-        interfaces |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs)
+    let instantiateInterfacesOf (interfaces: FrozenInterface[]) (declaringArgs: SemType[]) : SemType[] =
+        interfaces |> Array.map (fun i -> instantiateDeclaring i.Frozen declaringArgs)
 
     let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType[] =
         instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
-
-    /// The identity + type args a realised interface denotes. A non-nominal instantiation
-    /// denotes none, so it matches no capability.
-    let interfaceNominal (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
-        match ty with
-        | TyClass(k, args)
-        | TyUnion(k, args)
-        | TyRecord(k, args) -> ValueSome(struct (SymbolKey.Type k, args))
-        | TyConst(k, args) -> ValueSome(struct (k, args))
-        | _ -> ValueNone
-
-    /// The identity an interface TEMPLATE names, before instantiation.
-    let frozenInterfaceKey (ft: FrozenType) : SymbolKey voption =
-        match ft with
-        | FTClass(k, _)
-        | FTUnion(k, _)
-        | FTRecord(k, _) -> ValueSome(SymbolKey.Type k)
-        | FTConst(k, _) -> ValueSome k
-        | _ -> ValueNone
-
-    /// The type args of the first realised interface whose identity is `cap`, so `.IsSome`
-    /// is the "does this set carry the capability" test.
-    let tryCapabilityArgs
-        (cap: RuntimeNames.CapabilityIdentity voption)
-        (interfaces: SemType[])
-        : EqArray<SemType> voption =
-        match cap with
-        | ValueNone -> ValueNone
-        | ValueSome c ->
-            let mutable found = ValueNone
-            let mutable i = 0
-
-            while found.IsNone && i < interfaces.Length do
-                match interfaceNominal interfaces.[i] with
-                | ValueSome(struct (k, args)) when c.Matches k -> found <- ValueSome args
-                | _ -> ()
-
-                i <- i + 1
-
-            found
 
     /// Shared by a class shape and a heritable primitive's class surface.
     let instantiateBaseTypeFrozen (baseType: FrozenType voption) (declaringArgs: SemType[]) : SemType voption =

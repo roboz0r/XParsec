@@ -75,16 +75,13 @@ module JsNativeSymbols =
     let private ienumeratorTypeKey: TypeKey =
         SymbolKeyOps.typeKeyOf collectionsGenericNs "IEnumerator`1"
 
-    let private ienumerableTypeKey: TypeKey =
+    /// A provider makes a foreign type enumerable by adding this to its interface set.
+    let ienumerableTypeKey: TypeKey =
         SymbolKeyOps.typeKeyOf collectionsGenericNs "IEnumerable`1"
 
     let private ienumeratorKey: SymbolKey = SymbolKey.Type ienumeratorTypeKey
 
     let private ienumerableKey: SymbolKey = SymbolKey.Type ienumerableTypeKey
-
-    /// `System.Collections.Generic.IEnumerable\`1`. A provider makes a foreign type
-    /// enumerable by adding this to the type's interface set.
-    let enumerableInterfaceKey: TypeKey = ienumerableTypeKey
 
     /// An instance member of an erased interface. `declaringTyparArity` is `1` for
     /// `IEnumerable<'T>`, the arity `'T` is baked against.

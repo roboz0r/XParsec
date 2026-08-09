@@ -619,11 +619,7 @@ module Unification =
                 match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     (seen, shape.FrozenInterfaces)
-                    ||> Array.fold (fun acc ft ->
-                        match ExternalSymbols.frozenInterfaceKey ft with
-                        | ValueSome k -> closeOver acc (SymbolKeyOps.qualifiedName k)
-                        | ValueNone -> acc
-                    )
+                    ||> Array.fold (fun acc i -> closeOver acc (SymbolKeyOps.qualifiedName i.Key))
                 | _ -> seen
 
         let capabilityInterfaces =

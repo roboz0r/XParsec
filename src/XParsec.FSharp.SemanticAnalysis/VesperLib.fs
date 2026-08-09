@@ -26,20 +26,19 @@ module VesperLib =
         with BodylessExternalShape _ ->
             ExternalSymbols.unfreezable
 
-    /// Freeze `interface <ty>` impl CSTs into the nominal templates `FrozenInterfaces` holds,
-    /// with args over the declaring typars as `FTTypar(Declaring,i)`. A non-nominal freeze
-    /// carries no witness and is dropped.
-    let private freezeInterfaces (ctx: ExtractCtx) (dc: DeferredCtx) (ifaces: Type<SyntaxToken> list) : FrozenType[] =
-        ifaces
-        |> List.choose (fun t ->
-            match freezeBodyType ctx dc t with
-            | FTClass _
-            | FTRecord _
-            | FTUnion _
-            | FTConst _ as ft -> Some ft
-            | _ -> None
-        )
-        |> List.toArray
+    /// Freeze `interface <ty>` impl CSTs, with args over the declaring typars as
+    /// `FTTypar(Declaring,i)`. A non-nominal freeze carries no witness and is dropped.
+    let private freezeInterfaces
+        (ctx: ExtractCtx)
+        (dc: DeferredCtx)
+        (ifaces: Type<SyntaxToken> list)
+        : FrozenInterface[] =
+        [|
+            for t in ifaces do
+                match FrozenInterface.TryOfFrozen(freezeBodyType ctx dc t) with
+                | ValueSome i -> i
+                | ValueNone -> ()
+        |]
 
     /// A `[<Struct>] type X = …` (the ATTRIBUTE form) parses through the Class/Anon arm, not
     /// the `struct … end` form, so its value-type-ness is on the `TypeName`'s attributes.

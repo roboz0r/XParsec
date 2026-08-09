@@ -51,7 +51,10 @@ let private typeByName (name: string) : ExternalTypeShape voption =
             ExternalTypeShape.Class
                 { ExternalClassShape.basic (0, false, origin) with
                     Members = [| markerMember |]
-                    FrozenInterfaces = [| FTClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker) |]
+                    FrozenInterfaces =
+                        [|
+                            FrozenInterface.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker)
+                        |]
                     FrozenBaseType = ValueSome marker
                 }
         )
@@ -74,7 +77,9 @@ let private typeByName (name: string) : ExternalTypeShape voption =
             ExternalTypeShape.Union(
                 1,
                 [| markerCase |],
-                [| FTClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker) |],
+                [|
+                    FrozenInterface.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker)
+                |],
                 origin
             )
         )
@@ -148,11 +153,14 @@ let tests =
             test "interface type-arguments are invariant" {
                 let info = clsShape ()
 
-                match info.FrozenInterfaces.[0] with
-                | FTClass(key, args) ->
-                    Expect.equal key (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) "interface identity preserved"
-                    Expect.equal (EqArray.toArray args) [| witness Variance.Inv |] "interface arg root is inv"
-                | other -> failtestf "expected a nominal interface template, got %A" other
+                let iface = info.FrozenInterfaces.[0]
+
+                Expect.equal
+                    iface.Key
+                    (SymbolKey.Type(SymbolKeyOps.qualifiedTypeKeyOf "I" 1))
+                    "interface identity preserved"
+
+                Expect.equal (EqArray.toArray iface.Args) [| witness Variance.Inv |] "interface arg root is inv"
             }
 
             test "the base type is invariant" {
@@ -172,11 +180,15 @@ let tests =
                 | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _)) ->
                     Expect.equal cases.[0].FrozenFieldTypes [| witness Variance.Co |] "case field root is co"
 
-                    match ifaces.[0] with
-                    | FTClass(key, args) ->
-                        Expect.equal key (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) "union interface identity preserved"
-                        Expect.equal (EqArray.toArray args) [| witness Variance.Inv |] "union interface arg root is inv"
-                    | other -> failtestf "expected a nominal interface template, got %A" other
+                    Expect.equal
+                        ifaces.[0].Key
+                        (SymbolKey.Type(SymbolKeyOps.qualifiedTypeKeyOf "J" 1))
+                        "union interface identity preserved"
+
+                    Expect.equal
+                        (EqArray.toArray ifaces.[0].Args)
+                        [| witness Variance.Inv |]
+                        "union interface arg root is inv"
                 | other -> failtestf "expected a Union shape, got %A" other
             }
 

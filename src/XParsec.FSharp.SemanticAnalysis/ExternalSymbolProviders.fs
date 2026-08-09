@@ -409,8 +409,8 @@ module ExternalSymbolProviders =
 
         // An interface's type ARGUMENTS are invariant slots; the reference itself holds no
         // value, so `transform` has nothing to say about it.
-        let mapInterfaces (ifaces: FrozenType[]) =
-            ifaces |> Array.map (FrozenType.mapChildren inv)
+        let mapInterfaces (ifaces: FrozenInterface[]) =
+            ifaces |> Array.map (fun i -> i.MapArgs inv)
 
         // A union-case field is a covariant value read.
         let mapCase (c: ExternalCaseShape) : ExternalCaseShape =

@@ -191,9 +191,15 @@ module internal NominalEmit =
                     Members = emittedMembers
                     StaticFields = staticFieldsDict
                     SecondaryCtors = secondaryCtorHandles
-                    // The implemented-interface templates over this class's declaring
-                    // typars; the impl member bodies are not needed here.
-                    Interfaces = [ for (ifaceTy, _) in cd.Interfaces -> ifaceTy ]
+                    // The implemented interfaces over this class's declaring typars; the impl
+                    // member bodies are not needed here.
+                    Interfaces =
+                        [
+                            for (ifaceTy, _) in cd.Interfaces do
+                                match FrozenInterface.TryOfFrozen ifaceTy with
+                                | ValueSome i -> i
+                                | ValueNone -> ()
+                        ]
                 }
 
     let prepare

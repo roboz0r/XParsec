@@ -211,12 +211,7 @@ let tests =
                 with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames =
-                        iface.Interfaces
-                        |> Array.choose (fun ft ->
-                            match ExternalSymbols.frozenInterfaceKey ft with
-                            | ValueSome k -> Some(SymbolKeyOps.qualifiedName k)
-                            | ValueNone -> None
-                        )
+                        iface.Interfaces |> Array.map (fun i -> SymbolKeyOps.qualifiedName i.Key)
 
                     Expect.isTrue
                         (ifaceNames |> Array.exists (fun n -> n.Contains "disposable"))
@@ -265,6 +260,11 @@ let tests =
                 let provider, _ = builtProviderJs.Value
                 let caps = ExternalSymbols.resolveCapabilities provider
 
+                // A capability's two spellings are compiled NAMES in the contract, so each is
+                // cut to the key the identity compares on. Arity 0: the `` `1 `` suffix parses.
+                let matchesSpelling (id: RuntimeNames.CapabilityIdentity) (compiled: string) =
+                    id.Matches(SymbolKeyOps.qualifiedTypeKeyOf compiled 0)
+
                 let expectBothNames
                     (name: string)
                     (cap: RuntimeNames.CapabilityIdentity voption)
@@ -277,8 +277,8 @@ let tests =
                             (id.CanonKey.IsSome)
                             (sprintf "%s carries both names on JS (CanonKey present)" name)
 
-                        Expect.isTrue (id.MatchesName bcl) (sprintf "%s matches its BCL name %s" name bcl)
-                        Expect.isTrue (id.MatchesName canon) (sprintf "%s matches its canonical key %s" name canon)
+                        Expect.isTrue (matchesSpelling id bcl) (sprintf "%s matches its BCL name %s" name bcl)
+                        Expect.isTrue (matchesSpelling id canon) (sprintf "%s matches its canonical key %s" name canon)
                     | ValueNone -> failtestf "%s resolved to ValueNone on JS" name
 
                 expectBothNames
@@ -296,8 +296,12 @@ let tests =
                 match caps.Disposable with
                 | ValueSome id ->
                     Expect.equal id.CanonKey ValueNone "disposable is canon-only on JS (no BCL name to reconcile)"
-                    Expect.isTrue (id.MatchesName "Vesper.disposable") "disposable matches its canonical key"
-                    Expect.isFalse (id.MatchesName "System.IDisposable") "disposable's BCL spelling is not a name here"
+
+                    Expect.isTrue (matchesSpelling id "Vesper.disposable") "disposable matches its canonical key"
+
+                    Expect.isFalse
+                        (matchesSpelling id "System.IDisposable")
+                        "disposable's BCL spelling is not a name here"
                 | ValueNone -> failtest "disposable resolved to ValueNone on JS"
             }
 

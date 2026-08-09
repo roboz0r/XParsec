@@ -96,8 +96,8 @@ module internal TsManifestMembers =
     let private classifyHeritage
         (ctx: TranslateCtx)
         (heritage: Schema.TypeRef list)
-        : FrozenType[] * FrozenType voption =
-        let interfaces = ResizeArray<FrozenType>()
+        : FrozenInterface[] * FrozenType voption =
+        let interfaces = ResizeArray<FrozenInterface>()
         let mutable baseTy = ValueNone
 
         for h in heritage do
@@ -123,7 +123,7 @@ module internal TsManifestMembers =
                     | None ->
                         SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.arityName name ifaceArgs.Length) ifaceArgs.Length
 
-                interfaces.Add(FTClass(key, EqArray.ofArray ifaceArgs))
+                interfaces.Add(FrozenInterface.OfClass(key, EqArray.ofArray ifaceArgs))
 
         interfaces.ToArray(), baseTy
 
@@ -176,7 +176,9 @@ module internal TsManifestMembers =
                 | ValueSome elem ->
                     Array.append
                         heritageInterfaces
-                        [| FTClass(JsNativeSymbols.enumerableInterfaceKey, EqArray.singleton elem) |]
+                        [|
+                            FrozenInterface.OfClass(JsNativeSymbols.ienumerableTypeKey, EqArray.singleton elem)
+                        |]
                 | ValueNone -> heritageInterfaces
 
             Some(

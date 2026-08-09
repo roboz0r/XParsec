@@ -157,10 +157,8 @@ module UnificationInfer =
             | _ -> [||]
 
         let viaInterface =
-            match ctx.CapabilityIds.Disposable, capabilityDisposeSlot ctx with
-            | ValueSome disp, ValueSome slot when
-                (ExternalSymbols.tryCapabilityArgs (ValueSome disp) (externalInterfaces ())).IsSome
-                ->
+            match capabilityDisposeSlot ctx with
+            | ValueSome slot when RuntimeNames.carriesCapability ctx.CapabilityIds.Disposable (externalInterfaces ()) ->
                 ValueSome(Disposal.ViaCapability slot)
             | _ -> ValueNone
 

@@ -60,7 +60,7 @@ module EmitResolve =
         match nominal with
         | FTClass(classKey, classArgs) ->
             match env.Classes.TryGetValue(SymbolKey.Type classKey) with
-            | true, cls -> pickInterfaceWitness ifaceKey (classArgs.AsSpan().ToArray()) cls.Interfaces
+            | true, cls -> pickInterfaceWitness (SymbolKey.Type ifaceKey) (classArgs.AsSpan().ToArray()) cls.Interfaces
             | false, _ -> ValueNone
         | _ -> ValueNone
 

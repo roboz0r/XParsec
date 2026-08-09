@@ -170,10 +170,10 @@ module EmitTypes =
             /// handle). A `TExpr.New` whose arg count differs from the primary's selects
             /// the matching overload here.
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
-            /// The implemented-interface TEMPLATES, each written over THIS class's
-            /// declaring typars (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for
-            /// instantiation at an object argument. Direct impls only, not a base's.
-            Interfaces: FrozenType list
+            /// The implemented interfaces, each written over THIS class's declaring typars
+            /// (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for instantiation at an
+            /// object argument. Direct impls only, not a base's.
+            Interfaces: FrozenInterface list
         }
 
     /// How an emitted enum's cases are loaded and compared.

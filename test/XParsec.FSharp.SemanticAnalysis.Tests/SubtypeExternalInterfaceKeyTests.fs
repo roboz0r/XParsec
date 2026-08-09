@@ -6,10 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The subtype walk surfaces an external type's interfaces from `FrozenInterfaces`, which
-// names each by its COMPILED name. `Tests.Shapes+IShape` re-cut with `qualifiedTypeKeyOf`
-// yields the CLR-nested `InType` identity, not the `InModule` one the declaring package
-// registered, so the two fixtures below differ only in where the interface is declared.
+// `Tests.Shapes+IShape` re-cut with `qualifiedTypeKeyOf` yields the CLR-nested `InType`
+// identity, not the `InModule` one the declaring package registered, so the two fixtures
+// below differ only in where the interface is declared.
 
 let private testsNs = SymbolKeyOps.namespaceKey "Tests"
 
@@ -34,7 +33,7 @@ let private ifaceShape =
 let private widgetShape (ifaceKey: TypeKey) =
     ExternalTypeShape.Class(
         { ExternalClassShape.basic (0, false, SymbolOrigin.Empty) with
-            FrozenInterfaces = [| FTClass(ifaceKey, EqArray.empty) |]
+            FrozenInterfaces = [| FrozenInterface.OfClass(ifaceKey, EqArray.empty) |]
         }
     )
 

@@ -186,9 +186,6 @@ module RuntimeNames =
             | SymbolKey.Type t -> this.Matches t
             | _ -> false
 
-        member this.MatchesName(name: string) : bool =
-            this.Matches(SymbolKeyOps.qualifiedTypeKeyOf name 0)
-
     /// A capability a provider does not name is `ValueNone`, never a hardcoded BCL fallback.
     type CapabilityIds =
         {
@@ -211,8 +208,32 @@ module RuntimeNames =
     let matchesKey (cap: CapabilityIdentity voption) (k: TypeKey) : bool =
         cap |> ValueOption.exists (fun c -> c.Matches k)
 
-    let matchesName (cap: CapabilityIdentity voption) (name: string) : bool =
-        cap |> ValueOption.exists (fun c -> c.MatchesName name)
+    /// The identity + type args a REALISED interface denotes. A `TyConst` counts: that is how
+    /// an intrinsic interface (`seq<'T>` on JS) realises.
+    let interfaceNominal (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
+        match ty with
+        | TyClass(k, args)
+        | TyUnion(k, args)
+        | TyRecord(k, args) -> ValueSome(struct (SymbolKey.Type k, args))
+        | TyConst(k, args) -> ValueSome(struct (k, args))
+        | _ -> ValueNone
+
+    /// The type args of the first realised interface whose identity is `cap`.
+    let tryCapabilityArgs (cap: CapabilityIdentity) (interfaces: SemType[]) : EqArray<SemType> voption =
+        interfaces
+        |> Array.tryPick (fun ty ->
+            match interfaceNominal ty with
+            | ValueSome(struct (k, args)) when cap.Matches k -> Some args
+            | _ -> None
+        )
+        |> function
+            | Some args -> ValueSome args
+            | None -> ValueNone
+
+    /// Whether a realised interface set carries `cap` at all. A capability the provider does
+    /// not name is carried by nothing.
+    let carriesCapability (cap: CapabilityIdentity voption) (interfaces: SemType[]) : bool =
+        cap |> ValueOption.exists (fun c -> (tryCapabilityArgs c interfaces).IsSome)
 
     /// Either nominal form: the `List` union or its `list` abbreviation.
     let isVesperListKey (k: TypeKey) : bool =
