@@ -1,9 +1,9 @@
 # Failure-mode taxonomy
 
-Eighteen named modes, each with the shape, a verbatim example found in the wild, and a
-disposition. Examples are real — H1–H16 come from the `Codegen.Js` overhaul, H17–H18 from a
-later repo-wide vocabulary pass (see the section on those two, which have their own evidence
-base and are the only modes whose disposition is not delete/verify/relocate).
+Nineteen named modes, each with the shape, a verbatim example found in the wild, and a
+disposition. Examples are real — H1–H16 come from the `Codegen.Js` overhaul, H17–H19 from
+later repo-wide passes (see the sections on those three, which have their own evidence base
+and are the only modes whose disposition is rephrase rather than delete/verify/relocate).
 
 Modes marked **greppable** can be spotted without reading any code; run those first, they are
 most of the deletable bulk.
@@ -28,6 +28,7 @@ most of the deletable bulk.
 | H16 | Jargon without an instance | states a what AND a why, but only in vocabulary defined in other files | replace with the concrete emitted shape, or delete |
 | H17 | Collapsed verdict | one negation phrase standing for several distinct verdicts: "`name` names no type" covers *structurally has none*, *lookup found nothing*, and *found the wrong kind* | rephrase — pick the verdict, then negate the VERB (`does not resolve to a type`), never the object |
 | H18 | Overloaded term | one noun or verb naming several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
+| H19 | Causal hedge | an em-dash standing in for a connective the code DETERMINES: "constructs by its BARE export name with NO import — the JS runtime provides it intrinsically" (*because*), "produces NO symbol — only its members do" (*but*), "are LEAVES — never expanded" (*namely*) | rephrase — name the relation; keep the dash only as `literal — gloss`, literal LEFT |
 
 ## Grep signatures — the part that becomes a lint
 
@@ -67,6 +68,28 @@ Found to catch essentially every instance in a file, without reading any code:
   `Holder<'T>` fixture type in test source. Triage is one pass. The general test needs no word
   list: **a term appearing across three unrelated subsystems is either genuinely universal or
   overloaded, and there are very few genuinely universal terms.**
+- **H19** — three signatures, in yield order. The parenthetical pair has the best precision:
+  7 hits over the worked files, every one a genuine defect. That precision is about DETECTION
+  only, and the fix is NOT positional, so read the entry before acting on a hit. Match it
+  with a window rather than per line:
+  `rg -U --multiline-dotall -o '—[^—]{0,240}—' <path>`. The obvious `—.*—` is a trap: it sees
+  one line only, and 3 of the first 6 wrapped, the closing dash landing mid-line where
+  neither of the other two signatures reaches it either. Over `Codegen.Js` the per-line form
+  hits 6 files against the window's 20 matches in 12, so it was missing about half. The
+  window can pair dashes across two adjacent comment blocks, so eyeball the hits; the 3-line
+  ceiling keeps that rare. Then `^\s*(///|//)\s*—` for a wrapped aside whose dash is the
+  first glyph on the line. **For everything else, grep the bare `—` and classify by reading**
+  — do not try to filter the good form out mechanically. `[^`]\s—`, intended to spare
+  `literal — gloss`, fails in BOTH directions: on `EmitJsFormat.fs` it spared 4 dashes of
+  which only 1 was a real gloss, because a sentence that merely ENDS in an inline-code span
+  defeats a test on the preceding character; tightening it to literal-initial
+  (``^\s*(///|//)\s*`[^`]+`\s*—``) then missed 5 of the 9 genuine glosses in `EmitJs.fs`,
+  which qualify the literal before the dash (`` `while cond do body` as a bare loop
+  statement — … ``). The distinction is semantic: does the left side NAME a thing the right
+  side defines, or make a CLAIM the right side relates to? No regex sees that, and dashes are
+  sparse enough per file (14 in 476 lines) that reading all of them is cheap. Exclude
+  `docs/*.md` (ephemeral plan docs; one alone holds 197) and the FSharp.Core-ported
+  `prim-types-*.fsi`, whose docs are not ours to rewrite.
 
 ## H16 is the subtlest mode, and the one that survives careless sweeps
 
@@ -213,6 +236,163 @@ comment — `HOLDER-CLASS` in a doc whose own code already said `ModuleContainer
 spine` beside the arguments it had been renamed to, a `SPINE` in a design note. A rename
 reaches identifiers; the compiler makes sure of it. Nothing reaches the prose, so the retired
 word survives exactly where it is least checkable and reads most authoritative.
+
+## H19 — the causal hedge
+
+Same family as H17 and H18: the fact is usually right and only the words are wrong, so the
+disposition is rephrase. It sits one level below both: not a phrase or a term but a mark of
+punctuation.
+
+`Codegen.Js` carried 147 em-dashes over 1038 comment lines, one per seven, and that is AFTER
+the sweep that produced H1–H16. That sweep cut block length and never looked at punctuation,
+so this is an orthogonal axis rather than residue. Repo-wide `src/` holds ~2000.
+
+### Why this is a technical-writing defect, not a style preference
+
+An em-dash is a legitimate hedge in prose about human affairs, where the writer may honestly
+not know how two facts relate. That licence does not transfer.
+
+> **Code is deterministic.** The relation between two facts about it is itself a fact, and the
+> writer had the file open. A dash where `because` belongs is not economy; it is a fact the
+> writer held and declined to hand over, leaving the reader to re-derive from the source
+> exactly what the comment existed to save them.
+
+The mark is also *unfalsifiable*, which is what makes it more than untidy. `X — Y` is equally
+compatible with *Y causes X*, *X causes Y*, *Y is an instance of X*, and *Y is merely
+adjacent*; a reader cannot tell which was meant, and a reviewer cannot tell whether any of
+them was checked. `because` is a claim that can be traced and found false. So the hedge evades
+the verification H2 demands, at the level of punctuation rather than the level of a sentence.
+That evasion is why it feels comfortable to write.
+
+**The corollary is the rule.** Naming the connective is not a rewording pass; it is a
+verification pass that happens to change words. Writing `because` forces you to confirm it is
+a cause. Twice in one file pair, the confirmation failed and the content changed:
+
+- **The aside subsumed the clause it interrupted.**
+  `// JS is dynamically typed — every value is already a boxed `obj` — so `e :> obj` is a no-op`
+  Once forced to pick, the two halves proved to be one fact. The head deleted:
+  `// Every JS value is already a boxed `obj`, so `e :> obj` is a no-op`.
+- **The dash pair was hiding jargon.** `// … is either a primitive spelled canonically — mint
+  the `Vesper` key … — or genuinely external. A name recogniser: no provider is in hand.`
+  Rebuilding the `either … or` also killed `A name recogniser`, which on inspection meant
+  "decided on the name alone" (H16).
+
+### The one shape to keep: `literal — gloss`, literal LEFT
+
+Here the dash is not prose punctuation but a two-column layout, and a colon reads worse:
+
+```fsharp
+/// `continue;` — re-enters the `While` trampoline after the parameter write-back.
+/// `use x = value in body` — park the bound variable in a `const`, run the body in a `try`.
+```
+
+`JsAst.fs` runs 28 of these and reads as a table: the H16 shape (show the emitted output) in
+its most compact form. Roughly half the corpus qualifies. Discipline: literal on the LEFT,
+gloss on the right, ONE dash, and the right side must define rather than explain.
+
+**Literal on the right means invert, and inverting usually shortens.** Two of the worked
+sites had it backwards, which is the second bad shape below in disguise:
+
+```fsharp
+- /// Curry `base` over `args` — one unary `Call` per argument, in source order:
+- /// `base(a)(b)…`.
++ /// `base(a)(b)…` — one unary `Call` per argument, in source order.
+```
+
+Two lines to one, and it became a legal glossary entry. The other dropped its lead outright
+(`// Destructuring bound variable — `for (k, v) in map`: …`), because the discarded half was
+restating the `PatShape.Tuple` arm on the next line (H3).
+
+### The three shapes to cut
+
+- **Parenthetical pair.** Best precision, and it strands whatever follows the second dash:
+  ```fsharp
+  // Member functions emit after the class decls — they reference the classes via
+  // `new`/match, and `const` arrows are not hoisted — and before the body.
+  ```
+  `and before the body` is half the ordering constraint, marooned past a 15-word aside. It
+  also splits verbs from their subject: `A *mutable* bound variable is excluded — … — and
+  falls below` puts two verbs about one subject on opposite sides of the interruption.
+
+  **It is a reliable detector and an unreliable prescription — do NOT reflexively delete the
+  aside.** All 7 pairs in the worked files marked a genuine defect, but the fix is not
+  positional: deleting the aside would have destroyed the only non-recoverable content in 4
+  of the 7, and in 1 the correct edit was to delete the HEAD (`JS is dynamically typed —
+  every value is already a boxed `obj` — so …`, where the aside subsumed the head). The
+  mechanism inverts the intuition: a dash pair is an author interrupting a STRUCTURAL
+  statement — ordering, classification, dispatch — to insert the REASON. The structure is
+  what the code below already says (H14, H3: delete outright); the reason is what the reader
+  cannot recover.
+
+  > **In a parenthetical pair, suspect the HEAD.** The aside is usually the only thing in the
+  > comment that is not already in the source.
+
+  Strip the aside from the example above and what survives is bare ordering narration — an
+  H14 violation with its why removed. n=7; treat as a tendency, not a law. The seventh
+  instance is the standing counterexample, and it names the exception: **in a per-CASE doc
+  neither half can go**, because the head names the case. `` /// A `float32` whose repr is a
+  JS `number` — an IEEE-754 DOUBLE — so JS renders it at double precision `` needs the head
+  (it is the `Single` case's doc) and needs the aside (a JS `number` BEING a double is what
+  loses the width). The fix there is apposition, never deletion: `` …a JS `number`, an
+  IEEE-754 DOUBLE, so… ``. Running tally over 7: aside is the keeper 3, aside droppable 2,
+  delete the HEAD 1, both required 1.
+- **Trailing afterthought where the tail is the point.** `A committed `.mjs` shipped beside
+  the compiled output — one of the assets a package writes`. Invert; the tail is the fact.
+- **Line-initial dash** — the wrapped remainder of one of the above, and the strongest tell
+  that the mark was reflex, since a reader scanning the left margin meets a dash.
+
+**The proof that it is reflex rather than composition** is the site that wrote both:
+
+```fsharp
+// `parts.Free` is all of `unionMembers` — hence no `addMembers` here.
+```
+
+The connective and the dash. Whoever wrote that knew the relation, said it, and reached for
+the mark anyway.
+
+That generalises into a reading tell, though NOT into a signature: **a dash in a sentence
+that already carries a connective is a stacked consequence**, and the second link is the one
+never named. `` /// …no front-end symbol resolves to it, so no provider shape carries its
+home — codegen names both the key and the module `` chains a second *therefore* off the
+first; it wants a full stop. Tested as a grep
+(`(///|//).*\b(so|because|hence|since)\b.*—` and its mirror) it returned 12 hits over
+`Codegen.Js` at ~50% precision, because every false positive is the legitimate glossary form
+with its `so` INSIDE the gloss (`` `(target = value)` — parenthesised, so it is safe as a
+comma-sequence operand ``). Half precision is no better than reading every dash, which is
+cheap. Recorded as a negative result so it is not re-derived.
+
+### Measured
+
+Four files, the rule applied end to end:
+
+| file | before | after | kept as | cut |
+| --- | --- | --- | --- | --- |
+| `TsManifestTypes.fs` | 10 | 1 | glossary | 90% |
+| `EmitJs.fs` | 32 | 10 | 9 glossary + 1 diagnostic string | 69% |
+| `EmitJsFormat.fs` | 14 | 1 | glossary | 93% |
+| `EmitJsContext.fs` | 12 | 3 | 2 glossary + 1 diagnostic string | 75% |
+
+68 → 15, and a NET LOSS OF ONE LINE across the four: the rule costs nothing in length, it
+only forces a word to be chosen. Of the 53 fixed, roughly half were causal (*because* / *so*
+/ *since*), 14 sat in parenthetical pairs, the rest appositive (*namely*), and 2 were
+inverted glossaries.
+
+**Count occurrences, not lines.** `rg -c '—'` counts matching LINES, and a single-line
+parenthetical pair holds two dashes, so the two methods disagree by exactly the count of the
+mode you most want to find. Use `rg -o '—' | wc -l`.
+
+**The spread in cut rate is predictable, and it is the useful planning number.** A file that
+already has a gloss convention has no legitimate work left for the dash. `EmitJsFormat.fs` is
+a specifier table written as `` `%0wd`: <rule> ``, where the COLON does the naming, so all 14
+dashes were connectives and 13 went — and it held zero parenthetical pairs and zero
+line-initial dashes, a profile entirely unlike `EmitJs.fs`. Where a file's comments are
+per-case one-liners over emitted output (`JsAst.fs`), expect the opposite: mostly legitimate.
+Check a file's existing punctuation convention before estimating how much of it will move.
+
+**Out of scope: string literals.** `EmitJs.fs:780` and `EmitJsContext.fs:124` hold em-dashes
+inside `failwithf` messages with the same defect. That is user-facing diagnostic text, not a
+comment; editing it can move test expectations, so it wants a separate decision rather than a
+punctuation sweep.
 
 ## Where the rot accretes — the siting law
 

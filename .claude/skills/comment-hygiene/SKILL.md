@@ -60,10 +60,10 @@ Two rules follow:
   type keeps compiling and keeps reading plausibly. This is the cheapest moment to fix it —
   you have the mapping in your head and nobody later will have both names.
 
-## Two habits to distrust as you write
+## Three habits to distrust as you write
 
-Both are cheap to avoid at writing time and expensive to undo; the evidence, the word list
-and the grep signatures are in `taxonomy.md` (H17, H18).
+All three are cheap to avoid at writing time and expensive to undo; the evidence, the word
+list and the grep signatures are in `taxonomy.md` (H17–H19).
 
 - **Do not negate the object.** "names no type", "resolves to no class", "maps to no slot"
   put the negation in the middle, so the reader parses grammar before concept — and one
@@ -77,6 +77,15 @@ and the grep signatures are in `taxonomy.md` (H17, H18).
   approximate meaning: a reader who knows the term is misled rather than merely uninformed.
   Reuse the word this codebase already uses for THIS concept. If there is no such word, the
   concept is not modelled — a type candidate, the same verdict the 3-line ceiling produces.
+- **Do not hedge a relation the code determines.** An em-dash standing in for *because*, *so*,
+  *but* or *namely* is a fact you had and did not hand over: code is deterministic, so the
+  relation between two facts about it is itself a fact, and the reader is left re-deriving from
+  the source what the comment existed to save them. It is also unfalsifiable, so it evades
+  verification the way "fails loudly" does: `X — Y` reads the same whether Y causes X, X
+  causes Y, or the two are merely adjacent. Write the word; that is where the false ones
+  surface. The one dash to keep is a two-column gloss, LITERAL FIRST:
+  `` /// `continue;` — re-enters the `While` trampoline ``. If the literal came out on the
+  right, invert it; that usually shortens the comment as well.
 
 ## Budget
 
@@ -195,9 +204,10 @@ Everything below is beside this file. Nothing it needs is on the repo root.
 ## Scope of the evidence
 
 H1–H16 were measured on one F# project; H17–H18 come from a later vocabulary pass over the
-whole repo (~800 file-touches, nine commits) and are the only modes whose disposition is
-rephrase rather than delete. The reviewer-audience hypothesis and the mode list reference no
-language feature and should transfer. The *directional* findings were measured in a language
+whole repo (~800 file-touches, nine commits) and H19 from a punctuation pass over four
+already-swept files. Those three are the only modes whose disposition is rephrase rather
+than delete. The reviewer-audience hypothesis and the mode list reference no language
+feature and should transfer. The *directional* findings were measured in a language
 whose compile order is forced to be dependency order with no forward references; the
 mechanism behind them (a consumer knows its dependency, a dependency does not know its
 consumers) is general, but the cheap way to read the order is F#'s. State the work-order rule
