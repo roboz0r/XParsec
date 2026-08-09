@@ -8,32 +8,16 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 
-// CAPTURE + STORE of a concrete `(# … #)`-bodied member on an
-// intrinsic/`extern` type as a MEMBER-KEYED inline body. Pins the load-bearing
-// KEY-AGREEMENT seam: the body is stored under the FINALIZED member key
-// `TryLookupMember` resolves, which is the key a use-site `TExpr.ExternalMember.Key`
-// will carry.
-//
-// Elaboration RESOLVED the former blocker: the impl spelling
-// `type widget = (# "object" #) with member …` (a `TypeDefn.Abbrev` carrying
-// extensions) now ELABORATES to a real `TDecl.Type(Class)` whose members carry
-// `this`-first `(# … #)` bodies. The `lifting on real elaboration` test below
-// front-ends that impl string and runs the SAME lifting arm `collectInlineBodies`
-// uses, proving the lifting fires on genuine elaboration output.
-//
-// The key-agreement test still hand-builds the input member and sources the
-// FINALIZED key from a REAL loaded `.fsi` — wiring the FULL manifest path (a package
-// carrying BOTH the widget `.fsi` contract AND the widget `.fs` bodies, so the lifted
-// body reaches the use site through `TryLookupMember(...).InlineBody` end-to-end) is
-// deferred as disproportionate for this stage.
+// A concrete `(# … #)`-bodied member on an intrinsic/`extern` type is captured and stored as
+// a MEMBER-KEYED inline body. The store key is the finalized member key a lookup resolves,
+// which is the same key a use site carries.
 
-/// The hand-built member body below belongs to no file, so it sits at no source position —
-/// the same anchor a lowering's own minted node takes.
+/// The hand-built member bodies below belong to no file, so their nodes sit at no source
+/// position.
 let private dummyTok: Anchor = Anchor.nowhere
 
-/// …and so the file a lift of it names is no file either. Every node anchors
-/// `Anchor.nowhere`, which `OriginSources.tokenAt` answers before it consults any retained
-/// source, so this is an identity and the text below is never read.
+/// The origin a lift of such a body names. Every node anchors `Anchor.nowhere`, which
+/// resolves without consulting a retained source, so the empty text below is never read.
 let private nowhereSource: OriginSource =
     {
         File = OriginFile.nowhere
@@ -44,8 +28,7 @@ let private nowhereSource: OriginSource =
     }
 
 /// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
-/// `members` — the member-bearing `Class` a concrete (non-interface) member surface
-/// registers. Returns the provider and the resolved shape key.
+/// `members`. Returns the provider and the resolved shape key.
 let private widgetContractOf (members: string) : IExternalSymbolProvider * string =
     let ctx = VesperLib.ExtractCtx.empty Target.Js
     // The marker makes `widget` intrinsic; the repr is its platform name.
@@ -102,20 +85,17 @@ let private ftString: FrozenType = toFrozen BuiltinTypes.tyString
 let private ftWidget: FrozenType =
     FTConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
 
-/// A hand-built FROZEN `widget.Poke` member over one value parameter, its body minted by
-/// `mkBody` from the parameter's bound variable: `member inline _.Poke (x: 'paramTy) : int = <body>`.
-/// Frozen because that is what the lifting reads — a published inline body never carries a
-/// live inference cell.
+/// A hand-built FROZEN `widget.Poke` over one value parameter, its body minted by `mkBody`
+/// from that parameter's bound variable: `member inline _.Poke (x: 'paramTy) : int = <body>`.
+/// Frozen because a published inline body never carries a live inference cell.
 let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.TExpr) : TastAccessor.TypeMember =
-    // The hand-built body is a node of no file, so it gets a pool of its own — the same
-    // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `liftMemberBody`
-    // mints its wrapping lambdas straight into it, and the member's definition sites are
-    // this pool's own bound variables.
+    // The hand-built body is a node of no file, so it gets a pool of its own; the lifting
+    // mints its wrapping lambdas straight into it.
     let pool = TastPoolBuilder.openEmpty ()
     let xId = TastPoolBuilder.mintBoundVar pool
 
     // The parameter's definition site, taken off the `NamedSimple` pattern a source member
-    // would carry — the same projection `Elaborate.memberParams` fills the slot from.
+    // would carry.
     let xBoundVar =
         match BoundVarKey.ofPat (TPatG.NamedSimple(xId, paramTy, dummyTok)) with
         | ValueSome b -> b
@@ -158,29 +138,22 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
 /// `member inline _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
 let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftInt
 
-// ─── End-to-end SPLICE proof over the loadable `widget` fixture ──────────────
-//
-// The fixture package (`fixtures/widget/`) carries BOTH the `.fsi` contract AND its
-// `.js.fs` bodies, so the JS-native provider closes
-// `TryLookupMember("widget","Poke").InlineBody` against real elaboration. The bodies'
-// `(# "object" #)` binding also publishes the hosts as INTRINSICS, so these are the
-// splice tests for a member on an intrinsic host.
-// Stacked AHEAD of `jsManifests` (which carry Vesper.Core, so `int` resolves).
+// End-to-end SPLICE over the loadable `widget` fixture. `fixtures/widget/` carries BOTH the
+// `.fsi` contract AND its `.js.fs` bodies, so a lookup of `widget.Poke` closes on an inline
+// body from real elaboration; the `(# "object" #)` binding also makes the hosts intrinsic.
 
 /// `fixtures/widget/manifest.toml`.
 let private widgetManifest: string =
     System.IO.Path.Combine(__SOURCE_DIRECTORY__, "fixtures", "widget", "manifest.toml")
 
-/// The JS-native contract with the `widget` fixture layered ahead of the standard JS
-/// manifests — so widget's Class + `Poke` member AND the lifted member inline body
-/// (keyed under the finalized member key) are all present. The WHOLE contract, because the
-/// spliced body's positions are readable only against this set's retained producer files:
-/// `widget.js.fs` is in this retention and in no other.
+/// The JS-native contract with the `widget` fixture layered ahead. The WHOLE contract, not
+/// just its provider: a spliced body's positions read only against this set's retained
+/// producer files, and `widget.js.fs` is in this retention and in no other.
 let private widgetFixtureContract: Lazy<SymbolProviders.Contract> =
     lazy JsNativeSymbols.jsNativeContractFor Target.Js (widgetManifest :: TestHelpers.jsManifests)
 
 /// Emit a consumer snippet through the widget-inclusive contract. No runtime module is
-/// injected: `widget`'s member is fully spliced, so the emitted `usePoke` imports nothing.
+/// injected: `widget`'s member is fully spliced, so the emitted code imports nothing.
 let private emitWidget (input: string) : string =
     TestHelpers.emitWith widgetFixtureContract.Value Map.empty false input
 
@@ -189,9 +162,6 @@ let tests =
     testList
         "ExternMemberInline"
         [
-            // THE end-to-end assertion: a consumer call `w.Poke 41` on the loadable
-            // fixture SPLICES its member body (`41 + 1`) — no `.Poke(` method call
-            // survives, and `widget`'s lift-only `Class` decl never reaches emit.
             test "`w.Poke 41` splices to `41 + 1` end-to-end (no `.Poke`, no `class widget`)" {
                 let js = emitWidget "open Widgets\nlet usePoke (w: widget) : int = w.Poke 41\n"
 
@@ -199,18 +169,15 @@ let tests =
                 // (the operand parenthesises to `(41)`).
                 Expect.stringContains js "(41) + 1" (sprintf "expected the spliced `(41) + 1` body, got:\n%s" js)
 
-                // No method call survived — the member was spliced, not called.
                 Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
 
-                // The lift-only `Class` decl (widget's `.js.fs` `TDecl.Type(Class)`) must
-                // NEVER reach emit — it is a splice source, not an emitted type.
+                // widget's `.js.fs` `Class` decl is a splice source, not an emitted type.
                 Expect.isFalse (js.Contains "class widget") (sprintf "widget's Class decl leaked into emit:\n%s" js)
             }
 
-            // The NON-IL body, end-to-end. `gadget.Bump`'s body is `w.Poke x` — a keyed
-            // reference to a member of a foreign type, which is the node shape a primitive
-            // whose operator body is a BCL call publishes. It crosses the provider seam and
-            // re-resolves in the consumer, where the splice it produces is itself spliced.
+            // The NON-IL body. `gadget.Bump`'s body is `w.Poke x`, a keyed reference to a
+            // member of a foreign type: it crosses the provider seam, re-resolves in the
+            // consumer, and the splice it produces is itself spliced.
             test "`gadget.Bump w` splices its NON-IL body, and the `Poke` it yields splices too" {
                 let js = emitWidget "open Widgets\nlet useBump (w: widget) : int = gadget.Bump w\n"
 
@@ -219,26 +186,23 @@ let tests =
                 Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
             }
 
-            // TWO parameters — the arity at which the call site's ONE tupled argument stops
-            // coinciding with the curried parameter it is peeled against. Left tupled, the
-            // whole tuple lands in `a`, `b` is never supplied, and the emit is a partial
-            // application standing where the signature promises an `int`.
-            test "`w.Poke2(3, 4)` splices to `3 + 4` — the tupled argument opens to both parameters" {
+            // TWO parameters: the arity at which the call site's ONE tupled argument stops
+            // coinciding with the curried parameter it peels against. Left tupled, the whole
+            // tuple lands in `a` and the emit is a partial application where an `int` is due.
+            test "`w.Poke2(3, 4)` splices to `3 + 4`: the tupled argument opens to both parameters" {
                 let js = emitWidget "open Widgets\nlet useP2 (w: widget) : int = w.Poke2(3, 4)\n"
 
                 Expect.stringContains js "(3) + (4)" (sprintf "expected the spliced `(3) + (4)` body, got:\n%s" js)
                 Expect.isFalse (js.Contains ".Poke2") (sprintf "a `.Poke2` method call leaked into emit:\n%s" js)
 
-                // The consumer's own `(w) =>` is the ONLY arrow the snippet may emit: an
-                // unsupplied curried parameter survives as a lambda, which is exactly the
-                // shape the tupled peel leaves behind.
+                // The consumer's own `(w) =>` is the ONLY arrow the snippet may emit; an
+                // unsupplied curried parameter would survive as a second one.
                 Expect.equal (js.Split("=>").Length - 1) 1 (sprintf "a curried remnant survived the splice:\n%s" js)
             }
 
-            // A tuple VALUE selects the same 2-parameter member a literal does, and the
-            // splice needs one EXPRESSION per parameter. Elaborate normalises it to
-            // `let (a, b) = t in w.Poke2(a, b)`, so the same body splices — the tuple is
-            // destructured once, at the call site, and no `.Poke2` survives.
+            // A tuple VALUE selects the same 2-parameter member a literal does, but the splice
+            // needs one EXPRESSION per parameter. It normalises to `let (a, b) = t in
+            // w.Poke2(a, b)`, so the tuple is destructured once and the same body splices.
             test "`w.Poke2 t` at a tuple VALUE destructures and splices the same body" {
                 let js =
                     emitWidget "open Widgets\nlet useP2v (w: widget) : int =\n\x20   let t = (3, 4)\n\x20   w.Poke2 t\n"
@@ -251,8 +215,7 @@ let tests =
 
                 Expect.isFalse (js.Contains ".Poke2") (sprintf "a `.Poke2` method call leaked into emit:\n%s" js)
 
-                // `t` is read ONCE — the destructuring binds it, the elements are read off
-                // the binding.
+                // `t` is built ONCE: the destructuring binds it, the elements read off it.
                 Expect.equal
                     (js.Split("[3, 4]").Length - 1)
                     1
@@ -278,10 +241,8 @@ let tests =
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _), inner, _, _), true, declTy) ->
-                        // Outermost lambda binds `this : widget`.
                         Expect.equal thisTy ftWidget "outer param is `this : widget`"
 
-                        // Inner lambda binds the value param; its body is the IL intrinsic.
                         match inner with
                         | TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k1, _), _),
                                         TExprG.ILIntrinsic _,
@@ -294,7 +255,6 @@ let tests =
                             ()
                         | other -> failtestf "expected inner `fun x -> (# … #)`, got %A" other
 
-                        // `declTy` is the full curried function `widget -> int -> int`.
                         match declTy with
                         | FTFun(FTConst(k1, _), FTFun(FTConst(k2, _), FTConst(k3, _))) when
                             SymbolKeyOps.simpleName k1 = DisplayName "widget"
@@ -304,7 +264,6 @@ let tests =
                             ()
                         | other -> failtestf "declTy is not `widget -> int -> int`: %A" other
 
-                        // ParamAttrs aligned to curried position: leading `this` + value param.
                         Expect.equal body.ParamAttrs.Length 2 "two curried ParamAttrs (this + x)"
                     | other -> failtestf "expected a `this`-first curried inline lambda, got %A" other
                 | None -> failtest "liftMemberBody returned None for an inline-IL member"
@@ -337,10 +296,9 @@ let tests =
                 | None -> failtest "liftMemberBody returned None for a static inline-IL member"
             }
 
-            // `inline` on the DECLARATION is the whole test. Body shape is not consulted:
-            // an ordinary expression publishes exactly as an inline-IL template does,
-            // which is what lets a primitive whose operator body is a BCL call
-            // (`String.Concat`) be spliced at all.
+            // `inline` on the DECLARATION is the whole test: body shape is not consulted, an
+            // ordinary expression publishing exactly as an inline-IL template does. That is
+            // what lets a primitive whose operator body is a BCL call be spliced at all.
             test "a non-IL body publishes when the member is declared inline" {
                 let identity = pokeMemberWith ftInt (fun xId -> TExprG.Var(xId, ftInt, dummyTok))
 
@@ -352,9 +310,8 @@ let tests =
                 | None -> failtest "liftMemberBody returned None for a non-IL `member inline`"
             }
 
-            // …and the converse: a member the author did NOT mark `inline` is a real
-            // callable, whatever it is bodied with. An inline-IL body is the sharpest
-            // form of that — under the old body-shape guard it published regardless.
+            // The converse: a member the author did NOT mark `inline` is a real callable,
+            // whatever it is bodied with, and an inline-IL body is the sharpest form of that.
             test "a NON-inline member publishes nothing, even with an inline-IL body" {
                 let notInline = { pokeMember () with IsInline = false }
 
@@ -363,13 +320,9 @@ let tests =
                     "a member without `inline` is a real callable, not a splice template"
             }
 
-            // THE load-bearing assertion: the member body stores under the FINALIZED
-            // member key `TryLookupMember` resolves, and the fold serves it back ON that
-            // very member entry — the key AGREES.
             test "member-keyed inline body stores and serves under the finalized member key" {
                 let provider, key = widgetContract ()
 
-                // The concrete member surface survived capture and is resolvable.
                 let mem =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Poke") with
                     | ValueSome m -> m
@@ -380,7 +333,7 @@ let tests =
                     | Some b -> b
                     | None -> failtest "liftMemberBody returned None"
 
-                // Store under the FINALIZED member key (NEVER a hand-rolled MemberKey).
+                // Store under the FINALIZED member key, never a hand-rolled one.
                 let byKey =
                     System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
@@ -400,11 +353,9 @@ let tests =
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed through the inline-body fold"
             }
 
-            // The OVERLOAD hazard, pinned: two `Poke` overloads carry DIFFERENT bodies, and
-            // a splice site holding one overload's `MemberKey` must get THAT overload's
-            // body. Only the by-key channel can answer it — `TryLookupMember`'s
-            // best-by-arity collapse serves one entry for the whole name, so a name lookup
-            // would splice the `int` body into a `string` call.
+            // Two `Poke` overloads carry DIFFERENT bodies, and a splice site holding one
+            // overload's key must get THAT body. Only the by-key channel can: a name lookup
+            // collapses the pair to one entry, splicing the `int` body into a `string` call.
             test "an OVERLOADED member's body is selected by the use site's exact MemberKey" {
                 let provider, key =
                     widgetContractOf "    member inline Poke : int -> int\n    member inline Poke : string -> int\n"
@@ -414,8 +365,7 @@ let tests =
                 let overloads = provider.TryLookupMembers(declKey, "Poke")
                 Expect.equal overloads.Length 2 "both `Poke` overloads are published"
 
-                // The finalized keys DISAGREE (the `argSig` axis is what separates them);
-                // never hand-rolled here — the store minted them.
+                // The finalized keys differ on the `argSig` axis, and the store minted them.
                 let keyOf (paramTy: FrozenType) =
                     match overloads |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.contains paramTy) with
                     | Some m -> SymbolKey.Member m.Key
@@ -449,7 +399,7 @@ let tests =
                         | _ -> ValueNone
                     )
 
-                // The IL template a body splices — the observable that tells the two apart.
+                // The IL template a body splices: the observable that tells the two apart.
                 let templateOf (body: InlineBody) : string =
                     match body.Decl with
                     | TDeclG.Let(_,
@@ -466,8 +416,6 @@ let tests =
                 Expect.equal (splice intKey) "$0 + 1" "the `int` overload splices ITS body"
                 Expect.equal (splice stringKey) "$0.length" "the `string` overload splices ITS body"
 
-                // And the name channel genuinely CANNOT serve this: it collapses the pair
-                // to one entry, so one of the two keys would splice the other's body.
                 match served.TryLookupMember(declKey, "Poke") with
                 | ValueSome collapsed ->
                     let collapsedKey = SymbolKey.Member collapsed.Key
@@ -478,20 +426,14 @@ let tests =
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed"
             }
 
-            // PRODUCER PIN (structural). Two same-name lifted member signatures that
-            // differ only by parameter TYPE must mint two DISTINCT `MemberKey`s through the
-            // exact logic `SymbolProviders.collectInlineBodies` performs (decl + name + kind
-            // + structural `FrozenType` argSig + method-typar arity). Were they to collapse
-            // to one key — the old `TryLookupMember` best-by-arity round-trip — the second
-            // lifted body would overwrite the first and one call site could never splice.
-            // Pinned STRUCTURALLY (hand-built lifted signatures) rather than via a real
-            // cross-file declaration because two `(# … #)`-bodied same-name overloads are not
-            // DECLARABLE in one file today: local member overloading is unrepresentable (the
-            // arity-only local key collides), the deferred follow-on this identity unblocks.
+            // Two same-name lifted signatures differing only by parameter TYPE must mint two
+            // DISTINCT keys, or the second lifted body overwrites the first. Hand-built,
+            // because two `(# … #)`-bodied same-name overloads are not declarable in one file.
             test "collectInlineBodies mints distinct keys for two distinct lifted overload signatures" {
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf "widget" 0
 
-                // The exact per-member mint `collectInlineBodies` uses.
+                // The per-member key mint the inline-body collector performs: decl, name,
+                // kind, structural argSig and method-typar arity.
                 let mintKey (m: TastAccessor.TypeMember) : SymbolKey =
                     let kind =
                         match m.Kind with
@@ -505,7 +447,7 @@ let tests =
 
                 Expect.notEqual kInt kStr "distinct param types mint distinct member keys"
 
-                // Neither overwrites the other in a by-key store — both bodies survive.
+                // Neither overwrites the other in a by-key store.
                 let byKey =
                     System.Collections.Generic.Dictionary<SymbolKey, string>(HashIdentity.Structural)
 
@@ -516,9 +458,6 @@ let tests =
                 Expect.equal byKey.[kStr] "string-body" "the string overload keeps its own body"
             }
 
-            // THE end-to-end assertion: front-end the impl `.fs` spelling and run the
-            // lifting arm `collectInlineBodies` uses over the REAL elaborated + FROZEN
-            // `TDecl.Type(Class)`.
             test "lifting fires on real elaboration of `type widget = (# … #) with member …`" {
                 let input =
                     "module Widgets\n\n\
@@ -535,8 +474,8 @@ let tests =
 
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))
 
-                // Replicate `SymbolProviders.collectInlineBodies`'s `DeclShape.Type` arm
-                // exactly: for each member-bearing decl, lift each member.
+                // Replicate the collector's `DeclShape.Type` arm: for each member-bearing
+                // decl, lift each member.
                 let pool = TastPoolBuilder.openOver tast
 
                 let lifted =

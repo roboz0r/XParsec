@@ -6,17 +6,12 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Member overloads, consumer half. A TS method with N call
-// signatures is expanded by the provider into N distinct keyed `ExternalMember`s
-// (`TsManifestProvider.expandMethod`), `TryLookupMembers` returns the full set, and
-// `UnificationInferOverload.pickBestOverload` selects by arity + argument type. This
-// pins that the selection RESOLVES end-to-end (front end + JS emit) and — unlike the
-// synthetic free-function grouping type (see `FreeFnOverloadTests`) — a real class's
-// static member emits the ordinary mangled `Calc_add` import, NOT an erased bare export.
+// A TS method with N call signatures publishes N distinct keyed members, and selection by
+// arity + argument type must resolve end-to-end (front end and JS emit). A real exported
+// class's static member emits the mangled `Calc_add` import, never an erased bare export.
 
-/// A `calc` package whose `Calc.add` static method carries THREE overloads: arity-1
-/// `(float)`, arity-2 `(float, float)`, and arity-2 `(string, string)` — exercising
-/// both count- and type-based overload selection, with all argSigs distinct.
+/// A `calc` package whose static `Calc.add` carries THREE overloads: `(float)`,
+/// `(float, float)` and `(string, string)`.
 let private calcManifestJson =
     """{
   "schemaVersion": 1,
@@ -67,15 +62,13 @@ let private calcManifestJson =
   ]
 }"""
 
-/// The `calc` provider, layered over the standard JS provider (so `float`/`string`
-/// argument types still resolve). `Calc` + its overload set come from the manifest.
 let private calcContract =
     match Codec.deserialize calcManifestJson with
     | Error e -> failwithf "calc manifest does not parse: %s" e
     | Ok man -> contractTs man
 
-/// Emit `input` to JS through the `calc` provider, injecting a fake `calc` runtime
-/// module so the static-member `addMemberRef` import resolves.
+/// Emit `input` through the `calc` contract. The stub `calc.mjs` stands in for a runtime
+/// asset the synthetic package does not have, without which the import throws.
 let private emitWithCalc (input: string) : string =
     emitWith calcContract (Map.ofList [ "calc", { FileName = "calc.mjs"; Source = "" } ]) false input
 
@@ -85,9 +78,8 @@ let tests =
         "MemberOverloads"
         [
             test "arity selects the overload (add/1 and add/2 both resolve)" {
-                // If only one signature survived the provider's `Map.ofList`, one of these
-                // two arities would fail to type-check. Both resolving proves the full
-                // overload set is keyed and `pickBestOverload` selects by arity.
+                // A provider keeping one signature per name would fail one of these two
+                // arities, so both resolving is the assertion.
                 let js1 = emitWithCalc "Calc.add(1.0)"
                 let js2 = emitWithCalc "Calc.add(1.0, 2.0)"
 
@@ -101,21 +93,17 @@ let tests =
             }
 
             test "argument TYPE selects the overload (string args pick the string/string overload)" {
-                // `Calc.add("a", "b")` only type-checks if the (string, string) overload is
-                // a candidate — strings are not assignable to the (float, float) params. So
-                // success here is proof of TYPE-based overload selection, not just arity.
+                // Strings are not assignable to the `(float, float)` params, so this
+                // type-checks only if selection reads argument TYPE and not just arity.
                 let js = emitWithCalc "Calc.add(\"a\", \"b\")"
 
-                // External static-method args arrive as a single tupled array (the existing
-                // external-member ABI), so the emitted call is `$Calc_add(["a", "b"])`.
+                // External static-method args arrive as one tupled array: `$Calc_add(["a", "b"])`.
                 Expect.isTrue
                     (js.Contains "Calc_add([\"a\", \"b\"])")
                     (sprintf "the string overload should resolve + emit, got:\n%s" js)
             }
 
             test "a real class static member is NOT erased (mangled ref, never a bare export)" {
-                // Contrast with the 9b synthetic free-function grouping type, which erases to
-                // the bare export. A real exported class keeps the ordinary static-member path.
                 let js = emitWithCalc "Calc.add(1.0, 2.0)"
 
                 Expect.isTrue

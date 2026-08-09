@@ -63,9 +63,8 @@ let tests =
                     "{ p with Y = 99 } → new Point(p.X, 99)"
             }
 
-            // A `mutable` field is a plain assignable property on the emitted class — JS has
-            // no read-only field to opt out of, so `IsMutable` has no emission consequence
-            // here and the store is the same `r.X = v` a `val mutable` gets.
+            // JS has no read-only field to opt out of, so a `mutable` field is a plain
+            // assignable property and `IsMutable` has no emission consequence.
             test "a record `mutable` field assigns in place" {
                 Expect.equal
                     (emitJs "type Counter = { mutable N: int }\nlet c = { N = 1 }\nc.N <- 5")
@@ -148,10 +147,9 @@ let tests =
                     Expect.equal out "5" "record built inside a curried function"
             }
 
-            // Instance-member dispatch on a record object argument: each augmentation member
-            // emits as a free type-prefixed function (`<Type>__<member>`), and a
-            // `v.M()` / `v.Prop` call site lowers to it — the same form union/class
-            // members take. A field read (`v.X`) still lowers to a plain member access.
+            // Each augmentation member emits as a free type-prefixed function (`Vec__Sum`),
+            // and a `v.M()` / `v.Prop` call site lowers to it. A field read (`v.X`) still
+            // lowers to a plain member access.
             let vecSrc =
                 "type Vec =\n"
                 + "    { X: int; Y: int }\n"
@@ -185,8 +183,8 @@ let tests =
                     Expect.equal out "17" "Vec__AddN(this$)(n) = X+Y+n"
             }
 
-            // Resolved-identity pin: `Doubled` (6) is not a field, and differs from
-            // every field value (3, 4); a field read (`v.X` = 3) must still work.
+            // `Doubled` (6) is not a field and differs from every field value (3, 4);
+            // a field read (`v.X` = 3) must still work.
             test "a record instance property resolves to the member, a field to the field (6 then 3)" {
                 match
                     runJs

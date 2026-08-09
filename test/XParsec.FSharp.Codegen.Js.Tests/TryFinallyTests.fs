@@ -4,11 +4,9 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS-backend `try body finally cleanup`. In statement position it maps straight onto JS
-// `try { body } finally { cleanup }`; in expression position it wraps in a zero-arg IIFE
-// that `return`s the body's value from the `try` (the same shape the `use` desugaring
-// uses). `cleanup` runs on every exit — normal completion or a `throw` unwind. Asserting
-// on captured stdout proves the ordering and the exception path.
+// JS lowering of `try body finally cleanup`. In statement position it maps straight onto
+// JS `try { body } finally { cleanup }`; in expression position it wraps in a zero-arg
+// IIFE that `return`s the body's value from the `try`, the shape `use` also desugars to.
 
 [<Tests>]
 let tryFinallyTests =
@@ -54,10 +52,8 @@ let tryFinallyTests =
             }
 
             test "the body's result survives the finally and is the expression's value" {
-                // `compute ()` returns the body value (42) from inside the `try`; the finally
-                // still runs before the value is consumed — cleanup prints first, then the
-                // caller prints 42. The expression-position IIFE `return`s the parked result
-                // past the `finally`.
+                // The expression-position IIFE `return`s 42 from inside the `try`, so it
+                // survives the `finally`. Cleanup prints first, then the caller prints 42.
                 let src =
                     String.concat
                         "\n"
@@ -78,10 +74,9 @@ let tryFinallyTests =
             }
 
             test "the finally runs when the body throws, and the throw still propagates" {
-                // The finally must run on the exception path too. `failwith` lowers to a
-                // throwing IIFE; the finally's console.log flushes to stdout during unwind,
-                // then the uncaught throw exits non-zero. Stdout therefore carries both the
-                // body and the cleanup lines even though the program crashes.
+                // The finally's `console.log` flushes to stdout during unwind, then the
+                // uncaught throw exits non-zero, so stdout carries both the body and the
+                // cleanup lines even though the program crashes.
                 let src =
                     String.concat
                         "\n"

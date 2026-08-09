@@ -3,18 +3,9 @@ module XParsec.FSharp.Codegen.Js.Tests.PrintfSpecifierTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Per-hole format-specifier lowering: the format-handler specifiers
-// (`%x`/`%o`/`%u`/`%b`/padding/alignment/`%f`/forced-sign) emit per-hole JS string
-// expressions inline (no runtime import, no `.NET` format-string round trip) instead
-// of the raw value. These tests pin each specifier's Node output to F#'s `printf`
-// semantics (the CLR `PrintfSpecTests` goldens, extended). The genuinely subtle
-// float forms (`%e`/`%E`/`%g`/`%G`) emit `toExponential`/`toPrecision` — an accepted JS
-// *approximation* of .NET's byte-exact output, so their tests pin the JS behaviour
-// rather than F# parity.
-//
-// Each hole is wrapped in `[...]` literals in the format string: `runJs` trims the
-// total output, which would otherwise eat the leading spaces of a right-justified
-// field — the brackets keep significant whitespace observable.
+// Each specifier lowers to an inline per-hole JS expression, pinned against F#'s `printf`.
+// `%e`/`%E`/`%g`/`%G` ride `toExponential`/`toPrecision`, so those pin JS output, not F# parity.
+// Holes sit inside `[...]` because `runJs` trims, which would eat a right-justified field's spaces.
 
 /// `printfn`-per-line program; the expected lines joined by `\n` (output is trimmed).
 /// `name` is the per-test output module (distinct so concurrent runs don't share a file).
@@ -30,15 +21,7 @@ let tests =
     testList
         "Codegen.Js printf format specifiers"
         [
-            // ─── `%a` / `%t` callback holes (Track D, step 3) ────────────────────
-            // The asymmetry proof: `sprintf`'s `%a`/`%t` (`State = unit`, callback
-            // returns the residue string) lower on EVERY target incl. JS — a residue
-            // splice = string concat — while the writer/builder families diagnose on JS
-            // (their sink type is unresolvable through the JS provider). Same specifier,
-            // opposite outcome, decided purely by provider-declared capability.
-
-            // `%a`: the curried callback is invoked `cb(unit)(value)`; its residue string
-            // splices at the hole. Runs under Node, byte-exact with F# (a plain residue).
+            // The curried callback is invoked `cb(unit)(value)` and its residue splices at the hole.
             test "`sprintf \"%a\"` invokes the callback and splices its residue string" {
                 runsLines
                     "callback-a"
@@ -46,13 +29,11 @@ let tests =
                     [ "42" ]
             }
 
-            // `%t`: no value arg — `cb(unit)` yields the residue directly.
+            // No value argument, so `cb(unit)` yields the residue directly.
             test "`sprintf \"%t\"` invokes the value-less callback" {
                 runsLines "callback-t" "printfn \"%s\" (sprintf \"%t\" (fun (s: unit) -> \"hi\"))" [ "hi" ]
             }
 
-            // A callback that captures an outer `let` — confirms JS closure capture works
-            // through the callback hole (the escape-walk ripple that step 2 wired).
             test "`sprintf \"%a\"` callback closes over an outer local" {
                 runsLines
                     "callback-closure"
@@ -65,8 +46,7 @@ let tests =
                     [ "n=7" ]
             }
 
-            // A callback hole spliced ALONGSIDE other segments (multi-segment path):
-            // the residue rides a `JsRawSeg.Hole` in the `+`-concatenation.
+            // The residue rides a hole in the `+`-concatenation of the surrounding segments.
             test "`sprintf \"%a\"` splices inside a multi-segment format" {
                 runsLines
                     "callback-multi"
@@ -74,10 +54,9 @@ let tests =
                     [ "[9]" ]
             }
 
-            // The other half of the asymmetry: a writer-family (`printf`, `State =
-            // TextWriter`) `%a` targeting JS can't resolve its `System.IO.TextWriter`
-            // sink through the JS provider, so the gate raises the sink-type diagnostic —
-            // no cold fallback, no Format node. Same `%a` specifier `sprintf` lowers above.
+            // `printf`'s `%a` has `State = TextWriter`, and the JS provider declares no
+            // `System.IO.TextWriter`, so the sink-type diagnostic fires on the same
+            // specifier `sprintf` lowers above.
             test "`printf \"%a\"` on JS diagnoses the missing sink type" {
                 let ds = analyseWith jsProvider.Value "printf \"%a\" (fun s (x: int) -> ()) 42"
 
@@ -87,9 +66,6 @@ let tests =
                     "writer-family %a diagnoses on a target whose provider lacks TextWriter"
             }
 
-            // Emission: a lone `%x` hole splices its operand once into the radix form
-            // as real `JsExpr` nodes (inline: no runtime import, no IIFE, no `.NET`
-            // format-string round trip — the operand is referenced once).
             test "`%x` emits an inline radix conversion" {
                 Expect.equal
                     (emitJs "printfn \"%x\" 255")
@@ -97,8 +73,8 @@ let tests =
                     "inline lowering, operand spliced once"
             }
 
-            // A side-effecting argument under a multi-reference form (`%05d`) must be
-            // evaluated exactly once — the IIFE rewrite binds it to `v`.
+            // A multi-reference form must evaluate a side-effecting argument once, so the
+            // rewrite binds it to `v`.
             test "`%05d` of a call wraps the operand in a single-eval IIFE" {
                 let js = emitJs "let f () = 42\nprintfn \"%05d\" (f ())"
                 Expect.stringContains js "((v) => " "multi-reference forms bind the operand once"
@@ -135,7 +111,7 @@ let tests =
                     [ "[   42]"; "[42   ]"; "[        hi]"; "[hi        ]" ]
             }
 
-            test "zero-pad (`%05d`/`%08x`/`%08.2f`) — sign-aware for decimals — match F#" {
+            test "zero-pad (`%05d`/`%08x`/`%08.2f`) matches F#, sign-aware for decimals" {
                 runsLines
                     "zeropad"
                     (String.concat
@@ -150,9 +126,8 @@ let tests =
                     [ "[00042]"; "[-00042]"; "[000000ff]"; "[00003.14]"; "[-0003.14]" ]
             }
 
-            // Zero-pad unsigned/octal: `padStart` never truncates, so an operand whose
-            // reinterpreted digits already exceed the width prints unpadded (matching F#).
-            test "zero-pad unsigned/octal (`%05u`/`%08o`) — overflow unpadded — match F#" {
+            // `padStart` never truncates, so digits already exceeding the width print unpadded.
+            test "zero-pad unsigned/octal (`%05u`/`%08o`) matches F#, overflow unpadded" {
                 runsLines
                     "zeropaduo"
                     (String.concat
@@ -187,9 +162,7 @@ let tests =
                     [ "[+5]"; "[ 5]"; "[-5]"; "[+3.14]" ]
             }
 
-            // Sign + zero-pad integer (`%+05d`/`% 05d`): the sign stays at the field's
-            // left edge and zeros fill through it — byte-exact with F# (`padStart`
-            // never truncates, so a wider value overflows unpadded).
+            // The sign stays at the field's left edge and the zeros fill in after it.
             test "sign + zero-pad integer (`%+05d`/`% 05d`) match F#" {
                 runsLines
                     "signzero"
@@ -204,10 +177,8 @@ let tests =
                     [ "[+0042]"; "[-0042]"; "[ 0042]"; "[+123456]" ]
             }
 
-            // Sign + zero-pad float (`%+08.2f`/`% 08.2f`): forced sign, then zeros fill
-            // AFTER the sign to a total field of 8 (`padStart` on the post-sign slice) —
-            // byte-exact with F#. Non-midpoint values, since JS `toFixed` is not
-            // byte-identical to F#/.NET at exact float midpoints.
+            // Zeros fill after the sign, to a total field of 8 (`padStart` on the post-sign
+            // slice). Values avoid exact float midpoints, where JS `toFixed` diverges from .NET.
             test "sign + zero-pad float (`%+08.2f`/`% 08.2f`) match F#" {
                 runsLines
                     "signzerof"
@@ -222,8 +193,7 @@ let tests =
                     [ "[+0003.14]"; "[-0003.14]"; "[ 0003.14]"; "[+12345.50]" ]
             }
 
-            // Left-align + zero-pad float (`%-05.2f`): F# fills the RIGHT with zeros;
-            // `padEnd` reproduces it byte-for-byte (overflow prints unpadded).
+            // F# fills the RIGHT with zeros here; `padEnd` reproduces it byte-for-byte.
             test "left-align + zero-pad float (`%-05.2f`) matches F#" {
                 runsLines
                     "rightzero"
@@ -238,9 +208,6 @@ let tests =
                     [ "[3.140]"; "[-3.14]"; "[3.140000]"; "[12345.60]" ]
             }
 
-            // Forced-sign / zero-pad on the scientific & compact forms lower through
-            // `toExponential` / `toPrecision` (an accepted JS approximation, like the
-            // plain `%e`/`%g`), so these pin the JS emission shape, not F# parity.
             test "`%+e` prefixes the sign onto the `toExponential` result" {
                 Expect.stringContains
                     (emitJs "printfn \"%+e\" 1234.5")
@@ -254,11 +221,8 @@ let tests =
                 Expect.stringContains js "padStart(14" "and zero-pads to the field width"
             }
 
-            // `%e`/`%E`/`%g`/`%G` were previously cold (raw operand). They now emit
-            // `toExponential` / `toPrecision` — an accepted *approximation* of .NET's
-            // byte-exact output (JS uses a minimal exponent width, not .NET's 3-digit
-            // zero-pad, and `toPrecision` keeps trailing zeros), so these pin the JS
-            // behaviour rather than F# parity.
+            // JS uses a minimal exponent width, not .NET's 3-digit zero-pad, and
+            // `toPrecision` keeps trailing zeros.
             test "`%e` emits an inline `toExponential` conversion" {
                 Expect.equal
                     (emitJs "printfn \"%e\" 1234.5")
@@ -273,7 +237,8 @@ let tests =
                     "compact form, upper-cased exponent letter"
             }
 
-            test "exponential / compact forms (`%e`/`%E`/`%.2e`/`%g`/`%G`/`%.3g`) render via JS" {
+            test
+                "exponential / compact forms (`%e`/`%E`/`%.2e`/`%g`/`%G`/`%.3g`) render through toExponential/toPrecision" {
                 runsLines
                     "expg"
                     (String.concat
@@ -298,11 +263,6 @@ let tests =
                     ]
             }
 
-            // Star *width* (`%*d`): the runtime width is bound to `w` (evaluated before
-            // the value, preserving F#'s curried order) and padded via `padStart` /
-            // `padEnd`; the negative-width guard throws (a JS-native error type, an
-            // accepted divergence from the CLR `ArgumentOutOfRangeException`). Padding
-            // forms match F#'s value output byte-for-byte.
             test "star width (`%*d`/`%-*d`/`%*s`/`%*x`) matches F# value output" {
                 runsLines
                     "starwidth"
@@ -318,8 +278,6 @@ let tests =
                     [ "[   42]"; "[42   ]"; "[    hi]"; "[    ff]"; "[12345]" ]
             }
 
-            // The width argument is bound in an arrow whose parameter is `w`, evaluated
-            // before the value — the JS mirror of the CLR width-spill.
             test "`%*d` binds the runtime width before the value" {
                 Expect.stringContains
                     (emitJs "printfn \"%*d\" 5 42")
@@ -327,12 +285,8 @@ let tests =
                     "the star width is bound in a `w`-parameter arrow, evaluated before the value"
             }
 
-            // Star *precision* (`%.*f`): the runtime precision is bound to `p` and fed to
-            // `toFixed`; a `%*.*f` binds `w` (outer) then `p` (inner) so JS evaluates
-            // width, then precision, then the value — F#'s curried order. The fixed-point
-            // form (`%.*f`) matches F# byte-for-byte; the scientific/compact forms
-            // (`%.*e`/`%.*g`) inherit the existing `toExponential`/`toPrecision`
-            // approximation caveat.
+            // `%*.*f` binds `w` (outer) then `p` (inner), so JS evaluates width, then
+            // precision, then the value, matching F#'s curried order.
             test "star precision (`%.*f`/`%*.*f`) matches F# value output" {
                 runsLines
                     "starprec"
@@ -353,12 +307,10 @@ let tests =
                     "the star precision is bound in a `p`-parameter arrow"
             }
 
-            test "`%*.*f` binds width then precision (both dims)" {
+            test "`%*.*f` binds width then precision" {
                 let js = emitJs "printfn \"%*.*f\" 8 2 3.14159"
                 Expect.stringContains js "(w) =>" "the width is bound"
                 Expect.stringContains js "(p) =>" "the precision is bound"
-                // The two-star path clamps the precision to 0..99 (structural mirror of
-                // the CLR `normalizePrecision` asymmetry).
                 Expect.stringContains js "Math.min(99" "the two-star path clamps precision to 0..99"
             }
 

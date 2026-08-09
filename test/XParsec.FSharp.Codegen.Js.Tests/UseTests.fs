@@ -4,17 +4,10 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS-backend `use` lowering. `use x = e in body` lowers to `const x = e; try { body }
-// finally { if (x != null) x[Symbol.dispose](); }` — the JS analogue of the IL exception
-// region the CLR backend emits. Under the §3b disposal-model flip, a `use` bound variable must
-// implement `disposable` (`System.IDisposable`) — matching real F# — so the disposable
-// here implements the interface. Its `Dispose` emits as a NATIVE `[Symbol.dispose]()`
-// method (the JS analogue of the CLR `IDisposable::Dispose` slot), and `use` disposes
-// through `x[Symbol.dispose]()`, NOT a mangled `<Type>__Dispose` free fn. Asserting on
-// captured stdout proves both that disposal ran and that it ran *after* the body.
+// `use x = e in body` lowers to `const x = e; try { body } finally { if (x != null)
+// x[Symbol.dispose](); }`. A `use` bound variable must implement `disposable`
+// (`System.IDisposable`), whose `Dispose` emits as a native `[Symbol.dispose]()` method.
 
-// A project-local disposable: a class implementing `System.IDisposable` whose `Dispose`
-// prints when run.
 let private disposable =
     "type Res() =\n    interface System.IDisposable with\n        member this.Dispose () = printfn \"disposed\""
 
@@ -38,11 +31,7 @@ let useTests =
                 let js = emitJs src
                 Expect.stringContains js "try " "wraps the body in a try"
                 Expect.stringContains js "finally " "disposes in a finally"
-                // The disposable's `Dispose` impl emits as a native `[Symbol.dispose]()`
-                // method on the class.
                 Expect.stringContains js "[Symbol.dispose]() {" "emits the disposer as a native [Symbol.dispose] method"
-                // `use` disposes through `boundVar[Symbol.dispose]()` — the native well-known
-                // symbol slot — not a mangled `<Type>__Dispose` free fn.
                 Expect.stringContains js "r[Symbol.dispose]()" "disposes via the native Symbol.dispose member call"
                 Expect.isFalse (js.Contains "Res__Dispose") "no mangled <Type>__Dispose free fn is emitted"
             }
@@ -97,10 +86,9 @@ let useTests =
             }
 
             test "`use _ = e` disposes the bound variable even though the body can't name it" {
-                // A wildcard `use` bound variable (`use _ = …`, the RAII-guard form): the value is
-                // still parked in a fresh `_use<tok>` local and disposed in the finally, but
-                // the body has no name for it. A regression that crashed the emitter on the
-                // nameless bound variable (or skipped disposal) would fail here.
+                // `use _ = …`, the RAII-guard form: the value is still parked in a fresh
+                // `_use<tok>` local and disposed in the finally, but the body has no name
+                // for it.
                 let src =
                     String.concat
                         "\n"
@@ -132,10 +120,8 @@ let useTests =
             }
 
             test "the body's result survives the finally and is the `use` expression's value" {
-                // `compute ()` returns the body value (42); disposal still runs in the
-                // finally before the value is returned — disposal prints first, then the
-                // caller prints 42. The IIFE arm `return`s the body value from inside the
-                // `try`, so the parked result survives the `finally`.
+                // The IIFE arm `return`s the body value from inside the `try`, so 42
+                // survives the `finally`. Disposal prints first, then the caller prints 42.
                 let src =
                     String.concat
                         "\n"

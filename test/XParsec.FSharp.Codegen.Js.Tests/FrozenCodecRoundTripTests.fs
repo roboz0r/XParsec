@@ -8,20 +8,15 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The leaf-codec gate: `read (write x) = x` STRUCTURALLY for every value in the leaf
-// domains — a diagnostic and its `Kind` / `Site`, and a node's anchor
-// (`FrozenCodecPrimitives`) — and, for the type domain, `materialise (read (write (intern
-// x))) = x`: a type reaches the blob ONLY as a row id now, so what has to survive is the
-// whole path through the file's tables and their row codec, not a structural writer.
-//
-// Data comes from two sources: the frozen conformance corpus (realistic breadth), collected
-// from the leaf-bearing side tables + FrozenType child-walk of each `Frozen.TastFile` (no
-// full expr/decl tree walk — that arrives with the tree codec), and hand-built edge cases
-// that pin EVERY case shape the corpus may not exercise (an `FTOr` of several members, a
-// deeply nested type, each `MemberKind`, an absent anchor, …).
+// The leaf-codec gate: `read (write x) = x` for a diagnostic, its `Kind`/`Site` and a node's
+// anchor; and for a type, `materialise (read (write (intern x))) = x`, since a type reaches
+// the blob only as a row id, so the whole path through the file's tables has to survive.
 
-/// Corpus programs the JS backend actually compiles — the same gate the byte-identity
-/// test uses, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
+// Data: the frozen conformance corpus for breadth, plus hand-built edge cases pinning EVERY
+// case shape it may not exercise (an `FTOr` of several members, each `MemberKind`, …).
+
+/// Corpus programs the JS backend actually compiles, so `frozenOfJs` never trips on a
+/// `Diagnose` program's error diagnostics.
 let private gated =
     programs
     |> List.filter (fun p ->
@@ -116,10 +111,9 @@ let private collect () : Collected =
                 match c with
                 | FrozenConstraint.Coercion(_, target) -> visitFt target
 
-        // No `BindingValReprs` pass: the DU carries none — a binding's source arity is
-        // a PROJECTION of its lambda chain that `TastPools.toPools` derives off the
-        // columns, so every type and slot it names is already reached by the lambda walk
-        // this walk runs.
+        // No `BindingValReprs` pass: a binding's source arity is a PROJECTION of its lambda
+        // chain derived off the columns, so every type and slot it names is already reached
+        // by the walks above.
 
         // Real frozen anchors, shallowly: the source anchor of each top-level decl body.
         for decl in file.Decls do
@@ -316,17 +310,17 @@ let private collect () : Collected =
         Anchors = List.ofSeq toks
     }
 
-/// Round-trip a codec that resolves no type reference — a `Site`, an anchor, a diagnostic, or
-/// the type ROWS themselves. Empty tables on both sides, and that is the assertion: any of
-/// these reaching for `w.Types` would fault rather than quietly resolve against a stand-in.
+/// Round-trip a codec that resolves no type reference: a `Site`, an anchor, a diagnostic, or
+/// the type ROWS themselves. The tables are empty on both sides, and that is the assertion;
+/// none of these may resolve a type id against a stand-in table.
 let private roundTrips (write: FrozenWriter -> 'a -> unit) (read: FrozenReader -> 'a) (x: 'a) =
     FrozenCodecPrimitives.ofBytes
         FrozenTypeTable.Empty
         read
         (FrozenCodecPrimitives.toBytes (FrozenTypeTableBuilder()) write x)
 
-/// The collected values interned into ONE file's tables, and the table those rows make after a trip
-/// through the row codec — the ids alongside, so each source value can be asked for back.
+/// The collected values interned into ONE file's tables, and the table those rows make after
+/// a trip through the row codec, with the ids so each source value can be asked for back.
 type private Interned =
     {
         TypeIds: TypeId list
@@ -335,10 +329,9 @@ type private Interned =
         Table: FrozenTypeTable
     }
 
-/// The whole path a type now takes to a blob and back: intern it into the file's tables,
-/// write the ROWS, read them, materialise the id. Interning every collected value into ONE
-/// builder is also what the freeze does — the corpus's types share their sub-types heavily,
-/// so this exercises rows that name rows, not just isolated values.
+/// The whole path a type takes to a blob and back: intern it into the file's tables, write
+/// the ROWS, read them, materialise the id. One builder for every collected value, as the
+/// freeze does, so this exercises rows that name rows rather than isolated values.
 let private intern (h: Collected) : Interned =
     let builder = FrozenTypeTableBuilder()
     let typeIds = h.FrozenTypes |> List.map builder.Intern
@@ -383,9 +376,9 @@ let tests =
                     Expect.equal (roundTrips FrozenCodecPrimitives.writeSite FrozenCodecPrimitives.readSite s) s "Site"
             }
 
-            // The bare `Between` constructor can spell a run the type says does not exist —
+            // The bare `Between` constructor can spell a run the type says does not exist:
             // one token wide, or ends reversed. Writer and reader must agree on which form
-            // those take, or a blob would decode to a value that never went in.
+            // those take, or a blob decodes to a value that never went in.
             test "a Between the smart constructor would not build canonicalises the same way on both sides" {
                 for raw in [ Site.Between(5<token>, 5<token>); Site.Between(9<token>, 3<token>) ] do
                     Expect.equal
@@ -394,10 +387,9 @@ let tests =
                         "Site (non-canonical Between)"
             }
 
-            // `Related` is populated only at the PARSE seam, whose diagnostics do not reach
-            // a frozen file's `Diagnostics`, so no corpus program can reach the label leg of
-            // the codec. Without this, a labelled diagnostic would decode to a stripped one
-            // and every test would still pass.
+            // `Related` is populated only at the PARSE seam, whose diagnostics do not reach a
+            // frozen file's `Diagnostics`, so no corpus program reaches the label leg of the
+            // codec: a labelled diagnostic would decode stripped and every test still pass.
             test "a diagnostic round-trips, its labels included" {
                 let opener: Label =
                     {
@@ -424,12 +416,9 @@ let tests =
                         "Diagnostic"
             }
 
-            // ONE value per `Kind` case. The WRITER is exhaustive — the compiler refuses a
-            // case with no tag — but the reader is a byte match, so only a value that makes
-            // the whole round trip proves the two agree. The list payloads are where a
-            // writer/reader pair most easily disagrees on framing, and severity and code ride
-            // the kind, so a value that decoded to the wrong case would also report at the
-            // wrong severity; hence the whole value is compared, not just the tag.
+            // ONE value per `Kind` case: the reader is a byte match, so only a value that makes
+            // the whole round trip proves it agrees with the writer. Severity and code ride the
+            // kind, so the whole value is compared, not just the tag.
             test "every Kind case round-trips" {
                 let verdicts =
                     [
@@ -518,10 +507,9 @@ let tests =
                         "Diagnostic (Kind)"
             }
 
-            // `Kind.Parse` forwards the PARSER's vocabulary whole, so the codec has to carry
-            // that vocabulary too. Every payload-carrying case is covered: a delimiter code
-            // is three fields (two `Token`s that must not swap, and a `Site`), and `Token` is
-            // a flag-bearing enum whose bits have to survive.
+            // `Kind.Parse` forwards the PARSER's vocabulary whole, so the codec carries it too.
+            // A delimiter code is three fields (two `Token`s that must not swap, and a `Site`),
+            // and `Token` is a flag-bearing enum whose bits have to survive.
             test "every parse DiagnosticCode round-trips inside a Kind.Parse" {
                 let codes =
                     [
@@ -564,8 +552,8 @@ let tests =
                         "anchor"
             }
 
-            // The collection must actually reach the corpus, not just the edge cases —
-            // otherwise the gate would silently pass on an empty frozen file.
+            // The collection must actually reach the corpus, not just the edge cases,
+            // or the gate would silently pass on an empty frozen file.
             test "collection exercises a non-trivial value set" {
                 Expect.isGreaterThan (List.length gated) 0 "gated programs"
                 Expect.isGreaterThan (List.length h.FrozenTypes) 20 "FrozenTypes"
@@ -573,8 +561,7 @@ let tests =
                 Expect.isGreaterThan (List.length h.TypeKeys) 2 "TypeKeys"
                 // The corpus contributes NO site: it compiles clean, so it bears no
                 // diagnostic, and a diagnostic's position is the only one a frozen file
-                // carries. The hand-built edge cases are the whole of this corpus, and
-                // their count is what the bound pins.
+                // carries. The bound below pins the hand-built edge cases alone.
                 Expect.isGreaterThan (List.length h.Sites) 4 "Sites"
                 Expect.isGreaterThan (List.length h.Anchors) 4 "Anchors"
             }

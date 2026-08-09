@@ -3,12 +3,8 @@ module XParsec.FSharp.Codegen.Js.Tests.StructuralFormatTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// `%A` (structural formatting) of primitives, tuples, and lists.
-//
-// The record / union / option `%A` output forms are owned by the recipe-derived
-// cross-target differential (`StructuralFormatRecipeTests`), which renders the
-// expectation straight from `recordRecipe`/`unionCaseRecipe`. This file keeps only
-// the non-recipe shapes (primitives, tuples, lists) and the mixed-format integration.
+// `%A` hole lowering, and the output forms with no recipe behind them: primitives,
+// tuples, lists, and the mixed-format integration.
 [<Tests>]
 let tests =
     testList
@@ -57,13 +53,9 @@ let tests =
                         "tuple parens; list brackets with `; ` separators; empty list"
             }
 
-            // A polymorphic `%A` (`let f x = printfn "%A" x`) has a hole typed as the
-            // function's own typar. The gate admits it to the structural engine (the
-            // runtime dispatcher recovers each boxed value's type), so the JS emission is
-            // a plain `structuralFormat` call over the argument — the same total runtime
-            // as every other `%A`. Exercise it at three runtime shapes through one
-            // generic function to prove node renders each without throwing.
-            test "polymorphic `%A` (`let f x = printfn \"%A\" x`) runs under node at every runtime type" {
+            // A hole typed by the function's own typar is admitted, because the runtime
+            // dispatcher recovers each value's shape at the call rather than at the hole.
+            test "polymorphic `%A` (`let f x = printfn \"%A\" x`) runs under node at int / string / list" {
                 let prog = "let f x = printfn \"%A\" x\nf 42\nf \"hi\"\nf [1; 2; 3]"
 
                 match runJs "fmt-poly" prog with

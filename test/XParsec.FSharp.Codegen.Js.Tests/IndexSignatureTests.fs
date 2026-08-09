@@ -6,27 +6,13 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// TS index signatures `{ [k: K]: V }` → an F# indexed-lookup capability: `x.[k]` reads
-// and `x.[k] <- v` writes lower to the JS bracket `obj[k]` / `obj[k] = v` via the
-// `GetIndex` / `SetIndex` intrinsics (the `$0[$1]` template the backend already emits for
-// `GetString` and `(?)`), exactly as `x.[i]` on an array lowers via `GetArray`. There is
-// no `get_Item` method on such an object — bracket IS the accessor. The declared value
-// type rides the read (`{ [k: string]: string | undefined }` reads `string | undefined`,
-// no `dynamic` escape). Both a NAMED interface (`Dict` / `EnvDict`) and a FIELD-BEARING
-// anonymous `Structural` shape (`bag`) carry the signature.
+// A TS index signature `{ [k: K]: V }` gives `x.[k]` reads and `x.[k] <- v` writes,
+// lowering to the JS bracket `obj[k]` / `obj[k] = v`; there is no `get_Item` method,
+// bracket IS the accessor. The declared value type rides the read, never `dynamic`.
 
-/// `ixlib`: index-signature carriers plus the type-probe free functions.
-///   • `Dict`     — `{ [k: string]: number }`  (numeric-valued index sig);
-///   • `EnvDict`  — `{ [k: string]: string | undefined }`  (the `process.env` shape);
-///   • `bag`      — an anonymous `{ tag: string; [k: string]: number }` (a field-bearing
-///     structural shape whose index rides its `structuralKey` identity);
-///   • `cfg`      — `{ foo: string | undefined }` (a structural field carrying the
-///     optional-graduation `T | undefined`);
-///   • `lookup`   — a FIELDLESS anonymous `{ [k: string]: number }` (a bare `Record<K,V>`
-///     whose only content is the index sig, riding the same `structuralKey` carry);
-///   • `lookupOpt` — a fieldless `{ [k: string]: string | undefined }`;
-///   • `wantNumber` / `wantString` / `wantStringOpt` — parameter slots that admit exactly
-///     one type, so a read's inferred element type is asserted by which call type-checks.
+/// `ixlib`: index-signature carriers, named (`Dict`, `EnvDict`) and anonymous structural
+/// (`bag`, `cfg`, `lookup`, `lookupOpt`), plus `wantNumber`/`wantString`/`wantStringOpt`
+/// slots that admit exactly one type, so a read's element type is pinned by which passes.
 let private manifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -101,7 +87,7 @@ let private provider: IExternalSymbolProvider = contract.Provider
 let private analyseErrors (input: string) : string list =
     analyseWith provider input |> List.map (fun d -> d.Message)
 
-/// Emit through the `ixlib` provider, injecting a stub runtime module so the variable /
+/// Emit through the `ixlib` provider with a stub runtime module, so the variable and
 /// function imports resolve (the synthetic package has no `.toml` asset).
 let private emitIx (input: string) : string =
     emitWith contract (Map.ofList [ "ixlib", { FileName = "ixlib.mjs"; Source = "" } ]) false input
@@ -113,7 +99,8 @@ let tests =
         [
             test "reading `x.[k]` on a numeric index signature infers the value type" {
                 // `wantNumber(d.[k])` admits only if the read is `number`; `wantString(d.[k])`
-                // must reject — proving it is `number`, not `dynamic` (which would admit both).
+                // must reject, proving the read is `number` and not `dynamic`, which would
+                // admit both.
                 let ok = analyseErrors "let d = dict\nwantNumber(d.[\"k\"])\n"
                 Expect.isEmpty ok (sprintf "an index read should be `number`, got: %A" ok)
 
@@ -127,22 +114,20 @@ let tests =
             }
 
             test "writing `x.[k] <- v` type-checks and lowers to a bracket assignment" {
-                // A string-keyed write to a non-array object argument only type-checks through the
-                // index-signature (`SetIndex`) path — `SetArray` needs an int index on an
-                // array — so a green type-check plus the bracket assignment pins `SetIndex`.
+                // `SetArray` needs an int index on an array, so a string-keyed write to a
+                // non-array object type-checks only through `SetIndex`; the green check
+                // plus the bracket assignment pins that path.
                 let errs = analyseErrors "let d = dict\nd.[\"k\"] <- 5.0\n"
                 Expect.isEmpty errs (sprintf "an index write should type-check, got: %A" errs)
 
                 let js = emitIx "let d = dict\nd.[\"k\"] <- 5.0\n"
-                // The operands hoist to temps, so the distinctive shape is the bracket-index
-                // ASSIGNMENT `(…)[(…)] = (…)` (a `SetArray` on a JS array emits the same
-                // bracket form, but the type-check above already forced `SetIndex`).
+                // The operands hoist to temps, so the shape to match is the bracket-index
+                // assignment `(…)[(…)] = (…)`.
                 Expect.stringContains js ")] = (" (sprintf "expected a bracket write `x[k] = v`, got:\n%s" js)
             }
 
             test "an index value of `string | undefined` reads the undefined-bearing type" {
-                // The `process.env` shape: the read carries `| undefined`, so it satisfies a
-                // `string | undefined` slot but NOT a bare `string` slot.
+                // The `process.env` shape: the read carries `| undefined`.
                 let ok = analyseErrors "let e = env\nwantStringOpt(e.[\"PATH\"])\n"
                 Expect.isEmpty ok (sprintf "a `string | undefined` read should satisfy the optional slot, got: %A" ok)
 
@@ -151,8 +136,8 @@ let tests =
             }
 
             test "an anonymous structural shape's index signature reads through the bracket" {
-                // `bag`'s `{ tag: string; [k: string]: number }` — the index rides the shape's
-                // `structuralKey` identity; the named field still resolves normally.
+                // `bag` is `{ tag: string; [k: string]: number }`: the index and the named
+                // field both resolve.
                 let errs = analyseErrors "let b = bag\nwantNumber(b.[\"any\"])\nwantString(b.tag)\n"
                 Expect.isEmpty errs (sprintf "structural index read + field read should type-check, got: %A" errs)
 
@@ -176,9 +161,8 @@ let tests =
             }
 
             test "a FIELDLESS index shape `{ [k: string]: number }` reads through the bracket" {
-                // A bare `Record<string, number>` has no named fields — its index IS its whole
-                // content. `x.[k]` must still infer `number` (not `dynamic`), proving the
-                // fieldless-with-index shape rides its `structuralKey` carry.
+                // A bare `Record<string, number>` has no named fields, so its index is its
+                // whole content; `x.[k]` must still infer `number` rather than `dynamic`.
                 let ok = analyseErrors "let l = lookup\nwantNumber(l.[\"k\"])\n"
                 Expect.isEmpty ok (sprintf "a fieldless index read should be `number`, got: %A" ok)
 

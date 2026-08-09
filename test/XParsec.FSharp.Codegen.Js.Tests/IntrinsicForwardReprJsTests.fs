@@ -5,21 +5,13 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The forward intrinsic axis `{ canon -> platform-repr }` must be present on the
-// JS-target contract stack exactly as it is on CLR — extracted from the same
-// `<base>.js.fs` `(# "<repr>" #)` bindings (`prim-types-min.js.fs` etc.) that yield
-// the reverse axis. It is the datum the covariant `number -> float` mapping
-// asserts against (a JS `number` read as a value is `float` PRECISELY BECAUSE
-// `float` reprs to `number`); if these canons ever stopped repring to `number` the
-// covariant target would be a lie, so pin the mapping here.
+// The forward intrinsic axis `{ canon -> platform-repr }`, extracted from the same
+// `<base>.js.fs` `(# "<repr>" #)` bindings that yield the reverse axis. A JS `number`
+// read as a value is `float` only because `float` reprs to `number`, so pin the mapping.
 
-/// The JS-native contract stack's extracted forward `{ canon -> platform-repr }` map —
-/// the single source of each primitive's JS representation (the mirror of the CLR-side
-/// `IntrinsicReprConformanceTests`).
 let private forwardRepr = jsProvider.Value.IntrinsicForwardRepr
 
-/// Look a bare canon name up in the forward axis, which is now keyed by the qualified
-/// intrinsic `SymbolKey` (`Vesper.int`) — bridge from the bare `.fsi` name.
+/// Bridge a bare `.fsi` canon name to the axis's qualified intrinsic key (`Vesper.int`).
 let private tryRepr (canon: string) : string option =
     match forwardRepr.TryGetValue(RuntimeNames.primitiveKey canon) with
     | true, repr -> Some repr
@@ -31,9 +23,6 @@ let tests =
         "IntrinsicForwardReprJs"
         [
             test "the JS number family all repr to `number`" {
-                // int / float / float32 (and the sub-32-bit integers) all project to the
-                // JS `number` tag — the relation `numericFamilyOr` widens off (reverse)
-                // and the covariant `number -> float` target rests on (forward).
                 for canon in [ "int"; "float"; "float32" ] do
                     Expect.equal
                         (tryRepr canon)
@@ -43,20 +32,15 @@ let tests =
 
             test "`bool` reprs to `boolean`" { Expect.equal (tryRepr "bool") (Some "boolean") "bool -> boolean" }
 
-            // A primitive whose JS type name is spelled like its own canon. The axis once
-            // dropped these, reading the coincidence of two different string axes — a
-            // source spelling and a platform type name — as "no repr on this target"; the
-            // effect was a `bigint` literal rendered without its `n` suffix, and `string`
-            // invisible to every consumer that enumerates primitives from this map.
+            // A primitive whose JS type name is spelled like its own canon. Dropping it as
+            // "no repr on this target" would render a `bigint` literal without its `n`
+            // suffix and hide `string` from every consumer that enumerates this map.
             test "a primitive reprs to its own spelling like any other" {
                 for canon, repr in [ "string", "string"; "bigint", "bigint"; "undefined", "undefined" ] do
                     Expect.equal (tryRepr canon) (Some repr) (sprintf "canon '%s' must extract JS repr '%s'" canon repr)
             }
 
-            test "`float` reprs to `number` — the covariant target's licensing datum" {
-                // The exact fact the covariant mapping asserts at construction:
-                // naming `float` as `number`'s covariant value-read target is only sound
-                // because `float` itself reprs to `number` on this target.
+            test "`float` reprs to `number`, which is what licenses the covariant read" {
                 Expect.equal
                     (tryRepr "float")
                     (Some "number")

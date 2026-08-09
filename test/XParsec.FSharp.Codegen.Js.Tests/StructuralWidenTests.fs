@@ -6,13 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// G1: a Vesper RECORD satisfies an EXTERNAL interface PARAMETER by WIDTH — the
-// options/config-object call shape. At a foreign-call argument position, a record whose
-// fields cover the interface's REQUIRED members (each field type coercing into the
-// member's type) is admitted with no pin. Confined to the argument-coercion seams
-// (`Engine.tryStructuralWiden`), gated on the provider's `IsInterface`. An OPTIONAL
-// member (`verbose?`) is not required; the `number`-family widening lets an `int` field
-// satisfy a `number` member. A missing required field or a mismatched field type rejects.
+// The options/config-object call shape: at a foreign-call argument position, a record
+// whose fields cover an external interface's REQUIRED members is admitted with no pin.
+// Widening applies only at argument coercion, and only when the target is an interface.
 
 /// `cfglib2`: an interface `Options` with two required members (`retries: number`,
 /// `label: string`) and one optional (`verbose?: bool`), plus a free function

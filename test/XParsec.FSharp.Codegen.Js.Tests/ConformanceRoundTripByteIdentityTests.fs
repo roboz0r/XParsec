@@ -7,16 +7,12 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The frozen-cache round-trip is codegen-INVARIANT for JS: emitting from the direct
-// frozen tree and from `thaw (flatten direct)` must yield byte-identical JS. This is
-// the end-to-end strengthening of the structural round-trip gate — structural
-// equality does not by itself guarantee identical emitted text, so codegen is the
-// judge. A divergence here means flatten/thaw dropped or perturbed something codegen
-// reads, which is a real defect, not a golden to update.
-//
-// Gated set = programs the JS backend actually COMPILES (`Run`/`Fault` for "js"),
-// mirroring the direct byte-identity gate so `frozenOfJs` never trips on a `Diagnose`
-// program's error diagnostics.
+// The frozen-cache round-trip is codegen-INVARIANT for JS: emitting from the direct frozen
+// tree and from `thaw (flatten direct)` must yield byte-identical JS. Structural equality does
+// not guarantee identical text, so a divergence here is a defect, not a golden to update.
+
+// Gated set = programs the JS backend actually COMPILES (`Run`/`Fault` for "js"), so
+// `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
 
 /// Programs the JS backend compiles (see the header).
 let private gated =

@@ -50,8 +50,6 @@ let tests =
             }
 
             test "zeroCreate's `newarr` lowers to a dense Array(n).fill(null)" {
-                // The one mnemonic that made this file look CLR-bound. `ldelem`/`stelem`/
-                // `ldlen` reach here through `arr.[i]` / `arr.Length` in the other fifteen.
                 let src = generated.Value
                 Expect.stringContains src "Array(count).fill(null)" "newarr → a dense allocation"
                 Expect.stringContains src ".length" "arr.Length → arr.length"

@@ -60,7 +60,7 @@ let tests =
             }
 
             test "record ordering compares fields in declaration order" {
-                // `[<StructuralComparison>]` is required — ordering is not default for user types.
+                // `[<StructuralComparison>]` is required because ordering is not default for user types.
                 let prog =
                     "[<StructuralComparison>] type Point = { X: int; Y: int }\n"
                     + "printfn \"%b\" ({ X = 1; Y = 2 } < { X = 1; Y = 3 })\n"
@@ -102,7 +102,7 @@ let tests =
             }
 
             test "structural `compare` agrees with structural `=` across every shape" {
-                // `compare x y = 0` must agree with `x = y` — drift between the two walkers fails here.
+                // `compare x y = 0` must agree with `x = y`, so drift between the two walkers fails here.
                 let prog =
                     "[<StructuralComparison>] type Point = { X: int; Y: int }\n"
                     + "[<StructuralComparison>] type Shape = Circle of int | Rect of int * int\n"

@@ -8,13 +8,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // actual ones come from running the JS runtime, which rebuilds that grammar dynamically
 // rather than reading it. No call path ties them, so this differential is what does.
 
-// A flat interpretation of a `SinkOp` sequence — the never-break layout the JS
-// runtime always produces (`width` accepted but unused; CLR `%0A` mode). `Line`
-// is its flat alternative (a single space); groups / nests / applications are
-// layout-only and vanish flat; `FormatChild`/`FormatArg` substitute the child's
-// already-rendered string. This is the layout half the recipe delegates to the
-// consumer (the CLR `IFormatSink`, the JS walker) — modelled here to derive the
-// grammar's flat string from the recipe alone.
+// The never-break layout the JS runtime always produces, modelled here so the expected
+// string can be derived from the recipe alone.
 let private renderFlat (ops: SinkOp list) (child: int -> string) (arg: int -> string) : string =
     ops
     |> List.map (fun op ->
@@ -33,25 +28,20 @@ let private renderFlat (ops: SinkOp list) (child: int -> string) (arg: int -> st
     )
     |> String.concat ""
 
-// A minimal value model — exactly the shapes the recipe owns: a `Prim` leaf plus
-// the `Record`/`Union` forms that route through `recordRecipe`/`unionCaseRecipe`.
-// Tuple/list/atom grammar is NOT recipe-driven (no recipe form), so it stays in
-// `StructuralFormatTests` rather than being re-modelled here.
+// Only the shapes the recipe owns. Tuple/list/atom grammar has no recipe form, so it is
+// not modelled here.
 type private V =
     | Prim of string
     | Record of (string * V) list
     | Union of name: string * args: V list
 
-/// Is `v` a payload-bearing union (so it parenthesises in argument position,
-/// `Some (Some 3)`)? Mirrors the JS `fmtArg` rule and the recipe's
-/// `BeginApplication` semantics.
+/// A payload-bearing union parenthesises in argument position: `Some (Some 3)`.
 let rec private renderArg (v: V) : string =
     match v with
     | Union(_, _ :: _) -> "(" + render v + ")"
     | _ -> render v
 
-/// The recipe-derived flat string for a value. Record/union forms come straight
-/// from `recordRecipe`/`unionCaseRecipe`; a `Prim` is its own atom text.
+/// The recipe-derived flat string for a value; a `Prim` is its own atom text.
 and private render (v: V) : string =
     match v with
     | Prim s -> s
@@ -63,10 +53,8 @@ and private render (v: V) : string =
         let children = args |> List.toArray
         renderFlat (unionCaseRecipe name args.Length) (fun i -> render children.[i]) (fun i -> renderArg children.[i])
 
-// Each case: a label, the Vesper source whose `%A` we run, and the value model
-// the recipe renders to derive the expectation. Only recipe-owned shapes
-// (records, unions, options) live here — this test is the canonical owner of
-// their JS `%A` goldens; tuple/list/atom forms stay in `StructuralFormatTests`.
+// Each case: a label, the Vesper source whose `%A` runs under Node, and the value model
+// the recipe renders to derive the expectation.
 let private cases: (string * string * V) list =
     [
         "record",
@@ -95,8 +83,6 @@ let tests =
     testList
         "Codegen.Js StructuralFormatRecipe"
         [
-            // The recipe IS the grammar — pin its sink-op forms directly so a form
-            // change is a conscious edit here, visible to both backends.
             test "recordRecipe emits `{ F = ·; G = · }`" {
                 let ops = recordRecipe [ "X"; "Y" ]
 
@@ -115,9 +101,6 @@ let tests =
                 Expect.equal (flat "Rect" 2) "Rect (<0>, <1>)" "multi-field ⇒ parenthesised child tuple"
             }
 
-            // The cross-target differential: recipe-derived expectation vs the JS
-            // runtime's actual `%A`. Drift in either the recipe or the JS walker
-            // (Vesper.Printf.mjs) trips the corresponding case.
             for label, src, value in cases do
                 test (sprintf "JS `%%A` matches the recipe grammar: %s" label) {
                     match runJs ("recipe-diff-" + label.Replace(" ", "-")) src with

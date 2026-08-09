@@ -3,11 +3,9 @@ module XParsec.FSharp.Codegen.Js.Tests.EnumTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS codegen of enum support: every enum variant (numeric / string /
-// mixed) emits a module-scope FROZEN OBJECT MAP `const E = Object.freeze({ … })`,
-// `E.Ci` is a property read, and an `EnumCase` pattern lowers to `scrut === E.Ci`
-// (JS `===` is value equality for numbers and strings, so it is correct for all
-// three variants — v1 = equality only, no reverse map).
+// Every enum variant (numeric / string / mixed) emits a module-scope frozen object map
+// `const E = Object.freeze({ … })`, `E.Ci` is a property read, and an `EnumCase` pattern
+// lowers to `scrut === E.Ci`, which is value equality for both numbers and strings.
 [<Tests>]
 let tests =
     testList
@@ -40,8 +38,7 @@ let tests =
             test "a mixed enum emits the same object map with number + string values" {
                 let src = emitJs "type M = | A = 1 | B = \"two\"\nlet x = M.A"
 
-                // JS is untyped: a mix of numbers and strings is the same object-map
-                // shape, no special handling (no reverse map, no obj-box).
+                // JS is untyped, so mixed numbers and strings need no special handling.
                 Expect.stringContains
                     src
                     "const M = Object.freeze({ A: 1, B: \"two\" });"

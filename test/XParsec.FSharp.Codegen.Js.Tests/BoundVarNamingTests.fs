@@ -3,13 +3,9 @@ module XParsec.FSharp.Codegen.Js.Tests.BoundVarNamingTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// A bound variable's emitted name is the frozen naming column, mangled for JS and nothing more.
-//
-// The column is filled at the freeze by asking the LEXER what the token spells
-// (`Lexed.GetIdentifierAt`), which is the only thing that knows F#'s naming forms — so the
-// forms the lexer accepts and a character-class scan does not are exactly what these pin.
-// A quoted name is the discriminating case: it starts with a character no identifier
-// starts with, and it can carry characters no JS identifier may.
+// A bound variable's emitted name is the frozen naming column, mangled for JS. The column is
+// filled by asking the LEXER what the token spells, so what these pin are the forms the lexer
+// accepts and a character-class scan does not: a quoted name, and a primed one.
 
 [<Tests>]
 let tests =
@@ -35,18 +31,12 @@ let tests =
             }
 
             // A bound variable of an EXPANDED body is named after its slot, never after where it
-            // sits. The emit-time expansion copies an inline body onto its call site, so the
-            // introducing node's token spells the CALL — here the `byte` conversion the
-            // division is written under — while the bound variable itself is minted and the source
-            // writes it nowhere. Deriving the name from the node's anchor (rather than from a
-            // record made where the bound variable was minted) named every one of these after the
-            // call, which is how this test came to exist.
+            // sits: the expansion copies the body onto the call site, so the introducing node's
+            // token spells the CALL, while the bound variable is minted and never written.
             test "an expanded body's bound variable is named after its slot, not the call site" {
-                // `int (…)` expands a conversion whose lambda parameter is a freshened —
-                // hence minted — bound variable, and the expansion puts it on the `int` call site.
-                // The lambda survives only over a division, whose operand the expansion
-                // cannot duplicate; `emitFrozenJs` is the manifest-backed path
-                // `checkedDivisor` resolves through.
+                // `int (…)` expands a conversion whose lambda parameter is minted, onto the
+                // `int` call site; the lambda survives only over the division, whose operand
+                // cannot be duplicated. `emitFrozenJs` is the path `checkedDivisor` resolves on.
                 let src = "printfn \"%d\" (int (200uy / 3uy))"
                 let js = emitFrozenJs "Conv" src (frozenOf src)
 
@@ -57,9 +47,8 @@ let tests =
                 Expect.stringContains js "_s" "the expanded body's bound variable takes a slot name"
             }
 
-            // An apostrophe is legal in an unquoted F# identifier and illegal in JS; it is
-            // the case the mangle already covered, kept so widening it to every illegal
-            // character cannot quietly drop it.
+            // An apostrophe is legal in an unquoted F# identifier and illegal in JS, so each
+            // prime must mangle to a distinct legal name.
             test "a primed bound variable round-trips under Node" {
                 match runJs "primed-bound-var" "let x' = 20\nlet x'' = x' + x'\nprintfn \"%d\" (x'' + 2)" with
                 | None -> skiptest "node not on PATH"

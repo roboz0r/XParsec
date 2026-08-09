@@ -6,21 +6,13 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// A TS `number` in a generic ARGUMENT position (invariant) resolves to the
-// repr-family UNION `int|float|float32|…`, NOT the covariant scalar `float`. An invariant
-// slot must admit family WRITES and family READS under one type, so neither the covariant
-// `float` (a scalar read) nor the bare `number` token will do. The family is read
-// off the reverse intrinsic axis — the same source `numericFamilyOr` widens a scalar param
-// off — so a `Box<number>` value read is exactly the family a `number` PARAMETER admits.
-//
-// This is DISTINCT from the scalar covariant identity (`Box.size : number` → `float`,
-// `NumberFamilyTests`): a generic `Box<number>.value` reads as the UNION, demonstrably not
-// scalar `float`. Known deferred caveat (per the plan): a covariant element read yields the
-// union, so downstream float arithmetic needs a narrow — not exercised here.
+// A TS `number` in a generic ARGUMENT position (invariant) resolves to the repr-family UNION
+// `int|float|float32`, not the covariant scalar `float`, because an invariant slot must admit
+// family WRITES and family READS under one type.
 
-/// `boxlib`: a generic `interface Box<T> { value: T }`, a `makeNumBox(): Box<number>`
-/// factory (the type-arg `number` under test), and a scalar `consume(x: number)` the
-/// union must still flow into (family absorption at the arg seam).
+/// `boxlib`: a generic `interface Box<T> { value: T }`, a `makeNumBox(): Box<number>` factory
+/// (the type-arg `number` under test), and a scalar `consume(x: number)` the union must still
+/// flow into.
 let private manifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -62,9 +54,9 @@ let tests =
             }
 
             test "a `Box<number>` value read does NOT type as scalar `float`" {
-                // The distinguishing pin: were the type-arg resolved to the covariant scalar
-                // `float` (the Step-3 rule), this would succeed. As the invariant UNION it is
-                // wider than `float` and must NOT assign to a strict `float` annotation.
+                // The distinguishing pin: resolved to the covariant scalar `float`, this would
+                // succeed. The invariant UNION is wider, so it must NOT assign to a strict
+                // `float` annotation.
                 let errs = analyseErrors "let b = makeNumBox()\nlet s: float = b.value\n"
                 Expect.isNonEmpty errs "a Box<number> read is the repr-family union, not scalar float"
             }

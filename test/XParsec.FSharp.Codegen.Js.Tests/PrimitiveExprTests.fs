@@ -81,8 +81,6 @@ let tests =
             }
 
             test "int64 add emits the BigInt-wrap template over BigInt literals" {
-                // Observing the runtime value needs int64 print/conversion infra not yet wired;
-                // check the emitted template instead.
                 Expect.equal
                     (emitJs "let x = 2L + 3L")
                     "const x = (BigInt.asIntN(64, (2n) + (3n)));\n"
@@ -90,8 +88,8 @@ let tests =
             }
 
             test "a type with no JS representation (decimal) is rejected as a semantic diagnostic" {
-                // `decimal` has no `.js.fs` companion, so no JS repr is bound for it and
-                // `PlatformTypes` flags it as a per-decl error (not a failwith in the emitter).
+                // `decimal` has no `.js.fs` companion, so no JS repr binds for it and it is
+                // flagged per-decl rather than reaching the emitter.
                 let msg =
                     try
                         emitJs "let x = 1.0m" |> ignore
@@ -120,9 +118,6 @@ let tests =
                             "printfn \"%d\" (f ())"
                         ]
 
-                // `x` stays a bound arrow parameter (snapshot of m) rather than being
-                // inlined to a re-read of m — the inner `((x) => …)(m)` captures m's
-                // bind-time value before `m = 2`.
                 Expect.equal
                     (emitJs src)
                     "const f = () => ((m) => ((x) => ((m = 2), x))(m))(1);\nconsole.log(f());\n"
@@ -161,12 +156,9 @@ let tests =
             }
 
             test "a module-level `let mutable` written from a lambda is observed (no ref-cell promotion)" {
-                // A closure writing a MODULE-level mutable. On the CLR the cell is a
-                // static field (RefCellPromotion deliberately never promotes a top-level
-                // bound variable); on JS the `let count` binding is captured by reference, so the
-                // lambda's writes are observed with zero boxing. The mutable must stay a
-                // bare reassignable binding — a `.contents` ref cell here would read
-                // `undefined` (bare decl + promoted reads), the pre-fix miscompile.
+                // A module-level mutable stays a bare reassignable `let`, captured by
+                // reference, so a lambda's writes are seen with no boxing. Promoting it to a
+                // `.contents` cell would read `undefined`: bare declaration, promoted reads.
                 let src =
                     String.concat
                         "\n"
@@ -191,10 +183,9 @@ let tests =
             }
 
             test "a generic intrinsic (array) is NOT flagged unsupported on JS" {
-                // The array's front-end identity is `RuntimeNames.arrayKey` (`Vesper.[]`),
-                // a different string from the contract spelling `` Vesper.``[]`` `` the
-                // shape registers under, so a `TyConst` array reaches no `Intrinsic` shape
-                // and no unsupported verdict. Any other failure is fine.
+                // An array's front-end key spells `Vesper.[]`, while the contract registers
+                // its shape under `` Vesper.``[]`` ``, so the shape lookup misses and no
+                // unsupported verdict is produced.
                 let msg =
                     try
                         emitJs "let x = [| 1; 2; 3 |]" |> ignore

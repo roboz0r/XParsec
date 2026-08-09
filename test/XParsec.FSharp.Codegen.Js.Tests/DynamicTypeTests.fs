@@ -7,20 +7,9 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// `dynamic` — the disciplined F# `any` (design: `docs/dynamic-typing-design.md`). TS
-// `any` arrives F#-side as the opaque `dynamic` JS intrinsic (`TyConst "dynamic"`, no
-// special unify/subsume behaviour). Its ONLY capability is the `?` operator; there are
-// NO assignability edges (you cannot silently enter or leave). Access:
-//   - `d?foo`      → `op_Dynamic`, target-typed (default `dynamic`), emits `d["foo"]`.
-//   - `d?a?b`      → stays `dynamic`; emits `d["a"]["b"]`.
-//   - `let n:int = d?foo` → `^TResult` pins to `int` (the default never fires).
-//   - `d.foo`      → ERROR (`.` is statically-known members only).
-//   - `let n:int = d` → ERROR (no assignability edge).
-//   - `d?foo <- v` → `op_DynamicAssignment`, emits `d["foo"] = v`.
-//   - `dynamic x`  → enter `dynamic` (retype); emits the value unchanged.
-//
-// `D` is a class with an `any`-returning member and an `any` param, so a manifest TS
-// `any` gives us a `dynamic`-typed value to exercise `?`.
+// TS `any` arrives F#-side as the opaque `dynamic` JS intrinsic, with no special
+// unify/subsume behaviour. Its ONLY capability is the `?` operator, and there are NO
+// assignability edges: a value cannot silently enter or leave `dynamic`.
 
 let private stringT = named "string"
 
@@ -61,9 +50,8 @@ let private dynRuntimeSource =
 export function D_useAny(v) { return "A:" + v; }
 """
 
-/// The WARNING diagnostics from analysing `input` (the implicit-`dynamic`-escape
-/// sweep raises `Severity.Warning`, which `analyseWith` filters out). Errors, if
-/// any, fail the analysis path upstream — these tests all type-check cleanly.
+/// The WARNING diagnostics from analysing `input`. The implicit-`dynamic`-escape sweep raises
+/// `Severity.Warning`, which `analyseWith` filters out, so it needs its own accessor.
 let private warningsWith (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
@@ -112,9 +100,8 @@ let tests =
             }
 
             test "`let n : int = d?foo` pins `^TResult` to int (the default does NOT fire)" {
-                // The first non-`dynamic` `default` target exercised: a pinned context
-                // unifies `^TResult` to `int` BEFORE defaulting, so `n : int` type-checks
-                // and `n + 1` (int arithmetic) is well-typed.
+                // A pinned context unifies `^TResult` to `int` BEFORE defaulting, so `n : int`
+                // type-checks and `n + 1` is int arithmetic.
                 let errs =
                     analyseWith
                         dynProvider
@@ -144,18 +131,17 @@ let tests =
             }
 
             test "`dynamic someInt` enters dynamic (emits the value unchanged) and `?`-read/write round-trip" {
-                // End-to-end: `dynamic 7` enters (identity `retype`); `d?foo?bar` reads
-                // the computed chain (`d["foo"]["bar"]`); `d?bar <- v` writes; `useAny`
-                // takes an `any` param. Node observes each.
+                // `dynamic 7` enters via the identity `retype`; `d?foo?bar` reads the computed
+                // chain `d["foo"]["bar"]`; `d?bar <- v` writes; `useAny` takes an `any` param.
                 let program =
                     String.concat
                         "\n"
                         [
                             "let d = D.mkObj()"
                             "d?bar <- \"written\""
-                            // `?`-reads target-typed OUT to `string` (the escape; the
-                            // default does not fire). A bare `dynamic` cannot flow into
-                            // `%s` — no assignability edge — so the annotation is required.
+                            // The `?`-read target-types OUT to `string`, so the default does
+                            // not fire; the annotation is required because no assignability
+                            // edge carries a bare `dynamic` into `%s`.
                             "let chained : string = d?foo?bar"
                             "let w : string = d?bar"
                             "let entered = dynamic 7"
@@ -171,7 +157,6 @@ let tests =
                 Expect.stringContains js "[(\"foo\")]" "dynamic `?`-chain emits computed member access"
                 // Computed-member WRITE (`$0[$1] = $2` → `…[…] = (…)`).
                 Expect.stringContains js "] = (" "dynamic `?`-write emits a computed-member assignment"
-                // `dynamic 7` enters via the identity `retype` — the value is emitted UNCHANGED.
                 Expect.stringContains js "const entered = 7" "`dynamic` enter emits the value verbatim"
 
                 expectNodeOutput
@@ -180,9 +165,8 @@ let tests =
                     "chain written A:7"
             }
 
-            // Implicit-escape warning (design: `dynamic-typing-design.md`). A `?`-result
-            // pinned to a concrete type by CONTEXT (the `default : dynamic` never fired)
-            // is an unchecked assertion → a warning. Suppressed ONLY by an ascription
+            // A `?`-result pinned to a concrete type by CONTEXT (the `default : dynamic` never
+            // fired) is an unchecked assertion, so it warns. Suppressed ONLY by an ascription
             // directly on the `?` expression: "name the type at the escape point."
 
             test "`d?foo + 1` implicitly escapes `dynamic` to int → warns" {
@@ -234,9 +218,9 @@ let tests =
                 Expect.isEmpty ws (sprintf "a dynamic write is not an escape: %A" ws)
             }
 
-            // `retype` — the general erasing reinterpret — is public but lives in the
-            // NON-auto-opened `Vesper.Unsafe` (G3): reachable only via an explicit
-            // `open Vesper.Unsafe`, so the unchecked cast is never ambiently in scope.
+            // `retype`, the general erasing reinterpret, is public but lives in the
+            // NON-auto-opened `Vesper.Unsafe`, so the unchecked cast is reachable only after an
+            // explicit `open` and never ambiently in scope.
 
             test "`retype` is reachable through `open Vesper.Unsafe`" {
                 let errs =
@@ -248,8 +232,8 @@ let tests =
             }
 
             test "`retype` is NOT ambient — bare `retype` without the `open` does not resolve" {
-                // Proves the restriction: `retype` left the auto-opened `DynamicOperators`,
-                // so an unqualified use with no `open Vesper.Unsafe` is unresolved.
+                // `retype` is not in the auto-opened `DynamicOperators`, so an unqualified use
+                // with no `open Vesper.Unsafe` does not resolve.
                 let errs =
                     analyseWith dynProvider (String.concat "\n" [ "let s : string = retype 7"; "ignore s"; "" ])
 

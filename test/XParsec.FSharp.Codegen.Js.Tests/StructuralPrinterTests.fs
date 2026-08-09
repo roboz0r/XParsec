@@ -4,14 +4,9 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The `%A` structural formatter runtime module: authored as Vesper source
-// (`structural-printer.js.fs`) and compiled by the JS backend in library mode into the
-// committed `Vesper.Printf.mjs`. The walker is shape-keyed and FLAT-output; this file
-// pins the generated module in isolation (it exports `structuralFormat`, imports nothing,
-// and renders representative shapes correctly under Node) plus its Wadler width-breaking
-// pretty-print layout. The end-to-end parity over real emitted unions/lists/records —
-// which materialises THIS generated `.mjs` — lives in `StructuralFormatTests` (the `%A`
-// hole-lowering cases) and `StructuralFormatRecipeTests` (the cross-target differential).
+// The `%A` runtime module: `structural-printer.js.fs` compiled in library mode into the
+// committed `Vesper.Printf.mjs`. Pinned in isolation, driven straight from a Node driver
+// rather than through an emitted program, so no `%A` hole-lowering is in play.
 
 /// The generated `Vesper.Printf.mjs` source (deps-only provider, library mode).
 let private generated: Lazy<string> =
@@ -48,7 +43,7 @@ let tests =
                     "committed asset is stale — rerun with UPDATE_SNAPSHOTS=1"
             }
 
-            test "the generated module renders every shape under Node (flat parity)" {
+            test "the generated module renders each shape flat under Node" {
                 let driver =
                     String.concat
                         "\n"
@@ -56,7 +51,7 @@ let tests =
                             "import { structuralFormat } from \"./Vesper.Printf.mjs\";"
                             "const fmt = (v) => structuralFormat(v, 80, 10000);"
                             // A union value carries `tag` + fields as own-keys and `cases()` on the
-                            // prototype — exactly the emitted-class shape (Object.keys excludes cases).
+                            // prototype, which is exactly the emitted-class shape (Object.keys skips cases).
                             "const mkUnion = (names) => { const p = { cases() { return names; } };"
                             "  return (tag, fields) => Object.assign(Object.create(p), { tag }, fields); };"
                             "const opt = mkUnion([\"None\", \"Some\"]);"
@@ -112,12 +107,9 @@ let tests =
                         "primitives / unit / tuple / record / union forms / cons-list, all flat"
             }
 
-            // The shared Wadler `Doc`/`render` width-breaking kernel. A `Group` lays out
-            // ALL-FLAT when its flat width fits from the current column, else ALL-BROKEN — its
-            // `Line`s become a newline + the active `Nest` indent. The expectations below are
-            // byte-identical to the CLR `PrintfSpecTests` goldens (record nest 2,
-            // tuple nest 1, list brackets on own lines nest 2), so JS `%NA` matches CLR
-            // `%NA` rather than collapsing to `%0A`.
+            // A `Group` lays out ALL-FLAT when its flat width fits from the current column,
+            // else ALL-BROKEN: its `Line`s become a newline plus the active `Nest` indent.
+            // The expected strings below are byte-identical to the CLR `%NA` goldens.
             test "the layout breaks under a tight width budget (CLR parity)" {
                 let driver =
                     String.concat

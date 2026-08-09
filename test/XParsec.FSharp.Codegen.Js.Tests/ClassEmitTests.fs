@@ -6,21 +6,14 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 let private lines xs = String.concat "\n" xs
 
-// General JS class emission and the custom-equality dispatch slot.
-//
-// Before this work the JS backend dropped `TTypeKindG.Class` entirely (`collectTypes`
-// matched only Record/Union). These tests prove a plain class emits + RUNS on JS
-// (field, ctor, a free-function member, instantiation, field access) and that a
-// `[<CustomEquality>]` class emits an ATTACHED `Equals(` instance method (the runtime
-// dispatch slot — `Vesper.Core.eq` calls `a.Equals(b)`).
+// JS class emission, and the runtime slots that `=`, `<` and `hash` dispatch through on a
+// class overriding them.
 
 [<Tests>]
 let tests =
     testList
         "Codegen.Js ClassEmit"
         [
-            // ---- general class emission: shape ----
-
             test "a plain class emits a JS class with a positional ctor and a free member function" {
                 let src =
                     emitJs (
@@ -40,11 +33,8 @@ let tests =
                 // Regular members are FREE type-prefixed functions (tree-shaking).
                 Expect.stringContains src "const Box__get_Value = (" "instance property → free function"
                 Expect.stringContains src "const Box__Plus = (" "instance method → free function"
-                // Instantiation is `new Box(...)`.
                 Expect.stringContains src "new Box(7)" "instantiation lowers to `new`"
             }
-
-            // ---- general class emission: execution under Node ----
 
             test "a plain class runs on JS — ctor, field access, and a free-function member call" {
                 match
@@ -66,9 +56,7 @@ let tests =
                     Expect.equal out "40\n42" "field access reads the ctor-stored field; the free member adds"
             }
 
-            // ---- custom-equality dispatch slot: ATTACHED Equals ----
-
-            test "a [<CustomEquality>] class emits an attached `Equals(` instance method (the dispatch slot)" {
+            test "a [<CustomEquality>] class attaches its dispatch slots under registry symbols" {
                 let src =
                     emitJs (
                         lines
@@ -87,32 +75,24 @@ let tests =
                     )
 
                 Expect.stringContains src "class Tagged {" "the custom-eq class emits"
-                // The IEquatable<Self>.Equals impl attaches as a COMPUTED-KEY registry-symbol
-                // method `[Symbol.for("vesper.equality")](other)` (the runtime hook
-                // `a[Symbol.for("vesper.equality")](b)` finds it). The redundant obj-typed
-                // `Object.Equals` override is dropped (interface wins the slot); the old named
-                // `Equals(` method form is GONE (re-keyed to the symbol).
+                // The obj-typed `Object.Equals` override is dropped: the interface impl wins
+                // the slot.
                 Expect.stringContains
                     src
                     "[Symbol.for(\"vesper.equality\")](other)"
                     "typed IEquatable.Equals attaches as the registry-symbol method"
 
                 Expect.isFalse (src.Contains "Equals(other)") "the named `Equals(` method form is gone (re-keyed)"
-                // The `override GetHashCode` attaches as `[Symbol.for("vesper.hash")]()` so
-                // `hashOf` can find it via the registry symbol.
+
                 Expect.stringContains
                     src
                     "[Symbol.for(\"vesper.hash\")]()"
                     "override GetHashCode attaches as the registry-symbol method"
             }
 
-            // ---- custom-equality dispatch slot: execution proves the slot is live ----
-            //
-            // The fuller custom-eq round-trip oracle is later work; this is a single
-            // execution check that the ATTACHED `Equals` slot is genuinely dispatched by
-            // `Vesper.Core.eq` (`a.Equals(b)`). `Tagged.Equals` compares ONLY `id`, so
-            // `a = b` (same id, different payload) is `true` ONLY via the custom member
-            // — structural would be `false` (payload differs), reference `false`.
+            // `Tagged.Equals` compares ONLY `id`, so `a = b` (same id, different payload) is
+            // `true` only via the custom member: structural equality would say `false`
+            // (the payload differs), and reference equality `false` too.
             test "a [<CustomEquality>] class dispatches `=` to the attached IEquatable.Equals on JS" {
                 match
                     runJs
@@ -141,12 +121,8 @@ let tests =
                     Expect.equal out "true\nfalse\ntrue" "`=` dispatches to IEquatable<Tagged>.Equals (id-only)"
             }
 
-            // ---- custom-comparison dispatch slot: execution proves `<`/`>`/`<=`/`>=` route through CompareTo ----
-            //
-            // Mirrors the CLR oracle `CustomEqualityComparisonDispatchTests.fs`. `Ranked.CompareTo`
-            // orders by id DESCENDING (inverted), so `a(1) < b(2)` is FALSE under the custom member
-            // (a natural ordering would give true). Passing proves `<`/`>`/`<=`/`>=` dispatch through
-            // `Vesper.Comparison.structuralCompare` → `cmp(a,b)` → `a.CompareTo(b)`.
+            // `Ranked.CompareTo` orders by id DESCENDING, so `a(1) < b(2)` is FALSE under the
+            // custom member where a natural ordering would give `true`.
             test
                 "a [<CustomComparison>] class dispatches `<`/`>`/`<=`/`>=` to the attached IComparable.CompareTo on JS (inverted order)" {
                 match
@@ -186,10 +162,8 @@ let tests =
                         "`<`/`>`/`<=`/`>=` dispatch to IComparable<Ranked>.CompareTo (inverted order)"
             }
 
-            // ---- custom-hash dispatch slot: execution proves `hash` routes through GetHashCode ----
-            //
-            // `Hashed.GetHashCode` returns a CONSTANT 42, distinguishable from any structural hash.
-            // Proves `hash a` → `Vesper.Core.structuralHash` → `hashOf` → `a.GetHashCode()`.
+            // `Hashed.GetHashCode` returns a CONSTANT 42, distinguishable from any structural
+            // hash.
             test "a [<CustomEquality>] class dispatches `hash` to the attached GetHashCode on JS (constant)" {
                 match
                     runJs
@@ -213,14 +187,8 @@ let tests =
                     Expect.equal out "42" "`hash` dispatches to GetHashCode (constant 42), not a structural hash"
             }
 
-            // ---- §14.6 slice 5: a RECORD implementing a LOCAL interface ----
-            //
-            // A record is a single JS class. Implementing a non-capability local
-            // interface routes the impl through the SAME partition the class path uses:
-            // a local interface → an ATTACHED instance method on the record's class
-            // (the plain-attached path, not the registry-symbol/iterator path). The
-            // method reads a field of `this`.
-
+            // A record is one JS class, so a local (non-capability) interface impl attaches as
+            // a plain instance method on it, not under a registry symbol.
             test "a record implementing a local interface emits the impl as an attached method on its class" {
                 let src =
                     emitJs (
@@ -268,12 +236,8 @@ let tests =
                     Expect.equal out "7" "(r :> IRank).Rank() dispatches to the attached method reading this.N (=7)"
             }
 
-            // ---- a CLASS implementing a plain, non-capability interface ----
-            //
-            // The record case above shares this partition, but a class differs in what the
-            // impl body can reach: a ctor parameter, captured through the field the primary
-            // constructor stores. That is the shape the library's `Fun` adapters take.
-
+            // Unlike the record above, a class's impl body can reach a ctor parameter, through
+            // the field the primary constructor stores.
             let offsetSrc =
                 lines
                     [
@@ -303,15 +267,9 @@ let tests =
                     Expect.equal out "15" "the attached method adds its argument to the ctor-stored field"
             }
 
-            // ---- instance preamble (`let` / `do`) ----
-            //
-            // The RUNTIME semantics of the instance preamble (declaration order,
-            // `let mutable` sharing one storage location, `let rec`, generics, a
-            // function-`let` used first-class) are owned by the cross-backend
-            // conformance corpus (`test/Codegen.Conformance/classes/preamble-*.fs`, run
-            // on JS *and* CLR). What lives here is what the corpus cannot see: the
-            // EMITTED SHAPE, and the shapes the JS backend must reject loudly.
-
+            // The instance preamble's RUNTIME semantics live in the cross-backend corpus
+            // (`test/Codegen.Conformance/classes/preamble-*.fs`, run on JS and CLR). Here:
+            // the emitted shape, and the shapes the JS backend must reject.
             test "an instance `let` emits a ctor field store AFTER the ctor-param stores" {
                 let src =
                     emitJs (
@@ -324,18 +282,16 @@ let tests =
                             ]
                     )
 
-                // The initialiser reads the ctor param through `this`, so it can only run
-                // after the param store — the order is the semantics.
+                // The initialiser reads the ctor param through `this`, so it can only run after
+                // the param store.
                 let paramStore = src.IndexOf "this.n = n;"
                 let letStore = src.IndexOf "this.m = "
                 Expect.isGreaterThan paramStore -1 "the ctor param field store emits"
                 Expect.isGreaterThan letStore paramStore "the instance-`let` store follows the ctor-param store"
             }
 
-            // A `static let` backing field is a property on the emitted class object
-            // (`C.scale`), initialised by a module-load static preamble; a member reads the
-            // same slot. The RUNTIME semantics of `static let mutable` sharing are pinned in
-            // the conformance corpus (`classes/static-mutable.fs`, run on JS *and* CLR).
+            // `static let mutable` sharing is pinned in the conformance corpus
+            // (`classes/static-mutable.fs`, run on JS and CLR).
             test "a class `static let` emits a class-object field initialised at module load" {
                 let src =
                     emitJs (
@@ -348,8 +304,6 @@ let tests =
                             ]
                     )
 
-                // The class is declared before its static field is initialised, and the
-                // member reads the same `C.scale` slot.
                 let classDecl = src.IndexOf "class C"
                 let scaleInit = src.IndexOf "C.scale = "
                 Expect.isGreaterThan classDecl -1 "the class emits"
@@ -359,7 +313,7 @@ let tests =
 
             // No `extends` / `super(...)` is emitted, so an admitted `inherit` would run neither
             // the base ctor nor its `do`, and the base's members would be absent from the
-            // prototype — a program the CLR backend compiles correctly, silently mis-run here.
+            // prototype: a program the CLR backend compiles correctly, silently mis-run here.
             test "a class with an `inherit` clause fails loudly on the JS target" {
                 let compile () =
                     emitJs (
@@ -388,9 +342,8 @@ let tests =
                     )
             }
 
-            // A `val`-form class's `new(…) = { … }` names its OWN parameters and stores. A
-            // positional ctor over the declared fields would take the wrong arity here, so
-            // every field the ctor initialises itself would arrive `undefined` — silently, for
+            // A positional ctor over the declared fields would take the wrong arity here, so
+            // every field the ctor initialises itself would arrive `undefined`, silently for
             // any field whose default happens to be falsy.
             test "a `val`-form class's explicit ctor keeps its own arity, not the field count" {
                 let src =
@@ -434,10 +387,9 @@ let tests =
                     Expect.equal out "7\nfalse" "`Started` is `false`, not an absent property printing as undefined"
             }
 
-            // JS has ONE constructor per class. A `val`-form class's single `new(…) = { … }` is
-            // emitted as written; a SECOND arity — here a primary ctor plus a `new(…)` — has
-            // nowhere to go, and a call at that arity would land in the survivor with the
-            // wrong arguments.
+            // JS has ONE constructor per class, so a SECOND arity (here a primary ctor plus a
+            // `new(…)`) has nowhere to go, and a call at that arity would land in the survivor
+            // with the wrong arguments.
             test "a secondary constructor alongside a primary one fails loudly on the JS target" {
                 let compile () =
                     emitJs (

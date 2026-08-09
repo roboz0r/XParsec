@@ -9,33 +9,24 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The RESOLVED-SPECIALIZATION table `Passes.InlineExpansion` builds: what it interns, what it
-// shares, and — the property the whole deferral exists for — where an entry's nodes are
-// anchored.
-//
-// Here rather than in the SemanticAnalysis suite because a served body only carries an anchor
-// domain when the provider RETAINED the producer file, and the only stack that does is the
-// codegen contract (`SymbolProviders.inlineBodies`, which parses the `impl` files and
-// keeps them). The front-end-only providers the SA suite composes publish no bodies at all.
+// The RESOLVED-SPECIALIZATION table inline expansion builds: what it interns, what it shares,
+// and where an entry's nodes are anchored. In this suite rather than SemanticAnalysis because
+// only the codegen contract retains producer files, so only it can serve an anchored body.
 
 /// The front end run up to (and including) inline expansion.
 type private Analysed =
     {
         /// The context the passes ran against, so a test may run a LATER pass over the same
-        /// state — which is the only way to ask what the table costs a pass downstream of it.
+        /// state and ask what the table costs it.
         Ctx: PassContext
         Expanded: InlineExpansion.Expanded
-        /// What THE EXPANSION reported, kept apart from whatever the passes before it found so
-        /// that a verdict about an expansion cannot be mistaken for one about the source that
-        /// reached it.
+        /// What THE EXPANSION reported, kept apart from what the passes before it found.
         Diagnostics: Diagnostic list
     }
 
-/// Run the front end up to (and including) inline expansion, and hand back the pass's own
-/// product — the flattened decls AND the table its edges named.
-///
-/// The prefix mirrors `Pipeline.analyseSemWithContextForCore` up to `Elaborate.run`, stopping
-/// where the table would otherwise be flattened away and discarded.
+/// Run the front end up to and including inline expansion, and hand back the pass's own
+/// product: the flattened decls AND the table its edges named. The production pipeline runs
+/// the same prefix, then flattens the table away and discards it.
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
     let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
@@ -84,8 +75,7 @@ let private heapSharedCount (input: string) (walkTable: bool) : int =
     |> Seq.filter (fun kv -> kv.Value = EscapeState.HeapShared)
     |> Seq.length
 
-/// The file the harness above analyses `input` under. Off the same mint the harness uses, so
-/// a test naming it cannot drift from what the pass was handed.
+/// The file the harness analyses `input` under, off the same mint the harness uses.
 let private compilingOrigin (input: string) : OriginFile =
     let lexed, _ = parseFile input
     (Hashing.originSourceOfText lexed).File
@@ -99,17 +89,9 @@ let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
             | _ -> ()
     ]
 
-/// A synthetic PRODUCER package, written under `tmp/` and resolved against like any other.
-///
-/// Authored here rather than added to a real manifest because the bodies these tests need are
-/// exactly the ones a working library cannot hold: an inline binding that calls itself has no
-/// expansion, so a package carrying one breaks every consumer that touches it. A package is
-/// nonetheless the only route to a body with a retained `OriginFile` — and without one there is
-/// no entry, no table, and nothing for the acyclicity check to find a cycle on.
-///
-/// `selfLoop`'s parameter SURVIVES its reduction, so its entry is shareable and interned;
-/// `fusedLoop`'s `[<CallAtMostOnce>]` operand is fused, so its entry is deliberately NOT interned
-/// and only the slot reservation stands between it and an unbounded expansion.
+/// A synthetic PRODUCER package written under `tmp/`. A package is the only route to a body
+/// with a retained `OriginFile`, and no working library can hold these bodies: an inline
+/// binding that calls itself breaks every consumer that touches it.
 let private recursiveProducer: Lazy<IExternalSymbolProvider> =
     lazy
         let dir = tmpDir "Cycle.Probe"
@@ -154,18 +136,9 @@ module Probe =
             Target.Js
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
-/// A synthetic producer whose recursion closes on a MEMBER, which is the one function whose
-/// OBJECT ARGUMENT is not an applied argument: the reduction PREPENDS it, so the entry's parameters are
-/// peeled from `this :: args` while the application it was reached through carries only `args`.
-/// A back edge taking the application's own arguments would therefore name the entry with one argument
-/// too few — a miscompile no non-recursive member call can expose, because every other edge is
-/// minted from the survivors of the very peel it belongs to.
-///
-/// `'T[]`'s `get_Item` is OVERRIDDEN rather than a fresh type declared: a member inline body
-/// cannot name its own type's member — within its declaring file that call is not
-/// external at all. Reaching the member through `bounce`, whose own file sees the array type as
-/// a foreign one, is what makes the reference keyed. Bodies are keyed and a later manifest wins,
-/// so appending this package replaces the real body for `[]`.get_Item.
+/// A producer whose recursion closes on a MEMBER. `'T[]`'s `get_Item` is OVERRIDDEN rather than
+/// a fresh type declared (a later manifest's body wins), because a member inline body cannot
+/// name its own type's member; reaching it through `bounce` is what makes the reference keyed.
 let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
     lazy
         let dir = tmpDir "Cycle.Member"
@@ -191,8 +164,8 @@ module Bounce =
     val inline bounce: a: 'a[] -> i: int -> 'a
 """
 
-        // The array type is FOREIGN here, so `a.[i]` is a keyed member reference — the same
-        // `MemberKey` the body below is lifted under.
+        // The array type is FOREIGN here, so `a.[i]` is a keyed member reference, under the
+        // same `MemberKey` the body below is lifted with.
         write
             "bounce.fs"
             """namespace CycleMember
@@ -233,7 +206,7 @@ let private edgeArities (e: TExpr) : (SpecializationId * int) list =
         | _ -> ValueNone
     )
 
-/// The entries resolved from the template `name` names — `op_Addition`, `op_Multiply`, … —
+/// The entries resolved from the template `name` names (`op_Addition`, `op_Multiply`, …),
 /// picked out of a table that also holds every other inline the source happened to reach.
 let private entriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
     [
@@ -242,11 +215,9 @@ let private entriesFor (name: string) (table: TSpecialization[]) : TSpecializati
                 yield e
     ]
 
-/// `entriesFor`, split by WHERE the template is declared. An arithmetic use site names
-/// TWO entries under one compiled name: the operator's own `let inline` — a module
-/// BINDING, holding the trait call — and the witness it dispatches to, a static MEMBER
-/// declared on the primitive. The key's case is the whole discriminator; the name cannot
-/// be, because the witness is deliberately named after the operator it answers.
+/// `entriesFor`, split by WHERE the template is declared. An arithmetic use site names TWO
+/// entries under one compiled name: the operator's `let inline` module BINDING, and the static
+/// MEMBER witness it dispatches to, named after the operator. Only the key's case tells them apart.
 let private operatorEntriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
     entriesFor name table
     |> List.filter (fun e ->
@@ -255,7 +226,7 @@ let private operatorEntriesFor (name: string) (table: TSpecialization[]) : TSpec
         | _ -> false
     )
 
-/// The primitive-side half of `operatorEntriesFor` — `int`'s own `static member (+)`.
+/// The primitive-side half of `operatorEntriesFor`: `int`'s own `static member (+)`.
 let private witnessEntriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
     entriesFor name table
     |> List.filter (fun e ->
@@ -264,9 +235,8 @@ let private witnessEntriesFor (name: string) (table: TSpecialization[]) : TSpeci
         | _ -> false
     )
 
-/// Every position a specialization entry's declaration carries, in `TastConvert`'s own
-/// traversal order — the total walk of the position axis, so nothing an entry holds is
-/// exempt from the anchoring assertions below.
+/// Every position a specialization entry's declaration carries, in the converter's own
+/// traversal order: a total walk, so no position escapes the anchoring assertions below.
 let private positions (e: TSpecialization) : SyntaxToken list =
     let acc = ResizeArray<SyntaxToken>()
 
@@ -305,8 +275,7 @@ let private entryValue (e: TSpecialization) : TExpr =
     | other -> failtestf "an entry is a `TDecl.Let` of lambdas; got %A" other
 
 /// The entry's own arity: the leading lambdas an `InlineCall`'s arguments are positional
-/// against. Nothing stores it, which is the point — a parameter the reduction fused is simply
-/// not one of these.
+/// against. Nothing stores it, and a parameter the reduction fused is simply not one of these.
 let rec private abstractedParams (value: TExpr) : int =
     match value with
     | TExpr.Lambda(_, body, _, _) -> 1 + abstractedParams body
@@ -321,8 +290,8 @@ let private callerMarked (value: TExpr) : TExpr list =
         | _ -> ValueNone
     )
 
-/// The positions of the entry's OWN expression nodes — everything a caller mark does not
-/// cover. Stops AT a mark rather than skipping the node, so a nested mark inside a marked
+/// The positions of the entry's OWN expression nodes, meaning everything a caller mark does
+/// not cover. Stops AT a mark rather than skipping the node, so a nested mark inside a marked
 /// subtree stays where it belongs.
 let private unmarkedPositions (value: TExpr) : SyntaxToken list =
     let acc = ResizeArray<SyntaxToken>()
@@ -355,11 +324,9 @@ let tests =
         "SpecializationTable"
         [
             test "a self-referential `let inline` is a verdict, not an exhausted stack" {
-                // A local template is outlined like any other, so what stops this is the slot
-                // its own expansion reserved: the call that reaches it while it is in flight
-                // becomes a back edge, leaving a finite table for the acyclicity check to
-                // convict. The verdict is about the user's source — the expansion the program
-                // asks for does not exist.
+                // A local template is outlined like any other, so what stops this is the slot its
+                // own expansion reserved: the call reaching it while in flight becomes a back
+                // edge, leaving a finite table for the acyclicity check to convict.
                 let expanded, ds = expandedWithDiagnostics "let rec inline f x = f x\nlet a = f 1\n"
 
                 Expect.equal
@@ -376,12 +343,9 @@ let tests =
                 let _, ds =
                     expandedWithDiagnostics "let rec inline f x = g x\nand inline g x = f x\nlet a = f 1\n"
 
-                // ONE verdict, not one per rotation: `g → f → g` is a single loop in the
-                // table, and the check names every binding on it in call order rather than
-                // reporting each binding's own way round separately. It closes on `g` because
-                // `g` is the first entry minted — an inline binding is walked as the ordinary
-                // function it also emits, so `f`'s own body reaches `g` before `let a = f 1`
-                // reaches anything.
+                // ONE verdict, not one per rotation: `g → f → g` is a single loop, named in call
+                // order. It closes on `g` because `g` is the first entry minted: an inline binding
+                // is walked as the function it also emits, so `f`'s body reaches `g` first.
                 Expect.equal
                     (cyclicInlines ds)
                     [ "g", [ "f" ] ]
@@ -389,9 +353,9 @@ let tests =
             }
 
             test "a recursive SERVED body terminates into a cyclic table, which is rejected" {
-                // The outlined half. `selfLoop`'s reduction is CLOSED, so its entry is shareable
-                // and interned; what stops the expansion is the reserved slot, and what the call
-                // that reaches it becomes is a back edge — leaving a finite, inspectable table.
+                // `selfLoop`'s reduction is CLOSED, so its entry is shareable and interned. What
+                // stops the expansion is the reserved slot: the call that reaches it becomes a
+                // back edge, leaving a finite, inspectable table.
                 let {
                         Expanded = expanded
                         Diagnostics = ds
@@ -423,10 +387,9 @@ let tests =
             }
 
             test "a recursive served body whose reduction FUSES is rejected too" {
-                // The case the INTERNING does not reach: `fusedLoop`'s `[<CallAtMostOnce>]`
-                // operand is fused, so the entry is deliberately not shareable and no lookup will
-                // ever return it. Only the slot reservation — which covers every outlined entry,
-                // not just the shareable ones — keeps this finite.
+                // The case INTERNING does not reach: `fusedLoop`'s `[<CallAtMostOnce>]` operand is
+                // fused, so the entry is not shareable and no lookup returns it. Only the slot
+                // reservation, which covers every outlined entry, keeps this finite.
                 let {
                         Expanded = expanded
                         Diagnostics = ds
@@ -447,15 +410,9 @@ let tests =
             }
 
             test "a recursion that closes on a MEMBER answers the call without losing its object argument" {
-                // The one function whose object argument is not an applied argument. `a.[1]` expands
-                // `get_Item`, whose reduction peels `this :: [index]`; its body reaches the same
-                // member through `bounce`, and THAT call is answered rather than expanded.
-                //
-                // A lifted member body is served with its producer file
-                // (`SymbolProviders.collectInlineBodies` anchors both halves of what it unpools),
-                // so the member reduction is OUTLINED: it holds a table slot, and the call that
-                // reaches it while it is in flight becomes a back edge rather than an
-                // un-expandable call left as written.
+                // A member's object argument is not an applied argument: `a.[1]` expands
+                // `get_Item`, whose reduction peels `this :: [index]`, and its body reaches the
+                // same member through `bounce`, where that call is answered rather than expanded.
                 let {
                         Expanded = expanded
                         Diagnostics = ds
@@ -482,10 +439,9 @@ let tests =
 
                 Expect.isNonEmpty allEdges "the run produced edges at all, or what follows is vacuous"
 
-                // THE invariant, over every edge the run produced, whichever site minted it: an
-                // `InlineCall`'s arguments are positional against the entry's abstracted
-                // parameters, so a disagreement is a call of the wrong arity — silent here, and
-                // first observable in a backend.
+                // Over every edge the run produced, whichever site minted it: an `InlineCall`'s
+                // arguments are positional against the entry's abstracted parameters, so a
+                // disagreement is a wrong-arity call, silent here and first seen in a backend.
                 for (SpecializationId i, argCount) in allEdges do
                     Expect.equal
                         argCount
@@ -513,11 +469,9 @@ let tests =
                     "array-cycle.js.fs"
                     "the member entry is anchored in the file the member was WRITTEN in, not the consuming one"
 
-                // THE case: the back edge is minted inside `bounce`'s entry, where the source
-                // spells `a.[i]` — one explicit argument. It carries TWO, because the peel it was
-                // minted from prepended the object argument. An edge taking the application's own arguments
-                // would name this two-parameter entry with one argument, and nothing before the
-                // backend would notice.
+                // The back edge is minted inside `bounce`'s entry, where the source spells
+                // `a.[i]`: one explicit argument. It carries TWO, because the peel that minted it
+                // prepended the object argument, and nothing before the backend would notice.
                 match
                     edgeArities (entryValue table.[bounceSlot])
                     |> List.filter (fun (SpecializationId i, _) -> i = memberSlot)
@@ -551,9 +505,9 @@ let tests =
             test "two call sites at DIFFERENT groundings get their own entries" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 1.5 + 2.5\n"
 
-                // `(+)` dispatches its trait call to the operand type's own `static member
-                // (+)`, so `int` and `float` reach two different witnesses — sharing the
-                // operator entry would emit one primitive's template for the other.
+                // `(+)` dispatches its trait call to the operand type's own `static member (+)`,
+                // so `int` and `float` reach two different witnesses; sharing the operator entry
+                // would emit one primitive's template for the other.
                 match operatorEntriesFor "op_Addition" expanded.Specializations with
                 | [ x; y ] ->
                     Expect.notEqual
@@ -574,14 +528,14 @@ let tests =
             }
 
             test "an entry's nodes keep the PRODUCER's anchors, not the call site's" {
-                // ONE token in the consuming file, so a body collapsed onto the call site would
-                // resolve to index 0 everywhere and could not possibly index past this file.
+                // A very short consuming file, so a body collapsed onto the call site could not
+                // possibly carry an index past its end.
                 let input = "let a = 1 + 2\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
 
-                // The WITNESS, not the operator: `int`'s own `(+)` is where the template
-                // text lives now, so it is the entry with producer tokens to read back.
+                // The WITNESS, not the operator: `int`'s own `(+)` is where the template text
+                // lives, so it is the entry with producer tokens to read back.
                 let entry =
                     match witnessEntriesFor "op_Addition" expanded.Specializations with
                     | [ e ] -> e
@@ -597,10 +551,9 @@ let tests =
                     1
                     "…more than one of them, or a collapse onto a single token would be indistinguishable from keeping them"
 
-                // The load-bearing assertion: every one of those integers reads back, against
-                // the PRODUCER file the entry names, as exactly the token the node carries.
-                // Nothing weaker would do — an index is in range against the consuming file
-                // too, and would simply name an unrelated token of it.
+                // Every one of those integers reads back, against the PRODUCER file the entry
+                // names, as exactly the token the node carries. Nothing weaker would do: an index
+                // is in range against the consuming file too, naming an unrelated token of it.
                 for tok in positions entry do
                     match tok.Index with
                     | TokenIndex.Virtual -> ()
@@ -630,11 +583,10 @@ let tests =
                 | other -> failtestf "two `undefined` references must name ONE entry; got %d" (List.length other)
             }
 
-            test "a FUSED parameter is not a parameter of the entry — arity is what survived" {
+            test "a FUSED parameter is not a parameter of the entry, so arity is what survived" {
                 // `(&&)` is `let inline (&&) a [<CallAtMostOnce>] b = if a then b else false`:
-                // `b` is substituted at its single use rather than bound, so it vanishes into
-                // the body and the entry abstracts ONE parameter, not two. Nothing records an
-                // arity — the lambda chain and the edge's argument count are the same fact.
+                // `b` is substituted at its single use rather than bound, so the entry abstracts
+                // ONE parameter. Nothing records an arity; the lambda chain IS the arity.
                 let expanded = expandedFor "let a = true && false\n"
 
                 let entry =
@@ -654,7 +606,7 @@ let tests =
                     | other -> failtestf "expected exactly one `(&&)` entry, got %d" (List.length other)
 
                 // Exactly one, and unconditionally: `false` is as trivial an argument as an
-                // expression gets, and it is marked anyway — an invariant that skipped the
+                // expression gets and is marked anyway, since an invariant that skipped the
                 // trivial cases could not be checked at all.
                 match callerMarked (entryValue entry) with
                 | [ _ ] -> ()
@@ -666,8 +618,8 @@ let tests =
 
             test "a marked subtree keeps CONSUMER anchors while the body around it keeps PRODUCER anchors" {
                 // The entire point of the node: `a && b` outlines as `if a then ⟨b⟩ else false`,
-                // where the `if`/`then`/`else` were written in `ops-platform.clr.fs` and `b` was
-                // written HERE — one entry, two anchor domains, told apart by the mark.
+                // where the `if`/`then`/`else` were written in `ops-std.fs` and `b` was written
+                // HERE. One entry, two anchor domains, told apart by the mark.
                 let input = "let a = true && false\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
@@ -705,8 +657,8 @@ let tests =
                             tok
                             "an unmarked node resolves against the file the entry's `OriginFile` names"
 
-                // The discriminating half: the two sets cannot be the same index space, because
-                // the producer's run past the end of a consuming file this short. Without it,
+                // The discriminating half: the two sets cannot be one index space, because the
+                // producer's indices run past the end of a consuming file this short. Without it,
                 // both resolutions above could be reading one file twice.
                 Expect.isLessThan
                     (List.max markedIndices)
@@ -719,10 +671,9 @@ let tests =
                     "…and every unmarked one is past its end, so they are not its indices"
             }
 
-            test "a SHAREABLE entry marks nothing — which is what makes sharing sound" {
-                // Two sites at one grounding name ONE entry (asserted above), so material fused
-                // from either would be evaluated at both. `Peeled.isClosed` is what rules the
-                // fusions out; this is that condition observed from the outside.
+            test "a SHAREABLE entry marks nothing, which is what makes sharing sound" {
+                // Two sites at one grounding name ONE entry, so material fused from either would
+                // be evaluated at both. The reduction's closedness condition, seen from outside.
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
                 let entry =
@@ -735,7 +686,7 @@ let tests =
                     "a closed reduction fuses nothing, so a shared entry holds no site's operand"
             }
 
-            test "the flattener unwraps every mark — no marker survives the pass" {
+            test "the flattener unwraps every mark, so no marker survives the pass" {
                 let expanded = expandedFor "let a = true && false\n"
 
                 Expect.isNonEmpty
@@ -769,7 +720,7 @@ let tests =
                     "flattening collapses the frame stack, so a marker that outlived it would claim a distinction the tree no longer draws"
             }
 
-            test "the edges SURVIVE the pass — placement is the backends' to do" {
+            test "the edges SURVIVE the pass, since placement is the backends' to do" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 1.5 * 2.5\n"
 
                 Expect.isNonEmpty
@@ -887,12 +838,9 @@ let tests =
             }
 
             test "a fused external in applied-function position anchors where the ENTRY wrote it" {
-                // `(|>) arg func = func arg` binds `func` to the bare external `not`, which the
-                // classification substitutes into the body — so the `App` the walker then meets
-                // has an applied function written HERE inside an application written in `ops-std.fs`. The
-                // rewrite consumes that function and its mark with it, so the edge that replaces the
-                // application can only be right if it takes the APPLICATION's position: there is
-                // no marker left to say the applied function's would have been the caller's.
+                // `(|>) arg func = func arg` substitutes `func` with the bare external `not`, so the
+                // `App` the walker meets has an applied function written HERE inside an application
+                // written in `ops-std.fs`. Its mark is consumed with it, leaving only the `App`'s position.
                 let input = "let b = true\nlet a = b |> not\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
@@ -931,8 +879,7 @@ let tests =
             test "a capture WRITTEN inside an entry is seen only because the table is walked" {
                 // `(&&)`'s second operand is fused, so a lambda written in it lands in the ENTRY
                 // and nowhere in the decls. `acc` is then a mutable captured by a closure the
-                // decls do not contain — `HeapShared`, and the verdict `RefCellPromotion` runs on.
-                // Escape analysis handed only the decls answers about a program it has not read.
+                // decls do not contain, so escape analysis given only the decls never sees it.
                 let src =
                     "let f () =\n    let mutable acc = 0\n    true && (fun () -> acc > 0) ()\n"
 

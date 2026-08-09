@@ -7,10 +7,9 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// End-to-end: a Vesper record flows INTO a foreign `configure(opts: Options)` by
-// structural width and RUNS under Node. The record emits verbatim as a POJO, the foreign
-// function reads its fields, and `int` satisfies the interface's `number` member — the
-// options/config-object call shape, proven through emit + execution (not just analysis).
+// A Vesper record flows into a foreign `configure(opts: Options)` by structural width and
+// RUNS under Node: the record emits verbatim as a POJO, the foreign function reads its
+// fields, and `int` satisfies the interface's `number` member.
 
 /// `cfglib3`: `configure(opts: Options): string` where `Options { retries: number;
 /// label: string }`. The runtime formats the two fields so the round-trip observes that
@@ -43,8 +42,8 @@ let private contract = contractTs manifest
 
 let private provider: IExternalSymbolProvider = contract.Provider
 
-/// A POJO-consuming runtime: `configure` reads `opts.label` / `opts.retries` off the
-/// object it is handed — only a verbatim record (native own props) round-trips here.
+/// `configure` reads `opts.label` / `opts.retries` off the object it is handed, so only
+/// a verbatim record with native own props round-trips here.
 let private runtime =
     "export function configure(opts) { return opts.label + \":\" + opts.retries; }\n"
 
@@ -87,8 +86,6 @@ let tests =
             test "the record emits verbatim and the foreign `configure` round-trips under Node" {
                 let js = emitCfg program
 
-                // The record is passed straight into the foreign call — no @struct home,
-                // no interface class decl leaks into the output.
                 Expect.stringContains js "configure(" (sprintf "expected a `configure(` call, got:\n%s" js)
                 Expect.isFalse (js.Contains "@struct") (sprintf "no @struct home may appear in emit:\n%s" js)
 

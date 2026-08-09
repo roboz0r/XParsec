@@ -6,9 +6,8 @@ open Expecto
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// V3 source maps. The `loc` threaded onto each emitted `JsExpr` (from its `TExprG`
-// node's `'tok`) lets the printer emit a `.js.map` that resolves the generated
-// `console.log` back to the `printfn` call's source position.
+// V3 source maps: the emitted `console.log` resolves back to the source position of the
+// `printfn` call it came from.
 
 /// Compile `input` with its own text as the source, so source-map emission is on.
 let private compileWithMap (input: string) (outputPath: string option) : JsArtifact =
@@ -21,12 +20,8 @@ let private compileWithMap (input: string) (outputPath: string option) : JsArtif
     Codegen.compile project (frozenOf input)
 
 // ─── Multi-source maps ───────────────────────────────────────────────────
-//
-// A body served by another package is spliced onto the call site at emit
-// (`InlineExpand.expand`), but the nodes it splices were WRITTEN in the producer's file and
-// keep their index into that file's tokens. The map publishes those files beside the
-// consuming one so an inlined frame resolves to the producer's own line — the property the
-// whole deferred-placement representation exists to make true.
+// A body served by another package splices onto the call site at emit, but its nodes keep
+// their index into the PRODUCER's tokens, so the map publishes that file beside this one.
 
 /// Compile through the real JS contract stack, so the manifest set's producer files are
 /// retained and a served body's positions are readable.
@@ -38,9 +33,8 @@ let private compileMapped (name: string) (input: string) : JsArtifact =
 
     Codegen.compileWith jsContract.Value project (frozenOfJs input)
 
-/// One decoded `mappings` segment. Decoded and not merely counted: the source index, line and
-/// column are the whole claim, and a map that published the right `sources[]` while encoding
-/// every segment against index 0 would look correct from the outside.
+/// One decoded `mappings` segment. Decoded and not merely counted: a map that published the
+/// right `sources` while encoding every segment against index 0 would look correct outside.
 type private Segment =
     {
         GenLine: int
@@ -53,9 +47,8 @@ type private Segment =
 [<Literal>]
 let private b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-/// Decode a V3 `mappings` field. An independent reader of the wire format — it shares no code
-/// with the encoder, so an encoder that agreed with itself about a wrong convention would not
-/// pass here.
+/// Decode a V3 `mappings` field. An independent reader of the wire format: it shares no code
+/// with the encoder, so an encoder consistent about a wrong convention still fails here.
 let private decodeMappings (mappings: string) : Segment list =
     let digit (c: char) =
         match b64.IndexOf c with
@@ -117,9 +110,8 @@ let private decodeMappings (mappings: string) : Segment list =
 
     List.ofSeq out
 
-/// The map's `sources[]` / `sourcesContent[]` and its decoded segments — the three things
-/// every assertion below reads together, since a source index means nothing apart from the
-/// array it indexes.
+/// The map's `sources` / `sourcesContent` and its decoded segments. Read together, because a
+/// source index means nothing apart from the array it indexes.
 type private DecodedMap =
     {
         Sources: string[]
@@ -165,14 +157,14 @@ let tests =
         [
             test "supplying source emits a `sourceMappingURL` comment" {
                 let artifact = compileWithMap "printfn \"hi\"" None
-                // The mapped JS keeps the 0a body, then the trailing comment.
+
                 Expect.equal
                     (Codegen.toSource artifact)
                     "console.log(\"hi\");\n//# sourceMappingURL=Hi.mjs.map\n"
                     "the ESM source plus the sourceMappingURL comment"
             }
 
-            test "no source text → no map, unchanged 0a output" {
+            test "no source text → no map, and the emitted JS is unchanged" {
                 let artifact =
                     Codegen.compile (JsProjectInfo.defaults "Hi") (frozenOf "printfn \"hi\"")
 
@@ -197,9 +189,8 @@ let tests =
                         "printfn \"hi\""
                         "the embedded source content"
 
-                    // `console.log` is generated at (line 0, col 0); `printfn` is
-                    // the first source token, also at (0, 0). The single segment
-                    // is therefore four zero deltas — VLQ `AAAA`.
+                    // `console.log` is generated at (line 0, col 0); `printfn` is the first
+                    // source token, also at (0, 0), so the single segment is four zero deltas.
                     Expect.equal (root.GetProperty("mappings").GetString()) "AAAA" "the VLQ mappings"
             }
 
@@ -214,7 +205,6 @@ let tests =
                 Expect.isTrue (IO.File.Exists jsPath) "the .js was written"
                 Expect.isTrue (IO.File.Exists mapPath) "the .js.map was written"
 
-                // The map filename in the comment matches the emitted basename.
                 Expect.stringContains
                     (IO.File.ReadAllText jsPath)
                     "//# sourceMappingURL=hi.mjs.map"
@@ -228,10 +218,9 @@ let tests =
             }
 
             test "a build that reaches no producer emits the single-source document verbatim" {
-                // The gate on the multi-source axis being ADDITIVE. Spelled as the whole
-                // document and not as a property of it: `sources`/`sourcesContent` became
-                // arrays and every segment grew a source-index field, and the only way to say
-                // that costs a one-file build nothing is to pin the bytes.
+                // Pinned as the whole document rather than as a property of it, because the
+                // only way to say the multi-source axis costs a one-file build nothing is to
+                // fix the bytes.
                 Expect.equal
                     (Codegen.toSourceMap (compileWithMap "printfn \"hi\"" None))
                     (Some(
@@ -243,11 +232,9 @@ let tests =
             }
 
             test "an inlined body maps to the PRODUCER's own file and line" {
-                // The end-to-end claim. `1 + 2` reaches Vesper.Core TWICE — the operator's own
-                // `let inline` in `ops-platform.js.fs`, whose trait call dispatches to `int`'s
-                // `static member (+)` in `prim-types-min.js.fs`, where the template text
-                // actually is — and both are spliced onto this call site. A debugger stepping
-                // into the `+` must land in the file that spells the intrinsic.
+                // `1 + 2` reaches Vesper.Core twice: the operator's own `let inline` in
+                // `ops-platform.js.fs`, whose trait call dispatches to `int`'s `(+)` in
+                // `prim-types-min.js.fs`, where the template text is. Both splice onto here.
                 let input = "let a = 1 + 2\n"
                 let m = decodeMap (compileMapped "Add" input)
 
@@ -268,9 +255,8 @@ let tests =
                 | [ seg ] ->
                     let line = lineOf m.Contents.[seg.SrcIndex] seg.SrcLine
 
-                    // Asserted against the CONTENT the map itself embeds, not against a line
-                    // number: what must be true is that the coordinates land on the intrinsic,
-                    // and editing the producer may legitimately move which line that is.
+                    // Asserted against the CONTENT the map embeds, not against a line number,
+                    // because editing the producer may legitimately move which line it is.
                     Expect.stringContains line "($0 + $1) | 0" "the producer line is `int`'s own `(+)` body"
 
                     Expect.stringStarts
@@ -279,8 +265,8 @@ let tests =
                         "…and the column is the intrinsic's own token, not the head of the line"
                 | other -> failtestf "exactly one emitted node is the producer's `(# … #)`; got %d" (List.length other)
 
-                // The operands were written HERE and stay here — a map that simply relabelled
-                // every segment onto the producer would pass the assertion above.
+                // The operands were written HERE and stay here, because a map that simply
+                // relabelled every segment onto the producer would pass the assertion above.
                 Expect.equal
                     (m.Segments
                      |> List.filter (fun s -> s.SrcIndex = 0)
@@ -290,11 +276,9 @@ let tests =
             }
 
             test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
-                // The member half of the same claim. `a.[1]` is `'T[]`'s `get_Item`, lifted off
-                // `array-index.js.fs` rather than published as a `let inline`, and what its
-                // nodes map to is the file the member was WRITTEN in — not the line that merely
-                // INDEXES the array, which is what the emit-time copy would otherwise attribute
-                // its `ldelem` to.
+                // The member half of the same claim. `a.[i]` is `'T[]`'s `get_Item`, lifted off
+                // `array-index.js.fs`, and its nodes map to the file the member was WRITTEN in,
+                // not to the line that merely INDEXES the array.
                 let input = "let read (a: int[]) (i: int) : int = a.[i]\n"
                 let m = decodeMap (compileMapped "Idx" input)
 
@@ -315,8 +299,8 @@ let tests =
                         "ldelem.any"
                         "…on the member's own intrinsic line"
 
-                // The object argument and the index were written HERE and stay here — a map that
-                // relabelled the whole expansion onto the producer would pass the check above.
+                // The object argument and the index were written HERE and stay here, because a
+                // map relabelling the whole expansion onto the producer would pass the check.
                 Expect.contains
                     (attributions m |> List.map snd)
                     "Idx.fsx"
@@ -325,9 +309,8 @@ let tests =
 
             test "a fused argument POPS back to the consuming file" {
                 // `a && b` outlines as `if a then ⟨b⟩ else false`: the conditional is
-                // `ops-std.fs`'s, `b` is the caller's, and the `CallerExpr` mark is the only
-                // thing that tells them apart inside one entry. If the pop did not survive to
-                // the map, the caller's own `false` would be attributed to a Vesper source line.
+                // `ops-std.fs`'s and `b` is the caller's, so without the pop the caller's own
+                // `false` would be attributed to a Vesper source line.
                 let input = "let a = true && false\n"
                 let m = decodeMap (compileMapped "And" input)
 
@@ -351,11 +334,9 @@ let tests =
             }
 
             test "a NESTED frame is attributed to its own file, not to the entry that reached it" {
-                // `b |> not` is the entry-references-entry leg: `(|>)`'s body (in `ops-std.fs`)
-                // carries the edge that names `not`'s entry (in `ops-platform.js.fs`). The `!`
-                // the program emits comes from `not`, so it must name `not`'s file — an
-                // implementation that attributed a whole expansion to its OUTERMOST entry would
-                // say `ops-std.fs` here and still look entirely plausible.
+                // `(|>)`'s body (in `ops-std.fs`) carries the edge naming `not`'s entry (in
+                // `ops-platform.js.fs`), and the emitted `!` comes from `not`, so an
+                // implementation attributing the expansion to its OUTERMOST entry would fail.
                 let input = "let b = true\nlet a = b |> not\n"
                 let m = decodeMap (compileMapped "Pipe" input)
 

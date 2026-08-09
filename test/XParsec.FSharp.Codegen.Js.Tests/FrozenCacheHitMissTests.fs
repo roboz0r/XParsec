@@ -7,15 +7,12 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The hit/miss parity gate for the cache-wrapped freeze: a MISS runs `produce` exactly once and
-// stores the blob; a subsequent HIT does NOT run `produce` and returns a tree that emits
-// byte-identical JS. Freezing + JS codegen are one call here (`frozenOfJs` / the conformance
-// pipeline), so this is where "cached output byte-identical" is judged against real programs.
-//
-// Gated set = programs the JS backend actually COMPILES, mirroring the direct/round-trip
-// byte-identity gates so `frozenOfJs` never trips on a `Diagnose` program's diagnostics.
+// The hit/miss parity gate for the cache-wrapped freeze: a MISS runs `produce` exactly once
+// and stores the blob; a subsequent HIT does NOT run `produce` and returns a tree that emits
+// byte-identical JS, judged against real programs.
 
-/// Programs the JS backend compiles.
+/// Programs the JS backend compiles, so `frozenOfJs` never trips on a `Diagnose` program's
+/// error diagnostics.
 let private gated =
     programs
     |> List.filter (fun p ->
@@ -25,9 +22,8 @@ let private gated =
         | _ -> false
     )
 
-/// The compilation every corpus program is keyed under. Folded ONCE for the whole list, which
-/// is what `Hashing.CompilationDigest` exists to make natural — the programs stand alone, so
-/// the digest is the same for all of them and only the source varies.
+/// The compilation every corpus program is keyed under. The programs stand alone, so the
+/// digest is the same for all of them and only the source varies.
 let private conformanceDigest =
     Hashing.compilationDigest
         {
@@ -38,10 +34,9 @@ let private conformanceDigest =
             SelfManifest = None
         }
 
-/// The cache key a driver would assemble for a source file with no dependencies — the query tag
-/// and the poison-guard version live in the key (the cache module is query-agnostic). An empty
-/// environment is fine here: the corpus programs stand alone, and this gate is about hit/miss
-/// parity of the blob, not about what moves a key.
+/// The cache key a driver would assemble for a source file with no dependencies: the query
+/// tag and the poison-guard version live in the key, because the cache module is
+/// query-agnostic. This gate is about hit/miss parity of the blob, not about what moves a key.
 let private freezeKey (src: string) : CacheKey =
     {
         Query = QueryId.Freeze
@@ -71,7 +66,7 @@ let tests =
                     Expect.equal calls 1 "produce called exactly once on the miss"
                     Expect.isTrue (store.TryLoad key).IsSome "store now holds the key"
 
-                    // HIT: produce is NOT run again — the tree comes from the cached blob.
+                    // HIT: produce is NOT run again; the tree comes from the cached blob.
                     let hitTree = FrozenCache.freeze store key produce
                     Expect.equal calls 1 "produce not called again on the hit"
 

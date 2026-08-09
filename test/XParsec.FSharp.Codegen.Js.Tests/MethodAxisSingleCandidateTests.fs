@@ -7,24 +7,12 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// TS provider: the SINGLE-candidate `TryLookupMember`
-// field-walk must freshen a member's method typars per call site, exactly as the
-// multi-candidate overload-commit path already does
-// (`ExternalSymbols.instantiateSignature` via `commitExternalOverload`).
-//
-// The sibling `MethodAxisGenericTests` pins the MULTI-candidate path: `Id.identity`
-// carries a sham second overload precisely to force `on`-style overload commit, the
-// only site that historically freshened. Here `echo` has ONE signature, so
-// `tryInferExternalInstanceMethodCall` DECLINES (candidates.Length <= 1) and the call
-// falls to `resolveFieldStep`'s external-`TyClass` field-walk — the path that used
-// `ExternalSymbols.openSignature` (method typars left as inert `TyTypar(Method,_)`
-// markers a per-call solution can never touch). Calling `echo` at TWO instantiations
-// (int, string) in one program is the discriminator: shared inert markers cross-
-// contaminate (or fail rigid unification), independent fresh `TyVar`s type both.
+// Overload commit declines a member with ONE signature, so its method typars are freshened
+// on the single-candidate field-walk instead. `echo<U>(x: U): U` called at int and then at
+// string is the discriminator: a single shared `U` cannot solve both.
 
-/// `boxlib`: an interface `Box` with a SINGLE generic instance method
-/// `echo<U>(x: U): U` (one signature, so the single-candidate field-walk path), plus a
-/// `makeBox(): Box` factory.
+/// `boxlib`: an interface `Box` with the single generic instance method
+/// `echo<U>(x: U): U`, plus a `makeBox(): Box` factory.
 let private echoManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -49,14 +37,12 @@ let private echoContract = contractTs echoManifest
 
 let private echoProvider: IExternalSymbolProvider = echoContract.Provider
 
-/// Hand-authored runtime backing `boxlib`: `makeBox()` yields an object whose
-/// `echo` instance method is the identity (so the native `objArg.member(args)`
-/// lowering round-trips the argument unchanged).
+/// Hand-authored runtime backing `boxlib`: `makeBox()` yields an object whose `echo`
+/// instance method is the identity, so a round-trip prints the argument unchanged.
 let private echoRuntimeSource =
     "export function makeBox() { return { echo(x) { return x; } }; }\n"
 
-// A SINGLE generic instance method, called at int then at string on one object argument:
-// `U` must freshen per call, or one of the two uses fails to type.
+// One object, `echo` called at int and then at string.
 let private program =
     String.concat
         "\n"
@@ -91,10 +77,6 @@ let tests =
         "MethodAxisSingleCandidate"
         [
             test "a single-candidate instance generic member freshens per call (analysis)" {
-                // The discriminator: with the field-walk leaving `U` an inert
-                // `TyTypar(Method,0)` marker, calling `echo` at int and string shares one
-                // marker and cannot solve both — analysis errors. With per-call freshening
-                // both calls type cleanly.
                 let errors = analyseErrors program
 
                 Expect.isEmpty

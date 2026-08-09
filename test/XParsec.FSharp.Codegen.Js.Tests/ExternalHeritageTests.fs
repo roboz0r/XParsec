@@ -7,19 +7,9 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// TS provider — external INTERFACE heritage resolution. The TS-manifest
-// provider stores an interface's `extends`-chain UN-flattened (`FrozenInterfaces` /
-// `FrozenBaseType`) and does NOT copy inherited members onto the subtype's `Members`
-// (unlike the CLR metadata layer, where `GetInterfaces()` pre-flattens the transitive
-// set). Two capabilities therefore have to be walked at the consumer:
-//
-//   Gap 1 — interface→interface supertype ASSIGNABILITY at the foreign-arg seam:
-//           passing a `Child` where a super-interface `Base<int>` is expected.
-//   Gap 2 — inherited MEMBER READS: reading a member declared on a base interface off a
-//           subtype object argument.
-//
-// Both must resolve DIRECTLY (Child extends Base) AND TRANSITIVELY (grandparent, via an
-// intermediate interface with no members of the target).
+// The TS-manifest provider stores an interface's `extends` chain UN-flattened and does
+// not copy inherited members onto the subtype, so the consumer walks it: supertype
+// assignability at the foreign-arg seam, and inherited member reads. Direct and transitive.
 
 // ─── Hand-built manifest: A<T> ⊃ B ⊃ C (generic root, two-deep chain) ───────────
 
@@ -27,11 +17,8 @@ let private intT = named "int"
 let private unitT = named "unit"
 let private stringT = named "string"
 
-/// `heritlib`:
-///   interface A<T> { value: T; m(): T }
-///   interface B extends A<int> { bTag: string }
-///   interface C extends B      { cTag: string }
-/// plus factories `makeA(): A<int>`, `makeB(): B`, `makeC(): C` and a consumer
+/// `heritlib`: `A<T> { value: T; m(): T }`, `B extends A<int> { bTag: string }`,
+/// `C extends B { cTag: string }`, factories `makeA`/`makeB`/`makeC`, and a consumer
 /// `useA(a: A<int>): unit`.
 let private manifest: Schema.PackageManifest =
     {
@@ -58,12 +45,9 @@ let private analyse (input: string) : Diagnostic list = analyseWith provider inp
 
 // ─── E2E: an inherited member READ lowers to native `objArg.member` and runs ────
 
-/// `chainlib`: a non-generic two-deep chain through an EMPTY intermediate interface,
-///   interface Base { value: int; describe(): string }
-///   interface Mid extends Base {}          // no own members — a pure relay
-///   interface Leaf extends Mid { tag: int }
-/// with `makeLeaf(): Leaf`. Reading `leaf.value` / `leaf.describe()` off a `Leaf` must
-/// resolve through the grandparent `Base` and lower to a native `objArg.member`.
+/// `chainlib`: `Base { value: int; describe(): string }`, an EMPTY relay
+/// `Mid extends Base {}`, `Leaf extends Mid { tag: int }`, and `makeLeaf(): Leaf`.
+/// Reading `leaf.value` off a `Leaf` must resolve through the grandparent `Base`.
 let private chainManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -126,7 +110,7 @@ let tests =
     testList
         "ExternalHeritage"
         [
-            // ── Gap 2: inherited member reads ──────────────────────────────────────
+            // ── Inherited member reads ─────────────────────────────────────────────
             test "DIRECT inherited member read: B sees A's `value`" {
                 // `value` is declared on `A<T>`; `B extends A<int>` inherits it as `int`.
                 let errors =
@@ -164,7 +148,7 @@ let tests =
                 Expect.isNonEmpty errors "reading a nonexistent member must still error"
             }
 
-            // ── Gap 1: interface→interface supertype assignability ─────────────────
+            // ── Interface→interface supertype assignability ────────────────────────
             test "DIRECT super-interface assignability: B flows into an A<int> param" {
                 let errors = analyse (String.concat "\n" [ "let b = makeB()"; "useA(b)"; "" ])
 
@@ -184,10 +168,9 @@ let tests =
 
             // ── E2E: transitively-inherited read lowers native and round-trips ─────
             test "an inherited member READ lowers to native objArg.member and runs under Node" {
-                // `leaf.value` is declared on `Base`, reached from `Leaf` THROUGH the empty
-                // `Mid` — the transitive inherited-member walk. It must lower to a plain
-                // `objArg.value` (the declaring `Base` interface is AttachedNative), never a
-                // mangled `Base__value` free-fn import.
+                // `leaf.value` is declared on `Base` and reached from `Leaf` through the
+                // empty `Mid`. It must lower to a plain `objArg.value`, never a mangled
+                // `Base__value` free-fn import.
                 let program =
                     String.concat "\n" [ "let leaf = makeLeaf()"; "let result = leaf.value"; "" ]
 

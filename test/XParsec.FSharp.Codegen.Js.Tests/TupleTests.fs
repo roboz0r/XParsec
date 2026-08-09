@@ -43,8 +43,7 @@ let tests =
             }
 
             // A destructuring `let` has no JS statement form, so it lowers to the same IIFE
-            // any other let-expression takes — its arrow parameter carrying the array
-            // destructuring a tuple PARAMETER already binds by. The value is read once.
+            // any other let-expression takes, with `[a, b]` destructuring on the parameter.
             test "a destructuring `let (a, b) = p` binds both elements" {
                 match
                     runJs
@@ -65,9 +64,8 @@ let tests =
                     Expect.equal out "6" "nested tuple destructuring [[a, b], c]"
             }
 
-            // Tuples are unbounded; the JS backend already represents every tuple as
-            // a flat array, so an 8-element tuple needs no `TRest` nesting — just a
-            // longer array literal with positional reads. Regression guard.
+            // Every tuple is a flat array, so an 8-element one needs no `TRest` nesting,
+            // just a longer array literal with positional reads.
             test "an 8-element tuple is a flat 8-slot JS array (no nesting)" {
                 Expect.equal
                     (emitJs
@@ -90,7 +88,7 @@ let tests =
                     Expect.equal out "36" "all eight array slots add (1+..+8)"
             }
 
-            test "a 15-tuple round-trips (would be double Rest-nested on CLR; flat on JS)" {
+            test "a 15-tuple round-trips flat (no `TRest` nesting at any length)" {
                 match
                     runJs
                         "tuple15"

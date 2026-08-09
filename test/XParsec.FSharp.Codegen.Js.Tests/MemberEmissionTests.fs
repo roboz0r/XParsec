@@ -86,7 +86,7 @@ let tests =
                     Expect.equal out "false\ntrue" "Lst__get_IsEmpty reads .tag"
             }
 
-            test "a recursive instance property (Length) and Head read fields" {
+            test "a recursive instance property (Length) recurses; Head reads its field" {
                 match
                     runJs
                         "member-length-head"

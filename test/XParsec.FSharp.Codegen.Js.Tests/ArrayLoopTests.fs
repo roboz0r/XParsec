@@ -4,13 +4,10 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS-backend array / iteration gaps:
-// general `'T[]` (`newarr`/`ldelem`/`stelem`/`ldlen`), `while` loops, and the
-// mutable locals a loop drives (`let mutable` + `Assignment`). Each construct is
-// proven by emission (the lowering shape) plus Node execution (the behaviour).
+// JS lowering of general `'T[]` (`newarr`/`ldelem`/`stelem`/`ldlen`), `while` and counted
+// `for` loops, and the mutable locals a loop drives. Each construct is pinned by its
+// emitted shape, then run under Node.
 
-// A function whose body sums `1 .. n` with a `while` loop over two mutable locals —
-// the canonical loop+mutation shape.
 let private sumToSrc =
     String.concat
         "\n"
@@ -25,10 +22,9 @@ let private sumToSrc =
             "printfn \"%d\" (sumTo 5)"
         ]
 
-// Allocate an `int[]`, fill it by index, then sum it with a `while` loop driven by
-// `arr.Length`. Array creation uses the raw `newarr` intrinsic (the same mnemonic
-// `Vesper.Array`'s `zeroCreate` carries) so the slice is self-contained — it needs
-// no `Vesper.Array` runtime module, only the now-present `ops-platform.js.fs` array ops.
+// Allocation is the raw `newarr` intrinsic rather than `Array.zeroCreate`, which carries
+// the same mnemonic, so this fixture needs only the platform array ops and no
+// `Vesper.Array` runtime module.
 let private arraySrc =
     String.concat
         "\n"
@@ -47,9 +43,6 @@ let private arraySrc =
             "printfn \"%d\" (build ())"
         ]
 
-// `for i = 1 to n do …` — the counted-loop sibling of `while`. Sums `1 .. n` by
-// accumulating into a mutable local; the limit `n` is evaluated once (hoisted)
-// and the loop variable `i` counts up inclusively.
 let private forToSrc =
     String.concat
         "\n"
@@ -73,14 +66,12 @@ let tests =
                 let js = emitJs forToSrc
                 Expect.stringContains js "for (let i = " "emits a counted for-loop binding i"
                 Expect.stringContains js "i <= " "iterates up to the limit inclusively"
-                // The limit `n` is hoisted into a `const` so it is read once, not re-evaluated.
                 Expect.stringContains js "_lim" "the end-expr is hoisted into a limit binding"
             }
 
-            // Two counted loops of ONE inlined body land side by side in the SAME JS
-            // block, and every node of a spliced body carries the call site's one token —
-            // so a limit named after that token would declare the same `const` twice,
-            // which is a `SyntaxError`, not a shadow.
+            // Two counted loops from ONE inlined body land in the same JS block, and every
+            // node of a spliced body carries the call site's single token, so a limit named
+            // after that token would redeclare one `const`: a `SyntaxError`, not a shadow.
             test "two hoisted limits from one spliced body are distinct `const`s" {
                 let src =
                     String.concat
@@ -118,9 +109,8 @@ let tests =
 
             // ---- while + mutable locals --------------------------------------
 
-            test "a `while` loop over mutable locals emits a `let` binding and a `while` statement" {
+            test "a `while` loop over mutable locals emits a `while` statement that reassigns them" {
                 let js = emitJs sumToSrc
-                // The mutable accumulator is a reassignable `let`, never a `const`.
                 Expect.stringContains js "while (" "emits a while loop"
                 Expect.isTrue (js.Contains "(acc = ") "the accumulator is reassigned"
             }
@@ -135,7 +125,7 @@ let tests =
 
             // ---- general arrays ----------------------------------------------
 
-            test "`Array.zeroCreate` (newarr) emits a dense `Array(n).fill(null)`" {
+            test "a raw `newarr` emits a dense `Array(n).fill(null)`" {
                 let js = emitJs arraySrc
                 Expect.stringContains js "Array(" "allocates via Array(n)"
                 Expect.stringContains js ".fill(null)" "fills dense so reads aren't sparse holes"
@@ -144,7 +134,6 @@ let tests =
             test "`arr.[i] <- v` / `arr.[i]` / `arr.Length` emit index assign / read / `.length`" {
                 let js = emitJs arraySrc
                 Expect.stringContains js ".length" "arr.Length → arr.length"
-                // A computed-member access `…[0]` (set) / `…[i]` (read).
                 Expect.stringContains js "[0]" "indexed write uses a computed member"
             }
 
@@ -157,16 +146,15 @@ let tests =
             }
 
             // ---- string indexing ---------------------------------------------
-            //
-            // `s.[i]` on a `string` desugars to the `StringIntrinsics.GetString` inline
-            // intrinsic (the string analogue of `GetArray`), whose JS body emits the
-            // native `s[i]`. The front end routes here because JS `string` has no BCL
-            // `get_Chars`; on CLR `get_Chars` resolves first, so CLR is untouched.
+
+            // `s.[i]` on a `string` routes to an inline intrinsic whose JS body is the
+            // native `s[i]`. JS `string` has no `get_Chars`; on CLR `get_Chars` resolves
+            // first, so CLR is untouched.
 
             test "string indexing `s.[i]` emits a native computed-member read" {
                 let js =
                     emitJs "let charAt (s: string) (i: int) = s.[i]\nprintfn \"%c\" (charAt \"hello\" 1)"
-                // `GetString`'s `(# "$0[$1]" #)` body lowers to `(s)[(i)]`.
+                // The intrinsic body `(# "$0[$1]" #)` lowers to `(s)[(i)]`.
                 Expect.stringContains js "[(" "string index lowers to a bracket access"
             }
 
@@ -181,13 +169,11 @@ let tests =
                     Expect.equal out "e" "indexes the string to its char"
             }
 
-            // ---- `let _ = effect` (Wildcard bound variable) --------------------------
-            //
-            // `let _ = expr in body` discards `expr` (kept for its side effects) — the
-            // structural-printer's render-into-buffer idiom (`let _ = renderDoc …`), and
-            // the natural spelling for an effectful unit expression. JS has no
-            // let-expression, so a Wildcard bound variable in expression position lowers to a comma
-            // sequence `(<effect>, <body>)`; a *pure* discarded value drops away entirely.
+            // ---- `let _ = effect` (wildcard bound variable) --------------------------
+
+            // JS has no let-expression, so `let _ = expr in body` in expression position
+            // lowers to a comma sequence `(<effect>, <body>)`. A discarded value that is
+            // PURE drops away entirely.
 
             test "`let _ = effect in body` emits a comma sequence, not an IIFE" {
                 let src =
@@ -202,13 +188,10 @@ let tests =
                         ]
 
                 let js = emitJs src
-                // The discarded `stelem` is impure, so it survives as the first comma operand
-                // of `((a[0] = 7), a[0])` — not hoisted into a named `const`/IIFE bound variable.
                 Expect.stringContains js "(a[0] = 7), a[0]" "the effect is the head of a comma sequence"
             }
 
             test "`let _ = pure in body` drops the discarded pure value" {
-                // `1 + 1` is pure to `isPureValue`, so the wildcard bound variable collapses to body.
                 let js = emitJs "let f () =\n    let _ = 1 + 1\n    42\nprintfn \"%d\" (f ())"
                 Expect.isFalse (js.Contains "1 + 1") "a pure discarded value is elided"
             }

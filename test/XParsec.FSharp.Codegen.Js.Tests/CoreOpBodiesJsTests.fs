@@ -4,12 +4,9 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The Vesper.Core bodies whose JS form DIVERGES from the CLR one, run under Node rather
-// than inspected: `ignore` (`void`, not `()`), `isNull` (strict `===`, JS having a second
-// absence value the CLR does not), `box` (identity — JS has nothing unboxed to move), and
-// `invalidArg` (the argument name survives only in the message, every exception erasing to
-// `Error`). `IntComparison` rides along: the primitive `<`/`>`/`<=`/`>=` that resolve
-// without Vesper.Comparison.
+// The Vesper.Core bodies whose JS form diverges from the CLR one, run under Node rather
+// than inspected: `ignore` yields `void`, `box` is the identity, and `invalidArg` keeps
+// the argument name only inside the message, every exception erasing to `Error`.
 
 let private lines xs = String.concat "\n" xs
 
@@ -59,7 +56,7 @@ let tests =
                     Expect.equal out "true\nfalse" "the JS default of a reference type IS null"
             }
 
-            test "box is the identity — nothing is emitted around the value" {
+            test "box is the identity: nothing is emitted around the value" {
                 let js = emitJs "let b = box 42\n"
 
                 Expect.stringContains js "const b = 42" (sprintf "box erases entirely, got:\n%s" js)

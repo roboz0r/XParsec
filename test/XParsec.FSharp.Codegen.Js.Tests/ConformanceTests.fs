@@ -10,10 +10,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 let private jsBackend: Backend =
     {
         Name = "js"
-        // Node runs OUT of process, so a fault IS a non-zero exit; `runJs` has already
-        // appended stderr to the output by then, which carries the thrown `Error`'s
-        // message. `None` (node absent) reaches the runner as "runtime unavailable" and
-        // SKIPS the row — never as a failure.
+        // Node runs OUT of process, so a fault IS a non-zero exit; `runJs` has appended
+        // stderr by then, carrying the thrown `Error`'s message. `None` (node absent)
+        // reaches the runner as "runtime unavailable" and SKIPS the row.
         CompileAndRun =
             fun name src ->
                 runJs ("conformance-" + name) src

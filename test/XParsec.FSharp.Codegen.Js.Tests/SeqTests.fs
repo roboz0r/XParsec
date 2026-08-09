@@ -16,7 +16,7 @@ let private generated: Lazy<string> =
 /// Normalise line endings so a CRLF checkout still matches the printer's `\n` output.
 let private lf (s: string) : string = s.Replace("\r\n", "\n")
 
-/// The dependency assets `Vesper.Seq.mjs` imports — `zeroCreate` for `toArray`'s buffer,
+/// The dependency assets `Vesper.Seq.mjs` imports: `zeroCreate` for `toArray`'s buffer,
 /// `enumeratorOf` for the cursor's `GetEnumerator`. A consumer ships these too.
 let private depAssets: (string * string) list =
     [
@@ -37,10 +37,9 @@ let tests =
             }
 
             test "the truncate cursor emits as a class pair with the capability slots" {
-                // `interface seq<'T>` on a class lowers to `*[Symbol.iterator]()` and the
-                // cursor's `Dispose` to `[Symbol.dispose]()` — the capability protocol, not
-                // a BCL interface. The same source compiles for CLR against the real
-                // `IEnumerator\`1`, which is the whole point of the repr hop.
+                // `interface seq<'T>` on a class lowers to `*[Symbol.iterator]()`, and the
+                // cursor's `Dispose` to `[Symbol.dispose]()`. The same source compiles for
+                // CLR against the real `IEnumerator\`1`.
                 let src = generated.Value
                 Expect.stringContains src "class TruncateSeq" "emits the truncating view"
                 Expect.stringContains src "class TruncateEnumerator" "emits its cursor"
@@ -49,8 +48,8 @@ let tests =
             }
 
             test "toArray allocates through Vesper.Array, never a raw newarr" {
-                // The shared body spells no intrinsic: the buffer comes from the Array
-                // package, which is what let `toArray` stop needing the BCL's ResizeArray.
+                // The shared body spells no allocation intrinsic; the buffer comes from the
+                // Array package instead.
                 Expect.stringContains
                     (generated.Value)
                     "from \"./Vesper.Array.mjs\""
@@ -118,9 +117,8 @@ let tests =
             }
 
             test "truncate is LAZY: it pulls only what was asked for" {
-                // The whole reason for the hand-rolled cursor over an eager materialise. A
-                // generator that counts its pulls proves the source is not run to
-                // exhaustion — and that an INFINITE source terminates at all.
+                // A generator counting its pulls shows the source is not run to exhaustion,
+                // and that an INFINITE source terminates at all.
                 let driver =
                     String.concat
                         "\n"

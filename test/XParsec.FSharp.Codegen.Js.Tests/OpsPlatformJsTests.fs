@@ -7,26 +7,21 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS-TARGET layer-1 contract stack, built through the JS-native contract (`JsNativeSymbols`)
-// — the leaf a real JS build uses, with no dependency on the CLR backend. The
-// CROSS-target contrasts (a JS template absent on CLR; the CLR BCL repr) need the BCL
-// metadata leaf and live in `Codegen.Clr.Tests.OpsPlatformClrTests`.
-//
-// The body inspection itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
-// the same contract, only through a different symbol leaf.
+// The JS-native contract (`JsNativeSymbols`) is the leaf a real JS build uses, with no
+// dependency on the CLR backend. The CROSS-target contrasts need the BCL metadata leaf and
+// live in `Codegen.Clr.Tests.OpsPlatformClrTests`, which inspects bodies the same way.
 
 [<Tests>]
 let tests =
     testList
         "OpsPlatformJs"
         [
-            // The declared operator surface IS the JS target's arithmetic-support
-            // definition; the manifest states the same matrix. Built through the JS-native
-            // leaf, so this is the contract a real JS build resolves against.
+            // The declared operator surface IS the JS target's arithmetic-support definition;
+            // the manifest states the same matrix.
             OperatorSurfaceParity.tests "js" (JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ])
 
-            // The operators themselves are still `let inline` values in the collection —
-            // now bare trait calls, with the per-width IL on the primitives.
+            // The operators are `let inline` values in the collection: bare trait calls, with
+            // the per-width IL on the primitives.
             test "arithmetic operators are collected as cross-package inlines (js target)" {
                 let js = JsNativeSymbols.jsNativeInlineBodiesFor Target.Js [ vesperCoreManifest ]
 
@@ -42,9 +37,7 @@ let tests =
                     Expect.isTrue (Map.containsKey name js) (sprintf "%s sourced from ops-platform.js.fs" name)
             }
 
-            // The per-width JS templates, read off the primitives that now declare them.
-            // Each of these was a `when ^T1 : …` clause on the operator; the width owning
-            // its own body is what the freeze has to carry across intact.
+            // The per-width JS templates, read off the primitives that declare them.
             test "the int32 / int64 / float bodies freeze with their JS templates intact" {
                 let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
 
@@ -59,14 +52,14 @@ let tests =
                     "BigInt.asIntN(64, $0 + $1)"
                     "int64 `+` wraps through BigInt"
 
-                // `Math.imul` is the JS answer at 32 bits (contrasted against the CLR
-                // `mul` mnemonic in `OpsPlatformClrTests`).
+                // `Math.imul` is the JS answer at 32 bits; the CLR width uses a `mul` mnemonic.
                 Expect.contains (opsOf "int" "op_Multiply") "Math.imul($0, $1)" "int32 `*` is the Math.imul template"
 
                 Expect.contains (opsOf "float" "op_UnaryNegation") "-$0" "float `~-` is the bare JS operator"
                 Expect.contains (opsOf "int" "op_UnaryNegation") "(-$0) | 0" "int32 `~-` re-truncates"
 
-                // The `%` in the modulus template is NOT a printf placeholder — must survive freeze verbatim.
+                // The `%` in the modulus template is NOT a printf placeholder, so it must
+                // survive the freeze verbatim.
                 Expect.contains (opsOf "float" "op_Modulus") "$0 % $1" "modulus `%` carried through verbatim"
                 Expect.contains (opsOf "int" "op_Modulus") "($0 % $1) | 0" "int32 modulus keeps the bare `%`"
             }
@@ -110,9 +103,8 @@ let tests =
                 let intCanon, intPlat = facesOf "Vesper.int"
                 let floatCanon, floatPlat = facesOf "Vesper.float"
 
-                // Identity axis — the canon keys ARE the `.fsi` names, platform-
-                // INVARIANT (a JS build never sees a BCL name) and distinct, so the
-                // unifier never conflates `int` with `float`.
+                // The canon keys ARE the `.fsi` names, platform-INVARIANT (a JS build never
+                // sees a BCL name) and distinct, so the unifier cannot conflate the two.
                 Expect.equal intCanon (RuntimeNames.intKey) "int canon identity is the `.fsi` name"
                 Expect.equal floatCanon (RuntimeNames.floatKey) "float canon identity is the `.fsi` name"
                 Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
@@ -150,11 +142,9 @@ let tests =
                     "uint64 -> bigint on JS"
             }
 
-            // The bodies above carry the PRODUCER's token indices, so the collection has to
-            // hand back the files those indices are read against — this is what makes an
-            // `ops-platform.js.fs` position recoverable at all. Assert the retention against
-            // the disk it claims to describe: a hash taken from something other than the text
-            // that was parsed would turn every later resolution into a spurious hard failure.
+            // The bodies above carry the PRODUCER's token indices, so the collection must hand
+            // back the files those indices read against. Asserted against the disk, because a
+            // hash of anything but the parsed text makes every later resolution a hard failure.
             test "the collection retains the producer files its bodies are anchored in" {
                 let origins =
                     JsNativeSymbols.jsNativeInlineOriginsFor Target.Js [ vesperCoreManifest ]
@@ -169,9 +159,9 @@ let tests =
                 for s in origins do
                     let f = s.File
 
-                    // Resolved the way the collection itself resolved it — the package
-                    // directory plus the path the manifest names — because a retained file's
-                    // IDENTITY says which file it is, never where this build mounted it.
+                    // Resolved the way the collection did, as the package directory plus the
+                    // manifest's path, because a retained file's IDENTITY says which file it
+                    // is, never where this build mounted it.
                     let path =
                         System.IO.Path.Combine(System.IO.Path.GetDirectoryName vesperCoreManifest, f.Path.Relative)
 

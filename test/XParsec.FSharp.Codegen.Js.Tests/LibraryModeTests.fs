@@ -4,9 +4,9 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-/// `core-types.fs` compiled in library mode, AS `Vesper.Core`. It needs `Fun` and the two
-/// compiler attributes from its own package's contract, which also declares the three
-/// types the file itself defines — reachable only because the home assembly is named.
+/// `core-types.fs` compiled in library mode, AS `Vesper.Core`. Naming the home assembly is
+/// what makes its two compiler attributes, and its own `Ref<'T>` declaration, resolvable out
+/// of the package's own contract.
 let private coreTypes: Lazy<string> =
     lazy
         compileOwnLibrary
@@ -15,10 +15,9 @@ let private coreTypes: Lazy<string> =
             "core-types.fs"
             (IO.File.ReadAllText(srcFile "Vesper.Core" "core-types.fs"))
 
-// Script mode (a runnable program) emits top-level bindings as plain `const`;
-// library mode emits them as `export const` so other modules can import them.
-// This is the mode primitive the runtime library modules (Vesper.List, Vesper.Option)
-// are generated under.
+// Script mode (a runnable program) emits top-level bindings as plain `const`; library mode
+// emits them as `export const` so other modules can import them. The runtime library packages
+// (Vesper.List, Vesper.Option) are generated in library mode.
 [<Tests>]
 let tests =
     testList
@@ -45,12 +44,9 @@ let tests =
                     "Kind defaults to Script — no `export` (the runnable-program behaviour)"
             }
 
-            // ---- a Vesper.Core body compiled as a module ----
-            //
-            // Vesper.Core has no JS module of its own — an eighteen-file package, and a JS
-            // module is compiled from one file. `core-types.fs` is the exception: the ref
-            // cell needs only two erased attributes, so it stands alone.
-
+            // Vesper.Core has no JS module of its own, because a JS module compiles from one
+            // file and the package is many. `core-types.fs` is the exception: the ref cell
+            // needs only two erased attributes, so it stands alone.
             test "core-types.fs emits the ref cell and imports nothing" {
                 let src = coreTypes.Value
 

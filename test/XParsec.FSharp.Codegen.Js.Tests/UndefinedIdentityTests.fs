@@ -6,17 +6,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Isolation: `undefined`, `null`, and `unit` are THREE distinct type
-// identities under the conditional-fold membership test (directional `subsumes`),
-// even though `unit` and `undefined` are backend repr-coincident (both emit JS
-// `undefined`). `undefined` is a real JS-only intrinsic (`prim-types-undefined.js.fsi`,
-// extracted to `Intrinsic(canon="undefined", platform=Some "undefined")`), so
-// `canonName` resolves it forward through the provider before the reverse-canon map can
-// collapse the shared `"undefined"` platform repr onto `unit`. Pinned with a ground
-// `check extends E ? int : bool` conditional (folds to the true branch iff
-// `subsumes check E`), so an `int` arg admits only when the branch folded to `int`.
+// `undefined`, `null` and `unit` are THREE distinct type identities under the conditional
+// fold's membership test, even though `unit` and `undefined` are repr-coincident on the
+// backend (both emit JS `undefined`).
 
-// ─── Schema builders (mirroring TypeLevelFoldTests) ─────────────────────────
+// ─── Schema builders ────────────────────────────────────────────────────────
 let private named n = Schema.TypeRef.Named(n, [])
 let private unitT = named "unit"
 
@@ -42,9 +36,8 @@ let private methodMem name (sigs: Schema.Signature list) : Schema.Member =
     }
 
 // A single-param method whose param type is the ground conditional
-// `check extends extend ? int : bool`. The arg type at the call site witnesses
-// which branch was taken: an `int` arg admits iff the fold picked `int` (i.e.
-// `subsumes check extend` held), a `bool` arg iff it picked `bool`.
+// `check extends extend ? int : bool`. The arg type at the call site witnesses the branch: an
+// `int` arg admits iff the fold picked `int`, a `bool` arg iff it picked `bool`.
 let private condMethod name check extend : Schema.Member =
     methodMem
         name
@@ -70,7 +63,7 @@ let private idManifest: Schema.PackageManifest =
                     [
                         // undefined ⊑ undefined  → int branch (identity holds)
                         condMethod "uu" (named "undefined") (named "undefined")
-                        // undefined ⊑ unit  → MUST be false now → bool branch
+                        // undefined ⊑ unit  → false → bool branch
                         condMethod "uUnit" (named "undefined") unitT
                         // unit ⊑ undefined  → false → bool branch (converse)
                         condMethod "unitU" unitT (named "undefined")
@@ -126,8 +119,6 @@ let tests =
             }
 
             test "undefined extends unit folds FALSE (bool branch) — undefined ≠ unit" {
-                // The core pin: pre-fix, `canonName undefined` collapsed to `unit`
-                // and this wrongly folded to the int branch. It must now fold to bool.
                 Expect.isEmpty (analyse "e.uUnit(true)") "undefined ⊑ unit is FALSE → bool param"
                 Expect.isNonEmpty (analyse "e.uUnit(5)") "an int arg proves undefined⊑unit did NOT hold"
             }
@@ -148,8 +139,8 @@ let tests =
                 Expect.isNonEmpty (analyse "e.nUnit(5)") "an int arg proves null⊑unit did NOT hold"
             }
 
-            // ── the fix does not disturb unit's own identity ──
-            test "unit extends unit still folds TRUE (int branch) — no collateral damage" {
+            // ── unit's own identity is intact ──
+            test "unit extends unit folds TRUE (int branch)" {
                 Expect.isEmpty (analyse "e.unitUnit(5)") "unit ⊑ unit holds → int param"
                 Expect.isNonEmpty (analyse "e.unitUnit(true)") "a bool arg must not match the int branch"
             }

@@ -7,16 +7,9 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// W2 isolation fixtures (systematic-tests-first): the CommonJS (`export =`) and
-// Namespace import forms + the `node/* → Node.*` namespace mount. Each is hand-built
-// and asserted on the emitted JS TEXT (no Node round-trip — these pin lowering, not
-// runtime).
-//
-// The overloaded-free-function shape (an `export =` module whose value is an overloaded
-// function) is the node hard-blocker: the extractor brands it `ImportShape.CommonJsExport`
-// but the provider formerly (a) collapsed it to `Named` and (b) THREW in
-// `buildOverloadGroupingTypes`. Here the grouping type carries the group's import form
-// on its flags, and `erasedGroupingRef` lowers it faithfully.
+// The CommonJS (`export =`) and Namespace import forms, plus the `node/* → Node.*`
+// namespace mount, each carried on an OVERLOADED free function so the synthetic grouping
+// type has to carry the import form. Asserted on the JS text: these pin lowering.
 
 let private strT = named "string"
 let private floatT = named "float"
@@ -37,9 +30,8 @@ let private overloadedFnManifest (pkg: string) (fnName: string) (import: Schema.
         Refs = []
     }
 
-/// Emit `input` through a single-manifest provider, injecting a stub runtime module for
-/// `pkg` so the erase's `addRef` import resolves (the synthetic package has no `.toml`
-/// asset — the import contract is what these tests pin).
+/// Emit through a single-manifest provider with a stub runtime module for `pkg`, so the
+/// erase's import resolves (the synthetic package has no `.toml` asset).
 let private emitOverload (man: Schema.PackageManifest) (fileName: string) (input: string) : string =
     emitWith (contractTs man) (Map.ofList [ man.Package, { FileName = fileName; Source = "" } ]) false input
 
@@ -92,9 +84,9 @@ let tests =
             }
 
             test "a node/* home MOUNTS under Node.* yet still emits a real import (split of the mount from is-global)" {
-                // `Package = "node/fs"` mounts its exports under `Node.Fs` (mount axis) but is NOT
-                // a global home (import axis), so `Node.Fs.readFileSync("p")` must emit a REAL
-                // import — NOT the bare-name, no-import lowering a global pack (es2015) gets.
+                // `node/fs` mounts its exports under `Node.Fs` but is not a global home, so
+                // `Node.Fs.readFileSync("p")` must emit a REAL import rather than the
+                // bare-name, no-import lowering a global pack gets.
                 let nodeFsManifest: Schema.PackageManifest =
                     {
                         SchemaVersion = Schema.SchemaVersion
@@ -135,7 +127,6 @@ let tests =
                     "./fs.mjs"
                     (sprintf "the import must name the node module's runtime, got:\n%s" js)
 
-                // The mount homes the export under `Node.Fs` — the alias reflects that path.
                 Expect.stringContains
                     js
                     "$Node_Fs_readFileSync"

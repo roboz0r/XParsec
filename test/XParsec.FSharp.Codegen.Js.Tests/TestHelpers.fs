@@ -11,12 +11,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 
-/// Lex + parse a source string; a script fragment wraps as `AnonymousModule`. Through
-/// `Pipeline.parseUnrecovered`, the same gate the driver compiles behind, so a source that
-/// parses only because RECOVERY patched it raises here rather than being analysed as though
-/// it had been written that way.
-/// `Result.Ok`/`Result.Error` are qualified because `open …SemanticAnalysis` brings
-/// `Severity.Error` into scope, which would otherwise shadow them.
+/// Lex + parse a source string; a script fragment wraps as `AnonymousModule`. A source that
+/// parses only because RECOVERY patched it raises here. `Result.Error` is qualified because
+/// `open …SemanticAnalysis` brings `Severity.Error` into scope, shadowing it.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     match Pipeline.parseUnrecovered input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
@@ -80,23 +77,18 @@ let jsManifests: string list =
         srcManifest "Vesper.Array"
     ]
 
-/// The JS-target contract for `jsManifests` (BCL-free; resolves exceptions through
-/// Vesper.Exceptions) — the provider a program is analysed against, the producer files its
-/// served inline bodies are anchored in, and the manifest set backing its runtime imports.
-///
-/// ONE value, and every helper below draws from it rather than composing its own: a compile
-/// handed a provider from one manifest set and an anchor domain from another emits a source map
-/// that attributes producer code to a consuming line, in range and wrong.
+/// The JS-target contract for `jsManifests`, BCL-free: the provider a program is analysed
+/// against, the producer files its served inline bodies are anchored in, and the manifest set
+/// backing its runtime imports.
 let jsContract: Lazy<SymbolProviders.Contract> =
     lazy JsNativeSymbols.jsNativeContractFor Target.Js jsManifests
 
-/// `jsContract`'s provider, for the front-end helpers — analysis resolves symbols and reads no
-/// position. A PROJECTION of the contract, never a second build.
+/// `jsContract`'s provider, for the front-end helpers: analysis resolves symbols and reads no
+/// position.
 let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 
-/// Front-end a program to its frozen `FrozenPools`. Fails on any error diagnostic.
-/// Resolves through the real JS-native contract stack (`jsProvider`) — the
-/// superset that replaced the value-only `MockBuiltins` fixture.
+/// Front-end a program to its frozen `FrozenPools`, through `jsProvider`. Fails on any error
+/// diagnostic.
 let frozenOf (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
@@ -130,8 +122,7 @@ let frozenOfJs (input: string) : FrozenPools =
     Freeze.run ctx tast
 
 /// The map's view of a source: its text plus the tokens a frozen node's anchor indexes into.
-/// A production driver hands the backend the `Lexed` the front end already built; a test
-/// that only has the text lexes here, which is the same table by construction.
+/// A test that only has the text re-lexes here; production hands over the front end's `Lexed`.
 let jsSource (path: string) (input: string) : JsSource =
     match Lexing.lexString input with
     | Result.Error e -> failwithf "lex failed: %A" e
@@ -142,10 +133,9 @@ let jsSource (path: string) (input: string) : JsSource =
             Lexed = lexed
         }
 
-/// Emit a named program's JS from an ALREADY-frozen tree, through the exact project shape the
+/// Emit a named program's JS from an ALREADY-frozen tree, through the project shape the
 /// byte-identity gates pin (assembly `name`, `name + ".fsx"` source), stripping the trailing
-/// `//# sourceMappingURL` line. Single-sourced so the direct, round-trip, and cache-parity gates
-/// judge the round-tripped/cached tree against the identical emit path — they cannot drift apart.
+/// `//# sourceMappingURL` line.
 let emitFrozenJs (name: string) (src: string) (frozen: FrozenPools) : string =
     let project =
         { JsProjectInfo.defaults name with
@@ -192,12 +182,9 @@ let emitJsLibrary (input: string) : string =
 let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
     lazy JsNativeSymbols.jsNativeContractFor Target.Js [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 
-/// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest — `array.fs` splices
-/// `NewArray` out of the per-target `array-prelude.js.fs`, so the package's inline bodies
-/// have to be in the contract that compiles it. Safe here for the reason the exclusion
-/// exists: the collision it guards against is over in-file TYPES, and `Vesper.Array`
-/// declares none. A package that declares types (`Vesper.List`) takes the deps-only contract
-/// above, or names its home assembly.
+/// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest, because `array.fs` splices
+/// `NewArray` out of the per-target `array-prelude.js.fs`. Safe only because `Vesper.Array`
+/// declares no in-file types; one that does (`Vesper.List`) takes the deps-only contract above.
 let arrayDepsJsContract: Lazy<SymbolProviders.Contract> =
     lazy
         JsNativeSymbols.jsNativeContractFor
@@ -222,7 +209,7 @@ let seqDepsJsContract: Lazy<SymbolProviders.Contract> =
             ]
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
-/// dependencies — the impl's own in-file types are the resolution authority.
+/// dependencies, so the impl's own in-file types are the resolution authority.
 let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
@@ -236,10 +223,9 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
 
     Freeze.run ctx tast
 
-/// Front-end + freeze a JS-target package impl compiled AS `assemblyName` — the entry a
-/// package build harness uses. Naming the home assembly is what lets the package's own
-/// contract be in scope: a type shape homed there is the file seeing what it declares,
-/// not a second claimant of the name.
+/// Front-end + freeze a JS-target package impl compiled AS `assemblyName`. Naming the home
+/// assembly puts the package's own contract in scope: a type shape homed there is the file
+/// seeing what it declares, not a second claimant of the name.
 let frozenOwnImplJs (assemblyName: string) (provider: IExternalSymbolProvider) (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
@@ -325,41 +311,27 @@ let runJs (name: string) (input: string) : (int * string) option =
 
 // ─── TS-provider test scaffolding (shared by the provider tests) ─────────
 
-/// Aggregate the sources' ambient `open` prefixes, exactly as the production composite
-/// (`ExternalSymbolProviders.composite` via `collectAmbient`) does. `stackTs`/`stackTsMany` must
-/// surface this (not `[]`): the JS-native provider carries `Vesper` ambient, and
-/// `canonName`'s forward intrinsic resolution reaches `Vesper.undefined` (a JS-only
-/// intrinsic registered under its qualified name) only through it — dropping ambient
-/// would let the reverse-canon map collapse `undefined` onto `unit`.
-/// The ONE builder for a JS-target test provider stack: composes `sources` (no home
-/// assembly) then applies the covariant `number → float` resolution and the per-lookup
-/// cache in the SAME order as production (`TsManifestProvider.buildContractFor`). EVERY
-/// hand-built front-end test stack MUST go through here so the `NumberCovariance.wrap` /
-/// `ExternalSymbolProviders.memoize` steps can never be silently dropped at one site and quietly
-/// diverge from production behaviour.
+/// Composes `sources` (no home assembly), then the covariant `number → float` resolution and
+/// the per-lookup cache, in production's order.
 let stackJs (ambient: string list) (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
     ExternalSymbolProviders.stack ValueNone ambient sources
     |> NumberCovariance.wrap
     |> ExternalSymbolProviders.memoize
 
-/// `stackJs` with the ambient prefix set AGGREGATED from the sources (mirroring
-/// production `TsManifestProvider.buildContractFor`). A hand-built stack MUST use
-/// this rather than `stackJs []` whenever it layers over a Vesper contract source:
-/// dropping ambient hides the `Vesper` open-prefix the intrinsic resolver needs to
-/// find `Vesper.unit`/`Vesper.int` (`ctx.Intrinsics`) beneath the TS manifest.
+/// `stackJs` with the ambient prefix set AGGREGATED from the sources, as production does.
+/// `stackJs []` over a Vesper contract source drops the `Vesper` open-prefix the intrinsic
+/// resolver needs to find `Vesper.unit`/`Vesper.int`/`Vesper.undefined` beneath a TS manifest.
 let stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
     let ambient = sources |> List.collect (fun s -> s.AmbientOpenPrefixes)
     stackJs ambient sources
 
-/// The provider-stack one-liner: a TS-manifest provider layered over the standard
-/// JS-native provider (so the manifest's primitive/`int`/`string` argument types still
-/// resolve). `ValueNone` = no home-assembly identity; ambient is aggregated from the
-/// sources (mirroring production) so JS-only intrinsics resolve by bare name.
+/// A TS-manifest provider layered over the JS-native provider, so the manifest's
+/// primitive/`int`/`string` argument types still resolve.
 let stackTs (manifest: Schema.PackageManifest) : IExternalSymbolProvider =
     stackWithAmbient [ TsManifestProvider.providerOfManifest manifest; jsProvider.Value ]
 
 /// Like `stackTs` but layers SEVERAL TS-manifest providers (order preserved) over the
-/// JS-native provider — for a program driving more than one external package.
+/// JS-native provider, for a program driving more than one external package.
 let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvider =
     stackWithAmbient
         [
@@ -368,24 +340,17 @@ let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvid
         ]
 
 /// The EMIT contract of a `stackTsMany` stack: that stack as the provider, re-seated in
-/// `jsContract` — the contract of the JS-native leaf it layers over — so it carries that leaf's
-/// retention as its anchor domain. A TS manifest is declaration data: it carries no F# source and
-/// so serves no inline body, which makes the leaf the only layer a served body can come from and
-/// its retained producer files the only domain such a body's anchors index.
-///
-/// Layering and re-seating are ONE step so a caller cannot take the stack and leave the domain
-/// behind: a provider from one manifest set beside an anchor domain from another resolves a
-/// served body's position against a file that was never retained (`SymbolProviders.Contract`).
+/// `jsContract`, so it carries the JS-native leaf's retention as its anchor domain. A TS
+/// manifest serves no inline body, so the leaf is the only layer a served body comes from.
 let contractTsMany (manifests: Schema.PackageManifest list) : SymbolProviders.Contract =
     { jsContract.Value with
         Provider = stackTsMany manifests
     }
 
-/// `contractTsMany` for one manifest — the emit contract behind `stackTs`.
+/// `contractTsMany` for one manifest: the emit contract behind `stackTs`.
 let contractTs (manifest: Schema.PackageManifest) : SymbolProviders.Contract = contractTsMany [ manifest ]
 
-/// Analyse `input` through `provider` (the self-host front end) and return the ERROR
-/// diagnostics — the shared body of the per-package `analyse`/`analyseErrors` wrappers.
+/// Analyse `input` through the self-host front end; returns only the ERROR diagnostics.
 let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
@@ -394,20 +359,13 @@ let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic
 
     tast.Diagnostics |> Diagnostic.errors
 
-/// The newline-joined messages of `ds` (for `stringContains` assertions on the set of
-/// allowed values a directional-admission error names).
+/// The newline-joined messages of `ds`, for `stringContains` assertions.
 let errorText (ds: Diagnostic list) : string =
     ds |> List.map (fun d -> d.Message) |> String.concat "\n"
 
-/// The ONE shared `EmitJsContext.WalkCtx` builder, matching production wiring
-/// (`Codegen.compileWith`): a real resolver over the source — its token table AND its line
-/// starts, since an anchor is an index into the former (the hand-built test copies wrongly
-/// left `Resolver = ValueNone`) — and all lowering tables empty for `buildProgram` to fill.
-/// `runtime` is the injected package → `.mjs` map; `exportTopLevel` selects script
-/// (`false`) vs library (`true`).
-///
-/// Takes the whole `contract`, exactly as `Codegen.compileWith` does, so the provider that
-/// serves an inline body and the retention its producer positions index are one value here too.
+/// A `WalkCtx` matching production wiring: a real resolver over the source (its token table
+/// AND its line starts, since an anchor is an index into the former), and all lowering tables
+/// empty for `buildProgram` to fill. `exportTopLevel` selects script (`false`) vs library.
 let private jsWalkCtx
     (contract: SymbolProviders.Contract)
     (runtime: Map<string, JsRuntimeModule>)
@@ -433,14 +391,9 @@ let private jsWalkCtx
         (JsImports.create runtime)
         exportTopLevel
 
-/// Front-end + freeze `input` through `contract`, then emit JS with the injected
-/// `runtime` modules — the shared body of the per-package `emitWithX` helpers. Routes
-/// through `frozenImplJs` (analyse-for-self-host + freeze) and the one `jsWalkCtx`
-/// builder, so every provider test emits through identical, production-matched wiring.
-///
-/// The program is analysed and emitted through the SAME contract, so a body spliced out of a
-/// dependency resolves its position against the file it was written in (`contractTs` /
-/// `JsNativeSymbols.jsNativeContractFor` are how one is built).
+/// Front-end + freeze `input` through `contract`, then emit JS with the injected `runtime`
+/// modules. Analysed and emitted through the SAME contract, so a body spliced out of a
+/// dependency resolves its position against the file it was written in.
 let emitWith
     (contract: SymbolProviders.Contract)
     (runtime: Map<string, JsRuntimeModule>)
@@ -451,22 +404,19 @@ let emitWith
     let ctx = jsWalkCtx contract runtime exportTopLevel input frozen
     (JsPrint.print (EmitJs.buildProgram ctx)).Source
 
-/// The Node round-trip assertion, documented ONCE: write `files` to a tmp dir, run the
-/// first under Node, and require the trimmed stdout to EXACTLY equal `expected`. When
-/// `node` is absent `runNodeFiles` yields `None` and the exec check is SKIPPED — the
-/// caller's emit-time assertions already ran, so the test still exercises codegen.
+/// Write `files` to a tmp dir, run the first under Node, and require the trimmed stdout to
+/// EXACTLY equal `expected`. When `node` is absent the exec check is SKIPPED; the caller's
+/// emit-time assertions already ran.
 let expectNodeOutput (name: string) (files: (string * string) list) (expected: string) : unit =
     match runNodeFiles name files with
-    | None -> () // node absent — exec check skips; the caller's emit-time asserts still ran
+    | None -> ()
     | Some(code, out) ->
         Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
         Expect.equal out expected (sprintf "round-trip output, got:\n%s" out)
 
-/// The vendored es2015 ref pack (`../ts-fixtures/es2015/es2015.manifest.json`) — the
-/// GLOBAL lib manifest mounted under `Js` (its `Package = "es2015"` is a
-/// `TsGlobalHomes.globalLibHomes` entry). Shared by the `Js.Map` gate and by
-/// `MittFixture` (mitt's `all: Map<…>` is a homed ref into es2015). Committed golden;
-/// the Node extractor is never run.
+/// The vendored es2015 ref pack (`../ts-fixtures/es2015/es2015.manifest.json`): the GLOBAL
+/// lib manifest mounted under `Js`, so it emits no import. Committed golden; the Node
+/// extractor is never run.
 let es2015Manifest: Schema.PackageManifest =
     let path =
         IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "es2015", "es2015.manifest.json")
@@ -475,9 +425,8 @@ let es2015Manifest: Schema.PackageManifest =
     | Error e -> failwithf "es2015 manifest does not parse: %s" e
     | Ok man -> man
 
-/// The mitt TS fixture (golden manifest + vendored runtime under `../ts-fixtures/mitt`),
-/// shared by `MittE2ETests` and `UnannotatedMittTests`. Reads ONLY committed files; the
-/// Node extractor is never run.
+/// The mitt TS fixture: golden manifest + vendored runtime under `../ts-fixtures/mitt`.
+/// Reads ONLY committed files; the Node extractor is never run.
 module MittFixture =
 
     let dir = IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "mitt")
@@ -492,7 +441,6 @@ module MittFixture =
     let runtimeSource: string =
         IO.File.ReadAllText(IO.Path.Combine(dir, "dist", "mitt.mjs"))
 
-    /// The base provider — mitt STACKED OVER es2015 (so mitt's `all: Map<…>` homed ref
-    /// resolves as a real `Js.Map` and its members can be called) over the JS-native
-    /// provider. es2015 mounts under `Js` and emits no import (global pack).
+    /// mitt STACKED OVER es2015, so mitt's `all: Map<…>` homed ref resolves as a real
+    /// `Js.Map` and its members can be called, then over the JS-native provider.
     let provider: IExternalSymbolProvider = stackTsMany [ manifest; es2015Manifest ]

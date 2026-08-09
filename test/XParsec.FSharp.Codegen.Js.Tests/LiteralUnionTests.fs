@@ -7,16 +7,9 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// TS provider: TS string-LITERAL types + set-semantic union
-// identity. A manifest member `setMode(mode: "auto" | "manual"): unit` exercises the
-// DIRECTIONAL admission at the external-arg seam (companion design §"Literal types
-// stay structural … the nominalism invariant"):
-//   • a syntactic string CONSTANT admits by set membership;
-//   • a non-matching constant is a type error naming the allowed set;
-//   • a plain `string`-typed NON-constant does NOT admit (directional);
-//   • a Vesper string ENUM admits when its case-VALUE set ⊆ the union;
-//   • an enum with an extra case is rejected;
-//   • a literal-union RETURN widens OUTWARD to its base primitive.
+// A manifest member `setMode(mode: "auto" | "manual")` admits a string CONSTANT, or a
+// Vesper string enum whose case values are a subset, by set membership. Admission is
+// DIRECTIONAL: a plain `string`-typed variable misses. A literal-union RETURN widens out.
 
 // ─── Hand-built manifest; builders from `SchemaDsl` ────────────────────────────
 
@@ -112,10 +105,8 @@ let tests =
             }
 
             test "(3) a plain string-typed NON-constant does NOT admit (directional)" {
-                // `let m = "auto"` generalises `m` to plain `string` (the nominalism
-                // invariant — Vesper never mints a literal), so `w.setMode(m)` is a
-                // directional MISS: the constant is not visible at the arg site. Pinned
-                // as an ERROR (the honest directional behaviour).
+                // Vesper never mints a literal type, so `let m = "auto"` gives `m` plain
+                // `string` and the constant is no longer visible at the arg site.
                 let errors =
                     analyse (String.concat "\n" [ "let w = makeWidget()"; "let m = \"auto\""; "w.setMode(m)"; "" ])
 
@@ -138,10 +129,9 @@ let tests =
             }
 
             test "(4b) parenthesized string case values still admit (shared projection peels the paren)" {
-                // A value-grouping paren (`| Auto = ("auto")`) is a legal string case.
-                // The enum-registration reader shares the enum-case value projection, which
-                // peels the paren, so the case-VALUE set is populated early and the enum
-                // admits — a bare-string-only reader declines this silently.
+                // `| Auto = ("auto")` is a legal string case: the shared value projection
+                // peels the grouping paren, so the case-value set is populated and the
+                // enum still admits.
                 let program =
                     String.concat
                         "\n"
@@ -180,9 +170,8 @@ let tests =
             }
 
             test "E2E: the literal arg emits as a bare JS string and reaches the runtime" {
-                // The Vesper program passes the string CONSTANT `"auto"` into the
-                // literal-union `setMode` parameter; it must emit as the bare JS string
-                // (NO wrapper) and the runtime stashes it, read back by `getMode`.
+                // The string constant must emit as the bare JS string, with no wrapper;
+                // the runtime stashes it and `getMode` reads it back.
                 let program =
                     String.concat
                         "\n"
@@ -195,7 +184,6 @@ let tests =
 
                 let js = emitWidget program
 
-                // The literal argument is the bare JS string — no wrapping object / call.
                 Expect.isTrue (js.Contains "setMode(\"auto\")") (sprintf "expected a bare-string arg, got:\n%s" js)
 
                 expectNodeOutput

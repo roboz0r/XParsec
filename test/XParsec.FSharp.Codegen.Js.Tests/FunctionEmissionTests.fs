@@ -3,10 +3,9 @@ module XParsec.FSharp.Codegen.Js.Tests.FunctionEmissionTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-/// Every identifier BOUND by the parameter list of the top-level arrow `const <name> =
-/// (…) => …`, destructuring leaves included. A flat module function binds its whole
-/// parameter vector in ONE arrow, so two equal names here are a duplicate parameter —
-/// a `SyntaxError` in module code, not a shadow.
+/// Every identifier bound by the parameter list of the top-level arrow `const <name> =
+/// (…) => …`, destructuring leaves included. The whole vector binds in ONE arrow, so two
+/// equal names here are a duplicate parameter, which is a `SyntaxError` in module code.
 let private arrowParamBindings (js: string) (name: string) : string list =
     let opening = "const " + name + " = ("
 
@@ -27,10 +26,9 @@ let tests =
     testList
         "Codegen.Js Function Emission"
         [
-            // A `Fun` IS its own callable in JS, so `f.Invoke` unapplied can only pass the
-            // object argument through when the two have the SAME parameter shape. They do at the
-            // curried arity and nowhere above it: an escaped member is one TUPLED parameter,
-            // while a flat `Fun` is an N-positional arrow.
+            // A `Fun` IS its own callable in JS, so an unapplied `f.Invoke` can pass the object
+            // argument straight through only at the curried arity. Above it the escaped member
+            // takes one TUPLED parameter while the flat `Fun` is an N-positional arrow.
 
             test "an unapplied curried `Fun.Invoke` is the object argument itself" {
                 Expect.equal
@@ -67,11 +65,9 @@ let tests =
                     "under-applied module function adapts to the source-shaped currying"
             }
 
-            // A parameter no source spells (`_`, `()`) still needs a JS name, and an
-            // INLINED body carries the call site's one token on every node it owns — so
-            // a token cannot tell two of them apart. Both snippets below reach the flat
-            // path, where the whole parameter vector binds in a SINGLE arrow and two
-            // equal names are a `SyntaxError` (a module is strict code), not a shadow.
+            // A parameter no source spells (`_`, `()`) still needs a JS name, and an INLINED
+            // body carries the call site's one token on every node it owns, so a token cannot
+            // tell two of them apart.
 
             test "two wildcard parameters of one spliced flat arrow are distinct bindings" {
                 let src =

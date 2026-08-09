@@ -4,21 +4,13 @@ open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
-// The per-hole classification lives in
-// `SemanticAnalysis.PrintfHoleForm` as a *semantic* `HoleForm` — the single
-// accept-gate (`tryClassify`) shared by the Elaborate lowering decision and both
-// codegen backends. The CLR-only `(HoleKind, .NET-format, alignment)` projection
-// is `Codegen.Clr.ClrHoleFormat.toDotNetFormat`.
-//
-// An earlier equivalence net compared `tryClassify` against the legacy
-// `PrintfSpec.tryHoleFormat` oracle; that oracle is now deleted, so byte-parity
-// is pinned end-to-end by `PrintfSpecTests` / `PrintfHappyPathTests`
-// (CLR) and `PrintfSpecifierTests` (JS Node). What remains here is a light
-// non-vacuity guard: the classifier must both accept and defer across the matrix.
+// `tryClassify` is the accept-gate both backends share: it either classifies a hole into
+// a `HoleForm` or defers it to the cold path. Byte-parity of the classified output is
+// pinned by the per-target specifier suites; what is left here is a non-vacuity guard.
 
 /// Every specifier string the matrix probes: `%` + flags + optional width +
-/// optional precision + a type char. Many combinations don't parse or aren't
-/// faithful — the classifier defers those.
+/// optional precision + a type char. Many combinations do not parse at all,
+/// and the classifier defers many of those that do.
 let private specifiers: string list =
     [
         let flagSets = [ ""; "-"; "0"; "+"; " "; "-0"; "+0"; "+ " ]
@@ -59,10 +51,7 @@ let tests =
     testList
         "PrintfHoleForm"
         [
-            test "the matrix actually exercises both faithful and deferred holes" {
-                // Guards against a vacuous classifier (e.g. one that accepts or
-                // defers everything): there must be real `Some` classifications AND
-                // real `ValueNone` deferrals among the parseable specifiers.
+            test "the matrix exercises both classified and deferred holes" {
                 let classified =
                     specifiers
                     |> List.choose (fun spec ->

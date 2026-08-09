@@ -4,19 +4,13 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS lowering of F# `for x in source do …`. Only the `Interface` enumerator (a source
-// typed `IEnumerable<'T>`/`seq<'T>`) reaches JS codegen — duck-typed `Pattern` sources
-// and bare arrays/lists are rejected by the BCL-free JS front-end probe. The `Interface`
-// arm carries no member keys, so it lowers to a JS `for…of` that drives the source's own
-// `Symbol.iterator` at runtime. The first two tests are emission-shape assertions; the
-// slice-3 test below makes a Vesper class genuinely `Symbol.iterator`-able and runs the
-// loop end-to-end under Node.
+// JS lowering of F# `for x in source do …`. An `IEnumerable<'T>`/`seq<'T>` source lowers
+// to `for (const x of src)`, driving the source's own `Symbol.iterator`; a duck-typed
+// `GetEnumerator()` source is unsupported and the emitter fails on it.
 
-// A function iterating a `seq<int>` parameter — the proven ForIn-producing source.
 let private forInSeqSrc =
     String.concat "\n" [ "let f (s: seq<int>) ="; "    for x in s do"; "        printfn \"%d\" x" ]
 
-// A wildcard bound variable still drives the loop (effect-only body).
 let private forInWildcardSrc =
     String.concat
         "\n"
@@ -28,15 +22,9 @@ let private forInWildcardSrc =
             "    n"
         ]
 
-// Slice 3 (Track I): a project-local CLASS implementing `seq<int>` (`IEnumerable<int>`)
-// over its own `IEnumerator<int>` enumerator. The class's `GetEnumerator` impl is routed
-// to a native `*[Symbol.iterator]()` GENERATOR (`emitIteratorMethod`) that drives the F#
-// enumerator protocol (`MoveNext()` / `Current`) into JS's — `yield` auto-produces the
-// `{ value, done }` iterator results — so `for x in (c :> seq<int>)` actually iterates
-// under Node. The enumerator's mutable `Cur` is a `val mutable` field, constructed in
-// field order (the JS backend emits a positional field ctor, so `Enum(-1, stop)` aligns
-// `Cur = -1`, `Stop = stop`). The upcast forces the Interface enumerator (the only path
-// JS supports — a duck-typed `Pattern` source is rejected).
+// A project-local CLASS implementing `seq<int>` over its own `IEnumerator<int>`. The JS
+// backend emits a positional field ctor, so `Enum(-1, stop)` sets `Cur = -1`, `Stop = stop`
+// in field order; the `:> seq<int>` upcast is what selects the interface enumerator.
 let private seqClassSrc =
     String.concat
         "\n"
@@ -59,16 +47,9 @@ let private seqClassSrc =
             "    printfn \"%d\" x"
         ]
 
-// Same slice, but the enumerable capability rides a UNION instead of a class. A JS union
-// value is a CASE-subclass instance (`UCounter_Stop3 extends UCounter`), so the union's
-// `IEnumerable<int>` impl must land on the BASE class `UCounter` to be inherited by every
-// case instance — and `for x in (Stop3 :> seq<int>)` then drives `[Symbol.iterator]`
-// resolved on the concrete case instance. This exercises that a union routes its interface
-// impls through the SAME `partitionClassMembers` path the class uses, attaching
-// `*[Symbol.iterator]()` to the union base class. (Referencing `this` or a case PAYLOAD inside a
-// union interface-impl body hits a separate front-end bound-variable-scoping gap — slice 1 did not
-// scope the self/pattern bound variables for a union's impl bodies — so the `GetEnumerator` body is
-// `this`-free and the case is nullary.)
+// The same capability on a UNION. A JS union value is a CASE-subclass instance
+// (`UCounter_Stop3 extends UCounter`), so the `IEnumerable<int>` impl must land on the base
+// class `UCounter` for every case instance to inherit `*[Symbol.iterator]()`.
 let private seqUnionSrc =
     String.concat
         "\n"
@@ -92,13 +73,9 @@ let private seqUnionSrc =
             "    printfn \"%d\" x"
         ]
 
-// Same slice again, on a RECORD source — and deliberately with NO `:> seq<int>` upcast, so
-// the source stays `TyRecord` and the front end has to admit it through
-// `tryForInEnumerator`'s record arm (the class/union tests above upcast, which routes them
-// through the `seq<'T>`-typed arm instead and never touches the nominal probe). A record
-// routes its interface impls through the SAME `partitionClassMembers` path the class and
-// union use, so the impl becomes a `*[Symbol.iterator]()` generator on the record class and
-// the loop lowers to a plain `for…of`. The impl body reads `this` (`this.Stop`).
+// A RECORD source with NO `:> seq<int>` upcast, so the source stays a record type and the
+// front end must admit it through its nominal record arm; the class and union tests above
+// upcast and never reach that arm. The impl body reads `this` (`this.Stop`).
 let private seqRecordSrc =
     String.concat
         "\n"
@@ -145,12 +122,11 @@ let tests =
 
             test "a class implementing `seq<int>` emits a `*[Symbol.iterator]()` generator adapter" {
                 let js = emitJs seqClassSrc
-                // The `GetEnumerator` impl is routed to a native generator keyed by `Symbol.iterator`.
                 Expect.stringContains js "*[Symbol.iterator]()" "enumerable capability → computed-key generator"
-                // The adapter drives the enumerator protocol: `while (e.MoveNext()) yield e.Current()`.
+                // The generator body is `while (e.MoveNext()) yield e.Current()`.
                 Expect.stringContains js ".MoveNext())" "generator drives the enumerator's MoveNext"
                 Expect.stringContains js "yield " "yields each element (auto `{ value, done }`)"
-                // No plain named `GetEnumerator(` attached method remains.
+
                 Expect.isFalse
                     (js.Contains "GetEnumerator(")
                     "the GetEnumerator slot is consumed by the iterator adapter"
@@ -166,15 +142,12 @@ let tests =
 
             test "a UNION implementing `seq<int>` emits `*[Symbol.iterator]()` on the BASE class" {
                 let js = emitJs seqUnionSrc
-                // The union's `GetEnumerator` impl is routed to the base-class iterator adapter.
                 Expect.stringContains js "*[Symbol.iterator]()" "union enumerable capability → base-class generator"
-                // It must land on the BASE class (`class UCounter {`), BEFORE the case subclass
-                // (`class UCounter_Stop extends UCounter`), so every case instance inherits it.
                 let iterIdx = js.IndexOf "*[Symbol.iterator]()"
                 let subclassIdx = js.IndexOf "extends UCounter"
                 Expect.isGreaterThan subclassIdx 0 "the case subclass `extends UCounter` is emitted"
                 Expect.isLessThan iterIdx subclassIdx "the iterator sits on the base class, ahead of the case subclass"
-                // No plain named `GetEnumerator(` attached method remains.
+
                 Expect.isFalse
                     (js.Contains "GetEnumerator(")
                     "the GetEnumerator slot is consumed by the iterator adapter"
@@ -206,12 +179,9 @@ let tests =
                     Expect.equal out "0\n1\n2" "`for x in r` walks the record's enumerator in order"
             }
 
-            // §14.6 capstone (W1+W3): a BARE cons-list `[1;2;3]` — NO `:> seq` upcast —
-            // iterates over the REAL `Vesper.List` JS runtime. `runJs` materialises the
-            // committed `Vesper.List.mjs` (regenerated from `list.fs`, now carrying the
-            // base-class `*[Symbol.iterator]()` adapter over its `ListEnumerator` cursor)
-            // beside the program, so the emitted `for…of` over the list drives the list's
-            // own iterator under Node.
+            // A BARE cons-list, no `:> seq` upcast. `runJs` materialises the committed
+            // `Vesper.List.mjs` beside the program, so the emitted `for…of` drives the
+            // list's own base-class `*[Symbol.iterator]()` over its `ListEnumerator` cursor.
             test "a BARE cons-list `for x in [1;2;3]` iterates the real Vesper.List on JS (Node)" {
                 let src = String.concat "\n" [ "for x in [1; 2; 3] do"; "    printfn \"%d\" x" ]
 

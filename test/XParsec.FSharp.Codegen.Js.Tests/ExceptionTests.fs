@@ -13,7 +13,7 @@ let tests =
         [
             // ---- failwith ----
 
-            test "failwith lowers to a throwing IIFE (a non-thrown branch returns)" {
+            test "the non-failing branch of a `failwith` evaluates normally" {
                 match
                     runJs "exn-failwith-ok" "let f b = if b then 7 else failwith \"boom\"\nprintfn \"%d\" (f true)"
                 with
@@ -90,9 +90,9 @@ let tests =
                     Expect.equal out "7" "the non-raising branch evaluates normally"
             }
 
-            // `open System` is required for the bare spelling: `Vesper.Exceptions` declares
-            // its roots in `namespace System`, and only the language prelude
-            // (`RuntimeNames.preludeNamespaces`) is implicitly open.
+            // `open System` is required for the bare spelling: the exception roots are
+            // declared in `namespace System`, and only the language prelude is implicitly
+            // open.
             test "a constructed exception lowers to `new Error(message)` (exn repr from contract)" {
                 let src =
                     emitJs "open System\nlet f (b: bool) = if b then 7 else raise (InvalidOperationException \"boom\")"
@@ -101,7 +101,6 @@ let tests =
             }
 
             test "a different exception type also resolves through the contract chain" {
-                // Every exception in the contract erases to the one `exn` root — not a per-name special case.
                 let src =
                     emitJs "open System\nlet f (b: bool) = if b then 7 else raise (ArgumentException \"bad\")"
 

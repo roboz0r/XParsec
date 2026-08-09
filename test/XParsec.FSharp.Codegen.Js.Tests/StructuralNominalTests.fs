@@ -7,12 +7,8 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// TS provider: an anonymous object shape (`{x:int;y:int}`) is a RESOLVABLE erasing
-// nominal. Its fields register as Property members (one per field), so `.x` on a
-// structural value resolves through the provider and lowers to a native `objArg.x`
-// read — while NOTHING is emitted for the type (no decl, no import, no ctor). Two
-// distinct exports of the SAME shape resolve to ONE identity/type, and a nested shape
-// registers members at BOTH levels.
+// An anonymous object shape (`{x:int;y:int}`) is a resolvable erasing nominal: its fields
+// register as Property members, and nothing at all is emitted for the type itself.
 
 let private intT = named "int"
 
@@ -34,7 +30,7 @@ let private manifest: Schema.PackageManifest =
             [
                 Schema.Export.Function("getPoint", [ sig0 (point xThenY) ], Schema.ImportShape.Named)
                 Schema.Export.Variable("pt1", point xThenY, true, Schema.ImportShape.Named)
-                // SAME shape, fields permuted — must resolve to the SAME nominal type.
+                // SAME shape, fields permuted, so it must resolve to the SAME nominal type.
                 Schema.Export.Variable("pt2", point yThenX, true, Schema.ImportShape.Named)
                 Schema.Export.Variable(
                     "nested",
@@ -63,8 +59,7 @@ let private typeNameOf (varName: string) : string =
         | other -> failtestf "'%s' should freeze to an FTClass, got %A" varName other
     | ValueNone -> failtestf "variable '%s' did not resolve" varName
 
-// A runtime whose factory returns a POJO with own `x`/`y` props — a native member READ
-// (not a mangled import) is the only lowering that can observe `this`-free data props.
+// The factory returns a POJO with own `x`/`y` props, which only a native member read sees.
 let private runtime = "export function getPoint() { return { x: 3, y: 4 }; }\n"
 
 let private emitPoint (input: string) : string =
@@ -117,7 +112,7 @@ let tests =
                         | other -> failtestf "'.pt' should carry a structural FTClass, got %A" other
                     | ValueNone -> failtestf "'.pt' did not resolve on '%s'" outer
 
-                // The inner nominal is also registered — its own `.x` resolves.
+                // The inner nominal is also registered, so its own `.x` resolves.
                 match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey innerName 0, "x") with
                 | ValueSome m -> Expect.isTrue m.Storage.IsValueMember "inner '.x' must be a property member"
                 | ValueNone -> failtestf "inner field 'x' did not resolve on '%s'" innerName
@@ -132,8 +127,6 @@ let tests =
 
                 Expect.isTrue (js.Contains ".x") (sprintf "expected a native `.x` read, got:\n%s" js)
 
-                // No mangled member import, and NOTHING emitted for the erased shape: no
-                // synthetic-home import, no ctor/class decl for the anonymous type.
                 Expect.isFalse (js.Contains "@struct") (sprintf "the erased shape must not appear in emit:\n%s" js)
                 Expect.isFalse (js.Contains "class ") (sprintf "the structural type must emit no class decl:\n%s" js)
 

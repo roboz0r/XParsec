@@ -6,14 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Isolation fixture: the provider's `toFrozen` gives an anonymous OBJECT `Structural`
-// shape a CANONICAL, field-ORDER-INVARIANT nominal identity — a hash-keyed `FTClass`
-// homed under the reserved synthetic namespace — so two field-order-permuted shapes
-// intern to ONE identity and unify. A FIELDLESS structural form has no members to
-// resolve, so it stays an opaque `FTUnknown` keyed by the tsc-printed fallback.
-// The test reaches `toFrozen` through the public provider path: a `Variable` export's
-// scheme IS `toFrozen ctx ty` (`TsManifestProvider`), so a variable typed by a structural
-// shape exposes its frozen identity via `TryLookup`.
+// A `Variable` export's scheme is its frozen type, so `provider.TryLookup` is how these
+// fixtures observe what an anonymous object shape froze to.
 
 /// A `number`-typed field named `n`.
 let private numField (n: string) : string * Schema.TypeRef = n, named "number"
@@ -33,9 +27,9 @@ let private manifest: Schema.PackageManifest =
                 // {x:number;y:number} in both field orders — must share one identity.
                 var "pXY" (structural "{x:number;y:number}" [ numField "x"; numField "y" ])
                 var "pYX" (structural "{y:number;x:number}" [ numField "y"; numField "x" ])
-                // A genuinely different shape — must be DISTINCT from pXY.
+                // A genuinely different shape, so it must be DISTINCT from pXY.
                 var "pXZ" (structural "{x:number;z:number}" [ numField "x"; numField "z" ])
-                // Nested structural, permuted at BOTH levels — hashes stably ⇒ equal.
+                // Nested structural, permuted at BOTH levels, so it hashes stably ⇒ equal.
                 var
                     "nA"
                     (structural
@@ -52,15 +46,15 @@ let private manifest: Schema.PackageManifest =
                             "label", named "string"
                             "pt", structural "{y:number;x:number}" [ numField "y"; numField "x" ]
                         ])
-                // Named-ref field: `Node` is NOT declared here — it must stay a LEAF
-                // (hashed by name, never expanded), so `{node:Node}` resolves without
-                // depending on `Node` existing, and differs from `{node:Other}`.
+                // `Node` is NOT declared here, so the field must stay a LEAF hashed by name:
+                // `{node:Node}` resolves without `Node` existing, and differs from
+                // `{node:Other}`.
                 var "refNode" (structural "{node:Node}" [ "node", named "Node" ])
                 var "refNode2" (structural "{node:Node}" [ "node", named "Node" ])
                 var "refOther" (structural "{node:Other}" [ "node", named "Other" ])
-                // Fieldless structural (the extractor's non-object form) — no usable
-                // shape, so identity falls back to the tsc-printed string; two distinct
-                // printed strings stay distinct rather than collapsing to one `{}`.
+                // A fieldless structural has no usable shape, so identity falls back to the
+                // tsc-printed string; two distinct printed strings stay distinct rather
+                // than collapsing to one `{}`.
                 var "fless1" (structural "() => void" [])
                 var "fless2" (structural "Branded<string>" [])
             ]
@@ -77,9 +71,8 @@ let private schemeOf (name: string) : FrozenType =
     | ValueSome sym -> sym.Scheme
     | ValueNone -> failtestf "fixture variable '%s' did not resolve" name
 
-/// A canonical identity string for a frozen scheme — the `FTClass` qualified name for
-/// an object shape's erasing nominal, the `FTUnknown` name for a fieldless fallback —
-/// so equality/inequality assertions read uniformly across both representations.
+/// The `FTClass` qualified name for an object shape's erasing nominal, or the `FTUnknown`
+/// name for a fieldless fallback, so assertions read uniformly across both.
 let private identityOf (name: string) : string =
     match schemeOf name with
     | FTClass(key, _) -> "class:" + SymbolKeyOps.typeMetaName key
@@ -123,8 +116,7 @@ let tests =
             }
 
             test "an object shape's nominal name is homed under the reserved synthetic namespace" {
-                // The identity is the canonical shape-hash, homed so it cannot collide with
-                // a real export's qualified name.
+                // Homed apart so a shape-hash cannot collide with a real export's name.
                 Expect.stringStarts (identityOf "pXY") "class:@struct." "an object shape homes under @struct"
             }
 

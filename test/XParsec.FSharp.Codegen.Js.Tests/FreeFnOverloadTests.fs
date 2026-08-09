@@ -6,15 +6,12 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The JS-emit ERASE branch for a synthetic free-function-
-// overload grouping type. A TS module `util` exporting an OVERLOADED free function
-// `format` is modelled by the provider as a synthetic erased type `Util` with `format`
-// as a static member (F# has no free-function overloading). A call `Util.format(x)` must
-// erase at JS emit to the BARE module export `format(x)` — NOT the mangled `Util_format`
-// an ordinary external static member would import (no such export exists).
+// A TS module exporting an OVERLOADED free function `format` is modelled as a synthetic
+// erased type `Util` with `format` as a static member (F# has no free-function overloading).
+// `Util.format(x)` emits the bare export `format(x)`: no `Util_format` export exists.
 
-/// A synthetic TS manifest for package `util`: an OVERLOADED free function `format`
-/// (`string | float`) — so the provider mints the synthetic erased grouping type `Util`.
+/// A TS manifest for package `util`: the free function `format`, overloaded at `string`
+/// and at `float`.
 let private utilManifestJson =
     """{
   "schemaVersion": 1,
@@ -45,17 +42,13 @@ let private utilManifestJson =
   ]
 }"""
 
-/// The `util` package's overload provider, layered over the standard JS provider (so the
-/// argument's primitive types still resolve). The synthetic `Util` type + its `format`
-/// overloads come from the TS-manifest provider.
 let private utilContract =
     match Codec.deserialize utilManifestJson with
     | Error e -> failwithf "util manifest does not parse: %s" e
     | Ok man -> contractTs man
 
-/// Emit `input` to JS through `provider`, injecting a fake `util` runtime module so the
-/// erase branch's bare-export `addRef` import resolves (the synthetic package has no
-/// `.toml`/`runtime-js` asset of its own — the erase contract is what this test pins).
+/// Emit `input` through the `util` contract. The stub `util.mjs` stands in for a runtime
+/// asset the synthetic package does not have, without which the import throws.
 let private emitWithUtil (input: string) : string =
     emitWith utilContract (Map.ofList [ "util", { FileName = "util.mjs"; Source = "" } ]) false input
 

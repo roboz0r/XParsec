@@ -8,9 +8,8 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // A JS package build: one `.mjs` per EMITTING source file inside a directory named for
-// the package, plus the generated barrel. The point of the shape is that a cross-file
-// reference names the DECLARING FILE's module — the assembly alone cannot, and before the
-// declaring file rode the symbol's origin there was nothing else to name it by.
+// the package, plus the generated barrel. A cross-file reference names the DECLARING
+// FILE's module, which the package name alone could not identify.
 
 let private packageName = "Test.Pkg"
 
@@ -33,9 +32,8 @@ let private sourceOf (pkg: JsPackage) (fileName: string) : string =
         failtestf "no module '%s' in the package; got %A" fileName (pkg.Modules |> List.map (fun m -> m.Path.FileName))
 
 /// Every module the emitted artifacts import must be one the package writes: a surviving
-/// per-file module or a runtime asset at the output root. The driver faults on a violation;
-/// asserted here so the relation between "dropped for emitting nothing" and "named by an
-/// importer" stays a stated property rather than only a compiler fault.
+/// per-file module or a runtime asset at the output root. The driver also faults on a
+/// violation; stated here as a property rather than only a compiler fault.
 let private expectImportsResolvable (pkg: JsPackage) =
     let written =
         (pkg.Modules |> List.map (fun m -> m.Path))
@@ -79,7 +77,7 @@ let tests =
 
                 let js = sourceOf pkg "use.mjs"
 
-                // A sibling of the same package directory — one `./`, no package segment.
+                // A sibling in the same package directory: one `./`, no package segment.
                 Expect.stringContains js "from \"./shapes.mjs\"" (sprintf "sibling module specifier, got:\n%s" js)
 
                 Expect.isFalse
@@ -103,9 +101,8 @@ let tests =
                     "the barrel re-exports every emitted module"
             }
 
-            // The regeneration rule the plan states as an ABSENCE: most of a contract
-            // package's files are declaration-only and lower to no JS at all, so they get
-            // no `.mjs` rather than an empty one.
+            // Most of a contract package's files are declaration-only and lower to no JS
+            // at all, so they get no `.mjs` rather than an empty one.
             test "a file that emits nothing gets no module and is absent from the barrel" {
                 let interfacesOnly =
                     "\
@@ -145,10 +142,9 @@ type IShape =
                         Expect.stringContains d.Diagnostic.Message "a/one.fs" "and the sources that claimed it"
             }
 
-            // The two decisions the driver has to reconcile: dropping a module is per FILE,
-            // naming one in an import is per CONSUMER. A declaration-only file is reachable
-            // only at the TYPE level, which JS erases, so the consumer imports nothing from
-            // the module that was dropped.
+            // Dropping a module is decided per FILE; naming one in an import is per
+            // CONSUMER. A declaration-only file is reachable only at the type level, which
+            // JS erases, so the consumer imports nothing from the dropped module.
             test "a consumer of a declaration-only file imports no module the package omits" {
                 let contracts =
                     "\
@@ -180,8 +176,8 @@ module Shim =
                     "an erased type reference costs no import"
             }
 
-            // The package this whole shape exists for: eighteen contract files, no single
-            // one of which could be "the package's module".
+            // The package this shape exists for: many contract files, no single one of
+            // which could be "the package's module".
             test "Vesper.Core compiles as one package and its modules load under Node" {
                 let manifest =
                     match ReferencedProject.loadManifest vesperCoreManifest with
@@ -214,9 +210,8 @@ module Shim =
                 JsDriver.materialise root pkg
 
                 // Most of Core is intrinsic-repr-only and lowers to no JS: `type int =
-                // (# "number" #)` declares a representation the target already has, and its
-                // operator members are splice templates. Those files get no `.mjs` at all —
-                // the ABSENCE is the assertion, an empty module would say less.
+                // (# "number" #)` declares a representation the target already has, and
+                // its operator members are splice templates. Those files get no `.mjs`.
                 let emitted = pkg.Modules |> List.map (fun m -> m.Source)
 
                 for reprOnly in [ "prim-types-min.js.fs"; "prim-types-int.js.fs"; "array-index.js.fs" ] do
@@ -248,9 +243,9 @@ module Shim =
                     Expect.equal actual "object" "the barrel resolves to a module namespace object"
             }
 
-            // `[<Global>]` is what makes a target global survive the per-file split: the
-            // declaring file emits no definition (so it emits no module at all), and a
-            // reference from a sibling cannot import from a module that does not exist.
+            // A `[<Global>]` value's declaring file emits no definition, so it contributes
+            // no module at all, and a sibling reference cannot import from a module that
+            // does not exist.
             test "a [<Global>] value emits no definition and a cross-file use imports nothing" {
                 let declaring =
                     "\
@@ -290,8 +285,8 @@ module Reader =
                 let root = tmpDir "js-package"
                 JsDriver.materialise root pkg
 
-                // A hand-written consumer: the barrel is the ONE specifier a consumer needs
-                // for the whole package, whichever of its files an export came from.
+                // The barrel is the single specifier a consumer needs for the whole
+                // package, whichever of its files an export came from.
                 let entry = IO.Path.Combine(root, "main.mjs")
 
                 IO.File.WriteAllText(entry, "import { total } from \"./Test.Pkg/index.mjs\";\nconsole.log(total());\n")

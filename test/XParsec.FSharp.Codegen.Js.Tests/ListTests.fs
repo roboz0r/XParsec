@@ -48,7 +48,6 @@ let tests =
             }
 
             test "`::` constructs a cons cell; head reads back through a match" {
-                // Monomorphic on purpose: generic element-typed consumer of an external cons-list is out of scope.
                 match
                     runJs
                         "list-cons"
@@ -170,14 +169,14 @@ let tests =
                     ] do
                     Expect.stringContains src (sprintf "export const %s = " name) (sprintf "exports %s" name)
 
-                // The cons-list classes are emitted into the module itself — no runtime import.
+                // The cons-list classes are emitted into the module itself, not imported.
                 Expect.stringContains src "class List_Cons extends List" "emits the cons subclass"
                 Expect.isFalse (src.Contains "import ") "the module imports nothing"
             }
 
             test "the generated module exports the type's members as lifted free functions" {
                 // `list.fsi` declares them on `List<'T>`; a union's augmentation members emit
-                // type-prefixed, so a use site resolves to these names or to nothing at all.
+                // type-prefixed, so `xs.Length` resolves to `List__get_Length` or not at all.
                 let src = generated.Value
 
                 for name in [ "Length"; "IsEmpty"; "Head"; "Tail" ] do
@@ -188,9 +187,8 @@ let tests =
             }
 
             test "the enumerator's own `new(s) = { … }` is the emitted constructor" {
-                // The ctor takes ONE parameter and sets `started` itself. A positional ctor over
-                // the two declared fields would leave `started` undefined at the single call
-                // site `new ListEnumerator(<list>)` — passing only by falsiness.
+                // The ctor takes ONE parameter and sets `started` itself, so the single call
+                // site `new ListEnumerator(<list>)` leaves it a real `false`, not `undefined`.
                 let src = lf generated.Value
 
                 Expect.stringContains
@@ -219,7 +217,7 @@ let tests =
                         "\n"
                         [
                             "import { fold, length, head, map, filter, rev, isEmpty, append } from \"./Vesper.List.mjs\";"
-                            // Plain {tag,Head,Tail} consumer cells are interchangeable with List_Cons — no instanceof.
+                            // Plain {tag,Head,Tail} cells stand in for List_Cons, nothing testing instanceof.
                             "const cons = (h, t) => ({ tag: 1, Head: h, Tail: t });"
                             "const empty = { tag: 0 };"
                             "const xs = cons(1, cons(2, cons(3, empty)));"
@@ -262,9 +260,6 @@ let tests =
             }
 
             test "the type's members, the enumerator and ofSeq/toSeq run under Node" {
-                // The merged body's non-module half: the lifted member accessors, the
-                // `ListEnumerator` the `[Symbol.iterator]` adapter drives (whose `started`
-                // must be a real `false`, not an absent property), and the seq round trip.
                 let driver =
                     String.concat
                         "\n"
@@ -275,7 +270,6 @@ let tests =
                             "console.log(List__get_IsEmpty(xs), List__get_IsEmpty(new List_Empty()));"
                             "console.log(List__get_Head(xs));"
                             "console.log(List__get_Head(List__get_Tail(xs)));"
-                            // The ctor's own arity: one argument, `started` initialised here.
                             "const e = new ListEnumerator(xs);"
                             "console.log(e.started === false);"
                             "const walked = []; while (e.MoveNext()) walked.push(e.Current());"

@@ -1,12 +1,8 @@
 module XParsec.FSharp.Codegen.Js.Tests.UnsupportedOnTargetTests
 
-// The derived unsupported-on-target rule, driven end to end through the REAL JS
-// contract stack.
-//
-// `prim-types-nativeint.fsi` stays in the shared `[core] files` tier, so JS KNOWS these
-// types — which is the whole point: naming one gets the targeted verdict rather than a
-// name-resolution failure. What JS lacks is a `prim-types-nativeint.js.fs` binding a
-// repr, and that absence alone IS the statement. No manifest key lists them.
+// The unsupported-on-target rule, driven end to end through the REAL JS contract stack.
+// `prim-types-nativeint.fsi` stays in the shared `[core] files` tier, so JS knows these
+// types; what it lacks is a `.js.fs` binding a repr, and that absence is the statement.
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
@@ -29,7 +25,7 @@ let tests =
                 Expect.contains errors "nativeint is not supported on the js target" "the targeted verdict"
             }
 
-            test "the verdict is NOT a name-resolution failure — the type resolves, then is refused" {
+            test "the verdict is NOT a name-resolution failure: the type resolves, then is refused" {
                 // If `prim-types-nativeint.fsi` left the shared tier, JS would report an
                 // undefined type instead and this rule would be unreachable.
                 let errors = jsErrors "let f (x: nativeint) = x"
@@ -40,9 +36,8 @@ let tests =
             }
 
             test "a mention in a signature that is never instantiated still errors" {
-                // `nativeptr<'T>` is generic — arity is no excuse. Nothing here constructs
-                // one, and the permissive "only a use that demands the repr" rule would let
-                // it through.
+                // `nativeptr<'T>` is generic and nothing here constructs one: a mention in
+                // a declared field type is enough.
                 let errors = jsErrors "type Holder = { P: nativeptr<int> }"
 
                 Expect.contains errors "nativeptr is not supported on the js target" "a declared field type"
@@ -72,9 +67,9 @@ let tests =
             }
 
             test "loading the library is silent: the contract that DECLARES them is not the mention" {
-                // `prim-types-nativeint.fsi` is parsed on every JS compile (it is in the
-                // shared `files` tier). The diagnostic belongs to the program that writes
-                // `nativeint`, never to the library that declares it.
+                // The `.fsi` declaring these is parsed on every JS compile; the diagnostic
+                // belongs to the program that writes `nativeint`, never to the library
+                // that declares it.
                 Expect.isEmpty (jsErrors "let x = 1 + 2") "a JS compile that never names one is clean"
             }
         ]

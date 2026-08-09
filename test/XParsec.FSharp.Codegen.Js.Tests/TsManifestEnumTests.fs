@@ -6,13 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Enum support — the `TsManifestProvider` consumption arm. A TS module exporting a
-// NUMERIC and a STRING enum is modelled by the provider as `ExternalTypeShape.Enum`,
-// carrying its cases. The front end must then (a) resolve the enum TYPE name to its
-// nominal `TyEnum`/`FTEnum`, (b) type-check `E.C1` as the enum and emit it as an
-// IMPORTED member access (`import { E } … E.Ci`) — the enum object lives in the TS
-// module, never re-emitted — and (c) lower a `match` on an external enum value to the
-// shared `=== E.Ci` test, all mirroring the external-UNION consumption path.
+// A TS module's numeric and string enums arrive as `ExternalTypeShape.Enum` carrying
+// their cases. The enum TYPE name resolves nominally, `E.Ci` emits as an IMPORTED member
+// access (the enum object lives in the TS module), and `match` lowers to `=== E.Ci`.
 
 /// A synthetic TS manifest for package `palette`: a numeric enum `Color` and a string
 /// enum `Dir`. Both are top-level exports (flat package = module specifier `palette`).
@@ -48,15 +44,13 @@ let private paletteManifest: Schema.PackageManifest =
     | Error e -> failwithf "palette manifest does not parse: %s" e
     | Ok man -> man
 
-/// The `palette` enum provider, layered over the standard JS provider (so the integer
-/// literals / primitives still resolve). The enum shapes come from the TS-manifest provider.
+/// The `palette` provider, layered over the JS provider so primitives still resolve.
 let private paletteContract = contractTs paletteManifest
 
 let private paletteProvider: IExternalSymbolProvider = paletteContract.Provider
 
-/// Emit `input` to JS through the `palette` provider, injecting a fake `palette` runtime
-/// module so the enum-object import resolves (the synthetic package ships no runtime
-/// asset of its own — the import contract is what this test pins).
+/// Emit through the `palette` provider with a stub runtime module, so the enum-object
+/// import resolves (the synthetic package ships no runtime asset of its own).
 let private emitWithPalette (input: string) : string =
     emitWith
         paletteContract
@@ -95,8 +89,7 @@ let tests =
             }
 
             test "an external enum type annotation resolves and `E.Ci` emits an IMPORTED member access" {
-                // `(c: Color)` exercises the type-annotation resolution; `Color.Green` is
-                // the value access.
+                // `(c: Color)` is the type-annotation path; `Color.Green` the value access.
                 let js = emitWithPalette "let f (c: Color) = c\nlet g = Color.Green"
 
                 Expect.isTrue

@@ -6,15 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// TS provider: a manifest `Interface`/`Class` name resolves through
-// `TsManifestProvider.toFrozen` as `FTClass` (→ front-end `TyClass`), so an object argument
-// whose type FLOWS FROM A SIGNATURE (a function/member return — the path that goes
-// through `toFrozen`, unlike a direct annotation, which Translate.fs already minted as
-// `TyClass`) admits `.member` access via `resolveFieldStep`'s external-`TyClass` arm.
-//
-// The negative gates are asserted at the provider level: a primitive (`int`) return
-// stays `FTConst`, and a `TypeAlias` name stays a transparent `Abbrev` (its target
-// frozen, its NAME never minted as `FTClass`) — so alias expansion still fires.
+// A manifest `Interface`/`Class` name freezes to `FTClass`, so a value whose type flows
+// from a function or member RETURN admits `.member` access. Negative gates: an `int`
+// return stays `FTConst`, and a `TypeAlias` name stays a transparent `Abbrev`.
 
 // ─── Hand-built manifest (no JSON round-trip) ──────────────────────────────
 
@@ -56,11 +50,9 @@ let private method' (name: string) (sg: Schema.Signature) : Schema.Member =
         Optional = false
     }
 
-/// `boxlib`: a NON-GENERIC interface `Box { get(): int; set(x: int): unit }`, two free
-/// functions whose RETURN types force the `toFrozen` path (`makeBox(): Box` → `FTClass`;
-/// `wantInt(): int` → `FTConst`), a transparent alias (`type Count = int`), and a
-/// namespaced interface `NS.Inner` reached by its qualified name — exercising the
-/// nsPath="" AND namespaced legs of the identity equation.
+/// `boxlib`: a non-generic `Box { get(): int; set(x: int): unit }`, free functions whose
+/// RETURN freezes (`makeBox(): Box` → `FTClass`; `wantInt(): int` → `FTConst`), a
+/// transparent alias `type Count = int`, and a namespaced `NS.Inner`.
 let private boxManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -77,11 +69,9 @@ let private boxManifest: Schema.PackageManifest =
                 )
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
                 Schema.Export.Function("wantInt", [ sig0 intT ], Schema.ImportShape.Named)
-                // A GENERIC interface `Wrap<T> { value(): T }` + a factory returning
-                // `Wrap<int>`, to pin THE LAW (`SymbolKeyOps.arityName`): the provider must
-                // register/mint `Wrap` under its arity-suffixed compiled name `` Wrap`1 `` so a
-                // `Wrap<int>` annotation (resolved by `TypeTranslate` as `arityName "Wrap" 1`)
-                // and the `toFrozen` return key AGREE — the exact mitt wall-2 shape.
+                // A generic `Wrap<T> { value(): T }` plus a factory returning `Wrap<int>`:
+                // the provider registers `Wrap` under its arity-suffixed name `` Wrap`1 ``,
+                // the same spelling a `Wrap<int>` annotation resolves to.
                 Schema.Export.Interface("Wrap", 1, [ method' "value" (sig0 (Schema.TypeRef.Typar 0)) ], [], [])
                 Schema.Export.Function(
                     "makeIntWrap",
@@ -105,10 +95,9 @@ let private boxManifest: Schema.PackageManifest =
 let private boxProviderRaw: IExternalSymbolProvider =
     TsManifestProvider.providerOfManifest boxManifest
 
-/// Layered over the JS provider so `int`/`unit` resolve in the front-end test.
-/// Ambient AGGREGATED from the sources (not `stackJs []`): the intrinsic resolver
-/// reaches `Vesper.unit`/`Vesper.int` (carried by `jsProvider`'s Vesper.Core) only
-/// through the `Vesper` open-prefix, which a dropped ambient would hide.
+/// Layered over the JS provider so `int`/`unit` resolve. The ambient must be aggregated
+/// from the sources: `Vesper.unit`/`Vesper.int` are reached only through the `Vesper`
+/// open-prefix, which a dropped ambient would hide.
 let private boxProvider: IExternalSymbolProvider =
     stackWithAmbient [ boxProviderRaw; jsProvider.Value ]
 
@@ -135,11 +124,9 @@ let tests =
         "ExternalNominalClass"
         [
             test "a value from a manifest-interface-returning function admits .member access" {
-                // `b`'s type flows from `makeBox`'s return (the `toFrozen` path). Without the
-                // external-class freeze it would be `FTConst`→`TyConst` and `.get`/`.set` would
-                // fall to the "non-record non-class" catch-all; with it, `b` is
-                // `FTClass`→`TyClass` and the member resolves through the provider. Analysis-only
-                // — no JS emission (that is the member-call path's concern).
+                // `b`'s type flows from `makeBox`'s return, freezing to `FTClass`, so
+                // `.get`/`.set` resolve through the provider. Analysis only; emission is
+                // the member-call path's concern.
                 let program =
                     String.concat "\n" [ "let b = makeBox()"; "let n = b.get()"; "b.set(n)"; "" ]
 
@@ -151,11 +138,6 @@ let tests =
             }
 
             test "manifest interface return freezes to FTClass with the identity-equation key" {
-                // The frozen `FTClass` key must be servable by the provider's store
-                // view, and its `qualifiedName` must equal the manifest's map key —
-                // the producer-side invariant the provider build (and the store
-                // view's internal name projection) rely on. Prove it by reading the
-                // key back and confirming the key-addressed member lookup hits.
                 match returnOf "makeBox" with
                 | FTClass(key, args) ->
                     Expect.equal
@@ -190,10 +172,6 @@ let tests =
             }
 
             test "GENERIC manifest interface return freezes to FTClass keyed by its arity-suffixed name" {
-                // THE LAW (`SymbolKeyOps.arityName`): `Wrap<T>` is nominal `` Wrap`1 ``. The
-                // frozen return of `makeIntWrap(): Wrap<int>` must be `FTClass` whose key
-                // `qualifiedName` is `` "Wrap`1" `` — NOT the bare `Wrap` — and the type must
-                // resolve under that suffixed string.
                 match returnOf "makeIntWrap" with
                 | FTClass(key, args) ->
                     Expect.equal
@@ -211,12 +189,10 @@ let tests =
                 | other -> failtestf "makeIntWrap return should be FTClass, got %A" other
             }
 
-            test "GENERIC manifest annotation type-checks (mitt wall-2 shape, minus mitt's other walls)" {
-                // `let w : Wrap<int> = makeIntWrap()`: the annotation resolves through
-                // `TypeTranslate` as `arityName "Wrap" 1` = `` Wrap`1 `` while the RHS return
-                // freezes to `FTClass(` Wrap`1 `)`. Pre-fix the two spellings diverged
-                // (`TyClass(Wrap)` vs `TyClass(Wrap`1)`) — the mitt wall #2 mismatch — and the
-                // annotation failed to unify. With the provider now speaking THE LAW, they agree.
+            test "GENERIC manifest annotation type-checks against the arity-suffixed key" {
+                // The annotation `Wrap<int>` and the frozen return of `makeIntWrap()` must
+                // reach the same arity-suffixed spelling `` Wrap`1 ``, or the binding fails
+                // to unify.
                 let errors = analyse "let w : Wrap<int> = makeIntWrap()\n"
 
                 Expect.isEmpty
@@ -232,8 +208,7 @@ let tests =
             }
 
             test "NEGATIVE: a type-alias name stays a transparent Abbrev (never FTClass)" {
-                // The alias must resolve as `Abbrev` so its use sites expand to the target;
-                // minting `FTClass` for the alias NAME would break that expansion.
+                // The alias must resolve as `Abbrev` so its use sites expand to the target.
                 match boxProviderRaw.TryLookupType "Count" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, target)) ->
                     Expect.equal arity 0 "Count is non-generic"

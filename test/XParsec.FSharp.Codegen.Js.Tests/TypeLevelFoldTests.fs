@@ -6,21 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// TS provider: the front end GROUND-EVALUATES the carried
-// TS type-level computations `keyof T`, `T[K]`, and `check extends E ? X : Y`. This
-// hand-built manifest is mitt-SHAPED — a generic event-bus interface whose `on`/`emit`
-// carry `<Key extends keyof Events>` with a FAITHFUL function-typed handler
-// `(Events[Key]) -> unit` (mitt's committed golden degrades the handler to the opaque
-// `__type`, which is an extractor-side gap, not a fold gap) — so all four rules are
-// pinned WITHOUT the extractor:
-//   • keyof fold: `subscribe(key: keyof Events)` admits a member-name constant,
-//     rejects a non-key naming the allowed set.
-//   • method-typar grounding + T[K] fold: `on("ping", fun p -> …)`
-//     solves `Key := "ping"` from the syntactic constant and types `p` as `Events.ping`;
-//     `emit("ping", v)` types `v` as `Events["ping"]`. The per-key contrast (a `%d` body
-//     on `"ping"` vs `"pong"`) proves the payload is typed FROM the addressed member.
-//   • conditional fold: a ground `check extends E ? X : Y` picks its branch by
-//     the directional `subsumes` membership test.
+// The front end GROUND-EVALUATES the TS type-level computations `keyof T`, `T[K]` and
+// `check extends E ? X : Y`. This hand-built manifest is mitt-SHAPED, but keeps the FAITHFUL
+// function-typed handler mitt's committed golden degrades, so the folds are pinned unaided.
 
 // ─── Schema builders ────────────────────────────────────────────────────────
 
@@ -89,10 +77,9 @@ let private onWildcardSig: Schema.Signature =
         Returns = unitT
     }
 
-// `emit<Key extends keyof Events>(type: Key, event: Events[Key]): unit` (method-typar grounding + T[K] fold),
-// paired with a wildcard overload so the call is MULTI-candidate — mitt's `emit` is
-// likewise overloaded (keyed + no-payload), which is what routes a call through the
-// commit seam where the syntactic constant grounds `Key`.
+// `emit<Key extends keyof Events>(type: Key, event: Events[Key]): unit`, paired with a
+// wildcard overload (as mitt's own `emit` is) so the call is MULTI-candidate, which is what
+// routes it through the commit seam where the syntactic constant grounds `Key`.
 let private emitKeyedSig: Schema.Signature =
     {
         TypeParams = 1
@@ -168,10 +155,8 @@ let private busManifest: Schema.PackageManifest =
     }
 
 let private busProvider: IExternalSymbolProvider =
-    // Ambient AGGREGATED from the sources (not `stackJs []`): the JS `jsProvider`
-    // carries Vesper.Core with its `.js.fs` intrinsic reprs, but the intrinsic
-    // resolver reaches `Vesper.unit` only through the `Vesper` open-prefix, which a
-    // dropped ambient would hide.
+    // Ambient AGGREGATED from the sources (not `stackJs []`): the intrinsic resolver reaches
+    // `Vesper.unit` only through the `Vesper` open-prefix, which a dropped ambient would hide.
     stackWithAmbient [ TsManifestProvider.providerOfManifest busManifest; jsProvider.Value ]
 
 // A project-local record supplies the ground `Events` the folds read member names/types

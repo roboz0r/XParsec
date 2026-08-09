@@ -6,11 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The mitt full-surface gate's residues, each pinned so a future regression is
-// visible:
-//   • the annotation-required POLICY for the generic factory (deliberately open).
-//   • undefined-vs-unit type identity — now CLOSED: a `unit`-typed event is
-//     correctly rejected by no-payload `emit`, an `undefined`-typed one accepted.
+// Two type-identity pins around mitt's generic factory: an annotation is REQUIRED to
+// ground `Events`, and `undefined` is a type distinct from `unit`, so only an
+// `undefined`-typed event admits the no-payload `emit` overload.
 
 let private analyseErrors (input: string) : string list =
     analyseWith MittFixture.provider input |> List.map (fun d -> d.Message)
@@ -27,16 +25,14 @@ let tests =
             }
 
             test "an UNANNOTATED mitt() call leaves Events ungrounded (policy: annotation required)" {
-                // No annotation and no use to solve `Events` from → an unresolved TyVar. This
-                // is the DELIBERATE policy (an external generic factory carries nothing to
-                // infer its parameter from), not a bug to fix; it mirrors TS needing an
-                // annotation / `as` at such a site. If later work infers `Events`
-                // from downstream uses, flip this pin.
+                // No annotation and no use to solve `Events` from leaves an unresolved type
+                // variable. This is the DELIBERATE policy: an external generic factory
+                // carries nothing to infer its parameter from, as in TS.
                 let input = "let e = mitt()\nlet u = e.emit(\"x\", 1)\n"
                 Expect.isNonEmpty (analyseErrors input) "an unannotated mitt() must leave Events ungrounded"
             }
 
-            // ── no-payload emit: conditional fold works for undefined; unit is the gap ──
+            // ── no-payload emit: the conditional fold, per payload type ──
             test "no-payload emit type-checks for an undefined-typed event (conditional fold)" {
                 let input =
                     String.concat
@@ -52,8 +48,8 @@ let tests =
             }
 
             test "no-payload emit REJECTS a key whose payload is not undefined-bearing" {
-                // ping:int — `undefined extends int` is false → the overload folds to `never`,
-                // so a no-payload emit on `ping` must error.
+                // `undefined extends int` is false, so the overload folds to `never` and a
+                // no-payload emit on `ping` must error.
                 let input =
                     String.concat
                         "\n"
@@ -69,14 +65,10 @@ let tests =
                     "int is not undefined-bearing; no-payload emit('ping') must error"
             }
 
-            test "a unit-typed event is REJECTED by no-payload emit (undefined≠unit now holds)" {
-                // GAP CLOSED: `unit` and `undefined` are now distinct type
-                // identities, so `undefined extends Events[Key]` NO LONGER holds for a `unit`
-                // payload — the conditional folds to `never` and a no-payload `emit("tick")`
-                // on a `unit`-typed event correctly errors. (Only an `undefined`-typed event
-                // admits the no-payload overload; see the sibling test above.) The backend
-                // repr coincidence — both `unit` and `undefined` emit JS `undefined` — is
-                // unaffected; this is a type-identity distinction only.
+            test "a unit-typed event is REJECTED by no-payload emit (undefined ≠ unit)" {
+                // `unit` and `undefined` are distinct type identities, so
+                // `undefined extends Events[Key]` does not hold for a `unit` payload and the
+                // conditional folds to `never`. Both still emit JS `undefined` at the backend.
                 let input =
                     String.concat
                         "\n"

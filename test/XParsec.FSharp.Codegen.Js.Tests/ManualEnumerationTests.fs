@@ -4,16 +4,13 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The MANUAL enumeration protocol on JS — `let e = src.GetEnumerator()` then
-// `while e.MoveNext() do … e.Current`, the CLR-idiomatic pull loop `for … in` is sugar for.
-// It lowers through the capability-protocol CONSUMER table (`EmitJsCapabilities`, where the
-// protocol is documented). These tests pin the emitted shape of each row and run the loop
-// end-to-end under Node.
+// The MANUAL enumeration protocol on JS: `let e = src.GetEnumerator()` then
+// `while e.MoveNext() do … e.Current`, the pull loop `for … in` is sugar for. Each row's
+// emitted shape is pinned, then the loop is run under Node.
 
-// A `seq<int>` source with an authored enumerator, reused by every case below: `Counter(n)`
-// yields 0 … n-1 through its own `Enum` cursor. The class's `GetEnumerator` impl is routed to
-// a `*[Symbol.iterator]()` generator (the implementer half), so the manual protocol here runs
-// the adapter OVER that generator — the round trip that proves the two halves agree.
+// `Counter(n)` yields 0 … n-1 through its own `Enum` cursor. Its `GetEnumerator` impl emits
+// as a `*[Symbol.iterator]()` generator, so the manual protocol below runs the consumer
+// adapter over that generator, checking the implementer and consumer halves against each other.
 let private counterPrelude =
     String.concat
         "\n"
@@ -72,9 +69,9 @@ let tests =
                     "from \"./Vesper.Core.mjs\""
                     "the adapter is imported from the Vesper.Core runtime module"
 
-                // The broken pre-fix emission: a type-prefixed import of an export
-                // `Vesper.Core.mjs` does not have (an ESM link error under Node, not a
-                // compile diagnostic). It must not come back.
+                // A type-prefixed `seq__GetEnumerator` import names an export
+                // `Vesper.Core.mjs` does not have: an ESM link error under Node, not a
+                // compile diagnostic.
                 Expect.isFalse (js.Contains "seq__GetEnumerator") "no mangled `seq__GetEnumerator` import"
             }
 
@@ -92,8 +89,6 @@ let tests =
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    // The adapter drives the class's `[Symbol.iterator]` generator, which
-                    // drives its authored `Enum` cursor: 0+1+2+3.
                     Expect.equal out "6" "`while e.MoveNext() do acc <- acc + e.Current` sums 0..3"
             }
 

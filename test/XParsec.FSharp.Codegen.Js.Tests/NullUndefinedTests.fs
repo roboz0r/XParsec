@@ -7,29 +7,18 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// `null` / `undefined` as first-class intrinsic types. A TS `T | null` /
-// `T | undefined` rides in as a `TyOr`/`FTOr` member; this pins that such a type
-// resolves through the provider, survives JS emit (no `PlatformTypes` reject), and
-// runs under Node round-tripping present / absent values.
-//
-// `N` is a class with FOUR static methods (the class path stamps a real assembly
-// origin onto the member key, unlike the v1 free-function path):
-//   pickName   : bool -> (string | null)
-//   pickMiddle : bool -> (string | undefined)
-//   renderN    : (string | null)      -> string
-//   renderU    : (string | undefined) -> string
-// The renderers' parameter type EXACTLY matches each producer's return, so no
-// union-assignability is exercised — only the type's end-to-end survival.
+// `null` / `undefined` as first-class intrinsic types. A TS `T | null` / `T | undefined` rides
+// in as a union member; this pins that such a type resolves through the provider, survives JS
+// emit, and round-trips present / absent values under Node.
 
-/// `nulllib`: a class `N` with four static methods. `pickName`/`renderN` traffic in
-/// `string | null`; `pickMiddle`/`renderU` in `string | undefined`. Each renderer's
-/// parameter EXACTLY matches its producer's return, so no union-assignability is
-/// exercised — only the types' end-to-end survival.
 let private boolT = named "bool"
 let private stringT = named "string"
 let private nullUnion = union [ named "null"; stringT ]
 let private undefUnion = union [ named "undefined"; stringT ]
 
+/// `nulllib`: a class `N` whose four static methods traffic in `string | null`
+/// (`pickName`/`renderN`) and `string | undefined` (`pickMiddle`/`renderU`). Each renderer's
+/// parameter EXACTLY matches its producer's return, so no union-assignability is exercised.
 let private nullManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -100,12 +89,9 @@ let tests =
         "NullUndefined"
         [
             test "the `undefined` VALUE splices to bare `undefined` — no definition, no import" {
-                // Route C: `Vesper.undefined` is a module `let` bound to a single
-                // zero-operand intrinsic (`(# "undefined" #)`). The JS backend treats it
-                // as a compile-time alias — `InlineExpansion` splices the intrinsic at the
-                // reference, so the binding `let u = undefined` lowers to `const u =
-                // undefined` (the RHS is the spliced bare `undefined`), with NO
-                // `const undefined = undefined` self-definition and NO import for it.
+                // `Vesper.undefined` is a module `let` bound to the zero-operand intrinsic
+                // `(# "undefined" #)`, spliced at the reference, so `let u = undefined` lowers
+                // to `const u = undefined` with no self-definition and no import.
                 let js = emitJs "let u = undefined\n"
 
                 Expect.stringContains js "undefined" (sprintf "expected the spliced `undefined`, got:\n%s" js)

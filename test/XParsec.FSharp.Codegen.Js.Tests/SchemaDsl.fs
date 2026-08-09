@@ -1,11 +1,8 @@
 module XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Shared `Vesper.Ts.Manifest.Schema` builder set for the TS-provider tests. Previously
-// re-declared privately in each package's test file; consolidated here so a schema shape
-// change (or a new `TypeRef`/`Signature`/`Member` field) is a one-site edit. Building a
-// manifest through these total F# constructors — rather than a raw JSON string handed to
-// `Codec.deserialize` — moves a mis-shaped schema from a run-time parse failure to a
-// compile error.
+// Shared `Vesper.Ts.Manifest.Schema` builder set for the TS-provider tests: a manifest built
+// through these total F# constructors makes a mis-shaped schema a compile error rather than a
+// `Codec.deserialize` failure at run time.
 
 open Vesper.Ts.Manifest
 
@@ -39,9 +36,8 @@ let dynamic: Schema.TypeRef = Schema.TypeRef.Dynamic
 /// `keyof t`.
 let keyof (t: Schema.TypeRef) : Schema.TypeRef = Schema.TypeRef.KeyOf t
 
-/// An anonymous structural object type: a tsc-`printed` diagnostic string paired with
-/// its extracted `(name, type)` fields (`{x:number;y:number}`). No index signature —
-/// the common case; an index-bearing shape uses `structuralIx`.
+/// An anonymous structural object type: a tsc-`printed` diagnostic string paired with its
+/// extracted `(name, type)` fields (`{x:number;y:number}`), and no index signature.
 let structural (printed: string) (fields: (string * Schema.TypeRef) list) : Schema.TypeRef =
     Schema.TypeRef.Structural(printed, fields, [])
 
@@ -78,8 +74,8 @@ let param' (name: string) (ty: Schema.TypeRef) : Schema.Param =
         Rest = false
     }
 
-/// An OPTIONAL (`name?: ty`), non-rest parameter — a trailing run of these may be
-/// omitted at a call site (`readFile(path, cb, opts?)`).
+/// An OPTIONAL (`name?: ty`), non-rest parameter; a trailing run of these may be omitted at
+/// a call site (`readFile(path, cb, opts?)`).
 let optParam' (name: string) (ty: Schema.TypeRef) : Schema.Param = { param' name ty with Optional = true }
 
 /// A signature with `typeParams` own method typars, the given params, and no bounds.
@@ -127,9 +123,8 @@ let staticMethod' (name: string) (sigs: Schema.Signature list) : Schema.Member =
 
 // ─── Refs-table builders (foreign identity: home + kind + arity) ────────────────
 
-/// A refs-table entry pairing the FOREIGN bare name with its `{home; kind; arity}`
-/// identity. `Box` referenced from package `A` at arity 1: `refEntry "Box" "A"
-/// Schema.RefKind.Class 1`.
+/// A refs-table entry pairing the FOREIGN bare name with its `{home; kind; arity}` identity:
+/// `refEntry "Box" "A" Schema.RefKind.Class 1`.
 let refEntry (name: string) (home: string) (kind: Schema.RefKind) (arity: int) : string * Schema.RefEntry =
     name,
     {
