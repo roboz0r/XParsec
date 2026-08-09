@@ -6,11 +6,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The project-local class/interface registry was keyed by bare short name, so two
-// interfaces `Fun<'a,'b>` and `Fun<'a,'b,'c>` collided ("Duplicate type definition:
-// Fun"). The registry now has an `(name, arity)` key (mirroring the union machinery)
-// while keeping a bare-name alias for single-arity classes, so every existing
-// single-arity reference keeps resolving.
+// Two project-local type definitions sharing a name at different generic arity
+// (`Fun<'a,'b>` and `Fun<'a,'b,'c>`) must coexist and resolve apart: the registry claims
+// `(name, arity)`, while a single-arity name still resolves bare.
 
 [<Tests>]
 let tests =
@@ -20,10 +18,6 @@ let tests =
     testList
         "ArityOverloadedClasses"
         [
-            // Two same-named interfaces of different generic arity coexist — the
-            // arity key disambiguates them. Previously this fragment raised
-            // "Duplicate type definition: Fun"; `typeChecks` asserting NO error
-            // confirms the fix.
             test "two same-named interfaces of different arity coexist (no duplicate diagnostic)" {
                 typeChecks (
                     String.concat
@@ -37,9 +31,8 @@ let tests =
                 )
             }
 
-            // Use sites of each arity resolve to the right member shape: the
-            // arity-3 `Invoke` takes two args, the arity-2 one arg. A wrong-arity
-            // use would type-error, proving the registry distinguishes them.
+            // The arity-3 `Invoke` takes two args and the arity-2 one, so a use site
+            // that reached the other arity's member would type-error on arg count.
             test "use sites of each arity resolve to the correct member shape" {
                 typeChecks (
                     String.concat
@@ -55,8 +48,6 @@ let tests =
                 )
             }
 
-            // A single-arity interface still resolves by its bare written name
-            // (the bare alias survives).
             test "a single-arity interface still resolves by bare name (bare alias survives)" {
                 typeChecks (
                     String.concat
@@ -69,13 +60,8 @@ let tests =
                 )
             }
 
-            // Two CLASSES (not interfaces) of different arity, each with a
-            // distinct instance method, both emit (`Box\`1` / `Box\`2` metadata
-            // names) and dispatch to the right member — proving codegen needs no
-            // new arity plumbing (the arity-suffixed SymbolKey already separates
-            // them). Construction uses explicit `new Box<…>(…)` so the front-end
-            // resolves each by its arity-qualified key; bare `Box(…)` application
-            // across two arities is a deferred written-arity-resolution hazard.
+            // Constructed with explicit `new Box<…>(…)` so the front end resolves each by
+            // its arity-qualified key rather than by written arity at the application.
             test "two same-named classes of different arity emit as Box`1 / Box`2 and dispatch correctly" {
                 let _, artifact =
                     compileSource
@@ -114,10 +100,8 @@ let tests =
                 Expect.equal (m2.Invoke(inst2, [||]) :?> int) 2 "Box`2.Two() dispatches to the arity-2 member"
             }
 
-            // Cross-kind name overlap — a class `Foo<'A, 'B>` alongside a union `Foo<'A>`
-            // of different arity. The claim is on `(name, arity)`, so the two hold
-            // DIFFERENT claims: a benign cross-arity coexistence must not be rejected, and
-            // neither mis-resolves the other.
+            // Cross-KIND overlap: a union and a class share a name at different arities,
+            // so they hold different `(name, arity)` claims and neither is rejected.
             test "a class and a union of the same name, different arity, coexist without mis-resolution" {
                 typeChecks (
                     String.concat

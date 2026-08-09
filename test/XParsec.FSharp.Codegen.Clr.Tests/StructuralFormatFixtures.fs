@@ -1,21 +1,10 @@
 namespace Vesper
 
-// Runtime-compiled `%A` fixtures for `StructuralFormatTests.fs`. NOT fsc-compiled:
-// this file is read as TEXT and compiled through this repo's own Codegen.Clr backend
-// (`TestHelpers.compileFixtureFile`) against the Vesper.Core / Vesper.List contract,
-// then loaded so its `obj`-returning nullary functions can be reflected + invoked.
-//
-// The four `Sem*` types below hand-write `IStructuralFormattable` impls that drive the
-// declarative sink (`BeginRecord` / `Field` / `Child` / `BeginCase` / `EndCase`) — the
-// same recursion vocabulary a synthesised `Format` body has. They own the Core-bound
-// `%A` interfaces (`Vesper.IStructuralFormattable` / `Vesper.IFormatSink`), so they
-// must live in a Vesper.Core-compiled assembly rather than fsc. `Fixtures` exposes one
-// nullary `obj`-returning function per distinct value the `"semantic protocol"` tests
-// build; each compiles to a zero-arg static method (a lone `unit` param is erased) so
-// `GetMethod(name).Invoke(null, [||])` binds it.
+// NOT fsc-compiled: read as TEXT and compiled through this repo's own Codegen.Clr
+// backend against Vesper.Core, then loaded and invoked by reflection. The `Sem*` types
+// implement the Core-bound `Vesper.IStructuralFormattable`, which fsc cannot see.
 
-// A record driven semantically: `Field name` marks each label, `Child` supplies
-// the value. The sink owns the `{ … }` / `+2` hang policy.
+// The fixture emits no braces or separators; the sink owns the `{ … }` layout.
 type SemPoint =
     {
         PX: int
@@ -31,10 +20,8 @@ type SemPoint =
             sink.Child(box this.PY)
             sink.EndRecord()
 
-// An option-shaped DU driven semantically: `BeginCase name; (Child payload); EndCase`.
-// The sink decides nullary vs single-payload and the single-payload parenthesisation
-// (`Some (Some 3)` but not `Some 3` / `Some None`) from the observed child count + the
-// application-shaped mark.
+// The sink decides parenthesisation from the observed child count and shape:
+// `Some (Some 3)`, but bare `Some 3` / `Some None`.
 type SemOpt =
     | SemNone
     | SemSome of obj
@@ -50,9 +37,8 @@ type SemOpt =
                 sink.Child(v)
                 sink.EndCase()
 
-// A record whose second field is itself a `Child` — exercises the pending-label
-// invariant: the outer `Inner = ` label must be emitted before recursing, so the
-// nested record's first `Field` cannot clobber it.
+// A record `Child`: the outer `Inner = ` label must land before recursing, or the
+// nested record's first `Field` clobbers it.
 type SemBox =
     {
         BLabel: string
@@ -81,10 +67,8 @@ type SemPair =
                 sink.Child(b)
                 sink.EndCase()
 
-/// One nullary `obj`-returning function per distinct value the `"semantic protocol"`
-/// tests render. The F# test binds each by reflection and hands it to the Vesper-compiled
-/// `%A` engine, so the value's `IStructuralFormattable` impl and the engine's sink meet
-/// on the single Default-ALC `Vesper.Core`.
+/// One nullary `obj`-returning function per value the `%A` tests render, each bound
+/// by reflection from the F# side.
 module Fixtures =
 
     /// `{ X = 1; Y = "a" }`
@@ -105,10 +89,9 @@ module Fixtures =
     /// `Some None`
     let caseSomeNone () : obj = box (SemSome(box SemNone))
 
-    /// `Some <payload>` around a caller-supplied `obj`. Used for a payload the fixture
-    /// cannot build natively — an FSharp.Core `list`, which must render via the engine's
-    /// `IEnumerable` arm (`[1; 2]`); a Vesper cons-list built here instead has its OWN
-    /// synthesised `IStructuralFormattable` and would render as `Cons (1, Cons (2, Empty))`.
+    /// `Some <payload>` around a caller-supplied `obj`, for a payload this fixture
+    /// cannot build natively. An FSharp.Core `list` renders via the engine's
+    /// `IEnumerable` arm (`[1; 2]`); a Vesper cons-list gives `Cons (1, Cons (2, Empty))`.
     let someOf (v: obj) : obj = box (SemSome v)
 
     /// `Some { X = 1; Y = "a" }`

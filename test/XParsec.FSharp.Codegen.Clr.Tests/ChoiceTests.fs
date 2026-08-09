@@ -5,32 +5,22 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The behavioral runtime suite for `Vesper.Choice` — a `[<Struct>]` two-case
-// union (`Choice1Of2` of `'T1`, `Choice2Of2` of `'T2`) with no module. Choice
-// has no instance members and no module, so a constructed value is observed only
-// by a `match`.
-//
-//   * REFLECTION-INVOKE for the pure-data surface: `buildPackage "Vesper.Choice"`
-//     emits `Vesper.Choice.dll`; we construct cases through the emitted static
-//     case factories and read the discriminating `_tag` field (declaration order:
-//     `Choice1Of2` = 0, `Choice2Of2` = 1) and per-case payload fields directly.
-//   * DRIVER PROGRAMS for construction + `match` across the package boundary
-//     (`open Vesper`).
-//
-// `Choice<'T1,'T2>` has *two* type parameters and each case constrains only one
-// — `Choice1Of2 5` is `Choice<int, '_>`; every standalone value is annotated
-// `: Choice<int, string>` to pin both parameters.
+// `Vesper.Choice` has no module and no instance members, so reflection reads the `_tag`
+// and payload fields directly, and a driver program observes a constructed value only
+// through a `match`.
 
-/// The built `Vesper.Choice.dll` (cached). `buildPackage` loads it into its own
-/// ALC and returns the loaded assembly; every type/value below is reflected from
-/// *this* assembly so identities line up across `Invoke`s.
+// Each case constrains one of the two parameters, so a standalone `Choice1Of2 5` is
+// `Choice<int, '_>`; every such value is annotated `: Choice<int, string>` to pin both.
+
+/// The built `Vesper.Choice.dll` (cached). Every type below is reflected from *this*
+/// assembly, so identities line up across `Invoke`s.
 let private choiceAsm: Lazy<Assembly> =
     lazy (fst (buildPackage "Vesper.Choice").Value)
 
 let private intTy = typeof<int>
 let private strTy = typeof<string>
 
-/// `Vesper.Choice`2` closed over <int, string> — the object-argument type for the case
+/// `Vesper.Choice`2` closed over <int, string>, the object-argument type for the case
 /// factories and field reads.
 let private choiceIntStr: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`2").MakeGenericType(intTy, strTy))
@@ -56,20 +46,16 @@ let tests =
     testList
         "Choice"
         [
-            // ---- construction round-trips through the case factories ----------
             test "Choice1Of2 / Choice2Of2 construct distinct values" {
                 Expect.isNotNull (c1IS 3) "Choice1Of2 3 constructs"
                 Expect.isNotNull (c2IS "boom") "Choice2Of2 \"boom\" constructs"
             }
 
-            // ---- discriminators: the `_tag` field IS the discriminator (no
-            //      module). Declaration order pins Choice1Of2 = 0, Choice2Of2 = 1.
             test "tag discriminates: Choice1Of2 -> 0, Choice2Of2 -> 1" {
                 Expect.equal (tagOf (c1IS 3)) 0 "Choice1Of2 is tag 0"
                 Expect.equal (tagOf (c2IS "e")) 1 "Choice2Of2 is tag 1"
             }
 
-            // ---- payload extraction: the active case's field holds the value ---
             test "Choice1Of2 payload reads back through Choice1Of2_0" {
                 Expect.equal (fieldOf "Choice1Of2_0" (c1IS 7) :?> int) 7 "Choice1Of2 7 carries 7"
             }
@@ -79,11 +65,9 @@ let tests =
             }
         ]
 
-// Higher-arity `Choice<'T1, …, 'T7>` (arity overloads). These are *distinct*
-// emitted types `Vesper.Choice`3`…`Vesper.Choice`7` — the whole pipeline
-// (front-end type registry, codegen `userTypes` / `genericUnions`, the external
-// contract provider) is keyed by `(name, arity)`, not the bare short name
-// "Choice". Same reflection idiom as the arity-2 suite.
+// Higher-arity `Choice<'T1, …, 'T7>`: distinct emitted types `Vesper.Choice`3` …
+// `Vesper.Choice`7`, because the pipeline is keyed by `(name, arity)` rather than by
+// the short name "Choice".
 
 let private boolTy = typeof<bool>
 
@@ -91,8 +75,8 @@ let private boolTy = typeof<bool>
 let private choice3: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`3").MakeGenericType(intTy, strTy, boolTy))
 
-/// `Vesper.Choice`7` closed over seven `int`s (a uniform instantiation keeps the
-/// factory calls terse — the arity, not the element types, is what's under test).
+/// `Vesper.Choice`7` closed over seven `int`s; the arity, not the element types, is
+/// what is under test.
 let private choice7: Lazy<Type> =
     lazy (choiceAsm.Value.GetType("Vesper.Choice`7").MakeGenericType(Array.create 7 intTy))
 
@@ -106,9 +90,6 @@ let higherArity =
     testList
         "ChoiceHigherArity"
         [
-            // `Vesper.Choice`3` is a genuinely distinct emitted type (not collapsed
-            // onto `Choice`2`): all three case factories exist and tag in
-            // declaration order 0/1/2.
             test "Choice`3 constructs all three cases; tags 0/1/2" {
                 let c1 = choice3.Value.GetMethod("Choice1Of3").Invoke(null, [| box 5 |])
                 let c2 = choice3.Value.GetMethod("Choice2Of3").Invoke(null, [| box "hi" |])
@@ -118,8 +99,7 @@ let higherArity =
                 Expect.equal (tagOfOn choice3.Value c3) 2 "Choice3Of3 is tag 2"
             }
 
-            // Each case's payload reads back through its own `<Case>_0` field — the
-            // struct carries one field per arm (`Choice1Of3_0` … `Choice3Of3_0`).
+            // The struct carries one field per arm: `Choice1Of3_0` … `Choice3Of3_0`.
             test "Choice`3 payloads read back per case" {
                 let c1 = choice3.Value.GetMethod("Choice1Of3").Invoke(null, [| box 5 |])
                 let c3 = choice3.Value.GetMethod("Choice3Of3").Invoke(null, [| box true |])
@@ -127,8 +107,7 @@ let higherArity =
                 Expect.equal (fieldOfOn choice3.Value "Choice3Of3_0" c3 :?> bool) true "Choice3Of3 carries true"
             }
 
-            // The widest arm of the family: `Vesper.Choice`7` emits distinctly, with
-            // its last case `Choice7Of7` tagging at declaration index 6.
+            // The widest member of the family.
             test "Choice`7 emits; first/last cases tag 0/6" {
                 let first = choice7.Value.GetMethod("Choice1Of7").Invoke(null, [| box 1 |])
                 let last = choice7.Value.GetMethod("Choice7Of7").Invoke(null, [| box 7 |])
@@ -137,8 +116,6 @@ let higherArity =
                 Expect.equal (fieldOfOn choice7.Value "Choice7Of7_0" last :?> int) 7 "Choice7Of7 carries 7"
             }
 
-            // The arity-2 and arity-3 object arguments are different `Type`s — pins that the
-            // emitter did NOT collapse the overloaded short name to a single type.
             test "Choice`2 and Choice`3 are distinct emitted types" {
                 Expect.notEqual choiceIntStr.Value.Name choice3.Value.Name "`2 and `3 have distinct metadata names"
                 Expect.equal choiceIntStr.Value.Name "Choice`2" "arity-2 metadata name"
@@ -147,8 +124,7 @@ let higherArity =
         ]
 
 // Cross-package higher-arity consumption (`open Vesper`): construction + a 3-arm
-// `match` on `Choice<int, string, bool>`, exercising the external contract
-// provider's arity-keyed resolution end-to-end.
+// `match` on `Choice<int, string, bool>`, so arity-keyed resolution end to end.
 [<Tests>]
 let higherArityRuntime =
     testList
@@ -176,15 +152,13 @@ let higherArityRuntime =
         ]
 
 // Construction + pattern matching of `Choice`'s cases across the package boundary
-// (`open Vesper`). Both cases carry a field; the constructed value is observed
-// only by a `match`, which drives each case's field extract (`Choice1Of2_0` at
-// tag 0, `Choice2Of2_0` at tag 1).
+// (`open Vesper`). The `match` drives each case's field extract: `Choice1Of2_0` at
+// tag 0, `Choice2Of2_0` at tag 1.
 [<Tests>]
 let ctorAndMatchRuntime =
     testList
         "ChoiceCtorRuntime"
         [
-            // Emit smoke: both case factories produce valid IL and the program runs.
             test "Choice1Of2 and Choice2Of2 construct and run (Layer B emit smoke)" {
                 runsChoice
                     "ok"
@@ -194,9 +168,6 @@ let ctorAndMatchRuntime =
                      + "printfn \"%s\" \"ok\"")
             }
 
-            // `match` extracts the `Choice1Of2` payload (tag 0, int field) and
-            // defaults on `Choice2Of2`; the case-pattern type is driven by the
-            // annotated parameter.
             test "match extracts Choice1Of2 payload, defaults on Choice2Of2" {
                 runsChoiceLines
                     [ "7"; "0" ]
@@ -206,8 +177,6 @@ let ctorAndMatchRuntime =
                      + "printfn \"%d\" (describe (Choice2Of2 \"boom\"))")
             }
 
-            // `match` binding the *Choice2Of2* field (tag 1, string field) — the
-            // second case's `<Choice2Of2>_0` extract, distinct from the arm above.
             test "match binds the Choice2Of2 payload" {
                 runsChoiceLines
                     [ "one"; "boom" ]
@@ -217,8 +186,7 @@ let ctorAndMatchRuntime =
                      + "printfn \"%s\" (msg (Choice2Of2 \"boom\"))")
             }
 
-            // Discriminate without binding (`Choice1Of2 _`), driving only the `_tag`
-            // compare — no field extract.
+            // `Choice1Of2 _` binds nothing, so the arm drives only the `_tag` compare.
             test "match discriminates Choice1Of2 vs Choice2Of2" {
                 runsChoiceLines
                     [ "true"; "false" ]
@@ -229,14 +197,13 @@ let ctorAndMatchRuntime =
             }
         ]
 
-// Front-end regression guard (analysis only): the cross-package Choice surface
-// type-checks through the contract provider's ambient open scope.
+// Analysis only: the cross-package Choice surface resolves through the provider's
+// open scope.
 [<Tests>]
 let frontEndTests =
     testList
         "ChoiceFrontEnd"
         [
-            // Construction resolves through the reverse case index (open `Vesper`).
             test "Choice1Of2 5 types as Choice<int, string> (annotated)" {
                 typeChecksChoice "let x : Choice<int, string> = Choice1Of2 5"
             }
@@ -245,13 +212,12 @@ let frontEndTests =
                 typeChecksChoice "let x : Choice<int, string> = Choice2Of2 \"boom\""
             }
 
-            // Qualified case forms `Choice.Choice1Of2` / `Choice.Choice2Of2`.
             test "Choice.Choice1Of2 / Choice.Choice2Of2 (qualified) type-check" {
                 typeChecksChoice
                     "let x : Choice<int, string> = Choice.Choice1Of2 5\nlet y : Choice<int, string> = Choice.Choice2Of2 \"e\""
             }
 
-            // `match` binds each case's field at the object argument's instantiation.
+            // Each bound variable picks up the scrutinee's instantiation.
             test "match Choice1Of2 x binds x : int; Choice2Of2 e binds e : string" {
                 typeChecksChoice
                     "let f (c: Choice<int, string>) : int =\n    match c with\n    | Choice1Of2 x -> x\n    | Choice2Of2 _ -> 0"
@@ -260,15 +226,13 @@ let frontEndTests =
                     "let f (c: Choice<int, string>) : string =\n    match c with\n    | Choice1Of2 _ -> \"\"\n    | Choice2Of2 e -> e"
             }
 
-            // Direct generic reference (no abbreviation) resolves as a union.
             test "Vesper.Choice<int, string> direct ref type-checks in a match" {
                 typeChecksChoice
                     "let f (c: Vesper.Choice<int, string>) : int =\n    match c with\n    | Choice1Of2 x -> x\n    | Choice2Of2 _ -> 0"
             }
 
-            // Higher-arity `Choice<'T1, 'T2, 'T3>` resolves to the *arity-3* overload
-            // (a distinct type from `Choice`2`), and its cases bind at the right
-            // field types — the arity-overload resolution end to end in the front end.
+            // `Choice<'T1, 'T2, 'T3>` resolves to the arity-3 overload, a distinct type
+            // from `Choice`2`, and its cases bind at that overload's field types.
             test "Choice<int, string, bool> (arity 3) construction type-checks" {
                 typeChecksChoice "let x : Choice<int, string, bool> = Choice2Of3 \"e\""
             }
@@ -278,9 +242,6 @@ let frontEndTests =
                     "let f (c: Choice<int, string, bool>) : int =\n    match c with\n    | Choice1Of3 x -> x\n    | Choice2Of3 _ -> 0\n    | Choice3Of3 _ -> 1"
             }
 
-            // A case from the wrong arity does NOT belong to the arity-3 type — the
-            // `Choice2Of2` ctor types as `Choice`2`, so annotating it `Choice`3` is a
-            // type error (proves the arities are genuinely distinct types).
             test "Choice1Of7 types as the arity-7 overload" {
                 typeChecksChoice "let x : Choice<int, int, int, int, int, int, int> = Choice1Of7 5"
             }

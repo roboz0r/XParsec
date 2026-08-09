@@ -10,13 +10,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Clr.Tests.MetadataStructure
 
-// The emitted PE's metadata, asserted directly. See `MetadataStructure.fs` for why
-// the emitter's own handle checks cannot see what these do.
-
-/// A program that exercises every slot GROUP the layout orders by: a union, a
-/// record, a class, a closure (`adder`'s lambda captures `k`), a module class with a
-/// type NESTED in it, the anonymous `Program` module class's top-level value fields, and
-/// `Main`.
+/// A program with one of everything the emitted `TypeDef` order groups by: a union, a
+/// record, a class, a closure (`adder`'s lambda captures `k`), a module class holding a
+/// NESTED type, the anonymous `Program` class's top-level value fields, and `Main`.
 let private representative =
     String.concat
         "\n"
@@ -32,9 +28,7 @@ let private representative =
             "    type Tally = { Hits: int }"
             "    let twice (x: int) = x + x"
             "    let adder (k: int) = fun (x: int) -> x + k"
-            // `Tally` is held by `M`, so its name (and its field labels) reach the top level
-            // only through an `open` — a sibling scope sees nothing of a module it has not
-            // opened.
+            // `Tally` and its field labels reach the top level only through `open M`.
             "open M"
             "let bump = M.adder 3"
             "let p = { X = 1; Y = 2 }"
@@ -74,19 +68,12 @@ let private libraryBytes: Lazy<byte[]> =
          compileSourceTo (ProjectInfo.library "MetaStructLibrary") src |> Codegen.toBytes)
 
 // ---- The teeth: a hand-built, deliberately mis-ordered metadata image ---------
-// The emitter cannot be made to emit a bad PE without editing it, so the corrupt
-// image is built here with `MetadataBuilder` — the same writer `Assembler` uses —
-// and fed to the same assertions.
+// The emitter cannot be made to emit a bad PE, so the corrupt image is built here with
+// `MetadataBuilder` and fed to the same assertions.
 
-/// Two types, `N.A` (fields `a1`, `a2`) and `N.B` (field `b1`), plus the `<Module>`
-/// row. `fieldRows` is the order the FIELD rows are written in, while the `FieldList`
-/// columns always prefix-sum the TYPES (`A` claims 2, `B` claims 1) — exactly the
-/// emitter's construction. Hand the rows in a different order and you get a
-/// counts-preserving mis-order: every range, count and total still agrees, but each
-/// type's range names another type's rows.
-///
-/// `firstField` seeds the `FieldList` prefix sum; passing 2 instead of 1 leaves field
-/// row 1 claimed by nobody — a mis-prediction that skews the whole partition.
+/// `<Module>`, `N.A` (fields `a1`, `a2`) and `N.B` (field `b1`). The `FieldList` columns
+/// always prefix-sum the TYPES, so handing `fieldRows` in another order gives a
+/// counts-preserving mis-order; `firstField = 2` instead of 1 skews the prefix sum.
 let private misorderedImage (fieldRows: string list) (firstField: int) : ImmutableArray<byte> =
     let mb = MetadataBuilder()
 
@@ -116,11 +103,9 @@ let private misorderedImage (fieldRows: string list) (firstField: int) : Immutab
         )
         |> ignore
 
-    // TypeDef rows first — the FieldList/MethodList columns are the prefix sums.
-    // `firstField` skews the WHOLE prefix sum, `<Module>` included: a skew introduced
-    // mid-table is invisible, because ECMA-335 derives a type's range END from the
-    // NEXT row's start, so the preceding type simply absorbs the skipped rows. Only a
-    // range that does not begin at row 1 leaves a row genuinely unclaimed.
+    // TypeDef rows first, since their FieldList/MethodList columns ARE the prefix sums.
+    // `firstField` skews `<Module>` too: a mid-table skew is invisible, since a range's
+    // END is the next row's start, so only a range not starting at 1 unclaims a row.
     typeRow "" "<Module>" firstField 1
     typeRow "N" "A" firstField 1
     typeRow "N" "B" (firstField + 2) 2
@@ -163,18 +148,12 @@ let tests =
                 assertNoEntryPoint "library" libraryBytes.Value
             }
 
-            // `Main`'s row comes from the `Program` node's method list while the range that
-            // must contain it is prefix-summed over the whole `TypeDef` flattening — so
-            // this fails the moment the two fall out of step.
             test "the entry point lies inside the Program type's method range" {
                 assertEntryPointOwner "representative" representativeBytes.Value "Program" "Main"
             }
 
-            // The pin that makes the checks non-vacuous: the ACTUAL rows of every type
-            // in a known assembly. Permute `layout.Fields` or `layout.Methods` against
-            // `layout.Types` and every structural invariant still holds — the ranges
-            // stay a gap-free partition — but these names land in the wrong type's
-            // range, and only this notices.
+            // The pin that makes the structural checks non-vacuous: the ACTUAL rows of
+            // every type in a known assembly.
             test "each type's field and method ranges hold ITS OWN rows" {
                 assertTypeMembers
                     "representative"
@@ -200,8 +179,8 @@ let tests =
                             Fields = [ "start" ]
                             Methods = [ ".ctor"; "get_Start"; "Next" ]
                         }
-                        // The lambda's capture class, then the singleton closure `adder`
-                        // is eta-reified into as a value.
+                        // The lambda's capture class, then the singleton closure
+                        // (`instance` field + `.cctor`) `adder` itself reifies to.
                         {
                             Type = "<closure>$0"
                             Fields = [ "capture0" ]
@@ -212,8 +191,8 @@ let tests =
                             Fields = [ "instance" ]
                             Methods = [ ".ctor"; "Invoke"; ".cctor" ]
                         }
-                        // The module's compiled module class: static methods, no fields —
-                        // immediately followed (pre-order) by the type it holds.
+                        // The module's compiled module class: static methods, no fields,
+                        // and immediately followed (pre-order) by the type it holds.
                         {
                             Type = "M"
                             Fields = []
@@ -224,14 +203,9 @@ let tests =
                             Fields = [ "Hits" ]
                             Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
                         }
-                        // The anonymous module class, last, so that `Main` — the final row of the
-                        // final node — falls inside its method range.
-                        // A top-level value's field carries its SOURCE name: the binding
-                        // declares no module, but it has a real identity all the same (held
-                        // by the file's namespace), and the field name is minted from that
-                        // one key. Only a binding with no identity — one a later `let` of
-                        // the same name shadows, or one peeled out of the entry expression —
-                        // falls back to a slot-suffixed mint.
+                        // The anonymous module class, last, so `Main` (the final method row)
+                        // falls inside its range. A top-level value's field carries its
+                        // SOURCE name; only a shadowed binding gets a slot-suffixed mint.
                         {
                             Type = "Program"
                             Fields = [ "p"; "c"; "s"; "t"; "n" ]
@@ -240,8 +214,7 @@ let tests =
                     ]
             }
 
-            // Every Vesper package build is a library full of modules, unions, records
-            // and closures — the broadest emitted-assembly set the suite has.
+            // Each Vesper package is a library full of modules, unions, records and closures.
             for package in
                 [
                     "Vesper.Core"
@@ -285,8 +258,7 @@ let tests =
                     (fun () -> assertTypeMembersMetadata "mis-ordered" md expected)
                     "a permuted Field table must be caught by the member assertion"
 
-                // …and the same image with the rows in the right order passes, so the
-                // assertion is discriminating, not merely loud.
+                // …and the same image with the rows in the right order passes.
                 let good = misorderedImage [ "a1"; "a2"; "b1" ] 1
                 use goodProvider = readImage good
                 assertTypeMembersMetadata "ordered" (goodProvider.GetMetadataReader()) expected
@@ -294,8 +266,7 @@ let tests =
 
             test "a skewed prefix sum leaves a Field row unclaimed and is caught" {
                 // Every FieldList column is off by one, so field row 1 belongs to no
-                // type: the ranges no longer cover the table. This is what a drifted
-                // `FieldCount` in the FIRST slot produces.
+                // type and the ranges no longer cover the table.
                 let bad = misorderedImage [ "a1"; "a2"; "b1" ] 2
                 use provider = readImage bad
 

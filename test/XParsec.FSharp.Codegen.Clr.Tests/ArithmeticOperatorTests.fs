@@ -6,39 +6,13 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The arithmetic operator family (`+ - * / %`, `~-`, `~+`) is sourced
-// from the `Vesper.Core/ops-platform.clr.fs` contract bodies. Each binary body carries
-// the three typars its `.fsi` publishes (`x: ^T1 -> y: ^T2 -> ^T3`, support set
-// `(^T1 or ^T2)`) and IS the bare SRTP TRAIT CALL: a user type dispatches to its own
-// `static member (+)`, and so does a primitive — every supported width states the
-// operator on itself in `prim-types-*.fsi`, `string` and `decimal` included, with the
-// body beside it in the per-target `.fs`: a mnemonic for the CIL widths, a BCL call for
-// the two that are not CIL primitives.
-//
-// The consequence these tests have to hold down: nothing rides a raw-IL base. An
-// operand type that declares no such member fails to resolve (it is not a nominal)
-// and becomes a compile ERROR — so the declared set IS the supported set, stated in
-// one place rather than mirrored in a clause list.
-//
-// The per-(operator, width) BEHAVIOURAL rows do not live here. They are the shared
-// backend conformance corpus (`test/Codegen.Conformance/ops/arith-*.fs`), which every
-// backend is pointed at, judged against a golden rather than against a `=` it is
-// itself under test for. What remains here is what a corpus program cannot say — the
-// Layer-2/3 anchors that prove *which* emission path fired:
-//   - the opcode table is the complete width enumeration, read straight off the
-//     spliced body — it reaches the widths whose LITERALS the front end cannot yet
-//     represent, which no behavioural row can;
-//   - the freeze test proves the bodies are collected as cross-package inlines and
-//     are the trait call;
-//   - the diagnostic tests prove an operand that declares no such member (`char`,
-//     an unpinned class typar) is REJECTED rather than emitted as garbage IL;
-//   - the no-dependency test proves primitive arithmetic pins no FSharp.Core.
+// `let inline (+) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (+) …))` in
+// `ops-platform.clr.fs` is a bare trait call, so the types DECLARING the member are the
+// supported ones and any other operand is a compile error, never IL over a fallback.
 
-/// Names `pick` reads off the analysed tree, outermost first — a direct read of what one
-/// operand type's declared operator body splices to. This is how the widths with no
-/// literal support (`uint64` / `nativeint` / `unativeint` fold to a `TConstValue.Int`;
-/// a negative `sbyte` / `int16` literal does not project at all) still get pinned:
-/// annotated parameters need no literal.
+/// Names `pick` reads off the analysed tree, outermost first. Annotated parameters need
+/// no literal, so this reaches widths the front end cannot yet write a literal for
+/// (`uint64` / `nativeint` fold to a `TConstValue.Int`; `-1y` does not project at all).
 let private splicedNames (pick: TExpr -> string voption) (src: string) : string list =
     let tast = analyse src
 
@@ -57,15 +31,14 @@ let private splicedNames (pick: TExpr -> string voption) (src: string) : string 
                     true
         }
 
-    // The entries as well as the decls: a resolved operator body is no longer spliced into
-    // the consuming tree, so the width's own body sits in the specialization table with an
-    // edge in its place.
+    // Walks the specialization entries as well as the decls: a resolved operator body
+    // sits in the specialization table, with only an edge left in the consuming tree.
     iterFileExprs it tast
 
     List.ofSeq acc
 
-/// The inline-IL opcodes the spliced body leaves behind (`byte`'s `+` is `conv.u1` over
-/// `add`) — the whole body of a width that IS a CIL primitive.
+/// The inline-IL opcodes the spliced body leaves behind. For a width that IS a CIL
+/// primitive these are its whole body: `byte`'s `+` is `conv.u1` over `add`.
 let private opcodesOf: string -> string list =
     splicedNames (fun e ->
         match e with
@@ -73,8 +46,8 @@ let private opcodesOf: string -> string list =
         | _ -> ValueNone
     )
 
-/// The external statics the spliced body NAMES — the whole body of a width that is not a
-/// CIL primitive (`decimal`, `string`), where no mnemonic exists to carry the operation.
+/// The external statics the spliced body NAMES. For a width that is not a CIL primitive
+/// (`decimal`, `string`) these are its whole body, because no mnemonic can carry it.
 let private externalCallsOf: string -> string list =
     splicedNames (fun e ->
         match e with
@@ -96,13 +69,9 @@ let tests =
     testList
         "Arithmetic"
         [
-            // THE clause enumeration. Every primitive the operators support has an
-            // explicit clause carrying its own IL; a primitive missing from this table
-            // would fall to the trait-call base and fail to compile at all (which is
-            // what `opcodesOf`'s no-errors assertion catches), and one carrying the
-            // WRONG opcode is what the expected list catches. The unsigned widths take
-            // `div.un`/`rem.un`; the sub-int32 widths add a `conv.*` over the
-            // int32-on-stack result.
+            // The unsigned widths take `div.un` / `rem.un`; the sub-int32 widths add a
+            // `conv.*` over the int32-on-stack result. A width missing its declaration
+            // altogether fails `splicedNames`' no-errors assertion instead.
             test "each supported primitive selects its own clause with its own opcodes" {
                 let signedWide = [ "int"; "int64"; "float"; "float32"; "nativeint" ]
                 let unsignedWide = [ "uint32"; "uint64"; "unativeint" ]
@@ -133,13 +102,9 @@ let tests =
                     Expect.equal (binaryOpcodes ty "/") [ conv; div ] (sprintf "%s /" ty)
                     Expect.equal (binaryOpcodes ty "%") [ conv; rem ] (sprintf "%s %%" ty)
 
-                // `~-` does NOT carry the same enumeration — it is the SIGNED widths only.
-                // Negating an unsigned value has no answer the width can hold, and F#
-                // defines none (FSharp.Core's `UnaryNegationDynamic` lists the signed
-                // widths alone), so the unsigned clauses do not exist and `-a` on one is a
-                // compile error. The narrow signed widths truncate like every other
-                // narrow clause: without the `conv`, `neg` on the int32 stack answers 128
-                // for `-(-128y)` instead of wrapping back to -128y.
+                // `~-` is the SIGNED widths only: negating an unsigned value has no answer
+                // the width can hold, so no unsigned type declares it. The narrow signed
+                // widths still `conv`: bare `neg` gives 128 for `-(-128y)`, not -128y.
                 for ty in [ "int"; "int64"; "float"; "float32"; "nativeint" ] do
                     Expect.equal (opcodesOf (sprintf "let f (a: %s) = -a" ty)) [ "neg" ] (sprintf "%s ~-" ty)
 
@@ -152,10 +117,9 @@ let tests =
                         (sprintf "let f (a: %s) = -a" ty)
             }
 
-            // `~+` is the identity, and is still a DECLARED member at every numeric width:
-            // the operator's constraint is what admits the operand, so `+x` on a type that
-            // declares none is the same rejection `-x` on an unsigned width is. Its body
-            // carries no opcode — the splice is the operand itself.
+            // `~+` is the identity, so its body splices to the operand and no opcode. It
+            // is still a DECLARED member at each width, because that declaration is the
+            // only thing admitting the operand, as the `char` row shows.
             test "prefix plus is the identity and leaves no opcode, at every numeric width" {
                 for ty in
                     [
@@ -197,11 +161,9 @@ let tests =
                         (Map.containsKey name inlines)
                         (sprintf "%s body sourced from ops-platform.clr.fs" name)
 
-                // Every arithmetic body IS the SRTP trait call — an operand type either
-                // declares the member or does not support the operator. Nothing rides a
-                // raw-IL base, which is what makes an unsupported operand diagnose.
-                // Binary ops abstract twice, `~-` / `~+` once; none is wrapped in a static-opt
-                // any more, and the arm that unwraps one is what would notice a relapse.
+                // Binary ops abstract twice, `~-` / `~+` once, so strip lambdas to reach
+                // the trait call. The static-opt arm catches a body that regains a
+                // `when ^T : …` wrapper, which would give the operator a non-trait base.
                 let rec traitBase (e: Wire.TExpr) : Wire.TExpr =
                     match e with
                     | TExprG.Lambda(_, b, _, _) -> traitBase b
@@ -218,9 +180,8 @@ let tests =
                     | other -> failtestf "%s should freeze as an inline `let`, got %A" name other
             }
 
-            // Every width states its own `(+)` on the type, so the operator itself names
-            // none — `string`, `decimal` and `bigint` included, whose `(+)` is a BCL CALL
-            // where the numeric widths' is a mnemonic.
+            // `string`, `decimal` and `bigint` are not CIL primitives, but they declare
+            // `(+)` on the type exactly as the numeric widths do; only the body differs.
             test "every width supporting `+` declares it on the type, the non-CIL widths included" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
@@ -247,16 +208,15 @@ let tests =
 
                 Expect.isTrue (declares "string" "op_Addition") "string declares op_Addition"
 
-                // Concatenation and nothing else: the other five are meaningless on it,
-                // and a declaration is the only thing that would make one compile.
+                // Concatenation and nothing else, because a declaration is the only
+                // thing that would make `"a" - "b"` compile.
                 for op in [ "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
                     Expect.isFalse (declares "string" op) (sprintf "string declares no %s" op)
             }
 
-            // The two widths that are not CIL primitives: there is no mnemonic to read, so
-            // the whole body is a call to the BCL sibling. Named `Add`, not `op_Addition` —
-            // the BCL's operator methods are `SpecialName`, which the eager metadata walk
-            // filters out.
+            // No CIL mnemonic exists for these two, so the whole body is a BCL call. It
+            // is named `Add`, not `op_Addition`, because the metadata walk filters
+            // `SpecialName` methods and the BCL's operator methods are exactly those.
             for width, declaring in [ "decimal", "System.Decimal"; "bigint", "System.Numerics.BigInteger" ] do
                 test (sprintf "%s's operators splice a BCL call, and no opcode" width) {
                     for op, method in
@@ -282,12 +242,9 @@ let tests =
                         (sprintf "%s ~- calls %s.Negate" width declaring)
                 }
 
-            // A HETEROGENEOUS user operator (`Vec2 * int -> Vec2`): the contract's
-            // `(^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3)` admits distinct
-            // operand types, so the `.fs` body must carry the same three typars. A
-            // single-`^T` body folds both operands into one substitution slot, binding
-            // the `int` scale factor into a `Vec2`-typed `let` — a type lie the CLR
-            // rejects.
+            // The operands have DIFFERENT types, which only the three-typar
+            // `(^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3)` admits. A single-`^T`
+            // body would bind the `int` scale factor into a `Vec2`-typed `let`.
             test "a heterogeneous user operator (Vec2 * int -> Vec2) dispatches to its own static member" {
                 runs
                     "6"
@@ -304,11 +261,9 @@ let tests =
                         ])
             }
 
-            // Eager defaulting (`default ^T1 : int`) grounds an otherwise-free operand
-            // at generalisation, so the `int` clause — not the trait-call base — is what
-            // a use-site-less generic `+` selects. If defaulting ever stops firing here
-            // this becomes the operator diagnostic, which is the signal to fix
-            // defaulting, NOT to widen the base.
+            // `(+)`'s `.fsi` carries `default ^T1: int`, which grounds the operand at
+            // generalisation when no use site does. Without it there is no member to
+            // resolve and `let f a b = a + b` diagnoses instead.
             test "`let f a b = a + b` with no use site defaults to int and emits `add`" {
                 typeChecks "let f a b = a + b"
                 Expect.equal (opcodesOf "let f a b = a + b") [ "add" ] "the int clause, not the trait-call base"
@@ -327,22 +282,17 @@ let tests =
                 Expect.equal (output.Trim()) "8" "2 + 2 * 3 = 8"
             }
 
-            // ---- The trait-call base's own contract: an operand it cannot dispatch
-            // to is a DIAGNOSTIC, never emitted IL.
-
-            // `char` is a `TyConst`, not a nominal, and declares no arithmetic — so `+` on
-            // it resolves no member and is a compile error rather than CIL `add` on two
-            // char slots.
+            // `char` is a `TyConst`, not a nominal, and declares no arithmetic, so `+`
+            // resolves no member and is a compile error rather than CIL `add` on chars.
             test "char arithmetic diagnoses (declares no member, and not a nominal)" {
                 failsWith "The type 'char' does not support the operator '+'" "let x = 'a' + 'b'\nignore x"
 
                 failsWith "The type 'char' does not support the operator '*'" "let x = 'a' * 'b'\nignore x"
             }
 
-            // A CLASS typar is quantified at the type, so no use site and no `default`
-            // can ground it: the operand reaches the base as a bare typar. This is the
-            // hole the inversion closes — a raw-IL base emitted `add` on two `!0`
-            // references here.
+            // A CLASS typar is quantified at the type, so neither a use site nor
+            // `default ^T1: int` can ground it. The operand stays a bare typar, and no
+            // `add` could be emitted over two `!0` references anyway.
             test "`+` on an un-groundable class typar diagnoses instead of emitting `add` on references" {
                 failsWith
                     "does not support the operator '+'"
@@ -355,14 +305,9 @@ let tests =
                         ])
             }
 
-            // The diagnostic is owed by EVERY expansion path, not just the external one.
-            // A user-written SRTP trait call is ordinary source (`pStaticMemberInvocation`
-            // is an alternative of `pParen`, ungated), so a LOCAL `let inline` can carry
-            // one — and a local inline is spliced by the same pass through the same
-            // `Inline.inlineExpand`. When the support type is a primitive it cannot dispatch,
-            // and the surviving `TraitCall` has no arm in EITHER backend: unreported, it
-            // is an emitter `failwithf`, not a compile error. So the report lives in the
-            // one expansion entry point every path goes through.
+            // A user can WRITE a trait call, so an unresolvable one need not come from a
+            // contract operator. Either way it must be reported during expansion: a
+            // `TraitCall` surviving into codegen has no arm and takes out the emitter.
             test "an unresolvable trait call in a LOCAL inline diagnoses (it does not crash the emitter)" {
                 failsWith
                     "The type 'char' does not support the operator '+'"
@@ -375,9 +320,9 @@ let tests =
                         ])
             }
 
-            // `int` declares its own `static member (+)` in `prim-types-min.fsi` — the trait
-            // witness stated on the type instead of synthesised from an operator-name table.
-            // These three pin the seam that makes such a declaration safe to write.
+            // `int` declares `static member inline (+): x: int * y: int -> int` in
+            // `prim-types-min.fsi`. The three tests below pin what that declaration must
+            // NOT change: `int`'s use-site identity, and the emitted method rows.
 
             test "the int intrinsic publishes op_Addition through the real Vesper.Core contract" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
@@ -388,9 +333,9 @@ let tests =
                     failtest "Vesper.int declares `static member (+)` but the contract publishes no op_Addition"
             }
 
-            // Declaring a member must NOT turn the primitive into a nominal: every intrinsic
-            // recogniser, repr lookup and literal-inference path keys on `int` being `TyConst`.
-            // A `TyClass` int would not survive a single arithmetic program.
+            // Declaring a member must not turn the primitive into a nominal: intrinsic
+            // recognisers, repr lookup and literal inference all key on `int` being
+            // `TyConst`, so a `TyClass` int fails on any arithmetic program at all.
             test "declaring a member on int leaves its use-site identity a TyConst intrinsic" {
                 let _, artifact = compileSource "IntStillIntrinsic" "printfn \"%d\" (40 + 2)"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -399,8 +344,8 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "int arithmetic still computes"
             }
 
-            // The witness is a type-level statement, not a runtime method: its body is spliced
-            // at the use site, so no `op_Addition` row may appear in the emitted program.
+            // The witness is a type-level statement, not a runtime method: its body is
+            // spliced at the use site, so no `op_Addition` row reaches the emitted PE.
             test "the int operator witness is spliced, never emitted as a method row" {
                 let _, artifact = compileSource "IntOpNotEmitted" "printfn \"%d\" (40 + 2)"
 

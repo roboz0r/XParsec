@@ -7,19 +7,15 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Exception construction + `raise` / `failwith`. The chosen mechanism is *not* a
-// dedicated `TExpr.Raise` TAST node — `raise` / `failwith` / `invalidArg` are real cross-package inline
-// operators in `Vesper.Core/ops-platform.clr.fs` whose bodies splice to a
-// `TExpr.ILIntrinsic "throw"` (the terminal `throw` arm in `Emit`). These tests
-// pin the runtime behaviour: the thrown CLR exception's *type* and message.
+// `raise` / `failwith` / `invalidArg` are cross-package inline operators in
+// `Vesper.Core/ops-platform.clr.fs`, not TAST nodes: `raise e` splices to
+// `(# "throw" e #)`, and the other two are `raise (new …)` over it.
 
 let private lines xs = String.concat "\n" xs
 
-/// Compile a source that defines a single top-level `let f … = raise …`,
-/// reflect its emitted static method, invoke it, and return the CLR exception it
-/// throws (unwrapped from `TargetInvocationException`). The function is given one
-/// `int` parameter it ignores so it emits as a plain static method we can invoke
-/// with a dummy argument.
+/// Returns the CLR exception `src`'s sole emitted method throws, unwrapped from
+/// `TargetInvocationException`. Every `src` here writes `let boom (n: int) : int = …`:
+/// the ignored `int` parameter is what makes it a plain static method to invoke.
 let private thrownBy (assemblyName: string) (src: string) : exn =
     let tast, artifact = compileSource assemblyName src
 
@@ -57,10 +53,9 @@ let tests =
             }
 
             test "raise of a derived exception (InvalidOperationException) throws the derived type" {
-                // `raise : System.Exception -> 'T`, but the argument is an
-                // `InvalidOperationException` (a subtype). This exercises argument
-                // subsumption at the call site — the set.clr.fs `raise (InvalidOperationException …)`
-                // enumeration-guard sites.
+                // The `'TException :> exn` bound admits a subtype, so the concrete
+                // `InvalidOperationException` must survive to the throw rather than
+                // widening to `System.Exception`.
                 let ex =
                     thrownBy
                         "ExnRaiseDerived"
@@ -78,11 +73,9 @@ let tests =
             }
 
             test "raise of a non-exception is rejected by the :> exn constraint" {
-                // `raise : 'e -> 'a when 'e :> exn` — passing an `int` must fail the
-                // coercion constraint at type-check: the v1 compromise dropped this
-                // bound; the constraint chain restores it via `subsumes` + the
-                // prim-types-exn.clr.fs `exn ≡ System.Exception` identity). Compile only
-                // (no run): we assert a diagnostic, not a throw.
+                // An `int` argument must fail the coercion constraint on
+                // `raise: exn: 'TException -> 'T when 'TException :> exn`. Compile only:
+                // the assertion is a diagnostic, not a throw.
                 let tast, _ =
                     compileSource "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
 
@@ -109,14 +102,9 @@ let tests =
                 Expect.stringContains argEx.Message "must be positive" "the message is carried through"
             }
 
-            // --- `exn`/`obj` as contract-sourced heritable roots ---
-            //   * `inherit exn(msg)` downstream: the provider publishes `exn` as an
-            //     `IntrinsicClass` (contract `inherit obj` + `new:` ctors); codegen chains the
-            //     parameterized external base ctor (`System.Exception::.ctor(string)`), so the
-            //     message must round-trip, never be dropped.
-            //   * upcast to the roots: metadata surfaces `System.Exception`/`System.Object` as
-            //     the canon `exn`/`obj` identities, and the annotation seam admits a concrete
-            //     nominal subtype into a supertype annotation via the subtype walk.
+            // `exn` and `obj` are contract-declared types a user program can inherit
+            // from and upcast to; both must resolve to `System.Exception` /
+            // `System.Object` in metadata for the two tests below to hold.
 
             test "a user type inheriting exn raises as its own type, a subclass of System.Exception" {
                 let ex =

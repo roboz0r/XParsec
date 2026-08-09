@@ -7,21 +7,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `hash` — the third equality-family member (C-Eq1) — now sourced from
-// `src/Vesper.Core/ops-platform.clr.fs`, not the
-// `Emit.isHash` codegen stopgap.
-//
-// `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
-// loaded as a cross-package inline body (`ClrSymbolProviders.inlineBodies`) and
-// spliced at each `hash` use site by the pre-freeze `Passes.InlineExpansion` pass,
-// which reaches the body off the resolved symbol that carries `hash`'s key. So
-// `hash 5` freezes to the two `ExternalMember` nodes
-// (`EqualityComparer<int>.Default` static property +
-// `GetHashCode` instance method) that P4 emits — the same `EqualityComparer<T>`
-// family the DU triple hashes its fields through, so `hash` and `=` agree by
-// construction (equal values hash equal). BCL-only (no FSharp.Core). These tests
-// run on `compileSourceContract` (the `Vesper.Core` manifest at the head of the
-// resolution stack); `hash` resolves from the contract's `[<AutoOpen>] Operators`.
+// `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is a
+// cross-package inline body spliced at each use site, so `hash 5` freezes to two
+// `ExternalMember` nodes. It resolves only under `compileSourceContract`.
 
 [<Tests>]
 let tests =
@@ -30,12 +18,9 @@ let tests =
         [
             test
                 "`hash 5` freezes to the EqualityComparer<int>.Default.GetHashCode ExternalMember nodes (no surviving External)" {
-                // The contract path resolves `hash` to its `ops-platform.clr.fs` inline
-                // body, which the pre-freeze `Passes.InlineExpansion` pass splices in:
-                // `hash 5` becomes
-                // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
-                // `'T` pinned to `int`, the `External("hash")` node gone — already in
-                // the frozen `tast.Decls`, before codegen runs.
+                // Inline expansion runs before freeze, so `hash 5` is already
+                // `EqualityComparer<int>.Default.GetHashCode 5` in `tast.Decls`, with
+                // `'T` pinned to `int` and the `External("hash")` node gone.
                 let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let inlines = ClrSymbolProviders.contractInlineBodies [ vesperCoreManifest ]
                 Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.clr.fs"
@@ -46,10 +31,8 @@ let tests =
 
                 Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "no errors"
 
-                // The decl carries the EDGE and the operand; the resolved body is the entry
-                // it names, abstracted over that operand. Both halves are asserted, because
-                // the operand riding the edge (rather than being fused into the body) is
-                // what makes the entry shareable across call sites at this grounding.
+                // `InlineCall` keeps the operand on the call node and the entry abstracts
+                // over it, so one entry serves every call site at this grounding.
                 match EqArray.toList tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple _,
                               TExpr.InlineCall(
@@ -83,9 +66,6 @@ let tests =
             }
 
             test "`hash n` for an int is the identity (Int32.GetHashCode returns the value)" {
-                // EqualityComparer<int>.Default.GetHashCode(n) = n.GetHashCode() = n,
-                // so the printed hash equals the input — a deterministic check that
-                // the comparer body runs end to end.
                 let src =
                     String.concat
                         "\n"
@@ -119,9 +99,8 @@ let tests =
             }
 
             test "equal values hash equal; distinct values differ (the `hash`/`=` agreement, via char)" {
-                // The char hash value is runtime-internal, so assert the *property*
-                // (consistency with `=`) rather than the magic number: hashing the
-                // same char twice agrees, two different chars don't.
+                // The char hash value is runtime-internal, so assert consistency with
+                // `=` rather than a magic number.
                 let src =
                     String.concat
                         "\n"

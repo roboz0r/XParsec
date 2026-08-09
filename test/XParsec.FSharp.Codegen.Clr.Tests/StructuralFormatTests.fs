@@ -3,30 +3,16 @@ module XParsec.FSharp.Codegen.Clr.Tests.StructuralFormatTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The `%A` layout engine in isolation — no compiler. Hand-written
-// `IStructuralFormattable` impls drive the layout engine, the same declarative sink
-// the backend synthesises against. The oracle is the spec (copy-pasteable Vesper
-// source), not F#'s `sprintf "%A"` — we deliberately diverge.
-//
-// These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.clr.fs`)
-// via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`) — the
-// real backend-emitted engine, loaded from the `buildPackage`-produced
-// `Vesper.Printf.dll`. The `Sem*` `IStructuralFormattable` impls own the Core-bound
-// `%A` interfaces, so they can no longer be fsc-compiled: they live in the
-// runtime-compiled `StructuralFormatFixtures.fs` disk fixture, compiled through the
-// backend against Vesper.Core and loaded so its `Sem*` values (built by nullary
-// `Vesper.Fixtures` functions) meet the engine's sink on ONE `Vesper.Core` identity.
+// The `%A` layout engine end-to-end: the backend-emitted `StructuralPrinter`, loaded
+// from `Vesper.Printf.dll` and driven by reflection. The oracle is the spec
+// (copy-pasteable Vesper source), NOT `sprintf "%A"`, because the two deliberately diverge.
 
-/// `structuralPrint v 80` — the default 80-column budget (most values stay flat).
 let private flat (v: obj) = structuralPrint v 80
 
-/// Force breaking with a tiny budget.
 let private narrow (v: obj) = structuralPrint v 5
 
-/// The runtime-compiled `StructuralFormatFixtures.fs`, holding the `Sem*`
-/// `IStructuralFormattable` types + the nullary `Vesper.Fixtures` value builders.
-/// Compiled + loaded once through the backend (Vesper.Core-bound), so the values it
-/// builds carry the same `Vesper.Core` interface identity the `%A` engine tests for.
+/// `StructuralFormatFixtures.fs` compiled through the backend (not fsc) and loaded
+/// once, so its values share one `Vesper.Core` interface identity with the engine.
 let private fixtureModule: Lazy<System.Type> =
     lazy
         (let asm =
@@ -39,8 +25,8 @@ let private fixtureModule: Lazy<System.Type> =
 
          t)
 
-/// Reflect + invoke a nullary `Vesper.Fixtures` builder, returning its `obj` value —
-/// a lone `unit` param is erased by the backend, so it is a zero-arg static method.
+/// A lone `unit` param is erased by the backend, so a `Vesper.Fixtures` builder is a
+/// zero-arg static method.
 let private caseVal (name: string) : obj =
     let m = fixtureModule.Value.GetMethod name
 
@@ -49,9 +35,8 @@ let private caseVal (name: string) : obj =
 
     m.Invoke(null, [||])
 
-/// Build `Some payload` around an F#-side `obj` via the `someOf` fixture builder — for
-/// a payload the Vesper fixture cannot construct natively (an FSharp.Core `list`, whose
-/// `IEnumerable` shape the engine renders as `[1; 2]`).
+/// `Some payload` around an F#-side `obj` the Vesper fixture cannot build natively:
+/// an FSharp.Core `list`, which the engine renders via `IEnumerable` as `[1; 2]`.
 let private someVal (payload: obj) : obj =
     let m = fixtureModule.Value.GetMethod "someOf"
 
@@ -84,13 +69,8 @@ let tests =
 
             testList
                 "primitives round-trip"
-                // The expected strings are the suffix spellings the XParsec.FSharp
-                // lexer accepts (`Lexing.getIntTokenFromSpan` / `getDecimalFloatTokenFromSpan`,
-                // the canonical authority) — each re-lexes at the *same value and
-                // type*, which is the round-trip the engine owes for atoms. The type
-                // suffix is what makes it round-trip: bare `5` would lex as `int32`,
-                // not `int64` / `byte`. They also equal `sprintf "%A"` (asserted below
-                // for the integral forms, which never use exponent notation).
+                // Every expected string re-lexes at the SAME value AND type. The suffix
+                // is what buys that: bare `5` lexes as `int32`, not `int64` / `byte`.
                 [
                     test "int32 (no suffix)" { Expect.equal (flat (box 5)) "5" "int32" }
                     test "sbyte" { Expect.equal (flat (box 5y)) "5y" "sbyte suffix" }
@@ -110,9 +90,9 @@ let tests =
                     test "float32 nan" { Expect.equal (flat (box (0.0f / 0.0f))) "nanf" "nanf spelling" }
                     test "float32 infinity" { Expect.equal (flat (box (1.0f / 0.0f))) "infinityf" "infinityf" }
 
-                    // The suffixed forms equal F#'s own `%A` (integers never use
-                    // exponent notation, so this is an exact oracle — unlike floats,
-                    // whose shortest-round-trip representation can diverge cosmetically).
+                    // Integrals never use exponent notation, so F#'s `%A` is an exact
+                    // oracle here, unlike floats, whose shortest-round-trip form can
+                    // diverge cosmetically.
                     test "matches sprintf %A for integrals" {
                         for actual, expected in
                             [
@@ -158,9 +138,8 @@ let tests =
                     }
                 ]
 
-            // `%.NA` — the PrintSize node budget (F# sformat.fs `countNodes`). Each
-            // leaf spends one unit; composites don't. Past the budget the engine
-            // truncates with `...`. The collection cases match F#'s `sprintf "%.NA"`.
+            // Each LEAF spends one unit of the `%.NA` budget; composites spend none.
+            // Past it the engine truncates with `...`, matching `sprintf "%.NA"`.
             testList
                 "size budget (%.NA)"
                 [
@@ -190,9 +169,8 @@ let tests =
                     }
                 ]
 
-            // The NEW semantic sink members (BeginRecord/Field/BeginCase/Child/…),
-            // driven directly since the emitter does not yet call them. Output must
-            // match the layout the equivalent layout-op impls produce.
+            // Hand-written fixture impls drive `BeginRecord`/`Field`/`Child`/`BeginCase`
+            // directly, which are the same sink calls the backend synthesises into `Format`.
             testList
                 "semantic protocol"
                 [

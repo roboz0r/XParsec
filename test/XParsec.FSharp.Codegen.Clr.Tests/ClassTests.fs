@@ -8,18 +8,13 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// These tests reflect over the emitted PE so a runtime failure (`InvalidProgram`,
-// missing field, wrong vtable) surfaces with a legible stack trace through the
-// `TestHelpers.loadAssembly` / `Activator.CreateInstance` path.
+// Class emission, asserted by reflecting over the emitted PE.
 
-/// A top-level (Program-class) value/function's emitted metadata name carries its
-/// source offset (`x` → `x$<offset>`), so a shadowed `let x` stays a distinct row and
-/// its `SymbolKey` handle key stays injective. Match a source name against that scheme.
+/// A top-level value/function's emitted name carries its source offset
+/// (`x` → `x$<offset>`), so a shadowed `let x` stays a distinct metadata row.
 let private topLevelNameMatches (source: string) (emitted: string) : bool =
     emitted = source || emitted.StartsWith(source + "$")
 
-/// The Program-class static field for a source top-level value `name` (its emitted
-/// field is `name$<offset>`), or `null` when there is none.
 let private programStaticField (program: Type) (name: string) : FieldInfo =
     program.GetFields(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
     |> Array.tryFind (fun f -> topLevelNameMatches name f.Name)
@@ -33,8 +28,8 @@ let monoTests =
     testList
         "ClassMono"
         [
-            // Ctor-param backing fields are compiler-generated storage, not declared
-            // API: FSC emits them `assembly`, and so do we (see `Layout.classParts`).
+            // Ctor-param backing fields are generated storage, not declared API, so
+            // they emit `assembly`, matching FSC.
             test "an emitted class type has a public ctor + one assembly-visible field per primary-ctor parameter" {
                 let _, artifact =
                     compileSource
@@ -124,7 +119,8 @@ let monoTests =
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Point"
 
-                // Properties emit as `get_<Name>` methods (no PropertyDef row).
+                // Properties emit as `get_<Name>` methods only, with no PropertyDef row,
+                // so `GetProperty` finds nothing.
                 let getX = ty.GetMethod("get_X", declaredInstance, null, [||], null)
                 let getY = ty.GetMethod("get_Y", declaredInstance, null, [||], null)
                 Expect.isNotNull getX "get_X emitted"
@@ -135,10 +131,8 @@ let monoTests =
                 Expect.equal (getY.Invoke(instance, [||]) :?> int) 9 "Point(7,9).Y = 9"
             }
 
-            // A tupled member `M(a, b)` is a single tuple argument pattern;
-            // `Elaborate.memberParams` must flatten it to one parameter per component
-            // (F# compiles it to a method with N scalar params, not a `Tuple<_,_>`).
-            // A missing flatten dropped the bindings and codegen threw "no binding for variable".
+            // `Add(a, b)` is one tuple argument pattern in source, but F# compiles it
+            // to a method with two scalar params, not a `Tuple<int,int>` one.
             test "a two-parameter instance member binds both args (Add(3,4) returns 7)" {
                 let _, artifact =
                     compileSource
@@ -214,9 +208,8 @@ let monoTests =
                     (sprintf "class emission only references the BCL (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // A class without `[<Sealed>]` emits an *open* `TypeDefinition`
-            // (no `TypeAttributes.Sealed`) so inheritance can derive from it;
-            // `[<Sealed>]` flips the flag.
+            // A class is open by default so inheritance can derive from it;
+            // `[<Sealed>]` flips `TypeAttributes.Sealed` on.
             test "a class without [<Sealed>] is not sealed" {
                 let _, artifact =
                     compileSource
@@ -248,10 +241,8 @@ let monoTests =
                 Expect.equal result 1 "sealed C().M() still returns 1"
             }
 
-            // F# lets each member name its own self-identifier, independently of the
-            // type-level `as` alias. Here `First` (self-id `a`) reads `Second`
-            // (self-id `b`) through its own self-id; both must resolve and the
-            // qualified `a.Second` must round-trip.
+            // Each member names its own self-identifier, so `member a.First` and
+            // `member b.Second` are both legal on one type and `a.Second` resolves.
             test "two instance members with distinct self-ids resolve (First reads a.Second)" {
                 let _, artifact =
                     compileSource
@@ -308,8 +299,7 @@ let staticTests =
                 Expect.equal result 1 "C.M() returns 1"
             }
 
-            // `static member M(a, b)` parses as one tuple arg pattern;
-            // `Elaborate.memberParams` must flatten it to scalar params.
+            // The same tuple-pattern flattening on the static axis.
             test "a two-parameter static member binds both args (M(3,4) returns 7)" {
                 let _, artifact =
                     compileSource
@@ -328,12 +318,8 @@ let staticTests =
                 Expect.equal (m.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "T.M(3, 4) returns 7"
             }
 
-            // A module-level value (`let x = e` at module scope) is a `public static`
-            // field on its module class, initialised by the module class's `.cctor`, read
-            // everywhere as `ldsfld` — never a `Main` local or a closure capture.
-            // The field lands on the named-module class (`Helper`).
-
-            // (1) An instance member body reads a module value.
+            // A module-level `let x = e` is a `public static` field on its module class
+            // (`Helper` below), set by that class's `.cctor` and read as `ldsfld`.
             test "an instance member reads a module-level value via a static field (Get() = 42)" {
                 let _, artifact =
                     compileSource
@@ -362,8 +348,6 @@ let staticTests =
                 Expect.equal (m.Invoke(inst, [||]) :?> int) 42 "Box().Get() reads the module value seed = 42"
             }
 
-            // (2) A *generic* class `static let` initialiser references a module value
-            //     (a module value read inside a generic class's `.cctor`).
             test "a generic class `static let` reads a module value through the cctor (SeedV() = 42)" {
                 let _, artifact =
                     compileSource
@@ -392,8 +376,6 @@ let staticTests =
                     "Box<int>.SeedV() reads the static-let `s`, built in the cctor from the module value seed = 42"
             }
 
-            // (3) A sibling module function reading a module value emits as a static
-            //     method (a direct `ldsfld`), not a closure capturing it.
             test "a module function reading a module value emits as a static method (get() = 42)" {
                 let _, artifact =
                     compileSource
@@ -407,14 +389,11 @@ let staticTests =
                 let m = helper.GetMethod("get", declaredStatic)
                 Expect.isNotNull m "get emitted as a static method on Helper (not a closure capturing seed)"
                 Expect.isTrue m.IsStatic "get is a static method"
-                // `get ()` compiles to a PARAMETERLESS method — the lone `unit` param
-                // is erased.
                 Expect.equal (m.GetParameters().Length) 0 "get () erases its lone unit param (parameterless)"
                 Expect.equal (m.Invoke(null, [||]) :?> int) 42 "Helper.get () reads seed = 42"
             }
 
-            // (4) A module value initialised from an *earlier* module value — the
-            //     cctor evaluates initialisers in declaration order.
+            // The cctor evaluates initialisers in declaration order.
             test "a module value initialised from an earlier module value (cctor order: b = 2)" {
                 let _, artifact =
                     compileSource
@@ -427,20 +406,9 @@ let staticTests =
                 Expect.equal (bField.GetValue null :?> int) 2 "b = a + 1 = 2, the cctor ran a's init first"
             }
 
-            // (5) A module value's initialiser must resolve entirely to other
-            //     module values / static methods inside the module class `.cctor`. A
-            //     value that demotes to a closure held in a `Main` local (which a
-            //     `.cctor` cannot see) fails with a targeted message.
-            //
-            //     Under the unified escape model an escaping function is NO LONGER
-            //     demoted — it keeps its flat static method and the escape becomes a
-            //     bridge, so a bare value-use can no
-            //     longer strand a module value. The one demotion left is the *capture*
-            //     axis: `f` captures the destructured top-level local `a` (a genuine
-            //     `Main` local — a tuple-pattern `let` is not collected as a module
-            //     value), so `f` stays a `Main`-local closure rather than a static
-            //     method, `seed = f` is left un-bridged (a non-eligible reference), and
-            //     `seed`'s `.cctor` init can't see the `Main`-local `f`.
+            // A tuple-pattern `let (a, b)` is not collected as a module value, so `a`
+            // is a genuine `Main` local; `f` captures it and so stays a `Main`-local
+            // closure, which `seed`'s `.cctor` initialiser cannot see.
             test "a module value whose init needs a Main local fails with a targeted error" {
                 let msg =
                     try
@@ -468,11 +436,9 @@ let staticTests =
                     "the failure states the resolution rule"
             }
 
-            // (6) A *generic* module value (`let empty: Node<'T> = null`) cannot be a
-            //     static *field* — a non-generic module class has no type parameter to
-            //     type it — so it lowers to a zero-arg *generic static method* on its
-            //     module class; every reference `call`s its `MethodSpec`, the instantiation
-            //     recovered from the reference's own type.
+            // `let empty : Node<'T> = null` cannot be a static field, because a non-generic
+            // module class has no typar to type it, so it lowers to a zero-arg generic
+            // static method that each reference `call`s at its own instantiation.
             test "a generic module value lowers to a generic method read across contexts (null)" {
                 let _, artifact =
                     compileSource
@@ -497,7 +463,6 @@ let staticTests =
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
-                // `empty` is a zero-arg generic method on the `Tree` module class, NOT a field.
                 let tree = asm.GetType "Tree"
                 Expect.isNotNull tree "the Tree module class is emitted"
 
@@ -509,21 +474,17 @@ let staticTests =
                 Expect.isNotNull emptyM "empty emitted as a static method"
                 Expect.isTrue emptyM.IsGenericMethodDefinition "empty is a generic method (one method typar)"
 
-                // Each reference instantiates it at the use-site type.
                 let emptyInt = emptyM.MakeGenericMethod typeof<int>
                 Expect.isNull (emptyInt.Invoke(null, [||])) "Tree.empty<int>() = null"
 
-                // A sibling module fn reads it (a `call`, not a closure capture).
                 let getEmpty = tree.GetMethod("getEmpty", declaredStatic)
 
                 Expect.isNull (getEmpty.MakeGenericMethod(typeof<int>).Invoke(null, [||])) "Tree.getEmpty<int>() = null"
 
-                // The generic-class `static let` cctor reads it (the `set.clr.fs` shape).
                 let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
                 let s = boxInt.GetMethod("S", declaredStatic, null, [||], null)
                 Expect.isNull (s.Invoke(null, [||])) "Box<int>.S() reads the static-let built from Tree.empty = null"
 
-                // A direct instance-member read.
                 let inst = boxInt.GetConstructors().[0].Invoke [||]
                 let direct = boxInt.GetMethod("Direct", declaredInstance, null, [||], null)
                 Expect.isNull (direct.Invoke(inst, [||])) "Box<int>().Direct() = Tree.empty<int> = null"
@@ -553,8 +514,7 @@ let staticTests =
                 Expect.equal result 42 "C.Get() reads the static-let field x = 42"
             }
 
-            // A `static let` is in scope for instance members too (F# §8.7), so an
-            // instance method reads the same static field via `ldsfld`.
+            // A `static let` is in scope for instance members too (F# §8.7).
             test "an instance member reads a `static let` field (this.Get() = 7)" {
                 let _, artifact =
                     compileSource
@@ -586,11 +546,9 @@ let staticTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
             }
 
-            // A `static let mutable` bound variable IS the static field, so a write (`n <- e`)
-            // stores to it — `TExpr.StaticFieldSet`, emitted `stsfld` (0x80), the store
-            // analogue of the `ldsfld` (0x7E) a read emits. Assert both opcodes on the
-            // emitted method IL directly (not just the reflected result), then confirm the
-            // shared cell accumulates across two writes.
+            // A `static let mutable` bound variable IS the static field, so `n <- e`
+            // stores straight to it: `stsfld` (0x80), against the `ldsfld` (0x7E) a
+            // read emits.
             test "a write to a `static let mutable` emits `stsfld` (accumulates to 7)" {
                 let _, artifact =
                     compileSource
@@ -619,12 +577,9 @@ let staticTests =
                 Expect.equal (getN.Invoke(null, [||]) :?> int) 7 "the shared static cell accumulates both writes"
             }
 
-            // `static let` on a *generic* class. The field lives on the open generic
-            // `TypeDefinition` (one instance per closed instantiation, `.cctor`-
-            // initialised); its `.cctor` store and the member-body read both mint a
-            // `MemberRef` on the self-`TypeSpec` (`Box\`1<!0>::tag`), not a raw `Def`
-            // token. Read it back at two instantiations to prove the per-instantiation
-            // field resolves.
+            // The field lives on the open generic `TypeDefinition`, one copy per closed
+            // instantiation; both the `.cctor` store and the member-body read mint a
+            // `MemberRef` on the self-`TypeSpec` (`Box\`1<!0>::tag`), not a `Def` token.
             test "a generic class `static let` reads back at two instantiations (Box<int>/Box<string>.Tag() = 99)" {
                 let _, artifact =
                     compileSource
@@ -668,14 +623,9 @@ let staticTests =
                     "Box<string>().Tag() reads its own per-instantiation static-let field tag = 99"
             }
 
-            // A class's compiler-generated backing storage (`static let` fields,
-            // ctor-param fields) is reached by lambdas lifted out of member bodies.
-            // Those lambdas become closure classes nested in the enclosing *module*,
-            // not in the class — so they are a DIFFERENT type reading the class's
-            // fields, and only `assembly` accessibility lets them through. `private`
-            // backing storage JIT-faults with `FieldAccessException`; these two cases
-            // are the only ones that exercise the cross-type read, since every other
-            // backing-field test reads from a member body of the declaring type.
+            // A lambda lifted out of a member body becomes a closure class nested in
+            // the enclosing *module*, not in the class, so it is a different type reading
+            // the class's backing fields, which only `assembly` visibility permits.
             test "a `static let` read from inside a lambda in a member body (Assembly-visible field)" {
                 runs
                     "43"
@@ -705,9 +655,8 @@ let staticTests =
                         ])
             }
 
-            // A static *operator* member: the `(+)` body contains applications (the
-            // `+` on the fields, the `V(...)` ctor) that only freeze once the body
-            // is inferred; it emits as `op_Addition`.
+            // The `(+)` body's applications (`a.N + b.N`, the `V(…)` ctor) only freeze
+            // once the body is inferred; the member emits as `op_Addition`.
             test "a static operator member's body is inferred (op_Addition(V 3, V 4).N = 7)" {
                 let _, artifact =
                     compileSource
@@ -729,8 +678,6 @@ let staticTests =
                 Expect.isNotNull op "the (+) member emitted as a static op_Addition"
                 Expect.isTrue op.IsStatic "op_Addition is static"
 
-                // `member this.N` emits a `get_N` method (no PropertyDefinition row),
-                // so read it through the getter rather than GetProperty.
                 let getN = ty.GetMethod("get_N", declaredInstance, null, [||], null)
                 Expect.isNotNull getN "get_N emitted"
 
@@ -741,10 +688,8 @@ let staticTests =
                 Expect.equal n 7 "op_Addition(V 3, V 4).N = 7"
             }
 
-            // A static member read on an *explicitly* instantiated generic class
-            // (`Box<'T>.Tag`) parses as `DotLookup(TypeApp(Box, <'T>), .Member)`, not
-            // the folded `LongIdent[Box; Member]` the bare `Box.Member` form takes.
-            // Asserted at the TAST level.
+            // `Box<'T>.Tag` parses as `DotLookup(TypeApp(Box, <'T>), .Member)`, not the
+            // folded `LongIdent [Box; Member]` a bare `Box.Tag` takes.
             test "`Box<'T>.Member` lowers to Static{Method,Property} (no Elaborate TODO TypeApp)" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
@@ -799,12 +744,9 @@ let staticTests =
                 Expect.isTrue (staticGets > 0) "`Box<'T>.Tag` (in MakeTagged) lowered to a TExpr.StaticPropertyGet"
             }
 
-            // A static method on a *generic* class whose result type does not surface
-            // the declaring instantiation, called from a concrete (non-declaring)
-            // context. The result-type fast path can't recover `'T=int` (the return is
-            // `int`), so it structurally matches the member's open signature against
-            // the call's argument types (`RecoverOpenTypars`, declaring axis) to mint
-            // `Box\`1<int32>::Describe`.
+            // `Describe : 'T -> int` hides the declaring instantiation in its return, so
+            // `'T = int` can only come from matching the member's open signature against
+            // the call's argument types, minting `Box\`1<int32>::Describe`.
             test "gapA: a generic class's static method recovers its instantiation from an arg" {
                 runs
                     "9"
@@ -819,9 +761,8 @@ let staticTests =
                         ])
             }
 
-            // A higher-order call (`List.fold`) with a closure argument from inside a
-            // member body. The own-class `static member (+)` taken by value
-            // eta-reifies to `fun a b -> V.op_Addition(a, b)`, a member-body closure.
+            // The own-class `static member (+)` taken by value eta-reifies to
+            // `fun a b -> V.op_Addition(a, b)`, a closure built inside a member body.
             test "gapB: List.fold over an own-op closure inside a member body" {
                 runs
                     "6"
@@ -838,9 +779,8 @@ let staticTests =
                         ])
             }
 
-            // The generic shape end-to-end: a generic member-body closure `call`s the
-            // class's own `op_Addition`, and the concrete `V<int>` ctor / fold seed
-            // resolve their instantiation.
+            // Both of the above at once: the member-body closure `call`s the class's own
+            // `op_Addition` while the `V<'T>` ctor and fold seed ground to `V<int>`.
             test "gapA+B: generic own-op List.fold inside a generic member body runs end-to-end" {
                 runs
                     "6"
@@ -857,11 +797,9 @@ let staticTests =
                         ])
             }
 
-            // Leading top-level values (declared before any top-level statement) are
-            // `static initonly` fields on the Program class, initialised by its
-            // `.cctor` in declaration order — so a later leading value reads an earlier
-            // one (`ldsfld`, already set). A member then reads them, and a trailing
-            // `printfn` confirms the runtime values.
+            // A top-level value declared before any top-level statement is *leading*:
+            // a `static initonly` Program field set by the `.cctor` in declaration
+            // order, so `let b = a + 5` reads an already-set `a`.
             test "leading top-level values are Program-class initonly fields, cctor-initialised in order" {
                 let _, artifact =
                     compileSource
@@ -878,7 +816,6 @@ let staticTests =
 
                 let bytes = Codegen.toBytes artifact
 
-                // The member observes both values; the cctor set them in order (b = a + 5).
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "the program exits 0"
                 Expect.stringContains output "25" "Reader().Sum() = a + b = 10 + 15 = 25"
@@ -923,10 +860,8 @@ let staticTests =
                 Expect.equal (m.Invoke(inst, [||]) :?> int) 42 "Reader().Get() reads the top-level value provider = 42"
             }
 
-            // A *generic* top-level value (`let empty : 'T list = []`) cannot be a
-            // static *field* (a non-generic Program class has no type parameter to
-            // type it), so it lowers to a **zero-arg generic static method** on the
-            // Program class, `call`ed at the use-site instantiation.
+            // The same rule as for a generic module value, on the Program class:
+            // `let empty : 'T list = []` becomes a zero-arg generic static method.
             test "a generic top-level value is a generic static method on Program (not a field)" {
                 let _, artifact =
                     compileSource
@@ -949,7 +884,6 @@ let staticTests =
                 let program = asm.GetType "Program"
                 Expect.isNotNull program "the Program class is emitted"
 
-                // `empty` is a generic static METHOD, never a static field.
                 Expect.isNull
                     (program.GetField("empty", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static))
                     "a generic value is not a static field"
@@ -966,14 +900,9 @@ let staticTests =
                     Expect.equal (m.GetParameters().Length) 0 "`empty` is a zero-arg method (a generic value)"
             }
 
-            // A top-level value *after* a statement is a *trailing* value — a
-            // `public static` (mutable, NOT initonly) field written by `Main` via
-            // `stsfld` in source order, not hoisted to the pre-`Main` `.cctor`. The
-            // parser folds the trailing `let r = …` into the preceding statement's
-            // sequential; `EmitLower` flattens it back to a standalone decl. Proof of
-            // the partition: `r`'s init side effect runs in `Main` *after* the leading
-            // value is printed (not pre-`Main`); `p` (leading) is initonly, `r`
-            // (trailing) is not.
+            // A top-level value *after* a statement is *trailing*: a mutable (not
+            // initonly) Program static that `Main` `stsfld`s in source order, rather
+            // than one the pre-`Main` `.cctor` hoists.
             test "a top-level value after a statement is a Main-written mutable static field (trailing)" {
                 let _, artifact =
                     compileSource
@@ -989,9 +918,8 @@ let staticTests =
 
                 let bytes = Codegen.toBytes artifact
 
-                // Runtime order proves the partition: "10" (leading, set in .cctor and
-                // printed first), THEN "r-init" (r's init side effect, run in Main —
-                // not hoisted ahead of the printf), THEN "15".
+                // Output order "10", "r-init", "15" is the partition: `r`'s init side
+                // effect lands after the printf, so it was not hoisted to the `.cctor`.
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "the program exits 0"
                 let iP = output.IndexOf "10"
@@ -1017,9 +945,9 @@ let staticTests =
                 Expect.isNotNull pField "the leading value p is a public static field on Program"
                 Expect.isTrue pField.IsInitOnly "p (leading) is initonly — set by the Program .cctor"
 
-                // The trailing value `r` is nested (folded into a sequential), so it
-                // carries no recorded source name and is field-named `value$<offset>`;
-                // it is the (sole) mutable Program static — `Main` `stsfld`s it.
+                // The parser folds `let r = …` into the preceding statement's sequential,
+                // so `r` has no recorded source name and is field-named `value$<offset>`.
+                // The test therefore identifies it by mutability rather than by name.
                 let mutables = statics |> Array.filter (fun f -> not f.IsInitOnly) |> Array.toList
 
                 Expect.equal mutables.Length 1 "exactly one trailing (mutable) Program static field — r"
@@ -1035,8 +963,7 @@ let secondaryCtorTests =
     testList
         "ClassSecondaryCtor"
         [
-            // The secondary ctor emits as a `.ctor` overload that chains to the
-            // primary `.ctor`; reading `this.X` afterwards proves the chain ran.
+            // A secondary ctor emits as a `.ctor` overload chaining to the primary one.
             test "a secondary ctor `new() = C(0)` chains to the primary ctor (C().X = 0, C(5).X = 5)" {
                 let _, artifact =
                     compileSource
@@ -1070,9 +997,8 @@ let secondaryCtorTests =
                 Expect.equal (getX.Invoke(viaPrimary, [||]) :?> int) 5 "C(5).X = 5"
             }
 
-            // A secondary ctor that forwards its own parameter to a *different-arity*
-            // primary chain (`type C2(x:int, y:int) = new(x:int) = C2(x, 0)`): the
-            // overload's param feeds the chain alongside a constant.
+            // `new(x) = C2(x, 0)` chains to a *different-arity* primary, feeding the
+            // overload's own param alongside a constant.
             test "a secondary ctor forwards its parameter to the primary chain (C2(9).Sum = 9)" {
                 let _, artifact =
                     compileSource
@@ -1097,11 +1023,9 @@ let secondaryCtorTests =
                 Expect.equal (getSum.Invoke(instance, [||]) :?> int) 9 "C2(9) chains to C2(9, 0): Sum = 9"
             }
 
-            // Generic class secondary ctor: the chain target is a `MemberRef` on the
-            // open self-`TypeSpec`. The secondary forwards its `'a` param to the
-            // primary's first field and a constant `1` to the second, so `Box(7).V = 7`
-            // and `Box(7).N = 1` prove both the generic chain ran and that the
-            // non-first field round-trips.
+            // On a generic class the chain target is a `MemberRef` on the open
+            // self-`TypeSpec`. `new(v) = Box(v, 1)` sends its `'a` param to the first
+            // field and a constant to the second, so the non-first field is covered too.
             test "a generic class secondary ctor chains through the open self-TypeSpec (Box(7).V = 7, .N = 1)" {
                 let _, artifact =
                     compileSource
@@ -1144,10 +1068,9 @@ let typeAppTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // Explicit type application at a construction site — `Box<int>(v)` /
-    // `Holder<'T>(v)`. The type args unify against the ctor's nominal result,
-    // and `tryClassRef` peels the `Expr.TypeApp` so the call still lowers to
-    // `TExpr.New`.
+    // Explicit type application at a construction site: `Box<int>(5)`,
+    // `Holder<'T>(v)`. The type args unify against the ctor's nominal result, and the
+    // `TypeApp` wrapper is peeled so the call still lowers to a `New`.
     testList
         "ClassTypeApp"
         [
@@ -1164,8 +1087,7 @@ let typeAppTests =
                 Expect.equal (getV.Invoke(instance, [||]) :?> int) 5 "Box<int>(5).V = 5"
             }
 
-            // Explicit `<'T>` at a construction site inside a member where `'T` is
-            // the enclosing type's typar (in scope).
+            // Here the explicit `<'T>` is the enclosing type's own typar, in scope.
             test "explicit type-app construction at the declaring typar inside a member (Holder<'T>(v)) round-trips" {
                 let _, artifact =
                     compileSource
@@ -1259,13 +1181,9 @@ let genericTests =
                 Expect.equal result "hi" "Box(\"hi\").V = \"hi\""
             }
 
-            // A *generic* class with more than one instance field must
-            // round-trip *every* field, not just the first. The single-field
-            // `Box<'a>(v: 'a)` tests above never exercised a field at index >= 1, so
-            // the generic non-first-field gap (ctor `stfld` / member-body `ldfld`
-            // resolving the wrong slot at runtime for a generic type) stayed latent.
-            // `SetTree<'T>(k, h)` reads its second ctor param `h` for AVL height, so
-            // this must work before any `Vesper.Set` runtime test is trusted.
+            // The single-field `Box<'a>(v: 'a)` tests above never touch a field at
+            // index >= 1, where a generic ctor `stfld` / member-body `ldfld` could
+            // resolve the wrong slot.
             test "Box<int>(7, 3).N returns 3 — a generic class round-trips its non-first field" {
                 let _, artifact =
                     compileSource
@@ -1296,11 +1214,9 @@ let genericMethodTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // A member that introduces its *own* generic parameter (`member this.Map<'b> …`).
-    // The method's typar emits as a `GenericParam` row owned by the `MethodDef`
-    // (encoded `!!i` in its signature), distinct from the declaring type's typars
-    // (`!i`). A wrong typar index or missing `GenericParam` row surfaces as
-    // `BadImageFormatException` / `InvalidProgram` at load/invoke.
+    // A member introducing its *own* generic parameter (`member this.Id<'b> …`). The
+    // method's typar is a `GenericParam` row owned by the `MethodDef`, encoded `!!i`
+    // in signatures, against `!i` for the declaring type's typars.
     testList
         "ClassGenericMethod"
         [
@@ -1354,9 +1270,8 @@ let genericMethodTests =
                     "Box<int>(0).Echo<string>(\"hi\") = \"hi\""
             }
 
-            // The decisive case: the same signature mixes the *method* typar
-            // (the `'b` param, `!!0`) and the *type* typar (the `'a` return, `!0`).
-            // A swapped index would either fail to load or return the wrong slot.
+            // `First<'b> (x: 'b) = v` mixes both in one signature: the `'b` param is
+            // `!!0`, the `'a` return is `!0`.
             test "a generic method's own typar (!!0) and its class's typar (!0) stay distinct" {
                 let _, artifact =
                     compileSource
@@ -1393,10 +1308,9 @@ let castTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // `:?` and `:?>` emit `isinst` / `castclass` against a `TypeToken` for the
-    // target type. These exercise the cast IL on a same-type cast on `this`
-    // (`this :? C` / `this :?> C`), which still emits the real `isinst` /
-    // `castclass` and runs them against a live instance.
+    // `:?` and `:?>` emit `isinst` / `castclass` against the target's `TypeToken`.
+    // A same-type cast on `this` still emits them, so the IL runs against a live
+    // instance.
     testList
         "ClassCast"
         [
@@ -1445,12 +1359,9 @@ let inheritanceTests =
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
-    // `inherit Base(args)` wires the IL `TypeDefinition.BaseType` to the parent
-    // and the primary `.ctor` to chain `ldarg.0; <args>; call Base::.ctor` before
-    // storing the derived fields. Construction is itself the proof the chain is
-    // sound — a `.ctor` that never calls a base / sibling ctor fails PE
-    // verification — and an inherited member read confirms the base ctor stored its
-    // arg.
+    // `inherit Base(args)` sets `TypeDefinition.BaseType` and makes the primary
+    // `.ctor` chain `ldarg.0; <args>; call Base::.ctor` before storing derived fields.
+    // A `.ctor` that never calls a base or sibling ctor fails PE verification.
     testList
         "ClassInheritance"
         [
@@ -1494,24 +1405,21 @@ let inheritanceTests =
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let circle = asm.GetType "Circle"
 
-                // Construction succeeds ⇒ the primary ctor chained to Shape::.ctor.
                 let instance = Activator.CreateInstance(circle, [| box 5; box 9 |])
 
-                // `Raw` is inherited from Shape; reading it proves `inherit Shape(t)`
-                // passed `t = 9` to the base ctor (which stored it in Shape's field).
+                // `Raw` is declared on Shape, so reading 9 back proves `inherit
+                // Shape(t)` reached the base ctor with `t`.
                 let getRaw = circle.GetMethod("get_Raw", publicInstance, null, [||], null)
                 Expect.isNotNull getRaw "get_Raw reachable through the inheritance chain"
                 Expect.equal (getRaw.Invoke(instance, [||]) :?> int) 9 "inherited Raw returns the base-ctor arg t = 9"
 
-                // `Radius` is declared on Circle and reads Circle's own field.
                 let getRadius = circle.GetMethod("get_Radius", declaredInstance, null, [||], null)
                 Expect.equal (getRadius.Invoke(instance, [||]) :?> int) 5 "Circle.Radius reads its own field r = 5"
             }
 
-            // The `inherit` args run BEFORE `this` exists, so no instance rewrite applies to
-            // them — but the `.cctor` has already run, so a `static let` named there IS in scope
-            // and is a static FIELD. Without the static field rewrite its bound variable key would reach
-            // codegen as a bare `TExpr.Var` with no slot to load it from.
+            // `inherit` args run before `this` exists, so no instance rewrite reaches
+            // them, but the `.cctor` has already run, so `k` there is in scope and must
+            // rewrite to a static-field load rather than a bare local read.
             test "a `static let` referenced in the `inherit` arguments loads from the static field" {
                 let _, artifact =
                     compileSource
@@ -1559,19 +1467,15 @@ let inheritanceTests =
 
                 let instance = Activator.CreateInstance(loud, [| box 7 |])
 
-                // The base ctor ran: inherited Raw reads the value `inherit Shape(n)`
-                // forwarded.
                 let getRaw = loud.GetMethod("get_Raw", publicInstance, null, [||], null)
                 Expect.equal (getRaw.Invoke(instance, [||]) :?> int) 7 "inherited Raw = 7 (base ctor chained with n)"
 
-                // Loud's own `Describe` override is the one declared on Loud.
                 let describe = loud.GetMethod("Describe", declaredInstance, null, [||], null)
                 Expect.isNotNull describe "Loud declares its own Describe override"
                 Expect.equal (describe.Invoke(instance, [||]) :?> int) 99 "Loud.Describe () returns the override's 99"
             }
 
-            // A monomorphic class inheriting an instantiated generic base
-            // (`IntBox : Box<int>`): the base type is a `GENERICINST` `TypeSpec` and
+            // With `inherit Box<int>(n)` the base type is a `GENERICINST` `TypeSpec` and
             // the base `.ctor` a `MemberRef` on it.
             test
                 "a mono class inheriting an instantiated generic base (Box<int>) constructs and reads through the chain" {
@@ -1607,8 +1511,7 @@ let inheritanceTests =
                     "inherited Box<int>.V returns the base-ctor arg 21"
             }
 
-            // A generic class inheriting a generic base instantiated at its *own*
-            // typar (`inherit SetTree<'T>(h)`), so the base `TypeSpec` carries `!0`.
+            // With `inherit SetTree<'T>(h)` the base `TypeSpec` carries `!0` instead.
             test
                 "a generic class inheriting a generic base at its own typar (SetTreeNode<'T> : SetTree<'T>) round-trips" {
                 let _, artifact =
@@ -1644,11 +1547,9 @@ let inheritanceTests =
                     "SetTreeNode<int>.Value returns its own field 42"
             }
 
-            // Reading an *inherited* member from in-Vesper code (`node.Key` where
-            // `Key` is declared on the base). The access walks the `inherit` chain
-            // and upcasts the object argument to the declaring ancestor (a ref-type upcast
-            // is a codegen no-op), so `resolveInstanceMember`, keyed on the object
-            // argument, resolves `get_Key` on the base.
+            // `d.Key` names a member declared on the base, so resolution walks the
+            // `inherit` chain and upcasts the object argument to the declaring
+            // ancestor, which is a codegen no-op for a ref type.
             test "reading an inherited member on a derived object argument resolves the base property (Key shape)" {
                 runs
                     "42"
@@ -1665,9 +1566,7 @@ let inheritanceTests =
                         ])
             }
 
-            // The same inherited read *inside a closure body*: a lambda capturing the
-            // derived object argument and reading its inherited member must lower the same
-            // way.
+            // The same read from inside a lambda that captures the derived value.
             test "an inherited member read captured in a closure resolves the base property" {
                 runs
                     "7"
@@ -1685,11 +1584,9 @@ let inheritanceTests =
                         ])
             }
 
-            // `base.M(...)` must dispatch non-virtually (`call B::M`), not virtually
-            // (`callvirt`) — otherwise an `override` body calling `base.M()` re-enters
-            // itself and stack-overflows. Parent returns 1; the override adds 1, so
-            // calling `M` on a derived instance returns 2 (and *returns* at all,
-            // proving it didn't recurse infinitely).
+            // `base.M()` dispatches non-virtually (`call B::M`); a `callvirt` would
+            // re-enter the override and stack-overflow, so returning 2 at all is the
+            // assertion.
             test "`base.M()` in an override calls the parent's method, not itself (non-virtual dispatch)" {
                 let _, artifact =
                     compileSource
@@ -1709,8 +1606,6 @@ let inheritanceTests =
                 let derived = asm.GetType "Derived"
                 let instance = Activator.CreateInstance(derived, [||])
 
-                // `M` is the override declared on Derived; invoking it through the
-                // virtual slot runs `base.M() + 1` = 1 + 1 = 2.
                 let m = derived.GetMethod("M", declaredInstance, null, [||], null)
                 Expect.isNotNull m "Derived declares its own M override"
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 2 "base.M() (= 1) + 1 = 2; no infinite recursion"
@@ -1719,11 +1614,9 @@ let inheritanceTests =
 
 [<Tests>]
 let interfaceImplTests =
-    // A user class implementing an external BCL interface front-end-resolves the
-    // interface and its member body without diagnostic. Front-end only — the
-    // interface type resolves against the metadata provider in the default contract
-    // stack, the impl is registered on the class's `ClassTypeInfo`, and the member
-    // body type-checks.
+    // Front-end only: the interface resolves against the default contract stack, the
+    // impl registers on the class, and the member body type-checks. Nothing is
+    // emitted, so these need no runnable implementation.
     testList
         "ClassInterfaceImpl"
         [
@@ -1789,14 +1682,9 @@ let interfaceImplTests =
                     "the diagnostic explains the target is not an interface"
             }
 
-            // A user class implementing the generic `IEnumerable<int>` and the
-            // non-generic `IEnumerable` type-checks both `GetEnumerator` methods
-            // independently. Each
-            // `interface … with` block resolves *its own* declared `GetEnumerator`
-            // overload (the metadata walk is `DeclaredOnly`), so the generic one
-            // conforms to `unit -> IEnumerator<int>` and the non-generic one to
-            // `unit -> IEnumerator` with no cross-talk. Bodies are `failwith` so the
-            // front-end test needs no concrete enumerator — only the signatures matter.
+            // Each `interface … with` block resolves its OWN declared `GetEnumerator`
+            // (the metadata walk is `DeclaredOnly`), so one conforms to
+            // `unit -> IEnumerator<int>` and the other to `unit -> IEnumerator`.
             test "implementing IEnumerable<int> and IEnumerable conforms both GetEnumerator methods" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
@@ -1834,11 +1722,9 @@ let interfaceImplTests =
                 | ValueNone -> failtest "class C was not registered"
             }
 
-            // A *generic* struct implementing a *generic*
-            // local interface must thread the class typar `'T` into the impl
-            // member's scope — the impl member's return type `'T` is the enclosing
-            // type's type parameter, NOT a free typar, so it must not trip the
-            // "Free type parameter" diagnostic.
+            // The class typar `'T` threads into the impl member's scope, so the
+            // `Unwrap() : 'T` return is the enclosing type's parameter and must not
+            // trip the "Free type parameter" diagnostic.
             test
                 "a generic struct implementing a generic local interface threads the class typar (no free-typar diagnostic)" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
@@ -1862,9 +1748,6 @@ let interfaceImplTests =
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
 
-                // The impl member's free `'T` is the enclosing struct's type
-                // parameter, threaded into the impl scope — NOT a genuinely-free
-                // typar, so it must not trip the diagnostic.
                 Expect.isFalse
                     (errors |> List.exists (fun d -> d.Message.Contains "Free type parameter"))
                     "the impl member's return type 'T is the class typar, not a free typar"
@@ -1881,9 +1764,7 @@ let interfaceImplTests =
                 | ValueNone -> failtest "struct Box was not registered"
             }
 
-            // Argument + return types must match the interface
-            // signature. `CompareTo` returning a `string` where `IComparable`
-            // promises an `int` is a conformance failure.
+            // `CompareTo` returning `string` where `IComparable` promises `int`.
             test "a member whose signature does not match the interface is diagnosed" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
@@ -1910,8 +1791,6 @@ let interfaceImplTests =
                     "the diagnostic reports a type mismatch"
             }
 
-            // A member the interface does not declare is rejected,
-            // and the required-but-unimplemented member is reported missing.
             test "a wrongly-named member is rejected and the required member reported missing" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
@@ -1931,8 +1810,8 @@ let interfaceImplTests =
 
                 let errors = Diagnostic.errors tast.Diagnostics
 
-                // The interface not declaring `Nope` IS "that type has no member of that
-                // name"; asked of the verdict, so the two readings cannot drift apart.
+                // `IComparable` not declaring `Nope` surfaces as the ordinary
+                // "type has no member of that name" verdict.
                 Expect.isTrue
                     (errors
                      |> List.exists (fun d ->
@@ -1953,13 +1832,9 @@ let interfaceImplTests =
 
 [<Tests>]
 let interfaceImplCodegenTests =
-    // A class implementing the generic `IEnumerable<int>` and the non-generic
-    // `IEnumerable` loads with both `InterfaceImpl` rows; reflecting
-    // `GetInterfaces()` shows both; and calling through each interface succeeds at
-    // runtime. The class stores an `IEnumerator<int>` ctor param and each
-    // `GetEnumerator` returns it (the non-generic one `:>`-upcast to the base
-    // `IEnumerator`) — no external enumerator construction, so the test exercises
-    // interface-impl emission, not enumeration machinery.
+    // `C` just hands back the `IEnumerator<int>` it was constructed with and builds
+    // no enumerator of its own, so what is under test is interface-impl emission
+    // rather than enumeration.
     let src =
         String.concat
             "\n"
@@ -1971,9 +1846,8 @@ let interfaceImplCodegenTests =
                 "        member this.GetEnumerator() : System.Collections.IEnumerator = e :> System.Collections.IEnumerator"
             ]
 
-    // A fresh `IEnumerator<int>` over [1;2;3] (the BCL list's own), reused per
-    // construction below — each test path builds its own so enumeration state
-    // doesn't bleed across assertions.
+    // Each construction below takes its own, so enumeration state cannot bleed
+    // across assertions.
     let freshEnumerator () : System.Collections.Generic.IEnumerator<int> =
         (System.Collections.Generic.List<int>([ 1; 2; 3 ]) :> seq<int>).GetEnumerator()
 
@@ -1984,7 +1858,6 @@ let interfaceImplCodegenTests =
                 let _, artifact = compileSource "ClsIEnum" src
                 let bytes = Codegen.toBytes artifact
 
-                // Both `InterfaceImpl` rows land in the PE metadata.
                 Expect.equal
                     (peInterfaceImplCount bytes)
                     2
@@ -2001,14 +1874,12 @@ let interfaceImplCodegenTests =
                     (ifaceNames.Contains "IEnumerable")
                     "C reflects as implementing the non-generic IEnumerable"
 
-                // `(c :> IEnumerable<int>).GetEnumerator()` yields an IEnumerator<int>.
                 let asGeneric =
                     Activator.CreateInstance(ty, [| box (freshEnumerator ()) |])
                     :?> System.Collections.Generic.IEnumerable<int>
 
                 Expect.equal (asGeneric |> Seq.toList) [ 1; 2; 3 ] "enumerating through IEnumerable<int> yields 1,2,3"
 
-                // `(c :> IEnumerable).GetEnumerator()` succeeds through the non-generic slot.
                 let asNonGeneric =
                     Activator.CreateInstance(ty, [| box (freshEnumerator ()) |]) :?> System.Collections.IEnumerable
 
@@ -2017,13 +1888,9 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
-            // Generic struct-interface-impl escape-hatch shape: A *generic*
-            // class `C<'T>` implementing `IEnumerable<'T>` + the non-generic `IEnumerable`
-            // upcasts its OWN-TYPAR-instantiated `IEnumerator<'T>` to the non-generic base
-            // `IEnumerator` (`e :> System.Collections.IEnumerator`). The upcast target's
-            // generic arg is the class typar `'T`, so the subtype walk must reach the
-            // non-generic base interface of `IEnumerator<'T>` — a relation distinct from
-            // the concrete `IEnumerator<int>` case above.
+            // Here the upcast source is `IEnumerator<'T>` at the CLASS typar, so the
+            // subtype walk has to reach the non-generic base interface of an open
+            // instantiation, a different relation from `IEnumerator<int>` above.
             test "a generic class upcasts its own-typar IEnumerator<'T> to the non-generic IEnumerator and enumerates" {
                 let gsrc =
                     String.concat
@@ -2055,7 +1922,6 @@ let interfaceImplCodegenTests =
                     (ifaceNames.Contains "IEnumerable")
                     "C<int> reflects as implementing the non-generic IEnumerable"
 
-                // `(c :> IEnumerable<int>).GetEnumerator()` yields an IEnumerator<int>.
                 let asGeneric =
                     Activator.CreateInstance(tyInt, [| box (freshEnumerator ()) |])
                     :?> System.Collections.Generic.IEnumerable<int>
@@ -2065,8 +1931,8 @@ let interfaceImplCodegenTests =
                     [ 1; 2; 3 ]
                     "enumerating C<int> through IEnumerable<int> yields 1,2,3"
 
-                // `(c :> IEnumerable).GetEnumerator()` succeeds through the non-generic slot
-                // — the own-typar `IEnumerator<'T> :> IEnumerator` upcast in the body.
+                // Reaching the non-generic slot at all is the own-typar
+                // `IEnumerator<'T> :> IEnumerator` upcast in the body running.
                 let asNonGeneric =
                     Activator.CreateInstance(tyInt, [| box (freshEnumerator ()) |]) :?> System.Collections.IEnumerable
 
@@ -2075,14 +1941,9 @@ let interfaceImplCodegenTests =
                 Expect.equal (nonGenericEnum.Current :?> int) 1 "the first element through IEnumerable is 1"
             }
 
-            // A generic class implementing `IStructuralEquatable`
-            // (`Equals(obj, IEqualityComparer)` / `GetHashCode(IEqualityComparer)`)
-            // alongside `override`s of Object's `Equals(obj)` / `GetHashCode()`.
-            // Unannotated override/interface params must not be generalised (that would
-            // emit a spurious generic arity that mismatches the interface slot). The
-            // `override`s must emit virtual, reusing the base Object slots. This gate
-            // forces the type to load and asserts every method is non-generic + virtual
-            // with the expected arity.
+            // `override this.Equals(that)` and the two interface members leave their
+            // params unannotated. Generalising those would give each method a spurious
+            // generic arity that no longer matches its Object or interface slot.
             test
                 "a class implementing IStructuralEquatable + Object overrides type-loads with non-generic virtual members" {
                 let src =
@@ -2102,7 +1963,7 @@ let interfaceImplCodegenTests =
                 let _, artifact = compileSource "ClsStructEq" src
                 let bytes = Codegen.toBytes artifact
 
-                // Forcing the load is the pre-fix failure mode (TypeLoadException).
+                // A mismatched slot surfaces here, as a TypeLoadException.
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C`1", throwOnError = true)
 
@@ -2115,7 +1976,6 @@ let interfaceImplCodegenTests =
                     )
                     |> Array.tryFind (fun m -> m.Name = name && m.GetParameters().Length = arity)
 
-                // The Object overrides: virtual, non-generic, reusing the base slots.
                 let equalsObj = methodOf "Equals" 1
                 Expect.isSome equalsObj "Equals(obj) override emitted"
                 Expect.isTrue equalsObj.Value.IsVirtual "Equals(obj) is virtual (reuses Object.Equals)"
@@ -2126,9 +1986,8 @@ let interfaceImplCodegenTests =
                 Expect.isTrue getHash0.Value.IsVirtual "GetHashCode() is virtual"
                 Expect.equal (getHash0.Value.GetGenericArguments().Length) 0 "GetHashCode() is non-generic"
 
-                // The IStructuralEquatable slots: 2-arg Equals + 1-arg GetHashCode,
-                // both non-generic so the implicit name+signature match satisfies the
-                // interface (no MethodImpl emission).
+                // Non-generic is what lets the runtime bind these to the interface by
+                // name + signature, with no `MethodImpl` row.
                 let equals2 = methodOf "Equals" 2
                 Expect.isSome equals2 "IStructuralEquatable.Equals(obj, comparer) emitted with two params"
                 Expect.equal (equals2.Value.GetGenericArguments().Length) 0 "the 2-arg Equals is non-generic"
@@ -2137,16 +1996,13 @@ let interfaceImplCodegenTests =
                 Expect.isSome getHash1 "IStructuralEquatable.GetHashCode(comparer) emitted"
                 Expect.equal (getHash1.Value.GetGenericArguments().Length) 0 "the 1-arg GetHashCode is non-generic"
 
-                // The whole type satisfies the interface — reflect it as implemented.
                 let ifaces = ty.GetInterfaces() |> Array.map (fun i -> i.Name) |> Set.ofArray
                 Expect.isTrue (ifaces.Contains "IStructuralEquatable") "C`1 implements IStructuralEquatable"
             }
 
-            // A generic class whose member passes a `'T`-typed value into a BCL `obj`
-            // parameter (`comparer.GetHashCode(x)`). `obj` is the universal supertype
-            // at argument-coercion sites (no grounding), and the typar argument is
-            // boxed at the call. This gate asserts `'T` survives (`get_Value` returns
-            // the generic parameter, not `obj`) AND the boxed call runs.
+            // `c.GetHashCode(x)` passes a `'T` value into an `obj` parameter. `obj` is
+            // the universal supertype at an argument site, so it accepts `'T` by boxing
+            // rather than by grounding `'T` to `obj`.
             test "a generic member passing 'T into an obj parameter keeps 'T generic and boxes the arg" {
                 let src =
                     String.concat
@@ -2163,9 +2019,6 @@ let interfaceImplCodegenTests =
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("Holder`1", throwOnError = true)
 
-                // `'T` is NOT grounded: `get_Value` returns the declaring generic
-                // parameter, not `obj`. (Pre-fix this returned `System.Object` — the
-                // whole-class typar grounding.)
                 let getValue =
                     ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
                     |> Array.find (fun m -> m.Name = "get_Value")
@@ -2174,8 +2027,7 @@ let interfaceImplCodegenTests =
                     getValue.ReturnType.IsGenericParameter
                     "get_Value returns the class typar (not obj) — the class typar was not ground to obj"
 
-                // The implied box is materialised: `HashVia`'s body boxes the `'T`
-                // argument (`box !0`, opcode 0x8C) before the `obj`-parameter call.
+                // The implied box is materialised: `box !0` (0x8C) before the call.
                 let il = peMethodIl bytes "Holder`1" "HashVia"
 
                 Expect.isTrue
@@ -2183,12 +2035,8 @@ let interfaceImplCodegenTests =
                     "HashVia emits a box (0x8C) for the 'T argument flowing into the obj parameter"
             }
 
-            // The implicit value→`obj` upcast must be materialised as a `box` at
-            // EVERY call site, not only the external-member path. A *project-local*
-            // instance call into an `obj` parameter (`this.M(5)`) must push a boxed
-            // value, not a raw `int` (unverifiable IL). Every call / ctor /
-            // record-cons emit site routes through the shared `boxArgIntoObjParam`
-            // policy. This gate asserts both the box opcode and a successful invoke.
+            // The same box on the project-local path: `this.M(5)` has to push a boxed
+            // value, since a raw `int` in an `obj` slot is unverifiable IL.
             test "a project-local instance call into an obj parameter boxes a value-type arg and runs" {
                 let src =
                     String.concat
@@ -2207,7 +2055,6 @@ let interfaceImplCodegenTests =
                     (il |> Array.contains 0x8Cuy)
                     "Probe boxes (0x8C) the int arg flowing into the obj parameter"
 
-                // The IL verifies and runs: `Probe()` returns the boxed `5`.
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C", throwOnError = true)
                 let instance = System.Activator.CreateInstance ty
@@ -2215,11 +2062,9 @@ let interfaceImplCodegenTests =
                 Expect.equal (result :?> int) 5 "Probe() returns the boxed 5"
             }
 
-            // A `void`-returning interface-impl member whose body *terminates* (ends
-            // in `raise`). `buildMember` must not emit the residual-`unit` pop after
-            // a `Throw`: the fall-through is unreachable, so an unconditional pop
-            // produces an unbalanced body that `IlIr.analyze` rejects. The pop is
-            // guarded on a live operand.
+            // A `void` member whose body ends in `raise`: the residual-`unit` pop must
+            // be guarded on a live operand, since after a `Throw` the stack-depth scan
+            // has no reachable depth to pop from and rejects the body.
             test "a void interface member whose body ends in `raise` emits and throws at runtime" {
                 let src =
                     String.concat
@@ -2254,12 +2099,9 @@ let interfaceImplCodegenTests =
 
 [<Tests>]
 let coercionTests =
-    // Implicit class→interface and explicit class→base upcasts. The mechanism is
-    // `subsumes` (interface walk) + `tryCoerceUpcast`/`unifyArg` (which unify the
-    // witness's type args so a generic / wildcard target is pinned) + the
-    // interface-impl resolution pre-pass (so a class knows its interfaces before
-    // any member body is typed). Front-end gates assert no diagnostic; the base
-    // upcast also round-trips through codegen (ref-type upcast erases).
+    // Implicit class→interface and explicit class→base upcasts. A class's interfaces
+    // are resolved in a pre-pass, before any member body is typed, and the upcast
+    // unifies the witness's type args so a generic target gets pinned.
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
@@ -2303,12 +2145,9 @@ let coercionTests =
             }
 
             test "a class member's forward call to a sibling-module fn coerces a subtype arg to an interface param" {
-                // `walkElems` types class member bodies before it walks module-level
-                // `let`s, so `M.useCmp` has no scheme yet when `C.Run` is typed.
-                // Without the annotation-derived forward scheme
-                // (`prebindModuleFunctionSchemes`), the subtype arg `Comparer<'T>`
-                // monomorphically pins `useCmp`'s param TyVar, clashing with its own
-                // `IComparer<'T>` annotation once its body is typed.
+                // Class member bodies are typed before module-level `let`s, so `M.useCmp`
+                // is known here only by a scheme pre-bound from its annotation. Otherwise
+                // the `Comparer<'T>` arg would pin its param monomorphically.
                 let src =
                     String.concat
                         "\n"
@@ -2342,11 +2181,9 @@ let coercionTests =
             }
 
             test "an external interface member's unannotated param resolves for member access (IEqualityComparer)" {
-                // `IStructuralEquatable.Equals(that, comparer)` has *unannotated*
-                // params; `comparer` is pinned to `System.Collections.IEqualityComparer`
-                // only by the conformance unify that runs *after* the body — so
-                // `comparer.Equals(…)` defers as a pending dot-access on a free TyVar.
-                // The discharge resolves an external object argument through the provider.
+                // `comparer` is only pinned to `IEqualityComparer` by the conformance
+                // unify that runs AFTER the body, so `comparer.Equals(…)` defers as a
+                // pending dot-access on a free TyVar and is discharged later.
                 let src =
                     String.concat
                         "\n"
@@ -2368,9 +2205,8 @@ let coercionTests =
             }
 
             test "`that :?> C` downcasts an interface member's unannotated (obj) param" {
-                // `that` is pinned to `obj` only by the conformance unify after the
-                // body, so at the downcast site it is still a free TyVar. An
-                // unresolved source is admitted (runtime-checked, like `obj`).
+                // Same lateness on `that`: still a free TyVar at the downcast site, so
+                // an unresolved source is admitted and runtime-checked, like `obj`.
                 let src =
                     String.concat
                         "\n"
@@ -2422,22 +2258,9 @@ let coercionTests =
 
 [<Tests>]
 let classPreambleTests =
-    // The class preamble: instance `let` / `do` (the tail of the primary `.ctor`, after
-    // the base-ctor call and the ctor-param stores) and `static do` (part of the
-    // `.cctor`'s ordered static sequence).
-    //
-    // EVERY initialiser here contains an OPERATOR: a literal-only initialiser cannot
-    // catch an operator reaching Elaborate in a preamble position with no desugared
-    // form — a hard crash the `static let x = 42` shape hid for as long as it was the
-    // only preamble under test.
-    //
-    // The RUNTIME semantics of the instance preamble (declaration order, `let mutable`
-    // sharing one storage location, `let rec`, generics, a function-`let` used
-    // first-class) are owned by the cross-backend conformance corpus
-    // (`test/Codegen.Conformance/classes/preamble-*.fs`, run on CLR *and* JS). What
-    // lives here is what the corpus cannot see: IL/metadata facts (field visibility,
-    // `initonly`), and the CLR-only shapes JS rejects outright — `inherit` and the
-    // static preamble.
+    // Instance `let`/`do` are the tail of the primary `.ctor`; `static do` runs in the
+    // `.cctor`. Runtime semantics live in Codegen.Conformance/classes/preamble-*.fs.
+    // Keep an OPERATOR in every initialiser here, because a literal-only one probes nothing.
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
@@ -2476,9 +2299,8 @@ let classPreambleTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 50 "C(4).M() reads m = n + 1 = 5"
             }
 
-            // A `let mutable` is an ordinary mutable FIELD, never a ref cell: the
-            // function-`let` closure and every member body must see the same storage, so
-            // a mutation through the closure has to persist across calls.
+            // A `let mutable` is an ordinary mutable FIELD, never a ref cell, so the
+            // function-`let` closure and every member body share one storage location.
             test "a `let mutable` mutated through a function-`let` persists across calls" {
                 let _, artifact =
                     compileSource
@@ -2513,8 +2335,7 @@ let classPreambleTests =
                 Expect.equal (m.Invoke(instance, [| box 4 |]) :?> int) 14 "second Bump(4) accumulates onto the field"
             }
 
-            // Probed: F# runs `inherit Base(…)` first, then the derived preamble
-            // top-to-bottom — so the base's `do` must print before the derived one's.
+            // F# runs `inherit Base(…)` first, then the derived preamble top-to-bottom.
             test "the base ctor runs before the derived class's preamble" {
                 runsLines
                     [ "base 5"; "derived z=8" ]
@@ -2534,8 +2355,7 @@ let classPreambleTests =
             }
 
             // The `.cctor` runs the WHOLE static sequence in declaration order, not just
-            // the `static let` stores: `static do` sees the lets above it and runs before
-            // the lets below it.
+            // the `static let` stores, so a `static do` sees only the lets above it.
             test "`static do` runs in the cctor, interleaved with `static let` in declaration order" {
                 runsLines
                     [ "static a=2"; "static b=6"; "B=6" ]

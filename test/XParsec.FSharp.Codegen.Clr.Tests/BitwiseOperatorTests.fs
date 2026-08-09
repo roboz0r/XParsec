@@ -6,12 +6,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The bitwise operator family (`&&& ||| ^^^ <<< >>> ~~~`) sourced from the
-// `Vesper.Core/ops-platform.clr.fs` contract bodies, each of which is the bare trait call.
-// Operator bindings need the source-text fallback in `Desugar.opPatCompiledName` (the
-// parenthesised ops lex to generic tokens); use sites resolve to their distinct `Token`
-// enums. Which widths support the family, and the IL each one lowers to, are stated on
-// the primitives themselves (`prim-types-*.fsi`/`.fs`).
+// Each of `&&& ||| ^^^ <<< >>> ~~~` is a bare trait call in
+// `Vesper.Core/ops-platform.clr.fs`; which widths support it and what IL each lowers to
+// are stated on the primitives themselves (`prim-types-*.fsi` / `.fs`).
 
 [<Tests>]
 let tests =
@@ -83,15 +80,9 @@ let tests =
                 Expect.equal (output.Trim()) "13" "(13 &&& 11) ||| 4 = 13"
             }
 
-            // A *deferred* operand pins the *contract-surface* resolution path: in a
-            // generalisable local function the shift/bitwise operands are still
-            // unsolved typars when the infix is typed, so `inferInfix` reaches
-            // `OpenScope.tryResolve` on the compiled
-            // op name. That lookup missed entirely until the contract extractor
-            // mapped the *parenthesised* operator bindings `(<<<)` / `(&&&)` (which lex
-            // to generic operator tokens, not the distinct enum) to their compiled
-            // names — and the shift's `int32` param dealiased to `int` so the `1`
-            // literal unifies. This is the exact `Set<'T>.ComputeHashCode` shape.
+            // `combineHash` generalises, so `x` and `y` are still unsolved typars when
+            // the infixes are typed: resolution goes through the contract surface by
+            // compiled op name (`op_LeftShift`), not through a pinned operand type.
             test "bitwise ops in a generalisable local function resolve through the contract surface" {
                 let src =
                     String.concat
@@ -109,10 +100,9 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "648" "deferred-operand bitwise resolves and computes"
             }
 
-            // The bitwise family's operand set is now the set of types that DECLARE the
-            // member. `float` declares none, so this is an ordinary "no such member"
-            // rejection — where it previously compiled with no diagnostic at all and
-            // emitted CIL `and` over two float64s (`InvalidProgramException` at run time).
+            // The operand set is the set of types declaring the member; `float` and
+            // `decimal` declare none, so these are ordinary "no such member" rejections
+            // rather than CIL `and` over two float64s.
             test "non-integral operands are rejected by the bitwise family" {
                 failsWith "does not support the operator" "let x = 1.0 &&& 2.0\nignore x"
                 failsWith "does not support the operator" "let x = 1.5M ||| 2.5M\nignore x"

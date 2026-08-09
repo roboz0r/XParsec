@@ -7,31 +7,10 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The frozen inline-body channel, end to end.
-//
-// 1. `Freeze` PUBLISHES an inline binding — additively, since the binding is ALSO emitted
-//    as an ordinary module function and stays in `Decls` — under a `SymbolKey` it MINTS
-//    from the binding's declaring module chain. The identity is minted rather than
-//    recovered because the vocabulary channel is resolved in the front end, before any
-//    backend has run to mint one as a side effect of emitting.
-//
-// 2. A published body carries NO `SemType`. The clause CONSTRAINTS used to be the hole:
-//    `TStaticOptClauseG.Constraints` was a monomorphic `EqArray<TStaticOptConstraint>` —
-//    raw `SemType`, whose typar is a LIVE `TyVar` — and `TastConvert.clause` copied it
-//    verbatim, so a frozen inline decl still shared the pre-freeze `UnionFind` cell.
-//    `TStaticOptConstraintG<'ty>` closes that BY TYPE; what is left to check dynamically
-//    is that the constraints are MAPPED, not dropped.
-//
-// 3. The body-local typar residue keeps its IDENTITY across freeze: each un-quantified
-//    root is attributed to the local scheme that BINDS it and freezes to
-//    `FTLocalTypar(scheme, index)`; the thaw mints one fresh cell per
-//    `(scheme, index)` pair.
-//
-// 4. That identity is BODY-RELATIVE and survives two files minting the same `SchemeId` —
-//    the multi-file case, an id being an ordinal within one body and nothing more. Both
-//    the freeze/thaw half and a REAL cross-file splice are pinned below.
+// Freeze publishes an inline binding as `FrozenType` under a `SymbolKey` minted from its
+// declaring module chain; the thaw mints one fresh cell per distinct frozen leaf. A body-local
+// leaf `FTLocalTypar(scheme, index)` is BODY-relative, so two files' `SchemeId`s may collide.
 
-/// Every type mentioned by a frozen clause's constraints, in order.
 let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 'id> list) : FrozenType list =
     [
         for c in clauses do
@@ -43,7 +22,6 @@ let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 
                 | TStaticOptConstraintG.IsStruct tp -> yield tp
     ]
 
-/// Every `FTLocalTypar` leaf in a frozen type, in first-occurrence pre-order.
 let rec private localLeavesIn (t: FrozenType) : (SchemeId * int) list =
     match t with
     | FTLocalTypar(scheme, i) -> [ scheme, i ]
@@ -57,8 +35,8 @@ let rec private hasFTTypar (t: FrozenType) : bool =
     | FTTypar _ -> true
     | t -> FrozenType.existsChild hasFTTypar t
 
-/// Every typar leaf of a frozen type — quantified (`FTTypar`) or body-local
-/// (`FTLocalTypar`) — in first-occurrence pre-order. The leaf value IS its identity.
+/// Every typar leaf, quantified (`FTTypar`) or body-local (`FTLocalTypar`), in pre-order.
+/// The leaf value IS its identity.
 let rec private typarLeavesIn (t: FrozenType) : FrozenType list =
     match t with
     | FTTypar _
@@ -68,7 +46,6 @@ let rec private typarLeavesIn (t: FrozenType) : FrozenType list =
         FrozenType.iterChildren (fun c -> acc.AddRange(typarLeavesIn c)) t
         List.ofSeq acc
 
-/// Every metavar root (`TyVarId`) in a `SemType`, in first-occurrence pre-order.
 let rec private semRootsOf (store: TypeStore) (t: SemType) : TyVarId list =
     match t with
     | TyVar tv -> [ (UnionFind.find store tv).Id ]
@@ -77,9 +54,7 @@ let rec private semRootsOf (store: TypeStore) (t: SemType) : TyVarId list =
         SemType.iterChildren (fun c -> acc.AddRange(semRootsOf store c)) t
         List.ofSeq acc
 
-/// Run over every `.ty` slot of a decl, collecting them. `TastConvert` is the
-/// exhaustive functor, so this reaches every type in the tree — no hand-rolled walk
-/// that a new TAST case could silently escape.
+/// Every `.ty` slot of a decl, via the `TastConvert` functor.
 let private collectTys (d: TDeclG<'ty, 'tok, 'id>) : 'ty list =
     let acc = ResizeArray<'ty>()
 
@@ -94,8 +69,6 @@ let private collectTys (d: TDeclG<'ty, 'tok, 'id>) : 'ty list =
 
     List.ofSeq acc
 
-/// Dedupe metavar roots by id — a `TyVarId` is the metavar's identity, and cell
-/// identity is what these tests are about.
 let private distinctCells (tvs: TyVarId list) : TyVarId list =
     let acc = ResizeArray<TyVarId>()
 
@@ -105,42 +78,32 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 
     List.ofSeq acc
 
-/// How many DISTINCT typar leaves a frozen decl names, across all three axes. The
-/// thaw's contract in one number: it must mint exactly this many cells — one per
-/// leaf, shared across every occurrence of that leaf. Deriving the count from the
-/// frozen tree rather than hard-coding it is what keeps the assertion EXACT: a broken
-/// cache mints MORE cells than there are leaves, which a `>=` bound would not catch.
-// Position-axis agnostic: leaves are a fact about the TYPES, so a pooled decl and a wire one
-// (whose anchors are the producer's) answer the same number.
+/// The thaw's contract in one number: it must mint exactly this many cells, one per distinct
+/// leaf, shared across every occurrence of that leaf.
 let private distinctLeafCount (d: TDeclG<FrozenType, 'tok, 'id>) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
-/// The frozen file of a source — the pools the freeze yields.
 let private freezePools (src: string) : FrozenPools =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
     Freeze.run ctx tast
 
-/// The same file as the DU: every assertion in this file reads whole decl trees and the
-/// inline vocabulary, which is what `ofPools` re-authors.
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
-/// The producer file a body frozen from `src` is anchored in. Rebuilt from the same text, and
-/// so the same identity the analysis stamped: an origin is derived from the content.
+/// The `OriginSource` a body frozen from `src` is anchored in, derived from the text, so
+/// rebuilding it here yields the identity the analysis stamped.
 let private sourceOf (src: string) : OriginSource =
     let lexed, _ = parseFile src
     Hashing.originSourceOfText lexed
 
-/// Realise a wire body against the file it was frozen from — the one reading there is, a
-/// `Wire.TDecl`'s anchors indexing the producer's tokens. What these tests assert about a
-/// thawed body is its type CELLS and never where it sits; the file is here because without it
-/// those indices mean nothing.
+/// Realise a wire body against the file it was frozen from: a `Wire.TDecl`'s anchors index
+/// the producer's tokens, so without that file the indices mean nothing.
 let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
     let source = sourceOf src
     InlineThaw.bodyAtOrigin store (OriginSources.ofSeq [ source ]) source.File decl
 
-/// The frozen `let` decl of a single-binding program, unpooled the way a provider serves a
-/// body (`declTree`) — the form `InlineThaw.bodyAtOrigin` takes.
+/// The frozen `let` decl of a single-binding program, unpooled as a provider serves a body
+/// (`declTree`), the form `thawFrom` takes.
 let private frozenLetDecl (src: string) : Wire.TDecl =
     let pools = freezePools src
     let pool = TastPoolBuilder.openOver pools
@@ -153,19 +116,13 @@ let private frozenLetDecl (src: string) : Wire.TDecl =
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
 
-/// The file's sole published inline body.
 let private soleInlineBody (src: string) : Pooled.TInlineValue =
     match (freeze src).InlineBodies |> EqArray.toList with
     | [ v ] -> v
     | other -> failtestf "expected exactly one published inline body, got %d, in:\n%s" (List.length other) src
 
-/// Two locally-generalized `let`s. ONE would give a single local root and so could
-/// not witness conflation — the old `FTUnknown "?free-typar"` gave every root the
-/// same NAME, and `FTUnknown` equality is by name, so they collapsed into one
-/// indistinguishable leaf.
-///
-/// `inline` is deliberately absent: the residue does not depend on it — it is the local
-/// generalisation that creates it.
+/// Two locally-generalized `let`s: ONE would give a single local root and so could not
+/// witness conflation. No `inline`, because local generalisation is what creates the residue.
 let private twoLocalSchemes =
     String.concat
         "\n"
@@ -176,13 +133,9 @@ let private twoLocalSchemes =
             "    (g, g, h, h)"
         ]
 
-/// A `let inline` whose body is an SRTP MEMBER CONSTRAINT — the one binding shape with no
-/// compiled form on any target. "The type `^T` has a static `+`" is not encodable on a CLR
-/// generic parameter, so there is no signature to emit the function under; F# only makes
-/// such a function callable un-inlined by passing witnesses, which this compiler does not
-/// do. The node is discharged by a SPLICE (`Inline.substMapper` rewrites it to a
-/// `StaticMethodCall` once `^T` is ground to a nominal that carries the member), never at
-/// the definition site.
+/// A `let inline` whose body is an SRTP MEMBER CONSTRAINT: "`^T` has a static `+`" is not
+/// encodable on a CLR generic parameter, so there is no signature to emit it under. Only a
+/// splice can discharge the node, once `^T` is ground to a nominal that carries the member.
 let private traitUnit (ns: string) (moduleName: string) =
     String.concat
         "\n"
@@ -194,9 +147,8 @@ let private traitUnit (ns: string) (moduleName: string) =
             "        ((^T or ^T): (static member (+): ^T * ^T -> ^T) (x, y))"
         ]
 
-/// A module-held `let inline` — the only shape with a declaring container chain, hence an
-/// exportable identity, hence a vocabulary entry. (A top-level inline lives in the
-/// anonymous Program class and is spliceable only within its own file.)
+/// A module-held `let inline` with a static-optimization body: three `when` clauses over
+/// `^T`, each returning a bare `int` literal.
 let private kindOfUnit (ns: string) (moduleName: string) =
     String.concat
         "\n"
@@ -211,10 +163,9 @@ let private kindOfUnit (ns: string) (moduleName: string) =
             "        when ^T : ^T    = 0"
         ]
 
-/// Re-express a published body's decl type as a symbol `Scheme`. A `let inline`'s own
-/// typars ride the METHOD axis (they are the binding's, not an enclosing type's); an
-/// `ExternalSymbol.Scheme` bakes a free function's typars on the DECLARING axis, which is
-/// what `instantiateSymbol` freshens. Positional, so index order is preserved.
+/// Re-express a published body's decl type as a symbol `Scheme`: a `let inline`'s own typars
+/// ride the METHOD axis, while an `ExternalSymbol.Scheme` bakes a free function's on the
+/// DECLARING axis. Positional, so index order is preserved.
 let private asSymbolScheme (ft: FrozenType) : FrozenType =
     FrozenTypeBridge.instantiateWith
         (fun i -> TyTypar(TyparAxis.Declaring, i))
@@ -223,7 +174,7 @@ let private asSymbolScheme (ft: FrozenType) : FrozenType =
         ft
     |> toFrozen
 
-/// The number of distinct typar slots a template names — the symbol's `TyparArity`.
+/// The symbol's `TyparArity`: one past the highest typar index the template names.
 let rec private typarArity (ft: FrozenType) : int =
     match ft with
     | FTTypar(_, i) -> i + 1
@@ -232,21 +183,17 @@ let rec private typarArity (ft: FrozenType) : int =
         FrozenType.iterChildren (fun c -> n <- max n (typarArity c)) t
         n
 
-/// File A's inline vocabulary, published as a provider over the default contract stack —
-/// a multi-file provider in miniature: one `ExternalSymbol` per published body, with the
-/// body FOLDED ONTO it (that is the whole interface; there is no sibling body channel).
-///
-/// The consumer resolves the symbol, carries its `Key`, and reaches the body through THAT
-/// key. Nothing `SemType` crosses: A published `FrozenType`, and B thaws.
+/// File A's inline vocabulary as a provider: one `ExternalSymbol` per published body, with
+/// the body folded onto it. The consumer resolves the symbol, carries its `Key`, and reaches
+/// the body through that key, so nothing `SemType` crosses.
 let private publishing (unitASource: string) : IExternalSymbolProvider =
     let ctx, tastA = analyseWithCtx unitASource
     Expect.isEmpty tastA.Diagnostics "file A has no diagnostics"
     let unitA = Freeze.run ctx tastA
     let pool = TastPoolBuilder.openOver unitA
 
-    // Unpooled the way a provider serves a template — `declTree`, which re-mints the body's
-    // bound variables into the node space a consuming file's expansion speaks — and anchored in file
-    // A's own file, which is what makes the indices those bodies carry readable at B.
+    // `declTree` re-mints the body's bound variables into the node space B's expansion speaks;
+    // anchoring in A's own file is what makes the indices those bodies carry readable at B.
     let source = sourceOf unitASource
 
     let published =
@@ -295,13 +242,9 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
         | _ -> ValueNone
     )
 
-/// The constant the expansion resolved `let r = …` to. `kindOf`'s clause bodies are bare `int`
-/// literals, so WHICH clause was selected is read straight off the entry the call's edge names.
-///
-/// Following the edge is the whole shape of the answer: the call becomes a `TExpr.InlineCall`
-/// naming an entry, and the entry is the resolved body under the lambdas the edge's arguments
-/// are positional against. A call that resolved nothing leaves an `App` node instead, which
-/// reaches no `Const`, so this cannot pass by accident.
+/// The constant `let r = …` reduced to. `kindOf`'s clause bodies are bare `int` literals, so
+/// WHICH clause the expansion selected is read off the entry the call's edge names. An
+/// unresolved call leaves an `App` node instead, which reaches no `Const`.
 let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
 
@@ -333,10 +276,9 @@ let tests =
             test "freeze PUBLISHES an inline binding under a minted key, and ALSO keeps it in the emittable Decls" {
                 let frozen = freeze (kindOfUnit "Lib" "Kinds")
 
-                // An `inline` binding is an ordinary module function that is ALSO a
-                // splice template — both, not either. It stays in `Decls` carrying
-                // `IsInline = true`, so a use that cannot be spliced (a first-class
-                // reference, a caller with no ground operand type) has something to call.
+                // An `inline` binding is ALSO an ordinary module function: it stays in
+                // `Decls` with `IsInline = true`, so a use that cannot be spliced (a
+                // first-class reference, a caller with no ground operand type) can call it.
                 Expect.equal
                     (frozen.Decls
                      |> EqArray.toList
@@ -350,20 +292,17 @@ let tests =
 
                 let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
-                // The key is MINTED from the declaring container chain — not recovered by
-                // re-resolving a dotted spelling, which multi-file has nothing to recover
-                // against. It is the identity a use-site `TExpr.External` carries.
+                // The key is MINTED from the declaring container chain, not recovered from a
+                // dotted spelling. It is the identity a use-site `TExpr.External` carries.
                 Expect.equal
                     published.Key
                     (SymbolKeyOps.moduleValueKey "Lib" "Kinds" "kindOf")
                     "the published identity is the binding's own containment chain"
             }
 
-            // The two constraint-shaped things a template body can carry pull APART at the
-            // emit seam, and this is the pair that says so. A `StaticOptimization` is a
-            // compile-time CHOICE with a `defaultExpr` fallback for "no type pinned" —
-            // which is exactly what the ordinary compiled function is — so it lowers. An
-            // SRTP member constraint has no IL encoding at all, so it does not.
+            // A `StaticOptimization` has a `defaultExpr` fallback for "no type pinned",
+            // exactly what the ordinary compiled function is, so it lowers. An SRTP member
+            // constraint has no IL encoding at all, so it does not.
             test "lowering emits a StaticOptimization inline, and drops an SRTP one" {
                 let lowered (src: string) =
                     TastLower.lower (pooledDecls (freezePools src))
@@ -382,8 +321,8 @@ let tests =
                     (lowered (traitUnit "Lib" "Traits"))
                     "a trait-call body is template-only: no CLR signature can carry 'has this member'"
 
-                // …and dropping it from emission does NOT drop it from the vocabulary:
-                // the splice channel is the only thing that can ever discharge the node.
+                // Dropped from emission is not dropped from the vocabulary, because a splice
+                // is the only thing that can discharge the node.
                 Expect.equal
                     (soleInlineBody (traitUnit "Lib" "Traits")).Key
                     (SymbolKeyOps.moduleValueKey "Lib" "Traits" "plus")
@@ -405,10 +344,9 @@ let tests =
                 | FTConst _ -> () // `: int`
                 | other -> failtestf "expected a frozen result type, got %A" other
 
-                // The clause's constraints are `TStaticOptConstraintG<FrozenType>`: they
-                // CANNOT hold a `SemType`, so the shared-cell hazard is gone by type. What
-                // is checkable dynamically is that they were MAPPED and not dropped — and
-                // that the binding's own `^T` reached its self-describing leaf.
+                // The constraints are `TStaticOptConstraintG<FrozenType>`, so they cannot
+                // hold a `SemType` at all. What is checkable here is that they were MAPPED
+                // and not dropped, and that the binding's own `^T` reached a frozen leaf.
                 let frozenTys = frozenConstraintTypes clauses
 
                 // `int` / `float` / `^T : ^T` ⇒ two types per clause.
@@ -433,9 +371,8 @@ let tests =
                     | _ -> failtest "unreachable"
 
                 // `g`'s `'x` and `h`'s `'y` are each bound by their OWN local scheme, so
-                // neither occurs in `f`'s type. They are two typars, and — the point of
-                // naming the scheme at all — they are distinguished by their SCHEME, not
-                // merely by an index that happens to differ.
+                // neither occurs in `f`'s type, and they are distinguished by SCHEME, not
+                // by an index that happens to differ.
                 let leaves = collectTys fDecl |> List.collect localLeavesIn
 
                 Expect.isNonEmpty leaves "the body-local schemes' own roots reach freeze as FTLocalTypar"
@@ -452,18 +389,17 @@ let tests =
                     2
                     "…and two distinct (scheme, index) pairs — each local scheme quantifies exactly one typar here"
 
-                // The USE-SITE instantiations — the four occurrences in `(g, g, h, h)` — ARE
-                // in `f`'s type, so `mkMethodQuantEnv` maps them and they ride the ordinary
-                // declared axis. `f`'s own type therefore carries no residue at all.
+                // The USE-SITE instantiations (the four occurrences in `(g, g, h, h)`) ARE
+                // in `f`'s type, so they are mapped onto the ordinary declared axis and `f`'s
+                // own type carries no residue at all.
                 Expect.isTrue (hasFTTypar declTy) "f's own type names its use-site instantiations on the FTTypar axis"
 
                 Expect.isEmpty
                     (localLeavesIn declTy)
                     "f's own type carries no local-typar residue — that is exactly why mkMethodQuantEnv cannot map it"
 
-                // One decl-scoped thaw: one fresh cell per distinct leaf, shared across every
-                // occurrence of it. The thaw mints on all three axes, so the expected count
-                // is every leaf the frozen decl names — not just the local ones.
+                // The thaw mints on all three axes, so the expected count is every leaf the
+                // frozen decl names, not just the local ones.
                 let store = TypeStore()
 
                 let cells =
@@ -479,9 +415,8 @@ let tests =
             }
 
             test "freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same (scheme, index)s" {
-                // The sidecar/publishing path may serialize a
-                // frozen body and re-read it, so index stability rests on the freeze walk
-                // order being deterministic. It is today; nothing but this test enforces it.
+                // Serializing a frozen body and re-reading it makes index stability rest on
+                // the freeze walk order. Nothing but this test enforces that order.
                 let once = frozenLetDecl twoLocalSchemes |> collectTys |> List.collect localLeavesIn
 
                 let twice =
@@ -496,10 +431,9 @@ let tests =
             }
 
             test "freeze/thaw: colliding scheme ids across two files do not conflate — the leaf is BODY-relative" {
-                // The multi-file hazard, made concrete. A `SchemeId` is an ordinal minted per
-                // frozen body, so two files' ids collide freely — a leaf is only ever
-                // interpreted against the body carrying it. These two files are DIFFERENT
-                // programs, each with one local scheme, so both land on the SAME `SchemeId`.
+                // A `SchemeId` is an ordinal minted per frozen body, so two files' ids collide
+                // freely. These are DIFFERENT programs, each with one local scheme, so both
+                // land on the SAME `SchemeId`.
                 let producer =
                     String.concat "\n" [ "let a () ="; "    let p = fun x -> x"; "    (p, p)" ]
 
@@ -515,7 +449,7 @@ let tests =
                 Expect.equal pLeaves.Length 1 "the producer file has one local scheme"
                 Expect.equal cLeaves.Length 1 "the consumer file has one local scheme"
 
-                // The collision is REAL — assert it, or the test proves nothing.
+                // Assert the collision is REAL, or the test proves nothing.
                 Expect.equal
                     (fst pLeaves.Head)
                     (fst cLeaves.Head)
@@ -526,13 +460,9 @@ let tests =
                     cLeaves.Head
                     "…so the two frozen leaves are structurally EQUAL across files. That is not a bug: a frozen typar leaf is only ever interpreted against the template carrying it, exactly as FTTypar(Declaring, 0) is."
 
-                // A `TyVarId` indexes ONE store, so cross-store id comparison is meaningless
-                // after the handle collapse — two files' cells are distinguishable only within a
-                // single id space. So route the consumer's own inference AND both thaws through
-                // ONE store: a leaf-keyed conflation would then surface as a REUSED (colliding)
-                // id rather than hide behind separate object identities. Each thaw still
-                // builds its OWN decl-scoped cache (design constraint: one cache per thawed decl),
-                // so the two same-keyed thaws must still mint independent cells in that one store.
+                // A `TyVarId` indexes ONE store, so route the consumer's own inference AND
+                // both thaws through a SINGLE store: a leaf-keyed conflation then surfaces as
+                // a REUSED id rather than hiding behind separate object identities.
                 let ctx, tast = analyseWithCtx consumer
                 let store = ctx.Store
 
@@ -579,11 +509,8 @@ let tests =
             }
 
             // ─── Cross-file EXPANSION: freeze in A, resolve in B ────────────────────────
-            //
-            // The property the whole channel exists for. File A is compiled, frozen, and
-            // published as a provider over the SAME contract stack; file B then resolves A's
-            // inline value BY KEY and expands its thawed body. Nothing B does can reach a cell
-            // of A's — A handed out `FrozenType` only.
+            // B resolves A's published inline value BY KEY and expands its thawed body.
+            // Nothing B does reaches a cell of A's, because A handed out `FrozenType` only.
 
 
             test "cross-file: B resolves A's published inline BY KEY and expands the thawed body" {
@@ -610,16 +537,13 @@ let tests =
 
 
             test "cross-file expansion ≡ in-file expansion, over COLLIDING NodeKeys" {
-                // A and B are compiled in the same `NodeKey` space, so A's body bound variables and
-                // B's own collide freely. If the thaw consulted any ambient file state — or
-                // if its freshener cache were keyed by anything B also keys by — the
-                // collision would surface here as a wrong clause or a type error.
+                // A and B share one `NodeKey` space, so A's body bound variables and B's own
+                // collide freely. A thaw consulting ambient file state, or keyed by anything
+                // B also keys by, would surface here as a wrong clause or a type error.
                 let provider = publishing (kindOfUnit "AAA" "Kind1")
 
-                // The SAME program with the inline declared IN-file: the reference answer
-                // the cross-file expansion must reproduce. Both are outlined — a template of
-                // this file has an anchor domain to name like any other — so the two answers
-                // are read the same way, through the edge.
+                // The SAME program with the inline declared IN-file, the reference answer the
+                // cross-file expansion must reproduce, read the same way, through the edge.
                 let inUnitAnswer =
                     resolvedConst
                         (ClrSymbolProviders.buildContract defaultManifests)

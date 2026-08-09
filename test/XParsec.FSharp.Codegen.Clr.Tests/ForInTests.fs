@@ -7,18 +7,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `for x in src do body` over an `IEnumerable<'T>` lowers to the standard
-// enumerator loop:
-//   let e = src.GetEnumerator() in
-//   try while e.MoveNext() do (let x = e.Current in body)
-//   finally if e <> null then e.Dispose()
-// The four member slots are resolved through the *interface* declaring types
-// (IEnumerable<'T> / IEnumerator<'T> / IEnumerator / IDisposable), so a
-// `callvirt` dispatches to the source collection's implementation. The source
-// here is a BCL `System.Collections.Generic.List<int>` (the metadata provider
-// surfaces its `IEnumerable<int>` interface for the front-end element-type
-// probe). Asserting on captured stdout proves the loop walks the elements in
-// order and terminates (the empty case prints nothing).
+// `for x in src do body` lowers to `let e = src.GetEnumerator()` / `try while e.MoveNext()
+// do (let x = e.Current in body)` / `finally if e <> null then e.Dispose()`. Which types
+// those four slots resolve through is what the tests below distinguish.
 
 [<Tests>]
 let forInTests =
@@ -26,11 +17,9 @@ let forInTests =
         "ForIn"
         [
             test "for-in over an empty BCL List<int> runs and prints nothing" {
-                // `List<int>` takes the duck-typed struct path (C# precedence: its
-                // pattern `GetEnumerator()` returning the value-type `List<int>.Enumerator`
-                // wins over the boxing `IEnumerable<int>` interface), so this also
-                // guards the value-typed loop on the empty case (zero iterations +
-                // struct `Dispose` in the finally).
+                // `List<int>` takes the duck-typed struct path (its pattern
+                // `GetEnumerator()` wins over `IEnumerable<int>`, as in C#), so this is
+                // the value-typed loop at zero iterations: struct `Dispose`, no body.
                 let src =
                     String.concat
                         "\n"
@@ -49,9 +38,8 @@ let forInTests =
             }
 
             test "for-in over a populated IEnumerable<int> prints the elements in order" {
-                // Source from `System.Linq.Enumerable.Range` — a static method returning
-                // a non-empty `IEnumerable<int>` directly, avoiding external
-                // instance-method calls (`xs.Add`).
+                // `Enumerable.Range` is a static returning a populated `IEnumerable<int>`,
+                // so the source needs no external instance call (`xs.Add`) to fill it.
                 let src =
                     String.concat "\n" [ "for x in System.Linq.Enumerable.Range(1, 3) do"; "    printfn \"%d\" x" ]
 
@@ -62,13 +50,9 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the sequence in order"
             }
 
-            // Duck-typed struct enumerator codegen. A concrete `List<int>` source
-            // walks its non-boxing value-type `List<int>.Enumerator` (C# precedence
-            // prefers the pattern `GetEnumerator()` over the `IEnumerable<int>`
-            // interface). The enumerator lives in a value local, dispatched by
-            // `ldloca` + `constrained. <Enumerator>` callvirt; no boxed `IEnumerator`
-            // is allocated. The list is populated through the `List(IEnumerable<T>)`
-            // ctor over `Linq.Range`.
+            // The same struct path with elements in it: `List<int>.Enumerator` lives in a
+            // value local, dispatched by `ldloca` + `constrained.` callvirt, so no boxed
+            // `IEnumerator` is allocated.
             test "for-in over a populated List<int> walks its non-boxing struct Enumerator" {
                 let src =
                     String.concat
@@ -86,9 +70,8 @@ let forInTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "iterates the struct enumerator in order"
 
-                // The value-type path emits the `constrained.` prefix (0xFE 0x16)
-                // before each enumerator member callvirt — the interface (boxing)
-                // path never does. Its presence proves the non-boxing struct walk.
+                // The interface (boxing) path never emits `constrained.` (0xFE 0x16), so
+                // its presence is what distinguishes the two walks.
                 let il = peMethodIl bytes "Program" "Main"
 
                 let hasConstrained =
@@ -100,10 +83,8 @@ let forInTests =
             }
 
             test "for-in over a duck-typed source (no IEnumerable<'T>) type-checks via the pattern GetEnumerator()" {
-                // `System.Collections.BitArray` implements only the *non-generic*
-                // `IEnumerable`. The duck-typed fallback resolves it through its
-                // public `GetEnumerator(): IEnumerator`, whose `MoveNext(): bool` +
-                // `Current` property drive the loop and pin the element type.
+                // `BitArray` implements only the NON-generic `IEnumerable`, so the element
+                // type comes from its `GetEnumerator(): IEnumerator`'s `Current`.
                 let src =
                     String.concat
                         "\n"
@@ -122,12 +103,9 @@ let forInTests =
                 Expect.isEmpty errors (sprintf "duck-typed for-in should type-check; got %A" errors)
             }
 
-            // `ResizeArray<'T>` is the `Vesper.List` abbreviation
-            // `= System.Collections.Generic.List<'T>`. The explicit `<int>` pins the
-            // element type up front, so the construction node carries
-            // `TyClass(List`1, [int])` — driving the parameterless-ctor overload pick
-            // and emitting `newobj List`1<int>::.ctor()`. Iterating the (empty) result
-            // proves it's a genuine BCL `List<int>`.
+            // `ResizeArray<'T>` abbreviates `System.Collections.Generic.List<'T>`. The
+            // explicit `<int>` pins the element type at the construction node, which is
+            // what picks the parameterless `newobj List`1<int>::.ctor()`.
             test "no-`new` ResizeArray<int>() constructs the BCL List<int> and iterates" {
                 let src =
                     String.concat
@@ -146,13 +124,9 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "done" "empty ResizeArray yields no iterations"
             }
 
-            // `System.Linq.Enumerable.Take<TSource>`: its method-owned `TSource`
-            // rides as a baked `FTTypar(Method, 0)` in the member's `ExternalSignature`
-            // template; the call site instantiates it to a fresh var (solved to `int`
-            // from the `Range` arg), and codegen mints a `MethodSpec Take<int>`.
-            // Iterating the (truncated) result proves the whole path — including
-            // overload selection against the `(…, Range)` sibling overload — resolves
-            // and runs.
+            // `Take<TSource>` owns its typar, so the call site instantiates it to a fresh
+            // var (solved to `int` from the `Range` argument) and codegen mints a
+            // `MethodSpec Take<int>`, picked against a sibling `(…, Range)` overload.
             test "generic Enumerable.Take<TSource> resolves, emits a MethodSpec, and runs" {
                 let src =
                     String.concat
@@ -169,12 +143,9 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3" "Take(Range(1,5), 3) yields the first three"
             }
 
-            // A *generic* user class implementing `IEnumerable<'T>` walked by
-            // `for x in this` inside its own member. Exercises the generic
-            // interface-enumerator probe (`tryLocalInterfaceEnumerator` instantiates
-            // the class typar with the use-site arg) and the bitwise shift operator
-            // surface (`x <<< 1`). Run at `int` to prove the whole path codegens and
-            // the enumerator actually walks the elements.
+            // `for x in this` inside a generic class's own member: the class typar `'T`
+            // has to be instantiated with the use-site `int` to pin the loop's bound
+            // variable, which the `<<<` in the body then needs solved.
             test "generic for-in over `this` with a bitwise-shift loop body runs" {
                 let src =
                     String.concat
@@ -197,10 +168,8 @@ let forInTests =
                 let _, artifact = compileSource "GenericForInShift" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
-                // 0,1,2,3 folded: res starts 0; combineHash res (hash e) =
-                // (res<<<1)+hash(e)+631. hash of an int is the int itself.
-                // e=1: (0<<<1)+1+631=632; e=2: (632<<<1)+2+631=1897;
-                // e=3: (1897<<<1)+3+631=4428.
+                // `hash` of an int is the int. e=1: (0<<<1)+1+631=632;
+                // e=2: (632<<<1)+2+631=1897; e=3: (1897<<<1)+3+631=4428.
                 Expect.equal exitCode 0 "Main returns 0"
 
                 Expect.equal
@@ -209,11 +178,9 @@ let forInTests =
                     "for-in folds the three elements with the shift body"
             }
 
-            // A project-local source class exposing only a pattern `GetEnumerator()`
-            // — no `IEnumerable<'T>` — whose enumerator `E` is itself a user class
-            // with `MoveNext(): bool` and a `Current` property. The duck-typed probe
-            // (`tryLocalDuckTypedEnumerator`) resolves the loop through the user
-            // member tables.
+            // Both source and enumerator are project-local, and neither implements any
+            // enumeration interface: the loop resolves entirely through the user member
+            // tables (`Counter.GetEnumerator`, then `Enum.MoveNext` / `Enum.Current`).
             test "for-in over a user duck-typed source (pattern GetEnumerator, no interface) type-checks" {
                 let src =
                     String.concat
@@ -243,10 +210,8 @@ let forInTests =
                 Expect.isEmpty errors (sprintf "user duck-typed for-in should type-check; got %A" errors)
             }
 
-            // The same shape, run end-to-end: the three handles (`GetEnumerator` on
-            // the source, `MoveNext` / `Current` on the user enumerator `E`) resolve
-            // through `EmitResolve.resolveInstanceMember` and `callvirt` the user
-            // `TypeDef`'s slots.
+            // The same shape run end-to-end: all three handles `callvirt` the user
+            // `TypeDef`'s own slots.
             test "for-in over a user duck-typed source walks its user enumerator and prints the elements" {
                 let src =
                     String.concat
@@ -275,17 +240,9 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the user enumerator in order"
             }
 
-            // The user enumerator `E` is a `[<Struct>]`, so the loop walks it by
-            // address (`ldloca` + a direct `call`), never boxing it — exactly how the
-            // F# compiler lowers `for x in struct-enumerator`. The members `MoveNext`
-            // / `Current` are ordinary (non-virtual) instance methods on `E`, so the
-            // call is a plain `call`, *not* `constrained. callvirt`: a
-            // `constrained. callvirt` to a non-virtual struct `MethodDef`
-            // mis-dispatches against an uninitialised `this` (the walk never
-            // advances, infinite-loops). `MoveNext`'s mutation to `this.Cur` must
-            // persist across iterations through the by-address `this`, so a wrong
-            // (by-value-copy) walk would loop forever — the run-to-`done` assertion is
-            // the guard.
+            // `MoveNext` mutates `this.Cur`, so the walk must address the struct
+            // enumerator for the mutation to persist across iterations; a by-value copy
+            // never advances and the loop hangs, which is what running to `done` rules out.
             test "for-in over a user duck-typed struct enumerator walks it by address without boxing" {
                 let src =
                     String.concat
@@ -315,12 +272,9 @@ let forInTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the struct enumerator in order"
 
-                // The struct walk addresses the enumerator (`ldloca`) and dispatches
-                // its own non-virtual members with a direct `call` — not
-                // `constrained. callvirt`. This enumerator isn't `IDisposable`, so the
-                // only place a `constrained.` (0xFE 0x16) could appear is the
-                // (now-eliminated) member-call path; its absence proves the
-                // direct-`call` lowering.
+                // `MoveNext` / `Current` are non-virtual, so they take a direct `call` on
+                // the address. This enumerator is not `IDisposable`, so a `constrained.`
+                // (0xFE 0x16) anywhere in `Main` could only be a member call.
                 let il = peMethodIl bytes "Program" "Main"
 
                 let hasConstrained =
@@ -333,12 +287,9 @@ let forInTests =
                     "struct enumerator members dispatch via direct `call`, not `constrained. callvirt`"
             }
 
-            // A user duck-typed enumerator that also implements `System.IDisposable`
-            // is disposed in a `finally` after the walk (C# parity). The front-end
-            // probe sets `dispose` from the enumerator's interface impls; codegen
-            // mints `System.IDisposable::Dispose` and emits the null-checked `finally`
-            // callvirt. The side effect (a `Dispose` that prints) must fire exactly
-            // once, after the elements and before `done`.
+            // A duck-typed enumerator that also implements `System.IDisposable` is
+            // disposed in the `finally` (C# parity). `Dispose` prints, so the expected
+            // output pins both that it fired and where: once, after the walk, before `done`.
             test "for-in over a user duck-typed disposable enumerator disposes it once after the walk" {
                 let src =
                     String.concat
@@ -373,14 +324,9 @@ let forInTests =
                     "walks the enumerator then disposes it once before 'done'"
             }
 
-            // A project-local source `Wrap` exposes a pattern `GetEnumerator()` that
-            // hands back an *external* (BCL) enumerator — `List<int>.Enumerator`, a
-            // `[<Struct>]` that is also `IDisposable`. The loop resolves the local
-            // `GetEnumerator` through `resolveInstanceMember` but mints the external
-            // enumerator's `MoveNext` / `Current` / `Dispose` via `ExternalMemberRefOn`.
-            // Because the enumerator is a struct it walks by address; because it's
-            // `IDisposable` it disposes through `constrained. <Enumerator>` in the
-            // `finally`.
+            // The four slots split across the local/external seam: `Wrap.GetEnumerator` is
+            // a local member, but the `List<int>.Enumerator` it hands back is a BCL struct
+            // whose `MoveNext` / `Current` / `Dispose` are external member refs.
             test "for-in over a user source whose GetEnumerator returns a BCL struct enumerator walks it" {
                 let src =
                     String.concat
@@ -405,14 +351,9 @@ let forInTests =
                     "walks the external struct enumerator in order"
             }
 
-            // The for-in *source* is itself a
-            // `[<Struct>]`. `GetEnumerator` is a method call on a value, so the source
-            // must be addressed (`ldloca`) the same way the enumerator`s `this` is —
-            // not pushed by value and `callvirt`-ed (malformed IL on a value type).
-            // The seq module's `MapSeq`/`ArraySeq` are exactly this shape, so this is
-            // the minimal isolation case that forces the fix. The struct `Counter`'s
-            // own `GetEnumerator` is a non-virtual `MethodDef`, dispatched by a direct
-            // `call` on the address; the struct `Enum` then walks by address as before.
+            // Here the SOURCE is the struct, not just the enumerator: `GetEnumerator` is a
+            // method call on a value, so `c` must be addressed (`ldloca`) too. Pushing it
+            // by value and `callvirt`-ing is malformed IL on a value type.
             test "for-in over a value-type struct source addresses it for GetEnumerator and walks" {
                 let src =
                     String.concat
@@ -445,16 +386,9 @@ let forInTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n2\n3\ndone" "walks the value-type source in order"
             }
 
-            // §14.6 capstone (W1+W4): a BARE cons-list `[1;2;3]` — NO `:> seq` upcast —
-            // iterates over the REAL `Vesper.List` DLL. The front-end admits it because
-            // the `.fsi` union's `interface IEnumerable<'T>` now rides
-            // `ExternalTypeShape.Union.interfaces` (`tryForInEnumerator`'s union arm);
-            // codegen emits a `GetEnumerator` callvirt against `IEnumerable<int>`, which
-            // dispatches to `List<'T>`'s native impl (its `ListEnumerator` cursor walk).
-            // THE load-bearing gate: this RUNS the emitted IL (W1's shared admission
-            // could type-check yet emit a callvirt against a List that lacks the
-            // interface — a runtime fault). `runsPackages` builds Vesper.List through our
-            // own backend and runs the driver in `packageAlc`.
+            // A BARE cons-list, with no `:> seq` upcast: the source is an external UNION
+            // whose `.fsi` declares `interface IEnumerable<'T>`. `runsPackages` builds the
+            // real `Vesper.List` through this backend, so the callvirt has to land.
             test "a BARE cons-list `for x in [1;2;3]` iterates the real Vesper.List on CLR (runtime)" {
                 let src = String.concat "\n" [ "for x in [1; 2; 3] do"; "    printfn \"%d\" x" ]
 
@@ -484,15 +418,9 @@ let forInTests =
                 Expect.isEmpty errors (sprintf "user-interface for-in should type-check; got %A" errors)
             }
 
-            // A project-local RECORD source implementing the iteration capability
-            // (`interface seq<'T>`). The front end resolves it through the same
-            // `IInterfaceImplHost` walk the class and union hosts use
-            // (`tryLocalInterfaceEnumeratorOn`); the backend needed nothing new, since a
-            // record's synthesised `IEnumerable<'T>` co-slots are exactly the ones the
-            // class `Interface` walk already `callvirt`s. Generic on purpose: the record's
-            // typar has to be substituted with the use-site `int` to pin the loop bound variable.
-            // Only the `Interface` surface is open to a record — a pattern `GetEnumerator()`
-            // on a record would need a record member table in `resolveInstanceMember`.
+            // A RECORD source, reached only through `interface seq<'T>`, because a pattern
+            // `GetEnumerator()` on a record would not resolve. Generic on purpose: the
+            // record's typar is substituted with the use-site `int` to pin `x`.
             test "for-in over a generic record implementing the seq capability walks its elements" {
                 let src =
                     String.concat

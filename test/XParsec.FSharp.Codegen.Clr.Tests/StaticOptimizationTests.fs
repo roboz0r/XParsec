@@ -6,19 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Static-optimization clause resolution at `let inline` expansion. An inline body
-// of the FSharp.Core operator shape
-//
-//     let inline f (x: ^T) … =
-//         <default>
-//         when ^T : int   = <clause>
-//         when ^T : ^T    = <catch-all>
-//
-// freezes to a `TExpr.StaticOptimization`; when the inline is expanded at a call
-// site, the clause whose `^T` matches the monomorphised operand type is selected
-// (the catch-all `when ^T : ^T` otherwise), and only that branch is emitted —
-// codegen never sees the static-opt. These tests pin the freeze (TAST shape) and
-// the per-type resolution end to end (compile + run real CIL).
+// A `let inline` body carrying `when ^T : …` clauses freezes to a
+// `TExpr.StaticOptimization`. At each expansion the clause matching the monomorphised
+// `^T` is selected, and only that branch emits: codegen never sees the node.
 
 [<Tests>]
 let tests =
@@ -56,7 +46,6 @@ let tests =
                                      _) ] when SymbolKeyOps.simpleName key = DisplayName "int" ->
                     Expect.equal clauses.Length 3 "three when-clauses, in source order"
 
-                    // First clause is `when ^T : int = 1` — one constraint, body `1`.
                     if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then
                         match clauses.[0].Body with
                         | TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _) -> ()
@@ -67,16 +56,9 @@ let tests =
             }
 
             test "the catch-all `when ^T : ^T` is a self-referential TyconEquals constraint" {
-                // Both sides of `^T : ^T` are the same typar, so after substitution
-                // they are one concrete type — the clause matches unconditionally.
-                //
-                // Both sides are `TyTypar(Method, 0)`, not a `TyVar` root: an inline
-                // binding's typars are quantified unconditionally (it is a TEMPLATE, never
-                // an emitted method), so the `freezeTypars` cut names them on the
-                // self-describing axis — which is what lets `Freeze` publish the body with
-                // `FTTypar` leaves. Self-reference is now equality of that leaf rather than
-                // union-find root identity; `Inline.substType` sees the ROOTS again, because
-                // the same-file splice runs BEFORE the cut and a cross-file one thaws first.
+                // Both sides of `^T : ^T` are the same typar, so the clause matches
+                // unconditionally. They are `TyTypar` leaves, not `TyVar` roots: an inline
+                // binding is a TEMPLATE, so its typars are quantified unconditionally.
                 let src =
                     String.concat "\n" [ "let inline kindOf (x: ^T) : int ="; "    -1"; "    when ^T : ^T = 0" ]
 
@@ -119,10 +101,8 @@ let tests =
             }
 
             test "the selected clause's inline-IL body emits: int `=` rides `ceq`, bool falls to the catch-all" {
-                // Equality shape (return bool under every clause). The int clause is a
-                // real `(# \"ceq\" x y : bool #)` over the operands; the catch-all is a
-                // `false` sentinel. `eq3 true true` returning false (not true) proves
-                // the catch-all — not the ceq clause — was selected for bool.
+                // `eq3 true true` printing 0 is the decisive observable: the `ceq` clause
+                // would have said true, so the `false` catch-all sentinel is what ran.
                 let src =
                     String.concat
                         "\n"
@@ -144,8 +124,8 @@ let tests =
             }
 
             test "the same inline resolves independently per call site (no clause bleed across types)" {
-                // `kindOf 5` and `kindOf 5.0` in one expression: each expansion must
-                // pick its own clause — a shared/aliased resolution would collapse them.
+                // Two expansions in ONE expression: each must pick its own clause, where a
+                // shared resolution would collapse both to whichever ran first.
                 let src =
                     String.concat
                         "\n"

@@ -6,12 +6,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Our own (discriminated) unions: construction, `match` deconstruction,
-// recursion over them, augmentation members, and the generic `Lst<'T>` /
-// `List<'T>` forms — plus the BCL-only library-DLL shape (static factories,
-// generic instance members) the reflection round-trips pin. They live here
-// under the capability they exercise.
-
 let private lines xs = String.concat "\n" xs
 
 let private unionSrc =
@@ -87,7 +81,6 @@ let private genMemberSrc =
             "        | Cons(_, t) -> 1 + t.Length"
         ]
 
-// Generic match / recursion / fold over a generic union.
 let private hdSrc =
     lines
         [
@@ -132,14 +125,8 @@ let tests =
     testList
         "Unions"
         [
-            // A union case with an `obj` field constructed from a *value-type* argument.
-            // Codegen could not box this
-            // (the emitted case carries only field handles, not their types); the
-            // box is now an explicit `Upcast` synthesised at Elaborate (which has the
-            // case field SemTypes), so the int reaches the `obj` field boxed and
-            // unboxes back via `:?> int`. Without the box the field would hold a raw
-            // value and the `unbox.any` would fault. Was the documented union-cons
-            // obj gap (EmitConstruct.buildUnionCons).
+            // The emitted case carries field handles, not field types, so the `box` for
+            // `Wrap 42` has to be synthesised upstream of codegen or the `:?> int` faults.
             test "union case with an obj field boxes a value-type construction arg" {
                 runs
                     "42"
@@ -233,10 +220,8 @@ let tests =
                 Expect.equal (output.Trim()) "20" "the nested `Cons(_, Cons(y, _))` bound the tail's head"
             }
 
-            // P3c: emit a union + module as a *library* DLL (no Main) via the
-            // converged assembler. The fold here is the concrete `sum` rather than
-            // a higher-order `fold`: a function parameter would be an `FSharpFunc`2`,
-            // pinning FSharp.Core and breaking "BCL-only".
+            // The fold is a concrete `sum` rather than a higher-order `fold` because a
+            // function parameter would pin FSharp.Core and break the BCL-only assertion.
             test "a union + recursive module fold ships as a BCL-only library DLL (P3c)" {
                 let src =
                     "namespace Vesper.Collections\n\ntype IntList =\n    | Empty\n    | Cons of int * IntList\n\nlet rec sum xs =\n    match xs with\n    | Empty -> 0\n    | Cons(h, t) -> h + sum t"
@@ -251,9 +236,8 @@ let tests =
                     artifact.FSharpCoreDependencies
                     "the union + concrete fold reference no FSharp.Core construct"
 
-                // Every reflected member + constructed value below must come from
-                // this single `asm` — a second load of the same bytes is a *different*
-                // assembly, so a cross-`Invoke` would mix two type identities.
+                // A second load of the same bytes is a DIFFERENT assembly, so everything
+                // reflected and constructed below has to come from this one `asm`.
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
                 Expect.isNull asm.EntryPoint "a library DLL has no entry point"
@@ -272,9 +256,8 @@ let tests =
                 Expect.isNotNull emptyM "IntList has a static Empty factory"
                 Expect.isNotNull consM "IntList has a static Cons factory"
 
-                // `sum` declares no module (it sits directly under `namespace
-                // Vesper.Collections`), so it emits on the Program class — under its
-                // own source name, which is also the name its key qualifies to.
+                // `sum` sits directly under `namespace Vesper.Collections` with no module
+                // of its own, so it emits on the Program class under its source name.
                 let sumM = programClassMethodsOf asm
 
                 match sumM with
@@ -396,12 +379,9 @@ let tests =
                             "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
                         ]
 
-                // This file IS `Vesper.List`: it declares `Vesper.Collections.List`, the very
-                // type Vesper.List's contract (mounted by `defaultManifests`) publishes. A file
-                // may declare the types its OWN contract publishes — that is what compiling it
-                // MEANS — so it must be analysed under that package's assembly name. Under any
-                // other name it is a project declaring a type a REFERENCED assembly already
-                // claims, which is the CS0433 analogue `claimTypeIdentity` diagnoses.
+                // This source declares `Vesper.Collections.List`, which the mounted
+                // `Vesper.List` contract also publishes, so it must be analysed under THAT
+                // assembly name; under any other it is a type a reference already claims.
                 let project = ProjectInfo.library "Vesper.List"
 
                 let lexed, file = parseFile src
@@ -445,16 +425,14 @@ let tests =
                 let one = consM.Invoke(null, [| box 1; empty |])
                 Expect.isNotNull one "Cons(1, Empty) constructs a List<int>"
 
-                // The head field is the type's `!0`, so on `List<int>` it is `int`.
+                // The `Head` field is the type's `!0`, so on `List<int>` it reads as `int`.
                 let headField = listOfInt.GetField "Cons_0"
                 Expect.isNotNull headField "List<int> has the Cons_0 (Head) field"
                 Expect.equal (headField.GetValue one :?> int) 1 "Cons_0 holds the head value 1"
             }
 
-            // R2: instance augmentation members on a *generic* union. The member
-            // signatures + bodies carry the declaring-typar marker (`!0`), and every
-            // member access on `Lst<int>` goes through a `MemberRef` on the
-            // instantiated `TypeSpec` (`Lst<int>::get_Head`).
+            // Members of a generic union carry `!0` in their signatures, so each access on
+            // `Lst<int>` needs a `MemberRef` on the instantiated `Lst<int>::get_Head`.
             test "generic union instance members run at runtime: chained Head/Tail, recursive Length (R2)" {
                 let src =
                     genMemberSrc
@@ -541,9 +519,6 @@ let tests =
                 Expect.equal (getHead.Invoke(tail, [||]) :?> int) 7 "l2.Tail.Head = 7"
             }
 
-            // Generic match / recursion / fold over a generic union, emitted as
-            // generic static methods (`!!`-typed tag + field member refs, a
-            // `MethodSpec` self-call, a `Vesper.Fun` folder parameter).
             test "a generic match over a generic union returns the head (prints 7)" {
                 let tast, artifact = compileSource "GenericHd" hdSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -589,12 +564,8 @@ let tests =
                 | Some m -> Expect.equal (m.GetGenericArguments().Length) 2 "foldl has two generic parameters"
             }
 
-            // A union implementing a LOCAL interface whose impl reads `this`
-            // (slice 2: the CLR backend now emits a union's user `interface … with`
-            // impls — the `InterfaceImpl` row + the impl body + the interface-slot
-            // override). `(v :> IRank).Rank()` is a real interface dispatch through
-            // the union's vtable slot, so this exercises emission end to end at
-            // runtime (broken IL that type-checks would fault here).
+            // The impl matches on `this`, so the slot has to reach the union's own tag,
+            // and a mis-wired vtable slot faults at the dispatch rather than compiling.
             test "a union implementing a local interface dispatches through the interface slot (prints 7 then 0)" {
                 let src =
                     lines
@@ -617,8 +588,6 @@ let tests =
 
                 let bytes = Codegen.toBytes artifact
 
-                // The user `InterfaceImpl` row lands on the union base type (alongside
-                // the synthesised structural eq/comp/format interfaces).
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "V"
                 Expect.isNotNull ty "the assembly contains the union type V"
@@ -637,10 +606,8 @@ let tests =
                     "Hi 7 ranks 7 (reads `this`), Lo ranks 0 — both via interface dispatch"
             }
 
-            // The union ALSO synthesises an `IEquatable<V>` (structural equality),
-            // so the user `IRank` impl and the synthesised eq interface must coexist
-            // on the same union base type with no slot collision: reflection sees
-            // BOTH interfaces, and structural `=` and `(v :> IRank).Rank()` both work.
+            // The union also synthesises `IEquatable<V>`, so the authored impl and the
+            // synthesised one must land on the same type without colliding slots.
             test "a union's user interface coexists with its synthesised IEquatable (no slot collision)" {
                 let src =
                     lines

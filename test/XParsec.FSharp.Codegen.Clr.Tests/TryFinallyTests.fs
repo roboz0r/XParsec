@@ -5,12 +5,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `try body finally cleanup` lowers to the same IL-IR exception region the `use`
-// desugaring uses (`EmitBindings.buildTryFinallyRegion`): the body's value is parked in
-// a local inside the `try` and reloaded after the `finally`, and `cleanup` runs on every
-// exit — normal completion or exception unwind. Asserting on captured stdout proves both
-// the ordering (cleanup after the body, before the value is consumed) and that the
-// cleanup still runs when the body raises.
+// `try body finally cleanup` lowers to the same IL-IR exception region `use` does:
+// the body's value is parked in a local inside the `try` and reloaded after the
+// `finally`, which runs on normal completion and on exception unwind alike.
 
 [<Tests>]
 let tryFinallyTests =
@@ -42,9 +39,8 @@ let tryFinallyTests =
             }
 
             test "the body's result survives the finally and is the try/finally's value" {
-                // `compute ()` returns the body value (42); the finally still runs before the
-                // value is consumed — cleanup prints first, then the caller prints 42. The
-                // region parks the body's 42 in a local and reloads it after the finally.
+                // Print order is the assertion: `cleanup` before `42`, so the finally
+                // ran before the parked value was reloaded and consumed.
                 let src =
                     String.concat
                         "\n"
@@ -69,11 +65,9 @@ let tryFinallyTests =
             }
 
             test "the finally runs when the body raises, and the exception still propagates" {
-                // The finally must run on the exception path too. `1 / z` (z = 0) faults with
-                // a DivideByZeroException; the finally prints during unwind, then the exception
-                // propagates uncaught. `runEntryPoint` surfaces the captured stdout in its
-                // failure message, so the cleanup line proves the finally ran before the throw
-                // escaped the region.
+                // `1 / z` (z = 0) faults, so nothing returns normally. The assertions read
+                // `runEntryPoint`'s failure message, which carries the captured stdout, so
+                // a "cleanup" line in it means the finally ran during unwind.
                 let src =
                     String.concat
                         "\n"

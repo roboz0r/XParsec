@@ -4,12 +4,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The manifest-driven `buildPackage` harness.
-// These anchors exercise it on the two *proven* packages only (Core + List) —
-// they assert the harness compiles each package's `impl` `.fs` to a BCL-only DLL
-// (empty `FSharpCoreDependencies`) and loads it with its expected public types,
-// resolving the `depends-on` graph through the harness's own load context. The
-// Candidate/At-risk triage table (Option/Result/Choice/Comparison/…) is Pre-2.
+// The manifest-driven `buildPackage` harness: each anchor compiles a package's `impl`
+// `.fs` to a BCL-only DLL (empty `FSharpCoreDependencies`) and loads it with its expected
+// public types, resolving the `depends-on` graph through the harness's own load context.
 
 [<Tests>]
 let tests =
@@ -17,7 +14,6 @@ let tests =
         "PackageBuild"
         [
             // Vesper.Core has no dependencies; its `impl` is the whole compile target.
-            // Built through `buildContract []` — no `MockBuiltins`.
             test "buildPackage Vesper.Core builds a BCL-only DLL with Fun`2 + Ref`1" {
                 let asm, artifact = (buildPackage "Vesper.Core").Value
 
@@ -26,16 +22,14 @@ let tests =
                 Expect.isNotNull (asm.GetType "Vesper.Fun`2") "the DLL contains Vesper.Fun`2"
                 Expect.isNotNull (asm.GetType "Vesper.Ref`1") "the DLL contains Vesper.Ref`1"
 
-                // Flat arity-2 fn type + its flat<->curried adapters (Fun wall).
+                // The flat arity-2 function type and its flat <-> curried adapters.
                 Expect.isNotNull (asm.GetType "Vesper.Fun`3") "the DLL contains Vesper.Fun`3"
                 Expect.isNotNull (asm.GetType "Vesper.Curried`3") "the DLL contains Vesper.Curried`3"
                 Expect.isNotNull (asm.GetType "Vesper.Flattened`3") "the DLL contains Vesper.Flattened`3"
 
-                // The compiler-recognised attribute classes (compiler-attributes.fs)
-                // inherit the heritable external base `Attribute = (# class
-                // "System.Attribute" #)`. This exercises the `extends`-to-BCL column +
-                // the synthesised primary `.ctor` chaining to `System.Attribute::.ctor()`:
-                // a malformed base-ctor call faults at construction, not load.
+                // The attribute classes inherit an external base, `Attribute = (# class
+                // "System.Attribute" #)`, so this exercises the `extends`-to-BCL column and
+                // the synthesised `.ctor` chain, which faults at construction, not at load.
                 let attrTy = asm.GetType "Vesper.StructuralEqualityAttribute"
                 Expect.isNotNull attrTy "the DLL contains Vesper.StructuralEqualityAttribute"
                 Expect.equal attrTy.BaseType typeof<System.Attribute> "the attribute inherits System.Attribute"
@@ -44,15 +38,9 @@ let tests =
                 Expect.isTrue (instance :? System.Attribute) "an instance is a System.Attribute (base ctor ran)"
             }
 
-            // The `%A` interfaces are resolved like any other nominal
-            // (`ClrEnv.coreInterfaceEntity`): Core's own records bind their OWN `TypeDef`
-            // rather than an `AssemblyRef` back to Core. That self-reference — which
-            // `refRequired` rejects — was the ONLY reason the backend ever asked "am I
-            // Core?", so nothing is special-cased now and Core's records carry `%A` like
-            // everyone else's. Both halves are pinned here: the record really implements the
-            // interface, AND the PE really has no self-reference (the failure the old gate
-            // was avoiding). Neither was covered before: no test asserted Core's records
-            // either way, so the whole suite was green under both policies.
+            // The `%A` interface resolves like any other nominal, so Core's own records bind
+            // their OWN `TypeDef` rather than an `AssemblyRef` back to Core. Both halves are
+            // pinned: the record implements the interface, and the PE has no self-reference.
             test "Vesper.Core's own records implement its OWN IStructuralFormattable (no self-AssemblyRef)" {
                 let asm, artifact = (buildPackage "Vesper.Core").Value
 
@@ -67,8 +55,7 @@ let tests =
                     (refTy.GetInterfaces() |> Array.exists (fun i -> i = formattable))
                     "Ref`1 implements the IStructuralFormattable declared in this same assembly"
 
-                // Core is `structural-format`'s home, so the interface must resolve to a
-                // local TypeDef — an `AssemblyRef` to itself would fault at load.
+                // An `AssemblyRef` to itself would fault at load.
                 let refs = peAssemblyRefs (Codegen.toBytes artifact)
 
                 Expect.isFalse
@@ -76,9 +63,8 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference its own assembly; refs = %A" refs)
             }
 
-            // Vesper.List depends on Vesper.Core: the harness builds + loads Core
-            // first, references its DLL, and resolves `Vesper.Fun` against the
-            // harness's own Core (not the Default-context one) at load time.
+            // Vesper.List depends on Vesper.Core: the harness builds and loads Core first,
+            // and resolves `Vesper.Fun` against THAT one, not the default context's.
             test "buildPackage Vesper.List builds a BCL-only DLL with List`1 over its Core dep" {
                 let asm, artifact = (buildPackage "Vesper.List").Value
 
@@ -87,13 +73,9 @@ let tests =
                 Expect.isNotNull (asm.GetType "Vesper.Collections.List`1") "the DLL contains Vesper.Collections.List`1"
             }
 
-            // Vesper.Seq's `struct-seq.clr.fs` is a real, generic-over-`'T` library:
-            // the `IStructEnumerator`/`IStructSeq` marker
-            // interfaces, the `ArrayEnumerator`/`ArraySeq` + `MapEnumerator`/`MapSeq`
-            // struct pairs, and the `ofArray`/`map`/`fold` module. Built via the
-            // STRICTER package path (`buildPackage` fails on any error diagnostic),
-            // so this surfaces front-end gaps the inline `compileSource` fixtures
-            // (which tolerate errors) never hit.
+            // Vesper.Seq is a real generic-over-`'T` library of struct enumerator / sequence
+            // pairs. `buildPackage` fails on ANY error diagnostic, so it surfaces front-end
+            // gaps the inline `compileSource` fixtures, which tolerate errors, never hit.
             test "buildPackage Vesper.Seq builds a BCL-only DLL with the generic struct-seq surface" {
                 let asm, artifact = (buildPackage "Vesper.Seq").Value
 

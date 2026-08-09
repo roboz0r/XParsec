@@ -5,19 +5,12 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Every reference to the `inline` nullary intrinsic `defaultof` —
-// `Unchecked.defaultof` and its `<'T>`-type-applied form — splices to the zero-operand
-// `ilzero` intrinsic during semantic analysis and NEVER emits a `call` into the
-// inline-only `Vesper.Unchecked` module class (which emits no method). A qualified /
-// type-applied spelling that reached codegen as a member read/call would
-// `TypeLoadException` at runtime. This suite drives the real contract stack
-// (`ClrSymbolProviders.buildContract`), whose provider serves the cross-package inline
-// body, so the splice actually fires and the program runs.
+// `Unchecked.defaultof`, bare or type-applied, must splice to the `ilzero` intrinsic
+// during semantic analysis. A surviving call would target the inline-only
+// `Vesper.Unchecked` module, which emits no method, and `TypeLoadException` at runtime.
 
-/// The frozen body of the single top-level `let f () = <body>` reduces to the
-/// zero-operand `ilzero` intrinsic — no member-read / call survives. Read THROUGH the
-/// specialization edge the reference now leaves: the resolved body is an entry, and a
-/// nullary intrinsic alias is an entry like any other.
+/// True when the body reduces to `ilzero`. A `defaultof` reference leaves a
+/// specialization edge, so the resolved body is reached through it rather than in place.
 let rec private findIlzero (tast: TastFile) (e: TExpr) : bool =
     match throughEdge tast e with
     | TExpr.ILIntrinsic("ilzero", _, _, _, _) -> true
@@ -49,10 +42,7 @@ let tests =
                         }
                 ]
 
-            // Execution proof: the idiomatic qualified, type-applied spelling must
-            // run. A surviving `call Vesper.Unchecked::DefaultOf<int>()` would
-            // `TypeLoadException` (the inline-only module class emits no method); the
-            // spliced `ilzero` yields `default(int)` = 0.
+            // The spliced `ilzero` yields `default(int)`, so the program prints 0.
             yield
                 test "`Unchecked.defaultof<int>` runs (no phantom call into Vesper.Unchecked)" {
                     runs "0" "printfn \"%d\" (Unchecked.defaultof<int>)"

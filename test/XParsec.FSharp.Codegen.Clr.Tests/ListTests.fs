@@ -6,11 +6,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// List literals: the cons-chain construction (the TAST shape anchor) and its
-// runtime printing, plus a `[1; 2; 3]` over a program's *own*
-// declared `List<'T>` union. The list type retargets onto the
-// Vesper cons-list; `%A` here is the FSharp.Core cold-path printer.
-
 let private lines xs = String.concat "\n" xs
 
 [<Tests>]
@@ -19,10 +14,8 @@ let tests =
         "Lists"
         [
             test "`printfn \"%A\" [1; 2; 3]` analyses clean as a Cons/Nil chain over list<int>" {
-                // `%A` of a list lowers to a `Format` node (P3 step 2) — the cons
-                // chain rides as the `Structured` hole's argument. This test pins the
-                // *list literal*'s construction (Cons/Nil chain typed `list<int>`),
-                // now reached through the hole rather than the cold-path App arg.
+                // `%A` of a list lowers to a `Format` node, and the cons chain rides
+                // as the hole's argument rather than a call argument.
                 let tast = analyse "printfn \"%A\" [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -60,8 +53,6 @@ let tests =
                                                                                 _) ],
                                                        outerTy,
                                                        _)) ] ->
-                        // The hole carries its classified
-                        // `Source`; `%A` is a `PercentA` (the old `Structured` kind).
                         let isPercentA =
                             match hole.Source with
                             | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA _) -> true
@@ -99,9 +90,7 @@ let tests =
                 Expect.equal (output.Trim()) "[1; 2; 3]" "list stored to a local, reloaded, and printed"
             }
 
-            // A `[1; 2; 3]` literal that binds against the *program's own* declared
-            // `List<'T>` union (with the `[]` / `(::)` syntactic constructors), then
-            // folds it — no FSharp.Core, no external list.
+            // The cases are spelled `([])` and `(::)` but match as `Empty` and `Cons`.
             test "`[1; 2; 3]` runs against the program's own declared list union (prints 6)" {
                 let src =
                     lines

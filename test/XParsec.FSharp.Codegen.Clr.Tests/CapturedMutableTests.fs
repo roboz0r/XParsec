@@ -10,18 +10,9 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Captured-mutable promotion: `let mutable` captured by an
-// escaping closure is rewritten to a `Vesper.Ref<'T>` cell so the closure and
-// outer frame share the same heap-allocated reference. The cell type lives in
-// `Vesper.Core.dll`; the codegen resolves it through the cross-package record
-// path; the consumer PE declares no copy. The promotion fires only for
-// bindings whose Regions verdict is `HeapShared` — uncaptured `let mutable`
-// (CallerStack) stays a stack-local.
-//
-// These tests cover the promotion's TAST-level guarantees: the consumer's
-// `Decls` carries no `Ref` type, the binding-site rewrite, and the `n <- v`
-// ↦ FieldSet + `n` ↦ FieldGet lowering. The generic-closure synthesis
-// runtime acceptance lives at the bottom of this file.
+// A `let mutable` captured by an escaping closure (Regions verdict `HeapShared`) is
+// rewritten to a `Vesper.Ref<'T>` heap cell the closure and the outer frame share. The
+// cell ships in `Vesper.Core.dll`; the consumer PE references it and declares no copy.
 
 [<Tests>]
 let tests =
@@ -29,12 +20,6 @@ let tests =
         "CapturedMutable"
         [
             test "TAST: a captured `let mutable` does NOT prepend a Ref decl (cell lives in Vesper.Core.dll)" {
-                // Previously the pass prepended a synthetic `type Ref<'T> = { mutable
-                // contents: 'T }` so the codegen's user-record path could find it.
-                // That stopgap was retired: the cell type ships in
-                // `Vesper.Core.dll` and the codegen resolves it through
-                // `externalRecordRef`. The consumer PE's `Decls` carries no
-                // `Ref` declaration regardless of whether the promotion fires.
                 let src =
                     String.concat
                         "\n"
@@ -61,8 +46,7 @@ let tests =
 
             test "TAST: a non-captured `let mutable` is not promoted (no rewrite either)" {
                 // The cell never crosses a closure boundary, so Regions reports
-                // CallerStack and the promotion pass skips it. No rewrite, and
-                // (as before) no Ref decl synthesised.
+                // `CallerStack` and the promotion pass skips it.
                 let src =
                     String.concat "\n" [ "let useLocal z ="; "    let mutable n = z"; "    n <- 7"; "    n" ]
 
@@ -143,21 +127,10 @@ let tests =
                 Expect.isTrue (scan isRecordConsOfRef) "`let mutable n = z` lowered to a Vesper.Ref<_> RecordCons"
             }
 
-            // When the captured-mutable pass fires, the consumer PE *references*
-            // `Vesper.Ref\`1` from `Vesper.Core.dll` (mints a `TypeRef`) and
-            // does *not* declare its own copy. The IL-level reflection check
-            // below is the acceptance; the runtime
-            // end-to-end variants (`mkCounter ()` counter, two-closures-
-            // share-the-cell) run further down — they were unblocked once
-            // unit-param closures and generic-closure synthesis landed.
             test "Codegen: consumer PE referencing Vesper.Ref<_> does NOT declare its own copy" {
-                // The simplest cell-promoting program whose codegen path doesn't
-                // hit the deferred closure-emit gaps: a single `let mutable n`
-                // captured by a one-shot inner function that's then *applied
-                // immediately and discarded*. Both reads/writes lower to
-                // `Vesper.Ref<int>::contents`; the closure's invocation completes
-                // before the outer function returns, so escape analysis flags it
-                // — but the closure value itself is consumed synchronously.
+                // A one-shot inner function applied immediately: both reads and writes
+                // lower to `Vesper.Ref<int>::contents`, and the closure value itself is
+                // consumed synchronously.
                 let src =
                     String.concat
                         "\n"
@@ -178,16 +151,12 @@ let tests =
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
 
-                // Acceptance: no local `Vesper.Ref\`1` TypeDef.
                 let localRef = asm.GetType "Vesper.Ref`1"
 
                 Expect.isNull
                     localRef
                     "the consumer PE must NOT declare a local Vesper.Ref`1 — the cell lives in Vesper.Core.dll"
 
-                // The reference table must include `Vesper.Core` (the
-                // `externalRecordRef` path mints a TypeRef whose AssemblyRef
-                // resolves to it).
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
                 Expect.contains
@@ -196,12 +165,6 @@ let tests =
                     (sprintf "consumer PE must reference Vesper.Core for Vesper.Ref`1 (refs: %A)" refs)
             }
 
-            // Runtime: the captured-mutable cell
-            // survives across multiple invocations of the escaping closure. The
-            // `unit -> int` Invoke + `mkCounter ()` static-method call both
-            // require the unit-parameter closure peel (peelLambda /
-            // discoverClosures); the cell itself is the `Vesper.Ref\`1` from
-            // `Vesper.Core.dll`.
             test "mkCounter () counter: three invocations see the shared Vesper.Ref<int> cell" {
                 let src =
                     String.concat
@@ -231,13 +194,8 @@ let tests =
                     "the three invocations read 1, 2, 3 from the shared Ref<int> cell"
             }
 
-            // Runtime: two closures captured
-            // by the same `let mutable` cell observe each other's writes — the
-            // `Vesper.Ref\`1` is shared. Both closures take a unit parameter.
-            // Wrapped in an outer
-            // function (`useTwoClosures`) so RefCellPromotion fires for the
-            // local `let mutable n` (module-level mutables don't promote — they
-            // live in a static field, a different mechanism).
+            // Wrapped in an outer function so the promotion fires: a module-level
+            // `let mutable` lives in a static field instead and never promotes.
             test "two closures share a single Vesper.Ref<int> cell" {
                 let src =
                     String.concat
@@ -264,40 +222,27 @@ let tests =
             }
 
             // ---- Generic closures (TAST-level acceptance) ----
-            //
-            // Each `Closure` carries a `Typars` set: the enclosing static
-            // method's typars (`StaticMethodRef.Typars`) at discovery, or `[]`
-            // for closures resident in `Main` / a top-level value let, or a
-            // closure inside a monomorphic static method. Inner closures
-            // inherit the enclosing closure's set verbatim.
-            //
-            // The helper bundles the `lower + collectModuleValues +
-            // collectStaticFns + typar map + discoverClosures` recipe each
-            // test uses.
+            // A `Closure`'s `Typars` count is the enclosing static method's, or 0 in `Main`, a
+            // top-level value let, or a monomorphic fn. Inner closures inherit it verbatim.
 
             let discover (src: string) : Emit.Closure list =
                 let ctx, tast = analyseWithCtx src
                 let pools = Freeze.run ctx tast
                 let pool = TastPoolBuilder.openOver pools
                 let lowered0 = Emit.lower (List.ofArray (TastAccessor.roots pool))
-                // No lambda in these sources carries a value-struct verdict, but the
-                // discovery signature is the pooled one, so feed it the pooled table —
-                // node-keyed, as `Layout.buildFile` does.
+                // No lambda here carries a value-struct verdict, but discovery takes the
+                // pooled table, so index it node-keyed the way the real layout path does.
                 let funVerdicts =
                     pools.FunVerdicts
                     |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
                     |> DenseTable.index
 
-                // The bound-variable-keyed tables at the dense id the CLR emit's API takes, indexed
-                // exactly as `Layout.buildFile` indexes them, so this harness cannot drift
-                // from the real path.
                 let moduleMembers = Map.ofArray pools.ModuleMembers
                 let closureReprs = Map.ofArray pools.ClosureReprs
                 let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
 
-                // A Program-class static fn keys on the Program class, mirroring
-                // `Layout.build` (this test asserts only discovered closures, so the
-                // module class name is immaterial — any valid `ModuleKey` yields the same set).
+                // Only discovered closures are asserted, so the module class name is
+                // immaterial, because any valid `ModuleKey` yields the same set.
                 let programClass =
                     SymbolKeyOps.moduleKeyOf (ModuleContainer.InNamespace NamespaceKey.Global) "Program"
 
@@ -307,8 +252,6 @@ let tests =
                 let moduleValueKeys =
                     HashSet<BoundVarId>(moduleValues |> List.map (fun mv -> mv.Key))
 
-                // Mirror `ModuleClassPlan.create`: the capture-only eligible set drives
-                // bridging, then `collectStaticFns` projects it onto the bridged decls.
                 let fns0 = CompiledFns.gather lowered0
                 let eligible = Emit.staticEligible moduleValueKeys fns0
                 let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
@@ -335,13 +278,9 @@ let tests =
                 closures
 
             test "a closure inside a generic static fn carries that fn's typars" {
-                // The canonical generic-closure case: `mkConst`
-                // is generic (`'a -> unit -> 'a`);
-                // its inner `fun () -> x` captures `x: 'a` and must become
-                // generic over `mkConst`'s `'a`. An inner `let f = …` breaks
-                // `peelLambda`'s otherwise-straight chain so `mkConst` is a
-                // 1-arg static fn (not 2-arg) and the inner lambda is left as
-                // a closure for `discoverClosures` to find.
+                // `mkConst` is generic (`'a -> unit -> 'a`) and its inner `fun () -> x`
+                // captures `x: 'a`. The inner `let f = …` breaks the lambda peel, so
+                // `mkConst` is a 1-arg static fn and the inner lambda is left as a closure.
                 let src =
                     String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]
 
@@ -354,10 +293,8 @@ let tests =
             }
 
             test "a closure inside a monomorphic static fn has empty Typars" {
-                // `f x = let g () = x + 1 in g ()` — `x + 1` forces `x: int`,
-                // so `f` is `int -> int` (no typars). `g` is a local function
-                // that captures `x` and is therefore a closure (not a
-                // static-method candidate — those are top-level only).
+                // `x + 1` forces `x: int`, so `f` is `int -> int` with no typars. `g`
+                // captures `x` and is a closure, because static-method candidates are top-level only.
                 let src = String.concat "\n" [ "let f x ="; "    let g () = x + 1"; "    g ()" ]
 
                 let closures = discover src
@@ -371,11 +308,9 @@ let tests =
                         (sprintf "closure %s should have zero Typars (enclosing fn is monomorphic)" c.Name)
             }
 
-            // The Regions stack/heap verdict (Axis 1 `LocalStack` ∧ Axis 2
-            // `StackOnlyEligible`) reaches `Emit.Closure.Repr` via
-            // `TastFile.ClosureReprs`. The field is inert (emission ignores it),
-            // so these assert the classification only — IL is unchanged.
-            // The shapes mirror the RegionsTests.
+            // `Repr` is the front-end verdict that a stack (readonly-struct) shape is
+            // ADMISSIBLE: Axis 1 `LocalStack` ∧ Axis 2 `StackOnlyEligible`. These assert
+            // the classification; whether codegen takes it is a separate gate.
             test "a frame-local applied closure carries Repr = Stack" {
                 // `f` is `LocalStack` (confined to `useLocal`) and its only use is
                 // the direct callee of `f 3`, so Axis 2 is `StackOnlyEligible`.
@@ -389,9 +324,8 @@ let tests =
             }
 
             test "a closure stored in a ValueTuple carries Repr = Heap" {
-                // Even though `g` is frame-local, the `(g, g)` tuple containment
-                // (a `ValueTuple`, which can't hold a ref-struct field) pins Axis 2
-                // to `RequiresHeapRepr`.
+                // `g` is frame-local, but `(g, g)` is a `ValueTuple`, which can't hold a
+                // ref-struct field, so Axis 2 is pinned to `RequiresHeapRepr`.
                 let src =
                     String.concat "\n" [ "let f () ="; "    let g = fun x -> x"; "    (g, g)" ]
 
@@ -402,12 +336,9 @@ let tests =
             }
 
             test "a generic closure also carries the Repr field" {
-                // The checkpoint requires both monomorphic and generic closures to
-                // carry the verdict. `mkConst`'s inner `fun () -> x` is generic over
-                // `'a` (Typars = 1); capturing a generic typar value rides the
-                // `Vesper.Fun<_,_>` channel, so Axis 2 is `RequiresHeapRepr` and the
-                // conjunction is `Heap` — the field is keyed for generic closures
-                // (contrast the monomorphic `f` above, which is `Stack`).
+                // Capturing a generic typar value rides the `Vesper.Fun<_,_>` channel, so
+                // Axis 2 is `RequiresHeapRepr` and the conjunction is `Heap`, in contrast to
+                // the monomorphic `f` above, which is `Stack`.
                 let src =
                     String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]
 
@@ -420,7 +351,7 @@ let tests =
             }
 
             test "an anonymous lambda with no bound variable defaults to Repr = Heap" {
-                // `(fun x -> x + 1) 5` — the lambda has no `SelfKey`, so the
+                // In `(fun x -> x + 1) 5` the lambda has no `SelfKey`, so the
                 // snapshot can't key it; it falls back to the emitted `Heap` shape.
                 let src = "printfn \"%d\" ((fun x -> x + 1) 5)"
 
@@ -433,11 +364,9 @@ let tests =
             }
 
             test "an inner closure inherits the enclosing closure's Typars" {
-                // `mkPair` is generic (`'a -> ('b -> 'a)`). The body is a
-                // `let mid = …; mid` so peelLambda stops after `x`; the body's
-                // `let mid y = let inner = fun z -> x in inner` produces *two*
-                // nested closures, both of which must inherit mkPair's typars
-                // (inner closures inherit the parent closure's typars verbatim).
+                // `mkPair` is generic (`'a -> ('b -> 'a)`); the `let mid = …; mid` body stops
+                // the lambda peel after `x`, and `let mid y = let inner = fun z -> x in inner`
+                // produces two nested closures, both inheriting mkPair's typars.
                 let src =
                     String.concat
                         "\n"
@@ -458,9 +387,6 @@ let tests =
                         (c.Typars > 0)
                         (sprintf "closure %s should inherit mkPair's typars (count > 0)" c.Name)
 
-                // Both closures carry *the same* typar count — the inner closure's
-                // typars are not re-derived but inherited verbatim (closures carry
-                // the enclosing method's typar count).
                 let inner = closures.[0] // registered first (leaves-first walk)
                 let outer = closures.[1]
 
@@ -468,9 +394,7 @@ let tests =
             }
 
             test "a closure in Main / top-level expression has empty Typars" {
-                // An anonymous lambda in a top-level expression (`printfn` arg)
-                // resides in `Main`, so its `Typars` is empty — `Main` is not
-                // a generic static method.
+                // The lambda resides in `Main`, which is not a generic static method.
                 let src = "printfn \"%d\" ((fun x -> x + 1) 5)"
 
                 let closures = discover src
@@ -481,33 +405,13 @@ let tests =
                     Expect.equal c.Typars 0 (sprintf "closure %s in Main should have zero Typars" c.Name)
             }
 
-            // Generic-closure synthesis:
-            // a higher-order function that *returns* a closure with an
-            // un-pinned typar in its capture-field signature emits the inner
-            // closure as a generic `TypeDefinition` over the enclosing static
-            // method's typars, instantiated per call site. The genuine
-            // generic-closure case: the inner closure captures a value of an
-            // *unconstrained* typar (`'a`). No operators apply to `x` inside
-            // the inner closure, so F#'s static-member-default mechanism never
-            // kicks in; `mkConst` stays `'a -> unit -> 'a` and the static
-            // method's typar flows through into the closure's capture-field
-            // signature.
-            //
-            // (`let mkAdder x = fun y -> y + x` is NOT a generic-closure case
-            // in F# — the `+` operator's `default ^T1: int` clause in
-            // `Vesper.Core/ops-platform.fsi` forces `int` in the absence of
-            // other type direction. `mkConst` cannot be defaulted; it is the
-            // genuine trigger.)
+            // `mkConst` is the genuine trigger: no operator applies to `x`, so it stays
+            // `'a -> unit -> 'a` and the typar flows into the capture-field signature.
+            // (`let mkAdder x = fun y -> y + x` is NOT, because `(+)`'s `default ^T1: int` forces int.)
             test "Higher-order returning a closure with an un-pinned typar" {
-                // Generic-closure runtime acceptance: `mkConst` is
-                // a generic 1-arg static method (the inner `let f = …; f`
-                // breaks `peelLambda`'s chain — same shape the TAST test
-                // above uses). The inner `fun () -> x` is a *generic closure*
-                // over `'a` — its capture-field signature is `!0`, its ctor +
-                // Invoke route through `MemberRef`s on `<closure>$0<!!0>` at
-                // the construction site (inside `mkConst`'s body, `!!i` is the
-                // method's typar) and `<closure>$0<!0>` from inside its own
-                // `Invoke` body.
+                // The inner `fun () -> x` is a generic closure over `'a`: capture field `!0`,
+                // ctor + Invoke through `MemberRef`s on `<closure>$0<!!0>` at the construction
+                // site inside `mkConst`, and `<closure>$0<!0>` from inside its own `Invoke`.
                 let src =
                     String.concat
                         "\n"
@@ -532,10 +436,8 @@ let tests =
                     "the inner closure carries its capture's type through the static-method typar"
             }
 
-            // One generic closure `TypeDef`,
-            // two `TypeSpec` parents at the construction sites (`<int>` and
-            // `<string>`) — proving the closure type is genuinely polymorphic,
-            // not silently monomorphised per call site.
+            // One closure `TypeDef` with two `TypeSpec` parents at the construction sites
+            // (`<int>` and `<string>`): polymorphic, not monomorphised per call site.
             test "Generic closure used at two distinct instantiations (int + string)" {
                 let src =
                     String.concat
@@ -563,11 +465,6 @@ let tests =
                     "two instantiations of the same generic closure print their respective captures"
             }
 
-            // The emitted PE carries a
-            // real generic `TypeDefinition` for the closure (one or more
-            // `GenericParam` rows) — the prior monomorphic-only path would
-            // either have failed encoding (the `cannot encode SemType: TyVar`
-            // error) or emitted a non-generic closure type.
             test "Generic closure `TypeDefinition` carries `GenericParam` rows" {
                 let src =
                     String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]
@@ -607,11 +504,8 @@ let tests =
                         (sprintf "closure `TypeDefinition` declares exactly one generic parameter (got %d)" gpCount)
             }
 
-            // The capture field's signature
-            // blob is `FIELD (0x06) VAR (0x13) 0` — the closure's own typar,
-            // not the concrete BCL type the construction sites supply. This
-            // pins the "generic by construction, not monomorphised" property
-            // at the signature level.
+            // The blob is the closure's own typar, not the concrete type the construction
+            // sites supply.
             test "Generic closure capture field signature encodes as `!0`" {
                 let src =
                     String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]
@@ -663,14 +557,9 @@ let tests =
                     Expect.equal sigBlob.[2] 0x00uy "byte 2 = generic parameter index 0 (the closure's own `!0`)"
             }
 
-            // The closure's `Vesper.Fun\`2`
-            // `InterfaceImpl` signature carries the closure type's own typar
-            // markers (`!0` for `ParamTy = unit`-isn't-a-typar, `!0` for
-            // `ResultTy = 'a`). For mkConst, ParamTy is the F# unit type
-            // (concrete encoding via `eUnit`), and ResultTy is the typar `!0`.
-            // We assert by scanning the TypeSpec blob for an ELEMENT_TYPE_VAR 0
-            // marker — the prior monomorphic-only path would have hit
-            // `cannot encode SemType: TyVar` and never reached IL.
+            // For `mkConst` the `Fun\`2` instantiation is `(unit, 'a)`: ParamTy encodes
+            // concretely and ResultTy is the closure's own `!0`. Asserted by scanning the
+            // `InterfaceImpl` TypeSpec blob for an ELEMENT_TYPE_VAR 0 marker.
             test "Generic closure `Fun\`2` InterfaceImpl uses the closure's own typar marker" {
                 let src =
                     String.concat "\n" [ "let mkConst x ="; "    let f = fun () -> x"; "    f" ]
@@ -697,10 +586,6 @@ let tests =
 
                 Expect.isGreaterThan ifaceImpls.Count 0 "closure declares at least one InterfaceImpl"
 
-                // The `Fun\`2` interface is a TypeSpec (generic instantiation).
-                // Find an impl whose interface handle is a TypeSpec and read its
-                // signature blob — scan for an ELEMENT_TYPE_VAR (0x13) byte
-                // followed by index 0 (the closure's `!0`).
                 let containsSelfTypar =
                     ifaceImpls
                     |> Seq.exists (fun iih ->
@@ -709,9 +594,8 @@ let tests =
                         if ii.Interface.Kind = HandleKind.TypeSpecification then
                             let ts = md.GetTypeSpecification(TypeSpecificationHandle.op_Explicit ii.Interface)
                             let blob = md.GetBlobBytes ts.Signature
-                            // Walk the blob: every 0x13 means VAR (type generic
-                            // parameter); the byte immediately after is the
-                            // (compressed) index.
+                            // 0x13 = VAR (a type generic parameter); the next byte is its
+                            // compressed index.
                             let mutable found = false
                             let mutable i = 0
 
@@ -731,22 +615,10 @@ let tests =
                     "the `Fun\`2` InterfaceImpl signature contains an ELEMENT_TYPE_VAR 0 marker (the closure's own `!0`)"
             }
 
-            // Two sibling closures in the same
-            // generic static method's body each carry the typar set
-            // independently (and share the captured value). The
-            // original `mkPair` returns a tuple; Vesper's tuple emission isn't
-            // on the critical path, so the test routes both siblings
-            // through a third closure (`fun cond ->`) that selects between
-            // them — exercising three generic closures in `mkPair`'s body, all
-            // inheriting its single typar.
+            // `a` and `b` each capture `x: 'a` independently and route through a third closure
+            // (`fun cond ->`) that selects between them, so neither can be DCE'd: three
+            // generic closures in `mkPair`'s body, all inheriting its single typar.
             test "Sibling closures inside a generic static fn each carry the typar set" {
-                // `mkPair` is generic over `'a`; `a` and `b` each capture
-                // `x: 'a` independently and route through a third closure
-                // (the result `fun cond ->`) so both siblings are live —
-                // neither can be DCE'd. The result closure's `Invoke` body
-                // selects between `a` and `b` by the boolean parameter and
-                // returns the captured `'a`. The whole chain is instantiated
-                // at `int` by `mkPair 10`.
                 let src =
                     String.concat
                         "\n"
@@ -776,9 +648,6 @@ let tests =
                 use peReader = openPe bytes
                 let md = peReader.GetMetadataReader()
 
-                // Three closures total: `a`, `b`, and `fun cond -> …`. All three
-                // are generic over `mkPair`'s typar — pin the count + arity
-                // suffix + GenericParam shape for each.
                 let closureTds =
                     md.TypeDefinitions
                     |> Seq.choose (fun h ->

@@ -7,22 +7,17 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Isolation tests for the chained method-call freeze gap (fixed
-// `eed60c7`): a method call whose object argument is itself a method call
-// `f.Invoke(a).Invoke(b)` (a method call on the RESULT of a method call) as the
-// body/return of an interface-impl member mis-types the member's return as the
-// INNER call's result; the OUTER application is dropped at freeze. The identical
-// chain at a top-level `let` types correctly.
+// A method call on the RESULT of a method call (`f.Invoke(a).Invoke(b)`), used as an
+// interface-impl member body, must type as the OUTER call's result. Mis-typing it as the
+// inner result drops the outer application at freeze.
 
 [<Tests>]
 let chainedMethodCallTests =
     testList
         "ChainedMethodCall"
         [
-            // The bug: inside an interface-impl member whose declared return is the
-            // OUTER result `int`, `f.Invoke(a).Invoke(b)` must type as `int`. The
-            // `f` field is a curried `Fun<int, Fun<int,int>>`; `f.Invoke(a)` yields
-            // `Fun<int,int>`, and `.Invoke(b)` yields `int`.
+            // `f : Fun<int, Fun<int,int>>`, so `f.Invoke(a)` yields `Fun<int,int>` and
+            // `.Invoke(b)` yields the `int` the member declares.
             test "chained Invoke(a).Invoke(b) as interface-impl member body types as OUTER result" {
                 let src =
                     String.concat
@@ -34,9 +29,8 @@ let chainedMethodCallTests =
                             "type AddCurried() ="
                             "    interface Fun<int, Fun<int, int>> with"
                             "        member this.Invoke(a: int) : Fun<int, int> = AddB(a) :> Fun<int, int>"
-                            // Mirror Vesper.Core `Flattened`: the object argument `f` is a
-                            // ctor-captured field of curried type; the impl body is the
-                            // chain `f.Invoke(a).Invoke(b)` with declared return `int`.
+                            // Mirrors Vesper.Core's `Flattened`: the object argument `f`
+                            // is a ctor-captured field of curried type.
                             "type FlattenedT(f: Fun<int, Fun<int, int>>) ="
                             "    interface Fun<int, int, int> with"
                             "        member _.Invoke(a: int, b: int) : int = f.Invoke(a).Invoke(b)"
@@ -52,9 +46,8 @@ let chainedMethodCallTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "chain in iface member yields OUTER result 42"
             }
 
-            // Control: the IDENTICAL chain at a top-level `let` types correctly. If
-            // this passes while the member-body test fails, the divergence is
-            // confirmed member-body-specific.
+            // The identical chain at a top-level `let`. Passing here while the member
+            // test fails localises the divergence to the member body.
             test "chained Invoke(a).Invoke(b) at top-level let types as OUTER result (control)" {
                 let src =
                     String.concat

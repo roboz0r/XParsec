@@ -1,33 +1,5 @@
-/// Assertions over the metadata of an EMITTED PE, read back with
-/// `MetadataReader`. `TestHelpers.loadAssembly` answers what the *runtime* makes of
-/// an assembly; this answers what we actually WROTE.
-///
-/// It is its own module rather than more of `TestHelpers` because it is an
-/// assertion library, not a fixture: `TestHelpers` builds and runs things, these
-/// functions only look and complain. It sits after `TestHelpers` in compile order
-/// and reuses its `openPe`, so both views of the emitted PE (reflection, raw
-/// metadata) stay one `open` apart for a test.
-///
-/// WHY IT EXISTS. `Layout.deriveHandles` predicts every metadata handle from a
-/// slot's POSITION in `layout.Types`, prefix-summing each slot's `FieldCount` /
-/// `MethodCount` before a single row exists; `Assembler` then walks the layout's
-/// Fields and Methods lists and writes the rows. The emitter's own handle checks
-/// compare a returned handle against a prediction derived from the same position in
-/// the same list the writer is walking, so they cannot see a mis-ordering that
-/// PRESERVES the counts — Types reordered while Fields is not, say. Such an assembly
-/// still has a perfectly well-formed metadata *shape*: the field/method ranges are a
-/// gap-free partition of the tables no matter how the rows are permuted, because
-/// ECMA-335 stores only each `TypeDef`'s FIRST field/method and derives the end from
-/// the next row. What breaks is only WHICH rows land in which type's range.
-///
-/// So the structural assertions here (`assertWellFormed`) pin the shape and catch
-/// drift — an out-of-band row, a range that does not start at 1, a `TypeDef` table
-/// that does not cover its field/method tables — while the two assertions with real
-/// teeth against a counts-preserving mis-order are `assertTypeMembers` (the rows in
-/// each type's range are the ones that BELONG to it, by name) and
-/// `assertEntryPointOwner` (`Main`'s row, whose handle comes from the *methods* list,
-/// lies inside the `Program` slot's range, whose bounds come from the *types* list —
-/// the one place the two orders are cross-checked).
+/// Assertions over an emitted PE's metadata, read back with `MetadataReader`: what was
+/// WRITTEN, as against what the runtime makes of the assembly once loaded.
 module XParsec.FSharp.Codegen.Clr.Tests.MetadataStructure
 
 open System
@@ -37,29 +9,26 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-/// Widen a specific metadata handle to `EntityHandle` — SRTP picks the
-/// `-> EntityHandle` overload of `op_Implicit` over the `-> Handle` one, and doing it
-/// explicitly stays off F#'s implicit-conversion warning.
+/// Widen a metadata handle to `EntityHandle`. `op_Implicit` also has a `-> Handle`
+/// overload, and naming the target explicitly stays off the implicit-conversion warning.
 let inline private toEntity (h: ^T) : EntityHandle =
     (^T: (static member op_Implicit: ^T -> EntityHandle) h)
 
 let inline private rowOf (h: ^T) : int = MetadataTokens.GetRowNumber(toEntity h)
 
-/// A `TypeDef` row as the PE actually carries it: the metadata spelling of its name,
-/// its table row, and the field / method rows its `FieldList` / `MethodList` range
-/// claims — in row order.
+/// A `TypeDef` row as the PE carries it: the field / method rows its `FieldList` /
+/// `MethodList` range claims, in row order.
 type EmittedType =
     {
-        /// `Ns.Name` for a top-level type; `Ns.Outer+Inner` for a nested one (the
-        /// CLR's own spelling, the one `Assembly.GetType` binds).
+        /// `Ns.Name` for a top-level type, `Ns.Outer+Inner` for a nested one. This is
+        /// the spelling `Assembly.GetType` binds.
         Name: string
         Row: int
         Fields: string list
         Methods: string list
     }
 
-/// What a caller expects one type's rows to be. The name spelling matches
-/// `EmittedType.Name`.
+/// What a caller expects one type's rows to be; `Type` uses the same name spelling.
 type ExpectedType =
     {
         Type: string
@@ -67,9 +36,8 @@ type ExpectedType =
         Methods: string list
     }
 
-/// The six `Nested*` values of the 3-bit visibility field. A `TypeDef` is nested iff
-/// its visibility is one of them — nesting is a *replacement* of that field, not an
-/// addition, so the flags and the `NestedClass` table must agree (asserted below).
+/// The six `Nested*` values of the visibility field. Nesting REPLACES the visibility
+/// rather than adding a flag, so a type is nested iff its visibility is one of these.
 let private nestedVisibilities =
     set
         [
@@ -94,7 +62,7 @@ let private nameOf (md: MetadataReader) (h: TypeDefinitionHandle) : string =
 
             if encl.IsNil then
                 // A nested-flagged type with no `NestedClass` row is itself a defect;
-                // `assertWellFormed` reports it. Render it plainly rather than crash.
+                // render it plainly rather than crash, and let the assertions report it.
                 name
             else
                 go encl + "+" + name
@@ -118,15 +86,12 @@ let readTypes (md: MetadataReader) : EmittedType list =
             }
     ]
 
-// ---- 1. The range partition -------------------------------------------------
-// Walk the `TypeDef` rows in table order and assert their field and method ranges
-// are consecutive, non-overlapping, gap-free, and together cover the `Field` /
-// `MethodDef` tables exactly — the direct statement of the prefix-sum assumption
-// `deriveHandles` makes.
+// ---- The range partition -----------------------------------------------------
+// Each type's field and method ranges must be consecutive, non-overlapping and
+// gap-free, together covering the `Field` / `MethodDef` tables exactly.
 
 let private assertRangePartition (label: string) (md: MetadataReader) =
-    // One pass per table; `claim` is indexed by row id (1-based), so a row claimed
-    // twice (overlap) or never (gap) is a lookup, not a search.
+    // `owner` is indexed by row id (1-based), so overlap and gap are both lookups.
     let check (table: string) (total: int) (ranges: (string * int list) list) =
         let owner = Array.create (total + 1) ""
         let mutable cursor = 1
@@ -184,7 +149,7 @@ let private assertRangePartition (label: string) (md: MetadataReader) =
     check "Field" (md.GetTableRowCount TableIndex.Field) [ for n, f, _ in types -> n, f ]
     check "MethodDef" (md.GetTableRowCount TableIndex.MethodDef) [ for n, _, m in types -> n, m ]
 
-// ---- 3. `<Module>` is TypeDef row 1 -----------------------------------------
+// ---- `<Module>` is TypeDef row 1 ---------------------------------------------
 
 let private assertModuleRow (label: string) (md: MetadataReader) =
     match List.ofSeq md.TypeDefinitions with
@@ -199,12 +164,9 @@ let private assertModuleRow (label: string) (md: MetadataReader) =
         if not (String.IsNullOrEmpty(md.GetString td.Namespace)) then
             failwithf "%s: the <Module> pseudo-type carries namespace '%s'" label (md.GetString td.Namespace)
 
-// ---- 4 + 6. `NestedClass` rows, and a nested type's flags --------------------
-// A type is nested iff its visibility flags say so; its enclosing type comes from
-// the `NestedClass` table. The two must agree exactly — the reader finds the
-// enclosing row by BINARY SEARCH, so an unsorted `NestedClass` table shows up here
-// as a nested-flagged type with no enclosing type, and a duplicate or orphan row
-// shows up in the row count.
+// ---- `NestedClass` rows, and a nested type's flags ----------------------------
+// The reader binary-searches `NestedClass`, so an unsorted table shows up here as a
+// nested-flagged type with no enclosing type, and an orphan row in the row count.
 
 let private assertNestedClassRows (label: string) (md: MetadataReader) =
     let mutable nestedCount = 0
@@ -223,8 +185,7 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
             if encl = h then
                 failwithf "%s: '%s' is its own enclosing type" label name
 
-            // A nested type must follow its enclosing type in the table: pre-order
-            // (5) depends on it, and the CLI requires it.
+            // The CLI requires a nested type to follow its enclosing type in the table.
             if rowOf encl >= rowOf h then
                 failwithf
                     "%s: nested type '%s' (row %d) precedes its enclosing type (row %d)"
@@ -233,8 +194,8 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
                     (rowOf h)
                     (rowOf encl)
 
-            // Its namespace column belongs to its OUTERMOST container; its own name is a
-            // single segment, never a dotted path.
+            // A nested type's own name is a single segment and its namespace column is
+            // empty, because the namespace belongs to the OUTERMOST container.
             if not (String.IsNullOrEmpty(md.GetString td.Namespace)) then
                 failwithf
                     "%s: nested type '%s' carries namespace '%s' — a nested TypeDef's namespace column is empty"
@@ -262,11 +223,9 @@ let private assertNestedClassRows (label: string) (md: MetadataReader) =
             rows
             nestedCount
 
-// ---- 5. Pre-order contiguity -------------------------------------------------
-// A type at row r that transitively encloses n types owns rows (r, r+n] and nothing
-// else. This is what makes the table HIERARCHICAL rather than merely legal: a nested
-// type may sit anywhere after its enclosing type and still be valid metadata, but
-// only a pre-order walk puts each module class's subtree immediately after it.
+// ---- Pre-order contiguity ----------------------------------------------------
+// A type at row r that transitively encloses n types owns rows (r, r+n] and nothing else.
+// Legal metadata allows a nested type anywhere after its enclosing type.
 
 let private assertPreOrderContiguity (label: string) (md: MetadataReader) =
     let children = Dictionary<int, ResizeArray<int>>()
@@ -308,38 +267,30 @@ let private assertPreOrderContiguity (label: string) (md: MetadataReader) =
 
 // ---- The public assertions ---------------------------------------------------
 
-/// Every structural invariant `deriveHandles`'s prefix-sum prediction assumes, over
-/// an already-open reader. Split from `assertWellFormed` so a hand-built metadata
-/// image (no PE around it) can be checked too.
+/// Every structural invariant above, over an already-open reader, so that a hand-built
+/// metadata image with no PE around it can be checked too.
 let assertWellFormedMetadata (label: string) (md: MetadataReader) : unit =
     assertModuleRow label md
     assertRangePartition label md
     assertNestedClassRows label md
     assertPreOrderContiguity label md
 
-/// Every `TypeDef` row of an emitted PE, with the rows its ranges claim — the
-/// diagnosis view (and how a caller writes an `ExpectedType` pin in the first place).
+/// Every `TypeDef` row of an emitted PE, with the rows its ranges claim: the diagnosis
+/// view, and how a caller writes an `ExpectedType` pin in the first place.
 let emittedTypes (bytes: byte[]) : EmittedType list =
     use pe = openPe bytes
     readTypes (pe.GetMetadataReader())
 
-/// `assertWellFormedMetadata` over emitted PE bytes.
 let assertWellFormed (label: string) (bytes: byte[]) : unit =
     use pe = openPe bytes
     assertWellFormedMetadata label (pe.GetMetadataReader())
 
-/// `assertWellFormed` over a materialised PE on disk.
 let assertWellFormedFile (label: string) (path: string) : unit =
     assertWellFormed label (IO.File.ReadAllBytes path)
 
-/// The rows in each named type's range are EXACTLY these, in order. Types not named
-/// are not checked, so a test pins what it knows.
-///
-/// This is the assertion a counts-preserving mis-order cannot survive: the field and
-/// method ROWS come from `layout.Fields` / `layout.Methods`, while the range that
-/// claims them comes from prefix-summing `layout.Types` — permute one list against
-/// the other and every count, every range and every total still agrees, but the names
-/// inside each range are another type's.
+/// The rows in each named type's range are EXACTLY these, in order; types not named are
+/// not checked. Names are the teeth: permute the emitted field rows against the type
+/// rows and every count, range and total still agrees; only the names move.
 let assertTypeMembersMetadata (label: string) (md: MetadataReader) (expected: ExpectedType list) : unit =
     let actual = readTypes md
 
@@ -388,11 +339,9 @@ let entryPointOwner (bytes: byte[]) : (string * string) voption =
         | Some ty -> ValueSome(ty, md.GetString((md.GetMethodDefinition entry).Name))
         | None -> failwithf "the entry-point MethodDef row %d lies in no TypeDef's method range" row
 
-/// The entry point is `typeName::methodName`. `Main`'s `MethodDef` handle is
-/// predicted from its index in `layout.Methods` (it is appended GLOBALLY LAST), while
-/// the range that must contain it is prefix-summed from `layout.Types` — so this
-/// fails the moment the `Program` slot stops being the final type, or the two lists
-/// otherwise fall out of step.
+/// The entry point is `typeName::methodName`, found by looking the PE's entry-point token
+/// up in the `TypeDef` method ranges, so it fails whenever the emitted method rows and
+/// the emitted type rows fall out of step.
 let assertEntryPointOwner (label: string) (bytes: byte[]) (typeName: string) (methodName: string) : unit =
     match entryPointOwner bytes with
     | ValueNone -> failwithf "%s: the PE has no entry point" label

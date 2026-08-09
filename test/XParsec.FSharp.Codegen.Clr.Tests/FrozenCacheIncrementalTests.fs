@@ -6,16 +6,10 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The end-to-end incremental gate for `ClrDriver.compileCached`: a compile → recompile → edit →
-// dependency-change sequence, driven through the REAL production driver, proving the opt-in cache
-// hits when nothing changed, misses on a source edit, and misses on a changed dependency contract
-// (never a stale hit). Hit vs miss is detected by a store that counts `Store` calls: only a MISS
-// writes, so a hit leaves the count unchanged. A hit's re-emit is compared by
-// `ClrStructuralDigest` (not raw bytes: `Metadata.fs` mints a fresh MVID per compile, so raw PE
-// bytes differ run-to-run for identical source — see `ConformanceByteIdentityTests`).
+// The incremental gate for `ClrDriver.compileCached`, through the real driver: the cache hits
+// when nothing changed, misses on a source edit, and misses on a changed dependency, so never
+// a stale hit. Hit vs miss is read off a store that counts `Store` calls; only a MISS writes.
 
-/// Wraps an `InMemoryStore` and counts `Store` calls, so a test reads hit-vs-miss off the count:
-/// a MISS stores (count increments), a HIT does not.
 type private CountingStore() =
     let inner = Cache.InMemoryStore() :> ICacheStore
     let mutable stores = 0
@@ -36,13 +30,13 @@ let private bclReferences () : string list =
 let private inputsWith (manifests: string list) (name: string) : ClrCompilation =
     ClrCompilation.consumer (ProjectInfo.defaults name) manifests (bclReferences ())
 
+/// Structural, not raw bytes: a fresh MVID per compile makes identical source emit different
+/// PE bytes run-to-run.
 let private digestOf (artifact: ClrArtifact) : string =
     ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)
 
-/// The key `ClrDriver.compileCached` computes for this compilation, so a test can assert the
-/// key MOVED independently of observing the store. It calls the driver's OWN digest rather
-/// than mirroring its construction: a determinant the driver starts folding must not be able
-/// to pass this gate by being absent from a copy of it here.
+/// The key `ClrDriver.compileCached` computes, so a test can assert the key MOVED without
+/// observing the store.
 let private keyOf (inputs: ClrCompilation) (source: string) : InputHash =
     Hashing.fileInputHash (Hashing.textOriginPath source) source (ClrDriver.compilationDigest inputs)
 
@@ -51,8 +45,7 @@ let private okArtifact (label: string) (result: Result<ClrArtifact, Diagnostic l
     | Ok a -> a
     | Error ds -> failtestf "%s: compile failed: %s" label (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
 
-/// A BCL-only static call the default `Vesper.Core` contract + net8.0 ref pack resolve (the same
-/// program shape `ClrDriverTests` compiles); the string literal varies to model a source edit.
+/// A BCL-only static call the default `Vesper.Core` contract + net8.0 ref pack resolve.
 let private printProgram (message: string) : string =
     sprintf "System.Console.WriteLine \"%s\"" message
 
@@ -82,10 +75,9 @@ let tests =
                 let store = CountingStore() :> ICacheStore
                 let inputs = inputsWith [ vesperCoreManifest ] "IncEdit"
 
-                // An INTEGER-literal edit (`ldc.i4` operand), not a string edit: the structural
-                // digest folds the `ldstr` token (a `#US` heap index), so two lone string literals
-                // share a token and would not perturb it — an integer literal is an inline IL
-                // operand the digest does fold.
+                // An INTEGER-literal edit, not a string one: the digest folds `ldstr`'s `#US`
+                // heap index, so two lone string literals share a token and would not perturb
+                // it. `ldc.i4`'s inline operand does.
                 let first = okArtifact "v1" (ClrDriver.compileCached store inputs "let x = 1")
                 Expect.equal (store :?> CountingStore).Stores 1 "the first compile stores once"
 
@@ -103,12 +95,9 @@ let tests =
             }
 
             test "a changed dependency contract misses (dependency invalidation)" {
-                // A resolvable custom package (its own namespace, no `depends-on`, one inert `val`
-                // the program never references) added to `Manifests` beside `Vesper.Core`, so its
-                // `.fsi` bytes fold into the driver's cache key via `Hashing.frozenInputHash`. The
-                // program compiles against `Vesper.Core` alone; the extra contract only perturbs
-                // the KEY, which is exactly the dependency-signature seam under test. Fixture lives
-                // under repo `./tmp` (repo convention), rewritten fresh so a prior run cannot leak.
+                // A custom package (its own namespace, one inert `val` the program never
+                // references) added to `Manifests` beside `Vesper.Core`, so its `.fsi` bytes
+                // fold into the cache key. It perturbs only the KEY, which is the seam under test.
                 let root = tmpDir "frozen-cache-dep-inval"
                 let pkgDir = Path.Combine(root, "Extra")
                 Directory.CreateDirectory pkgDir |> ignore
@@ -157,16 +146,9 @@ let tests =
             }
 
             test "a changed dependency INLINE BODY misses" {
-                // The sibling of the test above, for the input that used to be invisible to the
-                // key. An `impl` `.fs` is not contract — it is not in `files` — but its bodies
-                // are re-analysed and SPLICED into the consumer before the consumer is frozen,
-                // so its bytes are a compile determinant. Hashing the `.fsi` set alone left the
-                // key unmoved and served a blob carrying the OLD body.
-                //
-                // The program here does not reference the body, so the emitted assembly is
-                // identical either way — which is the point: the cache cannot know that, so it
-                // must MISS. Asserting the miss rather than the output is what makes this a gate
-                // on the key and not on codegen.
+                // An `impl` `.fs` is not contract (it is not in `files`), but its bodies are
+                // SPLICED into the consumer before freeze, so its bytes are a compile
+                // determinant. Only the MISS, not the output, can witness the key moving.
                 let root = tmpDir "frozen-cache-inline-body-inval"
                 let pkgDir = Path.Combine(root, "Inl")
                 Directory.CreateDirectory pkgDir |> ignore
@@ -206,9 +188,7 @@ let tests =
 
                 Expect.equal (store :?> CountingStore).Stores 2 "the changed inline body is a MISS, not a stale hit"
 
-                // The program never calls `bump`, so the miss re-emits the same assembly. Gated
-                // rather than merely asserted in a comment: it is what makes this a test of the
-                // KEY alone — the emitted output could not have told the two compiles apart.
+                // The program never calls `bump`, so the miss re-emits the same assembly.
                 Expect.equal
                     (digestOf second)
                     (digestOf first)

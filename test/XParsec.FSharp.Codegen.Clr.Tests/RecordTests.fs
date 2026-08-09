@@ -7,10 +7,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Record backend tests. Mirrors `StructuralEqualityTests` for the
-// equality triple, plus end-to-end runtime tests that exercise the value-level
-// IL (`RecordCons` / `FieldGet` / `FieldSet` / `RecordClone` / `TPat.Record`).
-
 [<Tests>]
 let monoTests =
     let declaredInstance =
@@ -36,10 +32,8 @@ let monoTests =
             }
 
             test "a value boxes into an obj record field + unboxes back (prints 7)" {
-                // `{ V = 7 }` into `V: obj`: field-init coerces (`unifyArg`), Elaborate wraps
-                // the int in an obj `Upcast`, codegen emits the `box`; `b.V :?> int` reads the
-                // field and `unbox.any`s it back. A missing box would be invalid IL that fails
-                // to load, so a clean round-trip proves the box fires.
+                // `{ V = 7 }` into `V: obj` must emit a `box`, and `b.V :?> int` an
+                // `unbox.any`. A missing box is invalid IL that fails to load.
                 let src =
                     String.concat
                         "\n"
@@ -57,11 +51,8 @@ let monoTests =
                 Expect.equal (output.Trim()) "7" "the boxed int reads back as 7"
             }
 
-            // Arity-overloaded records: `Point`2` and `Point`3` coexist as one name
-            // (F# allows `(name, arity)`-distinct types, like `Choice`2`…`Choice`7`).
-            // Exercises the record arity-keyed registry (no "Duplicate type definition"),
-            // body-fill by arity, construction disambiguated by field set, and
-            // field-get via the arity-qualified `TyRecord` key.
+            // A record is claimed by `(name, arity)`, so `Point`2` and `Point`3` are two
+            // types under one source name; the field set picks which one a literal builds.
             test "two arity-overloaded records coexist; each constructs + field-reads (prints 20 / 39)" {
                 let src =
                     String.concat
@@ -372,11 +363,8 @@ let genericTests =
                     "Box<int> 3 <> Box<string> \"3\" (isinst Box<int> fails)"
             }
 
-            // Ctor-store fix, record mirror: a *multi-field* generic record must
-            // round-trip *every* field, not just the first. The existing single-field
-            // `Box<'T> = { Value: 'T }` tests never exercised a field at index >= 1,
-            // so the raw-`FieldDef` `stfld` miscompilation on non-first generic fields
-            // stayed latent here too.
+            // The `Box<'T>` tests above are all single-field, so nothing there reaches a
+            // generic field at index >= 1, where the ctor's `stfld` needs its own ref.
             test "a multi-field generic record round-trips its non-first field (Pair<int>.Second = 3)" {
                 let _, artifact =
                     compileSource
@@ -407,12 +395,8 @@ let interfaceImplTests =
     testList
         "RecordInterfaceImpl"
         [
-            // §14.6 slice 5: a record implementing a LOCAL interface whose impl reads
-            // a field of `this`. The CLR backend emits the record's user
-            // `interface … with` impl (the `InterfaceImpl` row + the impl body + the
-            // interface-slot override) exactly like the union slice. `({ N = 7 } :>
-            // IRank).Rank()` is a real interface dispatch through the record's vtable
-            // slot — broken IL that type-checks would fault here.
+            // `(r :> IRank).Rank()` is a real vtable dispatch, so IL that type-checks but
+            // wires the slot wrongly faults here rather than compiling clean.
             test "a record implementing a local interface dispatches through the interface slot (prints 7)" {
                 let src =
                     String.concat
@@ -433,8 +417,6 @@ let interfaceImplTests =
 
                 let bytes = Codegen.toBytes artifact
 
-                // The user `InterfaceImpl` row lands on the record type (alongside any
-                // synthesised structural eq interface).
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "R"
                 Expect.isNotNull ty "the assembly contains the record type R"
@@ -446,10 +428,8 @@ let interfaceImplTests =
                 Expect.equal (output.Trim()) "7" "(r :> IRank).Rank() reads this.N (=7) via interface dispatch"
             }
 
-            // The record ALSO synthesises an `IEquatable<R>` (structural equality), so
-            // the user `IRank` impl and the synthesised eq interface must coexist on
-            // the same record type with no slot collision: reflection sees BOTH
-            // interfaces, and structural `=` and `(r :> IRank).Rank()` both work.
+            // The record also synthesises `IEquatable<R>`, so the authored impl and the
+            // synthesised one must land on the same type without colliding slots.
             test "a record's user interface coexists with its synthesised IEquatable (no slot collision)" {
                 let src =
                     String.concat
@@ -495,18 +475,9 @@ let interfaceImplTests =
                     "structural `=` (synthesised IEquatable) and `Rank()` (user IRank) both dispatch correctly"
             }
 
-            // A GENERIC record implementing the iteration CAPABILITY (`interface seq<'T>`,
-            // never the BCL `IEnumerable`). The BCL co-slots the platform interface inherits but
-            // the capability's member surface never declares — non-generic
-            // `IEnumerable.GetEnumerator`, `object IEnumerator.get_Current`, `IEnumerator.Reset` —
-            // are synthesised by the backend. A generic type's shim forwards to the AUTHORED
-            // capability member through a `MemberRef` on its open self-`TypeSpec`, which for a
-            // record needs `RecordMember.Member` (the union/class arms already had it).
-            //
-            // Enumeration below goes through the NON-GENERIC `System.Collections.IEnumerable`
-            // on purpose: it is made ENTIRELY of synthesised co-slots, so a BCL
-            // consumer holding nothing but `System.Collections` walks a Vesper record it knows
-            // nothing about. Without the co-slots the type would not even load.
+            // `interface seq<'T>` declares only `GetEnumerator() : enumerator<'T>`, so the
+            // backend synthesises the slots `IEnumerable<'T>` inherits but the capability
+            // never names: `IEnumerable.GetEnumerator`, `IEnumerator.Current`, `Reset`.
             test
                 "a generic record implementing the seq capability iterates through the synthesised IEnumerable co-slots" {
                 let src =
@@ -544,10 +515,8 @@ let interfaceImplTests =
 
                 let bytes = Codegen.toBytes artifact
 
-                // The Vesper-side MANUAL pull protocol (`GetEnumerator` / `MoveNext` /
-                // `Current` by hand). `for x in b` over a record source is covered in
-                // `ForInTests`; this test keeps the hand-driven walk on purpose, since it
-                // is the surface a capability consumer writes directly.
+                // The hand-driven pull, which is what a capability consumer writes; the
+                // `for x in b` sugar over a record source is covered elsewhere.
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -556,8 +525,8 @@ let interfaceImplTests =
                     "6"
                     "the manual enumerator walk sums the record's elements"
 
-                // The BCL-consumer side: reflect the record, build `Bag<int>` through its
-                // record ctor, and walk it through the non-generic interface.
+                // The non-generic `IEnumerable` is made ENTIRELY of synthesised co-slots,
+                // so walking it is a BCL consumer reaching a type it knows nothing about.
                 let asm = loadAssembly bytes
                 let bagTy = (asm.GetType "Bag`1").MakeGenericType typeof<int>
                 let bag = Activator.CreateInstance(bagTy, [| box [| 1; 2; 3 |] |])
@@ -578,17 +547,12 @@ let interfaceImplTests =
                     [ box 1; box 2; box 3 ]
                     "the non-generic IEnumerator co-slots yield the boxed elements"
 
-                // The pull protocol has no rewind, so the synthesised `Reset` throws rather
-                // than pretending to work — it exists only because the interface demands the slot.
+                // The pull protocol has no rewind, so `Reset` exists only to fill the slot.
                 Expect.throwsT<NotSupportedException> (fun () -> e.Reset()) "the synthesised Reset co-slot throws"
             }
 
-            // The capability IS its platform interface, so a type cannot author both: the
-            // backend publishes `IEnumerable<'T>` (and the non-generic `IEnumerable` co-slots)
-            // for `interface seq<'T>`, and a hand-written one would emit the same interface and
-            // the same slot twice — a `TypeLoadException` at the consumer, if the front end let
-            // it through. Both spellings are rejected: the capability's own, and the one it
-            // only INHERITS.
+            // `interface seq<'T>` already publishes `IEnumerable<'T>`, so authoring that
+            // interface too would emit one slot twice and fail to load at the consumer.
             let collisionSrc (iface: string) (getEnumerator: string) =
                 String.concat
                     "\n"
@@ -642,10 +606,8 @@ let interfaceImplTests =
             }
         ]
 
-// Direct instance-member dispatch on a record OBJECT ARGUMENT (`v.Method()` / `v.Property`),
-// distinct from the `(r :> IFace).M()` interface-coercion path above. A record's
-// augmentation members resolve on the same nominal-member path as a class or union;
-// before this these lowered to a `FieldGet` and crashed in codegen.
+// `v.Method()` / `v.Property` on a record object argument, as opposed to the
+// `(r :> IFace).M()` coercion above.
 [<Tests>]
 let instanceMemberTests =
     testList
@@ -689,9 +651,8 @@ let instanceMemberTests =
                 Expect.equal (output.Trim()) "17" "v.AddN 10 computes X+Y+n (=17)"
             }
 
-            // Resolved-identity pin: the property NAME (`Doubled`) is NOT a field, and
-            // its value (X*2 = 6) differs from every field value (3, 4) — so a stray
-            // `FieldGet` could not accidentally produce the right answer.
+            // `Doubled` is not a field name, and 6 is not a field value (3, 4), so a stray
+            // field read cannot produce the expected output by accident.
             test "a record instance property resolves to the member, not a field (prints 6)" {
                 let src =
                     String.concat
@@ -711,8 +672,7 @@ let instanceMemberTests =
                 Expect.equal (output.Trim()) "6" "v.Doubled reads the member (X*2=6), not a field"
             }
 
-            // A field read and a member read on the SAME record must both work: the
-            // field-vs-member decision is made per access, not per type.
+            // The field-vs-member decision is made per access, not per type.
             test "a field read and a member read coexist on one record (prints 3 then 6)" {
                 let src =
                     String.concat

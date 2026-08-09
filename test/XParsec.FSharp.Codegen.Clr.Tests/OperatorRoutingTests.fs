@@ -6,31 +6,12 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// An operator use site (`a = b`, `x + y`, `a < b`) freezes to an `External(op_*)`
-// applied function; the pre-freeze `Passes.InlineExpansion` pass splices the operator's
-// contract body there and resolves its `StaticOptimization` clauses — codegen owns no
-// per-operator recipe. These tests pin the result at the TAST level (`Emit.lower`) and
-// end to end (compile + run real CIL).
-//
-// The equality family (`=`/`<>`) is sourced from the frozen
-// `Vesper.Core/ops-platform.clr.fs` contract body: the operator-named binding
-// `let inline (=) …` is collected by `ClrSymbolProviders.inlineBodies` and spliced at
-// each use site. A GROUND primitive operand selects the `when ^T : int` clause and
-// emits `(# "ceq" #)`; every other operand — an aggregate, or a still-free `^T` in a
-// generic `let f a b = a = b` — falls to the static-opt BASE,
-// `EqualityComparer<^T>.Default.Equals`, which compares structurally and encodes fine
-// over a free method typar. The base is spliced UNCONDITIONALLY: an inline body is
-// never declined for un-ground operands.
-//
-// An operator used as a VALUE (`List.fold (+) 0 xs`) is not an application, so
-// `InlineExpansion` eta-reifies it first (`fun x y -> x + y`) and splices the body into
-// the `App` its own eta minted. The assertions below pin that against the FROZEN decls
-// — before codegen runs at all — so they hold on the contract body itself, not on
-// whatever a backend might make of it. Codegen has no operator dispatch to fall back on:
-// an operator that reached it unspliced would emit as an unresolved `External`.
+// Inline expansion splices an operator's contract body at the use site before freeze.
+// `(=)` is `EqualityComparer<^T>.Default.Equals(x, y)` under a `when ^T: int = (# "ceq" #)`
+// clause per primitive: a ground `int` emits `ceq`, anything else keeps the comparer base.
 
-/// Every expression reachable from `e` (itself included) — so a test can assert what an
-/// operator lowered TO structurally, rather than string-matching a `%A` render.
+/// Every expression reachable from `e`, itself included, so a test can assert what an
+/// operator lowered TO structurally rather than string-matching a `%A` render.
 let private subExprs (e: TastAccessor.ExprId) : TastAccessor.ExprId list =
     let acc = ResizeArray<TastAccessor.ExprId>()
 
@@ -59,7 +40,7 @@ let private hasIlIntrinsic (op: string) (e: TastAccessor.ExprId) : bool =
         | _ -> false
     )
 
-/// The SYMBOL a node names, rendered — `ValueNone` for a node that names none. Lets a
+/// The SYMBOL a node names, rendered, or `ValueNone` if the node names nothing. Lets a
 /// test say "this body reaches `EqualityComparer<_>.Equals`" without rendering the tree.
 let private symbolText (e: TastAccessor.ExprId) : string voption =
     match TastAccessor.exprKind e with
@@ -84,7 +65,7 @@ let private mentionsSymbol (needle: string) (e: TastAccessor.ExprId) : bool =
         | ValueNone -> false
     )
 
-/// `Vesper.Core` alone — `<` lives in `Vesper.Comparison`, which this stack does NOT
+/// `Vesper.Core` alone. `<` lives in `Vesper.Comparison`, which this stack does NOT
 /// reference, so `2 < 3` cannot resolve.
 let private coreOnly =
     lazy (ClrSymbolProviders.buildContract [ vesperCoreManifest ])
@@ -99,11 +80,9 @@ let tests =
         "OperatorRouting"
         [
             test "an operator whose contract is not referenced diagnoses by its SOURCE spelling" {
-                // The user typed `<`, never `op_LessThan` — the compiled name is an
-                // implementation detail and must not leak into a diagnostic. No package is
-                // named: the declaring contract is absent from the referenced set, so
-                // nothing the compiler can see knows `<` exists (naming `Vesper.Comparison`
-                // would take a hardcoded operator→package table).
+                // The user typed `<`, never `op_LessThan`. No package is named either:
+                // the declaring contract is absent from the referenced set, so naming
+                // `Vesper.Comparison` would take a hardcoded operator→package table.
                 let tast = analyseCoreOnly "let b = 2 < 3"
 
                 let messages = [ for d in tast.Diagnostics -> d.Message ]
@@ -121,10 +100,8 @@ let tests =
                 let ctx, tast = analyseWithCtx "let f a b = a = b"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                // `a`/`b` are never pinned, so no per-primitive `when ^T : …` clause
-                // selects and the body's base — `EqualityComparer<^T>.Default.Equals(a, b)`
-                // — is what survives. A `ceq` ILIntrinsic here would be the reference
-                // comparison the ground guard used to fall back to.
+                // `a`/`b` are never pinned, so no `when ^T : …` clause selects. A `ceq`
+                // here would compare the two operands by reference.
                 match Emit.lower (pooledDecls (Freeze.run ctx tast)) with
                 | [ TastAccessor.DLet lv ] when
                     (TastAccessor.patBoundVar lv.Pattern).IsSome
@@ -143,11 +120,9 @@ let tests =
             }
 
             test "`let eq a b = a = b` over a DU answers STRUCTURALLY (the comparer base over a free method typar)" {
-                // The static-opt base
-                // `EqualityComparer<^T>.Default.Equals` must EMIT, VERIFY, and answer
-                // structurally when `^T` is a free *method* typar — i.e. `EqualityComparer<!!0>`
-                // is encodable. Two distinct-but-equal `Tag` instances must compare
-                // equal through the generic `eq`; a reference `ceq` gives 0.
+                // `eq` is generic, so the base encodes as `EqualityComparer<!!0>` over a
+                // free METHOD typar, which must emit, verify, and answer structurally.
+                // Two distinct-but-equal `Tag`s give 1; a reference `ceq` would give 0.
                 let src =
                     String.concat
                         "\n"
@@ -187,9 +162,7 @@ let tests =
             }
 
             test "primitive equality pins no FSharp.Core dependency (eq §4: no runtime library)" {
-                // `=` on ints lowers to bare `ceq` — no metadata, no comparer call —
-                // so the emitted PE is FSharp.Core-free (the happy-path `printfn` is
-                // too, via Vesper.Formatter).
+                // `=` on ints is a bare `ceq`, with no metadata and no comparer call.
                 let _, artifact =
                     compileSource "OpRoutingEqNoDep" "printfn \"%d\" (if 2 = 2 then 1 else 0)"
 
@@ -243,8 +216,6 @@ let tests =
             }
 
             test "a nested mix of arithmetic + equality lowers and runs (one IL path for the whole surface)" {
-                // `(1 + 2) * 3 = 9` exercises add, mul, ceq nested through the same
-                // `TExprG.ILIntrinsic` machinery.
                 let _, artifact =
                     compileSource "OpRoutingMixed" "printfn \"%d\" (if (1 + 2) * 3 = 9 then 1 else 0)"
 
@@ -255,9 +226,6 @@ let tests =
             }
 
             test "`=`/`<>` freeze from the Vesper.Core contract and are collected as cross-package inlines" {
-                // The operator-named bindings `let inline (=)` / `let inline (<>)` in
-                // `ops-platform.clr.fs` freeze and are sourced by the codegen inline-body
-                // loader — the sole supply of `=`/`<>` semantics.
                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
                 Expect.isTrue
@@ -268,8 +236,6 @@ let tests =
                     (Map.containsKey "op_Inequality" inlines)
                     "op_Inequality body sourced from ops-platform.clr.fs"
 
-                // Each body is an `inline` curried lambda over a static optimization
-                // (the `(# \"ceq\" … #)` per-primitive clauses + the fall-clause base).
                 let isStaticOptInline =
                     function
                     | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _, _), _, _), true, _) ->
@@ -282,11 +248,8 @@ let tests =
 
             test
                 "DU `=` is structural: a distinct-but-equal pair returns true via the comparer (where `ceq` gives false)" {
-                // `x` and `y` are two *distinct* heap instances with equal payloads;
-                // the static-opt base routes `^T = Tag` to
-                // `EqualityComparer<Tag>.Default.Equals(x, y)` — structural — so
-                // `x = y` is true. A reference `ceq` would give false, so this asserts
-                // the comparer path, not just "doesn't crash".
+                // `x` and `y` are distinct heap instances with equal payloads, so a
+                // reference `ceq` would print 0 where the comparer prints 1.
                 let src =
                     String.concat
                         "\n"
@@ -309,11 +272,9 @@ let tests =
                     "distinct-but-equal DU pair compares structurally (true), not by reference"
             }
 
-            // `ignore` on a NON-unit value: FSharp.Core `ignore : 'T -> unit` has no
-            // emit recipe, so `expr |> ignore` once crashed codegen with "no call
-            // recipe for external 'ignore'". A saturated application now lowers to the
-            // `let _ = expr` shape (eval + pop + reify unit). The side effect (the
-            // `printfn`) must still run, proving the arg is evaluated, not elided.
+            // A saturated `ignore` lowers to the `let _ = expr` shape: eval, pop, reify
+            // unit. The `printfn` side effect proves the argument was evaluated rather
+            // than elided along with its result.
             test "`expr |> ignore` on a non-unit value evaluates the arg and discards it" {
                 let src =
                     String.concat
@@ -339,12 +300,9 @@ let tests =
             }
 
             test "an eta'd `(+)` splices the contract body PRE-freeze (a lambda over `add`, no External op_Addition)" {
-                // `List.fold (+) 0 xs` pins `(+)` to `int -> int -> int` from `0` and the
-                // element type, so `InlineExpansion`'s eta (`fun x y -> x + y`) grounds
-                // `^T := int`, the `when ^T : int` clause selects, and `(# "add" #)`
-                // survives. Asserted on the FROZEN decls, so the `add` is provably the
-                // contract body's own clause — a surviving `External(op_Addition)` here
-                // would mean the eta ran too late for the splice to reach it.
+                // `List.fold (+) 0 xs` pins `(+)` to `int -> int -> int`, so the eta
+                // `fun x y -> x + y` grounds `^T := int` and `(# "add" #)` survives.
+                // A surviving `External(op_Addition)` means the eta ran after the splice.
                 let ctx, tast =
                     analyseWithCtx "let xs = [1; 2; 3]\nprintfn \"%d\" (List.fold (+) 0 xs)"
 
@@ -361,10 +319,9 @@ let tests =
                      ))
                     "no `op_Addition` External survives the pre-freeze eta + splice"
 
-                // The spliced `add` must sit inside the eta'd closure — the folder value
-                // `List.fold` receives — not merely somewhere in the decl. (The inline
-                // body's own parameters survive as the `Let`s beta-reduction leaves, so
-                // the `add` is below the inner lambda, not directly its body.)
+                // The `add` must sit inside the eta'd closure `List.fold` receives, not
+                // merely somewhere in the decl. It is BELOW the inner lambda rather than
+                // directly its body: beta-reduction leaves the inline parameters as `Let`s.
                 let addInLambda =
                     exprs
                     |> List.exists (fun x ->
@@ -382,11 +339,9 @@ let tests =
             }
 
             test "an eta-reachable `=` over a DU is STRUCTURAL (the comparer base, not a reference `ceq`)" {
-                // `(=) (Tag 1)` reaches `List.filter` as a function value; the operator's
-                // body is spliced with `^T := Tag`, which selects no primitive clause and
-                // falls to `EqualityComparer<Tag>.Default.Equals`. The list holds two
-                // DISTINCT heap instances equal to `Tag 1`, so a reference `ceq` would
-                // count 0 — the structural base counts 2.
+                // `(=) (Tag 1)` reaches `List.filter` as a function value, spliced with
+                // `^T := Tag`, so no primitive clause selects. The list holds two DISTINCT
+                // instances equal to `Tag 1`, so a reference `ceq` counts 0, not 2.
                 let src =
                     String.concat
                         "\n"
@@ -400,13 +355,9 @@ let tests =
             }
 
             test "the eta'd `(+)` compiles to an ordinary `Vesper.Fun` closure with `add` inlined into Invoke" {
-                // No new codegen mechanism: freeze hands `EmitClosures` a plain lambda,
-                // which closure-converts exactly as a hand-written `fun x y -> x + y`
-                // would — a curried `Vesper.Fun`2` pair whose innermost `Invoke` carries
-                // the spliced `add` opcode (CIL 0x58) directly, with no call out to an
-                // operator. The load-bearing half is the TAST assertion above (which pins
-                // WHERE the `add` came from); this pins that the pre-freeze eta did not
-                // cost the backend anything.
+                // The eta'd operator closure-converts exactly as a hand-written
+                // `fun x y -> x + y` would: a curried `Vesper.Fun`2` pair whose innermost
+                // `Invoke` carries the spliced `add` (CIL 0x58), calling out to nothing.
                 let _, artifact =
                     compileSource "EtaClosureShape" "printfn \"%d\" (List.fold (+) 0 [1; 2; 3])"
 

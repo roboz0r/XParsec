@@ -5,45 +5,24 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The behavioral runtime suite for `Vesper.Result`,
-// the read-across from `Vesper.Option`: same shape (a BCL-only struct union + a
-// `ModuleSuffix` module), so the same two routes apply.
-//
-//   * REFLECTION-INVOKE for the pure-data surface (`isOk` / `isError` / `count` /
-//     `defaultValue` + construction). `buildPackage "Vesper.Result"` emits a real
-//     `Vesper.Result.dll`; we construct `Ok`/`Error` through the union's emitted
-//     static case factories and invoke the `Vesper.ResultModule` statics.
-//   * DRIVER PROGRAMS for the higher-order combinators (`map`/`mapError`/`bind`/
-//     `fold`/…), whose `Vesper.Fun` argument the lambda builds naturally, through
-//     the now-general cross-package machinery (Gap 2 Layers B/C/D).
-//
-// Two differences from Option drive the test shape:
-//   1. `Result<'T, 'TError>` has *two* type parameters, and `Ok` / `Error` each
-//      constrain only one — the other stays free at a construction site (`Ok 5` is
-//      `Result<int, '_>`; F# accepts that and generalizes, so this is *not* the
-//      value restriction). Every standalone value is annotated `: Result<int,
-//      string>` to pin both parameters, keeping each row's instantiation explicit
-//      and aligned with the reflection helpers (closed over <int, string>). Inside
-//      a `match`/module-call argument the annotated function parameter already pins
-//      both, so those literals carry no annotation.
-//   2. Result has **no instance members** (no `.Value`/`.IsOk`). A combinator's
-//      `Result` *result* is therefore observed by feeding it back through a module
-//      function (`Result.defaultValue` / `isOk`) or a `match` (Layer C), not a
-//      property getter.
+// Reflection over the built `Vesper.Result.dll` for the pure-data surface; driver
+// programs for the combinators, whose `Vesper.Fun` argument a lambda builds naturally.
 
-/// The built `Vesper.Result.dll` (cached). `buildPackage` loads it into its own
-/// ALC and returns the loaded assembly; every type/value below is reflected from
-/// *this* assembly so identities line up across `Invoke`s.
+// `Ok` / `Error` each constrain one of the two parameters, so a standalone `Ok 5` is
+// `Result<int, '_>`; every such value is annotated `: Result<int, string>` to pin both.
+// `Result` has no instance members: results read back through a module call or `match`.
+
+/// The built `Vesper.Result.dll` (cached). Every type below is reflected from *this*
+/// assembly, so identities line up across `Invoke`s.
 let private resultAsm: Lazy<Assembly> =
     lazy (fst (buildPackage "Vesper.Result").Value)
 
 let private intTy = typeof<int>
 let private strTy = typeof<string>
 
-/// `Vesper.Result`2` closed over <int, string> — the object-argument type for the case
-/// factories. (The `[<CompiledName("FSharpResult`2")>]` on the contract is a
-/// C#-interop alias the backend does not apply to the emitted type name, same as
-/// `Vesper.Option`1` carries `FSharpOption`1`.)
+/// `Vesper.Result`2` closed over <int, string>, the object-argument type for the case
+/// factories. The contract's `[<CompiledName("FSharpResult`2")>]` is not applied to the
+/// emitted type name, so the metadata name stays `Result`2`.
 let private resultIntStr: Lazy<Type> =
     lazy (resultAsm.Value.GetType("Vesper.Result`2").MakeGenericType(intTy, strTy))
 
@@ -78,13 +57,11 @@ let tests =
     testList
         "Result"
         [
-            // ---- construction round-trips through the case factories ----------
             test "Ok / Error construct distinct values" {
                 Expect.isNotNull (okIS 3) "Ok 3 constructs"
                 Expect.isNotNull (errIS "boom") "Error \"boom\" constructs"
             }
 
-            // ---- discriminators -----------------------------------------------
             test "isOk: Ok -> true, Error -> false" {
                 Expect.isTrue (asBool (callModule "isOk" isTy [| okIS 3 |])) "isOk (Ok 3)"
                 Expect.isFalse (asBool (callModule "isOk" isTy [| errIS "e" |])) "isOk (Error e)"
@@ -95,30 +72,24 @@ let tests =
                 Expect.isFalse (asBool (callModule "isError" isTy [| okIS 3 |])) "isError (Ok 3)"
             }
 
-            // ---- count --------------------------------------------------------
             test "count: Ok -> 1, Error -> 0" {
                 Expect.equal (asInt (callModule "count" isTy [| okIS 3 |])) 1 "count (Ok 3)"
                 Expect.equal (asInt (callModule "count" isTy [| errIS "e" |])) 0 "count (Error e)"
             }
 
-            // ---- defaultValue -------------------------------------------------
             test "defaultValue: Error -> default, Ok -> value" {
                 Expect.equal (asInt (callModule "defaultValue" isTy [| box 99; errIS "e" |])) 99 "default on Error"
                 Expect.equal (asInt (callModule "defaultValue" isTy [| box 99; okIS 3 |])) 3 "value on Ok"
             }
 
-            // ---- higher-order combinators -------------------------------------
-            // `map`/`mapError`/`bind`/`fold`/… take a `Vesper.Fun` argument that
-            // reflection can't readily mint; they are exercised through the driver-
-            // program route in `ResultModuleCallRuntime` below.
+            // `map`/`mapError`/`bind`/`fold`/… take a `Vesper.Fun` reflection cannot mint;
+            // the driver programs below build one from a lambda.
             test "higher-order combinators covered by ResultModuleCallRuntime" { () }
         ]
 
-// Construction (Layer B) + pattern matching (Layer C) of `Result`'s cases across
-// the package boundary (`open Vesper`). Result has no nullary case (both `Ok` and
-// `Error` carry a field) and no instance members, so the constructed value is read
-// back through a `match` — which also drives the `Error` arm's field extract (tag
-// 1, the second declaration-order case).
+// Construction + pattern matching of `Result`'s cases across the package boundary
+// (`open Vesper`). Both cases carry a field and there are no instance members, so the
+// constructed value is read back through a `match`.
 [<Tests>]
 let ctorAndMatchRuntime =
     testList
@@ -134,8 +105,7 @@ let ctorAndMatchRuntime =
                      + "printfn \"%s\" \"ok\"")
             }
 
-            // `match` extracts the `Ok` payload (tag 0, int field) and defaults on
-            // `Error`; the case-pattern type is driven by the annotated parameter.
+            // `Ok` is declared first: tag 0, `int` field.
             test "match extracts Ok payload, defaults on Error" {
                 runsResultLines
                     [ "7"; "0" ]
@@ -145,8 +115,7 @@ let ctorAndMatchRuntime =
                      + "printfn \"%d\" (describe (Error \"boom\"))")
             }
 
-            // `match` binding the *Error* field (tag 1, string field) — the second
-            // case's `<Error>_0` extract, distinct from the `Ok` arm above.
+            // The second case's `Error_0` extract: tag 1, `string` field.
             test "match binds the Error payload" {
                 runsResultLines
                     [ "ok"; "boom" ]
@@ -157,16 +126,15 @@ let ctorAndMatchRuntime =
             }
         ]
 
-// The general external module-function call (Gap 2 Layer D) over every `Result`
-// combinator. Driver programs `open Vesper` and call the module functions
-// directly; combinator results are observed through a second module call or a
-// `match` (Result has no instance members).
+// External module-function calls over every `Result` combinator. Driver programs
+// `open Vesper` and call the module functions directly; a combinator's result is
+// observed through a second module call or a `match`.
 [<Tests>]
 let moduleCallRuntime =
     testList
         "ResultModuleCallRuntime"
         [
-            // Pure-data module calls, generic over <'T, 'TError>.
+            // A pure-data module call, generic over <'T, 'TError>.
             test "Result.defaultValue: value on Ok, default on Error" {
                 runsResultLines
                     [ "7"; "9" ]
@@ -185,9 +153,8 @@ let moduleCallRuntime =
                      + "printfn \"%d\" (Result.count (Error \"e\": Result<int, string>))")
             }
 
-            // `map : ('T -> 'U) -> Result<'T,'TError> -> Result<'U,'TError>` — three
-            // method typars (`'T`, `'U`, `'TError`); the `Ok` is transformed, the
-            // `Error` is preserved. Result read back through `defaultValue` / `isError`.
+            // `map : ('T -> 'U) -> Result<'T,'TError> -> Result<'U,'TError>`. Three method
+            // typars; read back through `defaultValue` / `isError`.
             test "Result.map transforms Ok, preserves Error" {
                 runsResultLines
                     [ "5"; "true" ]
@@ -196,9 +163,8 @@ let moduleCallRuntime =
                      + "printfn \"%b\" (Result.isError (Result.map (fun x -> x + 1) (Error \"e\": Result<int, string>)))")
             }
 
-            // `mapError : ('TError -> 'U) -> Result<'T,'TError> -> Result<'T,'U>` —
-            // the mirror of `map`; the `Error` is transformed, the `Ok` preserved.
-            // Observed through a `match` (extracting the mapped error) and `isOk`.
+            // `mapError : ('TError -> 'U) -> Result<'T,'TError> -> Result<'T,'U>`. Read back
+            // through a `match` that extracts the mapped error, and through `isOk`.
             test "Result.mapError transforms Error, preserves Ok" {
                 runsResultLines
                     [ "11"; "true" ]
@@ -208,9 +174,8 @@ let moduleCallRuntime =
                      + "printfn \"%b\" (Result.isOk (Result.mapError (fun e -> e + 1) (Ok 5: Result<int, int>)))")
             }
 
-            // `bind : ('T -> Result<'U,'TError>) -> Result<'T,'TError> -> Result<'U,'TError>`
-            // — the bound variable itself returns a `Result`, constructed cross-package
-            // inside the lambda (both `Ok` and `Error` arms).
+            // `bind : ('T -> Result<'U,'TError>) -> Result<'T,'TError> -> Result<'U,'TError>`.
+            // `f` returns a `Result`, constructed cross-package inside its own body.
             test "Result.bind chains a Result-returning function" {
                 runsResultLines
                     [ "11"; "0" ]
@@ -220,10 +185,8 @@ let moduleCallRuntime =
                      + "printfn \"%d\" (Result.defaultValue 0 (Result.bind f (Error \"e\": Result<int, string>)))")
             }
 
-            // `fold : ('State -> 'T -> 'State) -> 'State -> Result<'T,'TError> -> 'State`
-            // — two state-bearing typars. The folder is written curried
-            // (`fun s -> fun x -> …`): a multi-arg lambda (`fun s x -> …`) hits the
-            // pre-existing Elaborate `Pat.Named` gap, orthogonal to this layer.
+            // `fold : ('State -> 'T -> 'State) -> 'State -> Result<'T,'TError> -> 'State`.
+            // The folder is curried: `translatePat` does not lower `fun s x -> …`.
             test "Result.fold accumulates over Ok, returns state on Error" {
                 runsResultLines
                     [ "13"; "3" ]
@@ -232,8 +195,8 @@ let moduleCallRuntime =
                      + "printfn \"%d\" (Result.fold (fun s -> fun x -> s + x) 3 (Error \"e\": Result<int, string>))")
             }
 
-            // `foldBack : ('T -> 'State -> 'State) -> Result<'T,'TError> -> 'State -> 'State`
-            // — the argument order flips (result before state).
+            // `foldBack : ('T -> 'State -> 'State) -> Result<'T,'TError> -> 'State -> 'State`.
+            // The result argument comes before the state.
             test "Result.foldBack accumulates over Ok, returns state on Error" {
                 runsResultLines
                     [ "13"; "3" ]
@@ -242,8 +205,8 @@ let moduleCallRuntime =
                      + "printfn \"%d\" (Result.foldBack (fun x -> fun s -> s + x) (Error \"e\": Result<int, string>) 3)")
             }
 
-            // `exists` / `forall` — `('T -> bool) -> Result<'T,'TError> -> bool`. On
-            // `Error`, `exists` is false and `forall` is vacuously true.
+            // `('T -> bool) -> Result<'T,'TError> -> bool`. On `Error`, `exists` is false
+            // and `forall` is vacuously true.
             test "Result.exists / forall over Ok and Error" {
                 runsResultLines
                     [ "true"; "false"; "false"; "true" ]
@@ -254,8 +217,8 @@ let moduleCallRuntime =
                      + "printfn \"%b\" (Result.forall (fun x -> x > 5) (Error \"e\": Result<int, string>))")
             }
 
-            // `defaultWith : ('TError -> 'T) -> Result<'T,'TError> -> 'T` — the
-            // recovery function runs only on `Error`, applied to the error value.
+            // `defaultWith : ('TError -> 'T) -> Result<'T,'TError> -> 'T`. The recovery
+            // function is applied to the error value.
             test "Result.defaultWith runs the recovery only on Error" {
                 runsResultLines
                     [ "5"; "-1" ]
@@ -264,9 +227,8 @@ let moduleCallRuntime =
                      + "printfn \"%d\" (Result.defaultWith (fun e -> -1) (Error \"e\": Result<int, string>))")
             }
 
-            // `iter : ('T -> unit) -> Result<'T,'TError> -> unit` — a `unit`-domain
-            // action that runs on `Ok` and is skipped on `Error`; observed by its
-            // `printfn` side effect (only the `Ok` line is emitted).
+            // `iter : ('T -> unit) -> Result<'T,'TError> -> unit`. The action is observed by
+            // its `printfn` side effect, so only the `Ok` line is expected.
             test "Result.iter runs the action only on Ok" {
                 runsResult
                     "5"
@@ -276,14 +238,13 @@ let moduleCallRuntime =
             }
         ]
 
-// Front-end regression guard (analysis only): the cross-package Result surface
-// type-checks through the contract provider's ambient open scope.
+// Analysis only: the cross-package Result surface resolves through the provider's
+// open scope.
 [<Tests>]
 let frontEndTests =
     testList
         "ResultFrontEnd"
         [
-            // Construction resolves through the reverse case index (open `Vesper`).
             test "Ok 5 types as Result<int, string> (annotated)" {
                 typeChecksResult "let x : Result<int, string> = Ok 5"
             }
@@ -292,13 +253,12 @@ let frontEndTests =
                 typeChecksResult "let x : Result<int, string> = Error \"boom\""
             }
 
-            // Qualified case forms `Result.Ok` / `Result.Error`.
             test "Result.Ok / Result.Error (qualified) type-check" {
                 typeChecksResult
                     "let x : Result<int, string> = Result.Ok 5\nlet y : Result<int, string> = Result.Error \"e\""
             }
 
-            // `match` binds each case's field at the object argument's instantiation.
+            // Each bound variable picks up the scrutinee's instantiation.
             test "match Ok x binds x : int; Error e binds e : string" {
                 typeChecksResult
                     "let f (r: Result<int, string>) : int =\n    match r with\n    | Ok x -> x\n    | Error _ -> 0"
@@ -307,7 +267,6 @@ let frontEndTests =
                     "let f (r: Result<int, string>) : string =\n    match r with\n    | Ok _ -> \"\"\n    | Error e -> e"
             }
 
-            // Pure-data + higher-order module calls.
             test "Result.isOk / defaultValue type-check" {
                 typeChecksResult "let f (r: Result<int, string>) : bool = Result.isOk r"
                 typeChecksResult "let f (r: Result<int, string>) : int = Result.defaultValue 0 r"
@@ -322,10 +281,8 @@ let frontEndTests =
                 typeChecksResult "let f (r: Result<int, string>) : int = Result.fold (fun s -> fun x -> s + x) 0 r"
             }
 
-            // Negative: a qualified reference to a non-existent module member is an
-            // unresolved-member error, not a silently-accepted fresh TyVar
-            // (vesper-result-handoff.md). The bare-ident path already errors
-            // cleanly; the qualified external-module path now matches.
+            // A qualified reference to a non-existent module member is an unresolved-member
+            // error, not a silently-accepted fresh TyVar.
             test "an unknown Result function is unresolved" {
                 failsWithResult "Nope" "let f (r: Result<int, string>) : int = Result.Nope r"
             }

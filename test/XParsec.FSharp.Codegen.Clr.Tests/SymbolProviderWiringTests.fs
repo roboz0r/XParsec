@@ -6,13 +6,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Wiring + contract-as-provider demotion: the `ClrSymbolProviders.build` composite stack is the single declaration
-// threaded through both phases. The demotion is now TOTAL — `MockBuiltins` is gone
-// from the stack entirely (no `List.fold` backstop). Operators / `hash` / `failwith`
-// / printf / `List.fold` all resolve from the `Vesper.*` `.fsi` contracts. These
-// tests pin (a) an empty manifest set resolves NOTHING (no backstop), while the
-// `List.fold` source-qualified name resolves from the `Vesper.List` contract, and
-// (b) a contract-backed stack compiles + runs a real program end to end.
+// The `ClrSymbolProviders.build` composite is the one stack threaded through both phases,
+// and it has no mock backstop: operators, `hash`, `failwith`, printf and `List.fold` all
+// resolve from the `Vesper.*` `.fsi` contracts.
 
 [<Tests>]
 let tests =
@@ -20,9 +16,8 @@ let tests =
         "SymbolProviderWiring"
         [
             test "build [] resolves no values (the List.fold backstop is gone); List.fold comes from the contract" {
-                // The demoted stack is `composite [ MetadataSymbols ]` — the metadata
-                // layer (P2) resolves no values, and there is no longer any mock
-                // backstop, so an empty manifest set resolves nothing.
+                // With no manifests the stack is the metadata leaf alone, and metadata
+                // resolves no values at all.
                 let empty = ClrSymbolProviders.build []
 
                 Expect.isTrue
@@ -35,10 +30,8 @@ let tests =
 
                 Expect.isTrue (empty.TryLookup "no.such.symbol" |> ValueOption.isNone) "unknown name misses"
 
-                // With the Vesper.List manifest, `fold` resolves under its
-                // source-qualified name (`List.fold`, not the compiled
-                // `ListModule.fold`) — the ModuleSuffix source-name alias
-                // (`VesperLib.extractValSig`) the front end probes through the ambient.
+                // With the Vesper.List manifest, `fold` resolves under its SOURCE-qualified
+                // name (`Vesper.Collections.List.fold`, not compiled `ListModule.fold`).
                 let contract = ClrSymbolProviders.build [ vesperListManifest; vesperCoreManifest ]
 
                 match contract.TryLookup "Vesper.Collections.List.fold" with
@@ -49,13 +42,9 @@ let tests =
             test "the Vesper.Core manifest layer adds type + operator resolution from the contract" {
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
-                // Layer 1 (manifest) contributes the `int` type. Short-name
-                // resolution moved out of the provider into the ambient open scope
-                // (O3), so the provider answers the qualified name. `int` is an
-                // `extern` paired with its `.fs` `(# "System.Int32" #)` binding, so
-                // the manifest layer surfaces it as an `Intrinsic` shape: `canon` is
-                // the `.fsi` name `int`, `platform` is the CLI repr — NOT an opaque
-                // `Class`.
+                // The provider answers the QUALIFIED name; short names come from the
+                // ambient open scope. `int` is an `extern` paired with a `.fs`
+                // `(# "System.Int32" #)`, so it surfaces `Intrinsic`, not opaque `Class`.
                 match provider.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
@@ -71,10 +60,8 @@ let tests =
                         "int's platform name is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape from the manifest layer, got %A" other
 
-                // Operators now resolve from the contract — but only under their
-                // *qualified* `[<AutoOpen>]`-module name (the pipeline reaches the
-                // bare name via the ambient open scope, not a direct provider probe).
-                // So a bare `op_Addition` is a miss while the qualified name hits.
+                // An operator resolves only under its qualified `[<AutoOpen>]`-module name,
+                // so a bare `op_Addition` misses the provider while the qualified name hits.
                 Expect.isTrue
                     (provider.TryLookup "op_Addition" |> ValueOption.isNone)
                     "bare op_Addition is a provider miss (no mock backstop)"
@@ -85,9 +72,8 @@ let tests =
             }
 
             test "a program compiles + runs through the contract-backed stack" {
-                // Both phases share the one contract-backed provider; the program
-                // still prints 3, proving the composite stack drives a real compile
-                // with operators + printf sourced from the contract (no mock).
+                // One contract-backed provider across both phases, with operators and
+                // printf coming from the contract.
                 let _, artifact =
                     compileSourceWith defaultManifests "ManifestWiring" "printfn \"%d\" (1 + 2)"
 

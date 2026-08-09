@@ -6,20 +6,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Systematic, source-synthetic coverage of `Infer`'s *application / construction*
-// resolution surface. Each case is a minimal idiomatic F# program fed through the
-// real analysis pipeline (`buildContract defaultManifests` → `Pipeline.analyseSem`),
-// asserting on error-severity diagnostics. Because the pipeline runs `ResolvedTypes`,
-// an empty error list is a strong claim: the program both type-checks (no `unify`
-// mismatch) AND leaves no free `TyVar` in the frozen TAST.
-//
-// The matrix crosses the axes that `Infer` must handle consistently:
-//   * `new T(args)` (Expr.New)  vs  the `new`-less ctor sugar `T(args)` / `T args`
-//   * spaced `T (args)` (Expr.App)  vs  non-spaced `T(args)` (Expr.HighPrecedenceApp)
-//   * the constructed value used in a *pinning* context (bound / annotated) vs a
-//     *non-pinning* one (an argument to a generic-parameter sink like `raise`)
-//   * single-arg / multi-arg / nullary / generic constructors
-//   * external instance-method chains off a freshly-constructed object argument
+// Application / construction resolution over minimal synthetic programs. The pipeline
+// runs `ResolvedTypes`, so an EMPTY error list is a strong claim: the program both
+// type-checks and leaves no free `TyVar` in the frozen TAST.
 
 let private errorsOf (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
@@ -27,14 +16,12 @@ let private errorsOf (src: string) : Diagnostic list =
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
-/// Assert a synthetic program produces no error-severity diagnostics.
 let private clean (label: string) (src: string) : unit =
     let errs = errorsOf src
     Expect.isEmpty errs (sprintf "%s — expected clean, got: %A" label (errs |> List.map (fun d -> d.Message)))
 
-/// The inferred `SemType` of the program's last top-level `let` — used to assert
-/// a precise grounding (not just "no errors": an over-generalised `int -> 'b ->
-/// int` is error-free yet wrong).
+/// The inferred type of the program's last top-level `let`, for asserting a precise
+/// grounding: an over-generalised `int -> 'b -> int` is error-free yet wrong.
 let private lastLetTy (src: string) : SemType =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
@@ -58,9 +45,8 @@ let tests =
     testList
         "InferResolution"
         [
-            // ---- External ctor: `new` keyword (Expr.New → inferNew) -------------
-            // The grounded baseline: `new` always routes through `inferNew`, which
-            // pins the result to the class type regardless of pinning context.
+            // The grounded baseline: `new` pins the result to the class type whatever the
+            // surrounding context does.
             testList
                 "NewKeyword"
                 [
@@ -76,7 +62,6 @@ let tests =
                     }
                 ]
 
-            // ---- External ctor: `new`-less sugar, SPACED (Expr.App) -------------
             testList
                 "CtorSugarSpaced"
                 [
@@ -86,10 +71,9 @@ let tests =
                     }
                 ]
 
-            // ---- External ctor: `new`-less sugar, NON-SPACED (HighPrecedenceApp) ---
-            // Non-spaced `T(args)` and spaced `T (args)` must ground identically;
-            // a non-pinning sink (`raise`'s fully-generic `'TException`) is the
-            // distinguishing case — a leaked `TyVar` here stays free.
+            // Non-spaced `T(args)` and spaced `T (args)` must ground identically. A
+            // non-pinning sink (`raise`'s fully-generic parameter) is the distinguishing
+            // case, because a `TyVar` that leaks there stays free.
             testList
                 "CtorSugarNonSpaced"
                 [
@@ -110,7 +94,6 @@ let tests =
                     }
                 ]
 
-            // ---- raise / failwith inline external functions ----------------------
             testList
                 "RaiseFailwith"
                 [
@@ -123,10 +106,8 @@ let tests =
                     }
                 ]
 
-            // ---- App ≡ HighPrecedenceApp parity ---------------------------------
-            // The same construction differing ONLY by a space before `(` must
-            // produce identical diagnostics — the parser's associativity choice is
-            // not a semantic distinction.
+            // The same construction differing ONLY by a space before `(` must produce
+            // identical diagnostics: the parser's associativity choice is not semantic.
             testList
                 "AppHPAppParity"
                 [
@@ -141,10 +122,9 @@ let tests =
                     }
                 ]
 
-            // ---- External instance-method chains --------------------------------
-            // A fluent chain off a freshly-constructed external object argument. The overload
-            // pick must consult call-site arg types; otherwise `Append(string)` grabs
-            // `Append(char[], int, int)` ("string vs TyTuple").
+            // A fluent chain off a freshly-constructed object argument. The overload pick
+            // has to consult call-site arg types, or `Append("x")` grabs the three-argument
+            // `Append(char[], int, int)`.
             testList
                 "InstanceMethodChain"
                 [
@@ -156,7 +136,6 @@ let tests =
                     }
                 ]
 
-            // ---- External static method calls -----------------------------------
             testList
                 "StaticMethod"
                 [
@@ -168,7 +147,6 @@ let tests =
                     }
                 ]
 
-            // ---- Generic external ctor ------------------------------------------
             testList
                 "GenericCtor"
                 [
@@ -177,16 +155,14 @@ let tests =
                     }
                 ]
 
-            // ---- SetG5 roots 2-4 ------------------------------------------------
-            // Each is a leaked-free-`TyVar` (or `unify` mismatch) that `ResolvedTypes`
-            // flags on otherwise-clean F#.
+            // Each is a free-`TyVar` leak (or `unify` mismatch) that `ResolvedTypes` flags
+            // on otherwise-clean F#.
             testList
                 "SetG5Roots"
                 [
-                    // Root 2 — `inferNew` secondary-ctor lookup. A `[<Struct>]` with no
-                    // primary ctor has `CtorParams = [||]`; `new T(arg)` must fall back to
-                    // a matching-arity `SecondaryCtors` entry rather than unifying against
-                    // `unit` primary params.
+                    // A `[<Struct>]` with no primary ctor has empty ctor params, so
+                    // `new T(arg)` must fall back to a matching-arity secondary ctor rather
+                    // than unify its argument against `unit`.
                     test "struct, only an explicit ctor, `new T(arg)` [root 2: inferNew secondary-ctor]" {
                         clean
                             "struct-new-monomorphic"
@@ -214,19 +190,15 @@ let tests =
                                 ])
                     }
 
-                    // Root 3 — `inferILIntrinsic` must pin each `Expr.Null` operand to the
-                    // first non-null operand. `isNull` body is `(# "ceq" value null : bool #)`;
-                    // the `null` leaf must not mint an independent fresh `TyVar`.
+                    // `isNull`'s body is `(# "ceq" value null : bool #)`, so the `null` leaf
+                    // has to be pinned to the other operand rather than mint a fresh `TyVar`.
                     test "`isNull` on a reference operand grounds the `null` leaf [root 3: ILIntrinsic null pinning]" {
                         clean "isnull-string" "let f (s: string) = isNull s"
                     }
 
-                    // Root 4 — resolving a local template must always
-                    // `deriveInlineTypeArgs`. A generic `let inline` expanded with zero
-                    // type args leaves the callee's generalised typars (e.g. `:?> 'T`
-                    // result typar) free in the caller's frozen TAST: beta-reduction
-                    // binds value params but not typars. Only triggers when the callee is
-                    // `inline` AND generic — monomorphic locals derive `[||]` safely.
+                    // Expanding a generic `let inline` with zero type args leaves the
+                    // callee's generalised typars free in the caller's frozen TAST, since
+                    // beta-reduction binds value parameters but not typars.
                     test
                         "local generic `let inline` cast helper from a non-inline fn [root 4: a local template derives its type args]" {
                         clean
@@ -251,16 +223,13 @@ let tests =
                     }
                 ]
 
-            // ---- Typar grounding across nesting / module↔class boundaries -------
-            // Grounding gaps that leak a bare inference `TyVar` past the front end
-            // (`ResolvedTypes` misses it) and surface only at codegen. Both compile a
-            // *library* end-to-end; the assertion is that codegen completes.
+            // `TyVar` leaks that get past `ResolvedTypes` and surface only at codegen, so
+            // both compile a library end to end and the assertion is that codegen finishes.
             testList
                 "TyparGroundingAcrossBoundaries"
                 [
-                    // Nested `let rec` inside a generic module function: inner bindings
-                    // must inherit the enclosing binding's typar scope (F# lexical typar
-                    // scoping), not mint an independent fresh `'T` per binding.
+                    // F# typar scope is lexical, so a nested `let rec` inherits the
+                    // enclosing binding's `'T` rather than minting a fresh one per binding.
                     test "nested let-rec inner-lambda capture of an enclosing-typar value grounds" {
                         compileSourceTo
                             (ProjectInfo.library "NestedCaptureGrounds")
@@ -281,10 +250,9 @@ let tests =
                         |> ignore
                     }
 
-                    // A class member calls an earlier sibling-module function with an
-                    // unannotated parameter. Bodies must be typed in declaration order so
-                    // the sibling's real scheme exists (and `k : 'T` is ground) when the
-                    // member types; an annotation-only stand-in over-generalises `k`.
+                    // Bodies must be typed in declaration order, so that the sibling `add`'s
+                    // real scheme exists (and its unannotated `k` is ground) by the time the
+                    // member types. An annotation-only stand-in over-generalises `k`.
                     test "class member calling an earlier module fn with an unannotated param grounds" {
                         compileSourceTo
                             (ProjectInfo.library "MemberCallsModuleFn")
@@ -308,11 +276,9 @@ let tests =
                     }
                 ]
 
-            // ---- Arithmetic-operator `default` resolution ----------------------
-            // `(+)`'s contract has a chain of `default` constraints ending in
-            // `default ^T1 : int`; with both operands free the chain must ground
-            // EVERY participating typar. Chained defaults must be retried at fixpoint,
-            // not discarded on the first pass.
+            // `(+)`'s contract chains `default` constraints down to `default ^T1 : int`, so
+            // with both operands free every participating typar must ground. Chained
+            // defaults are retried at fixpoint rather than discarded on the first pass.
             testList
                 "ArithmeticDefaults"
                 [

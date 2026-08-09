@@ -8,34 +8,26 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// P3 gate: front-end member access on an
-// *external* type. `EqualityComparer<int>.Default.GetHashCode 5` type-checks and
-// freezes through the metadata-backed provider (P2), each member-access node
-// carrying its resolved `SymbolKey` (§7.2) — the first front-end consumer of the
-// provider's member surface. (Emission is P4; this asserts typing + the key only.)
+// Member access on an EXTERNAL type: each access node freezes carrying the `SymbolKey`
+// the metadata-backed provider resolved for it, and the emitted call runs.
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
-/// Analyse a source string through the given provider, returning the
-/// (SemType) `TastFile`.
 let private analyseWith (provider: IExternalSymbolProvider) (input: string) : TastFile =
     let lexed, file = parseFile input
     Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 
-/// `analyseWith`, keeping the `PassContext` so a test can read a live `TyVar`'s
-/// resolved type off the per-file `TypeStore` (`Unification.zonk ctx.Store …`).
+/// `analyseWith` keeping the `PassContext`, so a test can zonk a live `TyVar` against
+/// the per-file `TypeStore`.
 let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
     Pipeline.analyseSemWithContext provider (Hashing.originSourceOfText lexed) file
 
 let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 
-/// The home assembly of the type `decl` names, read off the SHAPE the provider resolves
-/// for it. A `SymbolKey` is a NOMINAL identity and carries no home; the physical location
-/// rides the resolved shape's `SymbolOrigin`, which is exactly where `ClrEnv.externalClassRef`
-/// reads it to scope the emitted `TypeRef` with an `AssemblyRef`. So the fact "this member's
-/// declaring type is defined in a referenced assembly" is asserted by resolving the decl key
-/// back through the provider that answered it.
+/// The home assembly of the type `decl` names. A `SymbolKey` is a NOMINAL identity and
+/// carries no home, so the physical location has to be read back off the shape the
+/// provider resolves for that key.
 let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : string option =
     match (provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type decl) with
     | ValueSome(ExternalTypeShape.Class info) ->
@@ -76,8 +68,6 @@ let tests =
                             TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
                             resultTy,
                             _) ->
-                    // The instance access is a method value `int -> int`; applying
-                    // `5` yields `int`.
                     match Unification.zonk ctx.Store ghTy with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
                         SymbolKeyOps.simpleName k1 = DisplayName "int"
@@ -90,8 +80,6 @@ let tests =
                     | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
-                    // GetHashCode(T) — an instance method on the open type, its
-                    // argSig the declaring typar `!0`.
                     match ghKey with
                     | SymbolKey.Member {
                                            Decl = decl
@@ -119,8 +107,6 @@ let tests =
                             "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
-                    // The `Default` static property — object argument dropped (ValueNone),
-                    // typed EqualityComparer<int>, empty argSig.
                     match inner with
                     | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, defTy, _) ->
                         match Unification.zonk ctx.Store defTy with
@@ -154,12 +140,8 @@ let tests =
             }
 
             test "the frozen key matches the provider's own resolved member key" {
-                // The node's interned key must equal what the provider resolves the
-                // member to directly — Elaborate stamps the resolver's verdict, it does
-                // not re-derive a key.
-                // Vesper.Core layers the `prim-types` intrinsics over the BCL leaf so
-                // the `int` literal/annotation resolve; the BCL `EqualityComparer`
-                // member key it asserts on is unaffected by the added intrinsics.
+                // The interned key must equal what the provider resolves directly:
+                // elaboration stamps the resolver's verdict rather than re-deriving a key.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let expected =
@@ -180,13 +162,7 @@ let tests =
                 Expect.equal frozen expected "frozen key = provider's resolved key"
             }
 
-            // O2 gate: the *short* name under its `open`
-            // type-checks and freezes the same keyed node as the fully-qualified
-            // form — short-name resolution flows through `OpenScope.tryQualify` in
-            // both NameResolution and Unification.
             test "short name under `open` type-checks + freezes carrying its key" {
-                // Vesper.Core supplies the primitive relationship the metadata leaf
-                // canonicalizes `GetHashCode`'s `System.Int32` return through.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let ctx, tast =
@@ -265,8 +241,6 @@ let tests =
             }
 
             test "short-name key equals the fully-qualified form's resolved key" {
-                // Vesper.Core supplies the `int` intrinsic the literal/annotation
-                // resolve through; the asserted BCL member key is unaffected.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let expected =
@@ -295,16 +269,9 @@ let tests =
                 Expect.equal frozen (ValueSome expected) "frozen key (short name) = provider's resolved key"
             }
 
-            // The codegen identity
-            // bridge. The frozen `TExpr.ExternalMember` nodes (a static property
-            // `Default`, an instance method `GetHashCode`) are emitted from their
-            // interned `SymbolKey` through `ClrProvider.ExternalMemberRef` — the
-            // `Default` getter + `GetHashCode(!0)` member refs are minted on an
-            // `EqualityComparer`1<int>` `TypeSpec`, no per-member hand-coding. An
-            // emitted call runs: `Int32.GetHashCode` is the identity, so
-            // `EqualityComparer<int>.Default.GetHashCode 5 = 5`. (`compileSource`'s
-            // provider is the contract stack over the BCL metadata leaf, so the
-            // member access resolves to the keyed node.
+            // Both member refs are minted from the interned key on one
+            // `EqualityComparer`1<int>` TypeSpec. `Int32.GetHashCode` is the identity
+            // function, which is why the expected output is the argument itself.
             test "an emitted call to a metadata-resolved member runs (EqualityComparer<int>.Default.GetHashCode 5 = 5)" {
                 let src =
                     "printfn \"%d\" (System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5)"
@@ -315,30 +282,18 @@ let tests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "5" "GetHashCode of int 5 is 5"
 
-                // The BCL comparer pins no FSharp.Core dependency (it rides
-                // `System.Private.CoreLib`, like the `hash` stopgap).
+                // The BCL comparer rides `System.Private.CoreLib`, not FSharp.Core.
                 Expect.isEmpty
                     artifact.FSharpCoreDependencies
                     (sprintf "BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // `translateType` external-type resolution: a *type annotation* naming an external type used to land as
-            // an opaque `TyConst` (single-segment, args dropped) or a fresh `TyVar`
-            // (multi-segment) — only static-member *qualifiers* resolved
-            // (`tryExternalTypeQualifier`). Now `translateType` probes the provider too,
-            // so the annotated type is the same external `TyClass` the object argument
-            // carries and the two unify.
+            // A type ANNOTATION naming an external type must resolve to the same `TyClass`
+            // a value of that type carries, so the two unify. An annotation that dropped
+            // its type arguments would clash with the object argument's `TyClass`.
             test "a type annotation resolves an external type — short form unifies with the object argument" {
-                // Vesper.Core supplies the `int` intrinsic the `EqualityComparer<int>` type
-                // ARGUMENT names; the `EqualityComparer` name itself resolves through the
-                // metadata leaf either way.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
-                // The annotation `EqualityComparer<int>` must unify with the resolved
-                // `Default` object-argument type. Before the fix the single-segment annotation
-                // dropped its args to `TyConst("EqualityComparer", _)`, which clashes with
-                // the object argument's `TyClass` → a spurious type error; an empty error list
-                // is the decisive observable.
                 let tast =
                     analyseWith
                         provider
@@ -350,15 +305,11 @@ let tests =
             }
 
             test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
-                // Vesper.Core supplies the `int` intrinsic the literal RHS resolves
-                // through; the external `EqualityComparer` annotation is unaffected.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
-                // Before the fix a multi-segment annotation fell to a fresh `TyVar`,
-                // which unifies silently with `5 : int` (no error). Now it resolves to
-                // the external `TyClass`, so the `int` RHS is a reported mismatch — and
-                // the message names the resolved type, proving `translateType` resolved
-                // it rather than handing back an anonymous variable.
+                // An UNresolved annotation would be a fresh `TyVar`, which unifies with
+                // `5 : int` silently. So the observable is inverted: an error is required,
+                // and its message must name the resolved type, not an anonymous variable.
                 let tast =
                     analyseWith provider "let d : System.Collections.Generic.EqualityComparer<int> = 5"
 
@@ -372,15 +323,9 @@ let tests =
                         (errs |> List.map (fun d -> d.Message)))
             }
 
-            // Tupled-member regression (member-emit + recoverTypeArgs): a 2-arg
-            // external *instance* method.
-            // `EqualityComparer<int>.Default.Equals(x, y)` is the first
-            // arity-≥2 external method to flow through `buildExpr` + `externalMemberRef`
-            // (the DU triple hand-rolls its IL and bypasses this path). The member is
-            // modelled tupled (`(int*int)→bool`), so the front-end `unify`/`recoverTypeArgs`
-            // recover the declaring typar from the element (not the whole tuple), and
-            // emit pushes the literal `(x, y)` tuple element-wise — no `splitAt` crash,
-            // no `EqualityComparer<int*int>` mis-encoding.
+            // `Equals` is modelled tupled (`(int*int) -> bool`), so the declaring typar has
+            // to be recovered from the tuple ELEMENT: recovering it from the whole tuple
+            // mis-encodes the call as `EqualityComparer<int*int>`.
             test "a 2-arg external instance method (EqualityComparer<int>.Default.Equals) emits + runs" {
                 let src =
                     String.concat
@@ -402,13 +347,8 @@ let tests =
                     (sprintf "2-arg BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // Overload-resolution regression: a 2-arg external *static*
-            // method with overloads. `System.String.Concat` has many overloads
-            // (`(string,string)`, `(object,object)`, `(ReadOnlySpan<char>,…)`, …);
-            // the call-site resolver filters by arity (2), then applicability
-            // (string args rule out the `ReadOnlySpan` pair), then betterness
-            // (`(string,string)` beats `(object,object)`). The old eager single-pick
-            // ("most params wins") chose a 4-param overload and mis-typed the call.
+            // `String.Concat` is heavily overloaded, so the pick has to narrow by arity and
+            // then by betterness: `(string,string)` beats `(object,object)`.
             test "a 2-arg external static method with overloads (String.Concat) resolves + runs" {
                 let _, artifact =
                     compileSource "P4ExternalConcat2Arg" "printfn \"%s\" (System.String.Concat(\"a\", \"b\"))"
@@ -420,9 +360,7 @@ let tests =
             }
 
             // Overload resolution reads the argument's TYPE, so a tuple-VALUED expression
-            // selects the same 2-parameter overload a syntactic `("a", "b")` does. Elaborate
-            // destructures it to one expression per declared parameter, so the emit sees the
-            // same literal-tuple argument either spelling produces.
+            // picks the same 2-parameter overload a syntactic `("a", "b")` does.
             test "a tuple-VALUED argument at a 2-param external method emits + runs" {
                 let src =
                     String.concat "\n" [ "let t = (\"a\", \"b\")"; "printfn \"%s\" (System.String.Concat t)" ]
@@ -434,10 +372,9 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "ab" "String.Concat t = \"ab\""
             }
 
-            // The destructuring Elaborate synthesises for a tuple-VALUED argument must not
-            // reorder the call: an instance member evaluates its OBJECT ARGUMENT first, and
-            // the argument exactly once. Both operands announce themselves, so the printed
-            // order IS the evaluation order and a duplicated argument would say `A` twice.
+            // Destructuring a tuple-VALUED argument must not reorder or duplicate it: the
+            // object argument evaluates first, the argument exactly once. Both operands
+            // print, so the printed order IS the evaluation order.
             test "an instance member keeps object-argument-before-argument order over a tuple VALUE" {
                 let src =
                     String.concat
@@ -460,8 +397,6 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "R\nA\nzy" "object argument, then argument, then `zy`"
             }
 
-            // The short-name form (under its `open`) emits and runs identically —
-            // open-resolution (P3.5) feeds the same keyed node into P4.
             test "the short-name form under `open` emits and runs" {
                 let src =
                     "open System.Collections.Generic\nprintfn \"%d\" (EqualityComparer<int>.Default.GetHashCode 42)"
@@ -473,10 +408,9 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "GetHashCode of int 42 is 42"
             }
 
-            // Non-generic external static access. `System.Console.Out` folds into a single LongIdent (no `<>` to
-            // keep a `TypeApp` prefix), so the generic DotLookup arm never sees it;
-            // `tryExternalStaticLongIdent` recovers the type-prefix / static-member
-            // split, types it, and freezes a keyed `TExpr.ExternalMember`.
+            // With no `<>` to mark where the type prefix ends, `System.Console.Out` folds
+            // into a single LongIdent, so the type / static-member split has to be probed
+            // for rather than read off the syntax.
             test "non-generic external static property resolves + freezes carrying its key" {
                 let provider = ClrSymbolProviders.build []
                 let ctx, tast = analyseWithCtx provider "let w = System.Console.Out"
@@ -545,18 +479,14 @@ let tests =
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
             }
 
-            // A resolved type prefix whose final segment is NOT an accessible static
-            // member (here `PI`, a const field, not modelled yet) falls through
-            // without a spurious "no accessible member" error — it's valid F#, just
-            // unsupported.
+            // `System.Math.PI` is a const field, which is not modelled. The F# is valid, so
+            // the unmatched tail must fall through without a "no accessible member" error.
             test "a non-member tail on a resolved external type does not error" {
                 let provider = ClrSymbolProviders.build []
                 let tast = analyseWith provider "let p = System.Math.PI"
                 Expect.isEmpty (errors tast) "System.Math.PI (a field) falls through silently, no false error"
             }
 
-            // End-to-end: a non-generic static *property* returning a primitive emits
-            // and runs through the P4 `ExternalMember` bridge (same path as `Default`).
             test "a non-generic external static property emits and runs" {
                 let src = "printfn \"%d\" System.Environment.ProcessorCount"
                 let _, artifact = compileSource "NonGenericStaticProp" src
@@ -570,13 +500,12 @@ let tests =
                 | false, _ -> failtestf "expected a numeric ProcessorCount, got %A" n
             }
 
-            // End-to-end: a genuine external static FIELD (`String.Empty`) emits as
-            // `ldsfld` and runs. A regression here would emit `call get_Empty` — which
-            // `MissingMethodException`s at JIT, since `String` has no such accessor — so a
-            // clean run is the proof the field path (not the property path) is taken.
+            // Taking the property path instead would emit `call get_Empty`, which
+            // `MissingMethodException`s at JIT since `String` has no such accessor: a clean
+            // run is the proof that `ldsfld` was emitted.
             test "a genuine external static field (String.Empty) emits and runs" {
-                // Print the field directly (`%s`) to isolate the `ldsfld` — chaining an
-                // intrinsic like `.Length` off it is a separate emission path.
+                // Printed directly (`%s`) to isolate the `ldsfld`: chaining an intrinsic
+                // like `.Length` off it would bring in a second emission path.
                 let src = "printfn \"[%s]\" System.String.Empty"
                 let _, artifact = compileSource "ExternalStaticField" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)

@@ -5,11 +5,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `ClrArtifact.FSharpCoreDependencies` records which FSharp.Core constructs the
-// emission referenced. Empty ⇒ no `FSharp.Core.dll` dependency, so
-// `materialiseApp` ships the app without it; non-empty is the cut list. The
-// set is authoritative because every FSharp.Core reference is minted (and
-// marked) through `ClrProvider`.
+// `ClrArtifact.FSharpCoreDependencies` records which FSharp.Core constructs the emission
+// referenced. Empty ⇒ no `FSharp.Core.dll` dependency, so the app ships without it;
+// non-empty is the cut list.
 
 [<Tests>]
 let tests =
@@ -22,18 +20,15 @@ let tests =
             }
 
             test "a fully-applied `fprintf` to a writer references no FSharp.Core construct" {
-                // `fprintf`/`fprintfn` now lower natively to a `ToWriter` sink, so a
-                // fully-applied writer call rides the Vesper.Formatter path instead of
-                // FSharp.Core's cold printf.
+                // A fully-applied `fprintf`/`fprintfn` lowers to a `Vesper.Formatter`
+                // `ToWriter` sink.
                 let _, artifact = compileSource "DepsFprintf" "fprintf System.Console.Out \"%d\" 42"
 
                 Expect.isEmpty artifact.FSharpCoreDependencies "native fprintf has no FSharp.Core dependency"
             }
 
             test "a fully-applied `bprintf` to a builder references no FSharp.Core construct" {
-                // `bprintf` now lowers natively to a `ToBuilder` sink, so a
-                // fully-applied builder call rides the Vesper.Formatter path instead of
-                // FSharp.Core's cold printf.
+                // A fully-applied `bprintf` lowers to a `Vesper.Formatter` `ToBuilder` sink.
                 let _, artifact =
                     compileSource "DepsBprintf" "bprintf (System.Text.StringBuilder()) \"%d\" 42"
 
@@ -45,9 +40,8 @@ let tests =
                 Expect.isEmpty artifact.FSharpCoreDependencies "interpolation has no FSharp.Core dependency"
             }
 
-            // The provider's refs are `lazy`, so an `AssemblyRef` row is added only
-            // when a ref is actually forced — no dead reference row for an empty
-            // use-set.
+            // The provider's refs are `lazy`, so an `AssemblyRef` row is added only when one
+            // is actually forced, so an empty use-set leaves no dead reference row.
             test "a happy-path executable carries no FSharp.Core reference row" {
                 let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
                 Expect.isEmpty artifact.FSharpCoreDependencies "the use-set is empty"
@@ -60,9 +54,8 @@ let tests =
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
 
-            // `% A` (the space flag on `%A`) used to ride the cold path; it now lowers
-            // on the structural engine like plain `%A` (the space flag is a pure no-op
-            // for `%A`), so it pins no FSharp.Core construct.
+            // The space flag is a pure no-op for `%A`, so `% A` lowers on the structural
+            // engine exactly as plain `%A` does.
             test "`printfn \"% A\"` lowers on the engine (cold path cut)" {
                 let _, artifact = compileSource "DepsSpaceA" "printfn \"% A\" 42"
                 let deps = artifact.FSharpCoreDependencies
@@ -74,10 +67,8 @@ let tests =
                 Expect.isEmpty deps (sprintf "%% A is pure Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
-            // `%+08.2f` (forced sign + zero-pad float) used to be THE cold pin; it now
-            // lowers natively — the forced sign rides a half-to-even `"F2"` body then
-            // zero-pads after the sign (`AppendForcedSignZeroPaddedFloat`), so it pins no
-            // FSharp.Core construct.
+            // `%+08.2f` (forced sign + zero-pad float) lowers natively: a half-to-even
+            // `"F2"` body, then zero-padding applied after the sign.
             test "`printfn \"%+08.2f\"` lowers natively — no FSharp.Core (former cold pin)" {
                 let _, artifact = compileSource "DepsPlusZeroF" "printfn \"%+08.2f\" 1234.5"
 
@@ -87,9 +78,8 @@ let tests =
             }
 
             test "`printfn \"%*d\"` (star width) lowers natively — no FSharp.Core" {
-                // Star *width* now lowers to the `Vesper.Formatter` handler (the guarded
-                // runtime width feeds the signed-alignment members), so the whole program
-                // references no FSharp.Core construct.
+                // The guarded runtime width feeds the `Vesper.Formatter` signed-alignment
+                // members.
                 let _, artifact = compileSource "DepsStarPrintf" "printfn \"%*d\" 5 42"
 
                 Expect.isEmpty
@@ -98,8 +88,7 @@ let tests =
             }
 
             test "`printfn \"%*A\"` (bare star width) lowers natively — no FSharp.Core" {
-                // Bare `%*A` takes the runtime column budget on the structural engine
-                // (`AppendStructured`), so no FSharp.Core cold path.
+                // Bare `%*A` feeds the runtime column budget to the structural engine.
                 let _, artifact = compileSource "DepsStarA" "printfn \"%*A\" 1 [1; 2; 3]"
 
                 Expect.isFalse
@@ -108,9 +97,8 @@ let tests =
                     "bare %*A does NOT take the PrintFormatLine cold path"
             }
 
-            // Star *precision* now lowers natively: the float forms build the .NET format
-            // string in-handler from the runtime precision — so the whole program pins no
-            // FSharp.Core construct.
+            // Star *precision* lowers natively: the float forms build the .NET format string
+            // in-handler from the runtime precision.
             test "star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`) lowers natively — no FSharp.Core" {
                 let native =
                     [
@@ -129,10 +117,9 @@ let tests =
                         (sprintf "%s lowers natively — no FSharp.Core (%A)" src artifact.FSharpCoreDependencies)
             }
 
-            // `%.*A` feeds the runtime `PrintSize` budget to the structural engine
-            // (`AppendStructured`), not the cold path. The list *literal* argument still
-            // pins `FSharpList`, so assert the discriminator — no `PrintFormatLine` — as
-            // the bare `%*A` test does, rather than a fully-empty use-set.
+            // `%.*A` feeds the runtime print-size budget to the structural engine. The list
+            // LITERAL argument still pins `FSharpList`, so the assertion here can only be
+            // the absence of `PrintFormatLine`, not a fully-empty use-set.
             test "`%.*A` (star precision) lowers on the structural engine — no cold path" {
                 let _, artifact = compileSource "DepsPrecA" "printfn \"%.*A\" 2 [1; 2; 3]"
 
@@ -142,11 +129,8 @@ let tests =
                     "star-precision %.*A does NOT take the PrintFormatLine cold path"
             }
 
-            // `%-*A` / `%+*A` (flagged star-`%A`) now lower on the structural engine like
-            // a bare `%*A`: the `-`/`+` flags are pure no-ops for `%A`, so they take the
-            // same runtime column budget (`AppendStructured`), off the cold path. (The
-            // runtime-width zero-pad residuals `%0*d` / `%0*A` are diagnosed at the gate —
-            // see the front-end PrintfTests — so no valid program routes them cold.)
+            // `-` and `+` are pure no-ops for `%A`, so `%-*A` / `%+*A` take the same runtime
+            // column budget on the structural engine as a bare `%*A`.
             test "`%-*A` / `%+*A` (flagged star-%A) lower natively — no cold path" {
                 let native =
                     [
@@ -165,9 +149,7 @@ let tests =
 
             // A project-local record / DU carries a synthesised
             // `IStructuralFormattable.Format`, so `%A` of one lowers on the structural
-            // engine instead of the FSharp.Core cold path. The observable proof:
-            // `PrintfModule.PrintFormatLine` / `PrintfFormat` no longer appear in the
-            // use-set — the whole program pins *no* FSharp.Core construct.
+            // engine, which is observable only as the absence of the FSharp.Core constructs.
             test "`%A` of a synthesised record pins no FSharp.Core (cold path cut)" {
                 let _, artifact =
                     compileSource "DepsStructRec" "type R = { X: int; Y: string }\nprintfn \"%A\" { X = 1; Y = \"a\" }"
@@ -194,12 +176,9 @@ let tests =
                 Expect.isEmpty deps (sprintf "union %%A is pure Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
-            // A `%A` of an EXTERNAL Vesper-package union lowers on the structural
-            // engine (its `.Union` resolved shape marks it Vesper-compiled, so it
-            // carries the synthesised `Format`), NOT the cold path. `Vesper.Result.dll`
-            // is BCL-only, so an engine lowering leaves the whole program free of
-            // FSharp.Core. This is the discriminator the stdout-only `runsResult` test
-            // can't make: the cold path renders `Ok 5` identically.
+            // An EXTERNAL Vesper-package union resolves as Vesper-compiled, so it carries
+            // the synthesised `Format` and `%A` of it lowers on the engine. Stdout cannot
+            // show this, because the cold path renders `Ok 5` identically, but the use-set can.
             test "`%A` of an external Vesper union lowers on the engine (no cold-path pin)" {
                 let artifact =
                     compileResultArtifact "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
@@ -215,9 +194,8 @@ let tests =
                     (sprintf "the external-union %%A program is BCL-only + Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
-            // `%A` of an arbitrary BCL type (a `System.Guid`) renders via the
-            // dispatcher's `IFormattable` / `ToString` arm — BCL-only, so the whole
-            // program pins *no* FSharp.Core construct.
+            // `%A` of an arbitrary BCL type renders through the `IFormattable` / `ToString`
+            // arm of the dispatcher, which is BCL-only.
             test "`%A` of a BCL type is BCL-only — no FSharp.Core" {
                 let _, artifact = compileSource "DepsBclA" "printfn \"%A\" System.Guid.Empty"
 
@@ -226,12 +204,9 @@ let tests =
                     (sprintf "BCL %%A pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            // A polymorphic `%A` (`let f x = printfn "%A" x`) has a hole whose type is
-            // the function's own method typar. `freeze` generalises it to
-            // `FTTypar(Method, i)`, the encoder maps it to `!!i`, and `appendStructured`
-            // authors `AppendStructured<!!i>` — so codegen emits cleanly (this test
-            // throws if the typar can't be authored) and the call rides the engine, not
-            // the FSharp.Core cold path.
+            // A polymorphic `%A` has a hole typed by the function's own method typar, so the
+            // emitted call is `AppendStructured<!!i>`. This test throws outright if that
+            // typar cannot be authored.
             test "polymorphic `%A` (`let f x = printfn \"%A\" x`) lowers on the engine (no cold-path pin)" {
                 let _, artifact = compileSource "DepsPolyA" "let f x = printfn \"%A\" x\nf 42"
                 let deps = artifact.FSharpCoreDependencies
@@ -256,9 +231,8 @@ let tests =
             }
 
             test "List.fold over a bare-program list is BCL-only + Vesper, no FSharp.Core" {
-                // The bare `[1;…]` literal builds a Vesper `List`, `List.fold` is
-                // emitted inline over it with a `Vesper.Fun` folder, and the `(+)`
-                // folder is a `Vesper.Fun` closure. Nothing pins FSharp.Core.
+                // Constrained by `sum`, the literal builds a Vesper `List`, and `List.fold`
+                // is emitted inline over it with a `Vesper.Fun` closure for `(+)`.
                 let src =
                     "let inline sum xs = List.fold (+) 0 xs\nlet nums = [1; 2; 3; 4; 5]\nprintfn \"%d\" (sum nums)"
 
@@ -271,9 +245,8 @@ let tests =
 
             test "`materialiseApp` omits FSharp.Core.dll for a zero-dependency app, which still runs" {
                 let outDir = tmpDir "no-fsharpcore-app"
-                // `withCore`: the happy-path `printfn` binds `Vesper.Printf` (and its
-                // `Vesper.Core` / `Vesper.List` deps), so their on-disk paths must be
-                // resolvable reference sources for the bundle's transitive-closure copy.
+                // `withCore`: the happy-path `printfn` binds `Vesper.Printf` and its deps,
+                // so their on-disk paths must be references for the bundle to copy them.
                 let project = withCore (ProjectInfo.app "XParsecNoCoreApp" outDir)
 
                 // Deterministic regardless of a prior run leaving the dll behind.

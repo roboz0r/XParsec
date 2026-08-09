@@ -7,23 +7,17 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The CROSS-target / CLR-repr half of the ops-platform contract: a JS template absent
-// on CLR, and the CLR BCL primitive repr. Both need the BCL metadata leaf
-// (`ClrSymbolProviders`, which the JS-native contract has no equivalent of), so they
-// live here rather than in `Codegen.Js.Tests.OpsPlatformJsTests` (which keeps the
-// JS-target-only assertions and stays off the CLR backend).
-//
-// The body inspection itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
-// the same contract, only through a different symbol leaf.
+// The CROSS-target / CLR-repr half of the ops-platform contract: a JS template absent on
+// CLR, and the CLR BCL primitive repr. Both need the BCL metadata leaf, so they live here
+// rather than beside the JS-target-only assertions, which stay off the CLR backend.
 
 [<Tests>]
 let tests =
     testList
         "OpsPlatformClr"
         [
-            // The declared operator surface IS the CLR's arithmetic-support definition;
-            // the manifest states the same matrix. The contract is the one a CLR build
-            // resolves against.
+            // The declared operator surface IS the CLR's arithmetic-support definition.
+            // This is the contract a CLR build resolves against.
             OperatorSurfaceParity.tests "clr" (ClrSymbolProviders.buildContractFor Target.Clr [ vesperCoreManifest ])
 
             test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
@@ -31,8 +25,7 @@ let tests =
 
                 let clr = ClrSymbolProviders.buildContractFor Target.Clr [ vesperCoreManifest ]
 
-                // `int`'s own `( * )` — the per-width body that used to be the operator's
-                // int32 clause, now served by member key off the primitive.
+                // `int`'s own `( * )`: a per-width body served by member key off the primitive.
                 let jsMul =
                     InlineBodies.ilOpCodes (InlineBodies.operatorBody js "int" "op_Multiply")
 

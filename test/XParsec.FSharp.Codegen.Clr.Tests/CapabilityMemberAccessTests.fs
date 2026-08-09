@@ -4,20 +4,8 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Member access on a value typed as a CAPABILITY rather than as a concrete implementer.
-//
-// A capability's canonical shape (`Vesper.Collections.enumerator`1`) is an
-// `IntrinsicInterface`: it NAMES its platform type but carries no member table. So a
-// value typed that way used to resolve its shape, find no members on it, and fail with
-// "Unknown class type" — even though `capabilities.fsi` declares `MoveNext` / `Current`.
-// Member lookup now retries under the capability's platform key
-// (`EngineCore.capabilityPlatformKey`), where the members live.
-//
-// Systematically: every capability that HAS members, every member kind (method, property,
-// inherited), and both the direct and deferred resolution paths — one test each, so a
-// regression names which one broke rather than "Vesper.Seq stopped building".
-//
-// The JS side needs none of this: there a capability is a plain `Class` carrying its own
-// members, which is why `seq.fs` compiled there before this fix existed.
+// A capability's canonical shape (`Vesper.Collections.enumerator`1`) names its platform
+// type but carries no member table, so lookup retries under the platform key.
 
 /// A cursor over `1 .. n` used as the inner enumerator to drive by hand.
 let private counterSrc =
@@ -46,7 +34,6 @@ let tests =
         "Clr CapabilityMemberAccess"
         [
             test "`MoveNext` resolves on an enumerator-typed value (a METHOD)" {
-                // The plainest case: a method declared on the capability, called through it.
                 runs
                     "3"
                     (counterSrc
@@ -64,9 +51,8 @@ let tests =
             }
 
             test "`Current` resolves on an enumerator-typed value (a PROPERTY)" {
-                // The case that could have made this fix expensive: the contract declares
-                // `abstract member Current: 'T`, the BCL member is `get_Current`. The repr
-                // hop has to bridge that naming, and does.
+                // The contract declares `abstract member Current: 'T`; the BCL member is
+                // `get_Current`, so the platform hop has to bridge that naming.
                 runs
                     "1"
                     (counterSrc
@@ -80,10 +66,9 @@ let tests =
             }
 
             test "`Dispose` resolves through the INHERITED disposable capability" {
-                // `enumerator` inherits `disposable`, so this one is not on the platform type
-                // itself — it is reached by walking `IEnumerator\`1`'s interface chain. That
-                // walk only works because the retry rewrites PLATFORM-ward: canon-ward would
-                // have erased the BCL type's own bases.
+                // `Dispose` is not on the platform type itself: it is reached by walking
+                // `IEnumerator\`1`'s interface chain, which works only because the retry
+                // rewrites PLATFORM-ward. Canon-ward would erase the BCL type's own bases.
                 runs
                     "disposed"
                     (counterSrc
@@ -98,10 +83,9 @@ let tests =
             }
 
             test "`GetEnumerator` resolves on a seq-typed value, and its result drives" {
-                // The `seq` capability, and the composition that matters: the member's
-                // RESULT is itself capability-typed, so the returned cursor must resolve its
-                // own members too. A local implementer rather than a `[1;2;3]` literal, to
-                // keep the test on capability resolution and off cons-list support.
+                // The member's RESULT is itself capability-typed, so the returned cursor
+                // has to resolve its own members too. Driven by a local implementer rather
+                // than a `[1;2;3]` literal, to keep cons-list support out of the test.
                 runs
                     "6"
                     (counterSrc
@@ -125,9 +109,8 @@ let tests =
             }
 
             test "a capability-typed FIELD resolves its members (the deferred path)" {
-                // A `val` of capability type, read through `this` — the shape `Seq.truncate`'s
-                // cursor is built from, and the one that reaches the deferred
-                // `DotSource.ExternalClass` arm rather than the direct one.
+                // A `val` of capability type read through `this`, which reaches the
+                // DEFERRED external-class resolution arm rather than the direct one.
                 runs
                     "1,2"
                     (counterSrc
@@ -144,8 +127,8 @@ let tests =
             }
 
             test "a NON-capability external interface is unaffected by the retry" {
-                // The fold returns a non-capability key unchanged, so ordinary external
-                // member resolution is untouched — the negative control for the rewrite.
+                // A non-capability key comes back unchanged, so ordinary external member
+                // resolution is untouched.
                 runs
                     "2"
                     (String.concat "\n" [ "let lengthOf (s: string) = s.Length"; "printfn \"%d\" (lengthOf \"ab\")" ])

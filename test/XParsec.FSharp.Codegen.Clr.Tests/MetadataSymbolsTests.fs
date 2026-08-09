@@ -5,10 +5,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 
-// The metadata leaf canonicalizes BCL primitives (`System.Int32 → int`) through the
-// extracted `{ platform → [canon] }` reverse map — the reverse view of Vesper.Core's
-// `type int = (# "System.Int32" #)`. Seed the test leaf with the REAL extracted map
-// (not a static table) so `String.Length`/`List.get_Item` present `int`, etc.
+// The metadata leaf canonicalizes BCL primitives (`System.Int32` → `int`) through a
+// `{ platform → [canon] }` reverse map. Seed it from the real Vesper.Core contract, not
+// a static table, so `String.Length` presents `int`.
 let private reverseCanon =
     (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicReverseCanon
 
@@ -17,9 +16,7 @@ let private provider =
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
-// The resolver's by-name type view answers the identity WITH the shape; these tests are
-// about what the metadata scrape MODELS, so they read the shape half. The identity half
-// has its own test below.
+// The by-name view answers the identity WITH the shape; these tests read the shape half.
 let private typeShape (name: string) =
     provider.TryLookupType name |> ExternalSymbols.typeShapeOf
 
@@ -55,8 +52,8 @@ let tests =
                 | other -> failtestf "expected a Class shape, got %A" other
             }
 
-            // The metadata layer fills the rich class shape — members, interfaces,
-            // base type, flags — so consumers don't retry through `TryLookupMember` per name.
+            // Members, interfaces, base type and flags are all filled at lookup, so a
+            // consumer never retries through `TryLookupMember` per name.
             test "the Class shape eagerly publishes the type's members" {
                 match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
@@ -64,8 +61,8 @@ let tests =
                     Expect.isTrue (Set.contains "Default" names) "Default property is enumerated"
                     Expect.isTrue (Set.contains "GetHashCode" names) "GetHashCode method is enumerated"
 
-                    // Accessor methods are folded into the property — without the
-                    // IsSpecialName filter, `Default` would surface twice.
+                    // Accessor methods are folded into the property, so without the
+                    // `IsSpecialName` filter `Default` would surface twice.
                     Expect.isFalse (Set.contains "get_Default" names) "property accessors are not duplicated as methods"
                 | other -> failtestf "expected a Class shape, got %A" other
             }
@@ -121,15 +118,14 @@ let tests =
                 | ValueSome m ->
                     Expect.isTrue m.IsStatic "Default is static"
                     Expect.equal m.Storage MemberStorage.Property "Default is a property"
-                    // The declaring type is carried by the KEY's containment chain, typed —
-                    // not by a string beside it.
+                    // The declaring type rides the key's containment chain, typed, rather
+                    // than a string beside it.
                     Expect.equal
                         (SymbolKeyOps.typeMetaName m.Key.Decl)
                         eqComparer
                         "member key's declaring TypeKey names the declaring type"
 
-                    // Instantiated at `'T = int`, the property type is
-                    // `EqualityComparer<int>` (the §7.3 per-use substitution).
+                    // Instantiated at `'T = int`: `EqualityComparer<int>`.
                     match
                         ExternalSymbols.instantiateSignature
                             (TypeStore())
@@ -174,10 +170,8 @@ let tests =
             }
 
             test "String.Empty resolves as a genuine static FIELD (not a property)" {
-                // A real public field — invisible to the property/method walks before the
-                // `GetFields` pass. It must carry `Storage = Field` so emission lowers it to
-                // `ldsfld` (a `call get_Empty` would `MissingMethodException` — String has no
-                // such accessor).
+                // `Storage = Field` so emission lowers it to `ldsfld`: `String` has no
+                // `get_Empty`, so a property lowering would `MissingMethodException`.
                 match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "System.String" 0, "Empty") with
                 | ValueSome m ->
                     Expect.equal m.Storage MemberStorage.Field "Empty is a field"
@@ -190,12 +184,9 @@ let tests =
             }
 
             test "metadata templates instantiate to the expected use-site types" {
-                // The eager (reflection-backed) provider freezes its `FrozenType`
-                // templates at construction (its descriptors are total and
-                // registry-independent, unlike the contract layer's). Spot-check that
-                // the templates realise correctly through the `instantiate*` helpers
-                // for a generic class: declaring typars substituted, every member's
-                // signature instantiates without throwing.
+                // The leaf freezes its templates at construction; check they realise
+                // through the `instantiate*` helpers: declaring typars substituted, and
+                // every member's signature instantiating without throwing.
                 match typeShape "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let intArg = [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
@@ -212,16 +203,15 @@ let tests =
                             "IEnumerable<int> after 'T := int"
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 
-                    // Base type: `List<'T> : Object`, surfaced EAGERLY as the canon
-                    // `obj` identity (`TyConst`), not the BCL-nominal `TyClass` —
-                    // metadata canonicalizes the subtype roots at surfacing.
+                    // Base type: `List<'T> : Object` surfaces as the canon `obj` identity
+                    // (`TyConst`), not a BCL-nominal `TyClass`, because the leaf
+                    // canonicalizes the subtype roots.
                     match ExternalSymbols.instantiateBaseType info intArg with
                     | ValueSome(TyConst(k, _)) ->
                         Expect.equal (SymbolKeyOps.qualifiedName k) "Vesper.obj" "List bases on the canon obj root"
                     | other -> failtestf "expected List base = canon obj, got %A" other
 
-                    // Every member's signature instantiates without throwing — the
-                    // declaring typar resolves and any method typar freshens.
+                    // The declaring typar resolves and any method typar freshens.
                     for m in info.Members do
                         ExternalSymbols.instantiateSignature (TypeStore()) m intArg 0 |> ignore
                 | other -> failtestf "expected List`1 as a Class shape, got %A" other
@@ -231,12 +221,9 @@ let tests =
                 Expect.isTrue (provider.TryLookupType "No.Such.Type`9" |> ValueOption.isNone) "unknown type miss"
             }
 
-            // Bare IL has no module chains, so this leaf's name IS its identity — which is
-            // why it can answer the identity at all rather than leave a use site to re-cut
-            // one from the spelling. The two directions must invert each other: the key the
-            // by-name view reports must be the key whose `qualifiedName` rendering is the
-            // name that was asked for, ARITY INCLUDED (`EqualityComparer`1` is arity 1, not
-            // an arity-0 type whose name happens to end in a backtick).
+            // The two directions must invert: the key the by-name view reports renders back
+            // to the name that was asked for, ARITY INCLUDED: `EqualityComparer`1` is
+            // arity 1, not an arity-0 type whose name ends in a backtick.
             test "the by-name view answers the identity its own name index round-trips to" {
                 match provider.TryLookupType eqComparer with
                 | ValueSome(struct (key, _)) ->
@@ -251,8 +238,7 @@ let tests =
             }
 
             test "the metadata layer resolves no values" {
-                // F#-style module values / operators are not a metadata surface;
-                // they fall through to lower-priority sources in the composite.
+                // Module values / operators are not a metadata surface at all.
                 Expect.isTrue (provider.TryLookup "op_Addition" |> ValueOption.isNone) "no value surface"
             }
 
@@ -272,11 +258,9 @@ let tests =
             }
 
             test "buildContractWithRefs does not alias distinct ref sets under one manifest" {
-                // Enumerable lives in System.Linq (never CoreLib): the full TPA resolves
-                // it, the full TPA with System.Linq.dll removed does not (a core assembly
-                // stays present, so MLC still constructs). If the cache keyed on
-                // `cacheTag|target|manifests` ignored the path set, the second build would
-                // alias the first and both would agree — this proves it does not.
+                // `Enumerable` lives in System.Linq, never CoreLib, so dropping
+                // System.Linq.dll from the TPA must lose it. If the build cache ignored the
+                // path set the second build would alias the first and still resolve it.
                 let full = MetadataSymbols.runtimeAssemblyPaths ()
 
                 let withoutLinq =
@@ -324,10 +308,9 @@ let tests =
 
                     match leaf.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class info) ->
-                        // In the ref pack StringBuilder lives in System.Runtime (the ref
-                        // facade), not System.Private.CoreLib (the runtime impl). This also
-                        // proves MetadataLoadContext finds a core assembly when System.Object
-                        // lives in System.Runtime.dll rather than System.Private.CoreLib.
+                        // In the ref pack `StringBuilder` lives in System.Runtime (the
+                        // facade), not System.Private.CoreLib, which also proves the load
+                        // context finds a core assembly with `System.Object` in the facade.
                         Expect.equal
                             info.Origin.Home.AssemblyOption
                             (ValueSome "System.Runtime")

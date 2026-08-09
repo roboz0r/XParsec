@@ -5,10 +5,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Value-level inline IL `(# "op" args : ty #)` — the general IL-interpretation
-// machinery the operator surface (`=`/`<`/`+`/…) lowers onto: an operator `.fs`
-// body supplies the per-primitive opcode and codegen interprets it via
-// `TExpr.ILIntrinsic`, owning no per-operator dispatch.
+// Value-level inline IL `(# "op" args : ty #)` — what the operator surface (`=`/`<`/`+`)
+// lowers onto: an operator's `.fs` body supplies the per-primitive opcode and codegen
+// interprets it as a `TExpr.ILIntrinsic`, owning no per-operator dispatch.
 
 [<Tests>]
 let tests =
@@ -39,9 +38,8 @@ let tests =
             }
 
             test "`(# \"ceq\" x y : bool #)` emits CIL `ceq`: equal ints branch true, unequal branch false" {
-                // No metadata, no runtime library — the inline body expands at the
-                // call site and the bare opcode drives the `if`. Proves the
-                // node types (bool), freezes, inline-expands, and emits end to end.
+                // No metadata, no runtime library: the inline body expands at the call
+                // site and the bare opcode drives the `if`.
                 let src =
                     String.concat
                         "\n"

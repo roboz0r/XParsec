@@ -8,13 +8,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Structural comparison (brainstorm-comparison §9):
-// `<` / `>` / `<=` / `>=` on records and unions, opt-in via
-// `[<StructuralComparison>]`. The emit side ships an `int CompareTo(Self)` +
-// `int CompareTo(object)` pair (the comparison parallel of the equality
-// triple) plus `IComparable<Self>` + `IComparable` `InterfaceImpl` rows; the
-// front-end side rejects ordering use sites on un-annotated records / unions
-// through the `Comparison` typar-constraint check.
+// Ordering on records and unions, opt-in via `[<StructuralComparison>]`: the emit
+// side ships `int CompareTo(Self)` + `int CompareTo(object)` with `IComparable<Self>`
+// + `IComparable`, and un-annotated ordering use sites fail the constraint check.
 
 [<Tests>]
 let tests =
@@ -33,14 +29,11 @@ let tests =
 
     let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
-    /// Invoke the typed `CompareTo(Self)` (not the boxed `IComparable`
-    /// override) so the test sees the raw `int` the body returns. Both
-    /// arguments are already boxed for the reflection call.
+    /// The typed `CompareTo(Self)`, so the test sees the raw `int` the body returns.
     let compareTyped (ty: Type) (a: obj) (b: obj) : int =
         (typedCompareTo ty).Invoke(a, [| b |]) :?> int
 
-    /// Same shape, but via the `CompareTo(object)` boxing entry. Used to
-    /// exercise the `IComparable` path (and the `ArgumentException` branch).
+    /// The `CompareTo(object)` boxing entry, including its `ArgumentException` branch.
     let compareObj (ty: Type) (a: obj) (b: obj) : int =
         (compareToObj ty).Invoke(a, [| b |]) :?> int
 
@@ -53,7 +46,6 @@ let tests =
         "structural comparison"
         [
             test "record CompareTo compares fields in declaration order" {
-                // §Tests #1: `{ X = 1; Y = 2 }.CompareTo({ X = 1; Y = 3 }) < 0`.
                 let src =
                     String.concat
                         "\n"
@@ -87,8 +79,6 @@ let tests =
             }
 
             test "record CompareTo is lexicographic (first differing field wins)" {
-                // §Tests #2: `{ X = 1; Y = 99 } < { X = 2; Y = 0 }` — X
-                // decides, Y is irrelevant once X differs.
                 let src =
                     String.concat
                         "\n"
@@ -111,10 +101,7 @@ let tests =
             }
 
             test "union CompareTo compares tags first, then payload fields" {
-                // §Tests #3 + #4: tag-then-fields. Cases are declared in
-                // source order, so their tags are 0, 1, 2 respectively. A
-                // `Square 3` (tag 0) sorts before any `Box` (tag 1) regardless
-                // of payload; within a case, the payload field decides.
+                // Cases take tags in source order, so Square = 0, Box = 1, Circle = 2.
                 let src =
                     String.concat
                         "\n"
@@ -144,12 +131,10 @@ let tests =
                 let circle (n: int) =
                     ty.GetMethod("Circle", BindingFlags.Public ||| BindingFlags.Static).Invoke(null, [| box n |])
 
-                // tag 0 < tag 1 < tag 2 — irrespective of payload.
                 Expect.equal (signOf (compareTyped ty (square 99) (mkBox 0 0))) -1 "Square < Box regardless of payload"
                 Expect.equal (signOf (compareTyped ty (mkBox 0 0) (circle 0))) -1 "Box < Circle"
                 Expect.equal (signOf (compareTyped ty (circle 1) (square 99))) 1 "Circle > Square"
 
-                // Same case ⇒ payload fields decide.
                 Expect.equal (signOf (compareTyped ty (circle 3) (circle 5))) -1 "Circle 3 < Circle 5"
                 Expect.equal (signOf (compareTyped ty (circle 5) (circle 3))) 1 "Circle 5 > Circle 3"
                 Expect.equal (signOf (compareTyped ty (circle 3) (circle 3))) 0 "Circle 3 = Circle 3"
@@ -162,8 +147,6 @@ let tests =
             }
 
             test "CompareTo(object) boxing entry routes through the typed CompareTo" {
-                // §Tests #5: `Comparer<obj>.Default.Compare` finds
-                // `IComparable.CompareTo(object)` on the type and uses it.
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 
@@ -176,18 +159,16 @@ let tests =
 
                 Expect.equal (signOf (compareObj ty (mk 1) (mk 2))) -1 "CompareTo(object) field-walks"
 
-                // Routing through `Comparer<obj>.Default.Compare` is the
-                // BCL's path for boxed comparison; once `IComparable` is on
-                // the type the comparer reaches it.
+                // `Comparer<obj>.Default.Compare` is the BCL's path for boxed
+                // comparison, and it reaches `IComparable` once the type declares it.
                 let cmp = Comparer<obj>.Default
                 Expect.equal (signOf (cmp.Compare(mk 3, mk 4))) -1 "Comparer<obj>.Default sees IComparable on Holder"
                 Expect.equal (signOf (cmp.Compare(mk 4, mk 3))) 1 "Comparer<obj>.Default reverse"
             }
 
             test "CompareTo(object) throws ArgumentException on a mismatched type" {
-                // Matching F# / BCL convention: a non-`Self` argument throws
-                // `ArgumentException`. Reflection surfaces it as a
-                // `TargetInvocationException` wrapping `ArgumentException`.
+                // A non-`Self` argument throws `ArgumentException`, which reflection
+                // surfaces wrapped in a `TargetInvocationException`.
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 
@@ -213,8 +194,7 @@ let tests =
             }
 
             test "CompareTo(object) returns 1 for a null argument (null sorts first)" {
-                // brainstorm-comparison §5.3: null sorts first, so the
-                // object argument compares positive against it.
+                // Null sorts first, so any value compares positive against it.
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 
@@ -228,9 +208,6 @@ let tests =
             }
 
             test "[<NoComparison>] on a record skips the pair AND has no IComparable" {
-                // §Tests #6 — opt-out / default: a record without
-                // `[<StructuralComparison>]` emits no `CompareTo` and declares
-                // no `IComparable`.
                 let src =
                     String.concat "\n" [ "[<NoComparison>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
@@ -246,9 +223,7 @@ let tests =
             }
 
             test "default (no attribute) on a record skips the pair (opt-in)" {
-                // brainstorm-comparison §9 default is opt-in: `[<NoComparison>]`
-                // and "no attribute" are observationally identical at the emit
-                // boundary.
+                // `[<NoComparison>]` and no attribute are identical at the emit boundary.
                 let src =
                     String.concat "\n" [ "type Pair = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ]
 
@@ -262,9 +237,8 @@ let tests =
             }
 
             test "default on a union also skips the pair (opt-in)" {
-                // Same opt-in posture for unions: brainstorm §9 governs both.
-                // (Contrast with the equality verdict, where a union defaults
-                // to `Structural` — comparison is a separate, stricter axis.)
+                // Comparison is opt-in for unions too, unlike the equality verdict,
+                // where a union defaults to `Structural`.
                 let src =
                     String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
@@ -278,8 +252,6 @@ let tests =
             }
 
             test "[<StructuralComparison>] on a union emits the pair" {
-                // Companion to the `Tag` default: the same shape with
-                // `[<StructuralComparison>]` ships the pair.
                 let src =
                     String.concat
                         "\n"
@@ -301,9 +273,7 @@ let tests =
             }
 
             test "the decoder accepts the `Attribute` suffix and qualified paths" {
-                // Both spellings reach the ONE declared marker type
-                // `Vesper.StructuralComparisonAttribute`: the suffix is optional,
-                // and a qualifier is honoured because it resolves.
+                // Both spellings resolve to `Vesper.StructuralComparisonAttribute`.
                 let suffixSrc =
                     String.concat
                         "\n"
@@ -336,11 +306,8 @@ let tests =
             }
 
             test "the < operator routes through Comparer<T>.Default.Compare for a [<StructuralComparison>] record" {
-                // End-to-end: source-level `<` / `>` / `<=` / `>=` against two
-                // values of an opted-in record type compiles + runs. The
-                // `comparison.clr.fs` inline body's static-opt base routes to
-                // `Comparer<Pair>.Default.Compare(x, y) <op> 0`, which
-                // dispatches to our generated `IComparable<Pair>::CompareTo`.
+                // The operator's base clause routes to `Comparer<Pair>.Default.Compare`,
+                // which dispatches to the generated `IComparable<Pair>::CompareTo`.
                 let src =
                     String.concat
                         "\n"
@@ -370,9 +337,7 @@ let tests =
             }
 
             test "the < operator on an unannotated record raises a Comparison diagnostic" {
-                // §Tests #6 driver: `r1 < r2` against a record whose
-                // `ComparisonSupport` is `NoComparison` (the opt-in default)
-                // produces a `Comparison` typar-constraint diagnostic.
+                // An un-annotated record's `ComparisonSupport` is `NoComparison`.
                 let src =
                     String.concat
                         "\n"
@@ -396,9 +361,7 @@ let tests =
             }
 
             test "generic record with [<StructuralComparison>] emits the pair via Comparer<!0>" {
-                // §Tests #7: the ambient `!0` machinery for the equality
-                // triple carries over to the comparison pair verbatim — a
-                // generic record gets `CompareTo(Box<!0>)` whose body reaches
+                // A generic record gets `CompareTo(Box<!0>)` whose body reaches
                 // `Comparer<!0>.Default.Compare` for its lone field.
                 let src =
                     String.concat
@@ -417,9 +380,8 @@ let tests =
 
                 let closed = openTy.MakeGenericType(typeof<int>)
 
-                // The typed `CompareTo(Box<int>)` is reachable via the open
-                // generic by matching on parameter shape (the closed type's
-                // `CompareTo` parameter is `Box<int>`).
+                // The closed type's `CompareTo` parameter is `Box<int>`, so the typed
+                // overload is found by matching on parameter shape.
                 let typedCmp =
                     closed.GetMethods(declaredInstance)
                     |> Array.tryFind (fun m ->

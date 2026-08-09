@@ -7,11 +7,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// C-Eq1 backend slice 2: a monomorphic user DU
-// gets real `Equals(object)` / `GetHashCode()` overrides walking each case's
-// fields by the §3.2 rule (`EqualityComparer<F>.Default` / `System.HashCode`).
-// Generation is independent of a `=` *use site*, so these reflect the emitted
-// members and invoke them directly — `(Circle 3).Equals(Circle 3)` etc.
+// A monomorphic user DU gets `Equals(object)` / `GetHashCode()` overrides walking
+// each case's fields through `EqualityComparer<F>.Default` / `System.HashCode`.
+// Emission does not depend on a `=` use site, so these invoke the members directly.
 
 [<Tests>]
 let tests =
@@ -27,7 +25,6 @@ let tests =
     let hashMethod (ty: Type) =
         ty.GetMethod("GetHashCode", declaredInstance, null, [||], null)
 
-    // The typed `IEquatable<Self>::Equals(Self)` — selected by exact parameter type.
     let typedEqualsMethod (ty: Type) =
         ty.GetMethod("Equals", declaredInstance, null, [| ty |], null)
 
@@ -39,9 +36,9 @@ let tests =
 
     let hash (ty: Type) (a: obj) : int = (hashMethod ty).Invoke(a, [||]) :?> int
 
-    // A DU exercising every field shape the flat walk must cover: two distinct
-    // single-`int` cases (so a tag mismatch with equal payload is the only
-    // difference), a two-`int` case, and a nullary case.
+    // Every field shape the walk must cover: two single-`int` cases (so a tag
+    // mismatch with an equal payload is the only difference), a two-field case,
+    // and a nullary case.
     let shapeSrc =
         String.concat
             "\n"
@@ -158,11 +155,9 @@ let tests =
                 let branch l r =
                     (factory ty "Branch").Invoke(null, [| l; r |])
 
-                // The `Equals(object)` override still reuses `Object`'s slot (so a
-                // boxed `.Equals(obj)` call routes to it). The recursion through
-                // `EqualityComparer<Tree>.Default` now goes via the typed
-                // `IEquatable<Tree>::Equals` path (asserted in its own test below),
-                // but both walks share the same rule.
+                // `Equals(object)` reuses `Object`'s slot, so a boxed `.Equals(obj)`
+                // routes to it; the `EqualityComparer<Tree>.Default` recursion goes
+                // through the typed `IEquatable<Tree>::Equals` instead.
                 Expect.equal
                     ((equalsMethod ty).GetBaseDefinition().DeclaringType)
                     typeof<obj>
@@ -242,14 +237,9 @@ let tests =
             }
         ]
 
-// C-Eq1 tail / equality §6 S4:
-// a *generic* user DU now emits the same equality triple as a monomorphic one,
-// written in its own `!0` — field/tag access through `MemberRef`s on the type's
-// `TypeSpec`, `EqualityComparer<!0>` / `HashCode.Add<!0>` for a typar-typed field
-// (the deferred "generic operand"), and `IEquatable<List<!0>>` as the interface.
-// These reflect the emitted members on a *constructed* instantiation (`Box<int>`)
-// and also drive a `=` use site so the BCL comparer is shown to reach the typed,
-// structural `Equals` (a distinct-but-equal generic pair compares true).
+// A generic user DU emits the same triple written in its own `!0`: field/tag
+// access through `MemberRef`s on the type's `TypeSpec`, `EqualityComparer<!0>` /
+// `HashCode.Add<!0>` for a typar-typed field, `IEquatable<Box<!0>>` as the interface.
 [<Tests>]
 let genericTests =
     let declaredInstance =
@@ -276,8 +266,7 @@ let genericTests =
     let hash (ty: Type) (a: obj) : int = (hashMethod ty).Invoke(a, [||]) :?> int
 
     // A single-field generic DU whose field *is* the declaring typar `'T`, so the
-    // generated triple compares/hashes it through `EqualityComparer<!0>` — the
-    // "generic operand" the C-Eq1 tail deferred.
+    // generated triple compares and hashes it through `EqualityComparer<!0>`.
     let boxSrc = String.concat "\n" [ "type Box<'T> ="; "    | Box of 'T" ]
 
     // A self-recursive generic DU (the canonical cons-list): the `Cons` tail field
@@ -409,12 +398,9 @@ let genericTests =
             }
 
             test "a `=` use site on a generic-DU instantiation reaches the structural triple via the comparer" {
-                // End-to-end: `Box<int>` is ground, so the `=` static-opt base routes
-                // to `EqualityComparer<Box<int>>.Default.Equals(x, y)`. Because the
-                // generic union now implements `IEquatable<Box<int>>`, that comparer
-                // is structural — two distinct-but-equal `Box 1` heap instances compare
-                // `true` (a reference `ceq` would give `false`). This is the generic
-                // twin of OperatorRoutingTests' "DU `=` is structural".
+                // `Box<int>` is ground, so `=` routes to
+                // `EqualityComparer<Box<int>>.Default`. The union implements
+                // `IEquatable<Box<int>>`, so two distinct-but-equal `Box 1` compare true.
                 let src =
                     String.concat
                         "\n"

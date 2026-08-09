@@ -7,15 +7,10 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Layer 1 behavioral corpus: function definition + application forms — a single
-// argument, currying (multi-arg), partial application, recursion, one static
-// method calling another, `inline`, and a higher-order function taking a lambda.
-// The table is the broad behavioral net; the anchors beneath it pin the emission
-// strategy (top-level fn → static method, capturing fn → closure), the
-// `inline`-expansion NodeKey freshening, and the nested-module class shape.
+// Function definition + application forms, one row per form; the anchors beneath pin the
+// emission strategy (top-level fn → static method, capturing fn → closure).
 
-/// A public static method `name` on the named module's class — for nested-module
-/// functions, which land on their module's class rather than on `Program`.
+/// Nested-module functions land on their module's class rather than on `Program`.
 let private moduleStaticMethod (bytes: byte[]) (moduleClass: string) (name: string) : MethodInfo =
     let asm = loadAssembly bytes
 
@@ -37,11 +32,6 @@ let tests =
                     "let twice x = x + x\nprintfn \"%d\" (twice 21)", "42"
                     // currying: a two-argument function fully applied
                     "let add a b = a + b\nprintfn \"%d\" (add 3 4)", "7"
-                    // NOT covered yet: a 3+-argument generic function (`a - b - c`
-                    // leaves the params as typars and codegen can't infer the
-                    // static-method instantiation for arg 3), and partial
-                    // application of a user multi-arg function (`let inc = add 1`
-                    // hits "cannot encode SemType: TyVar"). Add rows when they land.
                     // recursion
                     "let rec fact n = if n <= 1 then 1 else n * fact (n - 1)\nprintfn \"%d\" (fact 5)", "120"
                     // one static method calling another
@@ -55,14 +45,9 @@ let tests =
             // ---- inline expansion --------------------
             yield
                 test "an inline binding keeps its template and outlines its use site pre-freeze" {
-                    // The `let inline succ` template (decl 0) is retained verbatim — it is
-                    // emitted as an ordinary function too — while the use site `succ 41` is
-                    // resolved *pre-freeze* by `InlineExpansion` into an EDGE naming the entry
-                    // its body went into, carrying the one argument that entry abstracts.
-                    // (Previously this stayed an `App(Var, 41)` call for codegen to
-                    // expand.) The body behind the edge is matched as `_`: it inline-expands in
-                    // turn (real `Vesper.Core` `(+)` → `ILIntrinsic "add"`), and the anchor here
-                    // is that the call became an edge rather than staying an application.
+                    // The `let inline succ` template (decl 0) survives as an ordinary function;
+                    // the use site `succ 41` resolves pre-freeze into an EDGE carrying the one
+                    // argument. Its body is `_`: `(+)` inline-expands to `ILIntrinsic "add"`.
                     let tast = analyse "let inline succ x = x + 1\nprintfn \"%d\" (succ 41)"
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -83,8 +68,7 @@ let tests =
                 }
 
             // Without NodeKey freshening the inner and outer expansions share the
-            // parameter's NodeKey — and thus its local slot — and the program
-            // computes 41 instead of 42.
+            // parameter's local slot and the program computes 41 instead of 42.
             yield
                 test "nested inline expansion prints 42 (proves NodeKey freshening)" {
                     runs "42" "let inline succ x = x + 1\nprintfn \"%d\" (succ (succ 40))"
@@ -101,8 +85,8 @@ let tests =
                     Expect.equal exitCode 0 "Main returns 0"
                     Expect.equal (output.Trim()) "42" "twice 21 = 42 via a direct static call"
 
-                    // G8: a nil `ParamList` would throw `BadImageFormatException` on
-                    // `GetParameters`, so the reflection round-trip guards it.
+                    // A nil `ParamList` throws `BadImageFormatException` on `GetParameters`,
+                    // so the reflection round-trip guards it.
                     match programClassMethods bytes with
                     | [| m |] ->
                         Expect.isTrue m.IsStatic "emitted as a static method"
@@ -136,12 +120,9 @@ let tests =
                     Expect.equal (programClassMethods bytes).Length 2 "both inc and add3 are static methods"
                 }
 
-            // A lambda capturing a genuine local (a function parameter) is a closure.
-            // A top-level *value* is a static field, so a lambda capturing only a
-            // top-level value — `let n = 10; let addN x = x + n` — captures nothing and
-            // lowers to a static method, not a closure. To still exercise closure
-            // synthesis, capture a real local: `mk`'s parameter `n`. `mk` itself is the
-            // one static method; its inner lambda is the closure.
+            // A top-level *value* is a static field, so `let n = 10; let addN x = x + n`
+            // captures nothing and lowers to a static method. Capturing a real local
+            // (`mk`'s parameter `n`) is what forces closure synthesis.
             yield
                 test "a lambda capturing a function parameter is a closure (curried mk; prints 15)" {
                     let src = "let mk n = (fun x -> x + n)\nlet addN = mk 10\nprintfn \"%d\" (addN 5)"
@@ -159,9 +140,6 @@ let tests =
                     Expect.isTrue hasClosure "a closure type was emitted for mk's inner lambda (it captures n)"
                 }
 
-            // A function inside a `module M = …` compiles to a static method on an
-            // `M` module class, carrying its *source* name — as a top-level function does too,
-            // the difference being which type it lands on.
             yield
                 test "a function inside a nested module runs as a static method on its module class (prints 42)" {
                     let src =
@@ -198,16 +176,9 @@ let tests =
                     Expect.isEmpty (programClassMethods bytes) "lands on the M module class, not the Program class"
                 }
 
-            // ---- escape bridge (bridgeStaticFnEscapes) -------------------------
-            // A module function used higher-order *within its own assembly* still
-            // emits its flat static method; the escape ADDS a wrapper closure that
-            // `call`s it (F#/JS model). For an
-            // EXPORTED (named-module) function the flat method is the `.fsi`-advertised
-            // contract a cross-assembly consumer `call`s; demoting it entirely to a
-            // closure (the old all-or-nothing policy) left that `call` unbound →
-            // `MissingMethodException` at JIT. `bridgeStaticFnEscapes` eta-expands the
-            // escaping reference so `addOne` stays a static method AND a wrapper
-            // closure (`fun a -> addOne a`) carries the value-use.
+            // ---- escape bridge -------------------------------------------------
+            // A module function used higher-order keeps its flat static method (the contract
+            // an `.fsi` advertises), and the escape ADDS a wrapper closure `fun a -> addOne a`.
             yield
                 test "an exported module function used higher-order keeps its flat static method (escape gap)" {
                     let src =
@@ -226,9 +197,6 @@ let tests =
                     Expect.equal exitCode 0 "Main returns 0"
                     Expect.equal (output.Trim()) "42" "apply addOne 41 = 42 via the wrapper closure"
 
-                    // The load-bearing assertion: the flat method survived the escape.
-                    // Pre-fix `addOne` was demoted to a closure and this method did not
-                    // exist (the cross-assembly `MissingMethodException` latent bug).
                     let addOne = moduleStaticMethod bytes "M" "addOne"
                     Expect.isTrue addOne.IsStatic "addOne is still a static method on the M module class"
                     Expect.equal (addOne.GetParameters().Length) 1 "one flat param (the contract the .fsi advertises)"
@@ -242,12 +210,8 @@ let tests =
                     Expect.isTrue hasClosure "a wrapper closure was emitted for the eta-expanded value-use"
                 }
 
-            // The Program-class analogue of the escape gap: a *top-level* (anonymous)
-            // function used as a value also keeps its flat static method — under the
-            // unified model there is no exported-vs-Program-class split. `addOne` becomes
-            // a static method on the Program class + a wrapper closure
-            // carrying the value-use, matching F# (which emits the static method for
-            // non-exported module functions too).
+            // The Program-class analogue: a top-level function used as a value also keeps its
+            // flat static method, because there is no exported-vs-Program-class split.
             yield
                 test "a Program-class module function used higher-order keeps its flat static method" {
                     let src =
@@ -265,9 +229,6 @@ let tests =
                     Expect.equal exitCode 0 "Main returns 0"
                     Expect.equal (output.Trim()) "42" "apply addOne 41 = 42 via the wrapper closure"
 
-                    // `addOne` survives as a Program-class static method (1 flat
-                    // param) — pre-change a Program-class escaper was demoted to a closure
-                    // and no Program-class method existed.
                     let addOne =
                         programClassMethods bytes
                         |> Array.tryFind (fun m -> m.GetParameters().Length = 1)
@@ -283,16 +244,14 @@ let tests =
                 }
 
             // ---- compiled-form: tuple flattening + void everywhere -------------
-            // A tupled source group
-            // flattens to N flat CLR params (full F#), and a `unit` return is genuine
-            // `void` for module functions and static members alike.
+            // A tupled source group flattens to N flat CLR params, and a `unit` return is
+            // genuine `void` for module functions and static members alike.
 
             yield
                 test "a tupled-param module function flattens to N flat params (f(int, int), not f(ValueTuple))" {
-                    // The core motivating case: `let f (x, y)` and `let f x y` share the
-                    // source type `int -> int -> int` after currying erasure, yet the
-                    // tupled form must still emit a FLAT 2-param method — a single
-                    // `ValueTuple` param would disagree with an `fsc`-built DLL's ABI.
+                    // `let f (x, y)` and `let f x y` share the source type `int -> int -> int`
+                    // after currying erasure, yet the tupled form must emit a FLAT 2-param
+                    // method, because one `ValueTuple` param disagrees with an `fsc`-built DLL's ABI.
                     let src =
                         String.concat
                             "\n"
@@ -321,9 +280,8 @@ let tests =
 
             yield
                 test "a tuple VALUE passed to a tupled-param function spills and pushes each element (prints 7)" {
-                    // `f t` where `t : int * int` — the call site spills the tuple value
-                    // to a local and pushes each `ValueTuple` `Item`, since the method
-                    // expects two flat params.
+                    // `f t` where `t : int * int`: the method expects two flat params, so the
+                    // call site spills the tuple to a local and pushes each `ValueTuple` `Item`.
                     let src =
                         String.concat
                             "\n"
@@ -389,9 +347,8 @@ let tests =
 
             yield
                 test "a unit-returning module function self-called in statement position reifies unit (prints 42)" {
-                    // `doNothing x` returns unit and is emitted `void`; calling it in a
-                    // `Sequential` middle position must reify a `unit` so the body is
-                    // stack-balanced.
+                    // `doNothing` is emitted `void`, so calling it in a `Sequential` middle
+                    // position must reify a `unit` to keep the body stack-balanced.
                     let src =
                         String.concat
                             "\n"

@@ -7,12 +7,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The equality-triple emission gate on a
-// record / union comes from the type's attributes (filled by
-// `NameResolution.registerRecordTypeDefn` / `registerUnionTypeDefn` via the
-// `Passes.Attributes` decoder). These tests pin every verdict path against
-// the same record / union shapes used by `RecordTests.fs` /
-// `StructuralEqualityTests.fs`.
+// The equality-triple emission gate on a record / union is the type's decoded
+// attribute verdict. One test per verdict path, decl side and `=` use-site side.
 
 [<Tests>]
 let tests =
@@ -56,7 +52,6 @@ let tests =
                 Expect.isNotNull (getHash ty) "GetHashCode emitted"
                 Expect.isTrue (implementsIEquatable ty) "Counter declares IEquatable<Counter>"
 
-                // The triple compares fields, so two equal-field instances compare equal.
                 let mk count =
                     Activator.CreateInstance(ty, [| box (count: int) |])
 
@@ -89,7 +84,6 @@ let tests =
             }
 
             test "[<NoEquality>] on a record skips the triple AND diagnoses use-sites of `=`" {
-                // Decl alone (no use site): triple is skipped, no diagnostic.
                 let src =
                     String.concat "\n" [ "[<NoEquality>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
@@ -104,9 +98,8 @@ let tests =
                 Expect.isNull (getHash ty) "no GetHashCode override on a [<NoEquality>] record"
                 Expect.isFalse (implementsIEquatable ty) "Sealed does NOT declare IEquatable<Sealed>"
 
-                // Now wire a use site of `=` against the type — the
-                // `Equality` typar-constraint check sees the `NoEquality`
-                // verdict and emits a diagnostic (`Unification.checkConstraint`).
+                // A use site of `=` is what makes the equality typar-constraint check
+                // see the `NoEquality` verdict and diagnose.
                 let useSrc =
                     String.concat
                         "\n"
@@ -129,8 +122,6 @@ let tests =
             }
 
             test "default verdict for a union is unchanged (triple emitted)" {
-                // Reasserts the default: a union with no
-                // attribute still emits the triple.
                 let src =
                     String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
@@ -173,8 +164,7 @@ let tests =
             }
 
             test "the decoder accepts the `Attribute` suffix" {
-                // `[<NoEqualityAttribute>]` is the F# rule (suffix optional);
-                // the decoder must treat it identically to `[<NoEquality>]`.
+                // The `Attribute` suffix is optional in F#, so both spellings decode alike.
                 let src =
                     String.concat "\n" [ "[<NoEqualityAttribute>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
@@ -186,8 +176,8 @@ let tests =
             }
 
             test "a qualified attribute path resolves through the type it names" {
-                // `Vesper.ReferenceEqualityAttribute` is where the marker really lives,
-                // so the qualified spelling reaches the same identity as the bare one.
+                // The marker type is `Vesper.ReferenceEqualityAttribute`, so the
+                // qualified spelling reaches the same identity as the bare one.
                 let src =
                     String.concat
                         "\n"
@@ -206,9 +196,9 @@ let tests =
             }
 
             test "a qualified path that names no type is silently ignored" {
-                // `Microsoft.FSharp.Core` declares nothing here, so this decodes to
-                // NOTHING — the record keeps its default structural equality rather
-                // than taking the meaning of a same-leaf name.
+                // `Microsoft.FSharp.Core` declares nothing here, so the attribute decodes
+                // to nothing and the record keeps its default structural equality
+                // instead of taking a same-leaf name's meaning.
                 let src =
                     String.concat
                         "\n"
@@ -225,11 +215,6 @@ let tests =
                 Expect.isNotNull (equalsObj ty) "an unresolved attribute leaves the structural default"
                 Expect.isEmpty (errors tast) "an unresolved attribute is not an error"
             }
-
-            // The `Custom` posture's semantic requirement (the type must
-            // implement the matching self-instantiated BCL interface), the
-            // coherence rule (custom comparison ⇒ custom equality), and the
-            // record/union scope diagnostic.
 
             test "[<CustomEquality>] class WITH IEquatable<Self> ⇒ no diagnostic" {
                 let classSrc =
@@ -278,12 +263,9 @@ let tests =
                     (sprintf "missing IEquatable<Self> ⇒ must-implement error; got %A" (errors tast))
             }
 
-            // The custom-eq/comp conformance sweep visits each host ONCE. It iterates the
-            // class/union/record registries, which are keyed by `TypeKey` — one entry per
-            // type. A GENERIC host is the regression guard: while the registries were
-            // string-keyed, a single-arity generic type sat under BOTH its bare name and
-            // its ``name`N`` arity-key, so the sweep visited it twice and every diagnostic
-            // it raised was emitted twice.
+            // The registries are keyed by `TypeKey`, one entry per type, so the
+            // conformance sweep visits a generic host once. A string key would enter it
+            // under both its bare name and its ``name`N`` arity-key, doubling every error.
             test "[<CustomEquality>] generic class WITHOUT IEquatable<Self> ⇒ exactly one error of each kind" {
                 let src =
                     String.concat
@@ -343,9 +325,6 @@ let tests =
 
                 Expect.isNonEmpty scopeErrs (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
             }
-
-            // The front-end constraint gate honours the class verdict at `=` use
-            // sites rather than unconditionally deferring.
 
             test "[<CustomEquality>] class supports `=` at a use site (no constraint diagnostic)" {
                 let src =

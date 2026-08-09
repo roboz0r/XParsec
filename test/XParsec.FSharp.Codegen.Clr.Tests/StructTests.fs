@@ -8,16 +8,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `[<Struct>]` value-type emission. These tests reflect over the emitted PE so
-// a runtime fault (bad IL, wrong base type, lost mutation) surfaces through
-// `loadAssembly` / `Activator.CreateInstance`.
-//
-// Each test's to-be-compiled program lives as a standalone file under `data/`,
-// read + compiled at test time via `compileSourceData` / `runsDataLines` /
-// `runsSelfHostDataLines` (see `TestHelpers`). The self-hosted `%A` layout /
-// structural-format probes single-source their layout / frame / protocol fragments
-// through `//#include` directives in those data files, so a sink-protocol change
-// edits one fragment (`data/_sink-*.fs`) rather than several hand-copied program blobs.
+// `[<Struct>]` value-type emission, asserted by reflecting over the emitted PE.
+// Each test's program is a standalone file under `data/`; a `//#include _x.fs`
+// line in one splices in a shared fragment (`_layout-core.fs`, `_sink-*.fs`).
 
 [<Tests>]
 let structTests =
@@ -27,10 +20,6 @@ let structTests =
     testList
         "Struct"
         [
-            // A `[<Struct>]` RECORD routes through the same value-type machinery as a
-            // struct class: `System.ValueType` base, sealed, `RegisterUserValueType`.
-            // Before the fix a struct record emitted as an ordinary reference type
-            // (record base was `Object`, no `FTRecord` value-type recognition).
             test "a `[<Struct>]` record emits as a System.ValueType-based value type" {
                 let _, artifact = compileSourceData "StructRecordShape"
 
@@ -48,9 +37,8 @@ let structTests =
                 Expect.equal names (Set.ofList [ "X"; "Y" ]) "both record fields are present"
             }
 
-            // End-to-end: the struct record constructs, reads its fields, and its
-            // synthesised value-type equality triple (`Equals(object)` via unbox,
-            // typed `Equals(Self)` by value, `GetHashCode`) + `{ r with … }` all run.
+            // The seven lines are `a.X`, `a.Y`, `a = b`, `a = c`, `hash a = hash b`,
+            // then `{ a with X = 10 }`'s two fields.
             test "a `[<Struct>]` record constructs, field-reads, and compares structurally" {
                 runsDataLines [ "3"; "4"; "true"; "false"; "true"; "10"; "4" ] "StructRecordShape"
             }
@@ -64,8 +52,7 @@ let structTests =
                 Expect.isTrue ty.IsValueType "SPoint emits as a value type"
                 Expect.isTrue ty.IsSealed "a value type is sealed"
 
-                // Ctor-param backing fields are compiler-generated storage: `assembly`,
-                // as FSC emits them for a struct too.
+                // FSC emits ctor-param backing fields `assembly` on a struct too.
                 let fields =
                     ty.GetFields(BindingFlags.NonPublic ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
 
@@ -81,9 +68,8 @@ let structTests =
                 let ty = asm.GetType "Holder"
                 Expect.isTrue ty.IsValueType "Holder is a value type"
 
-                // Reflection boxes the constructed struct; the interface dispatch is
-                // a normal callvirt on the boxed reference, and the method reads the
-                // ctor-param backing field through the byref `this`.
+                // Reflection boxes the struct, so this is a plain `callvirt` on the
+                // box; the method reads its ctor-param field through the byref `this`.
                 let boxed = Activator.CreateInstance(ty, [| box 7 |])
                 let cmp = boxed :?> IComparable
                 Expect.equal (cmp.CompareTo(null)) 7 "CompareTo returns the stored ctor-param field"
@@ -111,9 +97,9 @@ let structTests =
             }
 
             test "a method call on an unboxed struct local dispatches by address" {
-                // `p.Sum()` on a `let`-bound struct value needs
-                // the `this` *pointer* (`ldloca` + `constrained. callvirt`), not a
-                // by-value `callvirt` (invalid IL on an unboxed value type).
+                // `p.Sum()` on a `let`-bound struct needs the `this` *pointer*
+                // (`ldloca` + `constrained. callvirt`), because a by-value `callvirt` on an
+                // unboxed value type is invalid IL.
                 let _, artifact = compileSourceData "StructUnboxedCall"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -134,9 +120,8 @@ let structTests =
             }
 
             test "a mutating method on an unboxed struct local persists (in-place addressing)" {
-                // This only passes if `this` is addressed in place (`ldloca`
-                // the slot) — a spill-to-temp copy per call would mutate a throwaway
-                // and `Get()` would read the un-mutated original.
+                // `this` must be `ldloca` of the slot itself: a spill-to-temp copy per
+                // call would mutate a throwaway and `Get()` would read the original.
                 let _, artifact = compileSourceData "StructUnboxedMutate"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -146,9 +131,8 @@ let structTests =
                 Expect.equal (run.Invoke(null, [||]) :?> int) 2 "two Bump()s on the same local leave N = 2"
             }
 
-            // A parameterless struct construction lowers to `ldloca; initobj; ldloc`
-            // on a scratch local, not a `newobj` against the synthesised parameterless
-            // `.ctor`. The field reads back as its zero-init default.
+            // `Counter()` lowers to `ldloca; initobj; ldloc` on a scratch local, not a
+            // `newobj` against the synthesised parameterless `.ctor`.
             test "a parameterless struct construction zero-inits its fields via initobj" {
                 let _, artifact = compileSourceData "StructInitObj"
 
@@ -165,8 +149,6 @@ let structTests =
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Holder"
 
-                // `AsCmp` upcasts the struct to the interface (`box`); dispatching
-                // through the returned reference proves the `:>` box round-trips.
                 let asCmp = ty.GetMethod("AsCmp", BindingFlags.Public ||| BindingFlags.Static)
                 Expect.isNotNull asCmp "AsCmp emitted as a static method"
 
@@ -195,25 +177,22 @@ let structTests =
                 let ty = asm.GetType "Pair"
                 Expect.isTrue ty.IsValueType "Pair is a value type"
 
-                // The two-arg secondary ctor must exist alongside the (empty) primary.
                 let ctor = ty.GetConstructor [| typeof<int>; typeof<int> |]
                 Expect.isNotNull ctor "the two-arg secondary ctor is emitted"
 
-                // Construct directly: the field-init block stored both args.
                 let boxed = Activator.CreateInstance(ty, [| box 3; box 4 |])
                 let fieldA = ty.GetField("A", BindingFlags.Public ||| BindingFlags.Instance)
                 let fieldB = ty.GetField("B", BindingFlags.Public ||| BindingFlags.Instance)
                 Expect.equal (fieldA.GetValue boxed :?> int) 3 "field A initialised from the first ctor param"
                 Expect.equal (fieldB.GetValue boxed :?> int) 4 "field B initialised from the second ctor param"
 
-                // And through a member that constructs + reads back.
                 let sumOf = ty.GetMethod("SumOf", BindingFlags.Public ||| BindingFlags.Static)
                 Expect.equal (sumOf.Invoke(null, [| box 3; box 4 |]) :?> int) 7 "Pair(3,4).Sum() returns 7"
             }
 
             test "a field-init ctor runs its let-preamble before storing fields" {
-                // The `let d = a + a` preamble binds a local the field-init block
-                // then reads — proving lets execute ahead of the `stfld` stores.
+                // In `new(a) = let d = a + a in { A = a; B = d }` the let runs ahead of
+                // the `stfld` stores, so `B` sees `d`.
                 let _, artifact = compileSourceData "StructFieldInitLet"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -239,7 +218,6 @@ let structTests =
                 Expect.isTrue fieldA.IsInitOnly "an immutable val field is InitOnly"
                 Expect.isFalse fieldB.IsInitOnly "a mutable val field stays writable"
 
-                // The InitOnly field is still written by the field-init ctor.
                 let boxed = Activator.CreateInstance(ty, [| box 3; box 4 |])
                 Expect.equal (fieldA.GetValue boxed :?> int) 3 "InitOnly field initialised from the ctor"
                 Expect.equal (fieldB.GetValue boxed :?> int) 4 "mutable field initialised from the ctor"
@@ -283,10 +261,8 @@ let structTests =
             }
 
             test "a generic struct dispatches a member that reads a generic ctor-param field (boxed)" {
-                // Boxed dispatch through the generic self-`TypeSpec`: the ctor stores
-                // `value` into the open `Box\`1<!0>::value` field and `Get()` reads it
-                // back. A `CLASS`-tagged self-`TypeSpec` would fault "value type
-                // mismatch" before `Get()` ever runs.
+                // The ctor stores into the open `Box\`1<!0>::value` field and `Get()`
+                // reads it back, so the self-`TypeSpec` must be VALUETYPE-tagged.
                 let _, artifact = compileSourceData "GenericStructMember"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -331,9 +307,8 @@ let structTests =
                 Expect.isTrue openTy.IsValueType "OnceEnum`1 is a value type"
                 let ty = openTy.MakeGenericType [| typeof<int> |]
 
-                // Box the struct and drive it through the generic `IEnumerator<int>`.
-                // The mutation in `MoveNext` must survive across calls (byref `this`
-                // into the box), so the second `MoveNext` reports the end.
+                // `MoveNext`'s mutation goes through the byref `this` into the box, so
+                // it survives across calls and the second `MoveNext` sees the end.
                 let boxed = Activator.CreateInstance(ty, [| box 42 |])
                 let e = boxed :?> System.Collections.Generic.IEnumerator<int>
                 Expect.isTrue (e.MoveNext()) "first MoveNext starts the single-element enumeration"
@@ -347,8 +322,6 @@ let structTests =
                 Expect.equal (ng.Current :?> int) 7 "non-generic Current boxes the item"
             }
 
-            // A class `GetEnumerator()` constructs the struct enumerator in-method
-            // and returns it `:>`-upcast (boxed) to the interface.
             test "a class GetEnumerator constructs a struct enumerator and returns it boxed (yields the element)" {
                 let _, artifact = compileSourceData "StructEnumeratorSeq"
 
@@ -364,9 +337,8 @@ let structTests =
                     "enumerating the seq via its struct enumerator yields the single element"
             }
 
-            // An explicit type application at the construction site (`OnceEnum<'T>(x)`):
-            // the secondary-ctor type args must ground from both the explicit `<'T>` and
-            // the value arg, not leak as a free `TyVar`.
+            // At `OnceEnum<'T>(x)` the secondary ctor's type args ground from both the
+            // explicit `<'T>` and the value arg, rather than leaking as a free `TyVar`.
             test "a class GetEnumerator constructs the struct enumerator with explicit type args (Set<'T> shape)" {
                 let _, artifact = compileSourceData "StructEnumeratorTypeApp"
 
@@ -379,12 +351,9 @@ let structTests =
                 Expect.equal (s |> Seq.toList) [ 5 ] "explicit-type-app construction enumerates to the single element"
             }
 
-            // A struct declared in a referenced package: the consumer must encode
-            // `ELEMENT_TYPE_VALUETYPE` (0x11) not `CLASS` (0x12) — a wrong tag faults
-            // the loader. The package directory name IS the package identity
-            // (`buildClosure` resolves `depends-on` against it), so it must equal
-            // the manifest `name` — hence `Vesper.PointPkg`, not a descriptive slug.
             test "a struct declared in a referenced package encodes as VALUETYPE in a consumer signature" {
+                // The package directory name IS the package identity that `depends-on`
+                // resolves against, so it must equal the manifest `name` below.
                 let outDir = tmpDir "Vesper.PointPkg"
                 let manifestPath = System.IO.Path.Combine(outDir, "manifest.toml")
                 let fsiPath = System.IO.Path.Combine(outDir, "point.fsi")
@@ -431,9 +400,8 @@ let structTests =
                 Expect.equal elem 0x11uy "the referenced struct encodes as ELEMENT_TYPE_VALUETYPE"
             }
 
-            // An infix operator inside an `interface … with member …` body: desugar
-            // must walk interface member bodies, not only the type's own members,
-            // or the operator gets no `DesugaredForm.OpName` entry and Elaborate throws.
+            // The `=` here sits inside an `interface … with member …` body, so desugar
+            // has to walk interface member bodies, not only the type's own members.
             test "an infix operator inside a struct interface member resolves (SetIterator.MoveNext shape)" {
                 let _, artifact = compileSourceData "StructIfaceInfix"
 
@@ -441,11 +409,8 @@ let structTests =
                 let ty = asm.GetType "Iter"
                 Expect.isTrue ty.IsValueType "Iter is a value type"
 
-                // Box the struct and drive `MoveNext` through `IEnumerator`. The
-                // ctor seeds a single-element stack whose `Node.Height = 1`, so the
-                // first `MoveNext` takes the `=`-true branch (pops the stack, sets
-                // `Hit`) and returns true — proving the interface-body `=` both
-                // froze and ran. A second call hits the `[]` arm and returns false.
+                // `Iter(Node 1)` seeds a one-element stack, so the first `MoveNext`
+                // takes the `t.Height = 1` branch and pops it; the second sees `[]`.
                 let nodeTy = asm.GetType "Node"
                 let node = Activator.CreateInstance(nodeTy, [| box 1 |])
                 let boxed = Activator.CreateInstance(ty, [| node |])
@@ -454,11 +419,8 @@ let structTests =
                 Expect.isFalse (e.MoveNext()) "second MoveNext hits the empty-stack arm"
             }
 
-            // A chained property access `this.field.Prop` where `field` is a
-            // `val`/ctor-param instance field: `recoverFieldStepTy` must scan val
-            // fields (not just members) when resolving intermediate chain types,
-            // otherwise the object argument gets the final property's type instead of the
-            // field's type.
+            // In `this.Stack.IsEmpty` the intermediate step `Stack` is a `val` field,
+            // not a member, so the object argument for `IsEmpty` types as `int list`.
             test "a chained property on a struct val field types the object argument as the field, not the property" {
                 let _, artifact = compileSourceData "StructFieldChainProp"
 
@@ -477,9 +439,8 @@ let structTests =
                 Expect.isTrue (notEmpty.Invoke(fullWrap, [||]) :?> bool) "non-empty stack ⇒ NotEmpty() is true"
             }
 
-            // `[<Struct; IsByRefLike>]` emits the `IsByRefLikeAttribute` marker so
-            // the CLR confines the type to the stack. The runtime surfaces this as
-            // `Type.IsByRefLike`.
+            // `[<Struct; IsByRefLike>]` emits the `IsByRefLikeAttribute` marker so the
+            // CLR confines the type to the stack.
             test "a `[<Struct; IsByRefLike>]` type emits a byref-like value type" {
                 let _, artifact = compileSourceData "RefStructShape"
 
@@ -500,32 +461,27 @@ let structTests =
                 Expect.isFalse ty.IsByRefLike "a plain [<Struct>] is not byref-like"
             }
 
-            // An external generic value type (`Span<char>`): ctor/member refs must be
-            // tagged `VALUETYPE` not `CLASS`, and dispatch must be address-based
-            // (`ldloca` + non-virtual `call`) — a by-value `callvirt` is verifier-illegal
-            // on a ref struct.
+            // `Span<char>` is an external generic value type: its ctor/member refs tag
+            // `VALUETYPE`, and dispatch is `ldloca` + non-virtual `call` (a by-value
+            // `callvirt` on a ref struct is verifier-illegal).
             test "ref struct with a Span<char> field — ctor, Length, Slice round-trip" {
                 runsDataLines [ "5"; "3" ] "ref-struct-span-field"
             }
 
-            // `Span<T>`'s element accessor is `get_Item(i) : T&` (byref return, no
-            // by-value form). This exercises the full byref stack: resolving
-            // `get_Item` as carrying `FTConst("byref",[elem])`, encoding
-            // `ELEMENT_TYPE_BYREF` in the member-ref, and dereferencing via `ldobj`.
+            // `Span<T>`'s only element accessor is `get_Item(i) : T&`, so `chars.[i]`
+            // must encode `ELEMENT_TYPE_BYREF` in the member-ref and `ldobj` the result.
             test "ref struct Span<char> byref indexer read — chars.[i]" {
                 runsDataLines [ "e"; "o" ] "ref-struct-span-byref-indexer"
             }
 
-            // `ArrayPool<char>.Shared.Return` omits its optional `clearArray = false`
-            // trailing parameter. The provider surfaces `OptionalDefaults`; Elaborate
-            // synthesises the omitted constant so codegen sees the full call.
+            // The call omits `Return`'s optional trailing `clearArray = false`; that
+            // constant is synthesised, so codegen still sees a full two-arg call.
             test "ArrayPool<char>.Shared Rent + Return (omitted optional arg)" {
                 runsDataLines [ "ok" ] "arraypool-rent-return-optional-arg"
             }
 
-            // The `null` literal pattern binds nothing and lowers to a non-null test
-            // (`ldloc; brtrue` skips the arm), so a null scrutinee falls to the body
-            // and any other value to the next arm.
+            // The `null` literal pattern binds nothing and lowers to `ldloc; brtrue`
+            // past the arm, so only a null scrutinee reaches the body.
             test "a `null` literal pattern matches a null reference, binds nothing" {
                 runsDataLines [ "null"; "value" ] "null-literal-pattern"
             }
@@ -546,58 +502,50 @@ let structTests =
 
             test "uint cast feeding Math.Max/Min/Clamp" { runsDataLines [ "true" ] "uint-cast-math-clamp" }
 
-            // A project-local generic member called at multiple distinct types within
-            // the same assembly: method typars must be freshened per call site
-            // (`Engine.instantiateMemberCall`), not grounded to the first call's type.
-            // Without freshening the member emits as a mono method and the second
-            // call passes a wrong-typed arg (`InvalidProgramException` at JIT).
+            // One project-local generic member, called at int / float / ref in the same
+            // assembly: its method typars freshen per call site rather than grounding
+            // to the first call's type.
             test "generic member IFormattable dispatch (int/float/ref), same-assembly multi-instantiation" {
                 runsDataLines [ "42"; "3.14"; "hi" ] "generic-member-multi-instantiation"
             }
 
-            // Same typar-freshening invariant at module scope: a generic free function
-            // (capturing nothing) called at two distinct types must stay generic,
-            // not ground to the first call.
+            // The same freshening at module scope: a capture-free generic function
+            // called at two types stays generic.
             test "generic free function, same-assembly multi-instantiation" {
                 runsDataLines [ "42"; "3.14" ] "generic-free-fn-multi-instantiation"
             }
 
-            // `&local` (managed address-of) lowers to `ldloca` of the operand's slot;
-            // the member-ref encodes the parameter with `ELEMENT_TYPE_BYREF`. The local
-            // must be a function-local mutable — a module-level mutable is a static
-            // field, not a slot-addressable local.
+            // `&r` lowers to `ldloca` of the slot, with `ELEMENT_TYPE_BYREF` on the
+            // member-ref parameter. `r` has to be a function-local mutable, because a
+            // module-level mutable is a static field, not a slot-addressable local.
             test "Int32.TryParse(s, &r) writes the out local through a byref arg" {
                 runsDataLines [ "123"; "-1" ] "int-tryparse-byref-out"
             }
 
-            // `ISpanFormattable.TryFormat` writes formatted chars straight into a
-            // `Span<char>` buffer (no intermediate string), reading the count back
-            // through the `&cw` out arg. `int`/`float` implement `ISpanFormattable`;
-            // `string` falls to the `o.ToString()` arm.
+            // `TryFormat` writes chars straight into a `Span<char>` and reports the
+            // count through `&cw`. `int`/`float` take it; `string` has no
+            // `ISpanFormattable`, so `"hi"` comes from the `o.ToString()` arm.
             test "AppendFormatted span fast-path via ISpanFormattable.TryFormat" {
                 runsDataLines [ "42"; "3.14"; "hi" ] "spanformattable-tryformat"
             }
 
-            // Every body mutates `this` through self-calls (`AppendFormatted` →
-            // `AppendLiteral` → `GrowThenCopyString` → `Grow` → `GrowCore`). These
-            // only persist because struct self-calls address `this` in place; a
-            // defensive copy per call would lose each mutation.
+            // A five-deep self-call chain (`AppendFormatted` → `AppendLiteral` →
+            // `GrowThenCopyString` → `Grow` → `GrowCore`), each body mutating `this`:
+            // the mutations persist only if self-calls address `this` in place.
             test "struct formatter core — literal, generic hole, grow, string sink" {
                 runsDataLines [ "x=42, pi=3.14"; "400" ] "formatter-core-selfcall-grow"
             }
 
-            // Same-name overloaded generic members: each overload carries its own
-            // method typar `'T`. Elaboration must match the exact overload by `DeclKey`,
-            // not by name — otherwise all overloads share the first one's typars and
-            // the others' `'T` freezes as `?free-typar`.
+            // Three same-name `G` overloads, each with its own method typar `'T`.
+            // Matching by name alone would share the first overload's typars and
+            // freeze the others' `'T` as `?free-typar`.
             test "same-name overloaded generic members each generalise their own 'T" {
                 runsDataLines [ "42" ] "overloaded-generic-members-own-typar"
             }
 
-            // External instance method overload resolution on a variable/property
-            // object argument: `w.Write("hi")` parses with `fn = LongIdent [w; Write]`
-            // (the parser folds the dot). This must go through `pickBestOverload`,
-            // not the single-pick field walk (which would grab the widest overload).
+            // The parser folds the dot, so `w.Write("hi")` arrives as
+            // `fn = LongIdent [w; Write]`, but it still has to pick the best overload by
+            // argument type, not take the first/widest one the field walk finds.
             test "external instance overload pick on a folded-LongIdent object argument" {
                 runsDataLines [ "hi" ] "external-instance-overload-folded-longident"
             }
@@ -619,31 +567,21 @@ let structTests =
             // loop, not a range enumerable walk.
             test "for i in 1..n range loop (lowers to counted ForTo)" { runsDataLines [ "15" ] "for-in-range-counted" }
 
-            // `a + b + c` = `(a + b) + c`: the outer `+`'s `^T` must be grounded by
-            // a sibling ground operand (`c : string` or the `string` return position),
-            // not pinned to the inner App's still-abstract result type. Without this,
-            // the operator falls to its numeric `add` base — `add` on string refs is
-            // an AccessViolation.
+            // `a + b + c` is `(a + b) + c`, and the outer `+`'s `^T` grounds from a
+            // sibling ground operand (`c : string`, or the `string` return position),
+            // not from the inner App's still-abstract result type.
             test "Chained string concat a + b + c lowers to String.Concat (not numeric add)" {
                 runsDataLines [ "abc"; "(x)" ] "chained-string-concat"
             }
 
-            // String escape sequences must decode to the char they denote: `ElaborateLiterals`
-            // must not append the raw 2-char span verbatim.
+            // `"\t"` reaches the emitted value as one tab char, not the raw 2-char span.
             test "string literal escape sequences decode in the emitted value" {
                 runsDataLines [ "a"; "b"; "x\ty"; "q\"r" ] "string-escape-sequences"
             }
 
-            // The `%A` layout core: a group is all-flat iff
-            // `col + inner.flatWidth <= width` (`width = 0` ⇒ always flat), never
-            // half-broken. `render` returns a record `{ Txt; Col }` rather than
-            // threading a `StringBuilder` (avoids mixed ref/value-field path).
-            //
-            // The DU cases are named `LDoc`/`LText`/… to avoid clashing with the
-            // external C# `Vesper.Doc`/`Vesper.DocGroup`/… already in scope from the
-            // default test stack; a local `DocGroup(…)` would otherwise bind the
-            // external class (no ctor recipe) instead of the local union case. The
-            // layout core is the single-sourced `data/_layout-core.fs` fragment.
+            // A group is all-flat iff `col + flatWidth inner <= width` (`width = 0` ⇒
+            // always flat), never half-broken. The fragment's `L`-prefixed cases
+            // (`LDoc`/`LText`/…) dodge the `Vesper.Doc`/`DocGroup` names in scope.
             test "Doc layout core — flatWidth + Render (flat / never-break / broken)" {
                 runsDataLines
                     [
@@ -659,18 +597,15 @@ let structTests =
                     "doc-layout-core"
             }
 
-            // A list literal passed directly as a union-case argument `LCat [ a; b; c ]`:
-            // `peelCtorArgs` must only collapse round-paren/begin-end grouping, never
-            // unwrap a `[ … ]` literal's `EnclosedBlock` (which would drop the list lowering).
+            // In `LCat [ a; b; c ]` only round-paren / begin-end grouping is peeled off
+            // the case argument; unwrapping the `[ … ]` block would drop the list.
             test "list literal as a direct union-case argument round-trips" {
                 runsDataLines [ "3"; "6" ] "list-literal-union-case-arg"
             }
 
-            // Overloaded instance members on a struct, where one overload self-calls
-            // another: `Members` must key to an overload list and pick by argument
-            // types at the call site (ECMA-335 §I.10.2). Keying by name only makes
-            // every call resolve to the first overload's handle, causing
-            // `InvalidProgramException` when the arity or types mismatch.
+            // `S` has three `G` overloads adding 100 / 10 / 1; `U` self-calls
+            // `this.G(y, 0)`, so picking by argument type (not by name) is what makes
+            // two `U` calls total 2 rather than 200 or 20.
             test "overloaded struct self-call resolves the right overload by arg types" {
                 runsSelfHostDataLines [ "2" ] "overloaded-struct-selfcall"
             }
@@ -682,11 +617,9 @@ let structTests =
                 runsEq "42   ,7" "printfn \"%-5u,%d\" 42 7"
             }
 
-            // A class-hosted `IFormatSink` + frame stack: a union case drives the
-            // semantic `BeginCase`/`Child`/`EndCase` protocol; the sink decides
-            // single-payload parenthesisation from the child's application-shapedness
-            // (`Some (Some 1)` but not `Some 1`). Drivers are classes (`MyList`/`MyOpt`)
-            // because union interface impls are unsupported front-to-back.
+            // A union case drives the `BeginCase`/`Child`/`EndCase` sink protocol; the
+            // sink parenthesises a single payload only when the child is itself
+            // application-shaped: `Some (Some 1)` gets parens, a bare `Some 1` does not.
             test "a class IFormatSink sink + frame stack renders lists and nested cases" {
                 runsSelfHostDataLines
                     [
@@ -728,9 +661,8 @@ let structTests =
                 runsSelfHostDataLines [ "(1, 2)"; "[1; 2; 3]" ] "structural-format-tuple-enum"
             }
 
-            // The full `%A` dispatch + atom rendering: the reflection-free `:?` chain,
-            // atom helpers (`formatPrimitive`/`fixFloat`/`quoteString`/`quoteChar`),
-            // and the depth+size budget. Drives one value per dispatch arm.
+            // One value per arm of the reflection-free `:?` dispatch chain; the final
+            // `[1; 2; ...]` is the size budget cutting the list short.
             test "structural %A engine: Dispatch + atom rendering (depth+size budget)" {
                 runsSelfHostDataLines
                     [
@@ -749,10 +681,9 @@ let structTests =
                     "structural-format-dispatch-engine"
             }
 
-            // A val-field class whose only ctor is a parameterless `new() = { … }`:
-            // no synthesised empty primary `.ctor()` must be emitted alongside it
-            // (two identical `.ctor()` rows would leave construction binding the empty
-            // one and every field uninitialised).
+            // `new() = { X = 42; Y = 7 }` is the only ctor, so no empty primary
+            // `.ctor()` is synthesised beside it; otherwise a second identical row would leave
+            // construction binding the empty one and both fields at 0.
             test "a val-field class with only a parameterless new() initialises its fields" {
                 runsDataLines [ "42"; "7" ] "valfield-parameterless-ctor"
             }

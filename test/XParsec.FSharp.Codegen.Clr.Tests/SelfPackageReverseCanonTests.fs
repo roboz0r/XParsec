@@ -6,16 +6,9 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-/// A package that DECLARES a primitive must resolve BCL members over it exactly as a
-/// consumer of that package does. `composeOrdered` seeds a package's extraction leaf from
-/// its DEPENDENCIES and the final composite from every built provider — itself included —
-/// so without `ClrCompilation.SelfManifest` the `{ platform -> canon }` map holds
-/// `System.String -> Vesper.string` for everyone EXCEPT the package that states it.
-///
-/// The probe is appended to Vesper.Core's real `impl` list and compiled as Core, so its
-/// `string` is the `TyConst Vesper.string` Core's own `.fs` binds — the situation
-/// `prim-types-string.clr.fs` is in, not a reconstruction of it. Both directions are asserted:
-/// unseeded it must FAIL, or the test would pass for a reason unrelated to the seed.
+/// A package that DECLARES a primitive must resolve BCL members over it exactly as a consumer
+/// of that package does. A package's extraction leaf is seeded from its DEPENDENCIES, so
+/// without a self manifest `System.String -> Vesper.string` holds for everyone EXCEPT Core.
 module SelfPackageReverseCanonTests =
 
     let private probeSource =
@@ -37,6 +30,8 @@ module ConcatProbe =
          |> List.map (fun rel -> vesperCoreSource rel, System.IO.File.ReadAllText(vesperCoreSource rel)))
         @ [ "concat-probe.fs", probeSource ]
 
+    /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's
+    /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.
     let private compileProbeAsCore (selfManifest: string option) =
         ClrDriver.compileAssemblyWith
             Pipeline.analyseFor
@@ -70,9 +65,8 @@ module ConcatProbe =
                         failtestf "seeded compile should succeed, got:\n%s" text
                 }
 
-                // The seed's whole claim is that the two views agree. `string` is the one
-                // that motivated it; `int`/`obj`/`exn` ride the same map and are asserted
-                // here so a partial seed cannot pass.
+                // `string` motivated the seed; `int`/`obj`/`exn` ride the same map and are
+                // asserted here so a partial seed cannot pass.
                 test "the self axis is the axis a consumer of the package sees" {
                     let selfAxis =
                         ClrSymbolProviders.selfReverseCanon Target.Clr (Some vesperCoreManifest)

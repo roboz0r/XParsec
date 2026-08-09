@@ -13,28 +13,20 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private dummyTok: SyntaxToken =
     SyntaxToken.virtualToken (XParsec.FSharp.Lexer.PositionedToken.Create(XParsec.FSharp.Lexer.Token.EOF, 0))
 
-/// The real Vesper.Core front-end provider, so these hand-written-IL fixtures read
-/// primitive reprs from the single source (Core's extracted `.fs`) like every other
-/// build, rather than a codegen-local table. `buildContract` caches, so this is built
-/// once across the suite.
+/// The real Vesper.Core provider, so these hand-written-IL fixtures read primitive reprs
+/// from Core's own `.fs` like every other build. `buildContract` caches.
 let private coreProvider: Lazy<IExternalSymbolProvider> =
     lazy ClrSymbolProviders.buildContract [ vesperCoreManifest ]
 
-// The reified IL-buffer's own unit suite (XParsec.FSharp.Codegen.Clr.IlIr). The two
-// demonstrators below stand in for the two real producers — `buildExpr` for the
-// dynamic TAST walker, `guardChainEquality` for a per-type template — built into an
-// `ILBody`, run through `IlIr.analyze`/`verify`/`lower`. The data points: both
-// producers share one structure + one `lower`; `verify`'s independently-computed
-// maxStack matches what lowering tracks; and `verify` rejects an imbalance built
-// dynamically (a label reached at two depths, an underflow) — the check the production
-// walker has no static type to give it.
+// The reified IL-buffer's own unit suite. The two demonstrators below stand in for the two
+// real producers, a dynamic TAST walker and a per-type template, each built into an
+// `ILBody` and run through `analyze` / `verify` / `lower`.
 
 // ---- Demonstrators: the two producer shapes over the IlIr buffer ----
 
-/// A bounded slice of the dynamic TAST walker, retargeted from eager `emit` to
-/// "append to the buffer": enough node kinds (`Const`, `IfThenElse`, `ILIntrinsic`)
-/// to exercise a real branch-merge on a real `TExpr`. The shape mirrors the
-/// production `Emit.buildExpr` arm — a plain recursive append.
+/// A bounded slice of the dynamic TAST walker, appending to the buffer instead of
+/// emitting: enough node kinds (`Const`, `IfThenElse`, `ILIntrinsic`) to exercise a real
+/// branch-merge on a real `TExpr`.
 let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
     match e with
     | TExpr.Const(TConstValue.Integral(w, bits), _, _) -> b.Add(EmitTypes.intConstLoad w bits)
@@ -69,11 +61,9 @@ let private mainOf (e: TExpr) : ILBody =
     b.Add ILInstr.Ret
     b.Body
 
-/// The template shape: the early-exit skeleton of `Emit.buildUnionEqualsTyped` — N
-/// guards each branching to one shared `false` tail, then two `ret`s. Built over
-/// constants so it runs standalone (returns 1 when every pair is equal, else 0). It
-/// exercises exactly the false-tail / dual-`ret` depth bookkeeping the production
-/// template leans on `analyze` to derive.
+/// The template shape: N guards each branching to one shared `false` tail, then two
+/// `ret`s. Over constants so it runs standalone, returning 1 when every pair is equal and
+/// 0 otherwise, which exercises the false-tail / dual-`ret` depth bookkeeping.
 let private guardChainEquality (pairs: (int * int) list) : ILBody =
     let b = IlBuilder()
     let falseL = b.Label()
@@ -101,9 +91,8 @@ let tests =
     let ceq a b =
         TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool, dummyTok)
 
-    // Lower into a standalone `Il` (no metadata context — the demo bodies carry no
-    // tokens) to read the maxStack the live tracker computes, for cross-checking
-    // `verify`'s independent number.
+    // The demo bodies carry no metadata tokens, so a standalone `Il` can lower them and
+    // report the maxStack the live tracker computes, against `verify`'s own number.
     let loweredMaxStack (body: ILBody) : int =
         let il = Il(InstructionEncoder(BlobBuilder(), ControlFlowBuilder()))
         IlIr.lower body il
@@ -171,8 +160,7 @@ let tests =
 
             test "verify catches a label reached at two different depths" {
                 // ldc 1; brfalse skip; ldc 10; skip: ret
-                // fall-through into `skip` is depth 1, but the brfalse targets it at
-                // depth 0 — an imbalance only an analysis over the built buffer can see.
+                // Fall-through reaches `skip` at depth 1, the brfalse at depth 0.
                 let b = IlBuilder()
                 let skip = b.Label()
                 b.Add(ILInstr.LdcI4 1)
@@ -198,13 +186,9 @@ let tests =
                 | Result.Ok ms -> failtestf "expected underflow error, got maxStack %d" ms
             }
 
-            // ---- Exception regions (H5) -------------------------------------
-            // The IR's `Try`/`BeginFinally`/`BeginCatch`/`EndFinally`/`EndCatch`/
-            // `Leave` pseudo-marks bracket protected regions; `lower` mints internal
-            // labels at each pseudo-mark and records the region on the encoder's
-            // `ControlFlowBuilder`. `analyze` models the CLI handler-entry depth
-            // (0 for finally, 1 for catch) and treats `leave` as clearing the
-            // evaluation stack.
+            // ---- Exception regions ------------------------------------------
+            // The `Try`/`BeginFinally`/`BeginCatch`/`Leave` pseudo-marks bracket protected
+            // regions. Handler entry depth is 0 for a finally, 1 for a catch.
 
             test "try/finally with no thrown exception runs both halves" {
                 // result = 0; try { result = 42 } finally { result += 100 }; return result
@@ -255,8 +239,8 @@ let tests =
             }
 
             test "BeginCatch entry pushes the exception object (depth = 1)" {
-                // `pop` immediately after BeginCatch should not underflow — the
-                // runtime pushes the exception, giving the handler entry depth 1.
+                // `pop` right after BeginCatch must not underflow: the runtime already
+                // pushed the exception object.
                 let b = IlBuilder()
                 let r = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
                 let exitL = b.Label()
@@ -293,18 +277,10 @@ let tests =
                 Expect.throws (fun () -> IlIr.lower b.Body il) "lower must reject an unclosed region"
             }
 
-            // The end-to-end try/catch test (a thrown exception caught by a real
-            // `catch (System.Object)`) needs a `System.Object` `EntityHandle`,
-            // which only the wired `ClrProvider` mints. Drive it through the
-            // provider-aware seam.
+            // A real `catch (System.Object)` needs a `System.Object` `EntityHandle`, which
+            // only a wired provider mints, hence the provider-aware entry point.
             test "try/finally that throws — finally runs, outer catch sees it" {
-                // result = 0
-                // try {
-                //   try { ldnull; throw }
-                //   finally { result = 100 }
-                // }
-                // catch (object) { pop; }
-                // return result
+                // r = 0; try { try { throw } finally { r = 100 } } catch (object) { pop }; r
                 let buildBody (provider: ICodegenProvider) (il: Il) : unit =
                     let b = IlBuilder()
                     let r = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))

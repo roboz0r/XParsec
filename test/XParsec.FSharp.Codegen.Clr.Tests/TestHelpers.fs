@@ -10,10 +10,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 
-// The nominal `SemType` cases carry a
-// `SymbolKey`; these shadow the constructors + expose name-projecting active
-// patterns so codegen tests keep constructing / matching them by string name.
-// See the SemanticAnalysis.Tests `TestHelpers` twin for the rationale.
+// `SemType`'s nominal cases carry a `SymbolKey`; these shadow the constructors and
+// project the name back out, so tests construct and match by string name.
 let TyUnion (name: string, args: EqArray<SemType>) =
     SemType.TyUnion(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
@@ -40,23 +38,18 @@ let (|TyClass|_|) (t: SemType) =
     | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
     | _ -> None
 
-/// Project an `EqArray<'T>` as a plain `'T list` inside a pattern match — lets
-/// tests written against the pre-EqArray TAST keep their list-literal arms
-/// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip.
+/// Project an `EqArray<'T>` as a `'T list` inside a pattern match, so a test arm can be a
+/// list literal: `| EqList [ TDecl.Let _ ] -> …`.
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
-/// A frozen file's declarations as pool handles, with the specialization graph spliced —
-/// what `Layout.buildFile` opens and expands before anything else, so a test that drives a
-/// lowering / discovery pass directly starts from the same representation the backend does.
-/// Placing a body is deferred to emission, so an inline body a test looks for is behind an
-/// edge until this runs.
+/// A frozen file's declarations as pool handles with the specialization graph expanded,
+/// which is the representation the backend starts from. Until this runs, an inline body
+/// sits behind an edge rather than in the tree.
 let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
     let pool = TastPoolBuilder.openOver frozen
     (InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)).Decls
 
-/// The abstraction of the specialization entry `spec` names, in the file's own table. An
-/// entry is always a `TDecl.Let` of lambdas, and the edge's arguments are positional against
-/// its surviving parameters.
+/// The lambda a specialization entry binds, read out of the file's own table.
 let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
 
@@ -64,18 +57,14 @@ let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     | TDecl.Let(_, value, _, _) -> value
     | other -> failwithf "a specialization entry is a `TDecl.Let` of lambdas; got %A" other
 
-/// Read THROUGH an `InlineCall` edge to the body it names — the identity on anything else.
-/// A resolved inline body is no longer spliced into the consuming tree: the pass leaves an
-/// edge and the body sits in the table, so a shape assertion about "what the operator
-/// lowered to" follows the edge to find it.
+/// Read THROUGH an `InlineCall` edge to the body it names; the identity on anything else.
+/// A resolved inline body sits in the specialization table, not spliced into the consumer.
 let rec throughEdge (tast: TastFile) (e: TExpr) : TExpr =
     match e with
     | TExpr.InlineCall(spec = spec) -> throughEdge tast (specializationValue tast spec)
     | _ -> e
 
-/// Run `it` over `e` and over the entry any edge inside `e` names, transitively — the walk
-/// a shape assertion about "what this body lowered to" needs, an entry's own body being free
-/// to name a further entry.
+/// Run `it` over `e` and, transitively, over every specialization entry its edges name.
 let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit =
     TastWalk.iterExpr
         { it with
@@ -91,9 +80,8 @@ let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit 
         }
         e
 
-/// Run `it` over every expression the analysed file carries — its declarations AND the
-/// entries its edges name. What a walk of `Decls` alone used to cover, now that placement
-/// is deferred and a resolved body is an entry rather than a splice.
+/// Run `it` over every expression the file carries: its declarations AND its
+/// specialization entries. Walking `Decls` alone misses the entries.
 let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
     let ofDecl (d: TDecl) =
         match d with
@@ -107,20 +95,16 @@ let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
     for entry in tast.Specializations do
         ofDecl entry.Decl
 
-/// Lex + parse a source string; script fragments wrap as `AnonymousModule`. Through
-/// `Pipeline.parseUnrecovered`, the same gate the driver compiles behind, so a source that
-/// parses only because RECOVERY patched it raises here rather than being analysed as though
-/// it had been written that way.
+/// Lex + parse a source string; a script fragment wraps as `AnonymousModule`. A source that
+/// parses only because recovery patched it raises here, as it does in the driver, rather
+/// than being analysed as though it had been written that way.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    // `Result.Ok`/`Result.Error` are qualified because `open ...SemanticAnalysis`
-    // brings `Severity.Error` into scope, which would otherwise shadow them.
     match Pipeline.parseUnrecovered input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
-/// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
-/// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable
-/// rather than the OS temp dir.
+/// `<repo-root>/tmp/<name>`, created, where the repo root is the directory holding
+/// `claude_tools.cmd`. Artifacts stay inspectable rather than landing in the OS temp dir.
 let tmpDir (name: string) : string =
     let rec up (dir: string) =
         if isNull dir then
@@ -146,29 +130,17 @@ let vesperListSource (fileName: string) : string =
 let vesperPrintfSource (fileName: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Printf", fileName)
 
-/// `src/Vesper.Core/manifest.toml` — the Vesper.Core layer-1 referenced-project
-/// manifest. Declared up here (above the
-/// `vesperListDll` fixture, which references it) rather than in the
-/// downstream manifest block.
 let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
 
-/// Render a multi-file driver's anchored diagnostics (`path: message`, one per line)
-/// for a fixture's failure message.
+/// A multi-file driver's anchored diagnostics as `path: message`, one per line.
 let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
     diags
     |> List.map (fun d -> sprintf "%s: %s" d.Path d.Diagnostic.Message)
     |> String.concat "\n"
 
-/// Compile `Vesper.Core.dll` from `prim-types-min.clr.fs` + `core-types.fs` (the
-/// `Vesper.Fun\`2` interface, the primitive intrinsics, and the `Vesper.Ref\`1`
-/// captured-mutable cell), load it into the *Default* `AssemblyLoadContext`, and
-/// return its path. An in-process user PE loaded into a fresh context resolves
-/// `Fun` / `Ref` through that context's fallback to Default, exactly how
-/// `Vesper.Printf` already resolves. Forced once; later compiles inject the path
-/// so their function values + promoted-mutable cells reference this DLL.
-/// Compiled with **no** core injected — `Vesper.Core` *defines* `Fun` and
-/// `Ref`. The cons-list is its own package now (`vesperListDll` →
-/// `Vesper.List.dll`), not concatenated here.
+/// Compile `Vesper.Core.dll` from its manifest's `impl` files, load it into the *Default*
+/// `AssemblyLoadContext`, and return its path. *Default* because a PE loaded into a fresh
+/// context resolves `Vesper.Fun\`2` / `Vesper.Ref\`1` through that context's fallback to it.
 let vesperCoreDll: Lazy<string> =
     lazy
         (let outDir = tmpDir "vesper-core"
@@ -179,12 +151,9 @@ let vesperCoreDll: Lazy<string> =
                  OutputPath = Some corePath
              }
 
-         // Compile every `impl` file the manifest lists as its OWN file through the
-         // shared multi-file seam (`ClrDriver.compileAssemblyWith`) — the fixture and the
-         // package build share ONE source list (no fixture/manifest drift), and each file
-         // is analysed against the composed prior-file views rather than fused into one
-         // `String.concat` blob. The intrinsic-only prim-types files complete channel-1, so
-         // primitive reprs (`string`, …) resolve from Core's own `.fs`.
+         // Each `impl` file the manifest lists is analysed as its own file against the
+         // composed prior-file views, so a primitive repr (`string`, …) resolves from
+         // Core's own `.fs`.
          let implFiles =
              match ReferencedProject.loadManifest vesperCoreManifest with
              | Ok m -> ReferencedProject.resolveImpl Target.Clr m
@@ -194,12 +163,9 @@ let vesperCoreDll: Lazy<string> =
              implFiles
              |> List.map (fun rel -> vesperCoreSource rel, IO.File.ReadAllText(vesperCoreSource rel))
 
-         // Vesper.Core *defines* its own primitives + operators, so it REFERENCES nothing
-         // (no `depends-on`) and names itself as the SELF manifest — which is what seeds
-         // the metadata leaf with its own `{ platform -> canon }` axis, so a BCL signature
-         // presents `System.String` as `Vesper.string` inside Core's own compile exactly
-         // as it does in a consumer's. Built through the production driver seam, so the
-         // fixture cannot drift from what `buildPackage "Vesper.Core"` does.
+         // Core defines its own primitives, so it references nothing and names ITSELF as
+         // the self manifest. That seeds the metadata leaf with its own `{ platform -> canon }`
+         // axis, so a BCL signature presents `System.String` as `Vesper.string` here too.
          let provider =
              ClrSymbolProviders.buildContractForSelf (Some vesperCoreManifest) Target.Clr []
 
@@ -213,16 +179,9 @@ let vesperCoreDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
 
-/// Compile `Vesper.List.dll` from `src/Vesper.List/list.fs` — the
-/// `Vesper.Collections.List\`1` cons-list (`Cons`/`Empty` + `IsEmpty`/`Head`/`Tail`)
-/// **and** the `Vesper.Collections.ListModule::fold` static method
-/// (`fold` is compiled into the DLL now) — as its own package,
-/// load it into the *Default* `AssemblyLoadContext`, and return its path.
-/// Compiled with the core injected: `fold`'s folder parameter is a `Vesper.Fun`,
-/// so the DLL now carries a `Vesper.Core` `AssemblyRef` (it was BCL-only while only
-/// the list type shipped). It needs no external *list* (it defines the list
-/// itself), so only `Vesper.Core` is in `References` — not via `withCore` (defined
-/// below), just the core path directly, since `vesperCoreDll` is forced here too.
+/// Compile `src/Vesper.List/list.fs` (the `Vesper.Collections.List\`1` cons-list plus
+/// `ListModule::fold`), load it into the *Default* `AssemblyLoadContext`, and return its
+/// path. `fold`'s folder is a `Vesper.Fun`, so it references `Vesper.Core` and nothing else.
 let vesperListDll: Lazy<string> =
     lazy
         (let outDir = tmpDir "vesper-list"
@@ -235,15 +194,9 @@ let vesperListDll: Lazy<string> =
              }
 
          let src = IO.File.ReadAllText(vesperListSource "list.fs")
-         // Vesper.List's compiled impl is `list.fs` (post-cutover): the verbatim
-         // `[]`/`::` cons-list. A `[1; 2; 3]` consumer literal binds to it by arity
-         // (nullary terminator + binary cons), not by case name, so the driver
-         // stack is unaffected by the `Nil`/`Cons` → `Empty`/`Cons` rename. It uses
-         // `failwith` (a real inline operator in `Vesper.Core/ops-platform.clr.fs`, not
-         // a name-suffix probe), so the build must run through the Vesper.Core
-         // contract for the call to inline.
-         // Self-manifest (`Vesper.List`'s own) is excluded; the package is
-         // *defining* its types here.
+         // A `[1; 2; 3]` consumer literal binds to this list by ARITY (nullary terminator
+         // + binary cons), not by case name. `list.fs` calls `failwith`, an inline operator
+         // in the Vesper.Core contract, so that contract must be in the stack to inline it.
          let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile src
 
@@ -255,7 +208,6 @@ let vesperListDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
 
-/// The other contract packages that round out the default resolution stack.
 let vesperListManifest: string = vesperListSource "manifest.toml"
 
 let private srcManifest (pkg: string) : string =
@@ -263,21 +215,12 @@ let private srcManifest (pkg: string) : string =
 
 let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
 
-/// `src/Vesper.Printf/manifest.toml` — the printf family (`printf`/`printfn`/
-/// `sprintf`) as its own `[<AutoOpen>] module Printf` contract, so a `printfn`
-/// call resolves from the real contract source.
+/// `src/Vesper.Printf/manifest.toml` — `printf` / `printfn` / `sprintf` as an
+/// `[<AutoOpen>] module Printf` contract.
 let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
-/// The default contract stack the compile path resolves through. Everything a
-/// bare program needs now comes from real `Vesper.*` `.fsi` contracts, and an
-/// operator *emits* from the matching `.fs` contract body too — spliced by
-/// `Passes.InlineExpansion`, whether applied (`1 + 2`) or used as a value
-/// (`List.fold (+) 0 xs`, which the same pass eta-reifies first). Codegen owns no
-/// per-operator dispatch at all.
-///
-/// Vesper.Core (primitives + arithmetic/equality operators + `hash` + `failwith`),
-/// Vesper.List (`List.fold` over the cons-list), Vesper.Comparison (the ordering
-/// operators) and Vesper.Printf (the printf family) make up the default stack.
+/// The default contract stack. An operator emits from its `.fs` contract body, spliced
+/// whether applied (`1 + 2`) or used as a value (`List.fold (+) 0 xs`, eta-reified first).
 let defaultManifests: string list =
     [
         vesperCoreManifest
@@ -286,17 +229,14 @@ let defaultManifests: string list =
         vesperPrintfManifest
     ]
 
-/// Front-end a program to a (SemType) `TastFile` through the default contract
-/// stack. The generic front-end-only helper — was the value-only `MockBuiltins`
-/// fixture; now the real `Vesper.*` contracts (a superset).
+/// Front-end a program to a (SemType) `TastFile` through the default contract stack.
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
 
     Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultManifests) (Hashing.originSourceOfText lexed) file
 
-/// `analyse`, keeping the `PassContext`. `Freeze.run` needs it: the bound variable a residual
-/// typar root belongs to is recorded in `ctx.Bindings.Scheme`, not recoverable from the
-/// TAST alone.
+/// `analyse`, keeping the `PassContext`. `Freeze.run` reads `ctx.Bindings.Scheme` for the
+/// bound variable a residual typar root belongs to; the TAST alone does not carry it.
 let analyseWithCtx (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
 
@@ -305,14 +245,9 @@ let analyseWithCtx (input: string) : PassContext * TastFile =
         (Hashing.originSourceOfText lexed)
         file
 
-/// The load context the package-build harness (`buildPackage`) loads its own DLLs
-/// into. Its `Load` override resolves sibling `Vesper.*` packages it has built from
-/// an internal registry, so a package loaded here binds against *this harness's*
-/// copy of its dependencies — not whatever the Default context holds. (The
-/// `vesperCoreDll`/`vesperListDll` lazies load a *different* `Vesper.Core` into the
-/// Default context; resolving the harness's `Vesper.List` against that one would
-/// trip the same-name / distinct-identity trap.) Everything else — FSharp.Core,
-/// `Vesper.Printf`, the BCL — returns `null` to fall through to Default.
+/// Load context for the package-build harness. `Load` resolves a sibling `Vesper.*`
+/// package from the registry below, so a package binds against THIS harness's copy of its
+/// dependencies; everything else returns `null` and falls through to Default.
 type private PackageLoadContext() =
     inherit AssemblyLoadContext("xparsec-package-build", isCollectible = false)
 
@@ -331,14 +266,9 @@ let private packageAlc = PackageLoadContext()
 let private packageBuildCache =
     Collections.Concurrent.ConcurrentDictionary<string, Lazy<Assembly * ClrArtifact>>(StringComparer.Ordinal)
 
-/// Compile `src/<package>/`'s `impl` `.fs` files (in manifest order) to a
-/// DLL through our own backend, resolving `depends-on`
-/// recursively — each dependency is built + loaded first, its DLL added to
-/// `References` and its `manifest.toml` to the contract stack. Caches per package
-/// (`Lazy`), generalizing the hand-written `vesperCoreDll`/`vesperListDll` fixtures
-/// into one manifest-driven function. Returns the loaded `Assembly` (in the shared
-/// `packageAlc`) and the `ClrArtifact` (so a caller can assert
-/// `FSharpCoreDependencies` is empty — the BCL-only bar).
+/// Compile `src/<package>/`'s `impl` files in manifest order, resolving `depends-on`
+/// recursively: each dependency is built + loaded first, its DLL joins `References` and its
+/// manifest the contract stack. Returns the loaded `Assembly` and the `ClrArtifact`.
 let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
     packageBuildCache.GetOrAdd(
         package,
@@ -351,10 +281,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      | Result.Ok m -> m
                      | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
 
-                 // `.fsi`↔`.fs` conformance is a HARD gate on the build. A
-                 // contract binding with no implementation (and not declared `sig-only`
-                 // in the manifest) is an FS0240-style error — no codegen substitution
-                 // may stand in for a missing `.fs`.
+                 // `.fsi`↔`.fs` conformance gates the build: a contract binding with no
+                 // implementation and no manifest `sig-only` declaration is an error.
                  match ConformancePass.checkManifest Target.Clr manifestPath with
                  | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
                  | Result.Ok outcome ->
@@ -367,34 +295,27 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                              (List.length ds)
                              (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
 
-                 // Force each dependency's build first (recursively, shared cache):
-                 // this loads + registers it in `packageAlc`, so the current package
-                 // resolves against it at load time. Collect each dep's on-disk DLL
-                 // for `References` (the emit-time AssemblyRef) and its manifest for
-                 // the contract provider / inline bodies.
+                 // Force each dependency's build first: that registers it in `packageAlc`,
+                 // so this package resolves against it at load time. Its DLL goes to
+                 // `References` (the emit-time AssemblyRef), its manifest to the provider.
                  let depArtifacts =
                      manifest.DependsOn |> List.map (fun d -> (buildPackage d).Value |> snd)
 
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
                  let depManifests = manifest.DependsOn |> List.map srcManifest
 
-                 // The package NAMES ITSELF as self, so a BCL signature presents the
-                 // primitives this very compilation declares as its own canon identities
-                 // — `prim-types-string.clr.fs`'s `System.String.Concat(x, y)` takes two
-                 // `Vesper.string`s and must find the `(String, String)` overload.
+                 // The package names ITSELF as self, so a BCL signature presents the primitives
+                 // this compilation declares: `prim-types-string.clr.fs`'s `String.Concat(x, y)`
+                 // takes two `Vesper.string`s and must still find the `(String, String)` overload.
                  let provider =
                      ClrSymbolProviders.buildContractForSelf (Some manifestPath) Target.Clr depManifests
 
                  let dir = IO.Path.GetDirectoryName manifestPath
                  let implRels = ReferencedProject.resolveImpl Target.Clr manifest
 
-                 // Each `impl` file is analysed as its OWN file through the shared multi-file
-                 // seam (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`) rather
-                 // than fused into one `String.concat` blob — self-host front end, so a bare
-                 // `[]`/`::` in a BCL-only package defaults to the Vesper cons-list, not
-                 // FSharp.Core's. The seam gates on error-severity front-end diagnostics (a
-                 // package that doesn't type-check hasn't built), returning `Error` rather than
-                 // emitting a degraded DLL.
+                 // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
+                 // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
+                 // on any error-severity diagnostic instead of emitting a degraded DLL.
                  let files =
                      implRels
                      |> List.map (fun rel ->
@@ -425,19 +346,9 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
 
-                 // A package with no bodies for this target compiles to an *empty* DLL
-                 // here — it carries no runtime types. `Vesper.Printf` is a special case: its runtime
-                 // peer — the Vesper-compiled `Vesper.Formatter` (`formatter.clr.fs`) and
-                 // `StructuralPrinter` (`structural-printer.clr.fs`, the `%A` engine), plus
-                 // the printf module surface — is loaded separately into the Default ALC
-                 // by `vesperPrintfDll` for the in-process driver path. Registering it in
-                 // `packageAlc` too would make a second copy: a driver `printfn` would
-                 // bind `Vesper.Formatter` / `StructuralPrinter` to the wrong one and
-                 // fail. So load it into a throwaway context and leave `packageAlc`
-                 // without it — the driver's `Vesper.Printf` reference then falls through
-                 // to the Default ALC copy. The on-disk path stays in `References` for
-                 // emit-time identity. (The `buildsBclOnly "Vesper.Printf"` test only
-                 // needs the build to succeed; it does not drive the emitted handler.)
+                 // A package with no `impl` files carries no runtime types, and `Vesper.Printf`
+                 // is loaded into Default separately, so registering a second copy here would
+                 // bind a driver's `Vesper.Formatter` to the wrong one. Throwaway ALC for both.
                  if List.isEmpty implRels || manifest.Name = "Vesper.Printf" then
                      let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
 
@@ -448,17 +359,9 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      asm, artifact)
     )
 
-/// The Vesper-compiled `Vesper.Printf.dll` (`structural-printer.clr.fs` + `formatter.clr.fs`),
-/// built by the `buildPackage` harness and loaded into the *Default*
-/// `AssemblyLoadContext` — the in-process runtime printf/`%A` handler a driver binds
-/// (the only `Vesper.Printf` in Default, so a fresh-ALC
-/// `runEntryPoint` driver resolves it through the Default fall-through). Forcing it builds `Vesper.Printf` (and its `Vesper.Core` /
-/// `Vesper.List` deps) and loads the on-disk DLL into Default; the printf assembly's
-/// `Vesper.Core` / `Vesper.List` references resolve by simple name to the
-/// `vesperCoreDll` / `vesperListDll` copies (forced first), the same value-identity
-/// unification `withPrintfAlc` relies on. (`buildPackage` itself loads `Vesper.Printf`
-/// only into a throwaway context — see its `manifest.Name = "Vesper.Printf"` case — so
-/// this is the Default-ALC copy the driver path needs.)
+/// The Vesper-compiled `Vesper.Printf.dll` loaded into the *Default* `AssemblyLoadContext`
+/// as the only copy there, so a fresh-ALC driver resolves it by fall-through, onto the
+/// `vesperCoreDll` / `vesperListDll` copies forced first.
 let vesperPrintfDll: Lazy<string> =
     lazy
         (vesperCoreDll.Value |> ignore
@@ -472,17 +375,9 @@ let vesperPrintfDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath path |> ignore
          path)
 
-/// Add the compiled `Vesper.Core.dll` (for `Vesper.Fun`), `Vesper.List.dll` (for
-/// `Vesper.Collections.List`), and the Vesper-compiled
-/// `Vesper.Printf.dll` (for `Vesper.Formatter`, the happy-path printf/`%A` handler)
-/// to a project's `References`, so a program's function
-/// values, list literals, and `printf` calls resolve. Each path is added only when
-/// absent, and never into the package that *defines* the type (a package must not
-/// reference itself): `Vesper.Core` gets no core ref, `Vesper.List` no list ref,
-/// `Vesper.Printf` no printf ref. Forcing each lazy loads the DLL into the Default ALC
-/// before any in-process run. The printf ref is `lazy`-forced and unused-by-the-PE
-/// when the program has no `printf` (an unforced `AssemblyRef` emits nothing), so a
-/// non-printf program neither gains a `Vesper.Printf` `AssemblyRef` nor ships the DLL.
+/// Add `Vesper.Core.dll` / `Vesper.List.dll` / `Vesper.Printf.dll` to `References` so a
+/// program's function values, list literals and `printf` calls resolve, but not when the
+/// project IS that package. An unused reference emits no `AssemblyRef`.
 let withCore (project: ProjectInfo) : ProjectInfo =
     let ensure (asmName: string) (dll: Lazy<string>) (refs: string list) =
         if
@@ -501,13 +396,9 @@ let withCore (project: ProjectInfo) : ProjectInfo =
             |> ensure "Vesper.Printf" vesperPrintfDll
     }
 
-/// Build the symbol-resolution stack + its cross-package inline bodies once
-/// (cached per manifest set by `ClrSymbolProviders.buildContract`) and run *both*
-/// phases against it: a use-site
-/// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
-/// `ops-platform.clr.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (off the
-/// resolved symbol's own `InlineBody`) rather than served by a codegen stopgap. `[]` manifests ⇒ the BCL metadata leaf alone, for callers
-/// that must stay off the Vesper contracts.
+/// Build the symbol stack + its cross-package inline bodies once (cached per manifest set)
+/// and run both phases against it: an `External(name)` whose body lives in a referenced
+/// `.fs` splices in pre-freeze. `[]` manifests ⇒ the BCL metadata leaf alone.
 let private compileContract
     (manifestPaths: string list)
     (project: ProjectInfo)
@@ -515,43 +406,33 @@ let private compileContract
     : TastFile * ClrArtifact =
     let provider = ClrSymbolProviders.buildContract manifestPaths
     let lexed, file = parseFile input
-    // Callers assert on the returned `SemType` tast, but the real
-    // `analyse` output is frozen — return the SemType tree, compile the frozen one.
+    // Callers assert on the SemType tree; codegen takes the frozen one.
     let ctx, tast =
         Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let artifact = Codegen.compile provider (withCore project) (Freeze.run ctx tast)
     tast, artifact
 
-/// The default compile path — resolved through the contract stack
-/// (`defaultManifests`). This is the contract-as-provider demotion: `int`/`hash`/
-/// the operators resolve from the `Vesper.Core` `.fsi` contract (no hand-curated
-/// mock).
+/// The default compile path: `int` / `hash` / the operators all resolve from the
+/// `Vesper.Core` `.fsi` contract.
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 
-/// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT
-/// codegen: the frozen-cache `thaw (flatten frozen)` and the DU round-trip
-/// `TastPools.rePool frozen (TastUnpool.ofPools frozen)`. Both are codegen-INVARIANT
-/// obligations over the same tree, so they share the whole parse → analyse → freeze
-/// prefix and differ only by the round-trip applied.
+/// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT codegen.
+/// All three share one parse → analyse → freeze prefix and differ only by the round-trip.
 type ConformanceRoundTripArtifacts =
     {
         /// Codegen from the direct frozen tree.
         Direct: ClrArtifact
         /// Codegen from `thaw (flatten frozen)` (the serialization round-trip).
         ThawRoundTripped: ClrArtifact
-        /// Codegen from `rePool (ofPools frozen)` — the columns unpooled to the DU and
-        /// re-derived from it, which is what proves the columns are tree-sufficient now
-        /// that the freeze emits them directly.
+        /// Codegen from `rePool (ofPools frozen)` (the columns unpooled to the DU and
+        /// re-derived from it), proving the columns are tree-sufficient.
         PoolRoundTripped: ClrArtifact
     }
 
-/// Produce the round-trip artifacts a frozen-tree gate reconciles. The freeze runs
-/// ONCE and `Codegen.compile` runs against the SAME provider / `withCore` project /
-/// `defaultManifests` as `compileSource` for every variant, so an artifact differs from
-/// `Direct` only by the round-trip it went through. `compileContract` fuses freeze +
-/// compile and hides the frozen tree, so this reaches past it.
+/// Produce the round-trip artifacts a frozen-tree gate reconciles. One freeze, one provider
+/// and one project, so an artifact differs from `Direct` only by its round-trip.
 let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ConformanceRoundTripArtifacts =
     let project = ProjectInfo.defaults assemblyName
     let provider = ClrSymbolProviders.buildContract defaultManifests
@@ -572,20 +453,13 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     }
 
 /// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
-/// has to be an identifier the emitted module can carry. Single-sourced (rather than
-/// duplicated into the corpus runner and the byte-identity gate) so the gate's digest is
-/// provably of the SAME PE the corpus run judges — the two cannot drift apart.
+/// must be an identifier the emitted module can carry.
 let conformanceAssemblyName (program: string) : string =
     "Conformance_" + program.Replace("-", "_")
 
-/// Like `compileSource` but drives the **self-host** front end
-/// (`analyseForSelfHost`): a bare-program `[]` / `::` defaults to the Vesper
-/// cons-list, not FSharp.Core's `list` — the same posture a BCL-only package
-/// build (`buildPackage`) uses. Needed when a probe mixes `'T list`-annotated
-/// state (which resolves to the Vesper list via the `list` abbreviation) with
-/// bare `::` / `[]` construction: under the default (FSharp.Core) pipeline the two
-/// disagree on the list representation, but a real self-host package resolves both
-/// to the Vesper list consistently.
+/// `compileSource` on the self-host front end: a bare `[]` / `::` defaults to the Vesper
+/// cons-list. Needed when a probe mixes `'T list`-annotated state (Vesper, via the `list`
+/// abbreviation) with bare `::` construction, which the default pipeline resolves to F#'s.
 let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let project = ProjectInfo.defaults assemblyName
@@ -596,14 +470,12 @@ let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
 
     Codegen.compile provider (withCore project) tast
 
-/// Like `compileSource` but against a caller-supplied `ProjectInfo` (e.g. an
-/// on-disk app build via `ProjectInfo.app`). `withCore` injects the compiled
-/// `Vesper.Core.dll` unless the project is `Vesper.Core` itself.
+/// `compileSource` against a caller-supplied `ProjectInfo` (e.g. an on-disk app build via
+/// `ProjectInfo.app`).
 let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
     compileContract defaultManifests project input |> snd
 
-/// Explicit-manifest variant: stand the given layer-1 manifests up at the head of
-/// the stack and share that one provider + inline bodies across both phases.
+/// `compileSource` against an explicit manifest stack instead of `defaultManifests`.
 let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract manifestPaths (ProjectInfo.defaults assemblyName) input
 
@@ -611,10 +483,8 @@ let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input
 let compileSourceContract (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract [ vesperCoreManifest ] (ProjectInfo.defaults assemblyName) input
 
-/// Run a materialised app out-of-process via the `dotnet` host, the counterpart
-/// to the in-process `runEntryPoint`. On a non-zero exit, stderr is appended so
-/// host failures (missing runtimeconfig, unresolved reference) surface in the
-/// assertion message.
+/// Run a materialised app out-of-process via the `dotnet` host. On a non-zero exit stderr
+/// is appended, so a host failure (missing runtimeconfig, unresolved reference) is visible.
 let runOnDisk (dllPath: string) : int * string =
     let psi = Diagnostics.ProcessStartInfo "dotnet"
     psi.ArgumentList.Add dllPath
@@ -629,32 +499,21 @@ let runOnDisk (dllPath: string) : int * string =
     p.WaitForExit()
     (p.ExitCode, (if p.ExitCode = 0 then out else out + err))
 
-/// Load emitted PE bytes into a *fresh* `AssemblyLoadContext`, returning the
-/// loaded assembly. Each load gets its own context, so an emitted assembly's
-/// type identities are isolated per test: loading the *same* bytes a second time
-/// (e.g. into the default context) produces a *distinct* assembly, and
-/// cross-`Invoke`ing a value built by one into a method reflected from the other
-/// throws "Object of type X cannot be converted to type X". A reflection
-/// round-trip must therefore reflect every member + construct every value
-/// through the single `Assembly` this returns. Framework / already-loaded
-/// dependencies (FSharp.Core, Vesper.Printf) resolve via the default context's
-/// fallback, so a custom context still runs printf-bearing programs.
+/// Load emitted PE bytes into a FRESH `AssemblyLoadContext`. Loading the same bytes twice
+/// gives two assemblies, and mixing them throws "Object of type X cannot be converted to
+/// type X", so reflect every member through the ONE `Assembly` this returns.
 let loadAssembly (bytes: byte[]) : Assembly =
     let alc = AssemblyLoadContext("xparsec-codegen-test", isCollectible = true)
     use ms = new IO.MemoryStream(bytes)
     alc.LoadFromStream ms
 
-/// Serialises the `Console.Out` capture below. Expecto runs tests in
-/// parallel, but `Console.Out` is process-global — without this lock,
-/// concurrent `runEntryPoint`s redirect each other's output (and can write to
-/// an already-disposed `StringWriter`).
+/// Serialises the `Console.Out` capture below: Expecto runs tests in parallel and
+/// `Console.Out` is process-global, so concurrent captures would redirect each other.
 let private consoleLock = obj ()
 
-/// Invoke an already-loaded assembly's entry point under the shared console lock,
-/// returning its exit code + captured stdout. Split out of `runEntryPoint` so a
-/// driver loaded into a *specific* `AssemblyLoadContext` (e.g. the package-build
-/// `packageAlc`, where a multi-dependency graph already resolves) can run through
-/// the same capture path as the fresh-ALC `runEntryPoint`.
+/// Invoke an already-loaded assembly's entry point under the shared console lock, returning
+/// exit code + captured stdout. Takes the loaded `Assembly`, so the caller chooses the
+/// `AssemblyLoadContext` the driver runs in.
 let runLoadedEntryPoint (asm: Assembly) : int * string =
     let entry = asm.EntryPoint
 
@@ -674,10 +533,9 @@ let runLoadedEntryPoint (asm: Assembly) : int * string =
                     Console.Out.Flush()
                     (result :?> int), captured.ToString()
                 with :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
-                    // Unwrap to the deepest cause: a runtime failure inside a static
-                    // initializer surfaces as `TypeInitializationException` wrapping
-                    // the real exception, which itself may wrap further. Report the
-                    // whole chain so the root is legible.
+                    // Unwrap to the deepest cause: a failure in a static initializer arrives
+                    // as a `TypeInitializationException` wrapping the real exception, which
+                    // may itself wrap further.
                     let rec deepest (ex: exn) =
                         if isNull ex.InnerException then
                             ex
@@ -700,48 +558,24 @@ let runLoadedEntryPoint (asm: Assembly) : int * string =
                 Console.SetOut original
         )
 
+/// `runLoadedEntryPoint` on a fresh ALC, the usual driver-run path.
 let runEntryPoint (bytes: byte[]) : int * string =
-    // `MethodBase.Invoke` wraps any user-code exception in a
-    // `TargetInvocationException`; `runLoadedEntryPoint` surfaces the inner
-    // exception's type, message, and stack trace so a runtime IL bug
-    // (`InvalidProgramException` from a malformed method body, a
-    // `NullReferenceException`, a typed `ArithmeticException`) is *legible* in
-    // the test failure instead of a single line of "Exception has been thrown
-    // by the target of an invocation".
     runLoadedEntryPoint (loadAssembly bytes)
 
-// ---- ALC-separable `Vesper.Printf` (differential-testing foundation) ----
-// This block makes the runtime handler choice explicit: a driver PE is
-// loaded into a dedicated *collectible* ALC whose `Load` override resolves
-// `Vesper.Printf` to a CHOSEN copy — the committed C# DLL or the
-// `buildPackage`-produced Vesper one — while everything else (`Vesper.Core`,
-// `Vesper.List`, FSharp.Core, the BCL) falls through to Default.
-//
-// Identity unification: the driver's synthesised `IStructuralFormattable.Format`
-// takes a `Vesper.IFormatSink`, and the chosen `Vesper.Printf`'s
-// `RuntimeFormatState` implements that same Core interface. Both reference
-// `Vesper.Core` by SIMPLE NAME, so in the child ALC both resolve (via the null
-// fall-through) to the single Default-ALC `vesperCoreDll` — the same runtime
-// identity. The Vesper-compiled `Vesper.Printf` was built (`buildPackage`)
-// against its own `packageAlc` `Vesper.Core`, but that copy shares
-// `vesperCoreDll`'s source (`prim-types-min.clr.fs` + `core-types.fs` +
-// `structural-format.fs`), so the surface matches and the simple-name bind is
-// sound. (Same for `Vesper.List`.) The driver compile (`compileSource` →
-// `withCore`) forces `vesperCoreDll`/`vesperListDll` into Default first, so the
-// child ALC's fall-through finds them loaded.
+// ---- ALC-separable `Vesper.Printf` (choose the runtime handler) --------------
+// A driver PE loads into a collectible ALC whose `Load` returns a CHOSEN `Vesper.Printf`;
+// everything else falls to Default, so driver and handler meet on ONE `Vesper.Core`.
 
-/// The Vesper-compiled `Vesper.Printf.dll` path (built + materialised to disk by
-/// the `buildPackage` harness). Forcing the lazy also builds its `Vesper.Core` /
-/// `Vesper.List` / `Vesper.Comparison` deps into `packageAlc`.
+/// Path to the `buildPackage`-produced `Vesper.Printf.dll`; the call also builds its
+/// `Vesper.Core` / `Vesper.List` / `Vesper.Comparison` deps into `packageAlc`.
 let private vesperPrintfPath () : string =
     match ((buildPackage "Vesper.Printf").Value |> snd).OutputPath with
     | Some p -> p
     | None -> failwith "buildPackage Vesper.Printf produced no OutputPath"
 
-/// A collectible ALC that resolves `Vesper.Printf` to a chosen on-disk DLL and
-/// delegates everything else to Default (where `Vesper.Core` / `Vesper.List` and
-/// the BCL live). Loaded from a byte copy (not a file handle) so the on-disk DLL
-/// stays unlocked and the context owns its copy — required for a clean `Unload`.
+/// A collectible ALC resolving `Vesper.Printf` to a chosen on-disk DLL, delegating
+/// everything else to Default. Loaded from a byte COPY, not a file handle, so the DLL
+/// stays unlocked and `Unload` can collect the context.
 type private PrintfLoadContext(printfPath: string) as this =
     inherit AssemblyLoadContext("xparsec-printf-diff", isCollectible = true)
 
@@ -751,9 +585,8 @@ type private PrintfLoadContext(printfPath: string) as this =
     override _.Load(name: System.Reflection.AssemblyName) : Assembly =
         if name.Name = "Vesper.Printf" then printf.Value else null
 
-/// Create a fresh collectible ALC bound to the Vesper-compiled `Vesper.Printf.dll`,
-/// run `run` against it, then unload. The result must hold no `Type`/`Assembly` from
-/// the context (return captured stdout / scalars), so `Unload` can collect it.
+/// Create a fresh collectible ALC bound to the Vesper-compiled `Vesper.Printf.dll`, run
+/// `run` against it, then unload. `run` must return no `Type`/`Assembly` from the context.
 let withPrintfAlc (run: AssemblyLoadContext -> 'a) : 'a =
     let alc = PrintfLoadContext(vesperPrintfPath ())
 
@@ -762,13 +595,11 @@ let withPrintfAlc (run: AssemblyLoadContext -> 'a) : 'a =
     finally
         alc.Unload()
 
-/// Uniquifies a per-call driver assembly name (Expecto runs in parallel; even
-/// across distinct ALCs a unique name keeps failures legible).
+/// Uniquifies a per-call driver assembly name (Expecto runs in parallel).
 let private diffDriverCounter = ref 0
 
-/// Compile a bare driver program (default contract stack + `withCore`) and run
-/// its entry point inside `alc`, returning exit code + stdout. The driver's
-/// `Vesper.Printf` reference binds to whatever `alc` resolves it to.
+/// Compile a bare driver program and run its entry point inside `alc`, returning exit code
+/// + stdout. The driver's `Vesper.Printf` reference binds to whatever `alc` resolves.
 let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
     let n = Threading.Interlocked.Increment diffDriverCounter
     let _, artifact = compileSource (sprintf "DiffDriver%d" n) src
@@ -781,10 +612,8 @@ let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
 let runsPrintf (src: string) : string =
     withPrintfAlc (fun alc ->
         let exitCode, output = runDriverInAlc alc src
-        // Strip CR + trailing newlines only (not all whitespace): a `%5d`
-        // right-justify ("   42") carries meaningful LEADING spaces, and a
-        // broken `%A` group carries embedded newlines + indent — both must
-        // survive so the oracle can pin them.
+        // CR + trailing newlines only, not all whitespace: a `%5d` right-justify
+        // ("   42") carries meaningful LEADING spaces and a `%A` group carries indent.
         let actual = output.Replace("\r", "").TrimEnd('\n')
 
         if exitCode <> 0 then
@@ -793,37 +622,25 @@ let runsPrintf (src: string) : string =
         actual
     )
 
-/// `runsPrintf` plus an assertion that the output equals `expected` (the
-/// structural spec oracle) — pins the handler to the spec.
+/// `runsPrintf` plus an equality assertion against the structural spec oracle.
 let runsEq (expected: string) (src: string) : unit =
     let actual = runsPrintf src
 
     if actual <> expected then
         failwithf "expected %A but the handler produced %A for:\n%s" expected actual src
 
-// ---- Drive the `%A` golden oracle on the VESPER engine ------------
-// Exercise the *Vesper-compiled* engine (`structural-printer.clr.fs`, including its
-// cons-list `Object.ReferenceEquals` cycle scan) by resolving `StructuralPrinter` by
-// reflection from the `buildPackage`-produced `Vesper.Printf.dll`. It is loaded into
-// a dedicated long-lived (non-collectible) ALC with no `Load` override, so its
-// `Vesper.Core` dependency resolves through the runtime's Default fall-through — the
-// same value-identity unification `withPrintfAlc` does for drivers. The hand-written `Point`/`Opt` `IStructuralFormattable` impls
-// (bound to the test's `Vesper.Core`) and the engine's `RuntimeFormatState`
-// (`IFormatSink`) then meet on the single Default `Vesper.Core`, so the engine's
-// `value :? IStructuralFormattable` test succeeds across the ALC boundary.
+// ---- Drive the `%A` golden oracle on the VESPER engine -----------------------
+// `StructuralPrinter` is reflected out of the `buildPackage` `Vesper.Printf.dll`, in an ALC
+// with no `Load` override, so it and the test's fixtures share the Default `Vesper.Core`.
 
-/// The Vesper-compiled `StructuralPrinter::Print(obj, int, int)` bound once.
-/// Forcing it builds `Vesper.Printf` (and its deps into Default) via
-/// `vesperPrintfPath`, then loads that DLL into its own ALC.
+/// The Vesper-compiled `StructuralPrinter::Print(obj, int, int)`, bound once and loaded
+/// into its own ALC.
 let private vesperStructuralPrintMethod: Lazy<MethodInfo> =
     lazy
         (let path = vesperPrintfPath ()
-         // The engine's `RuntimeFormatState` references `Vesper.Core` (the `%A`
-         // interfaces) and `Vesper.List` (the cons-list its cycle scan walks). The
-         // dedicated ALC below has no `Load` override, so those resolve through the
-         // Default fall-through — force both Default-ALC copies first (exactly what a
-         // driver compile's `withCore` does for `withPrintfAlc`), or the cross-ALC
-         // load throws `FileNotFoundException`.
+         // The engine references `Vesper.Core` (the `%A` interfaces) and `Vesper.List`
+         // (the cons-list its cycle scan walks), and the ALC below has no `Load` override,
+         // so force both Default copies first or the load throws `FileNotFoundException`.
          vesperCoreDll.Value |> ignore
          vesperListDll.Value |> ignore
          let alc = AssemblyLoadContext("xparsec-structural-printer", isCollectible = false)
@@ -845,21 +662,14 @@ let private vesperStructuralPrintMethod: Lazy<MethodInfo> =
 let structuralPrintSized (value: obj) (widthBudget: int) (sizeBudget: int) : string =
     vesperStructuralPrintMethod.Value.Invoke(null, [| value; box widthBudget; box sizeBudget |]) :?> string
 
-/// Render `value` through the Vesper-compiled `StructuralPrinter` at the default
-/// node budget (F#'s 10000 — plain `%A`).
+/// Render `value` through the Vesper-compiled `StructuralPrinter` at plain `%A`'s default
+/// node budget (F#'s 10000).
 let structuralPrint (value: obj) (widthBudget: int) : string =
     structuralPrintSized value widthBudget 10000
 
-/// Compile a STANDALONE `%A` structural-engine source string (defining
-/// `Vesper.StructuralPrinter`, depending only on Vesper.Core/List/Comparison) through
-/// THIS repo's backend and bind its `Print(obj, int, int)` as a typed `Func` delegate —
-/// the real Codegen.Clr-emitted IL, callable with no per-call reflection. Used by the
-/// `Codegen.Clr` structural-format benchmark to measure the live engine vs the frozen
-/// pre-buffer baseline on the *emitted* output (not the fsc rendering). Same compile
-/// path as `buildPackage`; only the source string + assembly name differ, so the live
-/// and baseline engines go through an identical backend for an apples-to-apples ratio.
-/// Each is loaded into its own dedicated (non-collectible) ALC whose `Vesper.Core` /
-/// `Vesper.List` dependencies resolve through the Default fall-through (forced first).
+/// Compile a standalone `%A` engine source (defining `Vesper.StructuralPrinter`) and bind
+/// its `Print(obj, int, int)` as a `Func` delegate, so calls run emitted IL, not
+/// reflection. Its own non-collectible ALC; `Vesper.Core` / `Vesper.List` come from Default.
 let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, int, string> =
     vesperCoreDll.Value |> ignore
     vesperListDll.Value |> ignore
@@ -912,19 +722,9 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
 
     m.CreateDelegate(typeof<Func<obj, int, int, string>>) :?> Func<obj, int, int, string>
 
-/// Compile a `<None Include>` Vesper source FILE (read from disk, `fileName` relative
-/// to this test project directory) through this repo's backend against the
-/// Vesper.Core / Vesper.List / Vesper.Comparison contract, load it into its own
-/// long-lived (non-collectible) ALC, and return the loaded `Assembly` — so the
-/// fixture's `obj`-returning nullary functions can be reflected + invoked. The
-/// fixture binds the Core-owned `%A` interfaces (`IStructuralFormattable` /
-/// `IFormatSink`) and the Vesper cons-list, so `Vesper.Core` / `Vesper.List` are
-/// forced into the Default ALC first (exactly as `compileStructuralEngine` does) and
-/// the fixture's simple-name references to them resolve through the fall-through — the
-/// same value-identity unification the Vesper-compiled `%A` engine relies on, so a
-/// fixture value's `IStructuralFormattable` impl and the engine's sink meet on ONE
-/// `Vesper.Core`. Front end: `analyseForSelfHost`, so a bare `[]` / `::` is the Vesper
-/// cons-list (rendered `[…]` by the engine's `IEnumerable` arm), matching a package build.
+/// Compile a `<None Include>` Vesper source file (`fileName` relative to this test project)
+/// against the Core / List / Comparison contracts and load it into its own ALC, so a
+/// fixture value's `%A` interfaces meet the engine's sink on the ONE Default `Vesper.Core`.
 let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     vesperCoreDll.Value |> ignore
     vesperListDll.Value |> ignore
@@ -971,14 +771,8 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     alc.LoadFromStream ms
 
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
-// The one-liners the suite was missing:
-// the dominant assertion — "run this source, get this stdout, exit 0" — had no
-// short form, so the cheap broad cases never got written. These wrap the
-// existing `compileSource` + `runEntryPoint` machinery and carry `src` in every
-// failure message so a red row inside a table is self-identifying. They raise
-// (via `failwithf`) rather than depend on `Expecto.Expect`, which Expecto still
-// reports as an ordinary test failure — keeping `TestHelpers` free of an Expecto
-// reference.
+// "run this source, get this stdout, exit 0". Every failure message carries `src`, and
+// they `failwithf` rather than reference `Expecto.Expect`.
 
 /// Compile `src` as a bare program, run it in-process, and assert exit 0 and
 /// that trimmed, CRLF-normalised stdout equals `expected`.
@@ -993,13 +787,11 @@ let runs (expected: string) (src: string) : unit =
     if actual <> expected then
         failwithf "expected %A but got %A for:\n%s" expected actual src
 
-/// Like `runs` but for a multi-line expected block (joined with "\n"); spares
-/// callers the `\n` plumbing in the table.
+/// `runs` for a multi-line expected block (joined with "\n").
 let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
 
-/// `runs` against the **self-host** front end (`compileSourceSelfHost`): bare
-/// `[]` / `::` default to the Vesper cons-list, matching a BCL-only package build.
-/// Use for probes that mix `'T list`-typed state with bare cons construction.
+/// `runs` on the self-host front end: bare `[]` / `::` default to the Vesper cons-list.
+/// For probes that mix `'T list`-typed state with bare cons construction.
 let runsSelfHost (expected: string) (src: string) : unit =
     let artifact = compileSourceSelfHost "Layer1SelfHost" src
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -1016,22 +808,14 @@ let runsSelfHostLines (expected: string list) (src: string) : unit =
     runsSelfHost (String.concat "\n" expected) src
 
 // ---- Externalised program sources (`data/*.fs`) ------------------------------
-// The struct / self-host probes' to-be-compiled programs live as standalone `.fs`
-// files under `data/`, read as TEXT and compiled through this repo's backend (never
-// fsc — they use Vesper self-host primitives, so they are `<None Include>`, not
-// `<Compile>`). A `//#include <frag>.fs` line splices in a shared fragment file, so
-// the self-hosted `%A` sink protocol (`_layout-core.fs` / `_frame-sem-types.fs` /
-// `_sink-frame-plumbing.fs` / `_sink-finish-protocol.fs`) stays single-sourced across
-// the layout / structural-format probes rather than hand-copied into each program.
+// Probe programs live under `data/` as `<None Include>` text, compiled through this
+// backend, never fsc, since they use Vesper self-host primitives.
 
 let private dataDir = IO.Path.Combine(__SOURCE_DIRECTORY__, "data")
 
-/// Read `data/<name>.fs`, expanding each `//#include <unit>` line (resolved against
-/// `data/`, recursively) into the referenced fragment's lines. Fragments are authored
-/// at column 0 and re-indented to the directive's own column, so a `member`-block
-/// fragment splices cleanly at any nesting (`    //#include …` lands its lines at
-/// 4-space indent inside a type body). A missing target or an include cycle fails with
-/// a pointed message rather than an opaque `FileNotFoundException` / stack overflow.
+/// Read `data/<name>.fs`, expanding each `//#include <unit>` line recursively against
+/// `data/`. A fragment is authored at column 0 and re-indented to the directive's own
+/// column, so `    //#include …` lands its lines at 4-space indent inside a type body.
 let dataSource (name: string) : string =
     let includePrefix = "//#include "
 
@@ -1050,9 +834,6 @@ let dataSource (name: string) : string =
             let trimmed = line.TrimStart()
 
             if trimmed.StartsWith includePrefix then
-                // The directive's own leading whitespace shifts the whole fragment,
-                // so a `member`-block fragment authored at column 0 lands at the
-                // directive's indent inside the enclosing type body.
                 let directiveIndent = indent + line.Substring(0, line.Length - trimmed.Length)
                 expand directiveIndent (fileName :: ancestors) (trimmed.Substring(includePrefix.Length).Trim())
             elif trimmed.Length = 0 then
@@ -1074,12 +855,9 @@ let runsDataLines (expected: string list) (name: string) : unit = runsLines expe
 let runsSelfHostDataLines (expected: string list) (name: string) : unit =
     runsSelfHostLines expected (dataSource name)
 
-/// Compile `src` as a bare program, run it in-process, and assert it threw a
-/// runtime exception whose type-name contains `expectedTypeFragment` (e.g.
-/// `"DivideByZero"`). `runEntryPoint` surfaces a target-invocation failure as a
-/// `failwithf` whose message embeds the inner exception's full type name, so the
-/// fragment match keys off that. Used to prove an argument WAS evaluated (a
-/// strict, non-short-circuiting parameter).
+/// Compile + run `src` and assert it threw a runtime exception whose type name contains
+/// `expectedTypeFragment` (e.g. `"DivideByZero"`), matched against the `failwithf` message
+/// `runEntryPoint` builds, which embeds the inner exception's full type name.
 let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
     let _, artifact = compileSource "Layer1Corpus" src
 
@@ -1097,26 +875,15 @@ let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
     | None -> failwithf "expected a runtime %s but the program completed for:\n%s" expectedTypeFragment src
 
 // ---- Declarative package harness (one core, many wrappers) -------------------
-// The Option / Result / Choice / Array / Seq / Set harnesses below were seven
-// verbatim copies of ONE recipe: stack a package's contract on the default
-// manifests, append its DLL to `References`, parse/analyse/compile, then run (or
-// just analyse). They are now thin wrappers over a single DECLARATIVE core: name
-// the Vesper packages a snippet links against, and `buildPackage` +
-// `transitivePackages` derive the contract stack, the reference DLLs, and the
-// whole `depends-on` graph (built once + loaded into `packageAlc`) — the
-// `runsSet` model generalised to an arbitrary package set, with the default stack
-// (Core/List/Comparison/Printf) always unioned in so a driver can use the
-// operators and `printfn`.
+// Name the Vesper packages a snippet links against; the contract stack, the reference
+// DLLs and the whole `depends-on` graph are derived, with the default stack unioned in.
 
-/// The packages every driver implicitly links — the package-name spelling of
-/// `defaultManifests` (language core, cons-list, ordering operators, printf). A
-/// declarative reference set is unioned with these.
+/// `defaultManifests` by package name: what every driver implicitly links.
 let private defaultPackageNames =
     [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
 
-/// Transitive `depends-on` closure of `roots`: dependencies before dependents,
-/// deduplicated, each root after its deps. Drives both the contract stack and the
-/// `References` DLL list. Reads each package's `depends-on` off its manifest.
+/// Transitive `depends-on` closure of `roots`, dependencies before dependents, deduped.
+/// Drives both the contract stack and the `References` DLL list.
 let private transitivePackages (roots: string list) : string list =
     let acc = System.Collections.Generic.List<string>()
 
@@ -1133,18 +900,13 @@ let private transitivePackages (roots: string list) : string list =
     roots |> List.iter go
     List.ofSeq acc
 
-/// Uniquifies a per-call driver assembly name (Expecto runs tests in parallel and
-/// `packageAlc` is process-persistent, so two identically-named loads would
-/// collide on identity).
+/// Uniquifies a per-call driver assembly name: Expecto runs in parallel and `packageAlc`
+/// is process-persistent, so two identically-named loads would collide on identity.
 let private driverCounter = ref 0
 
-/// Compile `src` as a bare program against the declarative package set `packages`
-/// (unioned with the default Core/List/Comparison/Printf stack). Every package in
-/// the transitive `depends-on` closure is built once + registered in `packageAlc`;
-/// its `.fsi` joins the contract stack and its DLL the `References`. Returns the
-/// `ClrArtifact` (compile only — the run path adds printf + the `packageAlc`
-/// load). Front end: `analyseFor` — a driver is a FSharp.Core-front-end consumer
-/// of the packages, exactly as the hand-written `runsX` harnesses were.
+/// Compile `src` against `packages` unioned with the default stack. Every package in the
+/// transitive `depends-on` closure is built once and registered in `packageAlc`; its `.fsi`
+/// joins the contract stack, its DLL the `References`. Front end: `analyseFor`, a consumer.
 let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let allPackages = transitivePackages (defaultPackageNames @ packages)
 
@@ -1178,16 +940,9 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
 
     Codegen.compile provider project tast
 
-/// The Vesper-compiled `Vesper.Printf`, loaded + registered in `packageAlc` once
-/// (built against the packageAlc `Vesper.Core`/`Vesper.List`). `buildPackage`
-/// loads Printf into a *throwaway* ALC (so it can't shadow a host C# peer) and
-/// never registers it, so a driver run in `packageAlc` would otherwise resolve
-/// printf via the Default fall-through to a DIFFERENT `Vesper.Core` identity than
-/// the one its package types implement — breaking a `%A` of an external Vesper
-/// union (`value :? Vesper.IStructuralFormattable` then tests the wrong Core's
-/// interface). Registering Printf in `packageAlc` puts the driver, its package
-/// types, and printf on ONE `Vesper.Core` identity — the packageAlc analogue of
-/// the Default-ALC unification the old per-package harnesses got for free.
+/// The Vesper-compiled `Vesper.Printf`, registered in `packageAlc` once. `buildPackage`
+/// deliberately leaves it out, so without this a driver run here would reach printf through
+/// Default, which implements a DIFFERENT `Vesper.Core` identity than its own package types.
 let private packageAlcPrintf: Lazy<unit> =
     lazy
         (let path =
@@ -1198,11 +953,9 @@ let private packageAlcPrintf: Lazy<unit> =
          use ms = new IO.MemoryStream(IO.File.ReadAllBytes path)
          packageAlc.Register("Vesper.Printf", packageAlc.LoadFromStream ms))
 
-/// Compile `src` against `packages`, run its entry point inside `packageAlc` (so
-/// the driver, every `Vesper.*` dependency, and printf all resolve off the build
-/// registry under ONE `Vesper.Core` identity), and return (exitCode, stdout) plus
-/// the emitted bytes — the bytes let a caller assert on the emitted IL
-/// (constrained./no-box dispatch) in the same pass as the run.
+/// Compile `src` against `packages` and run its entry point inside `packageAlc`, so driver,
+/// dependencies and printf share ONE `Vesper.Core` identity. Returns (exitCode, stdout)
+/// plus the emitted bytes, for a caller asserting on the IL in the same pass as the run.
 let runPackagesInspect (packages: string list) (src: string) : (int * string) * byte[] =
     packageAlcPrintf.Value
     let artifact = compilePackages packages src
@@ -1211,13 +964,11 @@ let runPackagesInspect (packages: string list) (src: string) : (int * string) * 
     let asm = packageAlc.LoadFromStream ms
     runLoadedEntryPoint asm, bytes
 
-/// `runPackagesInspect` without the bytes — compile + run, returning
-/// (exitCode, stdout).
+/// `runPackagesInspect` without the bytes.
 let runPackages (packages: string list) (src: string) : int * string = runPackagesInspect packages src |> fst
 
-/// Compile + run `src` against `packages`; assert exit 0 and trimmed,
-/// CRLF-normalised stdout equals `expected`. The declarative generalisation of
-/// `runsOption` / `runsResult` / … / `runsSet`.
+/// Compile + run `src` against `packages`; assert exit 0 and trimmed, CRLF-normalised
+/// stdout equals `expected`.
 let runsPackages (packages: string list) (expected: string) (src: string) : unit =
     let exitCode, output = runPackages packages src
     let actual = output.Replace("\r", "").Trim()
@@ -1232,9 +983,8 @@ let runsPackages (packages: string list) (expected: string) (src: string) : unit
 let runsPackagesLines (packages: string list) (expected: string list) (src: string) : unit =
     runsPackages packages (String.concat "\n" expected) src
 
-/// Analyse `src` against `packages` (default stack + the set), no codegen, and
-/// return the error-severity diagnostics. Backs `typeChecksPackages` /
-/// `failsWithPackages`.
+/// Analyse `src` against the default stack plus `packages`, no codegen, and return the
+/// error-severity diagnostics.
 let private analysePackagesErrors (packages: string list) (src: string) : Diagnostic list =
     let allPackages = transitivePackages (defaultPackageNames @ packages)
 
@@ -1245,8 +995,8 @@ let private analysePackagesErrors (packages: string list) (src: string) : Diagno
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
-/// Analyse `src` against `packages`; assert NO error diagnostics, without running
-/// it — the front-end-only probe.
+/// The front-end-only probe: analyse `src` against `packages` and assert NO error
+/// diagnostics, without running it.
 let typeChecksPackages (packages: string list) (src: string) : unit =
     match analysePackagesErrors packages src with
     | [] -> ()
@@ -1266,9 +1016,7 @@ let failsWithPackages (packages: string list) (fragment: string) (src: string) :
                 src
 
 // ---- Per-package wrappers over the declarative core --------------------------
-// Each `Vesper.X` package's old bespoke harness collapses to a one-liner naming
-// the package(s). New package? Add a wrapper line — no DLL lazy, no contract
-// plumbing.
+// A new package needs one wrapper line: no DLL lazy, no contract plumbing.
 
 /// Vesper.Option — the option type + `Option` module (counterpart of `runs`).
 let runsOption (expected: string) (src: string) : unit =
@@ -1279,18 +1027,15 @@ let runsOptionLines (expected: string list) (src: string) : unit =
     runsPackagesLines [ "Vesper.Option" ] expected src
 
 /// Analyse `src` through the default contract stack (no codegen) and return the
-/// error-severity diagnostics — the front-end-only half of the corpus.
-/// `Pipeline.analyse` collects diagnostics rather than throwing, so both
-/// `failsWith` and `typeChecks` read off the returned `TastFile.Diagnostics`.
+/// error-severity diagnostics, because analysis collects them rather than throwing.
 let private analyseErrors (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
-/// Analyse `src`; assert it produced an error diagnostic whose message contains
-/// `fragment`. The negative direction the suite was missing — pins that bad
-/// input is *rejected*, and rejected for the stated reason.
+/// Analyse `src`; assert an error diagnostic whose message contains `fragment`: bad input
+/// is rejected, and rejected for the stated reason.
 let failsWith (fragment: string) (src: string) : unit =
     match analyseErrors src with
     | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
@@ -1302,9 +1047,8 @@ let failsWith (fragment: string) (src: string) : unit =
                 (errors |> List.map (fun d -> d.Message))
                 src
 
-/// Analyse `src`; assert it produced NO error diagnostics, without running it —
-/// for front-end-only coverage where codegen is deferred (cf. the duck-typed
-/// for-in test in ForInTests.fs).
+/// Analyse `src`; assert NO error diagnostics, without running it, for front-end-only
+/// coverage where codegen is deferred.
 let typeChecks (src: string) : unit =
     match analyseErrors src with
     | [] -> ()
@@ -1319,10 +1063,9 @@ let failsWithOption (fragment: string) (src: string) : unit =
 
 // ---- Vesper.Result wrappers --------------------------------------------------
 
-/// Compile a `Vesper.Result` consumer through the full backend and return the
-/// `ClrArtifact` (no run) — for assertions on `FSharpCoreDependencies`, e.g. that
-/// a `%A` of an external Vesper union lowers on the structural engine (the use-set
-/// stays clear of `PrintfModule.PrintFormatLine`) rather than the cold path.
+/// Compile a `Vesper.Result` consumer and return the `ClrArtifact` without running it,
+/// for `FSharpCoreDependencies` assertions, e.g. that a `%A` of an external Vesper union
+/// keeps the use-set clear of `PrintfModule.PrintFormatLine`.
 let compileResultArtifact (src: string) : ClrArtifact = compilePackages [ "Vesper.Result" ] src
 
 /// Vesper.Result — the result type + `Result` module (counterpart of `runsOption`).
@@ -1339,9 +1082,8 @@ let failsWithResult (fragment: string) (src: string) : unit =
     failsWithPackages [ "Vesper.Result" ] fragment src
 
 // ---- Vesper.Choice wrappers --------------------------------------------------
-// Choice is a pure-data struct union with NO module (its sole consumer `set.clr.fs`
-// uses only constructors + pattern matching), so `runsChoice` exercises
-// construction (Layer B) + `match` (Layer C), not a module call.
+// Choice is a pure-data struct union with NO module, so `runsChoice` exercises
+// construction + `match`, never a module call.
 
 let runsChoice (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Choice" ] expected src
@@ -1356,10 +1098,8 @@ let failsWithChoice (fragment: string) (src: string) : unit =
     failsWithPackages [ "Vesper.Choice" ] fragment src
 
 // ---- Vesper.Array wrappers ---------------------------------------------------
-// `Vesper.Array` is BCL-only: `arr.[i]`/`arr.Length`/`Array.zeroCreate` lower to
-// the `ldelem`/`ldlen`/`newarr` IL intrinsics. (Array *literals* `[| … |]` in a
-// driver still route through FSharp.Core's `ArrayModule.OfList`, harmless
-// in-process — rows that must stay BCL-only build via `zeroCreate`.)
+// BCL-only: `arr.[i]` / `arr.Length` / `Array.zeroCreate` lower to `ldelem` / `ldlen` /
+// `newarr`. An array LITERAL `[| … |]` still routes through `ArrayModule.OfList`.
 
 let runsArray (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Array" ] expected src
@@ -1371,10 +1111,8 @@ let typeChecksArray (src: string) : unit =
     typeChecksPackages [ "Vesper.Array" ] src
 
 // ---- Vesper.Seq wrappers -----------------------------------------------------
-// A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` (a
-// real BCL `IEnumerable<int>`) — the Vesper cons-list declares `IEnumerable<'T>`
-// in its `.fsi` but does not implement it in `list.fs`, so a list value is not a
-// runtime seq. `Range` sidesteps that entirely.
+// A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)`, a real BCL
+// `IEnumerable<int>`.
 
 let runsSeq (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Seq" ] expected src
@@ -1385,14 +1123,8 @@ let runsSeqLines (expected: string list) (src: string) : unit =
 let typeChecksSeq (src: string) : unit = typeChecksPackages [ "Vesper.Seq" ] src
 
 // ---- Vesper.Set wrappers -----------------------------------------------------
-// `Vesper.Set` (the immutable AVL-tree set + the `Set` module) is the capstone
-// self-host package, with eight transitive `Vesper.*` deps. The declarative core
-// already builds the whole graph into `packageAlc` and runs the driver there, so
-// the once-bespoke routing is just the default behaviour now.
-//
-// NOTE on driver shape: HOF arguments (`Set.fold`/`partition`'s folder) are
-// written *curried* (`fun s -> fun x -> …`) per the same Elaborate multi-arg-lambda
-// posture the struct-seq pipeline documents.
+// A driver's HOF argument (`Set.fold` / `partition`'s folder) must be written CURRIED:
+// `fun s -> fun x -> …`.
 
 let runsSet (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Set" ] expected src
@@ -1400,30 +1132,21 @@ let runsSet (expected: string) (src: string) : unit =
 let runsSetLines (expected: string list) (src: string) : unit =
     runsPackagesLines [ "Vesper.Set" ] expected src
 
-// ---- PE inspection helpers (deep introspection for codegen tests) -----------
-// Reach beyond `loadAssembly`'s reflection view: open the emitted PE through
-// `System.Reflection.Metadata` so a test can read raw metadata (Method/Field
-// tokens, AssemblyRef table, IL bytes) without going through the runtime
-// loader. Useful when debugging a malformed IL emission (`InvalidProgramException`)
-// or asserting the *structure* of an emitted PE — e.g., "method X references
-// AssemblyRef Vesper.Core", "field F has signature Y" — rather than the
-// behaviour of its execution.
+// ---- PE inspection helpers ---------------------------------------------------
+// Read the emitted PE through `System.Reflection.Metadata` (method/field tokens, the
+// AssemblyRef table, raw IL) without going through the runtime loader.
 
 open System.Reflection.Metadata
 open System.Reflection.PortableExecutable
 
-/// Open a PE byte stream as a metadata reader. The caller must dispose the
-/// returned `PEReader`; the `MetadataReader` it yields stays valid for the
-/// reader's lifetime.
+/// Open a PE byte stream as a metadata reader. The caller disposes the `PEReader`; the
+/// `MetadataReader` it yields is valid only for that lifetime.
 let openPe (bytes: byte[]) : PEReader =
     new PEReader(System.Collections.Immutable.ImmutableArray.Create<byte>(bytes))
 
-/// The base-type full name (`Namespace.Name`) of the first type-def whose simple
-/// name satisfies `nameMatches` — resolving the `BaseType` handle through either a
-/// `TypeReference` (BCL, e.g. `System.ValueType` / `System.Object`) or a sibling
-/// `TypeDefinition`. `ValueNone` if no type matches or the base handle is nil.
-/// Distinguishes a value-type (`System.ValueType`) closure from a heap one
-/// (`System.Object`).
+/// The base-type full name of the FIRST type-def whose simple name satisfies `nameMatches`,
+/// resolving the handle through a `TypeReference` or a sibling `TypeDefinition`.
+/// `System.ValueType` vs `System.Object` distinguishes a struct closure from a heap one.
 let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string voption =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1457,13 +1180,9 @@ let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string vo
     )
     |> Option.defaultValue ValueNone
 
-/// The base-type SIMPLE name (`ValueType` / `Object`, not the qualified form)
-/// of every synthesised `<closure>$…` type-def in the PE — one entry per closure,
-/// so a struct-seq test can assert "all source-lambda closures are value types"
-/// (`= "ValueType"`). `<none>` for a closure whose base handle isn't a
-/// `TypeReference` (it never is for a real closure; surfaced rather than dropped
-/// so an unexpected shape fails loudly). Unlike `peTypeBaseTypeName` this lists
-/// ALL closure type-defs, not just the first match.
+/// The base-type SIMPLE name (`ValueType` / `Object`) of EVERY `<closure>$…` type-def in
+/// the PE, one entry per closure, so a test can assert all closures are value types.
+/// `<none>` when the base handle is not a `TypeReference`.
 let peClosureBaseTypeNames (bytes: byte[]) : string list =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1482,9 +1201,8 @@ let peClosureBaseTypeNames (bytes: byte[]) : string list =
     )
     |> Seq.toList
 
-/// List every method-def's `(declaringType, methodName)` in the PE, the declaring type
-/// named `Namespace.Name`. For the full CLR spelling of a NESTED type (`Ns.Outer+Inner`)
-/// and the rows each type's range claims, use `MetadataStructure.emittedTypes`.
+/// Every method-def's `(declaringType, methodName)`, the declaring type named
+/// `Namespace.Name`, so a NESTED type appears under its bare simple name, not `Outer+Inner`.
 let peMethodNames (bytes: byte[]) : (string * string) list =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1508,9 +1226,8 @@ let peMethodNames (bytes: byte[]) : (string * string) list =
                     yield qualified, md.GetString m.Name
     ]
 
-/// Every AssemblyRef name in the PE's reference table — the dependency surface
-/// the loader resolves at load. Symmetric to `Assembly.GetReferencedAssemblies`
-/// but works directly off PE bytes (no `AssemblyLoadContext` needed).
+/// Every AssemblyRef name in the PE, the dependency surface the loader resolves, read
+/// straight off the bytes with no `AssemblyLoadContext`.
 let peAssemblyRefs (bytes: byte[]) : string list =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1521,12 +1238,9 @@ let peAssemblyRefs (bytes: byte[]) : string list =
             md.GetString r.Name
     ]
 
-/// Total number of `InterfaceImpl` rows across every type-def in the PE — the
-/// count of `: IFace` entries the metadata carries (one per implemented
-/// interface). Reflection's `GetInterfaces` folds in transitively-inherited
-/// interfaces, so this raw count is what distinguishes "emitted both
-/// `IEnumerable<int>` and `IEnumerable`" from "emitted only the generic one
-/// and inherited the non-generic".
+/// Total `InterfaceImpl` rows across every type-def, one per `: IFace` entry actually
+/// emitted. `GetInterfaces` folds in inherited ones, so only this count separates
+/// "emitted both `IEnumerable<int>` and `IEnumerable`" from "emitted just the generic".
 let peInterfaceImplCount (bytes: byte[]) : int =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1534,15 +1248,9 @@ let peInterfaceImplCount (bytes: byte[]) : int =
     md.TypeDefinitions
     |> Seq.sumBy (fun h -> (md.GetTypeDefinition h).GetInterfaceImplementations().Count)
 
-/// Read the IL byte stream of a method by `(declaringType, methodName)` —
-/// useful for asserting a specific opcode sequence (e.g., "the closure body
-/// emits stfld, ldnull, ret") or printing a hex dump in a failing test. Returns
-/// an empty array for an abstract method (no body). Throws if the method is
-/// not found.
-/// Raw IL bytes of the first method on `declaringType` whose name satisfies
-/// `nameMatches`. Use when the caller cannot pin an exact name — e.g. to reach the
-/// top-level functions on the "Program" class without listing them (`n <> "Main"`).
-/// Throws if no matching method is found.
+/// Raw IL bytes of the FIRST method on `declaringType` whose name satisfies `nameMatches`,
+/// for when the caller cannot pin an exact name (a top-level function on "Program",
+/// `n <> "Main"`). `[||]` for a body-less method; throws if none matches.
 let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1585,9 +1293,7 @@ let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string
             ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
             buf
 
-/// Like `peMethodIlWhere` but returns the IL of EVERY method on `declaringType`
-/// whose name matches — for when several methods qualify (every top-level function on
-/// the "Program" class) and the caller picks the right one by
+/// `peMethodIlWhere` for EVERY matching method, when the caller picks the right one by
 /// inspecting the IL (e.g. "the one containing a `constrained.` prefix").
 let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[][] =
     use peReader = openPe bytes
@@ -1624,16 +1330,9 @@ let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: strin
                             yield buf
     |]
 
-/// Every TOP-LEVEL function's emitted static method, by reflection: one declared on the
-/// anonymous "Program" class, which is where a binding that declares no module lands,
-/// minus the synthesised entry point. Each carries its own SOURCE name — the module class is an
-/// emission choice, not part of the binding's identity — so what says "this function
-/// declared no module" is membership of that type, never a name shape. `[||]` when the
-/// assembly has no Program class at all (a library of named modules).
-///
-/// Takes the loaded `Assembly`, not the bytes, because a caller that also reflects TYPES
-/// out of the same PE must hold ONE load: a second load of the same bytes is a different
-/// assembly, and mixing the two crosses type identities.
+/// Every static method on the anonymous "Program" class (where a binding that declares no
+/// module lands), minus the synthesised entry point; `[||]` if there is no Program class.
+/// Takes the loaded `Assembly` so a caller reflecting types out of the same PE holds ONE.
 let programClassMethodsOf (asm: Assembly) : MethodInfo[] =
     match asm.GetType "Program" with
     | null -> [||]
@@ -1645,6 +1344,8 @@ let programClassMethodsOf (asm: Assembly) : MethodInfo[] =
 let programClassMethods (bytes: byte[]) : MethodInfo[] =
     programClassMethodsOf (loadAssembly bytes)
 
+/// Raw IL bytes of the method named `methodName` on `declaringType`, for asserting an
+/// opcode sequence. `[||]` for an abstract method (no body); throws if not found.
 let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1687,14 +1388,9 @@ let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : by
             ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
             buf
 
-/// The *return type's* element-type tag in a method's MethodDef signature, found
-/// by `(declaringType, methodName)`. Parses the signature blob through a
-/// `BlobReader` — skipping the calling-convention header + compressed param count
-/// — and returns the first byte of the return type, i.e. its `ELEMENT_TYPE_*` tag.
-/// For a method returning a user/referenced nominal type that is the encoder's
-/// `VALUETYPE`-vs-`CLASS` decision point: `0x11` (ELEMENT_TYPE_VALUETYPE) vs `0x12`
-/// (ELEMENT_TYPE_CLASS). Read straight off the emitted metadata — no loader, no
-/// referenced assembly needed. Throws if the method is not found.
+/// The return type's `ELEMENT_TYPE_*` tag from a method's MethodDef signature blob. For a
+/// nominal return type that is the encoder's value-vs-class decision: `0x11`
+/// (ELEMENT_TYPE_VALUETYPE) vs `0x12` (ELEMENT_TYPE_CLASS). Throws if not found.
 let peMethodReturnElementType (bytes: byte[]) (declaringType: string) (methodName: string) : byte =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()

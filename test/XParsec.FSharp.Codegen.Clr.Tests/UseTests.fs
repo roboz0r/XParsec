@@ -8,18 +8,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
-// `use` backend tests. `use x = e in body` lowers to `let x = e in try body
-// finally if x <> null then x.Dispose()`: the IL-IR exception region wraps
-// the body, and the bound variable is disposed on every exit. A `use` bound variable must
-// implement `disposable` (`System.IDisposable`) — matching
-// real F# — so the project-local mock here implements the interface; its `Dispose`
-// records the call by printing. The front end records nothing (`dispose = ValueNone`)
-// and codegen disposes through the bound variable's nominal `Dispose` slot (which resolves the
-// interface impl method). Asserting on captured stdout proves both that `Dispose` ran
-// and that it ran *after* the body. The external (BCL) bound variable path resolves a keyed
-// `Dispose` (`System.IDisposable`'s, or an own ref-struct `Dispose`) and codegen
-// disposes it through an `ExternalMemberRef` `callvirt` — the `MemoryStream` test
-// below is the gate.
+// `use x = e in body` lowers to `let x = e in try body finally x.Dispose()`, the finally
+// being an IL-IR exception region around the body. Each test asserts on captured stdout:
+// "body" then "disposed" proves `Dispose` ran, and that it ran after the body.
 
 [<Tests>]
 let useTests =
@@ -52,11 +43,8 @@ let useTests =
             }
 
             test "canonical BCL-free `interface disposable` resolves, emits System.IDisposable, and `use` disposes it" {
-                // Platform-independence slice 5: authoring the capability by its canonical
-                // BCL-free name (`interface disposable`, not `interface System.IDisposable`).
-                // Resolves, emits a real `System.IDisposable` interface row (the canon→platform
-                // reconciliation in `ClrEnv.externalClassRef`), and `use` recognises + disposes
-                // it — identical observable behaviour to the BCL-spelled form.
+                // `interface disposable` is the canonical BCL-free spelling; the canon→platform
+                // reconciliation emits a real `System.IDisposable` interface row.
                 let src =
                     String.concat
                         "\n"
@@ -83,12 +71,8 @@ let useTests =
             }
 
             test "`use _ = e` disposes the bound variable even though the body can't name it" {
-                // A wildcard `use` bound variable (`use _ = …`) is the RAII-guard form: the
-                // value is still parked in a local and disposed in the finally, but
-                // the body has no name for it. Codegen keys the slot off a synthetic
-                // placeholder (`mintUseBoundVarKey`); Validation permits `_` as a simple
-                // pattern. A regression that rejected it (or crashed the emitter) would
-                // fail here.
+                // `use _ = …` is the RAII-guard form: the value is still parked in a local
+                // and disposed in the finally, keyed off a synthetic placeholder.
                 let src =
                     String.concat
                         "\n"
@@ -114,9 +98,8 @@ let useTests =
             }
 
             test "the body's result survives the finally and is the `use` expression's value" {
-                // `compute ()` returns the body value (42); `Dispose` still runs in
-                // the finally before the return, so the parked result is reloaded
-                // after the region. Disposal prints first, then the caller prints 42.
+                // `Dispose` runs in the finally before the return and the parked result is
+                // reloaded after the region, so "disposed" precedes the caller's 42.
                 let src =
                     String.concat
                         "\n"
@@ -142,14 +125,9 @@ let useTests =
             }
 
             test "`use` over an external BCL disposable compiles, runs, and disposes it" {
-                // `System.IO.MemoryStream` declares no `Dispose` of its own — it
-                // inherits `Stream.Dispose()` and implements `IDisposable`. The front
-                // end therefore resolves the *interface* `Dispose` (the provider's
-                // `DeclaredOnly` member walk misses the inherited one), and codegen
-                // disposes through an `ExternalMemberRef` `callvirt`. A false
-                // "non-disposable" diagnostic or a `MissingMethodException` at the
-                // disposal site would fail this; running to a clean exit proves the
-                // external disposal path binds and emits.
+                // `System.IO.MemoryStream` declares no `Dispose` of its own but inherits
+                // `Stream.Dispose()`, so the front end resolves the *interface* `Dispose`
+                // and codegen disposes through an `ExternalMemberRef` `callvirt`.
                 let src =
                     String.concat
                         "\n"

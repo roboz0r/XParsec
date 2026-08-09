@@ -5,14 +5,8 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Behavioral corpus: closures. Covers the observable runtime behaviours: a
-// non-capturing lambda value, a value capture, an inline lambda in argument
-// position, a returned (generic) closure, and a captured mutable surviving
-// across invocations.
-//
-// `runs` forces `Vesper.Core.dll` into the default load context (via `withCore`,
-// which the compile path injects), so the captured-`Ref` and `Vesper.Fun`
-// references resolve at load without an explicit force here.
+// The compile path adds `Vesper.Core.dll` to `References`, so the captured-`Ref` and
+// `Vesper.Fun` references resolve at load without an explicit force here.
 
 [<Tests>]
 let tests =
@@ -32,8 +26,7 @@ let tests =
                     "10"
                 ] -> test src { runs expected src }
 
-            // a captured `let mutable` cell shared across three invocations of
-            // the escaping closure (promotion to Vesper.Ref)
+            // the `let mutable` cell is promoted to a `Vesper.Ref` the closure and the frame share
             yield
                 test "captured mutable counter: three invocations share the cell" {
                     runsLines
@@ -53,8 +46,7 @@ let tests =
                             ])
                 }
 
-            // A closure inside a class member body: `discoverClosures` walks member
-            // bodies, not just top-level decls.
+            // Closure discovery walks class member bodies, not just top-level decls.
             yield
                 test "a non-capturing closure inside a mono class member body" {
                     runs
@@ -71,8 +63,8 @@ let tests =
                             ])
                 }
 
-            // The same, but the inner lambda captures a ctor-param backing field (`n`)
-            // — a ground (non-typar) capture, so a monomorphic closure.
+            // The same, but the inner lambda captures a ctor-param backing field (`n`),
+            // a ground (non-typar) capture, so a monomorphic closure.
             yield
                 test "a closure inside a mono class member body capturing a ctor param" {
                     runs
@@ -89,10 +81,8 @@ let tests =
                             ])
                 }
 
-            // A closure inside a *generic* class member body, capturing a value typed
-            // by the class typar `'T` (declaring axis) and a function over it. The
-            // closure re-projects `'T` (`FTTypar(Declaring,0)`) onto its own class
-            // typar `!0`.
+            // The closure captures `v: 'T` from the class typar (declaring axis) and
+            // re-projects it onto its own class typar `!0`.
             yield
                 test "a closure inside a generic class member body capturing a class-typar value" {
                     runs
@@ -109,10 +99,8 @@ let tests =
                             ])
                 }
 
-            // A closure inside a generic class member body that captures *both* a
-            // class-typar value (`'T`, declaring axis) and a member-typar value (`'U`,
-            // method axis) — the mixed-axis projection (`'U` lands at the closure's
-            // `!(d + j)`).
+            // Mixed-axis capture: `'T` on the declaring axis and `'U` on the method axis,
+            // where `'U` lands at the closure's `!(d + j)`.
             yield
                 test "a closure inside a generic class member body capturing class + member typar values" {
                     runs
@@ -129,13 +117,9 @@ let tests =
                             ])
                 }
 
-            // A generic class member with *unannotated* params whose types are
-            // inferred (via a generic module fn call) to a fresh state typar. Because
-            // the member is never *called* in this assembly (a library API), those
-            // typars must be generalised into the member's own method typars — if
-            // generalisation fails they leak as free TyVars into the closure's
-            // capture field. The member is emitted regardless of being called, so the
-            // leak surfaces at emission.
+            // `Fold`'s unannotated params infer to fresh typars and the member is never
+            // called here, so they must generalise into method typars. Otherwise they leak
+            // as free TyVars into the closure's capture field, surfacing at emission.
             yield
                 test "a generic class member with body-inferred (uncalled) method typars (Set.Fold shape)" {
                     runs
@@ -153,13 +137,9 @@ let tests =
                             ])
                 }
 
-            // A module function with a *recursive nested helper* (`let rec go`) that
-            // captures the outer function's params. The closure free-variable analysis
-            // must treat `go`'s recursive self-reference as bound (it lowers to the
-            // closure's `this`), not free — otherwise the enclosing module function
-            // looks like it captures a non-static binding and is dropped from the
-            // static-method-eligible set, so a call to it from a *class member body*
-            // crashes emission with "no binding for variable".
+            // `go`'s recursive self-reference must count as bound (it lowers to the closure's
+            // `this`), not free, because a free `go` makes `outer` look non-static, drops it from the
+            // static-method-eligible set, and the call from `C.M` fails "no binding for variable".
             yield
                 test "a module fn with a recursive nested helper capturing outer params stays a static method" {
                     runs
@@ -178,12 +158,9 @@ let tests =
                             ])
                 }
 
-            // `(+)` used as a VALUE is eta-reified by `Passes.InlineExpansion` and its
-            // contract body spliced into the `App` the eta minted — so what the binding
-            // holds is a two-lambda closure over the operator's body, not a bare
-            // `External op_Addition` leaf. The call site still references the binding
-            // (eta-reification is local to the operator reference); the runtime
-            // `Vesper.Fun` shape lives in `SelfHostTests`.
+            // `(+)` used as a VALUE is eta-reified and the operator's contract body spliced
+            // into the `App` the eta minted, so the binding holds a two-lambda closure over
+            // that body, not a bare `External op_Addition` leaf.
             yield
                 test "`let add = (+)` analyses clean to an eta-reified closure over the operator body" {
                     let tast = analyse "let add = (+)\nprintfn \"%d\" (add 40 2)"
@@ -211,10 +188,8 @@ let tests =
                     | other -> failtestf "unexpected (+)-as-value TAST: %A" other
                 }
 
-            // An *own-class static-operator member* used as a first-class value:
-            // `(+)` resolves to the class's `static member (+)`, not a built-in
-            // operator, so its eta-reified closure body must `call` the static member
-            // — NOT collapse to inline IL the way a primitive `(+)` does.
+            // `(+)` here resolves to the class's `static member (+)`, not a built-in, so the
+            // eta-reified body must `call` that member rather than collapse to inline IL.
             yield
                 test "a mono own-class static-operator member passed as a value" {
                     runs
@@ -231,21 +206,9 @@ let tests =
                             ])
                 }
 
-            // A *generic* own-class `static member (+)` taken by value dispatches to that
-            // member — and NOTHING in the front end special-cases it to make that happen.
-            // The value elaborates to a plain keyed `External("op_Addition")`;
-            // `InlineExpansion` eta-reifies it to `fun a b -> (+) a b`, splices the
-            // contract body at the call site its own eta minted, and the body's SRTP
-            // trait-call BASE resolves against the nominal `V<int>` support type to
-            // `V<_>.op_Addition(a, b)`. The type-directed decision F# makes here lives in
-            // that trait call, so the hand-rolled `resolveOperatorValues` scan + the
-            // Elaborate eta that used to make it are gone.
-            //
-            // The `Let`s between the lambdas and the call are the ordinary
-            // beta-reduction bindings EVERY inline splice leaves — hence the search for
-            // the call rather than a match on the lambda's immediate body. This row pins
-            // the *front-end* shape; the generic end-to-end runtime run is gated by
-            // ClassTests "gapA+B: generic own-op List.fold inside a generic member body".
+            // The value elaborates to a plain keyed `External("op_Addition")`; eta-reification
+            // makes `fun a b -> (+) a b`, and the spliced body's SRTP trait call resolves
+            // against the nominal `V<int>` support type to `V<_>.op_Addition(a, b)`.
             yield
                 test "a generic own-class static-operator value dispatches to its own op_Addition" {
                     // The default contract stack carries the SRTP `(+)`, so the
@@ -296,8 +259,8 @@ let tests =
                                         true
                             }
 
-                        // Through the edges: the entry's body names `(+)`'s own resolved
-                        // entry, which is where the `op_Addition` call ends up.
+                        // Ordinary beta-reduction `Let`s sit between the lambdas and the
+                        // call, so search through the edges rather than match the body.
                         iterThroughEdges it tast body
 
                         Expect.equal

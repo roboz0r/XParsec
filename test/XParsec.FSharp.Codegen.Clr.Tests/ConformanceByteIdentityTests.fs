@@ -8,22 +8,12 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The CLR byte-identity gate: for every conformance program the CLR COMPILES, pin a
-// deterministic structural digest of the emitted assembly as a golden and assert
-// equality on every later run — a regression tripwire for the frozen-cache work. No
-// emitter is touched.
-//
-// The digest is structural, NOT hash(toBytes …): `Metadata.fs:64` mints a fresh MVID
-// per compile, so raw PE bytes differ run-to-run for identical source. See
-// `ClrStructuralDigest` for exactly what is folded in and left out.
-//
-// Gated set = programs with a `Run` or `Fault` obligation for "clr" (a `Fault` program
-// still compiles; it faults at RUNTIME). `Diagnose` programs emit nothing, so skipped.
+// Pins a structural digest of every conformance assembly the CLR compiles as a golden.
+// Structural rather than a byte hash: each compile mints a fresh MVID, so identical
+// source yields different bytes. A `Fault` program compiles too; a `Diagnose` one does not.
 
-/// Committed goldens, one `.clr.txt` (the hex digest) per program, beside this test.
 let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 
-/// Programs the CLR backend compiles (see the header).
 let private gated =
     programs
     |> List.filter (fun p ->
@@ -45,9 +35,6 @@ let tests =
                     Goldens.check (Path.Combine(goldensDir, p.Name + ".clr.txt")) (p.Name + ".clr.txt") digest
                 }
 
-            // The mechanism, pinned once: recompiling identical source yields RAW PE
-            // bytes that DIFFER (fresh MVID) yet the SAME structural digest — the whole
-            // reason the gate hashes structure rather than bytes.
             match gated with
             | p :: _ ->
                 test "structural digest is MVID-invariant" {

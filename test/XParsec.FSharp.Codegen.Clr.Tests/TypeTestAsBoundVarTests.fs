@@ -3,25 +3,18 @@ module XParsec.FSharp.Codegen.Clr.Tests.TypeTestAsBoundVarTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Regression probes for two `structural-printer.clr.fs` workarounds that were needed
-// against 2026-06 codegen but have since been fixed (many `:? T as x` arms in a
-// member body; a module `let` read from a member), and for the member-resolution
-// shapes on an interface-typed object argument the printer relies on — including a
-// `System.Object`-inherited member on one, which needed the CLR metadata
-// provider to walk through to `Object` (MetadataSymbols.computeMembers). Every
-// probe is expected to PASS; a failure means a regression.
+// Member-resolution probes on `as`-bound variables: many `:? T as x` arms in one member
+// body, a module `let` read from a member, and interface / value-type / base-inherited
+// members on an interface-typed object argument.
 
 [<Tests>]
 let tests =
     testList
         "TypeTestAsBoundVar"
         [
-            // Issue (1): many `:? T as x` arms — all bound variables named `x`, distinct
-            // types — in an INTERFACE-IMPL member body. Each arm reads its own
-            // bound variable (the `if x > 0` guard), so a dropped/collided slot would
-            // mis-branch or emit invalid IL. Directly refutes the name-collision
-            // hypothesis: keys are source-position based, so identically-named
-            // bound variables in different arms must still route to their own slot.
+            // Every arm binds a variable named `x` at a distinct type and reads it in its
+            // own `if x > 0` guard. Keys are source-position based, so identically-named
+            // bound variables in different arms still route to their own slot.
             test "many same-named `:? T as x` arms in an interface member bind per-arm" {
                 runsSelfHostLines
                     [ "11"; "21"; "31"; "41"; "51" ]
@@ -49,9 +42,7 @@ let tests =
                         ])
             }
 
-            // Issue (2): a module-level `let` value read from inside an
-            // interface-impl member body (the `ldsfld` the workaround comment
-            // claims is unresolved in the member emit environment).
+            // A module-level `let` read from inside an interface-impl member body (an `ldsfld`).
             test "a module `let` value resolves when read from an interface member" {
                 runsSelfHostLines
                     [ "105" ]
@@ -69,10 +60,6 @@ let tests =
                         ])
             }
 
-            // Interface-DECLARED method on an interface-typed `as`-bound variable
-            // (`IFormattable.ToString(string, provider)`). This is the shape the
-            // printer's `formatPrimitive` `IFormattable` arm needs — verified to
-            // WORK, so that arm can drop its `:?>`-cast workaround.
             test "interface-declared method on an interface-typed `as`-bound variable works" {
                 runsSelfHost
                     "42"
@@ -92,9 +79,6 @@ let tests =
                         ])
             }
 
-            // A method call on a VALUE-TYPE `as`-bound variable (`d.ToString(...)` on a
-            // `double`) inside a module function — the exact shape the printer's
-            // `formatPrimitive` needs to drop its `:?>`-cast workaround.
             test "method call on a value-type `as`-bound variable works (module fn)" {
                 runsSelfHostLines
                     [ "1.5"; "2.5f"; "42" ]
@@ -113,8 +97,6 @@ let tests =
                         ])
             }
 
-            // A PROPERTY on an interface-typed `as`-bound variable (`ITuple.Length`) —
-            // interface-declared, resolves correctly.
             test "property on an interface-typed `as`-bound variable works (ITuple.Length)" {
                 runsSelfHost
                     "3"
@@ -135,12 +117,9 @@ let tests =
                         ])
             }
 
-            // A `System.Object`-inherited member (`ToString`/`Equals`/`GetHashCode`)
-            // on an interface-typed object argument. These are inherited, not declared on
-            // the interface, so the CLR metadata provider must walk through to
-            // `System.Object` to surface them (MetadataSymbols.computeMembers). On a
-            // string boxed as `obj` the `IEnumerable` arm fires and `xs.ToString()`
-            // returns the string itself.
+            // `ToString`/`Equals`/`GetHashCode` are inherited from `System.Object`, not declared
+            // on the interface, so the metadata provider must walk through to `Object`. On a
+            // string boxed as `obj` the `IEnumerable` arm fires and `xs.ToString()` is "abc".
             test "Object-inherited member on an interface object argument resolves (IEnumerable.ToString)" {
                 runsSelfHost
                     "abc"
@@ -161,11 +140,9 @@ let tests =
                         ])
             }
 
-            // An `Object`-inherited member on an external CLASS object argument. On the CLR
-            // every class inherits `Equals`/`GetHashCode`/`ToString` from `Object`, so
-            // the provider walks the class's base chain (which terminates at `Object`).
-            // `StringBuilder` does not override `Equals`, so `sb.Equals(sb)` resolves to
-            // `Object.Equals` — reference-equal, hence true.
+            // A class's base chain terminates at `Object`. `StringBuilder` does not override
+            // `Equals`, so `sb.Equals(sb)` resolves to `Object.Equals`, which compares by
+            // reference and so returns true.
             test "Object-inherited member on an external class object argument resolves (StringBuilder.Equals)" {
                 runsSelfHost
                     "true"
@@ -178,21 +155,17 @@ let tests =
                         ])
             }
 
-            // An INTERMEDIATE-base member on an external class object argument: `Message` is
-            // declared on `System.Exception`, not on `ArgumentException`, so resolving
-            // `e.Message` needs the base-chain walk (ArgumentException -> SystemException
-            // -> Exception), not just `Object`.
+            // `Message` is declared on `System.Exception`, not `ArgumentException`, so this
+            // needs the full walk (ArgumentException -> SystemException -> Exception).
             test "intermediate-base member on an external class object argument resolves (Exception.Message)" {
                 runsSelfHost
                     "boom"
                     (String.concat "\n" [ "let e = System.ArgumentException(\"boom\")"; "printfn \"%s\" e.Message" ])
             }
 
-            // OVERLOADS split across the hierarchy must ALL survive the base-chain
-            // merge (the case a first-level-wins `tryPick` got wrong). `StringWriter`
-            // overrides `Write(string)` but inherits `Write(bool)` from `TextWriter`, so
-            // a single call site using both proves the base overload is still a
-            // candidate alongside the derived one.
+            // `StringWriter` overrides `Write(string)` but inherits `Write(bool)` from
+            // `TextWriter`, so using both proves the base overload survives the base-chain
+            // merge as a candidate alongside the derived one.
             test "overloads split across base classes both resolve (TextWriter/StringWriter.Write)" {
                 runsSelfHost
                     "Truex"
@@ -207,10 +180,8 @@ let tests =
                         ])
             }
 
-            // An OVERRIDE must not double-count: `StringBuilder` overrides
-            // `ToString()` (0 args) and `Object` also declares `ToString()` (0 args).
-            // The merge dedups by signature so only the most-derived survives — no
-            // ambiguity — and the builder's own content is returned.
+            // `StringBuilder` overrides `ToString()` and `Object` declares it too; the merge
+            // dedups by signature, so only the most-derived survives and there is no ambiguity.
             test "an overridden member is not double-counted across the base chain (StringBuilder.ToString)" {
                 runsSelfHost
                     "hi"

@@ -6,21 +6,16 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// `HoleSpec.{Kind,Format,Alignment}` projection members were retired; reconstruct the
-// legacy CLR `(HoleKind, .NET-format, alignment)`
-// triple here from the hole's classified `HoleForm` (`hole.Source`) via the CLR-only
-// `ClrHoleFormat.toDotNetFormat`, so these per-specifier projection assertions keep
-// pinning the CLR emission shape. `%A` reproduces the slot punning the old triple
-// carried (width in the alignment slot, size as a decimal string in the format slot).
-// The alignment slot is an `Alignment` now; project it back to the legacy signed
-// `int option` these assertions were written against (`Star` — a runtime `%*d`
-// width — has no static value, so `None`).
+/// A `Star` width (a runtime `%*d`) has no static value, so it projects to `None`.
 let private alignToOpt (a: PrintfHoleForm.Alignment) : int option =
     match a with
     | PrintfHoleForm.Alignment.None -> None
     | PrintfHoleForm.Alignment.Const n -> Some n
     | PrintfHoleForm.Alignment.Star _ -> None
 
+/// The CLR `(HoleKind, .NET-format, alignment)` the per-specifier assertions below are
+/// written against, rebuilt from the hole's classified `HoleForm`. `%A` puns the slots:
+/// print width in the alignment slot, size as a decimal string in the format slot.
 let private triple (hole: HoleSpecG<'ty, 'tok>) : PrintfSpec.HoleKind * string option * int option =
     match hole.Source with
     | HoleSpecSource.RawFormat fmt -> PrintfSpec.HoleKind.Formatted, fmt, None
@@ -43,9 +38,8 @@ let private triple (hole: HoleSpecG<'ty, 'tok>) : PrintfSpec.HoleKind * string o
 
         PrintfSpec.HoleKind.Structured, sizeSlot, widthSlot
     | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Callback _) ->
-        // `%a`/`%t` callback holes carry no CLR `(HoleKind, format, alignment)` triple —
-        // they ride a `FormatSeg.CallbackHole`, not a `Hole`; these projection assertions
-        // never inspect one.
+        // A `%a`/`%t` hole rides a `FormatSeg.CallbackHole`, not a `Hole`, so no
+        // projection assertion here ever reaches it.
         failwith "triple: callback hole has no field projection"
 
 let private kindOf hole =
@@ -67,10 +61,9 @@ let private sizeBudgetOf hole =
     | Some s -> Some(int s)
     | None -> None
 
-// Vesper.Printf happy path: fully-applied literal printf lowered to the
-// `Vesper.Formatter` write-through handler. Every lowerable specifier form now
-// lowers natively — there is no FSharp.Core cold path left to fall back to (the
-// only un-lowered forms are diagnosed `Severity.Error`s at the gate).
+// Fully-applied literal printf lowers to the `Vesper.Formatter` write-through handler.
+// There is no FSharp.Core cold path: an un-lowerable form is a `Severity.Error` at the
+// gate.
 
 let private soleDecl (src: string) : TDecl =
     let tast = analyse src
@@ -85,21 +78,16 @@ let private runPrints (name: string) (src: string) (expected: string) =
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.Trim()) expected (sprintf "%s prints %s" src expected)
 
-/// Compile + run `src` against the Vesper handler, asserting output matches
-/// `expected`. Trims only the trailing newline (so leading/embedded alignment
-/// spaces survive) and pairs with an `expected` from the test process's own
-/// `sprintf` for byte-for-byte parity with real F#.
+/// Trims only the trailing newline, so leading / embedded alignment spaces survive.
+/// `expected` comes from the test process's own `sprintf`, so parity is byte-for-byte.
 let private runParity (name: string) (src: string) (expected: string) =
     let exitCode, output = withPrintfAlc (fun alc -> runDriverInAlc alc src)
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.TrimEnd('\r', '\n')) expected (sprintf "%s == F# parity" src)
 
-/// The deepest exception the compiled driver's entry point throws, as its type's
-/// full name paired with its `ParamName` (for an `ArgumentException`), or `None`
-/// when it returns normally. The asserting run helpers turn a throw into a test
-/// failure, so a run that must OBSERVE F#'s throw (a negative star width, which
-/// `PadLeft` rejects with `ArgumentOutOfRangeException("totalWidth")`) invokes
-/// directly. The `ParamName` is the native path's parity bar with F#.
+/// The deepest exception the driver's entry point throws, with its `ParamName`. The
+/// asserting run helpers turn a throw into a test failure, so a test that must OBSERVE
+/// F#'s throw (`PadLeft` rejects a negative `%*d` width as its `totalWidth`) invokes directly.
 let private entryPointThrew (src: string) : (string * string option) option =
     withPrintfAlc (fun alc ->
         let _, artifact = compileSource "PHpStarThrow" src
@@ -132,8 +120,6 @@ let tests =
     testList
         "PrintfHappyPath"
         [
-            // A literal-only `printfn` (no holes) lowers to a Format node carrying a
-            // single `Lit` segment — the simplest happy-path shape.
             test "`printfn \"hi\"` lowers to a single-literal Format node and prints \"hi\"" {
                 match soleDecl "printfn \"hi\"" with
                 | TDecl.Expression(TExpr.Format(sink, segs, _, _), _) ->
@@ -147,14 +133,9 @@ let tests =
                 runPrints "PHpHi" "printfn \"hi\"" "hi"
             }
 
-            // ---- E1: a format literal bound to a name / ascribed (const-prop) ----
-            // A `PrintfFormat`-typed `let` (or `(… : Fmt)` ascription) is not a
-            // syntactic literal AT the call site, but the bound literal is recovered
-            // (`PrintfFormatLiterals`) and lowered natively — the ONLY runnable path: a
-            // format *value* applied to the inline-only printf intrinsics has no cold
-            // runtime in the self-host contract (it `TypeLoad`-fails on `Vesper.Printf`).
-            // So each run-parity pass here is also proof the call lowered native, not
-            // cold. Real F#'s `sprintf`/`printf` are the oracle.
+            // ---- a format literal bound to a name / ascribed (const-prop) ----
+            // Not a syntactic literal AT the call site, but the bound literal is
+            // recovered and lowered natively, so a format *value* has no cold runtime.
 
             test "E1: `sprintf` on a let-bound annotated format (F# parity)" {
                 runParity
@@ -479,10 +460,9 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // `%+g` / `% g` route through the signed dynamic handler (scientific /
-            // compact notation can't ride a .NET section format), so they lower to a
-            // Field hole carrying a `ForcedSign` form with the `g` letter — asserted on
-            // the classified source, not the section-format `triple` projection.
+            // Scientific / compact notation can't ride a .NET section format, so `%+g` /
+            // `% g` lower to a Field hole carrying a `ForcedSign` form with the `g` letter.
+            // The assertion reads the classified source, not the `triple` projection.
             test "`%+g` (forced sign on compact) lowers to a ForcedSign field" {
                 match soleDecl "printfn \"%+g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
@@ -607,10 +587,9 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // A `%A` of an `FSharpOption` no longer forces the whole format cold: the
-            // structural engine renders it via the runtime dispatcher's `ToString` tail
-            // (its bytes may diverge from F#'s reflective `%A` — accepted), so the hole
-            // lowers to a `Structured` node like any other nominal.
+            // An `FSharpOption` renders via the runtime dispatcher's `ToString` tail, so
+            // the hole is a `Structured` node like any other nominal (bytes may diverge
+            // from F#'s reflective `%A`, which is accepted).
             test "`%A` of an FSharpOption lowers to a Structured hole (ToString-degrade)" {
                 let tast = analyse "printfn \"%A\" (Some 1)"
 
@@ -623,8 +602,8 @@ let tests =
                 | other -> failtestf "expected a single Format-node decl, got: %A" other
             }
 
-            // A `%A` of an arbitrary BCL type (a `System.Guid`) likewise lowers on the
-            // engine — the dispatcher's `IFormattable` / `ToString` arm renders it.
+            // An arbitrary BCL type (`System.Guid`) renders through the dispatcher's
+            // `IFormattable` / `ToString` arm.
             test "`%A` of a BCL type lowers to a Structured hole (ToString-degrade)" {
                 match soleDecl "printfn \"%A\" System.Guid.Empty" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
@@ -695,10 +674,9 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // The bare `analyse` harness has no assembly name (home = `None`), so a
-            // record there is treated external (cold path); `compileSource` (named
-            // assembly) lowers it on the engine. The runtime tests below prove that
-            // end-to-end.
+            // `analyse` has no assembly name (home = `None`), so a record there reads as
+            // external and goes cold; `compileSource` names the assembly and lowers it
+            // on the engine.
 
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
 
@@ -724,9 +702,9 @@ let tests =
                 runPrints "PHpSprintf" "printfn \"%s\" (sprintf \"%d!\" 42)" "42!"
             }
 
-            // `fprintf`/`fprintfn` to a real `TextWriter` (`System.Console.Out`,
-            // redirected to the capture writer by the harness). The writer is arg 0,
-            // the format arg 1 — a `ToWriter` sink, not the FSharp.Core cold path.
+            // `fprintf`/`fprintfn` to a real `TextWriter`: the writer is arg 0, the
+            // format arg 1, giving a `ToWriter` sink. The harness redirects
+            // `System.Console.Out` to the capture writer.
             test "fully-applied `fprintf` lowers to a writer-sink Format" {
                 match soleDecl "fprintf System.Console.Out \"%d\" 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToWriter(_, false), segs, _, _), _) ->
@@ -737,11 +715,9 @@ let tests =
                 | other -> failtestf "expected a ToWriter Format node, got: %A" other
             }
 
-            // The writer arrives as an ANNOTATED PARAMETER rather than a `System.Console.Out`
-            // expression, so the written `System.IO.TextWriter` must resolve to the very class
-            // the writer sink names and meet it under plain unification — a target that cannot
-            // name the sink cannot type this at all. Pins what the sibling above does not: the
-            // hole's TYPE and the `unit` result of the lowered write.
+            // The writer arrives as an ANNOTATED PARAMETER, not a `System.Console.Out`
+            // expression, so the written `System.IO.TextWriter` must unify with the class
+            // the sink names. Pins the hole's TYPE and the `unit` result of the write.
             test "fully-applied `fprintf` on an annotated TextWriter param lowers to a writer-sink Format" {
                 match soleDecl "let f (w: System.IO.TextWriter) = fprintf w \"%d\" 42" with
                 | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _) ->
@@ -783,9 +759,8 @@ let tests =
                 runPrints "PHpFWriterMulti" "fprintf System.Console.Out \"%d and %s\" 7 \"x\"" "7 and x"
             }
 
-            // `bprintf` to a `StringBuilder` — the builder is arg 0, the format arg 1
-            // — a `ToBuilder` sink, not the FSharp.Core cold path. No `bprintfn`, so
-            // never a trailing newline.
+            // `bprintf` to a `StringBuilder`: the builder is arg 0, the format arg 1,
+            // giving a `ToBuilder` sink. There is no `bprintfn`, so never a newline.
             test "fully-applied `bprintf` lowers to a builder-sink Format" {
                 match soleDecl "bprintf (System.Text.StringBuilder()) \"%d\" 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToBuilder _, segs, _, _), _) ->
@@ -832,13 +807,9 @@ let tests =
                     "7 and x"
             }
 
-            // Track D — `%a` / `%t` callback holes. Elaborate lowers each callback hole to
-            // an ordinary residue-*string* expr (the callback is a `Vesper.Fun`, applied
-            // through the native path — no FSharp.Core): `sprintf` splices the callback's
-            // returned string (`cb unit [value]`); the writer/builder families splice a
-            // `{ let s = new Scratch() in cb s [value]; s.ToString() }` block. Both
-            // backends emit the residue exactly like a `%s` hole. Parity is against the
-            // test process's own F# `%a`/`%t` with the identical callback.
+            // A `%a` / `%t` hole lowers to an ordinary residue *string* expr, emitted like
+            // a `%s`: `sprintf` splices the callback's returned string (`cb unit [value]`),
+            // the writer/builder families splice `{ let s = new Scratch() in …; s.ToString() }`.
 
             test "sprintf `%a` lowers to a ToString Format; residue is the applied callback (value-carrying)" {
                 // `%a` residue = `cb unit value` — a double application (the value is the
@@ -896,9 +867,9 @@ let tests =
             }
 
             test "`%a` callback closing over a local captures it (closure-walk, F# parity)" {
-                // The callback is a closure over `y`; if the CallbackHole sub-exprs were
-                // not walked by free-variable/escape analysis, `y` would go unregistered
-                // and this would fault at runtime. Parity value proves the capture works.
+                // The callback closes over `y`: if free-variable/escape analysis did not
+                // walk the CallbackHole sub-exprs, `y` would go unregistered and this
+                // would fault at runtime.
                 let y = 42
                 let expected = sprintf "%a" (fun (s: unit) (x: int) -> sprintf "%d" (x + y)) 5
 
@@ -952,11 +923,9 @@ let tests =
                 runPrints "PHpStructStr" "printfn \"%A\" \"hi\"" "\"hi\""
             }
 
-            // `% A` (space flag) is a pure no-op for `%A`: `GenericToString`
-            // (`printf.fs:1085`) never consults the space flag, so output is
-            // byte-identical to `%A`. (Note real F#'s *compiler* rejects `% A` at
-            // parse time — FS0741 — so `sprintf "% A"` can't be the oracle; XParsec
-            // admits it and lowers it as `%A`, whose output the value fixes here.)
+            // `% A` is a no-op: the space flag leaves output byte-identical to `%A`. F#'s
+            // compiler rejects `% A` at parse time (FS0741), so `sprintf "% A"` cannot be
+            // the oracle; XParsec admits it and `sprintf "%A"` supplies the bytes.
             test "`% A` of an int prints the bare value (like `%A`)" {
                 runParity "PHpStructSpaceInt" "printfn \"% A\" 42" (sprintf "%A" 42)
             }
@@ -970,9 +939,8 @@ let tests =
             }
 
             // ---- `%A` flag forms: `%.NA` (PrintSize), `%+A`, `%-A` ----
-            // `%.NA` is a global node budget: after N leaves the engine truncates with
-            // `...`. `%+A` (non-public fields) and `%-A` (left-justify) are no-ops,
-            // identical to plain `%A`.
+            // `%.NA` is a global node budget: after N leaves the engine truncates with `...`.
+            // `%+A` (non-public fields) and `%-A` (left-justify) are no-ops on `%A`.
 
             test "`%.2A` truncates a list after 2 nodes (PrintSize)" {
                 runPrints "PHpStructSize2" "printfn \"%.2A\" [ 1; 2; 3; 4; 5 ]" "[1; 2; ...]"
@@ -1026,12 +994,9 @@ let tests =
                 runPrints "PHpStructDuPayload" "type Opt = | N | S of int\nlet v = S 3\nprintfn \"%A\" v" "S 3"
             }
 
-            // A constructor / parenthesised application written *directly* as the
-            // printf argument used to mis-parse: the last union-case field type
-            // (`S of int`) swallowed the next line's `printfn` as a postfix type
-            // application (`int printfn`), stranding `"%A" (S 3)` as a string applied
-            // to the value. Fixed by an offside guard on postfix type suffixes
-            // (`TypeParsing.pPostfixType` + the union body's `SeqBlock` context).
+            // A regression: the last union-case field type (`S of int`) swallowing the
+            // next line's `printfn` as a postfix type application (`int printfn`), which
+            // stranded `"%A" (S 3)` as a string applied to a value. An offside guard stops it.
             test "`%A` of a DU constructor written directly as the printf arg" {
                 runPrints "PHpStructDuDirect" "type Opt = | N | S of int\nprintfn \"%A\" (S 3)" "S 3"
             }
@@ -1052,9 +1017,8 @@ let tests =
             }
 
             // ---- `%A` of an external Vesper-package union ----
-            // A referenced Vesper package's record / DU carries the same synthesised
-            // `IStructuralFormattable.Format`, so `%A` of one lowers on the engine via
-            // `.Union` / `.Record` resolved shape (not the FSharp.Core cold path).
+            // A referenced package's record / DU carries the same synthesised
+            // `IStructuralFormattable.Format`, so `%A` of one lowers on the engine.
             test "`%A` of an external Vesper union (Result) renders `Ok 5` on the engine" {
                 runsResult "Ok 5" "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
             }
@@ -1088,7 +1052,7 @@ let tests =
                 runParity "PHpExp" "printfn \"%e\" 1234.5" (sprintf "%e" 1234.5)
             }
 
-            // `%g`/`%G` parity — the oracle IS F#'s `sprintf "%g"` (byte-for-byte,
+            // For `%g`/`%G` the oracle IS F#'s `sprintf "%g"` (byte-for-byte,
             // unlike `%A`): integer-valued, exponent boundaries, trailing-zero
             // stripping, negatives, -0, non-finite, precision/width forms, float32.
             test "`%g` prints an integer-valued float without a point" {
@@ -1170,19 +1134,19 @@ let tests =
             }
 
             // Overflow: the reinterpreted `uint` is 10 digits, wider than the
-            // width — F# neither pads nor truncates.
+            // width, so F# neither pads nor truncates.
             test "`%05u` of -1 overflows the width without padding or truncation" {
                 runParity "PHpZeroUnsOvf" "printfn \"%05u\" (0 - 1)" (sprintf "%05u" -1)
             }
 
             test "`%08o` zero-pads octal to width 8" { runParity "PHpZeroOct" "printfn \"%08o\" 8" (sprintf "%08o" 8) }
 
-            // Overflow: the two's-complement octal is 11 digits — no pad, no truncation.
+            // Overflow: the two's-complement octal is 11 digits, so no pad, no truncation.
             test "`%08o` of -1 overflows the width without padding or truncation" {
                 runParity "PHpZeroOctOvf" "printfn \"%08o\" (0 - 1)" (sprintf "%08o" -1)
             }
 
-            // ---- inert width-less `-`/`0` flags: ignored, plain form (A1a) ----
+            // ---- inert width-less `-`/`0` flags: ignored, plain form ----
             test "`%-d` (left, no width) ignores the flag" {
                 runParity "PHpLeftNoW" "printfn \"%-d\" 42" (sprintf "%-d" 42)
             }
@@ -1211,7 +1175,7 @@ let tests =
                 runParity "PHpLeftFixNoW" "printfn \"%-.2f\" 3.14159" (sprintf "%-.2f" 3.14159)
             }
 
-            // ---- left-align wins over zero-pad, non-float (A1a) ----
+            // ---- left-align wins over zero-pad, non-float ----
             test "`%-05d` left-align beats zero-pad" {
                 runParity "PHpLeftZeroD" "printfn \"%-05d\" 42" (sprintf "%-05d" 42)
             }
@@ -1232,8 +1196,7 @@ let tests =
                 runParity "PHpLeftZeroUns" "printfn \"%-05u\" 42" (sprintf "%-05u" 42)
             }
 
-            // Floats zero-pad on the RIGHT under left-align (`%-05.2f` 3.14159 ⇒
-            // `"3.140"`) — the one A2 form needing a dedicated handler.
+            // Floats zero-pad on the RIGHT under left-align: `%-05.2f` of 3.14159 ⇒ `"3.140"`.
             test "`%-05.2f` (left + zero-pad float) lowers to a RightZeroPaddedFloat hole" {
                 match soleDecl "printfn \"%-05.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
@@ -1283,7 +1246,8 @@ let tests =
 
             test "`%.2M` (precision) lowers as plain `%M` (F# ignores the precision)" {
                 // F# silently ignores a `%M` precision (`%.2M` 3.14159m ⇒ `"3.14159"`),
-                // so a literal precision is inert — the plain Verbatim decimal hole.
+                // so a literal precision is inert and the hole stays `Formatted` with no
+                // .NET format string.
                 match soleDecl "printfn \"%.2M\" 3.14159M" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
@@ -1349,11 +1313,9 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // `%+.Nf` / `% .Nf` no longer project to a .NET *section* format (which rounds
-            // half-away): the CLR emit routes the fixed forced-sign float through the signed
-            // dynamic handler, which formats a half-to-even `"F<prec>"` body then composes
-            // the sign. So the classified form is asserted here; the half-to-even behaviour
-            // is proven by the run-parity tests below.
+            // `%+.Nf` / `% .Nf` route through the signed dynamic handler: a half-to-even
+            // `"F<prec>"` body with the sign composed on, not a .NET *section* format
+            // (which would round half-away). So the classified form is what is asserted.
             test "`%+.2f` (forced sign float) classifies as a ForcedSign fixed-float, no zero-pad" {
                 match soleDecl "printfn \"%+.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
@@ -1411,25 +1373,20 @@ let tests =
                 runParity "PHpPlusF" "printfn \"%+.2f\" 3.14159" (sprintf "%+.2f" 3.14159)
             }
 
-            // Rounds half-to-even, NOT half-away: `0.125` (an exact float) → `+0.12`. The
-            // old .NET *section*-format lowering (`"+0.00;-0.00"`) rounded this to `+0.13`;
-            // the signed dynamic handler's `"F2"` body matches F#'s half-to-even.
+            // Half-to-even, NOT half-away: `0.125` (an exact float) → `+0.12`, not `+0.13`.
             test "`%+.2f` rounds a float midpoint half-to-even (0.125 → +0.12)" {
                 runParity "PHpPlusFEven" "printfn \"%+.2f\" 0.125" (sprintf "%+.2f" 0.125)
             }
 
-            // A negative *float* can't be produced in the codegen subset (no float
-            // arithmetic / unary negation), so the float `-` path is covered by the
-            // formatter's shared sign-detection, not a run here.
+            // The codegen subset has no float arithmetic or unary negation, so a negative
+            // float cannot be produced and the `-` path is not run here.
 
             test "`%+8.2f` composes the forced sign with width-as-alignment" {
                 runParity "PHpPlusFAlign" "printfn \"%+8.2f\" 3.14159" (sprintf "%+8.2f" 3.14159)
             }
 
-            // `%+08.2f` / `% 08.2f` — forced sign, then zero-pad AFTER the sign to a total
-            // field of 8. Formats a half-to-even `"F2"` body, so the midpoint case proves
-            // the rounding as `%+.2f` does. Negatives are out of the codegen subset (as for
-            // `%08.2f` / `%+8.2f`).
+            // `%+08.2f` / `% 08.2f` — forced sign, then zero-pad AFTER the sign to a field
+            // of 8, over a half-to-even `"F2"` body. Negatives are out of the subset.
             test "`%+08.2f` zero-pads a positive float through the forced sign" {
                 runParity "PHpPlusZeroF" "printfn \"%+08.2f\" 3.14159" (sprintf "%+08.2f" 3.14159)
             }
@@ -1479,10 +1436,8 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // A negative *float* can't be produced in the codegen subset, so the
-            // sign-then-zeros placement (F# `%08.2f` of `-3.14159` is `"-0003.14"`)
-            // is not exercised here; the runs below cover positive / zero /
-            // wider-than-field cases.
+            // Not exercised: sign-then-zeros placement (F# `%08.2f` of `-3.14159` is
+            // `"-0003.14"`) needs a negative float, which the codegen subset cannot build.
 
             test "`%08.2f` zero-pads a positive float to width 8" {
                 runParity "PHpZFloat" "printfn \"%08.2f\" 3.14159" (sprintf "%08.2f" 3.14159)
@@ -1529,7 +1484,7 @@ let tests =
                 runParity "PHpSpaceZeroD" "printfn \"% 05d\" 42" (sprintf "% 05d" 42)
             }
 
-            // Overflow: the digit count exceeds the field — the section format's min
+            // Overflow: the digit count exceeds the field, so the section format's min
             // width neither pads nor truncates.
             test "`%+05d` of a wider value overflows the field without truncation" {
                 runParity "PHpPlusZeroDOvf" "printfn \"%+05d\" 123456" (sprintf "%+05d" 123456)
@@ -1606,7 +1561,7 @@ let tests =
                 runParity "PHpRZeroFW" "printfn \"%-08.2f\" 3.14159" (sprintf "%-08.2f" 3.14159)
             }
 
-            // Overflow: the body already exceeds the field — no right padding.
+            // Overflow: the body already exceeds the field, so no right padding.
             test "`%-05.2f` of a wider value overflows without padding" {
                 runParity "PHpRZeroFOvf" "printfn \"%-05.2f\" 12345.6" (sprintf "%-05.2f" 12345.6)
             }
@@ -1689,14 +1644,9 @@ let tests =
                     (sprintf "%s" (sprintf "%s" $"v={9}"))
             }
 
-            // ---- Star width (`%*d`, `%-*d`, `%*A`): native lowering ----
-            // A star *width* consumes a leading runtime `int` (evaluated before the
-            // value); the padding forms feed it — guarded, then negated for `-` — to
-            // the signed-alignment handler members, and `%*A` feeds it (clamped) as the
-            // structural print-width budget. Parity oracle IS the test process's own
-            // `sprintf`. `%-*A` / `%+*A` also lower here (the `-`/`+` flags are no-ops on
-            // `%A`). Star *precision* and the runtime-width zero-pad forms (`%0*d`, `%0*A`)
-            // are diagnosed residuals — see the front-end PrintfTests.
+            // ---- Star width (`%*d`, `%-*d`, `%*A`) ----
+            // A star width consumes a leading runtime `int`, evaluated before the value:
+            // the padding forms negate it for `-`, `%*A` clamps it as the print width.
 
             test "`%*d` freezes to a Format node with a DynHole (width only) segment" {
                 match soleDecl "printfn \"%*d\" 5 42" with
@@ -1745,9 +1695,8 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // `%-*A` / `%+*A` — the `-`/`+` flags are pure no-ops on `%A`, so a flagged
-            // star-`%A` lowers to the SAME `PercentA(Star)` hole as a bare `%*A` and
-            // renders byte-identically. The oracle is the process's own `sprintf`.
+            // `-`/`+` are no-ops on `%A`, so `%-*A` / `%+*A` lower to the SAME
+            // `PercentA(Star)` hole as a bare `%*A` and render byte-identically.
             test "`%-*A` (no-op flag) freezes to the same PercentA(Star) hole as `%*A`" {
                 match soleDecl "printfn \"%-*A\" 1 [1; 2; 3]" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
@@ -1766,14 +1715,8 @@ let tests =
             }
 
             // ---- Star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`, `%.*A`) ----
-            // A star *precision* consumes a leading runtime `int` (after any star width,
-            // before the value). The float forms build the .NET format string in-handler
-            // from the source type char + the runtime precision, reproducing FSharp.Core's
-            // custom-format fallback for garbage precisions; the two-star path clamps to
-            // 0..99 (the prec-only path uses the raw precision — a load-bearing asymmetry).
-            // `%.*A` feeds the runtime size (`PrintSize`) budget. Oracle IS the process's
-            // own `sprintf`. The runtime-width zero-pad `%0*.Nf` and the `0`-flag `%0*A`
-            // are diagnosed residuals (see the front-end PrintfTests).
+            // A star precision consumes a leading runtime `int`, after any star width and
+            // before the value. `%.*A` feeds the size (`PrintSize`) budget instead.
 
             test "`%.*f` freezes to a DynHole (precision only) over Fixed(Star)" {
                 match soleDecl "printfn \"%.*f\" 3 3.14" with
@@ -1821,8 +1764,7 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // Padding forms — every specifier a star width lands on. The oracle pins
-            // byte-for-byte parity with F#, native.
+            // Padding forms: every specifier a star width lands on, byte-for-byte vs F#.
             test "`%*d` right-justifies to a runtime width" {
                 runParity "PHpStarD" "printfn \"%*d\" 5 42" (sprintf "%*d" 5 42)
             }
@@ -1893,10 +1835,8 @@ let tests =
             // forces per-element breaks; a wide one keeps it on one line; a negative
             // budget renders flat (F# clamps rather than throwing).
             test "`%*A` with a tight width forces the list to break across lines" {
-                // The structural engine's multi-line break regime diverges from F#'s by
-                // design (only flat/small values are byte-identical), so the star-budget
-                // effect is asserted behaviourally: a width-1 budget on a 3-element list
-                // must span lines, whereas the wide-width run (below) stays flat.
+                // The engine's multi-line break regime diverges from F#'s by design, so
+                // this is behavioural: a width-1 budget on a 3-element list must break.
                 let _, output =
                     withPrintfAlc (fun alc -> runDriverInAlc alc "printfn \"%*A\" 1 [1; 2; 3]")
 
@@ -1946,9 +1886,8 @@ let tests =
             }
 
             test "`%.*A` feeds the runtime structural size budget" {
-                // A tight size budget elides nodes as `...`; the value has more nodes than
-                // the budget, so the output must contain the ellipsis (behavioural, like
-                // the `%*A` width tests — the multi-line regime diverges by design).
+                // More nodes than budget, so the output must contain `...`. Behavioural,
+                // for the same break-regime divergence as the `%*A` width tests.
                 let _, output =
                     withPrintfAlc (fun alc -> runDriverInAlc alc "printfn \"%.*A\" 1 [1; 2; 3; 4; 5]")
 
@@ -1961,9 +1900,8 @@ let tests =
                 runParity "PHpPrecAWide" "printfn \"%.*A\" 100 [1; 2; 3]" (sprintf "%.*A" 100 [ 1; 2; 3 ])
             }
 
-            // The load-bearing clamp asymmetry (`printf.fs:632` vs `:649-657`), verified in
-            // fsi: the two-star path clamps the precision to 0..99, the prec-only path uses
-            // it raw (falling back to .NET custom-format interpretation for garbage).
+            // The clamp asymmetry: the two-star path clamps precision to 0..99, the
+            // prec-only path uses it raw (falling back to .NET custom-format for garbage).
             test "QUIRK: `%.*f` with precision -1 echoes the custom-format literal \"f-1\"" {
                 runParity "PHpQuirkNeg" "printfn \"%.*f\" (0 - 1) 3.14" (sprintf "%.*f" -1 3.14)
             }
@@ -1993,17 +1931,15 @@ let tests =
                 runPrints "PHpPrecOrder" src ("WPV" + sprintf "%*.*f" 8 2 3.14159)
             }
 
-            // Cold residual: the runtime-width zero-pad `%0*d` has no native handler and
-            // no FSharp.Core fallback once the family lowers natively, so the gate
-            // diagnoses it (naming the specifier) rather than routing it cold.
+            // `%0*d` has no handler and no fallback, so the gate diagnoses it by name
+            // rather than routing it cold.
             test "`%0*d` (runtime-width zero-pad) is diagnosed, not lowered" {
                 failsWith "%0*d" "printfn \"%0*d\" 5 42"
             }
 
-            // The regression test for the width-before-value spill: both the width and
-            // the value expression print a marker before returning. F# evaluates the
+            // Both the width and the value expression print a marker. F# evaluates the
             // width argument first (curried application order), so `W` must precede `V`;
-            // pushing the width inline (after the value) would flip them.
+            // pushing the width inline, after the value, would flip them.
             test "`%*d` evaluates the width argument before the value" {
                 let src =
                     "let w () =\n    printf \"W\"\n    5\n"

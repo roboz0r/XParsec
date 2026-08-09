@@ -10,17 +10,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The self-hosting bootstrap is FSharp.Core-free. These anchors pin the emission
-// surface:
-//   - `Vesper.Core.dll` emits the `Fun`2` interface + `Ref`1` cell, no FSharp.Core;
-//   - interface methods with their own generics / custom intrinsics / function
-//     types encode through the provider (interleaved GenericParam rows, the
-//     representation-string rekey, `Vesper.Fun`);
-//   - a program's function values are `Vesper.Fun` closures (System.Object base);
-//   - `Vesper.List.dll` is its own package (cons-list + `ListModule::fold`);
-//   - the canonical sample's on-disk bundle ships only the `Vesper.*` libraries it
-//     binds, never an `FSharp.Core.dll`, and the emitted FSharp.Core reference
-//     identity comes from the referenced file, not the compiler host.
+// The self-hosting bootstrap is FSharp.Core-free. These anchors pin the emission surface:
+// `Vesper.Core.dll`'s `Fun`2` / `Ref`1`, provider-encoded interface signatures, function
+// values as `Vesper.Fun` closures, `Vesper.List.dll`, and the canonical sample's bundle.
 
 let private fullSample =
     "let inline sum xs = List.fold (+) 0 xs\nlet nums = [1; 2; 3; 4; 5]\nprintfn \"%d\" (sum nums)"
@@ -67,9 +59,8 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // `Vesper.Ref<'T>` ships in `Vesper.Core.dll` alongside `Fun`2`, so the
-            // captured-mutable promotion resolves the cell type through the normal
-            // external-reference path.
+            // `Vesper.Ref<'T>` ships in `Vesper.Core.dll` alongside `Fun`2`, so captured-mutable
+            // promotion resolves the cell type through the ordinary external-reference path.
             test "Vesper.Core.dll contains Vesper.Ref`1" {
                 let asm = AssemblyLoadContext.Default.LoadFromAssemblyPath vesperCoreDll.Value
 
@@ -94,11 +85,9 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // An abstract method declaring its *own* generic parameters.
-            // `GenericParam` rows must be globally sorted by `CodedIndex.TypeOrMethodDef`
-            // — the method's `'B` (a MethodDef owner) sorts *before* the type's `'A`
-            // (a later TypeDef owner), so a naive type-then-method emit order produces
-            // an unsorted table that SRM rejects on serialize.
+            // `GenericParam` rows must be globally sorted by `CodedIndex.TypeOrMethodDef`: the
+            // method's `'B` (a MethodDef owner) sorts BEFORE the type's `'A` (a later TypeDef
+            // owner), so a naive type-then-method emit order is a table SRM rejects.
             test "compiles a generic interface method to a generic MethodDef with interleaved GenericParam rows" {
                 let src =
                     "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
@@ -133,9 +122,8 @@ let tests =
                 Expect.equal map.ReturnType methodArgs.[0] "the return is the method's 'B"
             }
 
-            // The backend keys a primitive's emitted IL type off its *representation
-            // string* — the value a `type x = (# "..." #)` intrinsic binds — not a
-            // hard-coded Vesper name. Retargeting is a one-line `.fs` edit.
+            // The backend keys a primitive's emitted IL type off its representation string
+            // (what `type x = (# "…" #)` binds), not a hard-coded Vesper name.
             test "an interface method's custom intrinsic primitive is emitted from its representation string" {
                 let unwrapOf (asmSuffix: string) (repr: string) : MethodInfo =
                     let src =
@@ -173,9 +161,8 @@ let tests =
                 Expect.equal asInt64.ReturnType typeof<int64> "retargeted to System.Int64 ⇒ int64 return"
             }
 
-            // The same rekey on the executable path (`ClrProvider.encodeType`). The
-            // closure is built but never invoked — the program only proves the
-            // signature encoded and the assembly runs.
+            // The same rekey on the executable path. The closure is built but never invoked,
+            // so the program only proves the signature encoded and the assembly runs.
             test "a program's custom intrinsic resolves through encodeType on the executable path (G7)" {
                 let src =
                     "type myint = (# \"System.Int32\" #)\nlet boxId : myint -> myint = fun x -> x\nprintfn \"ok\""
@@ -190,9 +177,8 @@ let tests =
                     "the custom-intrinsic-typed closure encoded via the repr rekey and the app ran"
             }
 
-            // An abstract method may reference a *concrete* function type `('A -> 'B)`,
-            // which encodes to `Vesper.Fun`2` (read from Vesper.Core), so the DLL
-            // references Vesper.Core and pins no FSharp.Core construct.
+            // A concrete function type `('A -> 'B)` in an abstract method encodes to
+            // `Vesper.Fun`2` read from Vesper.Core, so the DLL references Vesper.Core.
             test "an interface method referencing a function type encodes to Vesper.Fun via the provider" {
                 let src =
                     "namespace Vesper\n\ntype Applier<'A, 'B> =\n    abstract member Apply : f: ('A -> 'B) -> x: 'A -> 'B"
@@ -238,10 +224,10 @@ let tests =
                 Expect.equal apply.ReturnType typeArgs.[1] "the return is the type's 'B"
             }
 
-            // ---- Function values as Vesper.Fun closures (R1) -----------------
+            // ---- Function values as Vesper.Fun closures -----------------
             test "the Vesper.Core.dll the cutover references is on disk and named Vesper.Core" {
-                // Forcing the lazy *is* stage 1 — it compiled prim-types-min.clr.fs to
-                // the on-disk DLL and loaded it for in-process resolution.
+                // Forcing the lazy compiles prim-types-min.clr.fs to the on-disk DLL and loads
+                // it for in-process resolution.
                 let corePath = vesperCoreDll.Value
                 Expect.isTrue (File.Exists corePath) "Vesper.Core.dll written to disk"
 
@@ -250,9 +236,8 @@ let tests =
             }
 
             test "a closure program references Vesper.Core (for Fun), not FSharp.Core, and runs" {
-                // A lambda capturing a genuine local (here `mk`'s parameter `n`) is
-                // synthesised as a closure. (A lambda capturing only a top-level *value*
-                // lowers to a static method, so we capture a real local instead.)
+                // A lambda capturing a genuine local (`mk`'s parameter `n`) is synthesised as a
+                // closure, whereas one capturing only a top-level VALUE lowers to a static method.
                 let _, artifact =
                     compileSource "R1Closure" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
@@ -273,8 +258,6 @@ let tests =
             }
 
             test "the synthesised closure derives from System.Object and implements Vesper.Fun`2" {
-                // Capture a genuine local (`mk`'s parameter) so a closure is synthesised
-                // — a top-level value is a static field, not a capture.
                 let _, artifact =
                     compileSource "R1ClosureShape" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
@@ -306,11 +289,10 @@ let tests =
                     "outer Fun closure newobjs the inner; Invoke().Invoke() runs op_Addition"
             }
 
-            // ---- Vesper.List: the cons-list package (R3) ---------------------
+            // ---- Vesper.List: the cons-list package ---------------------
             test
                 "Vesper.List.dll exports List`1 (Cons/Empty + IsEmpty/Head/Tail) and ListModule::fold (its own package)" {
-                // The cons-list is its own package: forcing the lazy compiles
-                // `src/Vesper.List/list.fs` into a standalone Vesper.List.dll and loads it.
+                // Forcing the lazy compiles `src/Vesper.List/list.fs` into a standalone DLL.
                 let listPath = vesperListDll.Value
                 let listAsm = Assembly.LoadFrom listPath
 
@@ -345,9 +327,8 @@ let tests =
 
                 let refs = listAsm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
-                // The list type itself uses no FSharp.Core (its `Head`/`Tail` use
-                // `failwith` → BCL `System.Exception`); `fold` uses `Vesper.Fun`, so
-                // the DLL references `Vesper.Core`. Still no FSharp.Core.
+                // `Head`/`Tail` use `failwith` → BCL `System.Exception`, and `fold`'s folder is
+                // a `Vesper.Fun`, so the DLL references Vesper.Core and no FSharp.Core.
                 Expect.isFalse
                     (refs |> Array.contains "FSharp.Core")
                     (sprintf "Vesper.List.dll is FSharp.Core-free (refs: %A)" refs)
@@ -357,15 +338,9 @@ let tests =
                     (sprintf "Vesper.List.dll references Vesper.Core (fold's folder is a Vesper.Fun) (refs: %A)" refs)
             }
 
-            // `List<'T>` authors ONLY the platform-agnostic iteration capability
-            // (`interface seq<'T>` / `interface enumerator<'T>`, `src/Vesper.List/list.fs`):
-            // it never writes `IEnumerable`, `IEnumerator`, `object Current`, or `Reset`.
-            // The CLR backend synthesises those BCL co-slots during capability
-            // reconciliation, so a plain BCL consumer — this test host, holding nothing but
-            // `System.Collections` — can iterate a Vesper type it knows nothing about. That
-            // round-trip is the whole point of co-slot synthesis; without it the type does
-            // not even load. Enumeration goes through the NON-GENERIC interface on purpose:
-            // that interface is made entirely of synthesised members.
+            // `List<'T>` authors only `interface seq<'T>` / `interface enumerator<'T>`, and never
+            // `IEnumerable`, `IEnumerator`, `object Current` or `Reset`. The CLR backend
+            // synthesises those BCL co-slots, so a plain BCL consumer can iterate the type.
             test "a BCL consumer iterates Vesper.List through the synthesised IEnumerable co-slots" {
                 let listAsm = Assembly.LoadFrom vesperListDll.Value
                 let listTy = listAsm.GetType "Vesper.Collections.List`1"
@@ -380,14 +355,13 @@ let tests =
                 // [1; 2; 3], built through the union's own factories.
                 let xs = cons 1 (cons 2 (cons 3 (empty ())))
 
-                // The generic interface: `IEnumerable<int>` — its `GetEnumerator` is the AUTHORED
-                // capability member, bound to the BCL slot implicitly by name + signature.
+                // `IEnumerable<int>`'s `GetEnumerator` is the AUTHORED capability member, bound
+                // to the BCL slot implicitly by name + signature.
                 let generic = xs :?> System.Collections.Generic.IEnumerable<int>
                 Expect.sequenceEqual generic [ 1; 2; 3 ] "IEnumerable<int> yields the elements in order"
 
-                // The non-generic interface: every member here is a co-slot the author never
-                // wrote. `IEnumerable.GetEnumerator` forwards to the capability's; the
-                // `object Current` boxes the capability's `'T`.
+                // The non-generic interface is entirely synthesised: its `GetEnumerator`
+                // forwards to the capability's, and `object Current` boxes the capability's `'T`.
                 let nonGeneric = xs :?> System.Collections.IEnumerable
                 let e = nonGeneric.GetEnumerator()
 
@@ -399,18 +373,15 @@ let tests =
 
                 Expect.equal walked [ box 1; box 2; box 3 ] "the non-generic IEnumerator yields the boxed elements"
 
-                // `Reset` has no capability member to forward to — the pull protocol has no
-                // rewind — so the synthesised slot throws, as a non-resettable BCL
-                // enumerator does. It must EXIST (else the type would not load); it just
-                // must not pretend to work.
+                // `Reset` has no capability member to forward to, because the pull protocol has
+                // no rewind, so the synthesised slot throws. It must EXIST, or the type would
+                // not load; it just must not pretend to work.
                 Expect.throwsT<NotSupportedException> (fun () -> e.Reset()) "the synthesised Reset co-slot throws"
             }
 
             // ---- The canonical sample: FSharp.Core-free in-process + bundle ----
-            // The bare-program list literal + `List.fold` retarget onto the Vesper
-            // `List` — the literal builds a `Vesper.Collections.List` and `List.fold`
-            // is emitted inline over it, so the canonical sample is BCL-only +
-            // `Vesper.Core` + `Vesper.List`, with no FSharp.Core.
+            // The list literal builds a `Vesper.Collections.List` and `List.fold` is emitted
+            // inline over it, so the sample is BCL + `Vesper.Core` + `Vesper.List`.
             test "the canonical sample compiles, runs in-process, prints 15 with no FSharp.Core" {
                 let _, artifact = compileSource "CanonicalSample" fullSample
 
@@ -433,9 +404,8 @@ let tests =
                 Expect.equal (output.Trim()) "15" "List.fold (+) 0 [1..5] = 15"
             }
 
-            // The canonical sample's on-disk bundle ships only the Vesper.* libraries
-            // the emitted PE references; an FSharp.Core-free PE produces an
-            // FSharp.Core-free bundle, and the app still runs out-of-process.
+            // The bundle ships only the Vesper.* libraries the emitted PE references, and the
+            // FSharp.Core-free app still runs out-of-process.
             test
                 "the canonical sample's on-disk bundle ships Vesper.Core + Vesper.List + Vesper.Printf, no FSharp.Core.dll" {
                 let outDir = tmpDir "selfhost-bundle"
@@ -471,12 +441,9 @@ let tests =
                 Expect.equal (output.Trim()) "15" "the FSharp.Core-free bundle runs"
             }
 
-            // A happy-path bundle binds Vesper.Printf even with no list / function value
-            // of its own. The Vesper-compiled `Vesper.Printf.dll` references `Vesper.Core`
-            // (its `RuntimeFormatState` implements the Core-owned `IFormatSink`) AND
-            // `Vesper.List` (the self-hosted `%A` engine `structural-printer.clr.fs` uses
-            // the Vesper cons-list as its `Doc` child lists + frame stack). So the
-            // bundle's transitive closure ships both deps even for a `%d`-only program.
+            // `Vesper.Printf.dll` references `Vesper.Core` (its `RuntimeFormatState` implements
+            // the Core-owned `IFormatSink`) AND `Vesper.List` (the `%A` engine's `Doc` child
+            // lists + frame stack), so a `%d`-only program's bundle still ships both.
             test "a happy-path bundle ships Vesper.Printf + its Vesper.Core / Vesper.List deps, no FSharp.Core" {
                 let outDir = tmpDir "selfhost-happy-bundle"
                 let project = withCore (ProjectInfo.app "XParsecHappy" outDir)
@@ -502,10 +469,8 @@ let tests =
                     "Vesper.List.dll shipped — the self-hosted %A engine references the Vesper cons-list"
             }
 
-            // The emitted FSharp.Core reference identity comes from the referenced
-            // file, not the compiler host. (Numerically the same here, since the
-            // reference *is* the host's FSharp.Core; the assertion proves the version
-            // is sourced from the file the project references rather than guessed.)
+            // The emitted FSharp.Core reference identity is read off the referenced FILE, not
+            // the compiler host, though numerically the same here, the reference BEING the host's.
             test "an FSharp.Core in References drives the emitted reference identity" {
                 let fsCorePath = typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location
 
@@ -514,23 +479,16 @@ let tests =
                         References = [ fsCorePath ]
                     }
 
-                // A list *literal* pins FSharp.Core through its representation (`[1; 2; 3]`
-                // builds `FSharpList` `Cons`/`Empty`) — a valid program that references
-                // FSharp.Core with no printf at all, so it needs neither the cold printf
-                // recipes nor a `Vesper.Printf` reference (unlike a native `%A`, which
-                // would demand `Vesper.Formatter`). This is the dependency-identity vehicle
-                // now that every printf form either lowers natively or is diagnosed (the
-                // forced-sign zero-pad float `%+08.2f` this test used to ride now lowers
-                // natively, so it no longer pins FSharp.Core at all).
+                // A list LITERAL pins FSharp.Core through its representation (`[1; 2; 3]` builds
+                // `FSharpList` `Cons`/`Empty`) with no printf at all, which makes it the vehicle
+                // for a program that references FSharp.Core and nothing else optional.
                 let src = "let xs = [1; 2; 3]"
                 let lexed, file = parseFile src
-                // Resolve `int` (Vesper.Core) and `printfn` (Vesper.Printf) from the real
-                // contract stack — the single source — not `MockBuiltins`, which carries no
-                // primitive reprs.
+                // Resolve `int` from the real contract stack, because `MockBuiltins` carries
+                // no primitive reprs.
                 let provider = ClrSymbolProviders.buildContract defaultManifests
-                // Front-end assembly name must equal codegen's `project.AssemblyName`
-                // so a local type's home-assembly key matches its `userTypes`
-                // registration (asm-discrimination).
+                // The front-end assembly name must equal codegen's `project.AssemblyName`, so a
+                // local type's home-assembly key matches its `userTypes` registration.
                 let tast =
                     Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 

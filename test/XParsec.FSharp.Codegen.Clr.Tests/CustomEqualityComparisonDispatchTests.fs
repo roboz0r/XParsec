@@ -7,22 +7,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Custom dispatch by EXECUTION (CLR backend).
-//
-// A `[<CustomEquality>]` class emits NO synthesized equality triple (the
-// `NominalEmit` Class arm is `()`); a `[<CustomComparison>]` class emits NO
-// synthesized comparison pair. Their user-declared `interface IEquatable<Self>`
-// / `interface IComparable<Self>` impls land as InterfaceImpl rows + methods.
-//
-// The use-site lowering of `=` / `<` is uniform and class-agnostic:
-//   `=` → `EqualityComparer<^T>.Default.Equals(x, y)`   (ops-platform.clr.fs:114)
-//   `<` → `Comparer<^T>.Default.Compare(x, y) < 0`      (comparison.clr.fs:40)
-// At runtime `EqualityComparer<T>.Default` / `Comparer<T>.Default` dispatch to
-// `IEquatable<T>.Equals` / `IComparable<T>.CompareTo` when the type implements
-// them. So the Custom class routes `=` / `<` to the USER's interface member.
-//
-// These tests PROVE that by giving the user member a DELIBERATELY
-// non-structural / non-reference semantics and observing the runtime answer.
+// `=` / `<` lower to `EqualityComparer<^T>.Default.Equals` /
+// `Comparer<^T>.Default.Compare`, which dispatch to a `[<CustomEquality>]` /
+// `[<CustomComparison>]` class's own `IEquatable<Self>` / `IComparable<Self>`.
 
 [<Tests>]
 let tests =
@@ -49,11 +36,9 @@ let tests =
         "custom dispatch (CLR backend)"
         [
             test "canonical BCL-free `interface equatable<Self>` dispatches via the real System.IEquatable<Self>" {
-                // Platform-independence slice 5: generic capability authored canonically
-                // (`interface equatable<Tagged>`, not `System.IEquatable<Tagged>`). The
-                // generic interface type constructor reconciles canon→platform the same way (the encoder's
-                // `TypeSpecOf` resolves it through `ClrEnv.externalClassRef`), so `=`
-                // dispatches to the user member via the real `System.IEquatable<Tagged>`.
+                // The source spells the canonical `interface equatable<Tagged>`; the
+                // encoder reconciles it to the platform `System.IEquatable<Tagged>`,
+                // which is what `EqualityComparer<Tagged>.Default` dispatches through.
                 let src =
                     String.concat
                         "\n"
@@ -86,14 +71,9 @@ let tests =
             }
 
             test "[<CustomEquality>] class: `=` invokes the user's IEquatable<Self>.Equals (NOT structural / reference)" {
-                // `Tagged` carries two fields. The custom `Equals` compares ONLY
-                // `id`, ignoring `payload`. Two instances `Tagged(1, 10)` and
-                // `Tagged(1, 20)` are:
-                //   * custom-equal      — same id;
-                //   * NOT reference-equal — distinct objects;
-                //   * NOT structurally-equal — payload differs.
-                // So `a = b` printing `true` can ONLY come from the user's
-                // member (structural ⇒ false, reference ⇒ false).
+                // The custom `Equals` compares only `id`. `Tagged(1, 10)` and
+                // `Tagged(1, 20)` are neither reference-equal nor structurally equal,
+                // so `a = b` printing `true` can only come from the user's member.
                 let src =
                     String.concat
                         "\n"
@@ -134,14 +114,8 @@ let tests =
 
             test
                 "[<CustomComparison>] class: `<` / compare invokes the user's IComparable<Self>.CompareTo (INVERTED order)" {
-                // `Ranked` carries an `id`. The custom `CompareTo` orders by id
-                // *DESCENDING* (inverted: larger id sorts first) — the opposite
-                // of any natural / structural ordering. So:
-                //   * `a(1) < b(2)` is FALSE under custom (1 sorts after 2),
-                //     whereas a structural/natural ordering would give true.
-                //   * `a(1) > b(2)` is TRUE under custom.
-                // The inversion makes the custom answer distinguishable from
-                // both natural ordering and reference behaviour.
+                // The custom `CompareTo` sorts by id DESCENDING, so `Ranked(1) <
+                // Ranked(2)` is false where any natural ordering would give true.
                 let src =
                     String.concat
                         "\n"
@@ -154,7 +128,6 @@ let tests =
                             "    interface System.IEquatable<Ranked> with"
                             "        member this.Equals(other: Ranked) = (id = other.Id)"
                             "    interface System.IComparable<Ranked> with"
-                            // DESCENDING: compare other.Id to id (inverted operands).
                             "        member this.CompareTo(other: Ranked) ="
                             "            if other.Id < id then -1"
                             "            elif other.Id > id then 1"
@@ -187,13 +160,9 @@ let tests =
             }
 
             test "[<CustomEquality>] class emits NO synthesized typed Equals(Self) and NO CompareTo" {
-                // The synthesized triple/pair are gated on the Structural
-                // verdict; a Custom class's NominalEmit Class arm is `()`. The
-                // ONLY `Equals(Tagged)` present is the user's interface method,
-                // not a compiler-synthesized struct-eq override. (Reflection can
-                // surface the interface method as a typed `Equals(Tagged)`, so we
-                // assert the absence of the synthesized *comparison* pair, which
-                // the Custom-equality-only class has no member for at all.)
+                // Reflection surfaces the user's interface method as a typed
+                // `Equals(Tagged)`, so the absence of synthesis is asserted on the
+                // comparison pair: this class has no `CompareTo` member at all.
                 let src =
                     String.concat
                         "\n"

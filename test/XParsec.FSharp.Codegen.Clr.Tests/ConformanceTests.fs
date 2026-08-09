@@ -7,34 +7,22 @@ open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Clr.Tests
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The CLR's obligations over the shared corpus (`test/Codegen.Conformance/`). This
-// file is the whole of the CLR's participation: the loader, the goldens, and every
-// assertion live in `Codegen.Common.Tests`, so a corpus program added there is picked
-// up here with no edit. The corpus→assembly-name derivation lives in `TestHelpers`
-// (`conformanceAssemblyName`), shared with the byte-identity gate so the two never drift.
+// The CLR's side of the shared conformance corpus. Only this backend record is local,
+// so a program added to the corpus is picked up here with no edit.
 
 let private clrBackend: Backend =
     {
         Name = "clr"
-        // The CLR runtime is the host, so `CompileAndRun` is never `None` and no row
-        // ever skips. `runEntryPoint` invokes the entry point IN-PROCESS by reflection:
-        // an uncaught user exception never reaches a process exit code, it comes back
-        // as a `failwithf` naming the inner exception's type + message. That throw IS
-        // the CLR's fault surface, so it is caught here and reported as `Faulted`
-        // rather than escaping as a test error.
-        //
-        // The compile is deliberately OUTSIDE the `try`: a backend that cannot emit a
-        // program is not a conformance verdict, it is a broken backend, and it must
-        // surface as such rather than masquerade as a runtime fault.
+        // The entry point runs IN-PROCESS by reflection, so an uncaught user exception
+        // never reaches an exit code: it arrives as a throw naming the inner exception,
+        // and that throw is the fault surface reported as `Faulted`.
         CompileAndRun =
             fun name src ->
                 let _, artifact = compileSource (conformanceAssemblyName name) src
                 let bytes = Codegen.toBytes artifact
 
-                // Every corpus program's PE goes through the metadata assertions. Like
-                // the compile, this sits OUTSIDE the `try`: metadata the emitter's own
-                // prefix-sum prediction contradicts is a broken backend, not a
-                // conformance verdict, and must surface as such.
+                // Outside the `try`, like the compile: a backend that cannot emit a
+                // well-formed program is not a conformance verdict, it is broken.
                 MetadataStructure.assertWellFormed name bytes
 
                 try

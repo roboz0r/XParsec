@@ -3,13 +3,8 @@ module XParsec.FSharp.Codegen.Clr.Tests.PrintfSpecTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Each driver is run through the Vesper-compiled `Vesper.Printf.dll` handler in
-// its own collectible ALC, and its stdout is asserted equal to the pinned
-// structural spec. The `%A` cases exercise the `structural-printer.clr.fs` port; the
-// plain printf cases exercise `formatter.clr.fs`.
-//
-// Every input here is ACYCLIC except the final self-referential-record case,
-// which pins the cons-list cycle-detection back-edge (`...`).
+// Each driver runs through the Vesper-compiled `Vesper.Printf.dll` in its own
+// collectible ALC; its stdout is asserted equal to the pinned spec.
 
 [<Tests>]
 let tests =
@@ -57,9 +52,8 @@ let tests =
                 runsEq "[{ X = 1 }; { X = 2 }]" "type R = { X: int }\nprintfn \"%A\" [ { X = 1 }; { X = 2 } ]"
             }
 
-            // A self-referential record (`n.Next` points back at `n`) is a CYCLIC
-            // input. The visited-set (cons-list + `Object.ReferenceEquals`) renders
-            // `...` at the back-edge rather than recursing forever.
+            // The only cyclic input here: a reference-identity visited-set renders `...`
+            // at the back-edge rather than recursing forever.
             test "`%A` of a self-referential record (cycle truncated)" {
                 runsEq
                     "{ Next = ... }"

@@ -21,11 +21,8 @@ let tests =
                      + "printfn \"%d\" (Set.fold (fun acc -> fun x -> acc + x) 0 s)")
             }
 
-            // `s1 + s2` on a REFERENCED package's type: the operand is a nominal, so
-            // the arithmetic contract body's static-opt matches no per-primitive clause
-            // and falls to its trait-call BASE, which resolves to `Set`'s own
-            // `static member (+)` (set.clr.fs) — the whole point of the base being the SRTP
-            // dispatch rather than raw IL.
+            // The operands are nominal, so `+` matches no per-primitive static-opt clause
+            // and falls to its trait-call base, which resolves to Set's `static member (+)`.
             test "`Set + Set` resolves through the operator's trait-call base to Set's own op_Addition" {
                 runsSet
                     "4"
@@ -46,10 +43,8 @@ let tests =
                      + "printfn \"%d\" (Set.count i)")
             }
 
-            // The round-trip gates never *call* the structural path, so exercise it here
-            // by reflectively invoking the interface slots on a loaded `Set\`1<int>` with a
-            // real `StructuralEqualityComparer` — proving the boxed `IEqualityComparer`
-            // member-refs resolve and run.
+            // No driver program reaches the structural slots, so invoke them reflectively
+            // against a real `StructuralEqualityComparer`.
             test "Set IStructuralEquatable GetHashCode/Equals run (boxed IEqualityComparer member-refs)" {
                 let asm = (buildPackage "Vesper.Set").Value |> fst
                 let setModule = asm.GetType("Vesper.Collections.SetModule", true)
@@ -73,10 +68,8 @@ let tests =
                 let equals =
                     ise.GetMethod("Equals", [| typeof<obj>; typeof<System.Collections.IEqualityComparer> |])
 
-                // Reflective invoke of an interface method virtual-dispatches to `Set`'s
-                // explicit impl — the path that emits the boxed `IEqualityComparer` calls.
-                // Unwrap reflection's `TargetInvocationException` so a runtime failure in
-                // the member body surfaces its real type/message.
+                // Unwrap reflection's `TargetInvocationException` so a fault inside the
+                // emitted member body surfaces its own type and message.
                 let invoke (m: System.Reflection.MethodInfo) (target: obj) (args: obj[]) : obj =
                     try
                         m.Invoke(target, args)
@@ -128,11 +121,9 @@ let tests =
                     }
 
                     test "isEmpty" {
-                        // `e` is built empty from a pinned element (`add 1` then
-                        // `remove 1`) rather than a bare `Set.empty` — an unannotated
-                        // `Set.isEmpty Set.empty` leaves the element typar unresolved
-                        // (the value-restriction shape F# itself rejects), which is a
-                        // test-authoring concern, not a Set gap.
+                        // `e` is emptied via `add 1` / `remove 1` because a bare
+                        // `Set.isEmpty Set.empty` leaves the element typar unresolved,
+                        // which F# itself rejects as a value restriction.
                         runsSetLines
                             [ "true"; "false" ]
                             (prelude
@@ -244,9 +235,9 @@ let tests =
             testList
                 "transforms"
                 [
-                    // `set.Map` is a generic instance method (`member s.Map<'U> f : Set<'U>`);
-                    // the member-ref carries a generic header and the call site wraps it in a
-                    // `MethodSpec` with `'U` recovered by matching declared vs actual types.
+                    // `Set.map` reaches `member s.Map f : Set<'U>`, a generic instance method,
+                    // so the call site needs a `MethodSpec` with `'U` recovered from the
+                    // declared-vs-actual types.
                     test "map" {
                         runsSetLines
                             [ "3"; "12" ]
@@ -280,9 +271,8 @@ let tests =
                         runsSetLines [ "1"; "2"; "3" ] (prelude + s123 + "Set.iter (fun x -> printfn \"%d\" x) s")
                     }
 
-                    // `SetTree.partition1` takes a tuple-destructured static-method parameter;
-                    // the lambda peeler handles the synthetic slot + carried pattern, mirroring
-                    // `buildClosureInvoke`.
+                    // Reaches `partition1 comparer f k (acc1, acc2)`, whose last parameter is
+                    // a tuple pattern rather than a name.
                     test "partition" {
                         // {1,2,3,4} → evens {2,4} (count 2), odds {1,3} (count 2).
                         runsSetLines
@@ -302,9 +292,8 @@ let tests =
                         runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofArray (Set.toArray s)))")
                     }
 
-                    // `Set.ofList` calls `List.toSeq` internally; the `IEnumerable` surface
-                    // rides a `ListSeq` wrapper class + `[<Struct>] ListEnumerator` because
-                    // interface impls on union types are not yet supported.
+                    // `Set.ofList` upcasts through `List.toSeq`, so this enumerates the list
+                    // union's own `interface seq<'T>` impl and its `[<Struct>]` enumerator.
                     test "toList round-trips through ofList" {
                         runsSet "3" (prelude + s123 + "printfn \"%d\" (Set.count (Set.ofList (Set.toList s)))")
                     }

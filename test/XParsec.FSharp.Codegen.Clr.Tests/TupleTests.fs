@@ -1,10 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.TupleTests
 
-// Tuple representation — every tuple, at every arity, is a `System.ValueTuple`n`
-// (no `System.Tuple`). The testLists below cover: `ValueTuple`n` family
-// resolution (`ClrProvider`/`ClrEncoder`); encoding a bare `FTTuple` to a generic
-// instantiation TypeSpec (pure metadata); emit + reflect a constructed tuple
-// value (behavioural); destructuring; and tuple lambda parameters.
+// Every tuple, at every arity, is a `System.ValueTuple`n`; `System.Tuple` is never
+// emitted.
 
 open System.Reflection
 open Expecto
@@ -13,11 +10,8 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-/// A fresh provider over an empty metadata context — enough to mint TypeRef /
-/// TypeSpec / MemberRef handles without emitting a full assembly. The own-file
-/// intrinsic forward map carries the `int`/`string` → IL-repr the element encoding
-/// needs (the two primitives these tests exercise); `nullProvider` because no
-/// external-symbol resolution is involved.
+/// `int` → `System.Int32` and `string` → `System.String`: the element reprs the
+/// tuple encodings below need, with no assembly emitted around them.
 let private ownIntrinsics =
     System.Collections.Generic.Dictionary(
         dict [ RuntimeNames.intKey, "System.Int32"; RuntimeNames.stringKey, "System.String" ]
@@ -81,9 +75,7 @@ let tests =
             }
         ]
 
-/// A bare `FTTuple` encodes to a `ValueTuple`n` generic-instantiation TypeSpec
-/// via `encodeType`. Pure metadata-resolution checks — the encoder mints a
-/// non-nil spec for each in-range arity.
+/// A bare `FTTuple` encodes to a `ValueTuple`n` generic-instantiation TypeSpec.
 [<Tests>]
 let encodeTests =
     let ftTuple (tys: FrozenType list) = FTTuple(EqArray.ofList tys)
@@ -117,10 +109,8 @@ let encodeTests =
             }
         ]
 
-/// A standalone `TExprG.Tuple` is built into a value (`newobj ValueTuple`n::.ctor`)
-/// rather than flattened as an argument list. A top-level function returning a
-/// tuple is emitted as a static method; invoking it by reflection yields a live
-/// `System.ValueTuple`n` whose `Item` fields hold the constructed elements.
+/// A standalone tuple expression is built into a value (`newobj ValueTuple`n::.ctor`)
+/// rather than flattened into an argument list.
 [<Tests>]
 let constructTests =
     /// The single top-level static method an emitted bare program carries.
@@ -176,8 +166,6 @@ let constructTests =
                     (ty.FullName.StartsWith "System.ValueTuple`8")
                     (sprintf "expected a ValueTuple`8 but got %s" ty.FullName)
 
-                // Slots 0–6 are the direct `Item1..Item7`; the 8th value rides the
-                // nested `Rest` (a `ValueTuple`1`), reachable as `Rest.Item1`.
                 Expect.equal (ty.GetField("Item1").GetValue result :?> int) 10 "Item1"
                 Expect.equal (ty.GetField("Item7").GetValue result :?> int) 16 "Item7"
                 let rest = ty.GetField("Rest").GetValue result
@@ -185,12 +173,9 @@ let constructTests =
             }
         ]
 
-/// Tuple *destructuring* through the shared irrefutable `bindPattern`
-/// (let / for-in) and the match compiler's `TPatG.Tuple` arm. Each program is a
-/// one-arg static function returning an int; reflecting the invoke result proves
-/// the leaf bindings were pulled out of the `ValueTuple`n` `Item` fields. A
-/// wildcard sub-pattern must bind nothing (skip the field load); a nested tuple
-/// must recurse.
+/// Tuple destructuring, through both the irrefutable `let` path and the match
+/// compiler. Each program is a one-arg static function returning an int, so the
+/// invoke result is the sum of whatever the leaf patterns bound.
 [<Tests>]
 let destructureTests =
     let invokeIntFn (source: string) (arg: int) : int =
@@ -224,9 +209,7 @@ let destructureTests =
                 Expect.equal r 11 "5 + 6"
             }
 
-            // Round-trip through `TRest` nesting: construct an 8-tuple, then bind
-            // all eight elements out of it — the destructure of index 7 must chase
-            // the `Rest` field, not read a (nonexistent) `Item8`.
+            // There is no `Item8`: index 7 has to be read through the `Rest` field.
             test "let a..h = an 8-tuple binds all eight (index 7 chases Rest)" {
                 let r =
                     invokeIntFn
@@ -236,9 +219,8 @@ let destructureTests =
                 Expect.equal r 36 "8*1 + (0+1+..+7) = 8 + 28"
             }
 
-            // Double nesting (Rest-of-Rest): a 15-tuple is `ValueTuple`8<…,
-            // ValueTuple`8<…, ValueTuple`1<…>>>`, so binding the 15th element walks
-            // two `Rest` hops then a final `Item1`.
+            // A 15-tuple is `ValueTuple`8<…, ValueTuple`8<…, ValueTuple`1<…>>>`, so the
+            // 15th element takes two `Rest` hops then an `Item1`.
             test "let of a 15-tuple binds all fifteen (double Rest nesting)" {
                 let r =
                     invokeIntFn
@@ -249,9 +231,8 @@ let destructureTests =
             }
         ]
 
-/// A tuple lambda *parameter* (`fun (a, b) -> …`). The lambda is emitted as a
-/// closure whose `Invoke` receives the `ValueTuple`n` at `ldarg.1` and
-/// `bindPattern`s the element bindings out of it before running the body.
+/// `fun (a, b) -> …`: the closure's `Invoke` takes ONE argument, the `ValueTuple`n`,
+/// and binds the elements out of it before running the body.
 [<Tests>]
 let lambdaParamTests =
     let invokeIntFn (source: string) (arg: int) : int =
@@ -276,19 +257,14 @@ let lambdaParamTests =
             }
 
             test "a wildcard tuple param element binds nothing (fun (a, _) -> a)" {
-                // The discarded element is annotated only to ground it (it is
-                // touched by no operator); `a` grounds via `a + 0`. The point of
-                // this case is the codegen wildcard arm (no `Item2` field load),
-                // not inference.
+                // The `: int` and the `+ 0` only ground the two element types; the case
+                // under test is the wildcard arm skipping the `Item2` load.
                 let r =
                     invokeIntFn "let f (z: int) = let g = fun (a, _: int) -> a + 0 in g (z, z + 1)" 5
 
                 Expect.equal r 5 "the second element is dropped"
             }
 
-            // An 8-tuple lambda parameter: the closure's `Invoke` receives the
-            // `ValueTuple`8` and `bindPattern`s all eight elements, chasing `Rest`
-            // for the 8th.
             test "a fun (a..h) -> closure destructures an 8-tuple param (Rest-chased)" {
                 let r =
                     invokeIntFn

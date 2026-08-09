@@ -8,17 +8,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// SEMANTIC typar-order conformance against a REAL extracted `.fsi`.
-//
-// `ConformanceTypars.checkFile` is unit-tested over the frozen pipeline in
-// `SemanticAnalysis.Tests/ConformanceTests.fs` with a STUB contract provider (which
-// pins an exact declared typar order). This suite is the other half: it drives the
-// SAME check against a contract provider EXTRACTED from a package's real `.fsi`
-// (`ClrSymbolProviders.buildContract`, available only here), proving that a genuinely
-// authored, paired `.fsi`/`.fs` agrees on generic typar order end-to-end — the
-// extracted scheme's positional typars (`FTTypar(Declaring, i)`, via
-// `translateCurriedSig`) line up with the inferred scheme's (`FTTypar(Method, i)`, via
-// `GeneralizedTypars.canonical`).
+// Typar-order conformance against a contract EXTRACTED from a real `.fsi`, the half a
+// stub provider cannot reach: a declared scheme's positional typars land on the
+// `Declaring` axis and an inferred scheme's on `Method`, and the two must line up.
 
 [<Tests>]
 let tests =
@@ -26,10 +18,8 @@ let tests =
         "ConformanceTypars.Clr"
         [
             test "Vesper.List: list.fs generic module functions conform to list.fsi typar order" {
-                // Analyse `list.fs` through the real frozen self-host pipeline against its
-                // DEPENDENCY contract only (Core; the self-manifest is excluded — the
-                // package is defining its own types here), exactly as `buildPackage` /
-                // `vesperListDll` do.
+                // Analysis sees the DEPENDENCY contract only (Core): the package is here
+                // defining the types its own manifest publishes.
                 let src = File.ReadAllText(vesperListSource "list.fs")
                 let analysisProvider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let lexed, file = parseFile src
@@ -39,10 +29,8 @@ let tests =
 
                 Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
-                // The LOOKUP provider DOES include `list.fsi` (the published contract), so
-                // `List.fold` / `List.map` / `List.append` / … resolve to their declared
-                // schemes. Generic functions are `fold` (`'State`,`'T`), `map` (`'T`,`'U`),
-                // `append`/`rev`/`head`/`tail`/`length`/`filter`/`isEmpty`/`ofSeq`/`toSeq`.
+                // The conformance contract DOES include `list.fsi`, so each module function
+                // resolves to the declared scheme its inferred one is checked against.
                 let contract =
                     ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest ]
 
@@ -51,18 +39,11 @@ let tests =
                 Expect.isEmpty mismatches (sprintf "list.fs conforms to list.fsi typar order; got %A" mismatches)
             }
 
-            // Generic type MEMBER conformance against a REAL extracted `.fsi`.
-            // `Formatter.AppendFormatted: 'T -> unit` (+ its overloads and
-            // `AppendStructured`) are generic members the `.fsi` extractor now publishes
-            // with a method-owned typar (`MethodTyparArity = 1`, `FTTypar(Method, 0)`), no
-            // longer dropped. This drives BOTH halves: the published contract surface is
-            // present + correctly typed, and `checkMembers` confirms the real
-            // `formatter.clr.fs` member signatures agree with it end-to-end.
+            // The member half: a generic member (`AppendFormatted: 'T -> unit`) must carry
+            // its own method-owned typar through the extracted `.fsi` and back.
             test "Vesper.Printf: formatter.clr.fs generic members conform to formatter.fsi" {
-                // The whole package is analysed as one concatenated `impl` source (a
-                // single declaration-ordered compile), exactly as `buildPackage` does —
-                // `formatter.clr.fs` calls its sibling `StructuralPrinter` so it can't be
-                // analysed alone. Dependency contract = Core + List (the `depends-on`).
+                // The package's files are analysed as one concatenated, declaration-ordered
+                // source: `formatter.clr.fs` calls its sibling, so it cannot stand alone.
                 let src =
                     [ "structural-printer.clr.fs"; "formatter.clr.fs" ]
                     |> List.map (fun f -> File.ReadAllText(vesperPrintfSource f))
@@ -80,13 +61,9 @@ let tests =
 
                 Expect.isEmpty analysisErrors (sprintf "Vesper.Printf impl analyses cleanly; got %A" analysisErrors)
 
-                // Lookup provider includes the published `formatter.fsi`, so
-                // `Formatter.AppendFormatted` / `AppendStructured` resolve to their
-                // generic declared signatures.
                 let contract =
                     ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest; vesperPrintfManifest ]
 
-                // The contract surface is published with the method-owned typar.
                 let appendFormatted =
                     contract.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Vesper.Formatter" 0, "AppendFormatted")
 
@@ -98,7 +75,6 @@ let tests =
                         "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
                         (appendFormatted |> Array.map (fun m -> m.MethodTyparArity)))
 
-                // And the real `formatter.clr.fs` members agree with that published surface.
                 let memberMismatches = ConformanceTypars.checkMembers contract tast
 
                 Expect.isEmpty

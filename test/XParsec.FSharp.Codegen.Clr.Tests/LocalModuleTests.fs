@@ -5,9 +5,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-/// The source analyses with no errors. Every use of it pairs this with an assertion on the
-/// resolved IDENTITY (the emitted metadata, or a disjoint field set only one candidate type
-/// carries) — acceptance alone would let a conflation through.
+/// The source analyses with no errors. Acceptance alone cannot tell two same-named types
+/// apart, so every caller pairs this with an assertion on the resolved identity.
 let private compiles (src: string) : unit =
     let errs =
         [
@@ -18,28 +17,15 @@ let private compiles (src: string) : unit =
 
     Expect.isEmpty errs (sprintf "expected no errors; got %A" errs)
 
-// Local (in-file) module resolution, in two shapes:
-//
-//   * a `let`-bound value/function of a sibling *local* module resolves *qualified*
-//     (`A.f`), from another module's body and from a class member. The module tree is
-//     flattened before name resolution, so without the `LocalModules` pre-pass the sibling
-//     is unresolvable (the provider only knows dependency packages, and a module name is
-//     not a value binding).
-//   * an *unqualified* reference from a type nested *inside* a module up to one of that
-//     module's `let`-bound siblings (`SetIterator` → `collapseLHS` in `set.clr.fs`) resolves —
-//     the enclosing module's bindings enter the nested type's member-body scope.
-//
-// Both ride the `runs` driver (compile → run → assert stdout), so resolution is proven end
-// to end: name resolution records the use site as an ordinary local `Binding`, Unification
-// types it via the member's generalised scheme, and Elaborate lowers it to the same
-// `TExpr.Var` a bare local reference produces.
+// Resolving a `let` binding of an in-file module: qualified from a sibling module's body
+// (`A.f`), and unqualified from a type nested inside the module that holds it. The
+// provider knows only dependency packages, and a module name is not a value binding.
 
 [<Tests>]
 let tests =
     testList
         "LocalModule"
         [
-            // ---- qualified sibling-module resolution ---------------------
             test "a module body calls a sibling module's let-bound function (A.f)" {
                 runsLines
                     [ "11" ]
@@ -71,7 +57,6 @@ let tests =
                         ])
             }
 
-            // ---- unqualified enclosing-module reference from a nested type
             test "a struct nested in a module calls a let-bound module sibling unqualified" {
                 runsLines
                     [ "42" ]
@@ -89,10 +74,8 @@ let tests =
                         ])
             }
 
-            // The exact SetIterator shape: a `val`-field struct whose *secondary
-            // ctor field-init block* calls a module sibling (`stack = collapseLHS
-            // [s]`). The member-body scope alone isn't enough — the ctor scope must
-            // also see the enclosing module's bindings.
+            // The call sits in a `new(x) = { … }` field-init block, not a member body, so
+            // the ctor scope has to see the enclosing module's bindings as well.
             test "a nested struct's secondary-ctor field-init calls a module sibling (SetIterator shape)" {
                 runsLines
                     [ "10" ]
@@ -113,16 +96,11 @@ let tests =
             }
         ]
 
-// ---- A module-held type is a NESTED class -----------------------------------
-//
-// The type's key says a module holds it (`TypeContainer.InModule`), the renderer spells that
-// `N.MModule+T`, and the emitter writes exactly that: a `TypeDef` with an empty namespace
-// column and a `NestedClass` row into the module's compiled module class. These pin the
-// key and emitter MEETING — the name the key renders is the name the runtime binds.
+// A module-held type is emitted as a nested class: an empty namespace column plus a
+// `NestedClass` row into the module's class, spelled `N.MModule+T`.
 
-/// `namespace N` + `module M` (whose name collides with `type M`, so its module class takes the
-/// `Module` suffix) + a `type T` the module holds. `M` holds ONLY types — no `let` — so
-/// its module class exists solely because a type needs it.
+/// `module M` collides with `type M`, so the module class takes the `Module` suffix; and
+/// `M` holds only a type, no `let`, so its class exists solely to hold that type.
 let private moduleHeldType =
     String.concat
         "\n"
@@ -147,15 +125,13 @@ let nestedEmission =
 
                 let asm = loadAssembly bytes
 
-                // The name `SymbolKeyOps.typeMetaName` renders for this type's key. That
-                // the RUNTIME binds it is the whole point of the nesting: the flat `N.T`
-                // and the dotted `N.M.T` both bind nothing.
+                // Neither the flat `N.T` nor the dotted `N.M.T` binds anything.
                 Expect.isNotNull (asm.GetType "N.MModule+T") "expected N.MModule+T to bind"
                 Expect.isNull (asm.GetType "N.T") "expected no flat N.T"
             }
 
-            // A module with no `let` at all still gets its module class — module class discovery
-            // reads the emitted TYPES' containment chains, not just the bindings'.
+            // Module-class discovery reads the emitted TYPES' containment chains, so a
+            // module with no `let` at all still gets a class.
             test "a module holding only types still gets its module class" {
                 let artifact = compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
                 let bytes = Codegen.toBytes artifact
@@ -166,9 +142,8 @@ let nestedEmission =
                 Expect.contains ts "N.MModule+T" "expected the held type nested in it"
             }
 
-            // A nested module's module class is itself nested — in its PARENT's module class. The
-            // parent must therefore be emitted even when it holds nothing of its own,
-            // which is the ancestor half of module class discovery.
+            // A nested module's class nests in its PARENT's, so the parent must be emitted
+            // even when it holds nothing of its own.
             test "a nested module's module class nests in its parent's, ancestors included" {
                 let src =
                     String.concat
@@ -190,8 +165,7 @@ let nestedEmission =
                     "NestedModuleClass"
                     bytes
                     [
-                        // `Outer` holds nothing directly; it exists so `Inner` has an
-                        // enclosing type.
+                        // `Outer` holds nothing directly; it exists so `Inner` can nest.
                         {
                             Type = "N.Outer"
                             Fields = []
@@ -214,27 +188,20 @@ let nestedEmission =
             }
         ]
 
-// ---- The module is part of a type's CLAIM ------------------------------------
-//
-// A type claims `(container, name, arity)`, so `N.A.T` and `N.B.T` are two types — not one
-// name contested twice. Each is a `TypeDef` nested in its own module's compiled module class
-// class, which is what gives two same-named types two distinguishable metadata names, and
-// each body constructs ITS OWN.
-//
-// Asserted on the emitted metadata and through the loaded PE, not on acceptance alone: two
-// claims silently collapsed onto one type would compile clean and emit ONE nested `T`.
+// A type claims `(container, name, arity)`, so `N.A.T` and `N.B.T` are two types rather
+// than one name contested twice, and the nesting is what gives them distinguishable
+// metadata names. Collapsing them onto one type would compile clean and emit ONE `T`.
 
-/// `namespace N` holding two sibling modules `A` and `B`, each declaring its OWN
-/// `type T` (`inA` / `inB` are the module bodies, indented in). Two distinct types under
-/// one short name.
+/// `namespace N` over two sibling modules `A` and `B`, each declaring its own `type T`;
+/// `inA` / `inB` are the module bodies, indented in.
 let private siblingModuleTypes (inA: string list) (inB: string list) : string =
     let body (m: string) (lines: string list) =
         (sprintf "module %s =" m) :: (lines |> List.map (fun l -> "    " + l))
 
     String.concat "\n" ([ "namespace N"; "" ] @ body "A" inA @ [ "" ] @ body "B" inB)
 
-/// The record pair: `N.A.T = { x: int }` and `N.B.T = { y: int }` — same name,
-/// incompatible field sets, so a conflation cannot hide.
+/// `N.A.T = { x: int }` and `N.B.T = { y: int }`: same name, disjoint field sets, so a
+/// conflation cannot hide.
 let private recordA = [ "type T = { x: int }" ]
 let private recordB = [ "type T = { y: int }" ]
 let private recordPair = siblingModuleTypes recordA recordB
@@ -265,8 +232,6 @@ let moduleIsPartOfTypeIdentity =
 
                     MetadataStructure.assertWellFormed "SiblingModuleTypeIdentity" bytes
 
-                    // They are two TYPES, not one reused: the loaded PE binds both, and each
-                    // carries only its own field.
                     let asm = loadAssembly bytes
                     let ta = asm.GetType "N.A+T"
                     let tb = asm.GetType "N.B+T"
@@ -287,9 +252,8 @@ let moduleIsPartOfTypeIdentity =
                     Expect.equal (fields tb) [ "y" ] "B's T keeps its own field"
                 }
 
-            // Each module's body resolves `T` to the `T` ITS OWN module declares. The field
-            // sets are DISJOINT, so acceptance IS the identity assertion: were `B`'s `T`
-            // bound to `A`'s, `{ y = 2 }` would name no field of it.
+            // Acceptance IS the identity assertion here: were `B`'s `T` bound to `A`'s,
+            // `{ y = 2 }` would set a field that type does not have.
             yield
                 test "each sibling module's body constructs its own T" {
                     compiles (
@@ -314,10 +278,8 @@ let moduleIsPartOfTypeIdentity =
                     Expect.isNotNull (asm.GetType "N.B+T") "expected N.B+T to bind"
                 }
 
-            // A type is reached from OUTSIDE the module holding it by naming that module.
-            // `B` declares its own `T` with a different field, so a conflation would be caught
-            // twice over: the construction would take the wrong ctor argument, and the emitted
-            // member would hang off the wrong nested type.
+            // From outside, a held type is reached by naming its module. `B.T` takes a
+            // `string` where `A.T` takes an `int`, so a conflation cannot type-check.
             yield
                 test "a body outside A constructs A.T by its qualified name" {
                     let src =
@@ -335,8 +297,7 @@ let moduleIsPartOfTypeIdentity =
                                 "        member _.S = s"
                                 ""
                                 "module C ="
-                                // Both the annotation and the construction name A's T through
-                                // the module holding it.
+                                // Both the annotation and the construction name A's T.
                                 "    let make (n: int) : A.T = A.T(n)"
                                 "    let read (v: A.T) = v.N"
                             ])
@@ -349,16 +310,14 @@ let moduleIsPartOfTypeIdentity =
                     let ta = asm.GetType "N.A+T"
                     Expect.isNotNull ta "expected N.A+T to bind"
 
-                    // `make` returns A's T — and A's T is the one taking an int and carrying
-                    // `N`, not B's `string`/`S`.
                     let make = (asm.GetType "N.C").GetMethod "make"
                     Expect.equal make.ReturnType ta "make returns N.A+T"
 
                     let v = make.Invoke(null, [| box 7 |])
                     Expect.equal (v.GetType()) ta "the constructed value IS N.A+T"
 
-                    // A's own member (a property emits as `get_N`) reads back the ctor
-                    // argument: the construction ran A's ctor, not B's.
+                    // A property emits as `get_N`; reading back the ctor argument shows A's
+                    // ctor ran, not B's.
                     Expect.equal ((ta.GetMethod "get_N").Invoke(v, [||]) :?> int) 7 "A.T(7).N = 7"
                 }
         ]

@@ -8,30 +8,12 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The cross-assembly RUNTIME gate: a separately-built PRODUCER package exports module
-// functions whose flat compiled signatures a CONSUMER assembly binds and `call`s through
-// real `AssemblyRef` member-refs. It exercises, end-to-end across two emitted DLLs:
-//
-//   * the escape gap — `addOne` is used higher-order *inside the producer*
-//     (`bumpTwice`), so pre-fix it was demoted ENTIRELY to a closure and its flat
-//     static method never existed; the consumer's `Producer.addOne` member-ref
-//     then bound nothing → `MissingMethodException` at JIT. `forceExportedStaticFns`
-//     keeps the flat method, so the consumer binds it.
-//   * tupled-group flattening — `addPair (x, y)` (`int * y: int ->` in the
-//     `.fsi`) binds a 2-flat-param member-ref `addPair(int, int)`, not a single
-//     `ValueTuple` param.
-//   * lone-unit erasure — `getUnit ()` (`unit ->`) binds a parameterless
-//     member-ref `getUnit()`.
-//
-// The producer is built through this repo's own backend (like the `buildPackage`
-// Vesper.* fixtures) and loaded into the Default ALC so a fresh-ALC consumer run
-// resolves it by simple name. Its `.fsi`/`.fs`/`manifest.toml` are written to the
-// repo `tmp/` dir so the consumer's contract provider extracts the producer's
-// `ValRepr`/`CompiledForm` from the recorded arity — the exact tupled/unit path.
+// A separately-built PRODUCER package exports module functions a CONSUMER binds and `call`s
+// through real `AssemblyRef` member-refs: an export that also escapes intra-assembly
+// (`addOne`), a tupled group (`addPair(int, int)`), and a lone unit group (`getUnit()`).
 
-/// The producer contract: the arity the consumer reconciles its call arguments
-/// against. `addPair`'s `*`-separated group is a TUPLED group (2 flat params);
-/// `getUnit`'s `unit` group is the lone-erasable shape.
+/// The producer contract, the arity the consumer reconciles its arguments against.
+/// `addPair`'s `*` group is TUPLED (2 flat params); `getUnit`'s is the lone-erasable `unit`.
 let private producerFsi =
     String.concat
         "\n"
@@ -50,9 +32,8 @@ let private producerFsi =
             "    val bumpTwice: x: int -> int"
         ]
 
-/// The producer impl. `bumpTwice` passes `addOne` as a value to `applyTwice`, so
-/// `addOne` ESCAPES intra-assembly — the condition that, pre-fix, dropped its flat
-/// static method.
+/// `bumpTwice` passes `addOne` as a value to `applyTwice`, so `addOne` ESCAPES
+/// intra-assembly while still being exported. It must therefore keep its flat static method.
 let private producerFs =
     String.concat
         "\n"
@@ -77,11 +58,9 @@ let private producerManifestToml =
 let private producerDir = tmpDir "EscapeProducer"
 let private producerManifestPath = Path.Combine(producerDir, "manifest.toml")
 
-/// Write the producer sources, build `EscapeProducer.dll` through this backend
-/// (Vesper.Core injected for `+` / `Vesper.Fun`), load it into the Default ALC, and
-/// return its path. `lazy`, built once. Building it is itself the first time a
-/// Vesper package has an intra-assembly escaping exported function — so the build
-/// exercises `bridgeStaticFnEscapes` on the producer side.
+/// Write the producer sources, build `EscapeProducer.dll` through this backend (Vesper.Core
+/// injected for `+` / `Vesper.Fun`), load it into the Default ALC, and return its path. Built
+/// once. The build itself exercises `bridgeStaticFnEscapes` on the producer side.
 let private producerDll: Lazy<string> =
     lazy
         (File.WriteAllText(Path.Combine(producerDir, "producer.fsi"), producerFsi)
@@ -112,9 +91,8 @@ let private producerDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath outPath |> ignore
          outPath)
 
-/// Compile a consumer program against the default contract stack PLUS the producer
-/// manifest (so its module functions resolve, carrying the `ValRepr`) with
-/// the producer DLL referenced, run it in-process, and assert stdout.
+/// Compile a consumer against the default contract stack PLUS the producer manifest (so its
+/// module functions resolve, carrying the `ValRepr`), run it in-process, and assert stdout.
 let private runConsumer (expected: string list) (src: string) : unit =
     let dll = producerDll.Value
 
@@ -157,8 +135,8 @@ let tests =
             test "a consumer binds a producer's escaping exported function + tupled/unit module functions" {
                 runConsumer
                     [
-                        "6" // Producer.addOne 5 — the escape-gap method; pre-fix this member-ref bound nothing
-                        "7" // Producer.bumpTwice 5 = addOne (addOne 5) — the producer's intra-assembly higher-order use
+                        "6" // Producer.addOne 5 — the escaping export's flat static method
+                        "7" // Producer.bumpTwice 5 = addOne (addOne 5) — the intra-assembly higher-order use
                         "7" // Producer.addPair (3, 4) — tupled group → flat addPair(int, int)
                         "42" // Producer.getUnit () — lone unit group → parameterless getUnit()
                     ]

@@ -6,11 +6,8 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Numeric enum emission (step 5a): a real `System.Enum` subclass with the
-// integral underlying type and one `static literal` field per case. These tests
-// reflect over the emitted PE (`.IsEnum`, `Enum.GetUnderlyingType`, the literal
-// fields' raw constant values) and drive `match`/`E.Ci` access at runtime so a
-// bad IL shape (wrong base, missing `value__`, wrong constant) surfaces.
+// A numeric enum emits a `System.Enum` subclass with one `static literal` field
+// per case; a string or mixed enum emits a `[<Struct>]` wrapper instead.
 
 [<Tests>]
 let enumTests =
@@ -31,7 +28,6 @@ let enumTests =
                 Expect.isTrue ty.IsSealed "an enum is sealed"
                 Expect.equal (Enum.GetUnderlyingType ty) typeof<int> "the underlying type is System.Int32"
 
-                // The per-case `static literal` fields carry their constant integers.
                 let raw (n: string) =
                     ty.GetField(n, BindingFlags.Public ||| BindingFlags.Static).GetRawConstantValue()
 
@@ -51,16 +47,12 @@ let enumTests =
                 Expect.isTrue ty.IsEnum "Flags is a System.Enum subclass"
                 Expect.equal (Enum.GetUnderlyingType ty) typeof<byte> "the authored 1uy/2uy width emits System.Byte"
 
-                // The literal's runtime value is the boxed byte (B = 2uy).
                 let bField = ty.GetField("B", BindingFlags.Public ||| BindingFlags.Static)
                 Expect.equal (bField.GetRawConstantValue()) (box 2uy) "B = 2uy (boxed byte)"
             }
 
-            // ---- runtime behaviour: match + E.Ci access ----------------------
-            // `match E.A with | E.A -> 1 | E.B -> 2 | _ -> 0` returns 1: `E.Ci` pushes
-            // the case's underlying integer constant (its `literal` field is
-            // metadata-only) and the `EnumCase` pattern compares the scrutinee against
-            // it (underlying-int equality).
+            // A `literal` field is metadata-only, so `E.A` pushes the case's underlying
+            // integer inline and the case pattern is an integer comparison.
             test "match on the matching case returns its arm (E.A)" {
                 runs
                     "1"
@@ -85,8 +77,6 @@ let enumTests =
                         ])
             }
 
-            // `=` on enums falls out of the existing equality path: an enum value is
-            // its underlying integer, so `x = E.A` is integer equality at runtime.
             test "enum value equality (=) compares the underlying integers" {
                 runsLines
                     [ "eq"; "ne" ]
@@ -118,13 +108,9 @@ let enumTests =
                         ])
             }
 
-            // ---- string / mixed enum struct-wrapper emission -------------------
-            // SEQUENCING CHECK: a string enum is a `[<Struct>]`
-            // wrapper whose per-case `public static initonly` field is `.cctor`-init'd
-            // by constructing the wrapper from the case's string literal. Reflect over
-            // the loaded PE to prove the field emitted, the type is a value type, and
-            // the cctor RAN (the field's wrapped string round-trips) — no use site,
-            // pure emission.
+            // A string enum's per-case `static initonly` field is filled by the `.cctor`
+            // constructing the wrapper from the case's string literal. No use site here:
+            // the wrapped string reading back is what proves the cctor ran.
             test "SEQUENCING: a string enum emits a static-initonly struct field, cctor-initialised, readable" {
                 let _, artifact =
                     compileSource
@@ -137,13 +123,10 @@ let enumTests =
                 Expect.isTrue ty.IsValueType "a string enum emits as a [<Struct>] value type"
                 Expect.isFalse ty.IsEnum "a string enum is NOT a System.Enum (no integral underlying type)"
 
-                // The per-case field is a public static field OF the enum type.
                 let upField = ty.GetField("Up", BindingFlags.Public ||| BindingFlags.Static)
                 Expect.isNotNull upField "the case 'Up' is a static field"
                 Expect.equal upField.FieldType ty "the case field's type is the enum struct itself"
 
-                // The `.cctor` constructed it: read the wrapped string off the backing
-                // instance field of the boxed struct value.
                 let readWrapped (caseName: string) : string =
                     let boxed =
                         ty.GetField(caseName, BindingFlags.Public ||| BindingFlags.Static).GetValue(null)
@@ -155,7 +138,6 @@ let enumTests =
                 Expect.equal (readWrapped "Down") "down" "Dir.Down wraps the string \"down\""
             }
 
-            // E.Up round-trips its string through a match arm + printf.
             test "a string enum case round-trips its string through a match" {
                 runs
                     "up"
@@ -216,7 +198,7 @@ let enumTests =
                 Expect.isTrue ty.IsSealed "a string enum struct is sealed"
             }
 
-            // ---- mixed enum (int + string), obj-wrapper repr ------------------
+            // A mixed enum wraps `obj`, so both widths ride one backing field.
             test "a mixed enum match distinguishes int and string cases at runtime" {
                 runsLines
                     [ "isA"; "isB"; "isA" ]

@@ -5,20 +5,15 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Proves the emitted PE runs as a standalone framework-dependent app under the
-// `dotnet` host, not just in-process. Beyond the PE, the host needs deployment
-// plumbing `materialiseApp` writes: a `runtimeconfig.json` (the host won't start
-// without one) and a copy of `FSharp.Core.dll` (absent from the shared framework).
-// The on-disk-PE anchors below cover the lower-level
-// `materialise` (a loadable DLL, no app bundle) and a recursive-static-method app.
+// The emitted PE run as a standalone framework-dependent app under the `dotnet` host, not
+// just in-process. The host will not start without a `runtimeconfig.json`, and needs any
+// referenced assembly the shared framework does not carry copied beside the PE.
 
 [<Tests>]
 let tests =
     testList
         "RunnableApp"
         [
-            // `materialise` (not `materialiseApp`) writes a loadable PE to disk that
-            // round-trips through the runtime loader and runs.
             test "`materialise` writes a loadable PE to disk that runs and prints \"hi\"" {
                 let outDir = tmpDir "runnable-materialise"
                 let outPath = IO.Path.Combine(outDir, "MaterialiseHi.dll")
@@ -41,10 +36,8 @@ let tests =
 
             test "a recursive static-method program runs as a standalone `dotnet <dll>` app (prints 15)" {
                 let outDir = tmpDir "runnable-static-app"
-                // `withCore`: the `printfn "%d"` binds `Vesper.Printf` (+ its
-                // `Vesper.Core` / `Vesper.List` deps), so their paths must be resolvable
-                // reference sources for `materialiseApp` to copy beside the PE
-                // (no host fallback ships the handler).
+                // `withCore`: `printfn "%d"` binds `Vesper.Printf` and its deps, so their
+                // on-disk paths must be references for the bundle to copy them beside the PE.
                 let project = withCore (ProjectInfo.app "XParsecStaticApp" outDir)
 
                 let src =
@@ -62,10 +55,8 @@ let tests =
 
             test "`materialiseApp` emits a `dotnet <dll>`-runnable bundle that prints [1; 2; 3]" {
                 let outDir = tmpDir "runnable-app"
-                // `withCore`: a `%A` bundle needs `Vesper.Core` (the formatter's
-                // `RuntimeFormatState` implements the Core-owned `IFormatSink`), so
-                // its on-disk path must be a resolvable reference source for the
-                // bundle's transitive-closure copy.
+                // `withCore`: a `%A` bundle needs `Vesper.Core`, because the formatter's
+                // `RuntimeFormatState` implements the Core-owned `IFormatSink`.
                 let project = withCore (ProjectInfo.app "XParsecListApp" outDir)
 
                 let artifact = compileSourceTo project "printfn \"%A\" [1; 2; 3]"

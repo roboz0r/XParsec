@@ -9,12 +9,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The `ClrDriver` acceptance gate: unlike every other fixture in this suite (which
-// reflects the BCL off the compiler HOST's runtime assemblies), the driver builds
-// its metadata leaf from an EXPLICIT reference set — here the pinned `net8.0` ref
-// pack. The end-to-end run then proves the emitted `System.Console` (ref-pack)
-// `AssemblyRef` binds against the shared framework at runtime, rather than the
-// host's `System.Private.CoreLib` (impl) identity.
+// The `ClrDriver` acceptance gate: unlike the rest of this suite, which reads the BCL off
+// the compiler HOST's runtime assemblies, the driver builds its metadata leaf from an
+// EXPLICIT reference set, in this case the pinned `net8.0` ref pack.
 
 /// The simple names the PE at `path` declares an `AssemblyRef` to.
 let private assemblyRefNames (path: string) : string list =
@@ -31,9 +28,8 @@ let tests =
     testList
         "ClrDriver"
         [
-            // A BCL-only static call (no function value / list / printf, so no Vesper
-            // runtime dependency) compiled against the pinned net8.0 ref pack, run on
-            // disk, with its AssemblyRefs inspected — the ref-set isolation gate.
+            // No function value, list or printf, so the program has no Vesper runtime
+            // dependency: a BCL-only static call, run on disk with its refs inspected.
             test "compiles + runs a program against the net8.0 ref pack, binding ref-pack AssemblyRefs" {
                 let bclReferences =
                     match RefPack.resolve "net8.0" with
@@ -75,8 +71,7 @@ let tests =
                     (sprintf "no host impl (System.Private.CoreLib) AssemblyRef; refs were: %A" refs)
             }
 
-            // The driver is production surface: a type error is returned as
-            // Severity.Error diagnostics, never a `failwith`.
+            // The driver is production surface, so it raises no exception of its own.
             test "a type error returns Error diagnostics (no exception)" {
                 let inputs =
                     ClrCompilation.consumer

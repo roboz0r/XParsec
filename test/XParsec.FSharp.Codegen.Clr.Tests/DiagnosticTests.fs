@@ -3,11 +3,9 @@ module XParsec.FSharp.Codegen.Clr.Tests.DiagnosticTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The negative direction: the suite is almost entirely happy-path, so a
-// regression that *accepts* bad input — or silently changes a diagnostic — goes
-// unseen. This table pins a handful of errors the front end emits, asserting on
-// a stable substring of the message. Each row is a `failsWith` over a program
-// that must be rejected, for the stated reason.
+// The negative direction: the suite is almost entirely happy-path, so a regression that
+// ACCEPTS bad input goes unseen. Each row is a program that must be rejected, pinned on a
+// stable substring of the message.
 
 [<Tests>]
 let tests =
@@ -24,35 +22,31 @@ let tests =
                     "Type mismatch", "let x : int = \"hi\"\nprintfn \"%d\" x"
                     // assigning to an immutable record field
                     "Cannot assign to immutable field", "type R = { x: int }\nlet r = { x = 1 }\nr.x <- 2"
-                    // `use` over a type that doesn't implement `disposable`
-                    // (`System.IDisposable`) — the §3b interface-required flip.
+                    // `use` over a type that does not implement `disposable`
+                    // (`System.IDisposable`)
                     "implement 'disposable'",
                     "type R() =\n    member this.value = 1\nlet run () =\n    use r = R()\n    ()\nrun ()"
-                    // a destructuring `use` — only simple variable patterns are legal
-                    // there (the bound value is what gets disposed), so the front end
-                    // rejects it rather than letting codegen `failwithf`.
+                    // a destructuring `use`: the disposed thing is the bound value, so
+                    // only a simple variable pattern is legal there
                     "simple variable patterns", "let run () =\n    use a, b = (1, 2)\n    ()\nrun ()"
-                    // a [<CallAtMostOnce>] parameter used more than once violates the
-                    // linearity contract (the compiler can only guarantee at-most-once
-                    // evaluation for a single, non-repeated use).
+                    // a [<CallAtMostOnce>] parameter used twice: at-most-once evaluation
+                    // is only guaranteed for a single, non-repeated use
                     "used at most once",
                     "let inline twice (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else b\nprintfn \"%b\" (twice true true)"
-                    // the same attribute on a NON-inline function: it only has meaning
-                    // for the splice the inliner performs, so it is rejected up front.
+                    // the same attribute on a NON-inline function: it only means anything
+                    // for the splice the inliner performs
                     "only valid on a parameter of an 'inline' function",
                     "let notInline (a: bool) ([<CallAtMostOnce>] b: bool) : bool = if a then b else false\nprintfn \"%b\" (notInline true true)"
                 ] -> test src { failsWith fragment src }
 
-            // The duck-typed `for-in` over a source that implements only the
-            // non-generic IEnumerable type-checks but is not run here.
+            // `BitArray` implements only the non-generic `IEnumerable`.
             yield
                 test "duck-typed for-in over BitArray type-checks (codegen deferred)" {
                     typeChecks "let f (ba: System.Collections.BitArray) =\n    for x in ba do\n        ()"
                 }
 
-            // Tuples are unbounded: an 8+-element tuple is no longer a front-end
-            // error (it emits via `ValueTuple`8` `TRest` nesting). Guards against a
-            // regression that re-introduces an arity cap.
+            // An 8+-element tuple emits via `ValueTuple`8`'s `TRest` nesting, so tuple
+            // arity is unbounded.
             yield
                 test "an 8-element tuple type-checks (no arity cap)" {
                     typeChecks "let a, b, c, d, e, f, g, h = (1, 2, 3, 4, 5, 6, 7, 8)\n()"

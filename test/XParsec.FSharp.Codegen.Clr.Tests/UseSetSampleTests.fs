@@ -4,16 +4,9 @@ open System.IO
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The Phase-9 exit deliverable: the `samples/UseSet/` consumer demo, gated.
-// Rather than duplicate the program
-// inline, this reads the on-disk `samples/UseSet/Program.fs` and drives it through
-// the same `runsSet` harness the operation table uses (build `Vesper.Set` + its
-// eight transitive deps, load into `packageAlc`, run, assert stdout). So the
-// committed sample is the *exact* source that runs here — it cannot rot into a
-// program that no longer compiles or whose output drifts.
+// Reads the committed sample from disk rather than inlining it, so the exact source
+// shipped in `samples/UseSet/` is what runs here.
 
-/// `samples/UseSet/Program.fs`, relative to this test file
-/// (`test/XParsec.FSharp.Codegen.Clr.Tests/`).
 let private useSetProgram: string =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "samples", "UseSet", "Program.fs")
 

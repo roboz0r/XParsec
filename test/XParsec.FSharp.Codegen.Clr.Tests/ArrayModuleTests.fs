@@ -5,29 +5,16 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The behavioral runtime suite for `Vesper.Array`, the codebase's first
-// *generic intrinsic* (`'T[]`) to emit end-to-end. The
-// surface has grown from the `zeroCreate`/`fold` starter to the FSharp.Core-shaped
-// subset built only from counted index loops, indexed read (`arr.[i]` → `ldelem`)
-// and write (`arr.[i] <- v` → `stelem`), `.Length` (`ldlen`), and `Vesper.Fun`
-// application: length/isEmpty/get/set/create/init/copy/append/rev/map/mapi/iter/
-// iteri/fold/foldBack. Three test groups:
-//   * `Array` — REFLECTION-INVOKE over `buildPackage "Vesper.Array"` for the pure
-//     data producer `zeroCreate` (its result is a BCL `int[]`, asserted directly).
-//   * `ArrayModuleRuntime` — DRIVER PROGRAMS for `fold` (the HOF) and the
-//     `.Length` / `.[i]` read + `.[i] <- v` write intrinsics.
-//   * `ArrayModuleSurface` — DRIVER PROGRAMS for the grown module functions.
-//
-// Arrays are built through our own `zeroCreate` / `init` / `create`, so every row
-// stays on the BCL-only path (no FSharp.Core `ArrayModule.OfList` from an
-// `[| … |]` literal). Folders/mappers are *curried* (`fun s -> fun x -> …`)
-// because Elaborate does not lower the multi-arg `fun s x -> …` form.
+// `Vesper.Array` is the first generic intrinsic (`'T[]`) to emit end-to-end. Its whole
+// surface is built from counted index loops, indexed read (`arr.[i]` → `ldelem`) and
+// write (`arr.[i] <- v` → `stelem`), `.Length` (`ldlen`), and `Vesper.Fun` application.
 
-// ---- reflection over the built Vesper.Array.dll (zeroCreate, pure-data) -------
+// Every array here is built with `zeroCreate` / `init` / `create`, never an `[| … |]`
+// literal, which would route through FSharp.Core. Folders and mappers are curried
+// (`fun s -> fun x -> …`): `translatePat` does not lower `fun s x -> …`.
 
-/// The built `Vesper.Array.dll` (cached). The module's `ModuleSuffix` repr gives
-/// it the compiled module class name `Vesper.Collections.ArrayModule` (matching the
-/// FSharp.Core surface).
+/// The built `Vesper.Array.dll` (cached). The module's `ModuleSuffix` repr gives it the
+/// compiled class name `Vesper.Collections.ArrayModule`.
 let private arrayAsm: Lazy<Assembly> =
     lazy (fst (buildPackage "Vesper.Array").Value)
 
@@ -45,7 +32,7 @@ let tests =
     testList
         "Array"
         [
-            // `newarr !0` allocates a zero-initialised array of the requested length.
+            // `newarr !0` allocates zero-initialised.
             test "zeroCreate allocates an array of the given length" {
                 let xs = zeroCreateInt 3
                 Expect.equal xs.Length 3 "length is 3"
@@ -57,26 +44,17 @@ let tests =
                 Expect.equal xs.Length 0 "length is 0"
             }
 
-            // `fold` is covered by the driver route below: its `folder` is a
-            // `Vesper.Fun` (impractical to mint by reflection — the `OptionTests`
-            // HOF rationale), exercised through driver programs where the lambda
-            // builds the `Vesper.Fun` naturally. This anchor stays as the pointer.
+            // `fold`'s `folder` is a `Vesper.Fun` reflection cannot mint; the driver
+            // programs below build one from a lambda.
             test "fold covered by ArrayModuleRuntime (Vesper.Fun via driver)" { () }
         ]
-
-// ---- driver programs: Array.fold (the HOF) + .Length / .[i] intrinsics -------
-// Arrays are built with `Array.zeroCreate` (BCL-only), so these never touch the
-// FSharp.Core array-literal lowering. The folder is *curried* (`fun s -> fun x ->
-// …`) because Elaborate does not lower the multi-arg `fun s x -> …` form.
 
 [<Tests>]
 let runtimeTests =
     testList
         "ArrayModuleRuntime"
         [
-            // `fold` threads the accumulator across every element: counting with
-            // `s + 1` proves the loop visits each of the `zeroCreate`d slots exactly
-            // once (`array.Length` bound + `for-to` iteration).
+            // Counting with `s + 1` shows the `for-to` loop runs `array.Length` times.
             test "Array.fold visits each element once (counts the length)" {
                 runsArray
                     "5"
@@ -85,8 +63,7 @@ let runtimeTests =
                      + "printfn \"%d\" (Array.fold (fun s -> fun x -> s + 1) 0 xs)")
             }
 
-            // Summing the (zero-initialised) elements proves `fold` reads each
-            // element value (`array.[i]` → `ldelem`) and feeds it to the folder.
+            // Summing shows the folder receives element values (`array.[i]` → `ldelem`).
             test "Array.fold reads element values (sum of zeroCreate is 0)" {
                 runsArray
                     "0"
@@ -94,7 +71,7 @@ let runtimeTests =
                      + "printfn \"%d\" (Array.fold (fun s -> fun x -> s + x) 0 (Array.zeroCreate 3))")
             }
 
-            // `fold` over the empty array returns the seed untouched (zero iterations).
+            // Zero iterations, so the seed is returned untouched.
             test "Array.fold over the empty array returns the initial state" {
                 runsArray
                     "42"
@@ -111,7 +88,7 @@ let runtimeTests =
                      + "printfn \"%d\" xs.Length")
             }
 
-            // `arr.[i]` lowers to `ldelem <elem>`; a fresh `zeroCreate`d slot reads 0.
+            // `arr.[i]` lowers to `ldelem <elem>`; a fresh slot reads 0.
             test "indexed lookup reads an element" {
                 runsArray
                     "0"
@@ -120,8 +97,7 @@ let runtimeTests =
                      + "printfn \"%d\" xs.[0]")
             }
 
-            // `arr.[i] <- v` lowers to `stelem <elem>` (the `SetArray` inline
-            // body); writing then reading the slot proves the store landed.
+            // `arr.[i] <- v` lowers to `stelem <elem>`.
             test "indexed assignment writes an element" {
                 runsArray
                     "7"
@@ -142,18 +118,13 @@ let runtimeTests =
             }
         ]
 
-// ---- expanded module surface: behavioural driver programs --------------------
-// The grown `Array` surface (length/isEmpty/get/set/create/init/copy/append/rev/
-// map/mapi/iter/iteri/foldBack). Each is built only from counted loops, indexed
-// get/set, `.Length`, and `Vesper.Fun` application — so every row stays on the
-// BCL-only path. Arrays are constructed via `Array.init` / `Array.create` /
-// `Array.zeroCreate` (never `[| … |]` literals, which would route through
-// FSharp.Core), and results read back with `Array.fold` / `Array.get` / `.[i]`.
+// length/isEmpty/get/set/create/init/copy/append/rev/map/mapi/iter/iteri/foldBack, with
+// results read back through `Array.fold` / `Array.get` / `.[i]`.
 
 [<Tests>]
 let surfaceTests =
     let prelude = "open Vesper.Collections\n"
-    // Sum an int[] — the standard "read back every element" probe.
+    // Sums an `int[]`, so a row can assert its contents as one scalar.
     let sumDecl =
         "let sum (a: int[]) : int = Array.fold (fun s -> fun x -> s + x) 0 a\n"
 
@@ -194,7 +165,7 @@ let surfaceTests =
             }
 
             test "init builds from the index generator" {
-                // [|0;1;2;3|] sums to 6.
+                // `[| 0; 1; 2; 3 |]` sums to 6.
                 runsArray "6" (prelude + sumDecl + "printfn \"%d\" (sum (Array.init 4 (fun i -> i)))")
             }
 
@@ -224,7 +195,7 @@ let surfaceTests =
             }
 
             test "append concatenates two arrays (contents)" {
-                // [|0;1|] ++ [|10;11|] sums to 22.
+                // `[| 0; 1 |]` ++ `[| 10; 11 |]` sums to 22.
                 runsArray
                     "22"
                     (prelude
@@ -233,12 +204,12 @@ let surfaceTests =
             }
 
             test "rev reverses the order" {
-                // rev [|0;1;2|] = [|2;1;0|]; head is 2.
+                // `rev [| 0; 1; 2 |]` is `[| 2; 1; 0 |]`, whose first element is 2.
                 runsArray "2" (prelude + "printfn \"%d\" (Array.get (Array.rev (Array.init 3 (fun i -> i))) 0)")
             }
 
             test "map applies the function to every element" {
-                // map (+10) [|0;1;2|] = [|10;11;12|]; sums to 33.
+                // `[| 0; 1; 2 |]` maps to `[| 10; 11; 12 |]`, which sums to 33.
                 runsArray
                     "33"
                     (prelude
@@ -247,7 +218,7 @@ let surfaceTests =
             }
 
             test "mapi feeds the index to the function" {
-                // mapi (fun i _ -> i) over a length-3 array = [|0;1;2|]; sums to 3.
+                // Discarding the element and keeping the index gives `[| 0; 1; 2 |]`, so 3.
                 runsArray
                     "3"
                     (prelude
@@ -262,7 +233,7 @@ let surfaceTests =
             }
 
             test "iteri pairs each element with its index" {
-                // print i for each slot of a length-3 array → 0,1,2.
+                // The index, not the element, is printed at each slot.
                 runsArrayLines
                     [ "0"; "1"; "2" ]
                     (prelude
@@ -270,7 +241,7 @@ let surfaceTests =
             }
 
             test "foldBack threads right-to-left" {
-                // foldBack (fun x acc -> x - acc) [|1;2;3|] 0 = 1-(2-(3-0)) = 2.
+                // `1 - (2 - (3 - 0))` = 2.
                 runsArray
                     "2"
                     (prelude
@@ -278,9 +249,8 @@ let surfaceTests =
             }
         ]
 
-// ---- front-end regression guard (analysis only) ------------------------------
-// The cheap probe: `Array.zeroCreate` / `Array.fold` and the `.Length` / `.[i]`
-// intrinsics type-check through the Array contract stack without running.
+// Analysis only: the Array surface and the `.Length` / `.[i]` intrinsics resolve
+// through the Array contract stack.
 
 [<Tests>]
 let frontEndTests =
