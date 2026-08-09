@@ -95,9 +95,10 @@ this is the one remaining FSharp.Core tie on the printf stack.
 
 ## Irreducible non-targets (name them, don't "fix")
 
-- **`Codegen.Js/JsNativeSymbols.fs`** hand-fabricates `Error` (ctor + `message`) and
-  `IEnumerable`/`IEnumerator` for JS, which has no reflectable metadata. NOT fixable with a
-  `.fs` — it is the explicit JS target boundary, not drift.
+- **`Codegen.Js/JsNativeSymbols.fs`** hand-fabricates `Error` (ctor + `message`) for JS,
+  which has no reflectable metadata. NOT fixable with a `.fs` — it is the explicit JS target
+  boundary, not drift. (The `IEnumerable`/`IEnumerator` stubs it also fabricated are gone:
+  JS keys iteration by the `seq` capability alone.)
 - **`IntrinsicRepr.tryEncodeValueType`** (repr string → `te.Int32()`) is SRM IL-encoding
   knowledge, not a Vesper contract. STAYS (single-sourced with `isEncodableValueType`).
 - ~~The homogeneous one-typar inline-operator body is a LONG-LIVED simplification, not a

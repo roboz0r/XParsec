@@ -94,21 +94,6 @@ Two lesser gaps in the same function, neither currently reachable in a way that 
 - a lone surrogate passes through raw, which is invalid UTF-8 in `sourcesContent`;
 - U+2028 / U+2029 pass through raw — fine on ES2019+, a syntax error in older engines.
 
-## A4. Possibly ~60 dead lines in `JsNativeSymbols.fs` — confirm before deleting
-
-`capabilities-compat.js.fsi` abbreviates `IEnumerable<'T>` / `IEnumerator<'T>` to
-`Vesper.Collections.seq` / `enumerator`, and `capabilities.fsi` makes `seq` / `enumerator`
-first-class `extern interface`s anchored in `ExternalSymbols`. The shim registers the BCL
-name as an `Abbrev` in layer 1, ahead of this file's fabricated `Class` in the layer-2 tail.
-
-If that ordering holds unconditionally, `ienumerableShape`, `ienumeratorShape`,
-`erasedClassEntry`, `mkErasedClassIface` and `mkIfaceMember` are unreachable and only
-`enumerableInterfaceName` is live.
-
-Confirm before deleting — the cheap check is to `failwith` in `erasedClassEntry` and run the
-suite. If it is dead, deleting it removes the last place in the project that fabricates a
-`Class` entry for a type the front end already knows about.
-
 ---
 
 # Part B — prose that should be a type

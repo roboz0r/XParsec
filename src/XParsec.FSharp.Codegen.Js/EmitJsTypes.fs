@@ -151,11 +151,6 @@ module EmitJsTypes =
         | FTClass(key, _) -> ValueSome key
         | _ -> ValueNone
 
-    /// Implemented alongside the generic `IEnumerable<'T>`, whose impl already becomes
-    /// `[Symbol.iterator]`, so this one's `GetEnumerator` is dropped rather than attached dead.
-    [<Literal>]
-    let nonGenericEnumerableName = "System.Collections.IEnumerable"
-
     /// Route each member to the JS form it is emitted in. An interface impl claims its
     /// name slot first, so a plain member of the same name has no slot left and faults
     /// here; a capability impl claims a symbol slot instead and claims no name.
@@ -179,31 +174,21 @@ module EmitJsTypes =
         // `Cursor` (`enumerator<'T>`) is the capability that still takes a NAME slot: its
         // dispatch is the plain pair `e.MoveNext()` / `e.Current()`, not a symbol method.
         for (iface, ifaceMembers) in interfaces do
-            let isNonGenericEnumerable =
-                match ifaceTyCtorKey iface with
-                | ValueSome key -> SymbolKeyOps.typeMetaName key = nonGenericEnumerableName
-                | ValueNone -> false
-
-            let capability = ifaceTyCtorKey iface |> ValueOption.bind (capabilityOf caps)
-
-            if isNonGenericEnumerable then
-                ()
-            else
-                match capability with
-                | ValueSome JsCapability.Iteration ->
-                    for m in ifaceMembers do
-                        iterators.Add m
-                | ValueSome JsCapability.Equality ->
-                    for m in ifaceMembers do
-                        protocols.Add(equalityRegistryKey, m)
-                | ValueSome JsCapability.Comparison ->
-                    for m in ifaceMembers do
-                        protocols.Add(comparisonRegistryKey, m)
-                | ValueSome JsCapability.Disposal ->
-                    for m in ifaceMembers do
-                        disposers.Add m
-                | ValueSome JsCapability.Cursor
-                | ValueNone -> attachNamed ifaceMembers
+            match ifaceTyCtorKey iface |> ValueOption.bind (capabilityOf caps) with
+            | ValueSome JsCapability.Iteration ->
+                for m in ifaceMembers do
+                    iterators.Add m
+            | ValueSome JsCapability.Equality ->
+                for m in ifaceMembers do
+                    protocols.Add(equalityRegistryKey, m)
+            | ValueSome JsCapability.Comparison ->
+                for m in ifaceMembers do
+                    protocols.Add(comparisonRegistryKey, m)
+            | ValueSome JsCapability.Disposal ->
+                for m in ifaceMembers do
+                    disposers.Add m
+            | ValueSome JsCapability.Cursor
+            | ValueNone -> attachNamed ifaceMembers
 
         let free = ResizeArray<TastAccessor.TypeMember>()
 

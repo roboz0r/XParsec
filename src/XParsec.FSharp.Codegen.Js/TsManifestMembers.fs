@@ -168,16 +168,16 @@ module internal TsManifestMembers =
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
 
-            // Adding the erased `IEnumerable\`1` type constructor with the peeled element is what makes
-            // `for … in` over this type lower to `for..of`: the recogniser scans the
-            // interface set for the enumerable capability.
+            // Adding the `seq` capability with the peeled element is what makes `for … in`
+            // over this type lower to `for..of`: the recogniser scans the interface set for
+            // the enumerable capability.
             let frozenInterfaces =
                 match tryIteratorElement ctx members with
                 | ValueSome elem ->
                     EqArray.ofSeq
                         [
                             yield! heritageInterfaces
-                            FrozenInterface.OfClass(JsNativeSymbols.ienumerableTypeKey, EqArray.singleton elem)
+                            FrozenInterface.OfClass(RuntimeNames.seqKey, EqArray.singleton elem)
                         ]
                 | ValueNone -> heritageInterfaces
 

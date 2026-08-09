@@ -70,16 +70,6 @@ module RuntimeNames =
     let comparableKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "comparable" 1
 
-    // The BCL spellings the two ITERATION capabilities reconcile against, so a TS pack that
-    // spells a heritage clause `IEnumerable`1` is seen to name `seq`. Only these two need
-    // one: the leaf capabilities fold BCL spellings at freeze time through the JS shim.
-
-    let bclEnumerableKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "IEnumerable" 1
-
-    let bclEnumeratorKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "IEnumerator" 1
-
     /// The suffix every declared attribute class carries, and F#'s optional one at a use.
     [<Literal>]
     let AttributeSuffix = "Attribute"
@@ -164,7 +154,7 @@ module RuntimeNames =
     let undefinedTypeName: string = "undefined"
 
     /// Both spellings an impl can take: `Key` the PLATFORM/BCL name, `CanonKey` the BCL-free
-    /// canonical one, `ValueNone` for a canon-only anchor (`seq`, and everything on JS).
+    /// canonical one. `ValueNone` where there is no platform name — every anchor on JS.
     type CapabilityIdentity =
         {
             Key: TypeKey

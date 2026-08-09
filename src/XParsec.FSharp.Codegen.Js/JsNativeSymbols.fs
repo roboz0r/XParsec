@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Common
 /// `new Error("boom")` and an `exn`-typed object argument's member probe lands on this shape.
 module JsNativeSymbols =
 
-    /// The synthetic home "assembly" the stub types report: a label, not a real reference.
+    /// The synthetic home "assembly" a stub type reports: a label, not a real reference.
     [<Literal>]
     let private RuntimeAssembly = "Vesper.Js.Runtime"
 
@@ -22,8 +22,6 @@ module JsNativeSymbols =
 
     /// `Error` is global, so its compiled / lookup name is the bare `Error`.
     let private errorTypeKey: TypeKey = SymbolKeyOps.typeKeyOf "" "Error"
-
-    let private errorKey: SymbolKey = SymbolKey.Type errorTypeKey
 
     let private errorTy: FrozenType = FTClass(errorTypeKey, EqArray.empty)
 
@@ -60,109 +58,9 @@ module JsNativeSymbols =
                 Origin = errorOrigin
             }
 
-    let private boolTy: FrozenType = FTConst(RuntimeNames.boolKey, EqArray.empty)
-
-    let private selfTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
-
-    let private collectionsGenericNs = "System.Collections.Generic"
-
-    let private collectionsGenericOrigin: SymbolOrigin =
-        {
-            Home = runtimeHome
-            Namespace = SymbolKeyOps.namespaceKey collectionsGenericNs
-        }
-
-    let private ienumeratorTypeKey: TypeKey =
-        SymbolKeyOps.typeKeyOf collectionsGenericNs "IEnumerator`1"
-
-    /// A provider makes a foreign type enumerable by adding this to its interface set.
-    let ienumerableTypeKey: TypeKey =
-        SymbolKeyOps.typeKeyOf collectionsGenericNs "IEnumerable`1"
-
-    let private ienumeratorKey: SymbolKey = SymbolKey.Type ienumeratorTypeKey
-
-    let private ienumerableKey: SymbolKey = SymbolKey.Type ienumerableTypeKey
-
-    /// An instance member of an erased interface. `declaringTyparArity` is `1` for
-    /// `IEnumerable<'T>`, the arity `'T` is baked against.
-    let private mkIfaceMember
-        (origin: SymbolOrigin)
-        (declaringTyparArity: int)
-        (declKey: TypeKey)
-        (name: string)
-        (isProperty: bool)
-        (parameters: FrozenType)
-        (ret: FrozenType)
-        : ExternalMember =
-        { ExternalMember.OfKey(
-              SymbolKeyOps.memberKeyOf declKey name EqArray.empty 0 (MemberKind.InterfaceMethod declKey)
-          ) with
-            Storage =
-                if isProperty then
-                    MemberStorage.Property
-                else
-                    MemberStorage.Method
-            Signature = ExternalSignature.make (declaringTyparArity, 0, parameters, ret)
-            Origin = origin
-        }
-
-    let private erasedClassEntry (key: SymbolKey) (shape: ExternalTypeShape) : string * ExternalTypeShape =
-        SymbolKeyOps.qualifiedName key, shape
-
-    let private mkErasedClassIface
-        (arity: int)
-        (origin: SymbolOrigin)
-        (members: EqArray<ExternalMember>)
-        : ExternalTypeShape =
-        ExternalTypeShape.Class
-            {
-                TyparArity = arity
-                IsInterface = true
-                Members = members
-                FrozenInterfaces = EqArray.empty
-                FrozenBaseType = ValueNone
-                Flags = ExternalClassFlags.Default
-                Origin = origin
-            }
-
-    /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property. Conformance
-    /// demands exactly the members listed here, so adding the BCL's inherited `Reset` /
-    /// `object Current` would force every implementer to write them too.
-    let private ienumeratorShape: ExternalTypeShape =
-        mkErasedClassIface
-            1
-            collectionsGenericOrigin
-            (EqArray.ofSeq
-                [
-                    mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "MoveNext" false unitTy boolTy
-                    mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "Current" true unitTy selfTypar
-                ])
-
-    /// `IEnumerable<'T>` — `GetEnumerator(): IEnumerator<'T>`.
-    let private ienumerableShape: ExternalTypeShape =
-        mkErasedClassIface
-            1
-            collectionsGenericOrigin
-            (EqArray.singleton (
-                mkIfaceMember
-                    collectionsGenericOrigin
-                    1
-                    ienumerableTypeKey
-                    "GetEnumerator"
-                    false
-                    unitTy
-                    (FTClass(ienumeratorTypeKey, EqArray.ofSeq [ selfTypar ]))
-            ))
-
-    /// Keyed as a by-name lookup spells it: bare `Error` for the global, arity-suffixed
-    /// `System.Collections.Generic.IEnumerable\`1` for the generic interfaces.
-    let private types: Map<string, ExternalTypeShape> =
-        Map
-            [
-                "Error", errorShape
-                erasedClassEntry ienumerableKey ienumerableShape
-                erasedClassEntry ienumeratorKey ienumeratorShape
-            ]
+    /// Keyed as a by-name lookup spells it: the bare `Error`, because the global has no
+    /// namespace to qualify it.
+    let private types: Map<string, ExternalTypeShape> = Map [ "Error", errorShape ]
 
     let private membersOf (typeName: string) (memberName: string) : EqArray<ExternalMember> =
         match Map.tryFind typeName types with

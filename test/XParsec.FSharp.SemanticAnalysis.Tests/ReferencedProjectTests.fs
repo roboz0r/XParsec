@@ -253,19 +253,19 @@ let tests =
                 expectShimAbbrev "System.IComparable`1" "Vesper.comparable`1"
             }
 
-            test "JS build: the iteration capabilities carry BOTH names; the leaves stay canon-only" {
-                // The iteration capabilities carry both names on JS — `Key` the shim-confirmed
-                // BCL spelling, `CanonKey` the canonical `Vesper.Collections.*` — so a
-                // BCL-spelled `IEnumerable`1` folds to `seq`. The leaves take no BCL name.
+            test "JS build: EVERY capability is canon-only; a BCL spelling is not a name" {
+                // A BCL spelling reaches JS only through the compat shim above, which is an
+                // `Abbrev` that expands at the use. So no capability keys by one, and nothing
+                // downstream may tag a JS type with one.
                 let provider, _ = builtProviderJs.Value
                 let caps = ExternalSymbols.resolveCapabilities provider
 
-                // A capability's two spellings are compiled NAMES in the contract, so each is
-                // cut to the key the identity compares on. Arity 0: the `` `1 `` suffix parses.
+                // A capability's spelling is a compiled NAME in the contract, cut to the key
+                // the identity compares on. Arity 0: the `` `1 `` suffix parses.
                 let matchesSpelling (id: RuntimeNames.CapabilityIdentity) (compiled: string) =
                     id.Matches(SymbolKeyOps.qualifiedTypeKeyOf compiled 0)
 
-                let expectBothNames
+                let expectCanonOnly
                     (name: string)
                     (cap: RuntimeNames.CapabilityIdentity voption)
                     (bcl: string)
@@ -273,36 +273,26 @@ let tests =
                     =
                     match cap with
                     | ValueSome id ->
-                        Expect.isTrue
-                            (id.CanonKey.IsSome)
-                            (sprintf "%s carries both names on JS (CanonKey present)" name)
-
-                        Expect.isTrue (matchesSpelling id bcl) (sprintf "%s matches its BCL name %s" name bcl)
+                        Expect.equal id.CanonKey ValueNone (sprintf "%s is canon-only on JS" name)
                         Expect.isTrue (matchesSpelling id canon) (sprintf "%s matches its canonical key %s" name canon)
+                        Expect.isFalse (matchesSpelling id bcl) (sprintf "%s's BCL spelling %s is not a name" name bcl)
                     | ValueNone -> failtestf "%s resolved to ValueNone on JS" name
 
-                expectBothNames
+                expectCanonOnly
                     "Enumerable"
                     caps.Enumerable
                     "System.Collections.Generic.IEnumerable`1"
                     "Vesper.Collections.seq`1"
 
-                expectBothNames
+                expectCanonOnly
                     "Enumerator"
                     caps.Enumerator
                     "System.Collections.Generic.IEnumerator`1"
                     "Vesper.Collections.enumerator`1"
 
-                match caps.Disposable with
-                | ValueSome id ->
-                    Expect.equal id.CanonKey ValueNone "disposable is canon-only on JS (no BCL name to reconcile)"
-
-                    Expect.isTrue (matchesSpelling id "Vesper.disposable") "disposable matches its canonical key"
-
-                    Expect.isFalse
-                        (matchesSpelling id "System.IDisposable")
-                        "disposable's BCL spelling is not a name here"
-                | ValueNone -> failtest "disposable resolved to ValueNone on JS"
+                expectCanonOnly "Disposable" caps.Disposable "System.IDisposable" "Vesper.disposable"
+                expectCanonOnly "Equatable" caps.Equatable "System.IEquatable`1" "Vesper.equatable`1"
+                expectCanonOnly "Comparable" caps.Comparable "System.IComparable`1" "Vesper.comparable`1"
             }
 
             test "Fun resolves (qualified) as a Class shape with a non-empty Origin" {

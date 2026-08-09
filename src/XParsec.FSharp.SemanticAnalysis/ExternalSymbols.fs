@@ -671,15 +671,9 @@ module ExternalSymbols =
             }
 
         // On CLR a capability anchor is an `IntrinsicInterface` carrying both names; on JS a
-        // plain `Class` with only the canonical, so `bclName` is supplied and confirmed here.
-        let shimConfirms (bcl: string) (lookup: string) : bool =
-            match provider.TryLookupType bcl |> typeShapeOf with
-            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(tyCtor, _))) -> SymbolKeyOps.typeMetaName tyCtor = lookup
-            | _ -> false
-
-        let resolveAnchorKey (canon: TypeKey) (bcl: TypeKey voption) : RuntimeNames.CapabilityIdentity voption =
+        // plain `Class` with only the canonical, which is the only name JS ever keys by.
+        let resolveAnchorKey (canon: TypeKey) : RuntimeNames.CapabilityIdentity voption =
             let lookup = SymbolKeyOps.typeMetaName canon
-            let bclName = bcl |> ValueOption.map SymbolKeyOps.typeMetaName
 
             match provider.TryLookupType lookup |> typeShapeOf with
             | ValueSome(ExternalTypeShape.Intrinsic {
@@ -693,31 +687,15 @@ module ExternalSymbols =
                         RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf platform 0
                         RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canon
                     }
-            | ValueSome(ExternalTypeShape.Class _) ->
-                let canonKey = canon
-
-                match bclName with
-                | ValueSome bcl when shimConfirms bcl lookup ->
-                    // Pair the canon-only JS anchor with its BCL name, so either spelling
-                    // folds to the canon.
-                    ValueSome
-                        {
-                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf bcl 0
-                            RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canonKey
-                        }
-                | _ -> ValueSome(ofKey canonKey)
+            | ValueSome(ExternalTypeShape.Class _) -> ValueSome(ofKey canon)
             | _ -> ValueNone
 
         {
-            // The iteration capabilities carry a BCL reconciliation name so a TS pack's
-            // `IEnumerable`1` reconciles to `seq` on JS (a no-op on CLR).
-            Enumerable = resolveAnchorKey RuntimeNames.seqKey (ValueSome RuntimeNames.bclEnumerableKey)
-            Enumerator = resolveAnchorKey RuntimeNames.enumeratorKey (ValueSome RuntimeNames.bclEnumeratorKey)
-            // The leaf capabilities fold BCL spellings to the canonical at freeze time, so
-            // they need no reconciliation name here.
-            Disposable = resolveAnchorKey RuntimeNames.disposableKey ValueNone
-            Equatable = resolveAnchorKey RuntimeNames.equatableKey ValueNone
-            Comparable = resolveAnchorKey RuntimeNames.comparableKey ValueNone
+            Enumerable = resolveAnchorKey RuntimeNames.seqKey
+            Enumerator = resolveAnchorKey RuntimeNames.enumeratorKey
+            Disposable = resolveAnchorKey RuntimeNames.disposableKey
+            Equatable = resolveAnchorKey RuntimeNames.equatableKey
+            Comparable = resolveAnchorKey RuntimeNames.comparableKey
         }
 
     /// Realise a member's `Signature` with SOME method typars PRE-BOUND (`seed`, index →
