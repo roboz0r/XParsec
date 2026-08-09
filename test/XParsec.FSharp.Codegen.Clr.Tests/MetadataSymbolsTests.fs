@@ -72,7 +72,11 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let impls =
                         ExternalSymbols.instantiateInterfaces info [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
-                        |> Array.map fst
+                        |> Array.choose (fun ty ->
+                            match ExternalSymbols.interfaceNominal ty with
+                            | ValueSome(struct (k, _)) -> Some(SymbolKeyOps.qualifiedName k)
+                            | ValueNone -> None
+                        )
                         |> Set.ofArray
 
                     Expect.isTrue (Set.contains "System.Collections.Generic.IList`1" impls) "List<T> declares IList<T>"
@@ -192,13 +196,20 @@ let tests =
                     let intArg = [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
 
                     // Interfaces: `IEnumerable<int>` once `'T := int` is substituted.
+                    let enumerableKey =
+                        SymbolKeyOps.qualifiedTypeKey "System.Collections.Generic.IEnumerable`1" 1
+
                     match
                         ExternalSymbols.instantiateInterfaces info intArg
-                        |> Array.tryFind (fun (n, _) -> n = "System.Collections.Generic.IEnumerable`1")
+                        |> Array.tryPick (fun ty ->
+                            match ExternalSymbols.interfaceNominal ty with
+                            | ValueSome(struct (k, args)) when k = enumerableKey -> Some args
+                            | _ -> None
+                        )
                     with
-                    | Some(_, args) ->
+                    | Some args ->
                         Expect.equal
-                            args
+                            (EqArray.toArray args)
                             [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                             "IEnumerable<int> after 'T := int"
                     | None -> failtest "List<int> should implement IEnumerable<int>"

@@ -745,7 +745,11 @@ Related to **A30** — both are the shadow helpers being under-typed.
 
 ## B38. `MapProviderTypesTests`' coverage claim has no enforcement
 
-The fixture claims `mapProviderTypes` threads EVERY value-flow surface, but nothing fails when
-the mapper grows a surface the fixture plants no marker at — the header sentence is the only
-record of the intended coverage. A surface enumeration the mapper and the test both read
-fails on addition. Same shape as **B4** and **B22**.
+The fixture claims `mapProviderTypes` threads EVERY position a provider puts a type in, but
+nothing fails when the mapper grows one the fixture plants no marker at — the header sentence
+is the only record of the intended coverage. An enumeration of those positions that the mapper
+and the test both read fails on addition. Same shape as **B4** and **B22**.
+
+Sharpened by the `FrozenInterfaces` retyping: the `IntrinsicInterface` arm was missing from the
+mapper for exactly this reason, and it was a compiler error rather than the fixture that caught
+it.

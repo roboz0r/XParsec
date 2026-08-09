@@ -12,19 +12,39 @@ subagent report.
 
 ## Defects
 
-### `Passes/Unification/EngineCore.fs:526` — a surfaced external interface takes the local-registry path
+### `Passes/Unification/EngineCore.fs:526` — a surfaced external interface takes the local-registry path — DONE
 
-`subtypeInterfacesOf` mints an external interface as `TyClass(qualifiedTypeKeyOf n ta.Length, …)`,
-and `nominalKeyOf` (`:458-463`) answers `ValueSome` for a `TyClass`. So when the walk recurses
-through that surfaced interface (`tryUpcastWitness:549`, and `:582`), it derives a `localKey` from
-an EXTERNAL key and tries `tryClassByKey` / `tryInterfaceImplHostByKey` against the project
-registry before falling back to the provider.
+The recorded diagnosis was wrong twice over. Corrected, and fixed at the producer.
 
-A deleted comment asserted the opposite as the design — "an external interface is surfaced as a
-`TyConst` (no local registry key, so its recursion routes back to the provider by the canon key)".
-The `TyClass` mint is itself deliberate and documented (it makes the surfaced interface compare
-equal to a written `A<int>` annotation), so the two intents collide. At best a wasted lookup per
-level; a mis-route if an external interface's arity key ever matches a project-local one.
+**The defect was that `ExternalClassShape.FrozenInterfaces` was `(string * FrozenType[])[]`.**
+Every other layer already models an interface reference as a `FrozenType` — `CodegenTypes`,
+`TastDecl`, `FrozenCodecDecls`, `LayoutNodes`, `EmitJsTypes` — and the extractors HELD one and
+threw the key away: `VesperLib.nominalInterface` and `FrozenSignature.ifaceOf` both took an
+`FTClass(k, args)` and replaced `k` with `typeMetaName k`. That rendering cannot be re-cut: a
+module-held `App.M+IBox` re-parses as CLR-nested `InType`, an unequal identity the provider
+cannot answer for, so the subtype walk stopped one level in. Three sites state that rule
+(`TypeRefStamp.useSiteTypeKey`, `VesperLib/TypeTranslate.mkNominal`,
+`ExternalRecordCandidate.TypeKey`); the field made every consumer break it.
+
+The field, `ExternalTypeShape.Union`'s `interfaces` and `IntrinsicInterfaceShape.Interfaces` are
+now `FrozenType[]`. That deleted both downgrades, a third copy in `EmitResolve`, the erased-name
+workaround in `JsNativeSymbols` ("A provider makes a foreign type enumerable by adding this NAME,
+never a key"), and the name→key re-resolution each consumer had grown.
+`FrozenTypeBridge.pickInterfaceWitness` now matches on the KEY.
+
+**The local-registry worry was unfounded.** An interface carries no `ClassTypeInfo`
+(`MemberRegistration.fs`), so `tryInterfaceImplHostByKey` probed with an interface key can only
+miss. What remains is one wasted dictionary probe per level, left alone.
+
+**The `TyConst` claim in the deleted comment is not the design and must not be restored.** A key
+carries no home by construction — `Origin` is "never part of a key" (`SymbolKeys.fs`), which is
+why `TypeRegistration.diagnoseExternalClaim` exists as the CS0433 analogue. External-vs-local is
+carried by the SHAPE, not by the `SemType` case: `buildExternalTy` maps `Class → TyClass`,
+`Record → TyRecord`, `Union → TyUnion`, the same cases their project-local counterparts get.
+
+Covered by `SubtypeExternalInterfaceKeyTests` (a module-held interface, a namespace-held control,
+and the re-cut spelling failing to reach it) and by `SignatureExtractorTests`, which now asserts
+the published `IBox` identity is `InModule` rather than that its rendering ends in `` IBox`1 ``.
 
 ### `Passes/Unification.fs:600` — `checkObjectOverrideConformance` pins EVERY override to the `System.Object` slot
 
@@ -126,16 +146,10 @@ diagnose it there or handle it.
 The doc claiming "`interface … with` blocks are out of scope for the intrinsic host; always
 empty" has been deleted as false.
 
-### `ExternalSymbolProviders.fs:467-471` — a capability interface's inherited args are not variance-mapped
+### `ExternalSymbolProviders.fs:467-471` — a capability interface's inherited args are not variance-mapped — DONE
 
-`mapProviderTypes`'s `IntrinsicInterface` arm rebuilds only `Members`, while both siblings map
-their interface list: `Class` at `:446` (`FrozenInterfaces = mapInterfaces info.FrozenInterfaces`)
-and `Union` at `:453` (`mapInterfaces ifaces`). `IntrinsicInterfaceShape` does carry
-`Interfaces: (string * FrozenType[])[]` (`ExternalSymbols.fs:498`), so a `transform` reaches
-`IStructSeq<'T,'E>`'s type arguments through a `Class` but not through a capability.
-
-This is exactly the surface the deleted "TOTAL over the value-flow surfaces — a bespoke
-per-shape walk keeps missing one" claim asserted was covered.
+The `IntrinsicInterface` arm now maps `Interfaces` like its `Class` and `Union` siblings. Found
+again while retyping `FrozenInterfaces`, this time by the compiler.
 
 ### `TastLower.fs:149-150` — loop bound and array length come from different parameters
 

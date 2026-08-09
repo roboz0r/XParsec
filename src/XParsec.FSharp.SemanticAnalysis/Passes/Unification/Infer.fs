@@ -143,7 +143,7 @@ module UnificationInfer =
         // The directly-implemented interface set an external nominal carries: a class's
         // `FrozenInterfaces` or a union's `interface <ty>` impls. An external RECORD carries
         // none, so a disposable external record resolves only via its own `Dispose` below.
-        let externalInterfaces () : (string * SemType[])[] =
+        let externalInterfaces () : SemType[] =
             match ctx.Provider.TryLookupType(SymbolKey.Type declKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
@@ -159,7 +159,7 @@ module UnificationInfer =
         let viaInterface =
             match ctx.CapabilityIds.Disposable, capabilityDisposeSlot ctx with
             | ValueSome disp, ValueSome slot when
-                externalInterfaces () |> Array.exists (fun (n, _) -> disp.MatchesName n)
+                (ExternalSymbols.tryCapabilityArgs (ValueSome disp) (externalInterfaces ())).IsSome
                 ->
                 ValueSome(Disposal.ViaCapability slot)
             | _ -> ValueNone

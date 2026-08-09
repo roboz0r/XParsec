@@ -29,6 +29,7 @@
     <Compile Include="UnificationGenericsTests.fs" />
     <Compile Include="UnificationClassesTests.fs" />
     <Compile Include="UnificationInheritanceTests.fs" />
+    <Compile Include="SubtypeExternalInterfaceKeyTests.fs" />
     <Compile Include="UnificationUnionsTests.fs" />
     <Compile Include="UnificationOverloadsTests.fs" />
     <Compile Include="ElaborateTests.fs" />

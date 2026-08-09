@@ -437,13 +437,12 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
         Array.concat [| properties; methods; indexers; fields; ctors |]
 
-    /// Interface set as `(compiled-name, type-args)` templates. Unmappable interfaces
-    /// are skipped. Must hold `gate`.
-    let buildClassInterfaces (t: Type) : (string * FrozenType[])[] =
+    /// Interface set as nominal templates. Unmappable interfaces are skipped. Must hold
+    /// `gate`. Metadata nesting really is CLR-nested, so the compiled name cuts the right
+    /// identity here, unlike a contract-layer name over a module-held type.
+    let buildClassInterfaces (t: Type) : FrozenType[] =
         t.GetInterfaces()
         |> Array.choose (fun i ->
-            let name = MetadataMapping.metadataName i
-
             let args =
                 if i.IsGenericType then
                     i.GetGenericArguments() |> Array.map (MetadataMapping.tryBuildType reverseCanon)
@@ -453,7 +452,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             if Array.exists Option.isNone args then
                 None
             else
-                Some(name, args |> Array.map Option.get)
+                let ta = args |> Array.map Option.get
+
+                let key = SymbolKeyOps.qualifiedTypeKeyOf (MetadataMapping.metadataName i) ta.Length
+
+                Some(FTClass(key, EqArray.ofArray ta))
         )
 
     /// Declared base type as a `FrozenType` template. `ValueNone` for interfaces and

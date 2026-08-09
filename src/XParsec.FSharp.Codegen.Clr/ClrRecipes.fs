@@ -278,10 +278,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | FTRecord(rKey, rArgs) ->
             match env.LookupTypeByKey(SymbolKey.Type rKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                pickInterfaceWitness
-                    (SymbolKeyOps.typeMetaName ifaceKey)
-                    (rArgs.AsSpan().ToArray())
-                    shape.FrozenInterfaces
+                pickInterfaceWitness ifaceKey (rArgs.AsSpan().ToArray()) shape.FrozenInterfaces
             | _ -> ValueNone
         | _ -> ValueNone
 

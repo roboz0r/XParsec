@@ -210,7 +210,13 @@ let tests =
                     |> ExternalSymbols.typeShapeOf
                 with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                    let ifaceNames = iface.Interfaces |> Array.map fst
+                    let ifaceNames =
+                        iface.Interfaces
+                        |> Array.choose (fun ft ->
+                            match ExternalSymbols.frozenInterfaceKey ft with
+                            | ValueSome k -> Some(SymbolKeyOps.qualifiedName k)
+                            | ValueNone -> None
+                        )
 
                     Expect.isTrue
                         (ifaceNames |> Array.exists (fun n -> n.Contains "disposable"))

@@ -60,18 +60,7 @@ module EmitResolve =
         match nominal with
         | FTClass(classKey, classArgs) ->
             match env.Classes.TryGetValue(SymbolKey.Type classKey) with
-            | true, cls ->
-                let ifaces =
-                    cls.Interfaces
-                    |> List.choose (fun ifaceTmpl ->
-                        match ifaceTmpl with
-                        | FTClass(k, ifaceArgs)
-                        | FTRecord(k, ifaceArgs)
-                        | FTUnion(k, ifaceArgs) -> Some(SymbolKeyOps.typeMetaName k, ifaceArgs.AsSpan().ToArray())
-                        | _ -> None
-                    )
-
-                pickInterfaceWitness (SymbolKeyOps.typeMetaName ifaceKey) (classArgs.AsSpan().ToArray()) ifaces
+            | true, cls -> pickInterfaceWitness ifaceKey (classArgs.AsSpan().ToArray()) cls.Interfaces
             | false, _ -> ValueNone
         | _ -> ValueNone
 

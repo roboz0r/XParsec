@@ -271,15 +271,15 @@ module FrozenSignature =
                     registerCases caseArr caseShapes
 
                 | TTypeKindG.Class c ->
-                    // Directly-implemented interfaces as `(compiled-name, type-args)` pairs,
-                    // because the frozen interface type is a nominal whose args carry the typars.
-                    let ifaceOf (ity: FrozenType) : (string * FrozenType[]) option =
+                    // A non-nominal `interface <ty>` carries no witness a use site could
+                    // match, so it is dropped rather than published as an opaque template.
+                    let isNominal (ity: FrozenType) : bool =
                         match ity with
-                        | FTClass(k, args)
-                        | FTUnion(k, args)
-                        | FTRecord(k, args) -> Some(SymbolKeyOps.typeMetaName k, [| for a in args -> a |])
-                        | FTConst(k, args) -> Some(SymbolKeyOps.qualifiedName k, [| for a in args -> a |])
-                        | _ -> None
+                        | FTClass _
+                        | FTUnion _
+                        | FTRecord _
+                        | FTConst _ -> true
+                        | _ -> false
 
                     let members = membersOf typeKey arity c.Members
 
@@ -291,9 +291,8 @@ module FrozenSignature =
                             FrozenInterfaces =
                                 [|
                                     for (ity, _) in c.Interfaces do
-                                        match ifaceOf ity with
-                                        | Some p -> p
-                                        | None -> ()
+                                        if isNominal ity then
+                                            ity
                                 |]
                             FrozenBaseType = c.BaseType
                             Flags =

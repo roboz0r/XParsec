@@ -356,8 +356,16 @@ let tests =
                 match containerShape with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenInterfaces with
-                    | [| (name, args) |] ->
-                        Expect.isTrue (name.EndsWith "IBox`1") (sprintf "the IBox interface is published; got %s" name)
+                    | [| FTClass(key, args) |] ->
+                        Expect.equal key.Name "IBox" "the IBox interface is published"
+
+                        // `IBox` is declared inside `module M`, so it publishes a module-held
+                        // identity. Its rendering `App.M+IBox`1` re-cuts to a CLR-NESTED key,
+                        // which is a different type and resolves to nothing.
+                        match key.Container with
+                        | TypeContainer.InModule m -> Expect.equal m.Name "M" "IBox is held by module M"
+                        | other -> failtestf "expected a module-held interface identity; got %A" other
+
                         Expect.equal args.Length 1 "IBox<'T> carries one type arg"
 
                         match args.[0] with
@@ -389,8 +397,8 @@ let tests =
                 match fooShape with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenInterfaces with
-                    | [| (name, args) |] ->
-                        Expect.isTrue (name.EndsWith "IBar`1") (sprintf "the IBar interface is published; got %s" name)
+                    | [| FTClass(key, args) |] ->
+                        Expect.equal key.Name "IBar" "the IBar interface is published"
                         Expect.equal args.Length 1 "IBar<'T> carries one type arg"
 
                         match args.[0] with

@@ -3,9 +3,9 @@ module XParsec.FSharp.SemanticAnalysis.Tests.MapProviderTypesTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The fixture plants `marker` at every value-flow surface of a fake provider and asserts
-// which ones come back as a `witness` of the variance they were mapped at. Coverage and
-// ROOT variance only — not the variance algebra under a nested node.
+// The fixture plants `marker` in every position a provider puts a type (parameter, return,
+// field, interface arg) and asserts which come back as a `witness` of the variance they were
+// mapped at. ROOT variance only, not the algebra under a nested node.
 
 let private origin = SymbolOrigin.Empty
 let private marker = FTConst(RuntimeNames.opaqueKey "M", EqArray.empty)
@@ -19,8 +19,8 @@ let private witness (v: Variance) : FrozenType =
 
     FTConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-/// Resolve ONLY the marker, to a witness of the variance the surface was mapped at.
-/// A surviving marker in the output ⇒ that surface was left unmapped.
+/// Resolve ONLY the marker, to a witness of the variance that position was mapped at.
+/// A surviving marker in the output ⇒ that position was left unmapped.
 let private resolveMarker (v: Variance) (t: FrozenType) : FrozenType = if t = marker then witness v else t
 
 let private markerMember: ExternalMember =
@@ -51,7 +51,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
             ExternalTypeShape.Class
                 { ExternalClassShape.basic (0, false, origin) with
                     Members = [| markerMember |]
-                    FrozenInterfaces = [| "I", [| marker |] |]
+                    FrozenInterfaces = [| FTClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker) |]
                     FrozenBaseType = ValueSome marker
                 }
         )
@@ -69,7 +69,15 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                 origin
             )
         )
-    | "Uni" -> ValueSome(ExternalTypeShape.Union(1, [| markerCase |], [| "J", [| marker |] |], origin))
+    | "Uni" ->
+        ValueSome(
+            ExternalTypeShape.Union(
+                1,
+                [| markerCase |],
+                [| FTClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker) |],
+                origin
+            )
+        )
     | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(1, marker))
     | _ -> ValueNone
 
@@ -139,9 +147,12 @@ let tests =
 
             test "interface type-arguments are invariant" {
                 let info = clsShape ()
-                let (name, args) = info.FrozenInterfaces.[0]
-                Expect.equal name "I" "interface name preserved"
-                Expect.equal args [| witness Variance.Inv |] "interface arg root is inv"
+
+                match info.FrozenInterfaces.[0] with
+                | FTClass(key, args) ->
+                    Expect.equal key (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) "interface identity preserved"
+                    Expect.equal (EqArray.toArray args) [| witness Variance.Inv |] "interface arg root is inv"
+                | other -> failtestf "expected a nominal interface template, got %A" other
             }
 
             test "the base type is invariant" {
@@ -160,9 +171,12 @@ let tests =
                 match wrapped.TryLookupType "Uni" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _)) ->
                     Expect.equal cases.[0].FrozenFieldTypes [| witness Variance.Co |] "case field root is co"
-                    let (name, args) = ifaces.[0]
-                    Expect.equal name "J" "union interface name preserved"
-                    Expect.equal args [| witness Variance.Inv |] "union interface arg root is inv"
+
+                    match ifaces.[0] with
+                    | FTClass(key, args) ->
+                        Expect.equal key (SymbolKeyOps.qualifiedTypeKeyOf "J" 1) "union interface identity preserved"
+                        Expect.equal (EqArray.toArray args) [| witness Variance.Inv |] "union interface arg root is inv"
+                    | other -> failtestf "expected a nominal interface template, got %A" other
                 | other -> failtestf "expected a Union shape, got %A" other
             }
 

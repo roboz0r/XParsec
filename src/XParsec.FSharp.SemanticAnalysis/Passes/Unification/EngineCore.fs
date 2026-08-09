@@ -475,11 +475,8 @@ module UnificationEngineCore =
         | ValueNone ->
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                // An interface is an `ExternalTypeShape.Class` with `IsInterface`. Mint it as
-                // `TyClass` off the qualified compiled name, as a written `A<int>` resolves.
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKeyOf n ta.Length, EqArray.ofArray ta))
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose canonical

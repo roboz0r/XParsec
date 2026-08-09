@@ -175,21 +175,23 @@ module FrozenTypeBridge =
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
         | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t
 
-    /// The impl in `ifaces` (each `(compiled name, args over the declaring typars)`)
-    /// whose name is `target`, with its args realised at THIS object argument:
+    /// The impl in `ifaces` (nominal templates over the declaring typars) whose identity is
+    /// `target`, with its args realised at THIS object argument:
     /// `FTTypar(Declaring,i) := declArgs.[i]`.
     let pickInterfaceWitness
-        (target: string)
+        (target: TypeKey)
         (declArgs: FrozenType[])
-        (ifaces: (string * FrozenType[]) seq)
+        (ifaces: FrozenType seq)
         : EqArray<FrozenType> voption =
         match
             ifaces
-            |> Seq.tryPick (fun (iname, ifaceArgs) ->
-                if iname = target then
-                    Some(ifaceArgs |> Array.map (substituteDeclaring declArgs) |> EqArray.ofArray)
-                else
-                    None
+            |> Seq.tryPick (fun iface ->
+                match iface with
+                | FTClass(k, ifaceArgs)
+                | FTRecord(k, ifaceArgs)
+                | FTUnion(k, ifaceArgs) when k = target ->
+                    Some(ifaceArgs |> EqArray.map (substituteDeclaring declArgs))
+                | _ -> None
             )
         with
         | Some ia -> ValueSome ia

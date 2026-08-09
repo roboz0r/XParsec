@@ -26,23 +26,19 @@ module VesperLib =
         with BodylessExternalShape _ ->
             ExternalSymbols.unfreezable
 
-    let private nominalInterface (ft: FrozenType) : (string * FrozenType[]) option =
-        match ft with
-        | FTClass(k, args)
-        | FTRecord(k, args)
-        | FTUnion(k, args) -> Some(SymbolKeyOps.typeMetaName k, args.AsSpan().ToArray())
-        | _ -> None
-
-    /// Freeze `interface <ty>` impl CSTs into the `(compiled-name, args)` pairs
-    /// `FrozenInterfaces` holds, with args over the declaring typars as `FTTypar(Declaring,i)`.
-    /// A non-nominal freeze carries no witness and is dropped.
-    let private freezeInterfaces
-        (ctx: ExtractCtx)
-        (dc: DeferredCtx)
-        (ifaces: Type<SyntaxToken> list)
-        : (string * FrozenType[])[] =
+    /// Freeze `interface <ty>` impl CSTs into the nominal templates `FrozenInterfaces` holds,
+    /// with args over the declaring typars as `FTTypar(Declaring,i)`. A non-nominal freeze
+    /// carries no witness and is dropped.
+    let private freezeInterfaces (ctx: ExtractCtx) (dc: DeferredCtx) (ifaces: Type<SyntaxToken> list) : FrozenType[] =
         ifaces
-        |> List.choose (fun t -> nominalInterface (freezeBodyType ctx dc t))
+        |> List.choose (fun t ->
+            match freezeBodyType ctx dc t with
+            | FTClass _
+            | FTRecord _
+            | FTUnion _
+            | FTConst _ as ft -> Some ft
+            | _ -> None
+        )
         |> List.toArray
 
     /// A `[<Struct>] type X = …` (the ATTRIBUTE form) parses through the Class/Anon arm, not

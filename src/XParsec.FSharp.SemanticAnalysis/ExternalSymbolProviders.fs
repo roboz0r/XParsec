@@ -386,9 +386,9 @@ module ExternalSymbolProviders =
         | [ single ] -> single
         | _ -> stack ValueNone (collectAmbient sources) sources
 
-    /// Rebuild a provider so every VALUE-FLOW `FrozenType` surface it serves is passed
-    /// through `transform` at that surface's ROOT variance; a caller that must thread the
-    /// decision through NESTED positions composes `FrozenType.mapVariant` itself.
+    /// Rebuild a provider so every `FrozenType` a VALUE can have (a parameter, a return, a
+    /// field) passes through `transform` at that position's ROOT variance. A caller needing
+    /// the decision threaded through NESTED positions composes `FrozenType.mapVariant` itself.
     let mapProviderTypes
         (transform: Variance -> FrozenType -> FrozenType)
         (inner: IExternalSymbolProvider)
@@ -407,9 +407,10 @@ module ExternalSymbolProviders =
                     }
             }
 
-        // Interface / base-type type-ARGUMENTS are invariant generic slots.
-        let mapInterfaces (ifaces: (string * FrozenType[])[]) =
-            ifaces |> Array.map (fun (name, args) -> name, args |> Array.map inv)
+        // An interface's type ARGUMENTS are invariant slots; the reference itself holds no
+        // value, so `transform` has nothing to say about it.
+        let mapInterfaces (ifaces: FrozenType[]) =
+            ifaces |> Array.map (FrozenType.mapChildren inv)
 
         // A union-case field is a covariant value read.
         let mapCase (c: ExternalCaseShape) : ExternalCaseShape =
@@ -432,7 +433,7 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
                 ExternalTypeShape.Union(arity, cases |> Array.map mapCase, mapInterfaces ifaces, origin)
             // A heritable primitive's class surface maps identically to `Class`; a scalar
-            // intrinsic has no value-flow surface at all.
+            // intrinsic has no members or fields to map.
             | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
                 ExternalTypeShape.Intrinsic
                     { s with
@@ -443,13 +444,15 @@ module ExternalSymbolProviders =
                                     Members = surface.Members |> Array.map mapMember
                                 }
                     }
-            // A capability interface's abstract members map exactly as a `Class`'s.
+            // A capability interface's abstract members and inherited interfaces map exactly
+            // as a `Class`'s.
             | ExternalTypeShape.IntrinsicInterface s ->
                 ExternalTypeShape.IntrinsicInterface
                     { s with
                         Members = s.Members |> Array.map mapMember
+                        Interfaces = mapInterfaces s.Interfaces
                     }
-            // No value-flow surface. An `Abbrev` body inherits its USE SITE's variance,
+            // No members or fields to map. An `Abbrev` body inherits its USE SITE's variance,
             // which is unknowable here.
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Enum _

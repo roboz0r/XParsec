@@ -96,8 +96,8 @@ module internal TsManifestMembers =
     let private classifyHeritage
         (ctx: TranslateCtx)
         (heritage: Schema.TypeRef list)
-        : (string * FrozenType[])[] * FrozenType voption =
-        let interfaces = ResizeArray<string * FrozenType[]>()
+        : FrozenType[] * FrozenType voption =
+        let interfaces = ResizeArray<FrozenType>()
         let mutable baseTy = ValueNone
 
         for h in heritage do
@@ -112,14 +112,18 @@ module internal TsManifestMembers =
             // `` Foo`1 ``. `arityName` is a no-op at arity 0.
             match ctx.TryFindType(SymbolKeyOps.arityName name (List.length args)) with
             | Some id when not id.IsInterface -> baseTy <- ValueSome(toFrozen ctx h)
-            | _ ->
-                // The STORED name is arity-suffixed too: a capability recogniser mints the
-                // interface key from this string alone, with no arity in hand, so a generic
-                // `extends Foo<T>` stored bare as `Foo` would match nothing.
-                interfaces.Add(
-                    SymbolKeyOps.arityName name (List.length args),
-                    args |> List.map (toFrozen ctx) |> Array.ofList
-                )
+            | found ->
+                let ifaceArgs = args |> List.map (toFrozen ctx) |> Array.ofList
+
+                // A name this package declares takes its REGISTERED identity; a cross-package
+                // or unknown one has only its arity-suffixed spelling to cut a key from.
+                let key =
+                    match found with
+                    | Some id -> id.Key
+                    | None ->
+                        SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.arityName name ifaceArgs.Length) ifaceArgs.Length
+
+                interfaces.Add(FTClass(key, EqArray.ofArray ifaceArgs))
 
         interfaces.ToArray(), baseTy
 
@@ -166,11 +170,13 @@ module internal TsManifestMembers =
 
             // Adding the erased `IEnumerable\`1` type constructor with the peeled element is what makes
             // `for … in` over this type lower to `for..of`: the recogniser scans the
-            // interface set by name for the enumerable capability.
+            // interface set for the enumerable capability.
             let frozenInterfaces =
                 match tryIteratorElement ctx members with
                 | ValueSome elem ->
-                    Array.append heritageInterfaces [| JsNativeSymbols.enumerableInterfaceName, [| elem |] |]
+                    Array.append
+                        heritageInterfaces
+                        [| FTClass(JsNativeSymbols.enumerableInterfaceKey, EqArray.singleton elem) |]
                 | ValueNone -> heritageInterfaces
 
             Some(

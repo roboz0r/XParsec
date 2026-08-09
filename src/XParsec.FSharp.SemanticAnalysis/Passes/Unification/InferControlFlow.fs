@@ -54,7 +54,8 @@ module internal UnificationInferControlFlow =
                 // bool is enough here, no member key.
                 let disposable =
                     ExternalSymbols.instantiateInterfaces enumShape enumArgs
-                    |> Array.exists (fun (n, _) -> RuntimeNames.matchesName ctx.CapabilityIds.Disposable n)
+                    |> ExternalSymbols.tryCapabilityArgs ctx.CapabilityIds.Disposable
+                    |> ValueOption.isSome
 
                 ValueSome
                     {
@@ -66,17 +67,12 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// From a realised interface set (`(compiled-name, type-args)` pairs), the element
-    /// type of the enumerable capability: the single type-arg of the first interface
-    /// whose name matches `seq<'T>` / `IEnumerable<'T>`.
-    let private pickEnumerableElem (ctx: PassContext) (interfaces: (string * SemType[])[]) : SemType option =
-        interfaces
-        |> Array.tryPick (fun (n, ta) ->
-            if RuntimeNames.matchesName ctx.CapabilityIds.Enumerable n && ta.Length = 1 then
-                Some ta.[0]
-            else
-                None
-        )
+    /// From a realised interface set, the element type of the enumerable capability: the
+    /// single type-arg of the first `seq<'T>` / `IEnumerable<'T>`.
+    let private pickEnumerableElem (ctx: PassContext) (interfaces: SemType[]) : SemType option =
+        match ExternalSymbols.tryCapabilityArgs ctx.CapabilityIds.Enumerable interfaces with
+        | ValueSome ta when ta.Length = 1 -> Some ta.[0]
+        | _ -> None
 
     /// Eagerly pin a flexible bare list-literal source (`for x in [1;2;3]`) to the Vesper
     /// cons-list: a for-in needs its source pinned NOW to read the enumerable surface, and
