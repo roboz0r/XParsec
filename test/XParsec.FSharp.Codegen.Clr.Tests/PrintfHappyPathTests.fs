@@ -208,7 +208,7 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%%` lowers, collapsing to a single literal percent (P2)" {
+            test "`%%` lowers, collapsing to a single literal percent" {
                 match soleDecl "printfn \"100%%\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->
                     match segs with

@@ -77,19 +77,19 @@ let tests =
             testList
                 "CtorSugarNonSpaced"
                 [
-                    test "non-spaced ctor `Exn(x)`, bound, is grounded [gap A/B]" {
+                    test "non-spaced ctor `Exn(x)`, bound, is grounded" {
                         clean "nonspaced-bound" "let e = System.Exception(\"x\")"
                     }
-                    test "non-spaced ctor via `open` + single ident, bound [gap A/B]" {
+                    test "non-spaced ctor via `open` + single ident, bound" {
                         clean "nonspaced-open" "open System\nlet e = Exception(\"x\")"
                     }
-                    test "non-spaced ctor under raise is grounded [gap A/B]" {
+                    test "non-spaced ctor under raise is grounded" {
                         clean "nonspaced-raise" "let f () = raise (System.InvalidOperationException(\"x\"))"
                     }
-                    test "non-spaced ctor under raise, System.Exception [gap A/B]" {
+                    test "non-spaced ctor under raise, System.Exception" {
                         clean "nonspaced-raise-exn" "let f () = raise (System.Exception(\"x\"))"
                     }
-                    test "non-spaced NotSupportedException under raise [gap A/B]" {
+                    test "non-spaced NotSupportedException under raise" {
                         clean "nonspaced-raise-nse" "let f () = raise (System.NotSupportedException(\"x\"))"
                     }
                 ]
@@ -111,7 +111,7 @@ let tests =
             testList
                 "AppHPAppParity"
                 [
-                    test "raise (Exn (x))  ≡  raise (Exn(x)) [gap A]" {
+                    test "raise (Exn (x))  ≡  raise (Exn(x))" {
                         let spaced = errorsOf "let f () = raise (System.Exception (\"x\"))"
                         let nonSpaced = errorsOf "let f () = raise (System.Exception(\"x\"))"
 
@@ -128,10 +128,10 @@ let tests =
             testList
                 "InstanceMethodChain"
                 [
-                    test "StringBuilder().Append(string).ToString() [gap A/B/C]" {
+                    test "StringBuilder().Append(string).ToString()" {
                         clean "sb-1" "let f () = System.Text.StringBuilder().Append(\"x\").ToString()"
                     }
-                    test "StringBuilder().Append.Append.ToString() (longer chain) [gap A/B/C]" {
+                    test "StringBuilder().Append.Append.ToString() (longer chain)" {
                         clean "sb-2" "let f () = System.Text.StringBuilder().Append(\"x\").Append(\"y\").ToString()"
                     }
                 ]
@@ -158,12 +158,12 @@ let tests =
             // Each is a free-`TyVar` leak (or `unify` mismatch) that `ResolvedTypes` flags
             // on otherwise-clean F#.
             testList
-                "SetG5Roots"
+                "FreeTyVarLeaks"
                 [
                     // A `[<Struct>]` with no primary ctor has empty ctor params, so
                     // `new T(arg)` must fall back to a matching-arity secondary ctor rather
                     // than unify its argument against `unit`.
-                    test "struct, only an explicit ctor, `new T(arg)` [root 2: inferNew secondary-ctor]" {
+                    test "struct, only an explicit ctor, `new T(arg)`" {
                         clean
                             "struct-new-monomorphic"
                             (String.concat
@@ -176,7 +176,7 @@ let tests =
                                     "let b = new Boxi(5)"
                                 ])
                     }
-                    test "generic struct, only an explicit ctor, `new T<'a>(arg)` [root 2]" {
+                    test "generic struct, only an explicit ctor, `new T<'a>(arg)`" {
                         clean
                             "struct-new-generic"
                             (String.concat
@@ -192,15 +192,14 @@ let tests =
 
                     // `isNull`'s body is `(# "ceq" value null : bool #)`, so the `null` leaf
                     // has to be pinned to the other operand rather than mint a fresh `TyVar`.
-                    test "`isNull` on a reference operand grounds the `null` leaf [root 3: ILIntrinsic null pinning]" {
+                    test "`isNull` on a reference operand grounds the `null` leaf" {
                         clean "isnull-string" "let f (s: string) = isNull s"
                     }
 
                     // Expanding a generic `let inline` with zero type args leaves the
                     // callee's generalised typars free in the caller's frozen TAST, since
                     // beta-reduction binds value parameters but not typars.
-                    test
-                        "local generic `let inline` cast helper from a non-inline fn [root 4: a local template derives its type args]" {
+                    test "local generic `let inline` cast helper from a non-inline fn" {
                         clean
                             "inline-cast"
                             (String.concat
@@ -210,7 +209,7 @@ let tests =
                                     "let useCast (x: obj) : string = cast x"
                                 ])
                     }
-                    test "local generic `let inline` returning a generic record, field-accessed [root 4]" {
+                    test "local generic `let inline` returning a generic record, field-accessed" {
                         clean
                             "inline-record"
                             (String.concat

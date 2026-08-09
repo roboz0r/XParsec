@@ -464,13 +464,13 @@ let structTests =
             // `Span<char>` is an external generic value type: its ctor/member refs tag
             // `VALUETYPE`, and dispatch is `ldloca` + non-virtual `call` (a by-value
             // `callvirt` on a ref struct is verifier-illegal).
-            test "ref struct with a Span<char> field — ctor, Length, Slice round-trip" {
+            test "ref struct with a Span<char> field: ctor, Length, Slice round-trip" {
                 runsDataLines [ "5"; "3" ] "ref-struct-span-field"
             }
 
             // `Span<T>`'s only element accessor is `get_Item(i) : T&`, so `chars.[i]`
             // must encode `ELEMENT_TYPE_BYREF` in the member-ref and `ldobj` the result.
-            test "ref struct Span<char> byref indexer read — chars.[i]" {
+            test "`chars.[i]` — a byref indexer read on a ref struct's Span<char>" {
                 runsDataLines [ "e"; "o" ] "ref-struct-span-byref-indexer"
             }
 
@@ -488,7 +488,7 @@ let structTests =
 
             // `Span<char>` passed as a by-value argument: the member-ref parent for a
             // Span parameter must encode `VALUETYPE`, not just the object argument/field/return.
-            test "Span<char> by-value args — string.CopyTo, span CopyTo, Fill, ToString, TryCopyTo" {
+            test "Span<char> by-value args: string.CopyTo, span CopyTo, Fill, ToString, TryCopyTo" {
                 runsDataLines [ "ab---cd"; "ab---cdab"; "true"; "false" ] "span-byval-args"
             }
 
@@ -532,7 +532,7 @@ let structTests =
             // A five-deep self-call chain (`AppendFormatted` → `AppendLiteral` →
             // `GrowThenCopyString` → `Grow` → `GrowCore`), each body mutating `this`:
             // the mutations persist only if self-calls address `this` in place.
-            test "struct formatter core — literal, generic hole, grow, string sink" {
+            test "struct formatter core: literal, generic hole, grow, string sink" {
                 runsDataLines [ "x=42, pi=3.14"; "400" ] "formatter-core-selfcall-grow"
             }
 
@@ -582,7 +582,7 @@ let structTests =
             // A group is all-flat iff `col + flatWidth inner <= width` (`width = 0` ⇒
             // always flat), never half-broken. The fragment's `L`-prefixed cases
             // (`LDoc`/`LText`/…) dodge the `Vesper.Doc`/`DocGroup` names in scope.
-            test "Doc layout core — flatWidth + Render (flat / never-break / broken)" {
+            test "Doc layout core: flatWidth + Render (flat / never-break / broken)" {
                 runsDataLines
                     [
                         "[1; 2; 3]" // width 80: fits ⇒ all-flat

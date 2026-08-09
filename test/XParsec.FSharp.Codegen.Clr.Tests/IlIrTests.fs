@@ -279,7 +279,7 @@ let tests =
 
             // A real `catch (System.Object)` needs a `System.Object` `EntityHandle`, which
             // only a wired provider mints, hence the provider-aware entry point.
-            test "try/finally that throws — finally runs, outer catch sees it" {
+            test "try/finally that throws: finally runs, outer catch sees it" {
                 // r = 0; try { try { throw } finally { r = 100 } } catch (object) { pop }; r
                 let buildBody (provider: ICodegenProvider) (il: Il) : unit =
                     let b = IlBuilder()

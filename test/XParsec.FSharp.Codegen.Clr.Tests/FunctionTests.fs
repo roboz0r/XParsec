@@ -76,7 +76,7 @@ let tests =
 
             // ---- emission strategy: static method vs closure ---
             yield
-                test "a top-level function is emitted as a static method with one real Param row (G8)" {
+                test "a top-level function is emitted as a static method with one real Param row" {
                     let _, artifact =
                         compileSource "FnStatic" "let twice x = x + x\nprintfn \"%d\" (twice 21)"
 
@@ -90,7 +90,7 @@ let tests =
                     match programClassMethods bytes with
                     | [| m |] ->
                         Expect.isTrue m.IsStatic "emitted as a static method"
-                        Expect.equal (m.GetParameters().Length) 1 "one real Param row (G8)"
+                        Expect.equal (m.GetParameters().Length) 1 "one real Param row"
                     | other -> failtestf "expected one static fn, got %A" (other |> Array.map (fun m -> m.Name))
                 }
 

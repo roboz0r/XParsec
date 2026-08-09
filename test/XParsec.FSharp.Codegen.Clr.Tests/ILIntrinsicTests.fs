@@ -56,7 +56,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n0" "ceq is true for 2=2 and false for 2<>3"
             }
 
-            test "`(# \"add\" #)` emits CIL `add` — same machinery carries arithmetic opcodes" {
+            test "`(# \"add\" #)` emits CIL `add`" {
                 let src =
                     String.concat
                         "\n"

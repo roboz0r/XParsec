@@ -159,7 +159,7 @@ let ctorAndMatchRuntime =
     testList
         "ChoiceCtorRuntime"
         [
-            test "Choice1Of2 and Choice2Of2 construct and run (Layer B emit smoke)" {
+            test "Choice1Of2 and Choice2Of2 construct and run" {
                 runsChoice
                     "ok"
                     ("open Vesper\n"

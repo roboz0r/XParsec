@@ -222,7 +222,7 @@ let tests =
 
             // The fold is a concrete `sum` rather than a higher-order `fold` because a
             // function parameter would pin FSharp.Core and break the BCL-only assertion.
-            test "a union + recursive module fold ships as a BCL-only library DLL (P3c)" {
+            test "a union + recursive module fold ships as a BCL-only library DLL" {
                 let src =
                     "namespace Vesper.Collections\n\ntype IntList =\n    | Empty\n    | Cons of int * IntList\n\nlet rec sum xs =\n    match xs with\n    | Empty -> 0\n    | Cons(h, t) -> h + sum t"
 
@@ -271,7 +271,7 @@ let tests =
                 | other -> failtestf "expected one static fold method, got %A" (other |> Array.map (fun m -> m.Name))
             }
 
-            test "union augmentation members surface on TTypeKind.Union (P3d.3)" {
+            test "union augmentation members surface on TTypeKind.Union" {
                 let tast = analyse memberUnionSrc
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -299,7 +299,7 @@ let tests =
                 | ValueNone -> failtest "no union surfaced"
             }
 
-            test "consume union members at runtime: properties, recursion, statics (P3d.3)" {
+            test "consume union members at runtime: properties, recursion, statics" {
                 let src =
                     memberUnionSrc
                     + "\n"
@@ -335,7 +335,7 @@ let tests =
                     "xs.IsEmpty=false, xs.Head=10, xs.Length=3, Lst.Empty.IsEmpty=true, (Lst.Single 7).Head=7"
             }
 
-            test "an instance member is emitted as a real method (get_IsEmpty) on the union (P3d.3)" {
+            test "an instance member is emitted as a real method (get_IsEmpty) on the union" {
                 let _, artifact = compileSource "UnionMemberMeta" memberUnionSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let listTy = asm.GetType "Lst"
@@ -368,7 +368,7 @@ let tests =
                     "Cons(1, Cons(2, Cons(3, Nil))) folds to 6 over our own generic Lst<'T>"
             }
 
-            test "a generic List<'T> union compiles to a BCL-only library DLL with generic factories (P3d.4)" {
+            test "a generic List<'T> union compiles to a BCL-only library DLL with generic factories" {
                 let src =
                     lines
                         [
@@ -433,7 +433,7 @@ let tests =
 
             // Members of a generic union carry `!0` in their signatures, so each access on
             // `Lst<int>` needs a `MemberRef` on the instantiated `Lst<int>::get_Head`.
-            test "generic union instance members run at runtime: chained Head/Tail, recursive Length (R2)" {
+            test "generic union instance members run at runtime: chained Head/Tail, recursive Length" {
                 let src =
                     genMemberSrc
                     + "\n"
@@ -466,7 +466,7 @@ let tests =
                     "xs.IsEmpty=false, xs.Head=10, xs.Length=3, xs.Tail.Head=20"
             }
 
-            test "a generic union with members compiles to a BCL-only library DLL; members reflect + run (R2)" {
+            test "a generic union with members compiles to a BCL-only library DLL; members reflect + run" {
                 let src = "namespace Vesper.Collections\n\n" + genMemberSrc
 
                 let tast = analyse src

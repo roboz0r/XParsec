@@ -96,7 +96,7 @@ let ctorAndMatchRuntime =
         "ResultCtorRuntime"
         [
             // Emit smoke: both case factories produce valid IL and the program runs.
-            test "Ok and Error construct and run (Layer B emit smoke)" {
+            test "Ok and Error construct and run" {
                 runsResult
                     "ok"
                     ("open Vesper\n"

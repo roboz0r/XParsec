@@ -176,7 +176,7 @@ let monoTests =
                 Expect.isEmpty fields "C has no backing fields (no ctor params)"
             }
 
-            test "a class is reference-equal by default — no IEquatable<Self> + no synthesised Equals override" {
+            test "a class is reference-equal by default: no IEquatable<Self> + no synthesised Equals override" {
                 let _, artifact =
                     compileSource
                         "ClsRefEq"
@@ -747,7 +747,7 @@ let staticTests =
             // `Describe : 'T -> int` hides the declaring instantiation in its return, so
             // `'T = int` can only come from matching the member's open signature against
             // the call's argument types, minting `Box\`1<int32>::Describe`.
-            test "gapA: a generic class's static method recovers its instantiation from an arg" {
+            test "a generic class's static method recovers its instantiation from an arg" {
                 runs
                     "9"
                     (String.concat
@@ -763,7 +763,7 @@ let staticTests =
 
             // The own-class `static member (+)` taken by value eta-reifies to
             // `fun a b -> V.op_Addition(a, b)`, a closure built inside a member body.
-            test "gapB: List.fold over an own-op closure inside a member body" {
+            test "List.fold over an own-op closure inside a member body" {
                 runs
                     "6"
                     (String.concat
@@ -781,7 +781,7 @@ let staticTests =
 
             // Both of the above at once: the member-body closure `call`s the class's own
             // `op_Addition` while the `V<'T>` ctor and fold seed ground to `V<int>`.
-            test "gapA+B: generic own-op List.fold inside a generic member body runs end-to-end" {
+            test "generic own-op List.fold inside a generic member body runs end-to-end" {
                 runs
                     "6"
                     (String.concat
@@ -1166,7 +1166,7 @@ let genericTests =
                 Expect.equal result 42 "Box(42).V = 42 — ctor-param field reads through `MemberRef` on TypeSpec"
             }
 
-            test "Box<string>(\"hi\").V returns \"hi\" — same emitted body works at any instantiation" {
+            test "Box<string>(\"hi\").V returns \"hi\": the same emitted body works at any instantiation" {
                 let _, artifact =
                     compileSource
                         "ClsGenStrV"
@@ -1184,7 +1184,7 @@ let genericTests =
             // The single-field `Box<'a>(v: 'a)` tests above never touch a field at
             // index >= 1, where a generic ctor `stfld` / member-body `ldfld` could
             // resolve the wrong slot.
-            test "Box<int>(7, 3).N returns 3 — a generic class round-trips its non-first field" {
+            test "Box<int>(7, 3).N returns 3: a generic class round-trips its non-first field" {
                 let _, artifact =
                     compileSource
                         "ClsGenTwoField"
@@ -1242,7 +1242,7 @@ let genericMethodTests =
                 Expect.equal (idStr.Invoke(instance, [| box "a" |]) :?> string) "a" "C().Id<string>(\"a\") = \"a\""
             }
 
-            test "Box<int>(0).Echo<string>(\"hi\") = \"hi\" — method typar rides param + return" {
+            test "Box<int>(0).Echo<string>(\"hi\") = \"hi\": a method typar rides param + return" {
                 let _, artifact =
                     compileSource
                         "ClsGenMethEcho"

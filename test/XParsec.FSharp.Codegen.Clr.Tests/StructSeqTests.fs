@@ -179,7 +179,7 @@ let structSeqTests =
                     peMethodNames bytes
                     |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
 
-                Expect.isEmpty closureCctors "no value-struct closure was given a Step-B caching .cctor"
+                Expect.isEmpty closureCctors "no value-struct closure was given a caching .cctor"
 
                 let applyIl = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
@@ -246,7 +246,7 @@ let structSeqTests =
                     peMethodNames bytes
                     |> List.filter (fun (ty, m) -> ty.StartsWith "<closure>$" && m = ".cctor")
 
-                Expect.isEmpty closureCctors "no value-struct closure was given a Step-B caching .cctor"
+                Expect.isEmpty closureCctors "no value-struct closure was given a caching .cctor"
 
                 let hasConstrained =
                     mkIls

@@ -69,7 +69,7 @@ let tests =
 
             // `%+08.2f` (forced sign + zero-pad float) lowers natively: a half-to-even
             // `"F2"` body, then zero-padding applied after the sign.
-            test "`printfn \"%+08.2f\"` lowers natively — no FSharp.Core (former cold pin)" {
+            test "`printfn \"%+08.2f\"` lowers natively, so it pins no FSharp.Core (former cold pin)" {
                 let _, artifact = compileSource "DepsPlusZeroF" "printfn \"%+08.2f\" 1234.5"
 
                 Expect.isEmpty
@@ -77,7 +77,7 @@ let tests =
                     (sprintf "native %%+08.2f pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            test "`printfn \"%*d\"` (star width) lowers natively — no FSharp.Core" {
+            test "`printfn \"%*d\"` (star width) lowers natively, so it pins no FSharp.Core" {
                 // The guarded runtime width feeds the `Vesper.Formatter` signed-alignment
                 // members.
                 let _, artifact = compileSource "DepsStarPrintf" "printfn \"%*d\" 5 42"
@@ -87,7 +87,7 @@ let tests =
                     (sprintf "native star-width printf pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
             }
 
-            test "`printfn \"%*A\"` (bare star width) lowers natively — no FSharp.Core" {
+            test "`printfn \"%*A\"` (bare star width) lowers natively, so it takes no cold path" {
                 // Bare `%*A` feeds the runtime column budget to the structural engine.
                 let _, artifact = compileSource "DepsStarA" "printfn \"%*A\" 1 [1; 2; 3]"
 
@@ -99,7 +99,7 @@ let tests =
 
             // Star *precision* lowers natively: the float forms build the .NET format string
             // in-handler from the runtime precision.
-            test "star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`) lowers natively — no FSharp.Core" {
+            test "star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`) lowers natively, pinning no FSharp.Core" {
                 let native =
                     [
                         "DepsPrecF", "printfn \"%.*f\" 2 3.5"
@@ -120,7 +120,7 @@ let tests =
             // `%.*A` feeds the runtime print-size budget to the structural engine. The list
             // LITERAL argument still pins `FSharpList`, so the assertion here can only be
             // the absence of `PrintFormatLine`, not a fully-empty use-set.
-            test "`%.*A` (star precision) lowers on the structural engine — no cold path" {
+            test "`%.*A` (star precision) lowers on the structural engine, so it takes no cold path" {
                 let _, artifact = compileSource "DepsPrecA" "printfn \"%.*A\" 2 [1; 2; 3]"
 
                 Expect.isFalse
@@ -131,7 +131,7 @@ let tests =
 
             // `-` and `+` are pure no-ops for `%A`, so `%-*A` / `%+*A` take the same runtime
             // column budget on the structural engine as a bare `%*A`.
-            test "`%-*A` / `%+*A` (flagged star-%A) lower natively — no cold path" {
+            test "`%-*A` / `%+*A` (flagged star-%A) lower natively, so they take no cold path" {
                 let native =
                     [
                         "DepsStarLeftA", "printfn \"%-*A\" 1 [1; 2; 3]"
@@ -196,7 +196,7 @@ let tests =
 
             // `%A` of an arbitrary BCL type renders through the `IFormattable` / `ToString`
             // arm of the dispatcher, which is BCL-only.
-            test "`%A` of a BCL type is BCL-only — no FSharp.Core" {
+            test "`%A` of a BCL type is BCL-only, so it pins no FSharp.Core" {
                 let _, artifact = compileSource "DepsBclA" "printfn \"%A\" System.Guid.Empty"
 
                 Expect.isEmpty

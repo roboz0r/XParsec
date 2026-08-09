@@ -26,7 +26,7 @@ let private ftConst (name: string) =
 [<Tests>]
 let tests =
     testList
-        "Tuple representation — ValueTuple resolution"
+        "Tuple representation: ValueTuple resolution"
         [
             test "ValueTuple`2<int, string> resolves: non-nil TypeSpec, ctor, and two Item fields" {
                 let p = provider ()
@@ -81,7 +81,7 @@ let encodeTests =
     let ftTuple (tys: FrozenType list) = FTTuple(EqArray.ofList tys)
 
     testList
-        "Tuple representation — FTTuple encoding"
+        "Tuple representation: FTTuple encoding"
         [
             test "FTTuple [int; string] encodes to a non-nil TypeSpec" {
                 let p = provider ()
@@ -117,7 +117,7 @@ let constructTests =
     let theStaticFn (bytes: byte[]) : MethodInfo = programClassMethods bytes |> Array.head
 
     testList
-        "Tuple representation — construct a tuple value"
+        "Tuple representation: construct a tuple value"
         [
             test "a function returning (n, n+1) yields a ValueTuple`2 with the constructed fields" {
                 let _, artifact = compileSource "TupleStep3" "let pair (n: int) = (n, n + 1)"
@@ -185,7 +185,7 @@ let destructureTests =
         m.Invoke(null, [| box arg |]) :?> int
 
     testList
-        "Tuple representation — destructure a tuple"
+        "Tuple representation: destructure a tuple"
         [
             test "let a, b = (z, z + 1) binds both elements (a + b)" {
                 let r = invokeIntFn "let f (z: int) = let a, b = (z, z + 1) in a + b" 5
@@ -242,7 +242,7 @@ let lambdaParamTests =
         m.Invoke(null, [| box arg |]) :?> int
 
     testList
-        "Tuple representation — tuple lambda parameter"
+        "Tuple representation: tuple lambda parameter"
         [
             test "a fun (a, b) -> a + b closure destructures its tuple param" {
                 let r = invokeIntFn "let f (z: int) = let g = fun (a, b) -> a + b in g (z, z + 1)" 5

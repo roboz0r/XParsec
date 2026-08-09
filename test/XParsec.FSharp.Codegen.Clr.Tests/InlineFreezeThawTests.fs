@@ -329,7 +329,7 @@ let tests =
                     "the un-emittable template is still published for consumers to splice"
             }
 
-            test "a published StaticOptimization clause carries no SemType cell — its constraints freeze too" {
+            test "a published StaticOptimization clause carries no SemType cell, because its constraints freeze too" {
                 let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
                 let clauses, resultTy =
@@ -414,7 +414,7 @@ let tests =
                     "a decl-scoped thaw mints EXACTLY one fresh cell per distinct leaf — sharing it across every occurrence"
             }
 
-            test "freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same (scheme, index)s" {
+            test "freeze: the same source freezes local-typar leaves to the same (scheme, index)s" {
                 // Serializing a frozen body and re-reading it makes index stability rest on
                 // the freeze walk order. Nothing but this test enforces that order.
                 let once = frozenLetDecl twoLocalSchemes |> collectTys |> List.collect localLeavesIn
@@ -430,7 +430,7 @@ let tests =
                     "two freezes of the same source yield identical (scheme, index) leaves, in the same order"
             }
 
-            test "freeze/thaw: colliding scheme ids across two files do not conflate — the leaf is BODY-relative" {
+            test "freeze/thaw: colliding scheme ids across two files do not conflate, because the leaf is body-relative" {
                 // A `SchemeId` is an ordinal minted per frozen body, so two files' ids collide
                 // freely. These are DIFFERENT programs, each with one local scheme, so both
                 // land on the SAME `SchemeId`.

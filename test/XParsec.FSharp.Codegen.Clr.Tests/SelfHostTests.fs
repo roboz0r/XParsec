@@ -163,7 +163,7 @@ let tests =
 
             // The same rekey on the executable path. The closure is built but never invoked,
             // so the program only proves the signature encoded and the assembly runs.
-            test "a program's custom intrinsic resolves through encodeType on the executable path (G7)" {
+            test "a program's custom intrinsic resolves through encodeType on the executable path" {
                 let src =
                     "type myint = (# \"System.Int32\" #)\nlet boxId : myint -> myint = fun x -> x\nprintfn \"ok\""
 
@@ -193,7 +193,7 @@ let tests =
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
-                Expect.isFalse (refs |> Array.contains "FSharp.Core") "the DLL does not reference FSharp.Core (R1)"
+                Expect.isFalse (refs |> Array.contains "FSharp.Core") "the DLL does not reference FSharp.Core"
                 Expect.contains refs "Vesper.Core" "the DLL references Vesper.Core (via Vesper.Fun)"
 
                 let applierTy = asm.GetType("Vesper.Applier`2")
@@ -462,7 +462,7 @@ let tests =
 
                 Expect.isTrue
                     (File.Exists(Path.Combine(outDir, "Vesper.Core.dll")))
-                    "Vesper.Core.dll shipped — Vesper.Printf references it (step 3.2)"
+                    "Vesper.Core.dll shipped because Vesper.Printf references it"
 
                 Expect.isTrue
                     (File.Exists(Path.Combine(outDir, "Vesper.List.dll")))

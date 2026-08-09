@@ -32,7 +32,7 @@ let tests =
                      + "printfn \"%d\" (Set.count u)")
             }
 
-            test "Set round-trip union/intersect (static-operator wall)" {
+            test "Set round-trip union/intersect" {
                 runsSetLines
                     [ "4"; "1" ]
                     (prelude

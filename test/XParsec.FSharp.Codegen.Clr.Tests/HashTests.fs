@@ -116,7 +116,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n0" "equal chars hash equal, distinct chars differ"
             }
 
-            test "`hash` pins no FSharp.Core dependency (eq §4: it rides the BCL comparer, not a runtime library)" {
+            test "`hash` pins no FSharp.Core dependency (it rides the BCL comparer)" {
                 let _, artifact = compileSourceContract "HashNoDep" "printfn \"%d\" (hash 5)"
 
                 Expect.isEmpty

@@ -134,7 +134,7 @@ let tests =
             // `map`/`bind`/`fold`/… take a `Vesper.Fun`, which reflection cannot mint:
             // closures are synthesised per call site, not exposed as a constructible
             // delegate. The driver programs below build one naturally from a lambda.
-            test "higher-order combinators covered by OptionModuleCallRuntime (Gap 2 Layer D)" { () }
+            test "higher-order combinators covered by OptionModuleCallRuntime" { () }
         ]
 
 // Analysis only, no codegen. Regression guarded: the `'T option` abbreviation dealiased
@@ -175,7 +175,7 @@ let frontEndTests =
 // `open Vesper`): the bare or qualified case name resolves through the provider's reverse
 // case index, lowers to `TExpr.UnionCons`, and emits a `call` to the static case factory.
 [<Tests>]
-let layerBFrontEnd =
+let optionCtorFrontEnd =
     testList
         "OptionCtorFrontEnd"
         [
@@ -194,12 +194,12 @@ let layerBFrontEnd =
         ]
 
 [<Tests>]
-let layerBRuntime =
+let optionCtorRuntime =
     testList
         "OptionCtorRuntime"
         [
             // Emit smoke: both the n-ary (`Some 5`) and nullary (`None`) factories.
-            test "Some and None construct and run (Layer B emit smoke)" {
+            test "Some and None construct and run" {
                 runsOption "ok" "open Vesper\nlet a = Some 5\nlet b : int option = None\nprintfn \"%s\" \"ok\""
             }
 
@@ -225,7 +225,7 @@ let layerBRuntime =
 // to `TPat.Union` as a local arm does; the backend reads `scrut._tag` against the case's
 // declaration-order index and `ldfld`s the `<case>_<i>` fields off the external `TypeSpec`.
 [<Tests>]
-let layerCFrontEnd =
+let optionMatchFrontEnd =
     testList
         "OptionMatchFrontEnd"
         [
@@ -247,7 +247,7 @@ let layerCFrontEnd =
         ]
 
 [<Tests>]
-let layerCRuntime =
+let optionMatchRuntime =
     testList
         "OptionMatchRuntime"
         [
@@ -285,7 +285,7 @@ let layerCRuntime =
 // backend mints a `TypeRef` for `Vesper.OptionModule`, recovers the use-site type args
 // from the call type, and `call`s a `MethodSpec` (a bare `MemberRef` when monomorphic).
 [<Tests>]
-let layerDRuntime =
+let optionModuleCallRuntime =
     testList
         "OptionModuleCallRuntime"
         [
@@ -369,7 +369,7 @@ let layerDRuntime =
         ]
 
 [<Tests>]
-let layerDFrontEnd =
+let optionModuleCallFrontEnd =
     testList
         "OptionModuleCallFrontEnd"
         [

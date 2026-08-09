@@ -111,7 +111,7 @@ let enumTests =
             // A string enum's per-case `static initonly` field is filled by the `.cctor`
             // constructing the wrapper from the case's string literal. No use site here:
             // the wrapped string reading back is what proves the cctor ran.
-            test "SEQUENCING: a string enum emits a static-initonly struct field, cctor-initialised, readable" {
+            test "a string enum emits a static-initonly struct field, cctor-initialised, readable" {
                 let _, artifact =
                     compileSource
                         "StringEnumSeq"

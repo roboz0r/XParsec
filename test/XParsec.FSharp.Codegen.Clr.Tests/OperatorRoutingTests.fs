@@ -161,7 +161,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n0" "f 2 2 = true, f 2 3 = false"
             }
 
-            test "primitive equality pins no FSharp.Core dependency (eq §4: no runtime library)" {
+            test "primitive equality pins no FSharp.Core dependency" {
                 // `=` on ints is a bare `ceq`, with no metadata and no comparer call.
                 let _, artifact =
                     compileSource "OpRoutingEqNoDep" "printfn \"%d\" (if 2 = 2 then 1 else 0)"
