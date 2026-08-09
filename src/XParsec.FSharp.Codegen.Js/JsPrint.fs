@@ -5,6 +5,13 @@ open System.Text
 module internal JsEscape =
 
     let quoted (s: string) : string =
+        // Note: `JsPrint` uses for JS string literals; `JsSourceMap.build` uses for the `.map` JSON.
+        // `\v` (0x0B) and `\0` (0x00) are valid JS escapes and INVALID JSON, so adding either as a JS
+        // convenience silently produces a malformed source map. If these changes are required, create separate functions.
+
+        // TODO: Two lesser gaps:
+        // - a lone surrogate passes through raw, which is invalid UTF-8 in `sourcesContent`;
+        // - U+2028 / U+2029 pass through raw, which is fine on ES2019+ and a syntax error in older engines.
         let sb = StringBuilder(s.Length + 2)
         sb.Append('"') |> ignore
 

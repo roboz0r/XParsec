@@ -76,24 +76,6 @@ Worth noting for calibration: `git log -S` dates that false claim to `0f8e2f84`
 the day it was written, and it is the sentence that had been reassuring readers this hole did
 not exist.
 
-## A3. `JsEscape.quoted` is one escape set serving two grammars, and nothing says so
-
-`JsPrint` uses it for JS string literals; `JsSourceMap.build` uses it for the `.map` JSON.
-
-It is correct TODAY: every control character below `0x20` goes to `\uXXXX`, and only `"` and
-`\` need escaping above it, which both grammars share. The hazard is a future edit. `\v`
-(0x0B) and `\0` (0x00) are valid JS escapes and INVALID JSON, so adding either as a JS
-convenience silently produces a malformed source map — noticed only by a debugger, and only
-by whoever is using one.
-
-Either a JS-only and a JSON-only entry point over a shared core, or a test asserting the
-emitted `.map` parses as JSON. The test is cheaper and catches the whole class.
-
-Two lesser gaps in the same function, neither currently reachable in a way that matters:
-
-- a lone surrogate passes through raw, which is invalid UTF-8 in `sourcesContent`;
-- U+2028 / U+2029 pass through raw — fine on ES2019+, a syntax error in older engines.
-
 ---
 
 # Part B — prose that should be a type
