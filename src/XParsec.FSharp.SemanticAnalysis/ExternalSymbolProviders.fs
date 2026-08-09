@@ -14,11 +14,11 @@ module ExternalSymbolProviders =
             TryLookup: string -> ExternalSymbol voption
             TryLookupType: string -> ExternalTypeShape voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
-            TryRecordsWithField: string -> ExternalRecordCandidate[]
+            TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
             /// `(declaring type's qualified compiled name, member name)`.
             TryLookupMember: string * string -> ExternalMember voption
-            TryLookupMembers: string * string -> ExternalMember[]
+            TryLookupMembers: string * string -> EqArray<ExternalMember>
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
             IntrinsicReverseCanon: Map<string, SymbolKey list>
             IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
@@ -32,10 +32,10 @@ module ExternalSymbolProviders =
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
                 TryLookupUnionCase = fun _ -> ValueNone
-                TryRecordsWithField = fun _ -> [||]
+                TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
                 TryLookupMember = fun _ -> ValueNone
-                TryLookupMembers = fun _ -> [||]
+                TryLookupMembers = fun _ -> EqArray.empty
                 TryLookupIndexSignature = fun _ -> []
                 IntrinsicReverseCanon = Map.empty
                 IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
@@ -53,7 +53,7 @@ module ExternalSymbolProviders =
             ResolveTypeName: string -> TypeKey voption
             TryLookup: string -> ExternalSymbol voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
-            TryRecordsWithField: string -> ExternalRecordCandidate[]
+            TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
             IntrinsicReverseCanon: Map<string, SymbolKey list>
             IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
@@ -68,7 +68,7 @@ module ExternalSymbolProviders =
                 ResolveTypeName = fun _ -> ValueNone
                 TryLookup = fun _ -> ValueNone
                 TryLookupUnionCase = fun _ -> ValueNone
-                TryRecordsWithField = fun _ -> [||]
+                TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
                 IntrinsicReverseCanon = Map.empty
                 IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
@@ -83,7 +83,7 @@ module ExternalSymbolProviders =
             TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
             TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
             TypeMemberByKey: SymbolKey * string -> ExternalMember voption
-            TypeMembersByKey: SymbolKey * string -> ExternalMember[]
+            TypeMembersByKey: SymbolKey * string -> EqArray<ExternalMember>
         }
 
     module KeyedLeaf =
@@ -106,15 +106,16 @@ module ExternalSymbolProviders =
                 | true, shape -> ValueSome shape
                 | _ -> ValueNone
 
-            let membersNamed (key: SymbolKey) (memberName: string) : ExternalMember[] =
+            let membersNamed (key: SymbolKey) (memberName: string) : EqArray<ExternalMember> =
                 match leaf.MembersByKey.TryGetValue key with
                 | true, ms ->
-                    [|
-                        for m in ms do
-                            if m.Name = memberName then
-                                m
-                    |]
-                | _ -> [||]
+                    EqArray.ofSeq
+                        [
+                            for m in ms do
+                                if m.Name = memberName then
+                                    m
+                        ]
+                | _ -> EqArray.empty
 
             let firstMemberNamed (key: SymbolKey) (memberName: string) : ExternalMember voption =
                 match leaf.MembersByKey.TryGetValue key with
@@ -317,11 +318,12 @@ module ExternalSymbolProviders =
               // DIFFERENT packages, and unqualified record resolution must intersect over
               // every candidate, so a later source's records add rather than being shadowed.
               member _.TryRecordsWithField fieldName =
-                  [|
-                      for s in sources do
-                          for c in s.TryRecordsWithField fieldName do
-                              stampRecordCandidate c
-                  |]
+                  EqArray.ofSeq
+                      [
+                          for s in sources do
+                              for c in s.TryRecordsWithField fieldName do
+                                  stampRecordCandidate c
+                      ]
 
               member _.AmbientOpenPrefixes = ambient
           interface IExternalSymbolStore with
@@ -335,16 +337,16 @@ module ExternalSymbolProviders =
               // A type's members live in one assembly, so a later source never *adds*
               // overloads and the first source that knows the type wins the whole set.
               member _.TryLookupMembers(key, memberName) =
-                  let mutable result = [||]
+                  let mutable result = EqArray.empty
                   let mutable i = 0
 
-                  while Array.isEmpty result && i < sources.Length do
+                  while result.IsEmpty && i < sources.Length do
                       result <- sources.[i].TryLookupMembers(key, memberName)
                       i <- i + 1
 
                   match stampHome with
                   | ValueNone -> result
-                  | ValueSome _ -> result |> Array.map stampMember
+                  | ValueSome _ -> result |> EqArray.map stampMember
 
               member _.TryLookupMemberByKey(key: MemberKey) =
                   firstHit (fun s -> s.TryLookupMemberByKey key) |> ValueOption.map stampMember
@@ -409,13 +411,13 @@ module ExternalSymbolProviders =
 
         // An interface's type ARGUMENTS are invariant slots; the reference itself holds no
         // value, so `transform` has nothing to say about it.
-        let mapInterfaces (ifaces: FrozenInterface[]) =
-            ifaces |> Array.map (fun i -> i.MapArgs inv)
+        let mapInterfaces (ifaces: EqArray<FrozenInterface>) =
+            ifaces |> EqArray.map (fun i -> i.MapArgs inv)
 
         // A union-case field is a covariant value read.
         let mapCase (c: ExternalCaseShape) : ExternalCaseShape =
             { c with
-                FrozenFieldTypes = c.FrozenFieldTypes |> Array.map co
+                FrozenFieldTypes = c.FrozenFieldTypes |> EqArray.map co
             }
 
         let mapShape (shape: ExternalTypeShape) : ExternalTypeShape =
@@ -423,15 +425,19 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Class info ->
                 ExternalTypeShape.Class
                     { info with
-                        Members = info.Members |> Array.map mapMember
+                        Members = info.Members |> EqArray.map mapMember
                         FrozenInterfaces = mapInterfaces info.FrozenInterfaces
                         FrozenBaseType = info.FrozenBaseType |> ValueOption.map inv
                     }
             | ExternalTypeShape.Record(arity, fields, origin) ->
                 // A record field is a covariant value read.
-                ExternalTypeShape.Record(arity, fields |> Array.map (fun f -> { f with Frozen = co f.Frozen }), origin)
+                ExternalTypeShape.Record(
+                    arity,
+                    fields |> EqArray.map (fun f -> { f with Frozen = co f.Frozen }),
+                    origin
+                )
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
-                ExternalTypeShape.Union(arity, cases |> Array.map mapCase, mapInterfaces ifaces, origin)
+                ExternalTypeShape.Union(arity, cases |> EqArray.map mapCase, mapInterfaces ifaces, origin)
             // A heritable primitive's class surface maps identically to `Class`; a scalar
             // intrinsic has no members or fields to map.
             | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
@@ -441,7 +447,7 @@ module ExternalSymbolProviders =
                             ValueSome
                                 { surface with
                                     BaseType = surface.BaseType |> ValueOption.map inv
-                                    Members = surface.Members |> Array.map mapMember
+                                    Members = surface.Members |> EqArray.map mapMember
                                 }
                     }
             // A capability interface's abstract members and inherited interfaces map exactly
@@ -449,7 +455,7 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.IntrinsicInterface s ->
                 ExternalTypeShape.IntrinsicInterface
                     { s with
-                        Members = s.Members |> Array.map mapMember
+                        Members = s.Members |> EqArray.map mapMember
                         Interfaces = mapInterfaces s.Interfaces
                     }
             // No members or fields to map. An `Abbrev` body inherits its USE SITE's variance,
@@ -487,7 +493,7 @@ module ExternalSymbolProviders =
                   inner.TryLookupMember(key, memberName) |> ValueOption.map mapMember
 
               member _.TryLookupMembers(key, memberName) =
-                  inner.TryLookupMembers(key, memberName) |> Array.map mapMember
+                  inner.TryLookupMembers(key, memberName) |> EqArray.map mapMember
 
               member _.TryLookupMemberByKey(key: MemberKey) =
                   inner.TryLookupMemberByKey key |> ValueOption.map mapMember
@@ -538,7 +544,7 @@ module ExternalSymbolProviders =
                   inner.TryLookupMember(key, memberName) |> ValueOption.map stampMember
 
               member _.TryLookupMembers(key, memberName) =
-                  inner.TryLookupMembers(key, memberName) |> Array.map stampMember
+                  inner.TryLookupMembers(key, memberName) |> EqArray.map stampMember
 
               member _.TryLookupMemberByKey(key: MemberKey) =
                   inner.TryLookupMemberByKey key |> ValueOption.map stampMember
@@ -553,7 +559,7 @@ module ExternalSymbolProviders =
         }
 
     /// Cache every lookup channel on first hit, MISSES included: the contract is immutable
-    /// for a compile, so a `ValueNone` / `[||]` is as stable as a hit. Apply ONCE, atop a
+    /// for a compile, so a `ValueNone` / empty result is as stable as a hit. Apply ONCE, atop a
     /// composed stack, whose fall-through and rewrites would otherwise re-run per call.
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         let symbols = ConcurrentDictionary<string, ExternalSymbol voption>()
@@ -567,13 +573,16 @@ module ExternalSymbolProviders =
             ConcurrentDictionary<struct (SymbolKey * string), ExternalMember voption>()
 
         let memberSets =
-            ConcurrentDictionary<struct (SymbolKey * string), ExternalMember[]>()
+            ConcurrentDictionary<struct (SymbolKey * string), EqArray<ExternalMember>>()
 
         let membersByKey = ConcurrentDictionary<MemberKey, ExternalMember voption>()
 
         let indexSigs = ConcurrentDictionary<SymbolKey, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
-        let recordsByField = ConcurrentDictionary<string, ExternalRecordCandidate[]>()
+
+        let recordsByField =
+            ConcurrentDictionary<string, EqArray<ExternalRecordCandidate>>()
+
         let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
 
         { new IExternalSymbolProvider

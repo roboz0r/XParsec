@@ -105,7 +105,7 @@ type PooledInlineValue =
     {
         Key: SymbolKey
         Decl: DeclPoolId
-        ParamAttrs: ParamAttrs[]
+        ParamAttrs: EqArray<ParamAttrs>
     }
 
 /// One entry of the pooled RESOLVED-SPECIALIZATION table. `Origin` is the file the entry's

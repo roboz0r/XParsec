@@ -120,7 +120,7 @@ module NameResolutionTypeRefStamp =
             (fun hit ->
                 match hit.Shape with
                 | ExternalTypeShape.Enum(cases = cases) when
-                    cases |> Array.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName)
+                    cases |> EqArray.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName)
                     ->
                     ValueSome(useSiteTypeKey hit)
                 | _ -> ValueNone

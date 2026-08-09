@@ -65,7 +65,7 @@ let mkSignature
         MethodTyparArity = methodTyparArity
         Parameters = parameters
         Return = ret
-        MethodTyparBounds = [||]
+        MethodTyparBounds = EqArray.empty
     }
 
 /// A skeleton `ExternalMember` named `name`: a static `unit -> unit` method on a stub

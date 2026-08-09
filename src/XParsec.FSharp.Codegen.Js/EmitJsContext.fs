@@ -211,7 +211,7 @@ module EmitJsContext =
                     |> ValueSome
 
                 let info, _ =
-                    buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
+                    buildUnionInfo home baseName [ for c in cases -> c.Name, EqArray.toList c.FieldNames ]
 
                 ctx.ExternalUnions.[key] <- info
                 ValueSome info

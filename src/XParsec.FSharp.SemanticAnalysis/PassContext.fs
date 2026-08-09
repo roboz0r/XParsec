@@ -262,7 +262,8 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// A field name → every external record declaring it. Not a spelling lookup: a bare
     /// `{ X = … }` does not name a record, so the field set IS the identity, pinned at inference.
-    member _.TryRecordsWithField(fieldName: string) : ExternalRecordCandidate[] = provider.TryRecordsWithField fieldName
+    member _.TryRecordsWithField(fieldName: string) : EqArray<ExternalRecordCandidate> =
+        provider.TryRecordsWithField fieldName
 
     /// The language-capability identities (enumerable, enumerator, disposable, equatable,
     /// comparable), resolved once from contract names, so no BCL identity is hardcoded.
@@ -453,7 +454,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// Per module-level `let inline` binding, keyed by its function-bound-variable `NodeKey` and
     /// positionally aligned to its curried parameters. Only non-default parameters register.
-    member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
+    member val InlineParamAttrs = Dictionary<NodeKey, EqArray<ParamAttrs>>() with get
 
     /// The UNEXPANDED body of each module-level `let inline`. An `^T`-constrained body resolves
     /// its trait calls against the CALL SITE, so expanding here bakes in the generic fallback.

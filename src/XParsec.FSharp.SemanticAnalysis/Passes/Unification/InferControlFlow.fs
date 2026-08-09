@@ -39,14 +39,14 @@ module internal UnificationInferControlFlow =
         : EnumProbe voption =
         let moveNext =
             enumShape.Members
-            |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsValueMember)
+            |> EqArray.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsValueMember)
 
         let current =
             enumShape.Members
-            |> Array.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsValueMember)
+            |> EqArray.tryFind (fun m -> m.Name = "Current" && not m.IsStatic && m.IsValueMember)
 
         match moveNext, current with
-        | Some mn, Some cur ->
+        | ValueSome mn, ValueSome cur ->
             match ExternalSymbols.openSignature mn enumArgs with
             | TyFun(_, TyBool) ->
                 // The `finally` exists only when `E : IDisposable`, and disposal always
@@ -357,10 +357,10 @@ module internal UnificationInferControlFlow =
         : (SemType * ForInEnumerator) voption =
         match
             shape.Members
-            |> Array.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsValueMember)
+            |> EqArray.tryFind (fun m -> m.Name = "GetEnumerator" && not m.IsStatic && not m.IsValueMember)
         with
-        | None -> ValueNone
-        | Some ge ->
+        | ValueNone -> ValueNone
+        | ValueSome ge ->
             // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's own
             // instantiation (`List<'T>.Enumerator` over the source's `'T`).
             match ExternalSymbols.openSignature ge srcArgs with

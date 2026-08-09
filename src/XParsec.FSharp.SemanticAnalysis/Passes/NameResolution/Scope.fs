@@ -447,7 +447,7 @@ module NameResolutionScope =
                                             Shape = ExternalTypeShape.Enum(cases, origin)
                                         } when
                                 (let caseName = ctx.NameOf li.Idents.[1]
-                                 cases |> Array.exists (fun c -> c.Name = caseName))
+                                 cases |> EqArray.exists (fun c -> c.Name = caseName))
                                 ->
                                 ctx.Resolution.ExternalEnumCaseStamp.Set(
                                     CstKeys.ofExpr e,

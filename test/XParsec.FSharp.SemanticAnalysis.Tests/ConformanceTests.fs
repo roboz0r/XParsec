@@ -814,7 +814,7 @@ let private memberContractProvider (overloads: ExternalMember list) : IExternalS
                     match overloads |> List.tryFind (fun m -> m.Name = name) with
                     | Some m -> ValueSome m
                     | None -> ValueNone
-            TryLookupMembers = fun (_, name) -> overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
+            TryLookupMembers = fun (_, name) -> overloads |> List.filter (fun m -> m.Name = name) |> EqArray.ofList
         }
 
 [<Tests>]

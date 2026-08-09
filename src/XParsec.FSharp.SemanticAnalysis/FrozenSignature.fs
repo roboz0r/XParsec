@@ -127,7 +127,7 @@ module FrozenSignature =
                 if isValueMember then
                     ExternalSymbols.unitFrozen
                 else
-                    ExternalSymbols.tupledParams [| for (_, ty) in m.Params -> ty |]
+                    ExternalSymbols.tupledParams (EqArray.ofSeq [ for (_, ty) in m.Params -> ty ])
 
             memberFromParts declKey declArity m.Name isValueMember m.IsStatic methodArity parameters m.ReturnTy
 
@@ -166,8 +166,8 @@ module FrozenSignature =
         let caseShapeOf (c: Frozen.TUnionCase) : ExternalCaseShape =
             {
                 Name = c.Name
-                FieldNames = [| for (n, _) in c.Fields -> n |]
-                FrozenFieldTypes = [| for (_, ty) in c.Fields -> ty |]
+                FieldNames = EqArray.ofSeq [ for (n, _) in c.Fields -> n ]
+                FrozenFieldTypes = EqArray.ofSeq [ for (_, ty) in c.Fields -> ty ]
             }
 
         // --- declarations -------------------------------------------------------------
@@ -209,7 +209,7 @@ module FrozenSignature =
                     | ValueSome ms when ms.Count > 0 -> membersByKey.[key] <- ms
                     | _ -> ()
 
-                let registerCases (cases: Frozen.TUnionCase seq) (caseShapes: ExternalCaseShape[]) =
+                let registerCases (cases: Frozen.TUnionCase seq) (caseShapes: EqArray<ExternalCaseShape>) =
                     for c, shape in Seq.zip cases caseShapes do
                         // First declaration wins on a bare case-name collision. An RQA union's
                         // cases carry the flag so a consumer's bare `Red` is rejected.
@@ -226,15 +226,16 @@ module FrozenSignature =
                 match td.Kind with
                 | TTypeKindG.Record(fields, members, _, _) ->
                     let fieldShapes =
-                        [|
-                            for f in fields ->
-                                {
-                                    Name = f.Name
-                                    IsMutable = f.IsMutable
-                                    Frozen = f.Type
-                                }
-                                : ExternalFieldShape
-                        |]
+                        EqArray.ofSeq
+                            [
+                                for f in fields ->
+                                    {
+                                        Name = f.Name
+                                        IsMutable = f.IsMutable
+                                        Frozen = f.Type
+                                    }
+                                    : ExternalFieldShape
+                            ]
 
                     register
                         (ExternalTypeShape.Record(arity, fieldShapes, origin))
@@ -248,7 +249,7 @@ module FrozenSignature =
                             TypeKey = typeKey
                             TyparArity = arity
                             Origin = origin
-                            FieldNames = [| for f in fields -> f.Name |]
+                            FieldNames = EqArray.ofSeq [ for f in fields -> f.Name ]
                             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                         }
 
@@ -262,10 +263,10 @@ module FrozenSignature =
 
                 | TTypeKindG.Union(cases, members, _) ->
                     let caseArr = [| for c in cases -> c |]
-                    let caseShapes = caseArr |> Array.map caseShapeOf
+                    let caseShapes = caseArr |> Array.map caseShapeOf |> EqArray.ofArray
 
                     register
-                        (ExternalTypeShape.Union(arity, caseShapes, [||], origin))
+                        (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin))
                         (ValueSome(membersOf typeKey arity members))
 
                     registerCases caseArr caseShapes
@@ -277,14 +278,15 @@ module FrozenSignature =
                         {
                             TyparArity = arity
                             IsInterface = false
-                            Members = members.ToArray()
+                            Members = EqArray.ofResizeArray members
                             FrozenInterfaces =
-                                [|
-                                    for (ity, _) in c.Interfaces do
-                                        match FrozenInterface.TryOfFrozen ity with
-                                        | ValueSome i -> i
-                                        | ValueNone -> ()
-                                |]
+                                EqArray.ofSeq
+                                    [
+                                        for (ity, _) in c.Interfaces do
+                                            match FrozenInterface.TryOfFrozen ity with
+                                            | ValueSome i -> i
+                                            | ValueNone -> ()
+                                    ]
                             FrozenBaseType = c.BaseType
                             Flags =
                                 { ExternalClassFlags.Default with
@@ -308,8 +310,8 @@ module FrozenSignature =
                         {
                             TyparArity = arity
                             IsInterface = true
-                            Members = members.ToArray()
-                            FrozenInterfaces = [||]
+                            Members = EqArray.ofResizeArray members
+                            FrozenInterfaces = EqArray.empty
                             FrozenBaseType = ValueNone
                             Flags = ExternalClassFlags.Default
                             Origin = origin
@@ -322,22 +324,23 @@ module FrozenSignature =
                     // `(x: E)` / `E.Ci` against; its nominal identity IS the registered `key`,
                     // so no case index is needed. A case with no literal is DROPPED.
                     let caseShapes =
-                        [|
-                            for c in cases do
-                                match c.Value with
-                                | ValueSome(TEnumLiteral.Int v) ->
-                                    {
-                                        Name = c.Name
-                                        Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue v))
-                                    }
-                                    : ExternalEnumCaseShape
-                                | ValueSome(TEnumLiteral.String s) ->
-                                    {
-                                        Name = c.Name
-                                        Value = ExternalEnumCaseValue.StringVal s
-                                    }
-                                | ValueNone -> ()
-                        |]
+                        EqArray.ofSeq
+                            [
+                                for c in cases do
+                                    match c.Value with
+                                    | ValueSome(TEnumLiteral.Int v) ->
+                                        {
+                                            Name = c.Name
+                                            Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue v))
+                                        }
+                                        : ExternalEnumCaseShape
+                                    | ValueSome(TEnumLiteral.String s) ->
+                                        {
+                                            Name = c.Name
+                                            Value = ExternalEnumCaseValue.StringVal s
+                                        }
+                                    | ValueNone -> ()
+                            ]
 
                     register (ExternalTypeShape.Enum(caseShapes, origin)) ValueNone
 
@@ -431,7 +434,12 @@ module FrozenSignature =
                                         TyparArity = typeKey.TyparArity
                                         Platform = IntrinsicPlatform.Repr repr.Platform
                                     }
-                                Class = ValueSome { BaseType = ValueNone; Members = [||] }
+                                Class =
+                                    ValueSome
+                                        {
+                                            BaseType = ValueNone
+                                            Members = EqArray.empty
+                                        }
                             }
                     else
                         ExternalTypeShape.Intrinsic(
@@ -506,8 +514,8 @@ module FrozenSignature =
                     TryRecordsWithField =
                         fun fieldName ->
                             match recordFieldIndex.TryGetValue fieldName with
-                            | true, buf -> buf.ToArray()
-                            | _ -> [||]
+                            | true, buf -> EqArray.ofResizeArray buf
+                            | _ -> EqArray.empty
                     // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in
                     // the SAME namespace reaches these types through its own header, not here.
                     AmbientOpenPrefixes = []

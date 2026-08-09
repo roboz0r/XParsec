@@ -245,6 +245,19 @@ module EqArray =
 
         found
 
+    let tryFindIndex (predicate: 'T -> bool) (xs: EqArray<'T>) : int voption =
+        let src = xs.Underlying
+        let mutable i = 0
+        let mutable found = ValueNone
+
+        while found.IsNone && i < src.Length do
+            if predicate src.[i] then
+                found <- ValueSome i
+
+            i <- i + 1
+
+        found
+
     let fold (folder: 'State -> 'T -> 'State) (state: 'State) (xs: EqArray<'T>) : 'State =
         let src = xs.Underlying
         let mutable acc = state
@@ -264,6 +277,13 @@ module EqArray =
 
         acc
 
+    /// `ValueNone` for an out-of-range index, in place of an indexer's throw.
+    let tryItem (index: int) (xs: EqArray<'T>) : 'T voption =
+        if index >= 0 && index < xs.Length then
+            ValueSome xs.[index]
+        else
+            ValueNone
+
     let tryLast (xs: EqArray<'T>) : 'T voption =
         match xs.Length with
         | 0 -> ValueNone
@@ -280,6 +300,27 @@ module EqArray =
 
         for i in 0 .. src.Length - 1 do
             if predicate src.[i] then
+                b.Add src.[i]
+
+        EqArray<'T>(b.ToImmutable())
+
+    /// Ascending by `Comparer<'T>.Default`, so callers need no `'T: comparison` constraint.
+    let sort (xs: EqArray<'T>) : EqArray<'T> =
+        // `toArray` already copied, and nothing else holds `out`, so the buffer is handed
+        // over rather than copied a second time.
+        let out = toArray xs
+        Array.Sort(out, Comparer<'T>.Default)
+        EqArray<'T>(System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray out)
+
+    /// First occurrence of each element wins, so the surviving order is the input's. Uses
+    /// `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
+    let distinct (xs: EqArray<'T>) : EqArray<'T> =
+        let src = xs.Underlying
+        let seen = HashSet<'T>(EqualityComparer<'T>.Default)
+        let mutable b = SmallArrayBuilder<'T>()
+
+        for i in 0 .. src.Length - 1 do
+            if seen.Add src.[i] then
                 b.Add src.[i]
 
         EqArray<'T>(b.ToImmutable())

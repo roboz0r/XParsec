@@ -367,13 +367,13 @@ let tests =
 
                 // The finalized keys differ on the `argSig` axis, and the store minted them.
                 let keyOf (paramTy: FrozenType) =
-                    match overloads |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.contains paramTy) with
-                    | Some m -> SymbolKey.Member m.Key
-                    | None ->
+                    match overloads |> EqArray.tryFind (fun m -> m.Key.ArgSig |> EqArray.contains paramTy) with
+                    | ValueSome m -> SymbolKey.Member m.Key
+                    | ValueNone ->
                         failtestf
                             "no `Poke` overload over %A; argSigs: %A"
                             paramTy
-                            (overloads |> Array.map (fun m -> m.Key))
+                            (overloads |> EqArray.map (fun m -> m.Key))
 
                 let intKey = keyOf ftInt
                 let stringKey = keyOf ftString

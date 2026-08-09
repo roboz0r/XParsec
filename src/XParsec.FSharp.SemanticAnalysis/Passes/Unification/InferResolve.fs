@@ -159,7 +159,7 @@ module internal UnificationInferResolve =
     let resolvedRecordFieldNames (r: ResolvedRecord) : Set<string> =
         match r with
         | LocalRecord info -> info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
-        | ExternalRecord c -> Set.ofArray c.FieldNames
+        | ExternalRecord c -> Set.ofSeq c.FieldNames
 
     /// A pure field-set verdict, no diagnostics. `PartialMatches` = every record whose
     /// declared field set ⊇ the typed set, deduped by `TypeKey`. `ExactMatch` = the unique
@@ -214,7 +214,7 @@ module internal UnificationInferResolve =
         | first :: _ ->
             let providerRecords =
                 ctx.TryRecordsWithField first
-                |> Array.filter (fun cand -> not bareIndex || admitsBareExternalRecord ctx cand)
+                |> EqArray.filter (fun cand -> not bareIndex || admitsBareExternalRecord ctx cand)
 
             let candidates =
                 [
@@ -319,7 +319,7 @@ module internal UnificationInferResolve =
             let fieldShapes =
                 match ctx.Provider.TryLookupType(SymbolKey.Type key) with
                 | ValueSome(ExternalTypeShape.Record(_, fs, _)) -> fs
-                | _ -> [||]
+                | _ -> EqArray.empty
 
             // Precompute the args array once (not per field): one fresh TyVar per declared
             // typar slot, instantiating each field's `FTTypar(Declaring,i)` template.
@@ -329,9 +329,9 @@ module internal UnificationInferResolve =
             let argsArr = args.AsSpan().ToArray()
 
             let fieldTypeOf (name: string) =
-                match fieldShapes |> Array.tryFind (fun f -> f.Name = name) with
-                | Some f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen argsArr)
-                | None -> ValueNone
+                match fieldShapes |> EqArray.tryFind (fun f -> f.Name = name) with
+                | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen argsArr)
+                | ValueNone -> ValueNone
 
             struct (key, args, fieldTypeOf)
 

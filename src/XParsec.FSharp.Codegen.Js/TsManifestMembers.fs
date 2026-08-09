@@ -96,7 +96,7 @@ module internal TsManifestMembers =
     let private classifyHeritage
         (ctx: TranslateCtx)
         (heritage: Schema.TypeRef list)
-        : FrozenInterface[] * FrozenType voption =
+        : EqArray<FrozenInterface> * FrozenType voption =
         let interfaces = ResizeArray<FrozenInterface>()
         let mutable baseTy = ValueNone
 
@@ -125,7 +125,7 @@ module internal TsManifestMembers =
 
                 interfaces.Add(FrozenInterface.OfClass(key, EqArray.ofArray ifaceArgs))
 
-        interfaces.ToArray(), baseTy
+        EqArray.ofResizeArray interfaces, baseTy
 
     /// TypeScript escapes a `[Symbol.iterator]()` method as `__@iterator@<symbolId>`; the
     /// trailing id varies by lib (`@1`, `@112`), so match by prefix.
@@ -164,7 +164,7 @@ module internal TsManifestMembers =
             let mems =
                 members
                 |> List.collect (toExternalMembers ctx key origin tp isInterface)
-                |> List.toArray
+                |> EqArray.ofList
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
 
@@ -174,11 +174,11 @@ module internal TsManifestMembers =
             let frozenInterfaces =
                 match tryIteratorElement ctx members with
                 | ValueSome elem ->
-                    Array.append
-                        heritageInterfaces
-                        [|
+                    EqArray.ofSeq
+                        [
+                            yield! heritageInterfaces
                             FrozenInterface.OfClass(JsNativeSymbols.ienumerableTypeKey, EqArray.singleton elem)
-                        |]
+                        ]
                 | ValueNone -> heritageInterfaces
 
             Some(
@@ -234,7 +234,7 @@ module internal TsManifestMembers =
                             }
                     | None -> None
                 )
-                |> List.toArray
+                |> EqArray.ofList
 
             Some(qualify nsPath name, ExternalTypeShape.Enum(cases, origin))
         | _ -> None
@@ -275,7 +275,7 @@ module internal TsManifestMembers =
 
                     toExternalMembers ctx declKey origin 0 true mem
                 )
-                |> List.toArray
+                |> EqArray.ofList
 
             qn,
             ExternalTypeShape.Class
@@ -283,7 +283,7 @@ module internal TsManifestMembers =
                     TyparArity = 0
                     IsInterface = true
                     Members = members
-                    FrozenInterfaces = [||]
+                    FrozenInterfaces = EqArray.empty
                     FrozenBaseType = ValueNone
                     Flags =
                         { ExternalClassFlags.Default with
@@ -381,7 +381,7 @@ module internal TsManifestMembers =
 
                     expandMethod ctx declKey origin 0 MemberKind.Method mem
                 )
-                |> List.toArray
+                |> EqArray.ofList
 
             qn,
             ExternalTypeShape.Class
@@ -389,7 +389,7 @@ module internal TsManifestMembers =
                     TyparArity = 0
                     IsInterface = false
                     Members = members
-                    FrozenInterfaces = [||]
+                    FrozenInterfaces = EqArray.empty
                     FrozenBaseType = ValueNone
                     Flags =
                         { ExternalClassFlags.Default with

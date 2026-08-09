@@ -29,7 +29,7 @@ module internal UnificationInferCtor =
         (noOverload: Kind)
         (argExpr: Expr<SyntaxToken>)
         : ExternalMember voption =
-        let ctors = surface.Members |> Array.filter (fun m -> m.Name = ".ctor")
+        let ctors = surface.Members |> EqArray.filter (fun m -> m.Name = ".ctor")
         let argTy = infer ctx argExpr
 
         match pickBestOverload ctx typeArgs ctors (argElemsOf ctx.Store argTy) with

@@ -1327,7 +1327,13 @@ let tests =
                 let ctx =
                     extCtx
                         { ExternalSymbolProviders.NamedLeaf.empty with
-                            TryLookupMembers = (fun (t, n) -> if t = "Vec2" && n = "M" then [| mII; mIS |] else [||])
+                            TryLookupMembers =
+                                (fun (t, n) ->
+                                    if t = "Vec2" && n = "M" then
+                                        EqArray.ofSeq [ mII; mIS ]
+                                    else
+                                        EqArray.empty
+                                )
                             TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "M" then ValueSome mII else ValueNone)
                         }
 
@@ -1362,7 +1368,13 @@ let tests =
                 let ctx =
                     extCtx
                         { ExternalSymbolProviders.NamedLeaf.empty with
-                            TryLookupMembers = (fun (t, n) -> if t = "Vec2" && n = "N" then [| m1 |] else [||])
+                            TryLookupMembers =
+                                (fun (t, n) ->
+                                    if t = "Vec2" && n = "N" then
+                                        EqArray.singleton m1
+                                    else
+                                        EqArray.empty
+                                )
                             TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "N" then ValueSome m1 else ValueNone)
                         }
 

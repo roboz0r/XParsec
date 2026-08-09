@@ -244,7 +244,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         ConcurrentDictionary<struct (string * string), ExternalMember voption>()
 
     let membersCache =
-        ConcurrentDictionary<struct (string * string), ExternalMember[]>()
+        ConcurrentDictionary<struct (string * string), EqArray<ExternalMember>>()
 
     let declaredFlags =
         BindingFlags.Public
@@ -339,7 +339,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
                 IsStatic = m.IsStatic
                 Signature =
-                    MetadataMapping.methodSignature arity methodTyparArity (ExternalSymbols.tupledParams ps, ret)
+                    MetadataMapping.methodSignature arity methodTyparArity (ExternalSymbols.tupledParams argSig, ret)
                 MethodTyparArity = methodTyparArity
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
@@ -365,7 +365,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
     /// Public declared members of `t` whose signatures map. Accessors are modelled
     /// through `Storage = Property` and filtered from the method walk. Must hold `gate`.
-    let enumerateClassMembers (t: Type) : ExternalMember[] =
+    let enumerateClassMembers (t: Type) : EqArray<ExternalMember> =
         let origin = originOf t
         let declKey = MetadataMapping.declTypeKey t
         // The declaring type's typar count, the width of the signature
@@ -401,7 +401,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
                         IsStatic = getter.IsStatic
-                        Signature = MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams ps, ret)
+                        Signature = MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams argSig, ret)
                         Origin = origin
                     }
                 )
@@ -421,17 +421,17 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     ExternalMember.ctor
                         declKey
-                        (MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams ps, ret))
+                        (MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams argSig, ret))
                         argSig
                         origin
                         (MetadataMapping.optionalDefaults (c.GetParameters()))
                 )
             )
 
-        Array.concat [| properties; methods; indexers; fields; ctors |]
+        EqArray.ofArray (Array.concat [| properties; methods; indexers; fields; ctors |])
 
     /// Interface set. An interface whose own type args do not map is skipped. Must hold `gate`.
-    let buildClassInterfaces (t: Type) : FrozenInterface[] =
+    let buildClassInterfaces (t: Type) : EqArray<FrozenInterface> =
         t.GetInterfaces()
         |> Array.choose (fun i ->
             match MetadataMapping.tryBuildType reverseCanon i with
@@ -441,6 +441,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 | ValueNone -> None
             | None -> None
         )
+        |> EqArray.ofArray
 
     /// Declared base type as a `FrozenType` template. `ValueNone` for interfaces and
     /// `System.Object`. Must hold `gate`.
@@ -531,7 +532,10 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                                 ExternalMember.ctor
                                     declKey
-                                    (MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams ps, ret))
+                                    (MetadataMapping.methodSignature
+                                        arity
+                                        0
+                                        (ExternalSymbols.tupledParams argSig, ret))
                                     argSig
                                     origin
                                     (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -653,7 +657,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         match membersCache.TryGetValue key with
         | true, v -> v
         | _ ->
-            let v = computeMembers typeName memberName
+            let v = EqArray.ofArray (computeMembers typeName memberName)
             membersCache.[key] <- v
             v
 
@@ -670,7 +674,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         member _.TryLookupUnionCase _ = ValueNone
         // A metadata leaf scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
-        member _.TryRecordsWithField _ = [||]
+        member _.TryRecordsWithField _ = EqArray.empty
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with

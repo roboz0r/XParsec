@@ -23,7 +23,7 @@ let private provider: IExternalSymbolProvider =
                 UnionName = union
                 TyparArity = 0
                 Origin = SymbolOrigin.Empty
-                Case = ExternalCaseShape.create (name, [||])
+                Case = ExternalCaseShape.create (name, EqArray.empty)
                 IsRequireQualifiedAccess = rqa
             }
 

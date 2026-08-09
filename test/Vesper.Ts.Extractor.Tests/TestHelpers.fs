@@ -281,11 +281,11 @@ let testProviderResolves (path: string) =
                         $"overloaded function '{name}' should resolve to one static member per signature"
 
                     Expect.isTrue
-                        (overloads |> Array.forall (fun m -> m.IsStatic))
+                        (overloads |> EqArray.forall (fun m -> m.IsStatic))
                         $"overloaded function '{name}' members must be static"
 
                     Expect.equal
-                        (overloads |> Array.map (fun r -> r.Key) |> Array.distinct |> Array.length)
+                        (overloads |> EqArray.map (fun r -> r.Key) |> EqArray.distinct).Length
                         overloads.Length
                         $"overloaded function '{name}' members must have distinct keys"
                 else
@@ -376,7 +376,7 @@ let testProviderResolves (path: string) =
                                 $"overloaded member '{name}.{m.Name}' should resolve to one member per signature"
 
                         Expect.equal
-                            (resolved |> Array.map (fun r -> r.Key) |> Array.distinct |> Array.length)
+                            (resolved |> EqArray.map (fun r -> r.Key) |> EqArray.distinct).Length
                             resolved.Length
                             $"overloaded member '{name}.{m.Name}' members must have distinct keys"
             | Schema.Export.Variable(name, _, _, _) ->

@@ -538,11 +538,11 @@ module Unification =
             | ValueSome(ExternalSymbols.ExternalMembers ifaceMembers) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 
-                let required = ifaceMembers |> Array.filter (fun em -> em.Name <> ".ctor")
+                let required = ifaceMembers |> EqArray.filter (fun em -> em.Name <> ".ctor")
 
                 for mInfo in impl.Members do
-                    match required |> Array.tryFind (fun em -> em.Name = mInfo.Name) with
-                    | Some em ->
+                    match required |> EqArray.tryFind (fun em -> em.Name = mInfo.Name) with
+                    | ValueSome em ->
                         let expected = ExternalSymbols.openSignature em argArr
                         // `obj | null` and `obj` are the same slot, so erase reference
                         // nullability on BOTH sides: `CompareTo(that: objnull)` satisfies
@@ -552,7 +552,8 @@ module Unification =
                             mInfo.DeclSite.Tok
                             (stripReferenceNull ctx.Store mInfo.Type)
                             (stripReferenceNull ctx.Store expected)
-                    | None -> ctx.Report(mInfo.DeclSite.Tok, Kind.NoMember(ifaceName, MemberNoun.Member, mInfo.Name))
+                    | ValueNone ->
+                        ctx.Report(mInfo.DeclSite.Tok, Kind.NoMember(ifaceName, MemberNoun.Member, mInfo.Name))
 
                 for em in required do
                     if not (impl.Members |> Array.exists (fun m -> m.Name = em.Name)) then
@@ -619,7 +620,7 @@ module Unification =
                 match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     (seen, shape.FrozenInterfaces)
-                    ||> Array.fold (fun acc i -> closeOver acc (SymbolKeyOps.qualifiedName i.Key))
+                    ||> EqArray.fold (fun acc i -> closeOver acc (SymbolKeyOps.qualifiedName i.Key))
                 | _ -> seen
 
         let capabilityInterfaces =

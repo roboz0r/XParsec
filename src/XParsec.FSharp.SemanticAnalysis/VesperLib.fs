@@ -32,13 +32,14 @@ module VesperLib =
         (ctx: ExtractCtx)
         (dc: DeferredCtx)
         (ifaces: Type<SyntaxToken> list)
-        : FrozenInterface[] =
-        [|
-            for t in ifaces do
-                match FrozenInterface.TryOfFrozen(freezeBodyType ctx dc t) with
-                | ValueSome i -> i
-                | ValueNone -> ()
-        |]
+        : EqArray<FrozenInterface> =
+        EqArray.ofSeq
+            [
+                for t in ifaces do
+                    match FrozenInterface.TryOfFrozen(freezeBodyType ctx dc t) with
+                    | ValueSome i -> i
+                    | ValueNone -> ()
+            ]
 
     /// A `[<Struct>] type X = …` (the ATTRIBUTE form) parses through the Class/Anon arm, not
     /// the `struct … end` form, so its value-type-ness is on the `TypeName`'s attributes.
@@ -141,7 +142,7 @@ module VesperLib =
                                 ExternalConstraint.MemberTrait(
                                     EqArray.ofResizeArray indexBuf,
                                     memberName,
-                                    argFts.ToArray(),
+                                    EqArray.ofResizeArray argFts,
                                     retFt
                                 )
                             )
@@ -232,7 +233,7 @@ module VesperLib =
                 | ExternalTypeShape.Record(arity, fields, origin), (true, DeferredBody.Record(dc, csts)) ->
                     let fields' =
                         fields
-                        |> Array.mapi (fun i f ->
+                        |> EqArray.mapi (fun i f ->
                             { f with
                                 Frozen = freezeBodyType ctx dc csts.[i]
                             }
@@ -242,9 +243,9 @@ module VesperLib =
                 | ExternalTypeShape.Union(arity, cases, _, origin), (true, DeferredBody.Union(dc, caseCsts, ifaceCsts)) ->
                     let cases' =
                         cases
-                        |> Array.mapi (fun i c ->
+                        |> EqArray.mapi (fun i c ->
                             { c with
-                                FrozenFieldTypes = caseCsts.[i] |> Array.map (freezeBodyType ctx dc)
+                                FrozenFieldTypes = caseCsts.[i] |> Array.map (freezeBodyType ctx dc) |> EqArray.ofArray
                             }
                         )
 
@@ -311,13 +312,13 @@ module VesperLib =
         // `interface … with` conformance check reads `shape.Members` directly.
         for k in shapeKeys do
             match ctx.TypeShapes.[k] with
-            | ExternalTypeShape.Class shape when shape.IsInterface && Array.isEmpty shape.Members ->
+            | ExternalTypeShape.Class shape when shape.IsInterface && shape.Members.IsEmpty ->
                 match ctx.TypeMembers.TryGetValue k with
                 | true, members when members.Count > 0 ->
                     ctx.TypeShapes.[k] <-
                         ExternalTypeShape.Class
                             { shape with
-                                Members = members.ToArray()
+                                Members = EqArray.ofResizeArray members
                             }
                 | _ -> ()
             | _ -> ()
@@ -338,7 +339,10 @@ module VesperLib =
                     [
                         for (paramCsts, retCst) in ctors do
                             let parameters =
-                                paramCsts |> Array.map (freezeBodyType ctx dc) |> ExternalSymbols.tupledParams
+                                paramCsts
+                                |> Array.map (freezeBodyType ctx dc)
+                                |> EqArray.ofArray
+                                |> ExternalSymbols.tupledParams
 
                             let ret = freezeBodyType ctx dc retCst
 
@@ -382,8 +386,8 @@ module VesperLib =
                                 Key = { m.Key with Decl = platformDecl }
                             }
                         )
-                        |> Seq.toArray
-                    | _ -> [||]
+                        |> EqArray.ofSeq
+                    | _ -> EqArray.empty
 
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Intrinsic
@@ -658,7 +662,7 @@ module VesperLib =
             csts.Add fieldTy
 
         // `Origin` is stamped later by the resolving source; the extractor records `Empty`.
-        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, shapes.ToArray(), SymbolOrigin.Empty)
+        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, EqArray.ofResizeArray shapes, SymbolOrigin.Empty)
 
         ctx.DeferredBodies.[compiled] <-
             DeferredBody.Record(
@@ -702,7 +706,7 @@ module VesperLib =
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
-                        caseShapes.Add(ExternalCaseShape.create (n, [||]))
+                        caseShapes.Add(ExternalCaseShape.create (n, EqArray.empty))
                         caseCsts.Add [||]
 
                 | UnionTypeCaseData.Nary(ident, _, fields, _) ->
@@ -721,7 +725,7 @@ module VesperLib =
                             names.Add nameOpt
                             fieldCsts.Add fieldTy
 
-                        caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
+                        caseShapes.Add(ExternalCaseShape.create (n, EqArray.ofResizeArray names))
                         caseCsts.Add(fieldCsts.ToArray())
 
                 | UnionTypeCaseData.GadtNullary(name = ident) ->
@@ -731,7 +735,7 @@ module VesperLib =
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
-                        caseShapes.Add(ExternalCaseShape.create (n, [||]))
+                        caseShapes.Add(ExternalCaseShape.create (n, EqArray.empty))
                         caseCsts.Add [||]
 
                 | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(specs, _))) ->
@@ -755,7 +759,7 @@ module VesperLib =
                             names.Add nameOpt
                             fieldCsts.Add fieldTy
 
-                        caseShapes.Add(ExternalCaseShape.create (n, names.ToArray()))
+                        caseShapes.Add(ExternalCaseShape.create (n, EqArray.ofResizeArray names))
                         caseCsts.Add(fieldCsts.ToArray())
 
         // A structurally-broken case (an unresolvable case name) downgrades the whole union:
@@ -770,7 +774,8 @@ module VesperLib =
 
             // `Origin` is stamped later by the resolving source; the extractor records
             // `Empty`. The interfaces start empty because the finalize pass freezes them.
-            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), [||], SymbolOrigin.Empty)
+            ctx.TypeShapes.[compiled] <-
+                ExternalTypeShape.Union(arity, EqArray.ofResizeArray caseShapes, EqArray.empty, SymbolOrigin.Empty)
 
             ctx.DeferredBodies.[compiled] <-
                 DeferredBody.Union(
@@ -819,7 +824,7 @@ module VesperLib =
         | Some e -> skipBodyUnmodelled ctx file compiled arity e
         | None ->
             // `Origin` is stamped later by the resolving source; the extractor records `Empty`.
-            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Enum(caseShapes.ToArray(), SymbolOrigin.Empty)
+            ctx.TypeShapes.[compiled] <- ExternalTypeShape.Enum(EqArray.ofResizeArray caseShapes, SymbolOrigin.Empty)
 
     /// Extract the augmentation `member`s declared inside a type body's `with`-block
     /// (`member Value: 'T` on `Option`), translated over the *type's* typar collector.

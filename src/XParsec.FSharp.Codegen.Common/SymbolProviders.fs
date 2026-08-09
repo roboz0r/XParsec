@@ -77,7 +77,7 @@ module SymbolProviders =
 
             // One entry per curried position, so `this` takes a leading default. No member
             // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.
-            let paramAttrs = Array.create curried.Length ParamAttrs.Default
+            let paramAttrs = EqArray.init curried.Length (fun _ -> ParamAttrs.Default)
 
             Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
 

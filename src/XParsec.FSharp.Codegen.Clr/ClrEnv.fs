@@ -473,13 +473,13 @@ type internal ClrEnv
         | _ -> false
 
     /// Referenced-assembly record shape by `SymbolKey` + arity.
-    let externalRecordShape (key: SymbolKey) (arity: int) : (ExternalFieldShape[] * SymbolOrigin) voption =
+    let externalRecordShape (key: SymbolKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(fields, origin)
         | _ -> ValueNone
 
-    let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
+    let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * EqArray<ExternalFieldShape>) voption =
         // Any non-type key gives `ValueNone`, never a fabricated
         // `(ns = "", name = <whole dotted name>)` ref that only fails at load.
         match key, externalRecordShape key arity with
@@ -493,13 +493,13 @@ type internal ClrEnv
 
     /// Referenced-assembly union shape by `SymbolKey` + arity, for cross-package case
     /// construction (`Some` / `None`).
-    let externalUnionShape (key: SymbolKey) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
+    let externalUnionShape (key: SymbolKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 
-    let externalUnionRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
+    let externalUnionRef (key: SymbolKey) (arity: int) : (EntityHandle * EqArray<ExternalCaseShape>) voption =
         match key, externalUnionShape key arity with
         | SymbolKey.Type t, ValueSome(cases, origin) ->
             let simple = SymbolKeyOps.typeSegmentName t

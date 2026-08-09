@@ -79,7 +79,7 @@ module InlineExpansion =
                         ParamAttrs =
                             match ctx.InlineParamAttrs.TryGetValue b with
                             | true, a -> a
-                            | _ -> [||]
+                            | _ -> EqArray.empty
                         Origin = ctx.Origin
                     }
             | _ -> ()

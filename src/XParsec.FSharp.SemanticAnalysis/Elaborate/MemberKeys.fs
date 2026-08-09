@@ -97,8 +97,8 @@ module LocalMemberKeys =
         | ValueNone ->
             match ctx.Provider.TryLookupMembers(SymbolKey.Type declKey, memberName) with
             // A provider that models this member only singularly (or not at all).
-            | [||] -> singular ()
-            | [| only |] -> ValueSome(SymbolKey.Member only.Key)
+            | EqEmpty -> singular ()
+            | EqOne only -> ValueSome(SymbolKey.Member only.Key)
             // ≥2 overloads sharing this name: a genuine set. A `ValueNone` pick
             // (none-applicable / ambiguous) is left for the caller to diagnose, never a wrong key.
             | members ->

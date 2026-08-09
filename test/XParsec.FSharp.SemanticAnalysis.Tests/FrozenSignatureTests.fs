@@ -115,13 +115,17 @@ let tests =
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Box")) with
                 | ValueSome(ExternalTypeShape.Record(1, fields, origin)) ->
-                    Expect.equal (fields |> Array.map (fun f -> f.Name)) [| "value" |] "Box field names"
+                    Expect.equal (fields |> EqArray.map (fun f -> f.Name)) (EqArray.ofSeq [ "value" ]) "Box field names"
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
                 | other -> failtestf "Box did not project as a generic Record: %A" other
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Opt")) with
                 | ValueSome(ExternalTypeShape.Union(1, cases, _, origin)) ->
-                    Expect.equal (cases |> Array.map (fun c -> c.Name)) [| "Nope"; "Just" |] "Opt case names"
+                    Expect.equal
+                        (cases |> EqArray.map (fun c -> c.Name))
+                        (EqArray.ofSeq [ "Nope"; "Just" ])
+                        "Opt case names"
+
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Opt carries home-assembly origin"
                 | other -> failtestf "Opt did not project as a generic Union: %A" other
             }
@@ -345,17 +349,17 @@ module M =
 
                 for field in [ "X"; "Y" ] do
                     match resolver.TryRecordsWithField field with
-                    | [| c |] ->
+                    | EqOne c ->
                         Expect.equal
                             (SymbolKeyOps.typeMetaName c.TypeKey)
                             rName
                             (sprintf "field %s -> R's compiled name" field)
 
                         Expect.equal c.TyparArity 0 "R is monomorphic"
-                        Expect.equal c.FieldNames [| "X"; "Y" |] "R's field names"
+                        Expect.equal c.FieldNames (EqArray.ofSeq [ "X"; "Y" ]) "R's field names"
                     | other -> failtestf "field %s did not resolve to exactly one record: %A" field other
 
-                Expect.equal (resolver.TryRecordsWithField "Z") [||] "unknown field 'Z' has no candidates"
+                Expect.equal (resolver.TryRecordsWithField "Z") EqArray.empty "unknown field 'Z' has no candidates"
             }
 
             // --- enum projection: a frozen enum's case→literal table projects to an `Enum`
@@ -378,11 +382,14 @@ module M =
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Direction")) with
                 | ValueSome(ExternalTypeShape.Enum(cases, origin)) ->
-                    Expect.equal (cases |> Array.map (fun c -> c.Name)) [| "Up"; "Down" |] "case names in source order"
+                    Expect.equal
+                        (cases |> EqArray.map (fun c -> c.Name))
+                        (EqArray.ofSeq [ "Up"; "Down" ])
+                        "case names in source order"
 
                     Expect.equal
-                        (cases |> Array.map (fun c -> c.Value))
-                        [| ExternalEnumCaseValue.IntVal 0L; ExternalEnumCaseValue.IntVal 1L |]
+                        (cases |> EqArray.map (fun c -> c.Value))
+                        (EqArray.ofSeq [ ExternalEnumCaseValue.IntVal 0L; ExternalEnumCaseValue.IntVal 1L ])
                         "case int64 values"
 
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Direction carries home-assembly origin"
@@ -406,11 +413,8 @@ module M =
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Mode")) with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
                     Expect.equal
-                        (cases |> Array.map (fun c -> c.Value))
-                        [|
-                            ExternalEnumCaseValue.StringVal "on"
-                            ExternalEnumCaseValue.StringVal "off"
-                        |]
+                        (cases |> EqArray.map (fun c -> c.Value))
+                        (EqArray.ofSeq [ ExternalEnumCaseValue.StringVal "on"; ExternalEnumCaseValue.StringVal "off" ])
                         "case string values"
                 | other -> failtestf "Mode did not project as an Enum: %A" other
             }
@@ -429,7 +433,7 @@ module M =
                 let resolver = FrozenSignature.toProvider origin frozen :> IExternalSymbolResolver
 
                 match resolver.TryRecordsWithField "Value" with
-                | [| c |] ->
+                | EqOne c ->
                     Expect.equal
                         (SymbolKeyOps.typeMetaName c.TypeKey)
                         (SymbolKeyOps.typeMetaName (typeKeyOf frozen "Box"))
@@ -458,16 +462,19 @@ module M =
 
                 let shared =
                     resolver.TryRecordsWithField "Shared"
-                    |> Array.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey)
-                    |> Array.sort
+                    |> EqArray.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey)
+                    |> EqArray.sort
 
-                Expect.equal shared (Array.sort [| aName; bName |]) "'Shared' resolves to BOTH records, not first-wins"
+                Expect.equal
+                    shared
+                    (EqArray.sort (EqArray.ofSeq [ aName; bName ]))
+                    "'Shared' resolves to BOTH records, not first-wins"
 
                 // The record-specific fields still pin their single owner.
                 Expect.equal
                     (resolver.TryRecordsWithField "OnlyA"
-                     |> Array.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey))
-                    [| aName |]
+                     |> EqArray.map (fun c -> SymbolKeyOps.typeMetaName c.TypeKey))
+                    (EqArray.singleton aName)
                     "'OnlyA' resolves to A alone"
             }
         ]

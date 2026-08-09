@@ -22,7 +22,7 @@ let tests =
                     pickWith overloadCtx [||] candidates args
 
                 let candidates =
-                    [| overloadMember [ intFt; intFt ] 0; overloadMember [ stringFt; stringFt ] 0 |]
+                    EqArray.ofSeq [ overloadMember [ intFt; intFt ] 0; overloadMember [ stringFt; stringFt ] 0 ]
 
                 let chosen = pick candidates [ TyVar freeTv; BuiltinTypes.tyString ]
 
@@ -54,7 +54,7 @@ let tests =
                 let concrete = overloadMember [ intFt; stringFt ] 0
 
                 let chosen =
-                    pick [| shared; concrete |] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+                    pick (EqArray.ofSeq [ shared; concrete ]) [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
 
                 Expect.equal chosen.IsSome true "M(int, string) is applicable after the shared-typar reject"
 
@@ -73,7 +73,9 @@ let tests =
                 let pick candidates args =
                     pickWith overloadCtx [||] candidates args
 
-                let candidates = [| overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 |]
+                let candidates =
+                    EqArray.ofSeq [ overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 ]
+
                 let chosen = pick candidates [ TyVar(overloadCtx.Store.NewTypeVar()) ]
 
                 Expect.equal chosen.IsSome true "the free argument binds against M(int) — the set is not killed"
@@ -85,7 +87,7 @@ let tests =
                 // the applicable tier by subsumption, and `Base :> GrandBase` ranks `M(Base)`
                 // strictly above `M(GrandBase)` — the nearer base wins.
                 let hierCtx = hierCtx ()
-                let candidates = [| classMember baseTy; classMember grandBaseTy |]
+                let candidates = EqArray.ofSeq [ classMember baseTy; classMember grandBaseTy ]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
                 Expect.equal chosen.IsSome true "a unique best exists"
@@ -97,7 +99,7 @@ let tests =
                 // structural survivor and returns it with no betterness reasoning, so `M(Base)`
                 // — applicable only by subsumption — never competes.
                 let hierCtx = hierCtx ()
-                let candidates = [| classMember baseTy; classMember derivedTy |]
+                let candidates = EqArray.ofSeq [ classMember baseTy; classMember derivedTy ]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
                 Expect.equal chosen.IsSome true "a unique best exists"
@@ -110,7 +112,7 @@ let tests =
                 // `int`, so `M(int)` drops out, leaving `M(Base)` the sole survivor.
                 let hierCtx = hierCtx ()
                 let intClassMember = classMember (TyConst(RuntimeNames.intKey, EqArray.empty))
-                let candidates = [| classMember baseTy; intClassMember |]
+                let candidates = EqArray.ofSeq [ classMember baseTy; intClassMember ]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
                 Expect.equal chosen.IsSome true "M(Base) is applicable by subsumption"
@@ -124,7 +126,7 @@ let tests =
                 let overloadCtx = overloadCtx ()
 
                 let candidates =
-                    [| boxMember (FTTypar(TyparAxis.Declaring, 0)); boxMember stringFt |]
+                    EqArray.ofSeq [ boxMember (FTTypar(TyparAxis.Declaring, 0)); boxMember stringFt ]
 
                 let typeArgs = [| BuiltinTypes.tyInt |]
 
@@ -156,7 +158,7 @@ let tests =
 
                 let generic = overloadMember [ FTTypar(TyparAxis.Method, 0) ] 1
                 let concrete = overloadMember [ intFt ] 0
-                let candidates = [| generic; concrete |]
+                let candidates = EqArray.ofSeq [ generic; concrete ]
 
                 let atInt = pick candidates [ BuiltinTypes.tyInt ]
                 Expect.equal atInt.IsSome true "the int argument resolves"

@@ -384,9 +384,9 @@ module internal TsManifestTranslate =
                     | Some b -> ValueSome(toFrozen ctx b)
                     | None -> ValueNone
                 )
-                |> Array.ofList
+                |> EqArray.ofList
             else
-                [||]
+                EqArray.empty
 
         {
             DeclaringTyparArity = declTyparArity

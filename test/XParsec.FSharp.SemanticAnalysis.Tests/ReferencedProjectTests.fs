@@ -211,10 +211,10 @@ let tests =
                 with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames =
-                        iface.Interfaces |> Array.map (fun i -> SymbolKeyOps.qualifiedName i.Key)
+                        iface.Interfaces |> EqArray.map (fun i -> SymbolKeyOps.qualifiedName i.Key)
 
                     Expect.isTrue
-                        (ifaceNames |> Array.exists (fun n -> n.Contains "disposable"))
+                        (ifaceNames |> EqArray.exists (fun n -> n.Contains "disposable"))
                         (sprintf "enumerator inherits disposable; Interfaces = %A" ifaceNames)
                 | other -> failtestf "expected enumerator as IntrinsicInterface, got %A" other
             }

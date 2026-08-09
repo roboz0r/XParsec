@@ -53,8 +53,8 @@ module JsNativeSymbols =
             {
                 TyparArity = 0
                 IsInterface = false
-                Members = [| errorCtor; errorMessage |]
-                FrozenInterfaces = [||]
+                Members = EqArray.ofSeq [ errorCtor; errorMessage ]
+                FrozenInterfaces = EqArray.empty
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = errorOrigin
@@ -109,13 +109,17 @@ module JsNativeSymbols =
     let private erasedClassEntry (key: SymbolKey) (shape: ExternalTypeShape) : string * ExternalTypeShape =
         SymbolKeyOps.qualifiedName key, shape
 
-    let private mkErasedClassIface (arity: int) (origin: SymbolOrigin) (members: ExternalMember[]) : ExternalTypeShape =
+    let private mkErasedClassIface
+        (arity: int)
+        (origin: SymbolOrigin)
+        (members: EqArray<ExternalMember>)
+        : ExternalTypeShape =
         ExternalTypeShape.Class
             {
                 TyparArity = arity
                 IsInterface = true
                 Members = members
-                FrozenInterfaces = [||]
+                FrozenInterfaces = EqArray.empty
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = origin
@@ -128,17 +132,18 @@ module JsNativeSymbols =
         mkErasedClassIface
             1
             collectionsGenericOrigin
-            [|
-                mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "MoveNext" false unitTy boolTy
-                mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "Current" true unitTy selfTypar
-            |]
+            (EqArray.ofSeq
+                [
+                    mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "MoveNext" false unitTy boolTy
+                    mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "Current" true unitTy selfTypar
+                ])
 
     /// `IEnumerable<'T>` — `GetEnumerator(): IEnumerator<'T>`.
     let private ienumerableShape: ExternalTypeShape =
         mkErasedClassIface
             1
             collectionsGenericOrigin
-            [|
+            (EqArray.singleton (
                 mkIfaceMember
                     collectionsGenericOrigin
                     1
@@ -147,7 +152,7 @@ module JsNativeSymbols =
                     false
                     unitTy
                     (FTClass(ienumeratorTypeKey, EqArray.ofSeq [ selfTypar ]))
-            |]
+            ))
 
     /// Keyed as a by-name lookup spells it: bare `Error` for the global, arity-suffixed
     /// `System.Collections.Generic.IEnumerable\`1` for the generic interfaces.
@@ -159,10 +164,10 @@ module JsNativeSymbols =
                 erasedClassEntry ienumeratorKey ienumeratorShape
             ]
 
-    let private membersOf (typeName: string) (memberName: string) : ExternalMember[] =
+    let private membersOf (typeName: string) (memberName: string) : EqArray<ExternalMember> =
         match Map.tryFind typeName types with
-        | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
-        | _ -> [||]
+        | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = memberName)
+        | _ -> EqArray.empty
 
     /// The stub table as a provider.
     let provider: IExternalSymbolProvider =
@@ -176,7 +181,7 @@ module JsNativeSymbols =
                 TryLookupMember =
                     fun (typeName, memberName) ->
                         match membersOf typeName memberName with
-                        | [||] -> ValueNone
+                        | EqEmpty -> ValueNone
                         | arr -> ValueSome arr.[0]
                 TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
             }

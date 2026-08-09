@@ -120,9 +120,9 @@ module internal ElaborateObjArgs =
             | TyRecord(key, args) ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type key) with
                 | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
-                    match fieldShapes |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen (args.AsSpan().ToArray()))
-                    | None -> ValueNone
+                    match fieldShapes |> EqArray.tryFind (fun f -> f.Name = fieldName) with
+                    | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen (args.AsSpan().ToArray()))
+                    | ValueNone -> ValueNone
                 | _ -> ValueNone
             | _ -> ValueNone
 

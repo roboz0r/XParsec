@@ -62,8 +62,8 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             TryLookupMembers =
                 fun (t, m) ->
                     match taggedMember t m with
-                    | ValueSome mem -> [| mem |]
-                    | ValueNone -> [||]
+                    | ValueSome mem -> EqArray.singleton mem
+                    | ValueNone -> EqArray.empty
         }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which

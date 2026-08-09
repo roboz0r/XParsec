@@ -169,7 +169,7 @@ module Freeze =
                                         ParamAttrs =
                                             match ctx.InlineParamAttrs.TryGetValue k with
                                             | true, a -> a
-                                            | _ -> [||]
+                                            | _ -> EqArray.empty
                                     }
                             }
                 | ValueNone -> ()

@@ -66,7 +66,7 @@ let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
 let pickWith
     (ctx: PassContext)
     (typeArgs: SemType[])
-    (candidates: ExternalMember[])
+    (candidates: EqArray<ExternalMember>)
     (args: SemType list)
     : ExternalMember voption =
     UnificationInferOverload.pickBestOverload ctx typeArgs candidates args

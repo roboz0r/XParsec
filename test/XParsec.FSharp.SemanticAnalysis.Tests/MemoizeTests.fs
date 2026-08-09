@@ -47,7 +47,7 @@ type private CountingProvider(name: string) =
             this.TypeByName n |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit n)
 
         member _.TryLookupUnionCase _ = ValueNone
-        member _.TryRecordsWithField _ = [||]
+        member _.TryRecordsWithField _ = EqArray.empty
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with
@@ -55,7 +55,7 @@ type private CountingProvider(name: string) =
             this.TypeByName(SymbolKeyOps.qualifiedName key)
 
         member _.TryLookupMember(_, _) = ValueNone
-        member _.TryLookupMembers(_, _) = [||]
+        member _.TryLookupMembers(_, _) = EqArray.empty
 
         // A miss, but a counted one: at-most-once is observable on this channel too.
         member _.TryLookupMemberByKey(_: MemberKey) =

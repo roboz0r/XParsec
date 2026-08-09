@@ -48,10 +48,7 @@ module CodegenSymbols =
                     // (`new StringBuilder()`) or an external-base `inherit exn(msg)`, which has
                     // no `TExpr.New`. Arity alone picks it because neither shape is overloaded.
                     provider.TryLookupMembers(declKey, ".ctor")
-                    |> Array.tryFind (fun m -> m.Key.ArgSig.Length = arity)
-                    |> function
-                        | Some m -> ValueSome m
-                        | None -> ValueNone
+                    |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = arity)
 
             // `enumerator<'T>.MoveNext` reconciles to `IEnumerator`1`, but `MoveNext` is
             // declared on the non-generic `IEnumerator`, and a member-ref parented on the
@@ -70,12 +67,12 @@ module CodegenSymbols =
 
                         let declaredOn (m: ExternalMember) = SymbolKeyOps.typeMetaName m.Key.Decl
 
-                        if members |> Array.exists (fun m -> declaredOn m = platform) then
+                        if members |> EqArray.exists (fun m -> declaredOn m = platform) then
                             ValueNone
                         else
-                            match members |> Array.tryFind (fun m -> m.Key.Kind = kind) with
-                            | Some m -> ValueSome(SymbolKey.Member m.Key)
-                            | None -> ValueNone
+                            members
+                            |> EqArray.tryFind (fun m -> m.Key.Kind = kind)
+                            |> ValueOption.map (fun m -> SymbolKey.Member m.Key)
                     | _ -> ValueNone
                 | _ -> ValueNone
 

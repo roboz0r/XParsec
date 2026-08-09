@@ -39,8 +39,8 @@ let private markerMember: ExternalMember =
 let private markerCase: ExternalCaseShape =
     {
         Name = "C"
-        FieldNames = [| ValueNone |]
-        FrozenFieldTypes = [| marker |]
+        FieldNames = EqArray.singleton ValueNone
+        FrozenFieldTypes = EqArray.singleton marker
     }
 
 // The by-key channels reach this leaf as the key's qualified name — `Cls`, `Rec`, `Uni`.
@@ -50,11 +50,11 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Class
                 { ExternalClassShape.basic (0, false, origin) with
-                    Members = [| markerMember |]
+                    Members = EqArray.singleton markerMember
                     FrozenInterfaces =
-                        [|
+                        EqArray.singleton (
                             FrozenInterface.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker)
-                        |]
+                        )
                     FrozenBaseType = ValueSome marker
                 }
         )
@@ -62,13 +62,12 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Record(
                 1,
-                [|
+                EqArray.singleton
                     {
                         Name = "f"
                         IsMutable = false
                         Frozen = marker
-                    }
-                |],
+                    },
                 origin
             )
         )
@@ -76,10 +75,10 @@ let private typeByName (name: string) : ExternalTypeShape voption =
         ValueSome(
             ExternalTypeShape.Union(
                 1,
-                [| markerCase |],
-                [|
+                EqArray.singleton markerCase,
+                EqArray.singleton (
                     FrozenInterface.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker)
-                |],
+                ),
                 origin
             )
         )
@@ -120,8 +119,8 @@ let private fake: IExternalSymbolProvider =
             TryLookupMembers =
                 fun (t, m) ->
                     match memberByName t m with
-                    | ValueSome mem -> [| mem |]
-                    | ValueNone -> [||]
+                    | ValueSome mem -> EqArray.singleton mem
+                    | ValueNone -> EqArray.empty
         }
 
 let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake
@@ -178,7 +177,10 @@ let tests =
             test "a union-case field is covariant and the union's interface args invariant" {
                 match wrapped.TryLookupType "Uni" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _)) ->
-                    Expect.equal cases.[0].FrozenFieldTypes [| witness Variance.Co |] "case field root is co"
+                    Expect.equal
+                        cases.[0].FrozenFieldTypes
+                        (EqArray.singleton (witness Variance.Co))
+                        "case field root is co"
 
                     Expect.equal
                         ifaces.[0].Key
@@ -208,7 +210,10 @@ let tests =
             test "the reverse union-case channel maps case fields covariantly" {
                 match wrapped.TryLookupUnionCase "C" with
                 | ValueSome uc ->
-                    Expect.equal uc.Case.FrozenFieldTypes [| witness Variance.Co |] "reverse case field root is co"
+                    Expect.equal
+                        uc.Case.FrozenFieldTypes
+                        (EqArray.singleton (witness Variance.Co))
+                        "reverse case field root is co"
                 | ValueNone -> failtest "union case should resolve"
             }
 

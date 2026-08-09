@@ -370,10 +370,10 @@ module internal UnificationInferApp =
                                             // int)`); pick the parameterless override.
                                             let toString =
                                                 ctx.Provider.TryLookupMembers(SymbolKey.Type scratchKey, "ToString")
-                                                |> Array.tryFind (fun m -> m.Key.ArgSig.Length = 0)
+                                                |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
 
                                             match toString with
-                                            | Some m ->
+                                            | ValueSome m ->
                                                 ctx.PrintfCallbackScratch.Set(
                                                     node.Key,
                                                     {
@@ -382,7 +382,7 @@ module internal UnificationInferApp =
                                                         ToStringKey = SymbolKey.Member m.Key
                                                     }
                                                 )
-                                            | None ->
+                                            | ValueNone ->
                                                 failwithf
                                                     "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString — cannot lower capture-first"
                                                     scratchName

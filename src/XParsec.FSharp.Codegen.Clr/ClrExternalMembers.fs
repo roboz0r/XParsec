@@ -304,12 +304,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
-            match cases |> Array.tryFind (fun c -> c.Name = caseName) with
-            | None -> ValueNone
-            | Some case ->
+            match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+            | ValueNone -> ValueNone
+            | ValueSome case ->
                 let parent = externalTypeSpec key tref args
 
-                let paramTys = List.ofArray case.FrozenFieldTypes
+                let paramTys = EqArray.toList case.FrozenFieldTypes
 
                 let retTy =
                     FTUnion(
@@ -341,9 +341,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
-            match cases |> Array.tryFindIndex (fun c -> c.Name = caseName) with
-            | None -> ValueNone
-            | Some tag ->
+            match cases |> EqArray.tryFindIndex (fun c -> c.Name = caseName) with
+            | ValueNone -> ValueNone
+            | ValueSome tag ->
                 let parent = externalTypeSpec key tref args
                 let s = BlobBuilder()
                 encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
@@ -363,8 +363,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, cases) ->
-            match cases |> Array.tryFind (fun c -> c.Name = caseName) with
-            | Some case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
+            match cases |> EqArray.tryFind (fun c -> c.Name = caseName) with
+            | ValueSome case when fieldIndex >= 0 && fieldIndex < case.FrozenFieldTypes.Length ->
                 let parent = externalTypeSpec key tref args
 
                 let openFieldTy = case.FrozenFieldTypes.[fieldIndex]
@@ -435,9 +435,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match externalRecordRef key arity with
         | ValueNone -> ValueNone
         | ValueSome(tref, fields) ->
-            match fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-            | None -> ValueNone
-            | Some field ->
+            match fields |> EqArray.tryFind (fun f -> f.Name = fieldName) with
+            | ValueNone -> ValueNone
+            | ValueSome field ->
                 let parent = externalTypeSpec key tref args
 
                 let openFieldTy = field.Frozen

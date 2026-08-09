@@ -54,7 +54,8 @@ let tests =
                 // `AmbientShapes` is a dependency package's type shapes, keyed by qualified
                 // compiled name. A `Union` ambient must bake `TyUnion` at extraction time,
                 // whether the reference is fully qualified or reached via an `open`.
-                let widgetShape = ExternalTypeShape.Union(1, [||], [||], SymbolOrigin.Empty)
+                let widgetShape =
+                    ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty)
 
                 let ambient name =
                     if name = "Dep.Widget" then
@@ -215,7 +216,7 @@ let tests =
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
 
-                let casesOf (suffix: string) : ExternalEnumCaseShape[] =
+                let casesOf (suffix: string) : EqArray<ExternalEnumCaseShape> =
                     let mutable found = ValueNone
 
                     for kv in ctx.TypeShapes do
@@ -356,7 +357,7 @@ let tests =
                 match containerShape with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenInterfaces with
-                    | [| iface |] ->
+                    | EqOne iface ->
                         match iface.Key with
                         | SymbolKey.Type key ->
                             Expect.equal key.Name "IBox" "the IBox interface is published"
@@ -400,7 +401,7 @@ let tests =
                 match fooShape with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenInterfaces with
-                    | [| iface |] ->
+                    | EqOne iface ->
                         match iface.Key with
                         | SymbolKey.Type key -> Expect.equal key.Name "IBar" "the IBar interface is published"
                         | other -> failtestf "expected IBar to publish a type identity; got %A" other
@@ -463,7 +464,11 @@ let tests =
                     Expect.equal cases.[0].FrozenFieldTypes.Length 0 "the nullary case has no fields"
                     Expect.equal cases.[1].Name "Cons" "`(::)` names the cons case by its canonical ctor form"
                     Expect.equal cases.[1].FrozenFieldTypes.Length 2 "cons has Head + Tail fields"
-                    Expect.equal cases.[1].FieldNames [| ValueSome "Head"; ValueSome "Tail" |] "cons field names"
+
+                    Expect.equal
+                        cases.[1].FieldNames
+                        (EqArray.ofSeq [ ValueSome "Head"; ValueSome "Tail" ])
+                        "cons field names"
                 | ValueSome other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
                 | ValueNone -> failtestf "GADT union registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
@@ -951,7 +956,7 @@ let tests =
                     Expect.equal name "op_Addition" "`(+)` is captured by its COMPILED name"
 
                     Expect.equal
-                        (List.ofArray args)
+                        (EqArray.toList args)
                         [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 0) ]
                         "the tupled trait args flatten to two templates over the declaring typar"
 

@@ -494,12 +494,12 @@ module FrozenCodecDecls =
     and writeInlineTemplate (w: FrozenWriter) (v: PooledInlineValue) =
         writeSymbolRef w v.Key
         writeDeclPoolId w v.Decl
-        writeArrayWith w writeParamAttrs v.ParamAttrs
+        writeEqArrayWith w writeParamAttrs v.ParamAttrs
 
     and readInlineTemplate (r: FrozenReader) : PooledInlineValue =
         let key = readSymbolRef r
         let decl = readDeclPoolId r
-        let paramAttrs = readArrayWith r readParamAttrs
+        let paramAttrs = readEqArrayWith r readParamAttrs
 
         {
             Key = key

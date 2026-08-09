@@ -33,7 +33,11 @@ type ExternalConstraint =
     | Trait of typarIndex: int * kind: SemanticConstraintKind
     /// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)` — `typarIndices` is the
     /// trait's LHS; `memberName` is the compiled name (`op_Addition`).
-    | MemberTrait of typarIndices: EqArray<int> * memberName: string * argTypes: FrozenType[] * returnType: FrozenType
+    | MemberTrait of
+        typarIndices: EqArray<int> *
+        memberName: string *
+        argTypes: EqArray<FrozenType> *
+        returnType: FrozenType
     /// `default ^T : <ty>` at generalisation. `target` is another typar
     /// (`default ^T3 : ^T1`) or a concrete shape (`default ^T1 : int`).
     | Default of typarIndex: int * target: FrozenType
@@ -58,7 +62,7 @@ type ImportForm =
 type InlineBody =
     {
         Decl: Wire.TDecl
-        ParamAttrs: ParamAttrs[]
+        ParamAttrs: EqArray<ParamAttrs>
         /// The producer file's anchors: its text and token table. `Decl`'s nodes carry
         /// token INDICES into that file, unreadable without it.
         Origin: OriginSource
@@ -67,7 +71,7 @@ type InlineBody =
 [<RequireQualifiedAccess>]
 module InlineBody =
 
-    let anchoredIn (origin: OriginSource) (decl: Wire.TDecl) (paramAttrs: ParamAttrs[]) : InlineBody =
+    let anchoredIn (origin: OriginSource) (decl: Wire.TDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
         {
             Decl = decl
             ParamAttrs = paramAttrs
@@ -118,17 +122,17 @@ type ExternalFieldShape =
 type ExternalCaseShape =
     {
         Name: string
-        FieldNames: string voption[]
+        FieldNames: EqArray<string voption>
         /// The field types with the enclosing type's typars baked as `FTTypar(Declaring,i)`.
-        FrozenFieldTypes: FrozenType[]
+        FrozenFieldTypes: EqArray<FrozenType>
     }
 
     /// A case whose field templates are deferred until the registry is complete.
-    static member create(name: string, fieldNames: string voption[]) : ExternalCaseShape =
+    static member create(name: string, fieldNames: EqArray<string voption>) : ExternalCaseShape =
         {
             Name = name
             FieldNames = fieldNames
-            FrozenFieldTypes = fieldNames |> Array.map (fun _ -> deferredTemplate)
+            FrozenFieldTypes = fieldNames |> EqArray.map (fun _ -> deferredTemplate)
         }
 
 /// An external enum case's compile-time value. No numeric WIDTH: a TS import has no width
@@ -181,7 +185,7 @@ type ExternalRecordCandidate =
         /// origins.
         Origin: SymbolOrigin
         /// EVERY declared field name, not only the queried one.
-        FieldNames: string[]
+        FieldNames: EqArray<string>
         /// `[<RequireQualifiedAccess>]`: a consumer excludes such a record from bare
         /// field-set resolution: `{ X = … }` must be written `{ R.X = … }`.
         IsRequireQualifiedAccess: bool
@@ -199,7 +203,7 @@ type ExternalSignature =
         /// Per-method-typar UPPER BOUND (`<Key extends keyof Events>`): index `j` is the
         /// `j`-th method typar's bound, baked over the DECLARING typars (`keyof Events` at
         /// `Emitter<R>` → `TyKeyOf R`). Length `MethodTyparArity`, or EMPTY when none.
-        MethodTyparBounds: FrozenType voption[]
+        MethodTyparBounds: EqArray<FrozenType voption>
     }
 
     /// The sentinel a contract-layer member carries until the finalize pass fills
@@ -210,7 +214,7 @@ type ExternalSignature =
             MethodTyparArity = methodTyparArity
             Parameters = deferredTemplate
             Return = deferredTemplate
-            MethodTyparBounds = [||]
+            MethodTyparBounds = EqArray.empty
         }
 
     /// Known `Parameters` / `Return` with no method bounds; a bound-carrying producer
@@ -223,7 +227,7 @@ type ExternalSignature =
             MethodTyparArity = methodTyparArity
             Parameters = parameters
             Return = return'
-            MethodTyparBounds = [||]
+            MethodTyparBounds = EqArray.empty
         }
 
 /// A resolved member (method, field or property) on an external type.
@@ -336,8 +340,8 @@ type ExternalClassShape =
         IsInterface: bool
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
-        Members: ExternalMember[]
-        FrozenInterfaces: FrozenInterface[]
+        Members: EqArray<ExternalMember>
+        FrozenInterfaces: EqArray<FrozenInterface>
         /// The declared base type; `ValueNone` for an interface and for `System.Object`.
         FrozenBaseType: FrozenType voption
         Flags: ExternalClassFlags
@@ -349,8 +353,8 @@ type ExternalClassShape =
         {
             TyparArity = arity
             IsInterface = isInterface
-            Members = [||]
-            FrozenInterfaces = [||]
+            Members = EqArray.empty
+            FrozenInterfaces = EqArray.empty
             FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
             Origin = origin
@@ -389,7 +393,7 @@ type IntrinsicClassSurface =
         BaseType: FrozenType voption
         /// The contract `.ctor`s (`new: string -> exn`): the constructible surface both
         /// `new exn "…"` and `inherit exn(…)` check against.
-        Members: ExternalMember[]
+        Members: EqArray<ExternalMember>
     }
 
 /// An `extern` type whose sibling `.fs` carries `type x = (# "<repr>" #)`. NON-transparent
@@ -425,10 +429,10 @@ type IntrinsicInterfaceShape =
         /// `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the repr.
         Platform: string
         /// The abstract member surface (`Dispose`).
-        Members: ExternalMember[]
+        Members: EqArray<ExternalMember>
         /// The directly-inherited interfaces: `enumerator` inherits `disposable`. Empty for
         /// a leaf capability.
-        Interfaces: FrozenInterface[]
+        Interfaces: EqArray<FrozenInterface>
         Origin: SymbolOrigin
     }
 
@@ -438,13 +442,17 @@ type ExternalTypeShape =
     /// `frozen` is the abbreviation body as a template, which a use site expands.
     | Abbrev of arity: int * frozen: FrozenType
     /// Field order matches source.
-    | Record of arity: int * fields: ExternalFieldShape[] * origin: SymbolOrigin
+    | Record of arity: int * fields: EqArray<ExternalFieldShape> * origin: SymbolOrigin
     /// Case order matches source. `interfaces` are the union's directly-declared
     /// `interface <ty>` impls.
-    | Union of arity: int * cases: ExternalCaseShape[] * interfaces: FrozenInterface[] * origin: SymbolOrigin
+    | Union of
+        arity: int *
+        cases: EqArray<ExternalCaseShape> *
+        interfaces: EqArray<FrozenInterface> *
+        origin: SymbolOrigin
     /// An external enum: named constant cases in source order. No `arity`, because enums are
     /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
-    | Enum of cases: ExternalEnumCaseShape[] * origin: SymbolOrigin
+    | Enum of cases: EqArray<ExternalEnumCaseShape> * origin: SymbolOrigin
     | Class of shape: ExternalClassShape
     /// A referenced package's intrinsic-repr binding (`type exn = (# class
     /// "System.Exception" #)`): scalar (`int`) or heritable class (`obj`/`exn`).
@@ -482,7 +490,7 @@ type IExternalSymbolResolver =
 
     /// A field name → every record declaring a field of that name; unqualified
     /// record-literal / record-pattern resolution intersects these sets to pin the type.
-    abstract TryRecordsWithField: fieldName: string -> ExternalRecordCandidate[]
+    abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
 
     /// The AMBIENT `[<AutoOpen>]` open prefixes this provider contributes, probed strictly
     /// BEHIND every explicit `open`; earliest wins: `["Vesper.ArithmeticOperators"; "Vesper"]`.
@@ -501,8 +509,8 @@ type IExternalSymbolStore =
     abstract TryLookupMember: key: SymbolKey * memberName: string -> ExternalMember voption
 
     /// ALL overloads of a member by name: the candidate set the application-site overload
-    /// resolver picks from. `[||]` from providers that don't model members.
-    abstract TryLookupMembers: key: SymbolKey * memberName: string -> ExternalMember[]
+    /// resolver picks from. Empty from providers that don't model members.
+    abstract TryLookupMembers: key: SymbolKey * memberName: string -> EqArray<ExternalMember>
 
     /// A member by resolved `MemberKey`: the channel a MEMBER splice site reaches an
     /// `InlineBody` through. BY KEY: a by-name lookup collapses an overload set to one pick
@@ -585,15 +593,13 @@ module ExternalSymbols =
         hit |> ValueOption.map (fun (struct (_, shape)) -> shape)
 
     /// The one entry of a by-NAME overload set whose identity is `key`.
-    let memberByKey (key: MemberKey) (candidates: ExternalMember[]) : ExternalMember voption =
-        match candidates |> Array.tryFind (fun m -> m.Key = key) with
-        | Some m -> ValueSome m
-        | None -> ValueNone
+    let memberByKey (key: MemberKey) (candidates: EqArray<ExternalMember>) : ExternalMember voption =
+        candidates |> EqArray.tryFind (fun m -> m.Key = key)
 
     /// The member surface an external nominal publishes: a `Class` or a capability
     /// `IntrinsicInterface`.
     [<return: Struct>]
-    let (|ExternalMembers|_|) (shape: ExternalTypeShape) : ExternalMember[] voption =
+    let (|ExternalMembers|_|) (shape: ExternalTypeShape) : EqArray<ExternalMember> voption =
         match shape with
         | ExternalTypeShape.Class shape -> ValueSome shape.Members
         | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
@@ -602,7 +608,7 @@ module ExternalSymbols =
     /// The member surface of an external INTERFACE specifically. A non-interface `Class` is
     /// excluded, because a record cannot widen to a concrete class.
     [<return: Struct>]
-    let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : ExternalMember[] voption =
+    let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : EqArray<ExternalMember> voption =
         match shape with
         | ExternalTypeShape.Class {
                                       IsInterface = true
@@ -765,25 +771,25 @@ module ExternalSymbols =
     /// A member's method-typar BOUNDS at a use site, one per index.
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
     /// inert marker. Empty when uncarried.
-    let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : SemType voption[] =
+    let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : EqArray<SemType voption> =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
         let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureBounds"
 
         m.Signature.MethodTyparBounds
-        |> Array.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen noLocal ft))
+        |> EqArray.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen noLocal ft))
 
     let instantiateFieldType (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
         instantiateDeclaring f.Frozen declaringArgs
 
     let instantiateCaseFieldTypes (c: ExternalCaseShape) (declaringArgs: SemType[]) : SemType[] =
-        c.FrozenFieldTypes
-        |> Array.map (fun ft -> instantiateDeclaring ft declaringArgs)
+        let fts = c.FrozenFieldTypes
+        Array.init fts.Length (fun i -> instantiateDeclaring fts.[i] declaringArgs)
 
     /// Realise a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
     /// at a use site.
-    let instantiateInterfacesOf (interfaces: FrozenInterface[]) (declaringArgs: SemType[]) : SemType[] =
-        interfaces |> Array.map (fun i -> instantiateDeclaring i.Frozen declaringArgs)
+    let instantiateInterfacesOf (interfaces: EqArray<FrozenInterface>) (declaringArgs: SemType[]) : SemType[] =
+        Array.init interfaces.Length (fun i -> instantiateDeclaring interfaces.[i].Frozen declaringArgs)
 
     let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType[] =
         instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
@@ -807,11 +813,11 @@ module ExternalSymbols =
 
     /// Fold per-parameter frozen types into the single .NET-tupled `Parameters` form an
     /// `ExternalSignature` carries.
-    let tupledParams (ps: FrozenType[]) : FrozenType =
+    let tupledParams (ps: EqArray<FrozenType>) : FrozenType =
         match ps.Length with
         | 0 -> unitFrozen
         | 1 -> ps.[0]
-        | _ -> FTTuple(EqArray.ofArray ps)
+        | _ -> FTTuple ps
 
     let unfreezable = FTUnknown "<unfreezable external template>"
 

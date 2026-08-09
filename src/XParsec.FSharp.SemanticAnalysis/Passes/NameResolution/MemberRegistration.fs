@@ -761,7 +761,7 @@ module NameResolutionMemberRegistration =
                             (fun hit -> heritableIntrinsic hit.Shape)
                             name
                     with
-                    | ValueSome(struct (id, surface)) when surface.Members |> Array.exists (fun m -> m.Name = ".ctor") ->
+                    | ValueSome(struct (id, surface)) when surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
                         ValueSome(TyConst(SymbolKey.Type id.Canon, EqArray.ofList targs))
                     | ValueSome(struct (id, _)) ->
                         match id.Platform with

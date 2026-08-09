@@ -237,13 +237,13 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.Provider.TryLookupType(SymbolKey.Type recKey) with
                 | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
-                    match fieldShapes |> Array.tryFind (fun f -> f.Name = memberName) with
-                    | Some fieldShape ->
+                    match fieldShapes |> EqArray.tryFind (fun f -> f.Name = memberName) with
+                    | ValueSome fieldShape ->
                         // A field read must NOT stamp `ExternalAccess`: Elaborate tries the
                         // stamped-member arm BEFORE the dot-lookup arm, so a stamped field
                         // lowers to a property call instead of `TExpr.FieldGet` / `ldfld`.
                         FrozenTypeBridge.instantiateDeclaring fieldShape.Frozen (args.AsSpan().ToArray())
-                    | None ->
+                    | ValueNone ->
                         // An external record also carries augmentation members. This IS a
                         // member, so stamping `ExternalAccess` is correct here.
                         match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with

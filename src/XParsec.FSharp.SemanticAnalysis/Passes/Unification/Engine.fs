@@ -192,8 +192,8 @@ module UnificationEngine =
                         let declArgs = EqArray.toArray iargs
 
                         ifaceMembers
-                        |> Array.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
-                        |> Array.forall (fun m ->
+                        |> EqArray.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
+                        |> EqArray.forall (fun m ->
                             match fieldTy m.Name with
                             | ValueNone -> false
                             | ValueSome argTy ->

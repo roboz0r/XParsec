@@ -234,19 +234,19 @@ module UnificationInferOverload =
     let pickBestOverload
         (ctx: PassContext)
         (typeArgs: SemType[])
-        (candidates: ExternalMember[])
+        (candidates: EqArray<ExternalMember>)
         (argElems: SemType list)
         : ExternalMember voption =
         match candidates with
-        | [||] -> ValueNone
-        | [| only |] -> ValueSome only
+        | EqEmpty -> ValueNone
+        | EqOne only -> ValueSome only
         | _ ->
             let arity = List.length argElems
 
             // A provider member whose signature disagrees with its recorded `Key.ArgSig` arity
             // is rejected; for the projected candidate, `Params` length is the sole arity axis.
             let rcs =
-                candidates
+                EqArray.toArray candidates
                 |> Array.choose (fun m ->
                     let ps = memberParamTypes ctx.Store typeArgs m
 

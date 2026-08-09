@@ -16,9 +16,11 @@ let private provider: IExternalSymbolProvider =
             TryLookupType =
                 fun n ->
                     match n with
-                    | "Tests.Colour" -> ValueSome(ExternalTypeShape.Union(0, [||], [||], SymbolOrigin.Empty))
-                    | "Other.Palette" -> ValueSome(ExternalTypeShape.Union(0, [||], [||], SymbolOrigin.Empty))
-                    | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, [||], SymbolOrigin.Empty))
+                    | "Tests.Colour" ->
+                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty))
+                    | "Other.Palette" ->
+                        ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty))
+                    | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, EqArray.empty, SymbolOrigin.Empty))
                     | "Tests.Gadget" ->
                         ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))
                     | _ -> ValueNone

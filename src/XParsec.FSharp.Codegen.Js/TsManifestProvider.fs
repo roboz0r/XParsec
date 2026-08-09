@@ -135,10 +135,10 @@ module TsManifestProvider =
             @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol ctx nsPath ex))
             |> Map.ofList
 
-        let membersOf (typeName: string) (memberName: string) : ExternalMember[] =
+        let membersOf (typeName: string) (memberName: string) : EqArray<ExternalMember> =
             match Map.tryFind typeName types with
-            | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
-            | _ -> [||]
+            | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = memberName)
+            | _ -> EqArray.empty
 
         // The TS `{ [k: K]: V }` signatures a type carries, under the SAME qualified name its
         // members register under, so one key answers a member and an index lookup alike.
@@ -179,7 +179,7 @@ module TsManifestProvider =
             TryLookupMember =
                 fun (typeName, memberName) ->
                     match membersOf typeName memberName with
-                    | [||] -> ValueNone
+                    | EqEmpty -> ValueNone
                     | arr -> ValueSome arr.[0]
             TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
             TryLookupIndexSignature =

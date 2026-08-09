@@ -42,9 +42,10 @@ module Elaborate =
         (valT: TExpr)
         : unit =
         if not b.argumentPats.IsEmpty then
-            let attrs = [| for p in b.argumentPats -> Attributes.paramAttrsOfArgPat ctx p |]
+            let attrs =
+                EqArray.ofSeq [ for p in b.argumentPats -> Attributes.paramAttrsOfArgPat ctx p ]
 
-            if attrs |> Array.exists (fun a -> not a.IsDefault) then
+            if attrs |> EqArray.exists (fun a -> not a.IsDefault) then
                 if not b.inlineToken.IsSome then
                     ctx.Report(
                         (CstKeys.siteOfBinding b).Tok,
@@ -53,7 +54,7 @@ module Elaborate =
                     )
                 else
                     attrs
-                    |> Array.iteri (fun i a ->
+                    |> EqArray.iteri (fun i a ->
                         if a.CallAtMostOnce then
                             // This array and the lambda nest must stay positionally aligned:
                             // the inliner re-derives the same `i` from the nest.

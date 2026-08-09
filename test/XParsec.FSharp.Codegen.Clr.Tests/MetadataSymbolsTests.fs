@@ -57,7 +57,7 @@ let tests =
             test "the Class shape eagerly publishes the type's members" {
                 match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let names = info.Members |> Array.map (fun m -> m.Name) |> Set.ofArray
+                    let names = info.Members |> EqArray.map (fun m -> m.Name) |> Set.ofSeq
                     Expect.isTrue (Set.contains "Default" names) "Default property is enumerated"
                     Expect.isTrue (Set.contains "GetHashCode" names) "GetHashCode method is enumerated"
 

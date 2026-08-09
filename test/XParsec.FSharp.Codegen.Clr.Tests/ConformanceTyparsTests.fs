@@ -70,10 +70,10 @@ let tests =
                 Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
 
                 Expect.isTrue
-                    (appendFormatted |> Array.forall (fun m -> m.MethodTyparArity = 1))
+                    (appendFormatted |> EqArray.forall (fun m -> m.MethodTyparArity = 1))
                     (sprintf
                         "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
-                        (appendFormatted |> Array.map (fun m -> m.MethodTyparArity)))
+                        (appendFormatted |> EqArray.map (fun m -> m.MethodTyparArity)))
 
                 let memberMismatches = ConformanceTypars.checkMembers contract tast
 

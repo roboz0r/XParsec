@@ -64,8 +64,8 @@ module internal UnificationInferExternalCall =
                         |> Array.exists (fun m ->
                             match List.tryItem i (memberParamTypes ctx.Store declArgs m) with
                             | Some(TyTypar(TyparAxis.Method, j)) ->
-                                match ExternalSymbols.instantiateSignatureBounds m declArgs |> Array.tryItem j with
-                                | Some(ValueSome bound) ->
+                                match ExternalSymbols.instantiateSignatureBounds m declArgs |> EqArray.tryItem j with
+                                | ValueSome(ValueSome bound) ->
                                     match boundLiteralStrings ctx bound with
                                     | ValueSome set -> Set.contains s set
                                     | ValueNone -> false
@@ -125,8 +125,8 @@ module internal UnificationInferExternalCall =
                 | ValueSome s ->
                     for j in referencedMethodTypars ctx.Store paramTys.[i] do
                         if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
-                            match bounds |> Array.tryItem j with
-                            | Some(ValueSome bound) ->
+                            match bounds |> EqArray.tryItem j with
+                            | ValueSome(ValueSome bound) ->
                                 match boundLiteralStrings ctx bound with
                                 | ValueSome set when Set.contains s set -> seed.[j] <- TyLiteral(LiteralConst.String s)
                                 | _ -> ()
@@ -271,9 +271,9 @@ module internal UnificationInferExternalCall =
             let onSurface (struct (declKey, typeArgs)) =
                 match
                     ctx.Provider.TryLookupMembers(declKey, memberName)
-                    |> Array.filter (fun m -> not m.IsStatic)
+                    |> EqArray.filter (fun m -> not m.IsStatic)
                 with
-                | [||] -> None
+                | EqEmpty -> None
                 | candidates -> Some(struct (typeArgs, candidates))
 
             match externalSurfaceKeys ctx objArgTy |> List.tryPick onSurface with
@@ -288,7 +288,7 @@ module internal UnificationInferExternalCall =
                     // Refine BEFORE the pick, so a string constant both selects the
                     // keyof-bounded typar overload and solves its freshened typar at commit.
                     let argTy =
-                        admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
+                        admitLiteralMethodTypars ctx (EqArray.toArray candidates) declArgs facts (infer ctx argExpr)
 
                     match pickBestOverload ctx declArgs candidates (argElemsOf ctx.Store argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx tok fn chosen declArgs facts argTy)

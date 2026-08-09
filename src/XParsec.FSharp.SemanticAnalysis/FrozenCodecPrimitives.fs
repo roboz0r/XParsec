@@ -124,6 +124,9 @@ module FrozenCodecPrimitives =
         // Count = Capacity by construction, so this hands over the buffer rather than copying.
         b.MoveToImmutable()
 
+    let readEqArrayWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : EqArray<'a> =
+        EqArray.ofImmutable (readImmutableWith r readElem)
+
     // ── container helpers (option / voption / list) ────────────────────────
 
     let writeArrayWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: 'a[]) =

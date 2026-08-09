@@ -29,7 +29,7 @@ module InlineReduction =
         {
             Key: SymbolKey
             Decl: TDecl
-            ParamAttrs: ParamAttrs[]
+            ParamAttrs: EqArray<ParamAttrs>
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the producer's for a served one.
             Origin: OriginFile
@@ -277,7 +277,7 @@ module InlineReduction =
     /// slot is reserved. `caller` marks a substituted argument, which has left the file it was in.
     let internal classifyApplication
         (caller: OriginFile)
-        (paramAttrs: ParamAttrs[])
+        (paramAttrs: EqArray<ParamAttrs>)
         (expanded: TExpr)
         (args: (TExpr * SemType * SyntaxToken) list)
         : Peeled =

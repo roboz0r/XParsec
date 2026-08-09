@@ -10,7 +10,7 @@ open XParsec.FSharp.Parser
 type TInlineBodyG<'ty, 'tok, 'id> =
     {
         Decl: TDeclG<'ty, 'tok, 'id>
-        ParamAttrs: ParamAttrs[]
+        ParamAttrs: EqArray<ParamAttrs>
     }
 
 type TInlineValueG<'ty, 'tok, 'id> =

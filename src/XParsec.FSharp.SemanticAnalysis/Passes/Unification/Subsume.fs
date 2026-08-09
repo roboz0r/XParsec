@@ -57,10 +57,10 @@ module UnificationSubsume =
             | ValueSome(ExternalSymbols.ExternalMembers members) ->
                 ValueSome(
                     members
-                    |> Array.filter (fun m -> not m.IsStatic)
-                    |> Array.map (fun m -> m.Name)
-                    |> Array.distinct
-                    |> Array.toList
+                    |> EqArray.filter (fun m -> not m.IsStatic)
+                    |> EqArray.map (fun m -> m.Name)
+                    |> EqArray.distinct
+                    |> EqArray.toList
                 )
             | _ -> ValueNone
         | _ -> ValueNone
