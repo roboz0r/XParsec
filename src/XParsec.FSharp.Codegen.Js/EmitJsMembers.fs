@@ -20,7 +20,7 @@ module EmitJsMembers =
         else
             [ JsStatement.Const(objArgName, JsExpr.Identifier("this", ValueNone)) ]
 
-    /// `thisAlias` for a member — empty when the member is static.
+    /// `thisAlias` for a member, or empty when the member is static.
     let thisBinding (ctx: WalkCtx) (m: TastAccessor.TypeMember) : JsStatement list =
         match m.ThisKey with
         | ValueSome k -> thisAlias ctx k
@@ -28,7 +28,7 @@ module EmitJsMembers =
 
     /// Emit a plain (non-generator) ATTACHED instance method: bound to JS `this`, the
     /// member's params curried-free, body returned. The runtimes dispatch on a REGISTRY SYMBOL,
-    /// never a named method — `eq` calls `a[Symbol.for("vesper.equality")](b)` — so a capability
+    /// never a named method: `eq` calls `a[Symbol.for("vesper.equality")](b)`. So a capability
     /// impl's slot IS its member body, and only `key` tells the slots apart.
     let emitPlainMethod
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)

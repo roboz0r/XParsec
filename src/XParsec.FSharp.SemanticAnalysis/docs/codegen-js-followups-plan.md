@@ -212,6 +212,30 @@ counts cannot diverge. That moves **B6's `FlatParams` below both backends, into
 `Codegen.Common`**, rather than being a JS-local fix. See `codegen-clr-followups-plan.md`
 A1/B1.
 
+## Diagnostic STRINGS carry the H19 causal hedge — one decision, three projects
+
+The H19 pass over `Codegen.Js` (an em-dash standing in for the connective the code
+determines: `because`, `so`, `but`, `namely`) stopped at the comment/string boundary by
+design — a punctuation sweep must not silently edit user-facing text. Seventeen
+`failwithf`/`failwith` messages across the three codegen projects carry the same defect:
+
+- `Codegen.Js` — 2: `EmitJs`'s `use`-with-no-resolved-disposal, `EmitJsContext`'s
+  unpublished-origin-file.
+- `Codegen.Common` — 2, both in `InlineExpand`.
+- `Codegen.Clr` — 13: `ClrEncoder` ×5, `Layout` ×4, and one each in `ClrEnv`,
+  `ClosureVerdictRewrite`, `EmitBindings`, `NominalEmit`.
+
+**Do not fix the `Codegen.Js` two on their own.** `EmitJs`'s and
+`Codegen.Clr/EmitBindings`'s `use`-disposal messages are a deliberately parallel pair, the
+same sentence in the two backends down to the trailing clause; editing one desynchronises
+them. That is what makes this one decision rather than a per-project tidy-up.
+
+No test asserts on any of the seventeen (checked across `test/`), so the edit is mechanically
+safe. The open question is whether user-facing diagnostic prose is held to the comment rule
+at all — a message is read by someone who has just hit a compiler failure and is the one
+place where an unnamed relation costs the most. Decide once, then apply across the three
+projects during the `Codegen.Common` / `Codegen.Clr` sweeps.
+
 `Codegen.Clr/ClrRecipes.fs` still re-narrates `CallArity`'s flat-vs-grouped divergence in
 seven lines, a near-verbatim clone of an essay already cut from `ICodegenProvider.fs`, where
 the fact now lives sited on the `Grouped` case and the `FlatArgCount` member. It goes when

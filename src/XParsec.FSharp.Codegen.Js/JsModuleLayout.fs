@@ -57,7 +57,7 @@ module JsModulePath =
 type JsHome =
     {
         Assembly: string
-        /// `ValueNone` wherever the producer knew only the assembly — a `.fsi` contract
+        /// `ValueNone` wherever the producer knew only the assembly: a `.fsi` contract
         /// view, a TS manifest, a codegen-synthesised runtime entry.
         DeclaringFile: OriginPath voption
     }
@@ -81,7 +81,7 @@ module JsHome =
         | ValueSome h -> h
         | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what
 
-    /// A whole package's home — no declaring file, so it resolves to the package's
+    /// A whole package's home, carrying no declaring file, so it resolves to the package's
     /// committed asset rather than to a per-file module.
     let ofAssembly (assembly: string) : JsHome =
         {

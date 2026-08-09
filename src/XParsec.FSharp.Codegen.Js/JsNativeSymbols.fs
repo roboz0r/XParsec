@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Common
 /// `new Error("boom")` and an `exn`-typed object argument's member probe lands on this shape.
 module JsNativeSymbols =
 
-    /// The synthetic home "assembly" the stub types report — a label, not a real reference.
+    /// The synthetic home "assembly" the stub types report: a label, not a real reference.
     [<Literal>]
     let private RuntimeAssembly = "Vesper.Js.Runtime"
 
@@ -86,7 +86,7 @@ module JsNativeSymbols =
     /// enumerable by adding this NAME (never a key) to the type's interface set.
     let enumerableInterfaceName: string = SymbolKeyOps.qualifiedName ienumerableKey
 
-    /// An instance member of an erased interface — `declaringTyparArity` is `1` for
+    /// An instance member of an erased interface. `declaringTyparArity` is `1` for
     /// `IEnumerable<'T>`, the arity `'T` is baked against.
     let private mkIfaceMember
         (origin: SymbolOrigin)
@@ -184,8 +184,8 @@ module JsNativeSymbols =
                 TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
             }
 
-    /// The metadata tail a JS compile ends in — these stubs where a CLR compile puts BCL
-    /// reflection. It reads nothing from the reverse-canon map its argument carries.
+    /// The metadata tail a JS compile ends in: these stubs stand where a CLR compile puts
+    /// BCL reflection. It reads nothing from the reverse-canon map its argument carries.
     let private jsNativeMetaTail: SymbolProviders.MetaTailFactory =
         fun _ -> [ provider ]
 

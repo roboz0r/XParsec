@@ -51,7 +51,7 @@ module EmitJsContext =
             /// (`E.Ci`) and an `EnumCase` pattern (`scrut === E.Ci`) both resolve it here.
             Enums: Dictionary<SymbolKey, string>
             /// NOT optional: a compilation that resolves no external symbols still HAS a
-            /// provider — the null one, which answers `ValueNone` to every lookup.
+            /// provider, the null one, which answers `ValueNone` to every lookup.
             Provider: IExternalSymbolProvider
             /// External unions resolved on demand, on a miss in `Unions`. Their case classes
             /// are imported from the union's home module at each `UnionCons` site.
@@ -151,7 +151,7 @@ module EmitJsContext =
         | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
 
     /// Resolve an external record via the provider, caching it. Its class is NOT re-emitted
-    /// locally — it is imported from the record's home module at each construction site.
+    /// locally, but imported from the record's home module at each construction site.
     let resolveExternalRecord (ctx: WalkCtx) (key: SymbolKey) : JsRecordInfo voption =
         match ctx.ExternalRecords.TryGetValue key with
         | true, info -> ValueSome info
@@ -195,7 +195,7 @@ module EmitJsContext =
     // ---- Unions --------------------------------------------------------------
 
     /// Resolve an external union via the provider, caching it. The case classes are NOT
-    /// re-emitted locally — they are imported from its home module at each `UnionCons` site.
+    /// re-emitted locally, but imported from its home module at each `UnionCons` site.
     let resolveExternalUnion (ctx: WalkCtx) (key: SymbolKey) : JsUnionInfo voption =
         match ctx.ExternalUnions.TryGetValue key with
         | true, info -> ValueSome info
@@ -317,7 +317,7 @@ module EmitJsContext =
         | true, name -> JsExpr.Member(JsExpr.Identifier(name, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
         | _ ->
             // An EXTERNAL (TS-manifest) enum: its object map lives in the home module the TS
-            // extractor produced, so `import { E }` and read `E.Ci` — what `tsc` itself emits.
+            // extractor produced, so `import { E }` and read `E.Ci`, which is what `tsc` emits.
             let home =
                 JsExternalMembers.homeOf ctx.Provider enumKey (sprintf "enum case '%s'" caseName)
 
@@ -358,7 +358,7 @@ module EmitJsContext =
             }
 
     /// A `Vesper.Printf.mjs` runtime entry the BACKEND synthesises: no front-end symbol resolves
-    /// to it, so no provider shape carries its home — codegen names both the key and the module.
+    /// to it, so no provider shape carries its home. Codegen names both the key and the module.
     let private printfRuntimeRef (name: string) : JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.moduleValueKey "Vesper" "StructuralPrinter" name)
@@ -382,12 +382,12 @@ module EmitJsContext =
     /// a width's JS repr is not the width itself. `%O` is the only hole whose letter fixes none.
     [<RequireQualifiedAccess>]
     type PlainRender =
-        /// The JS repr IS the F# width — JS's own coercion already renders it .NET's way.
+        /// The JS repr IS the F# width, so JS's own coercion already renders it .NET's way.
         | Native
         /// A JS `bigint` (`int64` / `uint64`). `console.log` inspects a bigint WITH its literal
         /// suffix (`1000000000001n`); .NET prints the digits alone, as `String(v)` does.
         | BigInt
-        /// A `float32` whose repr is a JS `number` — an IEEE-754 DOUBLE — so JS renders it at
+        /// A `float32` whose repr is a JS `number`, an IEEE-754 DOUBLE, so JS renders it at
         /// double precision (`0.1f + 0.2f` → `0.30000001192092896`). Needs the runtime search.
         | Single
 
@@ -405,7 +405,7 @@ module EmitJsContext =
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named sub-patterns
-    /// introduce. `access` must be pure — it is duplicated across the test and the bindings.
+    /// introduce. `access` must be pure, because it is duplicated across the test and bindings.
     let rec compileMatchPattern
         (ctx: WalkCtx)
         (access: JsExpr)

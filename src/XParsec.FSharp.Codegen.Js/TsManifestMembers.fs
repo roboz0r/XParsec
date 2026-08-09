@@ -90,8 +90,8 @@ module internal TsManifestMembers =
 
             expandMethod ctx declKey origin declTyparArity kind mem
 
-    /// The schema's `heritage` is FLAT — nothing in it marks which entry is the base class —
-    /// so each entry's name is resolved against the manifest's own type table: a class takes
+    /// The schema's `heritage` is FLAT: nothing in it marks which entry is the base class,
+    /// so each entry's name is resolved against the manifest's own type table. A class takes
     /// the single base slot, an interface or an unresolved cross-package name the list.
     let private classifyHeritage
         (ctx: TranslateCtx)
@@ -128,8 +128,8 @@ module internal TsManifestMembers =
     [<Literal>]
     let private symbolIteratorPrefix = "__@iterator"
 
-    /// A TS `[Symbol.iterator](): Iterator<T>` IS the `seq<'T>` capability on JS — both are
-    /// the native iterator protocol. The element is the FIRST type arg of the returned
+    /// A TS `[Symbol.iterator](): Iterator<T>` IS the `seq<'T>` capability on JS, because both
+    /// are the native iterator protocol. The element is the FIRST type arg of the returned
     /// iterator: `IterableIterator<T>` → `T`, `Map`'s `IterableIterator<[K,V]>` → `[K,V]`.
     let private tryIteratorElement (ctx: TranslateCtx) (members: Schema.Member list) : FrozenType voption =
         members
@@ -200,8 +200,8 @@ module internal TsManifestMembers =
         | Schema.Export.Class(name, tp, members, heritage, _import, _index) -> build name tp members heritage false
         | Schema.Export.TypeAlias(name, tp, target) ->
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
-            // target's `FrozenType`. `mint`, not `declaredIdentity` — an alias never enters
-            // the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
+            // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
+            // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
             Some(fst (mint nsPath name tp), ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
         | Schema.Export.Enum(name, members) ->
             // A computed (non-constant) member has no value to reference it by, so it
@@ -351,8 +351,8 @@ module internal TsManifestMembers =
                         many
 
             let simpleName = syntheticTypeName moduleSpec
-            // `mint`, not `declaredIdentity`: the grouping type never enters the ctx table
-            // — it is found by qualified name through the seam's lookups.
+            // `mint`, not `declaredIdentity`: the grouping type never enters the ctx table,
+            // but is found by qualified name through the seam's lookups.
             let qn, declKey = mint nsPath simpleName 0
             let origin = originFor ctx nsPath
 

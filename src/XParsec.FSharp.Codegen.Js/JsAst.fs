@@ -13,7 +13,7 @@ type JsMapSource = { Path: string; Content: string }
 /// `class <ClassName> extends <Union> { constructor(<Fields>) { super(<Tag>); … } }`.
 type JsUnionCaseDecl =
     {
-        /// The F# case name, verbatim — the string the base class's `cases()` reports.
+        /// The F# case name, verbatim: the string the base class's `cases()` reports.
         CaseName: string
         /// The emitted subclass name, `<Union>_<Case>`.
         ClassName: string
@@ -45,13 +45,13 @@ type JsRawSeg =
 
 and [<RequireQualifiedAccess>] JsExpr =
     /// A bare name, `x`. Also how the keywords `null` / `undefined` and any JS global reach
-    /// the output — there is no separate case for them.
+    /// the output, because there is no separate case for them.
     | Identifier of name: string * loc: JsLoc voption
     /// `42`, `"s"`, `9n`, `true`.
     | Literal of JsLiteral * loc: JsLoc voption
     /// `object.property` when `computed = false`, `object[property]` when `computed = true`.
     | Member of object: JsExpr * property: JsExpr * computed: bool * loc: JsLoc voption
-    /// `callee(a, b, …)`. An arrow callee is parenthesised first — `((x) => …)(v)`.
+    /// `callee(a, b, …)`. An arrow callee is parenthesised first: `((x) => …)(v)`.
     | Call of callee: JsExpr * arguments: JsExpr list * loc: JsLoc voption
     /// `new callee(a, b, …)`.
     | New of callee: JsExpr * arguments: JsExpr list * loc: JsLoc voption
@@ -78,7 +78,7 @@ and [<RequireQualifiedAccess>] JsExpr =
 
 /// An arrow function's body.
 and [<RequireQualifiedAccess>] JsFnBody =
-    /// A concise body — `=> e`, no braces and no `return`.
+    /// `=> e` — a concise body, no braces and no `return`.
     | Expr of JsExpr
     /// `=> { … }` — a statement block, and the form a self-tail-call loop needs.
     | Block of JsStatement list
@@ -149,7 +149,7 @@ and [<RequireQualifiedAccess>] JsStatement =
 
 /// A class method's name slot.
 and JsMethodKey =
-    /// A plain identifier header — `Named "Equals"` prints `Equals(params)`.
+    /// `Named "Equals"` prints the plain identifier header `Equals(params)`.
     | Named of string
     /// A computed-key header, `[<e>](params)`: `[Symbol.iterator]`, `[Symbol.for("vesper.hash")]`.
     | Computed of JsExpr
@@ -171,7 +171,7 @@ and JsClassMethod =
 /// The one JS constructor an emitted class gets: `constructor(<Params>) { <Body> }`.
 and JsCtor =
     {
-        /// The ctor's OWN parameter names, not the field list — `new(args) = { f = e }`
+        /// The ctor's OWN parameter names, not the field list, because `new(args) = { f = e }`
         /// need not take one parameter per field.
         Params: string list
         /// The stores and preamble; a union subclass's `super(<tag>);` is printed before it.

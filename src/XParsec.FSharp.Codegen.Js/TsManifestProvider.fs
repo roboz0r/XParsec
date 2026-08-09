@@ -83,7 +83,7 @@ module TsManifestProvider =
             Some(sym.Name, sym)
         | _ -> None
 
-    /// Resolves the whole manifest EAGERLY — every map and guard — into a by-name leaf.
+    /// Resolves every map and guard in the manifest EAGERLY into a by-name leaf.
     let private manifestLeaf (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedLeaf =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name.

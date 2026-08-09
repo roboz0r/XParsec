@@ -4,10 +4,10 @@ open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
 /// The char-offset → (line, column) index over a file's text, and the producer files one
-/// emission attributed a node to — the entries after slot 0 of the emitted map's `"sources"`.
+/// emission attributed a node to: the entries after slot 0 of the emitted map's `"sources"`.
 module JsMapSources =
 
-    /// `Starts.[n]` is the char offset line `n` begins at — `"a\nbc"` gives `[| 0; 2 |]`.
+    /// `Starts.[n]` is the char offset line `n` begins at, so `"a\nbc"` gives `[| 0; 2 |]`.
     /// `Length` is that text's length, which bounds a resolved offset.
     type LineIndex = { Starts: int[]; Length: int }
 

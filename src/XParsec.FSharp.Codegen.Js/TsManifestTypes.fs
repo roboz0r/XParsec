@@ -48,12 +48,12 @@ module internal TsManifestTranslate =
         | Schema.ImportShape.CommonJsExport -> ImportForm.CommonJs
         | Schema.ImportShape.Namespace -> ImportForm.Namespace
 
-    /// A symbol is registered and found under its DOTTED QUALIFIED name (`NS.Inner.Baz`) —
-    /// the name resolution forms from a use site. A top-level export keeps its bare name.
+    /// A symbol is registered and found under the DOTTED QUALIFIED name (`NS.Inner.Baz`) that
+    /// resolution forms from a use site. A top-level export keeps its bare name.
     let qualify (nsPath: string) (name: string) : string =
         if nsPath = "" then name else nsPath + "." + name
 
-    /// A `Namespace` container produces NO symbol — only its members do, each paired with
+    /// A `Namespace` container produces NO symbol. Only its members do, each paired with
     /// the dotted path it nests under, so nested and top-level share the same flat maps.
     let rec flatten (nsPath: string) (exports: Schema.Export list) : (string * Schema.Export) list =
         exports
@@ -78,7 +78,7 @@ module internal TsManifestTranslate =
             /// Built over ALL flat exports first, so a signature naming a LATER type resolves.
             Types: Map<string, TypeIdentity>
             /// The manifest's foreign references, keyed by the referenced type's BARE name.
-            /// IDENTITY ONLY — never the foreign shape (the ECMA-335 `TypeRef` analog).
+            /// IDENTITY ONLY, never the foreign shape (the ECMA-335 `TypeRef` analog).
             Refs: Map<string, Schema.RefEntry>
             /// The symbols' import path; stamped into every minted key and `SymbolOrigin`.
             ModuleSpec: string
@@ -141,7 +141,7 @@ module internal TsManifestTranslate =
     // ─── Structural shape-hash ─────────────────────────────────────────────
 
     /// The canonical string IS the identity, and every case carries a tag so no two shapes
-    /// alias. `Named` refs are LEAVES — never expanded, which bounds the recursion, since TS
+    /// alias. `Named` refs are LEAVES: never expanded, which bounds the recursion, since TS
     /// recursion requires a name. Fields and union members are SORTED: order-invariant.
     let rec private shapeHash (t: Schema.TypeRef) : string =
         match t with
@@ -280,9 +280,9 @@ module internal TsManifestTranslate =
 
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
-            // A name missing BOTH tables is either a primitive spelled canonically — mint the
-            // `Vesper` key so a manifest `string`/`float` unifies with the front end's
-            // intrinsic — or genuinely external. A name recogniser: no provider is in hand.
+            // A name missing BOTH tables is either a primitive spelled canonically or genuinely
+            // external, decided on the name alone: no provider is in hand. A primitive mints the
+            // `Vesper` key, so a manifest `string`/`float` unifies with the front end's intrinsic.
             let intrinsicOrOpaque (name: string) : FrozenType =
                 let isVesperPrimitive =
                     RuntimeNames.numericTypeNames.Contains name
@@ -311,7 +311,7 @@ module internal TsManifestTranslate =
             | Some key -> FTClass(key, EqArray.ofSeq args)
             | None ->
                 // Own-registry miss: the FOREIGN refs table, keyed by the BARE name, mints
-                // IDENTITY ONLY — the key the home manifest registers, so member access
+                // IDENTITY ONLY, the key the home manifest registers, so member access
                 // resolves once that home is stacked. Alias/Enum refs stay `FTConst`.
                 match Map.tryFind name ctx.Refs with
                 | Some entry ->
@@ -343,7 +343,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> FTLiteral(LiteralConst.String s)
         | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> FTLiteral(LiteralConst.Int n)
         // INERT carriers: rehydrated with their children and threaded through every walk,
-        // but never evaluated — the front end owns the ground fold.
+        // but never evaluated, because the front end owns the ground fold.
         | Schema.TypeRef.KeyOf t -> FTKeyOf(toFrozen ctx t)
         | Schema.TypeRef.IndexedAccess(objTy, index) -> FTIndexedAccess(toFrozen ctx objTy, toFrozen ctx index)
         | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
@@ -358,7 +358,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Dynamic -> FTConst(RuntimeNames.dynamicKey, EqArray.empty)
         // An anonymous shape freezes to a hash-keyed ERASING nominal: its members resolve and
         // lower to native `objArg.x` reads while NOTHING is emitted for the type. A bare
-        // `{ [k: K]: V }` counts — its index is its content; with neither, it stays opaque.
+        // `{ [k: K]: V }` counts, because its index is its content; with neither, it stays opaque.
         | Schema.TypeRef.Structural(printed, fields, index) ->
             match fields, index with
             | [], [] -> FTUnknown("structural:" + structuralHash printed fields)

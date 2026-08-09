@@ -58,7 +58,7 @@ type JsArtifact =
         /// output file by `materialise`.
         RuntimeModules: JsRuntimeModule list
         ImportedModules: JsModulePath list
-        /// `true` when the file lowered to no statements — an intrinsic-repr-only source.
+        /// `true` when the file lowered to no statements, as an intrinsic-repr-only source does.
         IsEmpty: bool
     }
 
@@ -77,9 +77,8 @@ module Codegen =
             ReferencedProject.runtimeModules Target.Js contract.ManifestPaths
             |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
 
-        // A node's anchor is an index into the token table, so a position needs `src.Lexed` —
-        // the front end's own table, the one the anchors were numbered against — not just the
-        // line starts.
+        // A node's anchor is an index into the token table, so a position needs `src.Lexed`, the
+        // very table the anchors were numbered against, not just the line starts.
         let resolver: EmitJsContext.Resolver =
             match project.Source with
             | Some src ->

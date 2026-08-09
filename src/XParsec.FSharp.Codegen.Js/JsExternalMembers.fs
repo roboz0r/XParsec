@@ -26,8 +26,6 @@ type MemberDispatch =
 /// a `build` callback, which keeps it out of the `buildExpr` mutual-recursion group.
 module JsExternalMembers =
 
-    /// Handing the MEMBER key back instead would send every downstream reader looking for a
-    /// type under a member's identity, and silently missing.
     let declKey (key: SymbolKey) : TypeKey =
         SymbolKeyOps.declTypeKeyOf "EmitJs: member node" key
 
@@ -82,7 +80,7 @@ module JsExternalMembers =
     /// THE `ExternalMember` classification, read by both consumers so they cannot drift.
     let dispatchOf (provider: IExternalSymbolProvider) (declKey: TypeKey) (storage: MemberStorage) : MemberDispatch =
         // A `Fun` is an ECMAScript arrow at run time, so `f.Invoke(a)` is application, not a
-        // member on an object that has none — settled by KEY, before any shape lookup.
+        // member on an object that has none. Settled by KEY, before any shape lookup.
         if Array.contains declKey funKeys then
             MemberDispatch.Application
         else
@@ -113,7 +111,7 @@ module JsExternalMembers =
             | FTClass(key, _)
             | FTUnion(key, _)
             | FTRecord(key, _) -> provider.TryLookupType(SymbolKey.Type key)
-            // An intrinsic's canon key is a nominal identity — ask by KEY, as the arms above do.
+            // An intrinsic's canon key is a nominal identity, so ask by KEY as the arms above do.
             | FTConst(key, _) -> provider.TryLookupType key
             | _ -> ValueNone
 
@@ -246,7 +244,8 @@ module JsExternalMembers =
         | ValueSome(name, value) -> JsExpr.Call(JsExpr.Arrow([ name ], JsFnBody.Expr arrow, ValueNone), [ value ], loc)
 
     /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
-    /// eta-wrap so `this` binds at the eventual call — a detached `objArg.member` loses it.
+    /// eta-wrap so `this` binds at the eventual call, because a detached `objArg.member`
+    /// loses it.
     let etaWrapAttachedMethod
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
@@ -279,7 +278,7 @@ module JsExternalMembers =
             etaWrapMember build objArg argCount (fun objArgJs args -> JsExpr.Call(objArgJs, args, loc)) pool loc
 
     /// ERASE: the declaring type is a synthetic grouping with no runtime existence, so the
-    /// callee is the BARE member name — the real export — not an external static's mangled one.
+    /// callee is the BARE member name, the real export, not an external static's mangled one.
     let erasedGroupingRef
         (provider: IExternalSymbolProvider)
         (imports: JsImports)
@@ -289,7 +288,7 @@ module JsExternalMembers =
         (loc: JsLoc voption)
         : JsExpr =
         // A free function is held DIRECTLY by the namespace its export sits in, which the
-        // synthetic grouping type shares — home included, by construction.
+        // synthetic grouping type shares, so its home is the grouping type's by construction.
         let valueKey =
             SymbolKeyOps.valueKey (ModuleContainer.InNamespace declKey.Namespace) memberName
 
@@ -307,7 +306,7 @@ module JsExternalMembers =
         JsExpr.Identifier(JsImports.addRef imports memberName valueRef, loc)
 
     /// Aliased from the declaring type's JS runtime module. Only a Vesper-provided runtime can
-    /// satisfy this export shape — a real npm package cannot export a mangled name.
+    /// satisfy this export shape, because a real npm package cannot export a mangled name.
     let mangledMemberAccess
         (provider: IExternalSymbolProvider)
         (imports: JsImports)

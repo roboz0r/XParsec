@@ -170,7 +170,7 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
-    /// `constructor(<params>) { … }`; `prologue` prints first — a union subclass's `super(3);`.
+    /// `constructor(<params>) { … }`; `prologue` prints first, namely a union subclass's `super(3);`.
     and private ctorDecl (ctor: JsCtor) (prologue: Doc list) : Doc =
         memberDecl
             (text "constructor(" ++ commaList (List.map text ctor.Params) ++ text ")")
@@ -293,7 +293,7 @@ module JsPrint =
                                     ++ commaList [ for c in cases -> text (JsEscape.quoted c.CaseName) ]
                                     ++ text "];"
                                 ]
-                        // `[Symbol.iterator]`, equality, hash — attached to the BASE class, so
+                        // `[Symbol.iterator]`, equality and hash attach to the BASE class, so
                         // every case subclass inherits them.
                         for m in baseMethods -> methodDecl m
                     ]

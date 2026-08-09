@@ -2,8 +2,8 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// A committed `.mjs` shipped beside the compiled output — one of the assets a package
-/// manifest's `[targets.js] runtime` key names.
+/// One of the assets a package manifest's `[targets.js] runtime` key names: a committed
+/// `.mjs` shipped beside the compiled output.
 type JsRuntimeModule =
     {
         /// `Vesper.List.mjs` — written beside the output, named in `import … from "./<FileName>"`.
@@ -18,7 +18,7 @@ type private ImportEntry =
     {
         Path: JsModulePath
         /// The committed asset to materialise beside the output. `ValueNone` for a module
-        /// this build EMITS — a sibling file of the package being compiled writes itself.
+        /// this build EMITS, because that compilation writes the sibling file itself.
         Asset: JsRuntimeModule voption
         Named: System.Collections.Generic.HashSet<string * string>
         mutable Default: string option
@@ -37,16 +37,16 @@ type JsValueRef =
         Form: ImportForm
     }
 
-/// Per-compilation accumulator for the module imports a program needs — each imported
-/// module recorded once, on first reference by the expression walker.
+/// Per-compilation accumulator for the module imports a program needs. Each imported
+/// module is recorded once, on first reference by the expression walker.
 type JsImports =
     private
         {
             /// Package/assembly name → its committed runtime asset; only the referenced
             /// subset ships.
             Runtime: Map<string, JsRuntimeModule>
-            /// The package directory the module being emitted sits in — every specifier
-            /// is rendered from it. `ValueNone` for a program at the output root.
+            /// The package directory the module being emitted sits in, the base every
+            /// specifier is rendered from. `ValueNone` for a program at the output root.
             SelfPackage: string voption
             Entries: System.Collections.Generic.Dictionary<JsModulePath, ImportEntry>
         }
@@ -149,7 +149,7 @@ module JsImports =
                 nsLocal + "." + name
 
     /// The local identifier for an external class, importing `className` from `home`'s
-    /// module as `$<asm>_<className>` — the assembly disambiguates same-named classes.
+    /// module as `$<asm>_<className>`, since the assembly disambiguates same-named classes.
     let addTypeRef (imports: JsImports) (home: JsHome) (className: string) : string =
         let entry = entryFor imports home (sprintf "external type '%s'" className)
         let alias = "$" + home.Assembly.Replace('.', '_') + "_" + className
@@ -164,7 +164,7 @@ module JsImports =
         entry.Named.Add((exportName, alias)) |> ignore
         alias
 
-    /// The leading `import … from "<spec>"` block — one statement per imported module,
+    /// The leading `import … from "<spec>"` block: one statement per imported module,
     /// modules and specifiers sorted so the emitted text is deterministic.
     let importStatements (imports: JsImports) : JsStatement list =
         [
@@ -186,7 +186,6 @@ module JsImports =
 
     /// The committed runtime ASSETS referenced during the walk, sorted by module. Only the
     /// directly referenced ones: an asset that imports another asset is not closed over.
-    /// A per-file module of the package under compilation is not here — that build writes it.
     let assets (imports: JsImports) : JsRuntimeModule list =
         [
             for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) do

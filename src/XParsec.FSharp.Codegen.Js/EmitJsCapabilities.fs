@@ -65,7 +65,7 @@ module EmitJsCapabilities =
 
     /// The runtime entry behind `seq<'T>.GetEnumerator()`: a JS source's only enumerable surface
     /// is `Symbol.iterator`, so nothing exists to call and this adapter holds the state the split
-    /// `MoveNext`/`Current` needs. No front-end symbol resolves to it — codegen names its home.
+    /// `MoveNext`/`Current` needs. No front-end symbol resolves to it, so codegen names its home.
     let private enumeratorOfRef: JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "Vesper.Collections") "enumeratorOf")
@@ -114,7 +114,7 @@ module EmitJsCapabilities =
             |> ValueOption.map (fun emit -> struct (objArg, emit))
         | _ -> ValueNone
 
-    /// The APPLIED form — `e.MoveNext()` — folded into the same zero-arg access. The `unit`
+    /// `e.MoveNext()`, the APPLIED form, folds into the same zero-arg access. The `unit`
     /// argument is matched, not assumed: a capability member taking a real argument keeps the
     /// ordinary lowering, which passes it, rather than being folded down and losing it.
     let tryCapabilityCall

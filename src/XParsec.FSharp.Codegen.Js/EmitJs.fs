@@ -58,8 +58,8 @@ module EmitJs =
 
         | ExprShape.Let ->
             match e with
-            // Pure `let` in expression position: substitute into uses. A *mutable* bound variable is
-            // excluded — it must stay a real binding so its writes land — and falls below.
+            // Pure `let` in expression position: substitute into uses. A *mutable* bound variable
+            // falls below instead: it must stay a real binding so its writes land.
             | InlinableLet ctx reduced -> buildExpr ctx reduced
             | _ ->
                 let l = TastAccessor.exprLet e
@@ -94,7 +94,7 @@ module EmitJs =
                         )
                     | _ -> failwithf "EmitJs: unsupported expression %A" e
 
-        // Anonymous lambda — no bound variable key, so no self-tail-call analysis applies.
+        // An anonymous lambda has no bound variable key, so no self-tail-call analysis applies.
         | ExprShape.Lambda -> emitFunction ctx ValueNone e
 
         // A SATURATED call to a module function (local or external) collapses all its
@@ -202,7 +202,7 @@ module EmitJs =
             )
 
         // A union constructor `Case e0 e1 …` → `new <Union>_<Case>(args…)`. The args already
-        // arrive in declaration (field) order, so — unlike a record literal — no reordering.
+        // arrive in declaration (field) order, so no reordering, unlike a record literal.
         | ExprShape.UnionCons ->
             let info = unionInfoOf ctx "UnionCons" (TastAccessor.exprTy e)
             let c = unionCaseFromInfo info "UnionCons" (TastAccessor.exprUnionConsCaseName e)
@@ -230,7 +230,7 @@ module EmitJs =
                 | ValueNone -> ValueNone
 
             // A GLOBAL (ambient) external class constructs by its BARE export name with NO
-            // import — the JS runtime provides it intrinsically. That name is the key's
+            // import, because the JS runtime provides it intrinsically. That name is the key's
             // simple name (`Js.Widget` → `Widget`).
             let globalClassName =
                 match TastLower.objArgShape ty with
@@ -263,7 +263,7 @@ module EmitJs =
                         (TastAccessor.exprNewClassName e)
 
         // A LOCAL interface slot's impl is an ATTACHED method on the object argument's class, so
-        // it dispatches as `objArg.<member>(args)` — no free `<Type>__<member>` function is
+        // it dispatches as `objArg.<member>(args)`. No free `<Type>__<member>` function is
         // emitted for an interface member. An impl PROPERTY is a zero-arg attached method.
         | ExprShape.PropertyGet ->
             let pg = TastAccessor.exprPropertyGet e
@@ -332,7 +332,7 @@ module EmitJs =
                     JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
                 | MemberDispatch.InterfaceProperty, ValueSome r ->
                     JsExpr.Call(JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc, [], loc)
-                // JS has no field/property distinction at access — a `Field` and a `Property`
+                // JS has no field/property distinction at access, so a `Field` and a `Property`
                 // both take the `get_`-style mangled import; only a `Method` is a function.
                 | MemberDispatch.TypePrefixedImport, _
                 | MemberDispatch.Application, ValueNone
@@ -408,8 +408,8 @@ module EmitJs =
 
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ tryFinally ], loc), [], loc)
 
-        // JS is dynamically typed — every value is already a boxed `obj` — so `e :> obj` is a
-        // no-op emitting its source verbatim, and `e :?> T` is likewise identity.
+        // Every JS value is already a boxed `obj`, so `e :> obj` is a no-op emitting its source
+        // verbatim, and `e :?> T` is likewise identity.
         | ExprShape.Upcast
         | ExprShape.Downcast -> buildExpr ctx (TastAccessor.exprChild e 0)
 
@@ -479,7 +479,7 @@ module EmitJs =
 
         // Legitimate F# the walker has no lowering for yet: `TryWith` wants catch-side arm
         // matching, and `TypeTest` (`e :? T`) has no runtime nominal identity to test on this
-        // backend — the expression form of the gap `compileMatchPattern` also refuses.
+        // backend. That is the expression form of the gap `compileMatchPattern` also refuses.
         | ExprShape.Null
         | ExprShape.TryWith
         | ExprShape.TypeTest -> failwithf "EmitJs: unsupported expression %A" e
@@ -494,7 +494,7 @@ module EmitJs =
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
     /// Build one `match` arm's statements: a matching pattern (and passing guard) `return`s
-    /// the body. An always-matching arm emits a bare `Block` so its bindings stay scoped —
+    /// the body. An always-matching arm emits a bare `Block` so its bindings stay scoped, since
     /// two arms may bind the same source name; a refutable arm guards it with `if (test)`.
     and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: TastAccessor.Arm) : JsStatement list =
         let test, binds = compileMatchPattern ctx access arm.Pat
@@ -599,8 +599,7 @@ module EmitJs =
                     [ JsStatement.Return(buildExpr ctx e) ]
             | _ -> [ JsStatement.Return(buildExpr ctx e) ]
 
-    /// Curry `base` over `args` — one unary `Call` per argument, in source order:
-    /// `base(a)(b)…`.
+    /// `base(a)(b)…` — one unary `Call` per argument, in source order.
     and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: EqArray<TastAccessor.ExprId>) : JsExpr =
         args
         |> EqArray.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
@@ -626,7 +625,7 @@ module EmitJs =
 
         JsExpr.Arrow(names, trampolineOrExpr ctx selfKey (List.length cf.Groups) names cf.Body, loc)
 
-    /// `objArg.<member>` for a call dispatched through a local interface slot — the member
+    /// `objArg.<member>` for a call dispatched through a local interface slot. The member
     /// resolves to the attached method emitted on the object argument's class, under its JS name.
     and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (objArg: TastAccessor.ExprId) (key: SymbolKey) : JsExpr =
         let (DisplayName memberName) = SymbolKeyOps.simpleName key
@@ -693,7 +692,7 @@ module EmitJs =
                 ]
             // `for x in source do body` → a JS `for…of`, which drives the source's own
             // `Symbol.iterator` at runtime. The `Interface` enumerator carries no member keys
-            // to resolve — JS defers to the iterator protocol where the CLR mints slots.
+            // to resolve, because JS defers to the iterator protocol where the CLR mints slots.
             | ExprShape.ForIn ->
                 let fi = TastAccessor.exprForIn e
 
@@ -708,8 +707,8 @@ module EmitJs =
                         [
                             JsStatement.ForOf(name, buildExpr ctx fi.Source, buildStatements ctx fi.Body)
                         ]
-                    // Destructuring bound variable — `for (k, v) in map`: a fresh loop temp deconstructed
-                    // into the body's first statement. It must be irrefutable; a `Some test` is not.
+                    // `for (k, v) in map`: a fresh loop temp deconstructed into the body's first
+                    // statement. It must be irrefutable; a `Some test` is not.
                     | PatShape.Tuple ->
                         let tmp = freshTemp ctx.Pool "_forin"
 
@@ -768,8 +767,8 @@ module EmitJs =
 
         let disposeCall =
             match dispose with
-            // The CLR-only interface `slot` key the node carries is irrelevant here — JS
-            // names its own slot.
+            // The CLR-only interface `slot` key the node carries is irrelevant here, because
+            // JS names its own slot.
             | Disposal.ViaCapability _ -> disposeSlotCall boundVar ValueNone
             // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
             // keyed member's free type-prefixed function.
@@ -783,7 +782,7 @@ module EmitJs =
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
-    /// A class's instance preamble as the TAIL of its primary constructor — declaration order
+    /// A class's instance preamble is the TAIL of its primary constructor: declaration order
     /// is load-bearing, hence ctor statements rather than class-field initialisers. Every `let`
     /// is an instance FIELD `this.<name> = <init>`, `let mutable` too: one storage, no ref cell.
     let private emitInstancePreamble (ctx: WalkCtx) (p: EmitJsTypes.ClassPreamble) : JsStatement list =
@@ -896,8 +895,8 @@ module EmitJs =
         InlineExpand.Derivation.absorb ctx0.Derivation expansion.Derived
 
         // The producer files this program reached get a slot in the map's `sources[]`. It walks
-        // the RETENTION, which yields in path order, keeping what the expansion named — not the
-        // expansion's dictionary order — so two builds of one program publish the same map.
+        // the RETENTION, which yields in path order, keeping what the expansion named but not
+        // the expansion's dictionary order, so two builds of one program publish the same map.
         match ctx0.Resolver with
         | ValueNone -> ()
         | ValueSome r ->
@@ -941,7 +940,7 @@ module EmitJs =
                 LocalInterfaces = localInterfaces
             }
 
-        // Class decls (with their attached instance methods) are built now — their method
+        // Class decls (with their attached instance methods) are built now, because their method
         // bodies need the full ctx, unlike record/union decls, which carry no bodies.
         let classDecls =
             [
@@ -979,8 +978,8 @@ module EmitJs =
                     )
             ]
 
-        // Member functions emit after the class decls — they reference the classes via
-        // `new`/match, and `const` arrows are not hoisted — and before the body.
+        // Member functions emit after the class decls and before the body: they reference the
+        // classes via `new`/match, and `const` arrows are not hoisted.
         let memberDecls =
             [
                 for (typeName, m) in collected.Members -> EmitJsMembers.emitMemberFn buildExpr ctx typeName m

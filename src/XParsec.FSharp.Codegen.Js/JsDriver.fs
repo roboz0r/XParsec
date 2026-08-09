@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common
 /// One EMITTING source file of a package build, compiled to its own `.mjs`.
 type JsPackageModule =
     {
-        /// The path this was compiled from (`a/one.fs`) — what a diagnostic is blamed on.
+        /// The path this was compiled from (`a/one.fs`), and the path a diagnostic is blamed on.
         Source: string
         Path: JsModulePath
         Artifact: JsArtifact

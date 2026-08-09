@@ -260,7 +260,7 @@ module EmitJsTypes =
             for m in ms do
                 members.Add(typeName, m)
 
-        // Partition, and enrol the `Free` members as top-level functions — the one step
+        // Partition, and enrol the `Free` members as top-level functions, the one step
         // every deferred arm shares.
         let deferPartition
             (typeName: string)
@@ -283,7 +283,7 @@ module EmitJsTypes =
                 // JS has no value types, so the `valueKind` a `[<Struct>]` record carries is
                 // ignored: it emits as the same reference-object class as any other record.
                 | TTypeKindG.Record(fields, recMembers, recInterfaces, _) ->
-                    // Local record: `Home = ValueNone` — its class is emitted here.
+                    // Local record: `Home = ValueNone` because its class is emitted here.
                     let info =
                         {
                             Name = td.Name
@@ -312,7 +312,7 @@ module EmitJsTypes =
                                 Members = parts
                             }
                 | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
-                    // Local union: `Home = ValueNone` — its case classes are emitted here.
+                    // Local union: `Home = ValueNone` because its case classes are emitted here.
                     let info, caseDecls =
                         buildUnionInfo
                             ValueNone
@@ -331,7 +331,7 @@ module EmitJsTypes =
                     else
                         // The impls attach to the BASE class, so every case subclass inherits
                         // them. A union's augmentation members are never interface impls, so
-                        // `parts.Free` is all of `unionMembers` — hence no `addMembers` here.
+                        // `parts.Free` is all of `unionMembers`. Hence no `addMembers` here.
                         let parts = deferPartition td.Name unionInterfaces unionMembers
 
                         pendingUnions.Add

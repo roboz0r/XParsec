@@ -9,7 +9,7 @@ open EmitJsContext
 module EmitJsFormat =
 
     /// Build the JS expression a format hole's argument contributes: the specifier's
-    /// formatting inlined from the hole's typed fields — no format string reaches runtime.
+    /// formatting inlined from the hole's typed fields, so no format string reaches runtime.
     let buildHole
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
@@ -29,7 +29,7 @@ module EmitJsFormat =
         // A method call `objArg.m(args…)`.
         let invoke (objArg: JsExpr) (m: string) (args: JsExpr list) =
             JsExpr.Call(JsExpr.Member(objArg, id m, false, ValueNone), args, ValueNone)
-        // Parenthesise a bare numeric-literal `.method` object argument — `5.toFixed(0)` is a
+        // Parenthesise a bare numeric-literal `.method` object argument, because `5.toFixed(0)` is a
         // JS syntax error and `-3.14.toFixed(2)` mis-binds as `-(3.14.toFixed(2))`.
         let objArg (e: JsExpr) : JsExpr =
             match e with
@@ -44,7 +44,7 @@ module EmitJsFormat =
             | Some a -> invoke e "padEnd" [ num (-a) ]
             | None -> e
 
-        // Splice the operand into `build value` — for forms that read it a single time.
+        // Splice the operand into `build value`, for forms that read it a single time.
         let direct (build: JsExpr -> JsExpr) : JsExpr = build (buildExpr ctx operand)
 
         // Bind the operand to `v` in an arrow IIFE, `((v) => build(v))(operand)`, so a form
@@ -71,14 +71,14 @@ module EmitJsFormat =
             | Prec.Const n -> num n
             | Prec.Star -> id "p"
 
-        // `toPrecision` requires ≥ 1 significant digit — a `%.0g` would throw a RangeError.
+        // `toPrecision` requires ≥ 1 significant digit, so a `%.0g` would throw a RangeError.
         let precForToPrecision (p: Prec) : JsExpr =
             match p with
             | Prec.Const n -> num (max 1 n)
             | Prec.Star -> invoke (id "Math") "max" [ num 1; id "p" ]
 
-        // A float32 is a JS double, so shortest-round-trip rendering needs a search loop —
-        // the one specifier that calls the `Vesper.Printf` runtime instead of inlining.
+        // A float32 is a JS double, so shortest-round-trip rendering needs a search loop. This
+        // is the one specifier that calls the `Vesper.Printf` runtime instead of inlining.
         let float32FmtRef () =
             JsExpr.Identifier(JsImports.addRef ctx.Imports "float32ToString" float32ToStringRef, ValueNone)
 
@@ -89,7 +89,7 @@ module EmitJsFormat =
 
             match fmt with
             // `%d`/`%s`/`%O`/`%c`/`%M`: stringify by the operand's STATIC F# type, not its JS
-            // runtime type — an `int64` is a `bigint` (`console.log` prints `5n`) and a
+            // runtime type. An `int64` is a `bigint` (`console.log` prints `5n`) and a
             // `float32` a double, so those two render explicitly even with no field width.
             | FieldFormat.Verbatim ->
                 match plainRenderOf ctx hole.Ty with
@@ -99,7 +99,7 @@ module EmitJsFormat =
                     | Option.None -> buildExpr ctx operand
                 | PlainRender.BigInt -> wrapped (direct (fun v -> call (id "String") [ v ]))
                 | PlainRender.Single -> wrapped (direct (fun v -> call (float32FmtRef ()) [ v ]))
-            // `%0wd`: zeros pad *after* the sign, as .NET `"D5"` does — `%05d` of `-42` ⇒
+            // `%0wd`: zeros pad *after* the sign, as .NET `"D5"` does. `%05d` of `-42` ⇒
             // `"-00042"`. Reads the value three times, hence the IIFE.
             | FieldFormat.DecimalZeroPad width ->
                 iife (fun v ->
@@ -114,7 +114,7 @@ module EmitJsFormat =
 
                     JsExpr.Binary("+", signStr, digits, ValueNone)
                 )
-            // `%x`/`%X`/`%B`/`%o`: `(v >>> 0).toString(base)` — `>>> 0` is JS's 32-bit unsigned
+            // `%x`/`%X`/`%B`/`%o`: `(v >>> 0).toString(base)`. `>>> 0` is JS's 32-bit unsigned
             // coercion, so a negative `int` prints its two's-complement digits as on the CLR.
             | FieldFormat.IntRadix(radix, zeroPad) ->
                 let baseN, upper =
@@ -135,7 +135,7 @@ module EmitJsFormat =
                         | None -> cased
                     )
                 )
-            // `%u`: the source `int`'s bits reinterpreted unsigned — `-1` prints `4294967295`.
+            // `%u`: the source `int`'s bits reinterpreted unsigned. `-1` prints `4294967295`.
             | FieldFormat.Unsigned zeroPad ->
                 wrapped (
                     direct (fun v ->
@@ -182,7 +182,7 @@ module EmitJsFormat =
                         invoke (invoke (objArg v) "toFixed" [ num precision ]) "padEnd" [ num width; str "0" ]
                     )
                 )
-            // `%+d`/`% d`/`%+05d`/`%+.Nf`/`%+e`/`%+g`: forced sign — a non-negative value takes
+            // `%+d`/`% d`/`%+05d`/`%+.Nf`/`%+e`/`%+g`: forced sign. A non-negative value takes
             // `+` (or a space with `% `), a negative keeps its `-`. `typeChar` picks the base
             // rendering; a `zeroPad` then zero-fills after the sign (`%+05d` 42 ⇒ `"+0042"`).
             | FieldFormat.ForcedSign(space, precision, typeChar, zeroPad) ->
@@ -233,7 +233,7 @@ module EmitJsFormat =
 
                 wrapped padded
             // `%e`/`%E`: `toExponential`. JS writes a minimal exponent, .NET zero-pads it to
-            // three digits (`1.234500e+4` vs `1.234500e+004`) — an accepted approximation.
+            // three digits (`1.234500e+4` vs `1.234500e+004`), an accepted approximation.
             | FieldFormat.Exponential(precision, upper) ->
                 wrapped (
                     direct (fun v ->
@@ -251,7 +251,7 @@ module EmitJsFormat =
                     )
                 )
             // `%014e`/`%010g`: scientific / compact, then zeros after any sign to a total field
-            // of `width` — `%0w.Nf`'s padding over an `e`/`g` body, same approximation.
+            // of `width`, reusing `%0w.Nf`'s padding over an `e`/`g` body, same approximation.
             | FieldFormat.ExpCompactZeroPad(precision, width, typeChar) ->
                 wrapped (
                     strBind
@@ -352,7 +352,7 @@ module EmitJsFormat =
         // placeholder; JS cannot interpret it, so the raw operand stands.
         | HoleSpecSource.RawFormat _ -> buildExpr ctx operand
         // `%A`: `structuralFormat(value, width, size)`. A star width (`%*A`) binds `w` and
-        // clamps to 0 inline — F# renders a negative budget flat rather than throwing.
+        // clamps to 0 inline, because F# renders a negative budget flat rather than throwing.
         | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) ->
             let widthArg =
                 match percentAWidth width with

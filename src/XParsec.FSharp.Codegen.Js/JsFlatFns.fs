@@ -20,8 +20,8 @@ module JsFlatFns =
         | None -> boundVarNameOf pool p.Slot
         | Some pat -> lambdaParamName pool pat
 
-    /// An external module function's SOURCE groups. `ValueNone` — no `key`, or a symbol with
-    /// no `ValRepr` — leaves its call and its value-use curried, one argument at a time.
+    /// An external module function's SOURCE groups. `ValueNone` unless the `key` resolves to a
+    /// symbol carrying a `ValRepr`, so its call and its value-use stay curried, one at a time.
     let externalGroups
         (provider: IExternalSymbolProvider)
         (key: SymbolKey voption)
