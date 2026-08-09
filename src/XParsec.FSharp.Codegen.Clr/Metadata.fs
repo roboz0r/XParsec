@@ -29,11 +29,11 @@ type MetadataContext() =
     member _.Builder = mb
     member _.IlBuilder = ilBuilder
 
-    /// Simple names of every assembly an `AssemblyRef` row was minted for — the emitted
-    /// PE's actual reference set.
+    /// Simple names of every assembly an `AssemblyRef` row was minted for, which is the
+    /// emitted PE's actual reference set.
     member _.ReferencedAssemblyNames: string list = List.ofSeq asmRefNames
 
-    /// Cheap to recreate per body — the struct just wraps `ilBuilder`.
+    /// Cheap to recreate per body because the struct just wraps `ilBuilder`.
     member _.BodyStream = MethodBodyStreamEncoder(ilBuilder)
 
     // Handle = row number = add order, so the next row's handle derives from the
@@ -127,8 +127,8 @@ type MetadataContext() =
         mb.AddMethodSpecification(meth, mb.GetOrAddBlob(instantiation))
 
     /// `ctor` is a `.ctor` `MemberRef`/`MethodDef`; `value` is the serialised argument
-    /// blob — `01 00 00 00` (prolog `0x0001`, zero named args) for a parameterless
-    /// attribute. SRM sorts the table by parent, so add order is free.
+    /// blob; a parameterless attribute is `01 00 00 00` (prolog `0x0001`, zero named
+    /// args). SRM sorts the table by parent, so add order is free.
     member _.AddCustomAttribute(owner: EntityHandle, ctor: EntityHandle, value: BlobBuilder) : CustomAttributeHandle =
         mb.AddCustomAttribute(owner, ctor, mb.GetOrAddBlob(value))
 
@@ -137,7 +137,7 @@ type MetadataContext() =
     member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =
         mb.AddFieldDefinition(attrs, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
 
-    /// A `Constant` row for a `[<Literal>]` static field — an enum case carrying its
+    /// A `Constant` row for a `[<Literal>]` static field, namely an enum case carrying its
     /// underlying integer. `value` is that primitive, boxed (`int`/`byte`/`uint32`/`int64`);
     /// its runtime type is what SRM maps to the `ConstantTypeCode`. Add order is free.
     member _.AddConstant(parent: EntityHandle, value: obj) : ConstantHandle = mb.AddConstant(parent, value)
@@ -169,8 +169,8 @@ type MetadataContext() =
         )
 
     /// Records a valid `ParamList` range (the first `Param` row, or past-the-end
-    /// when none). Unlike `AddMethod`'s nil `ParamList` — fine for *executing* a
-    /// body but not for reflection's `GetParameters` — this round-trips through reflection.
+    /// when none). `AddMethod`'s nil `ParamList` still *executes* a body, but reflection's
+    /// `GetParameters` cannot see the parameters; this round-trips through reflection.
     member _.AddMethodWithParamList
         (attrs: MethodAttributes, name: string, signature: BlobBuilder, bodyOffset: int, firstParam: ParameterHandle)
         : MethodDefinitionHandle =
@@ -198,7 +198,7 @@ type MetadataContext() =
 
     /// A concrete `TypeDefinition` with an arbitrary base; `ns` empty ⇒ global.
     /// Callers must add this type's fields and methods (in type order) BEFORE the
-    /// `TypeDefinition` row — `firstField` / `firstMethod` start its contiguous ranges.
+    /// `TypeDefinition` row, because `firstField` / `firstMethod` start its contiguous ranges.
     member _.AddClass
         (
             attrs: TypeAttributes,
@@ -244,7 +244,7 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// An interface `TypeDefinition` — **nil base** (interfaces have none); `ns` empty ⇒
+    /// An interface `TypeDefinition` with a **nil base** (interfaces have none); `ns` empty ⇒
     /// global. An interface has no fields, so `firstField` points past any preceding rows.
     member _.AddInterfaceType
         (
@@ -280,7 +280,7 @@ type MetadataContext() =
 
     /// `owner` is a `TypeDefinition` or `MethodDefinition`. SRM requires `GenericParam`
     /// rows globally sorted by `CodedIndex.TypeOrMethodDef(owner)` then `index`, and the
-    /// two owner kinds interleave — so collect every row and sort before adding.
+    /// two owner kinds interleave, so collect every row and sort before adding.
     member _.AddGenericParameter(owner: EntityHandle, index: int, name: string) : GenericParameterHandle =
         mb.AddGenericParameter(owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
 

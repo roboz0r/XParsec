@@ -38,8 +38,8 @@ type internal ClrEncoder(env: ClrEnv) =
     let valueTupleRefsCache =
         Dictionary<FrozenType list, ValueTupleHandles>(HashIdentity.Structural)
 
-    /// `FSharpList`1<X>` where `X` is encoded by `inner` — shared by `encodeType`'s list case and the
-    /// cons/nil recipe signatures.
+    /// `FSharpList`1<X>` where `X` is encoded by `inner`. Shared by `encodeType`'s list case and
+    /// the cons/nil recipe signatures.
     let encodeListOf (te: SignatureTypeEncoder) (inner: SignatureTypeEncoder -> unit) : unit =
         markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1"
         let g = te.GenericInstantiation(eFSharpList1.Value, 1, false)
@@ -89,7 +89,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // (`args ≠ []`) has no `!n`-substituting encoder and falls to the catch-all error.
         | FTConst(key, args) when args.IsEmpty && ((|PrimitiveRepr|_|) key).IsSome ->
             // Key the IL type off the repr string (`"int"` → `"System.Int32"` → `i4`), not the
-            // Vesper name — which survives only for the failure diagnostic below.
+            // Vesper name, which survives only for the failure diagnostic below.
             let (DisplayName name) = SymbolKeyOps.simpleName key
             let repr = ((|PrimitiveRepr|_|) key).Value
 
@@ -101,7 +101,8 @@ type internal ClrEncoder(env: ClrEnv) =
             else
                 // An intrinsic whose repr is a BCL TYPE, not a primitive: `exn` →
                 // `System.Exception`, `bigint` → `System.Numerics.BigInteger`. Carry the repr's
-                // OWN value-ness — a struct encoded as `class X` only dies later, at JIT time.
+                // OWN value-ness, because a struct encoded as `class X` only dies later, at JIT
+                // time.
                 let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
 
                 match externalClassRef platformKey with
@@ -138,7 +139,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 for a in args do
                     encodeType (g.AddArgument()) a
         | FTUnion(key, args) when RuntimeNames.isVesperListKey key && args.Length = 1 ->
-            // The Vesper cons-list ≡ `Vesper.Collections.List`1<elem>` — no FSharp.Core dep.
+            // The Vesper cons-list ≡ `Vesper.Collections.List`1<elem>`, so no FSharp.Core dep.
             let elem = args.[0]
             let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
             encodeType (g.AddArgument()) elem
@@ -183,7 +184,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 for a in args do
                     encodeType (g.AddArgument()) a
         | ExternalUnion(tref, args) ->
-            // A referenced-package union (`Vesper.Option<int>`) — a reference type, never
+            // A referenced-package union (`Vesper.Option<int>`) is a reference type, never
             // `VALUETYPE`.
             if args.IsEmpty then
                 te.Type(tref, false)
@@ -200,9 +201,10 @@ type internal ClrEncoder(env: ClrEnv) =
                 "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
                 name
         | FTLocalTypar(scheme, i) ->
-            // A typar of a body-local `let`'s own generalized scheme. Legal to reach the backend
-            // — it is phantom wherever a closure over it is `Vesper.Fun`-boxed — but not HERE:
-            // unlike an `FTTypar` it occupies no slot in any enclosing generic parameter list.
+            // A typar of a body-local `let`'s own generalized scheme. It may reach the backend,
+            // because it is phantom wherever a closure over it is `Vesper.Fun`-boxed, but not
+            // signature encoding: unlike an `FTTypar` it occupies no slot in any enclosing
+            // generic parameter list.
             failwithf
                 "ClrProvider: local typar #%d of body-local %O reached signature encoding — it occupies no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
                 i
@@ -217,7 +219,7 @@ type internal ClrEncoder(env: ClrEnv) =
             | ValueNone -> te.GenericMethodTypeParameter i
         // A tuple is the arity-N member of the `System.ValueTuple` struct family, a `VALUETYPE`
         // generic instantiation. Arity ≤ 7 is the flat `ValueTuple`n`; arity ≥ 8 packs slots 0–6
-        // then nests the tail in `ValueTuple`8`'s 8th arg (`TRest`) — the standard .NET scheme.
+        // then nests the tail in `ValueTuple`8`'s 8th arg (`TRest`), the standard .NET scheme.
         | FTTuple items ->
             let rec encodeFrom (out: SignatureTypeEncoder) (start: int) =
                 let remaining = items.Length - start
@@ -238,7 +240,7 @@ type internal ClrEncoder(env: ClrEnv) =
             encodeFrom te 0
         // A by-ref (`T&`) is legal only in parameter / return / local position, where the
         // `ELEMENT_TYPE_BYREF` prefix is emitted at the encoder seam. Reaching the RECURSIVE
-        // encoder means field or generic-argument position — illegal in CLR metadata.
+        // encoder means field or generic-argument position, which is illegal in CLR metadata.
         | FTByref _ ->
             failwithf
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
@@ -251,7 +253,7 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: cannot encode enum type reference %A — project-local enums only; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"
                 t
-        // A structural literal has no IL repr of its own — erase to its base primitive.
+        // A structural literal has no IL repr of its own, so erase to its base primitive.
         // External (TS/JS) vocabulary only, so this arm is rarely reached on CLR.
         | FTLiteral v -> encodeType te (FTConst(RuntimeNames.literalBaseKey v, EqArray.empty))
         // A carried type-level computation (keyof / indexed-access / conditional) is a JS-seam
@@ -262,9 +264,9 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: cannot encode unevaluated type-level computation %A — keyof/indexed-access/conditional are a JS-target concern and must be ground-evaluated before CLR emit"
                 t
-        // A nullable REFERENCE union `T | null` IS the CLR reference-null repr of `T` — `obj |
-        // null` and `obj` are the same `System.Object` slot — so erase `null` and encode the
-        // survivor. `int | string` has no anonymous-union IL repr and falls to the error below.
+        // A nullable REFERENCE union `T | null` IS the CLR reference-null repr of `T`, because
+        // `obj | null` and `obj` are the same `System.Object` slot, so erase `null` and encode
+        // the survivor. `int | string` has no anonymous-union IL repr and falls to the error below.
         | FTOr members ->
             let nonNull =
                 members
@@ -379,7 +381,7 @@ type internal ClrEncoder(env: ClrEnv) =
         externalTypeSpec tref isValueType instArgs
 
     /// A `TypeSpec` token for an arbitrary `FrozenType`, encoded through the full `encodeType`
-    /// path — so a struct external type lands as a `VALUETYPE` generic-inst (the duck-typed
+    /// path, so a struct external type lands as a `VALUETYPE` generic-inst (the duck-typed
     /// enumerator's member-ref parent), with the tag read off the type rather than a flag.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
@@ -408,7 +410,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 let k = if n <= 7 then n else 8
 
                 // The full (possibly nested) tuple type, doubling as the member-ref parent
-                // `TypeSpec` — the recursive `TRest` nesting happens inside `encodeType`.
+                // `TypeSpec`. The recursive `TRest` nesting happens inside `encodeType`.
                 let typeSpec =
                     let tsB = BlobBuilder()
                     let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -727,8 +729,8 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    /// `override int32 CompareTo(object)` signature — `.Object()` to match how
-    /// `IComparable::CompareTo(object)` is declared (signature-blob match).
+    /// The `override int32 CompareTo(object)` signature encodes `.Object()` because
+    /// `IComparable::CompareTo(object)` is declared that way (signature-blob match).
     member _.CompareToOverrideSignature() : BlobBuilder =
         let s = BlobBuilder()
 
@@ -756,5 +758,5 @@ type internal ClrEncoder(env: ClrEnv) =
         s
 
     /// Encode an abstract interface-method signature. Its open typars are self-describing
-    /// `FTTypar` nodes — `Declaring` → `!i`, `Method` → `!!j` — resolved directly by index.
+    /// `FTTypar` nodes, resolved directly by index: `Declaring` → `!i`, `Method` → `!!j`.
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = encodeType te t

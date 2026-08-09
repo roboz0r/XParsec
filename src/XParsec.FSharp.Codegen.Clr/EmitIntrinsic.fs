@@ -134,7 +134,7 @@ module EmitIntrinsic =
     let buildUpcast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // `e :> T`: a reference-type source is already usable as its base, so emit
         // nothing. A value-type source must `box` to reach `obj` / an interface; a
-        // generic typar source (`(x: 'T) :> obj`) must `box` too — the IL is mandatory.
+        // generic typar source (`(x: 'T) :> obj`) must `box` too.
         let source = TastAccessor.exprChild e 0
         recur env b source
         let srcTy = typeOfExpr source

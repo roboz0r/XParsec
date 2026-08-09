@@ -24,7 +24,7 @@ type CallArity =
         | Grouped(_, n) -> n
 
 /// How to emit a resolved call once its arguments are on the stack. `Emit` performs the
-/// call itself — a `call` / `callvirt` against a metadata handle, or a bare intrinsic
+/// call itself: a `call` / `callvirt` against a metadata handle, or a bare intrinsic
 /// opcode like `add` (no handle). The walker adjusts depth by `Pushes - Arity.FlatArgCount`.
 type CallRecipe =
     {
@@ -58,7 +58,7 @@ and ValueTupleRest =
 
 /// Which member of an emitted *generic* union a `MemberRef` names. The ref's signature is
 /// written in the union's own generic parameters (`!0`), the instantiation riding the parent
-/// `TypeSpec` — `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
+/// `TypeSpec`: `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
 [<RequireQualifiedAccess>]
 type UnionMember =
     | Ctor
@@ -84,7 +84,7 @@ type ClosureMember =
 type RecordMember =
     /// The single instance `.ctor(field0, field1, …)`, fields in declaration order.
     | Ctor
-    /// The public field named `fieldName` — records preserve source field names.
+    /// The public field named `fieldName`, the source field name preserved verbatim.
     | Field of fieldName: string
 
 /// Which member of an emitted *generic* class a `MemberRef` names.
@@ -106,7 +106,7 @@ type UserMemberKind =
     | UnionMember of UnionMember
     | RecordMember of RecordMember
     | ClassMember of ClassMember
-    /// An augmentation member of any emitted generic type — union, record, class or
+    /// An augmentation member of any emitted generic type: union, record, class and
     /// interface alike. `metaName` is the emitted name, so a property is `get_X`;
     /// `paramTys` / `retTy` ride the declaring typars (`!0`), a generic method's own `!!i`.
     | Member of
@@ -117,8 +117,8 @@ type UserMemberKind =
         retTy: FrozenType
 
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through handler
-/// (`Vesper.Formatter`). The walker owns the call *sequence* — literals and lazily-evaluated
-/// args interleaved around a ref-struct local — and the provider supplies only the handles.
+/// (`Vesper.Formatter`). The walker owns the call *sequence*: literals and lazily-evaluated
+/// args interleaved around a ref-struct local. The provider supplies only the handles.
 type FormatHandles =
     {
         HandlerLocal: FrozenType
@@ -140,28 +140,28 @@ type FormatHandles =
         AppendOctal: EntityHandle
         /// `%u`: the `int` argument's bits reinterpreted as `uint`.
         AppendUnsigned: EntityHandle
-        /// `%08o`: zero-padded two's-complement octal. Signature `(value: int, width: int)`
-        /// — .NET has no octal format that zero-pads to a total width.
+        /// `%08o`: zero-padded two's-complement octal, signature `(value: int, width: int)`.
+        /// A dedicated handler because .NET has no octal format that zero-pads to a total width.
         AppendZeroPaddedOctal: EntityHandle
-        /// `%05u`: zero-padded unsigned decimal. Signature `(value: uint, width: int)`
-        /// — overflowing digits are not truncated, matching F#.
+        /// `%05u`: zero-padded unsigned decimal. Signature `(value: uint, width: int)`.
+        /// Overflowing digits are not truncated, matching F#.
         AppendZeroPaddedUnsigned: EntityHandle
-        /// `%0w.pf`: zero-pad after the sign — .NET has no float format that does this.
+        /// `%0w.pf`: zero-pad after the sign, which no .NET float format does.
         AppendZeroPaddedFloat: EntityHandle
-        /// `%-0w.pf`: zero-pad on the RIGHT (left-align + zero-pad float) — no .NET
-        /// float format nor field alignment fills the right with zeros.
+        /// `%-0w.pf`: zero-pad on the RIGHT (left-align + zero-pad float). Neither a .NET
+        /// float format nor field alignment fills the right with zeros, so this handler does it.
         AppendRightZeroPaddedFloat: EntityHandle
         /// `%+0w.pf`/`% 0w.pf`: forced sign, then zero-pad after it to a total field.
-        /// Signature `(value: float, format: string, width: int, space: bool)` — the
+        /// Signature `(value: float, format: string, width: int, space: bool)`. The
         /// `"F<prec>"` body rounds half-to-even and the sign is composed in-handler.
         AppendForcedSignZeroPaddedFloat: EntityHandle
         /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature
-        /// `(value: float, typeChar: char, precision: int, alignment: int)` — builds
-        /// the .NET format string in-handler from `typeChar` + `precision`.
+        /// `(value: float, typeChar: char, precision: int, alignment: int)`, because the
+        /// .NET format string is built in-handler from `typeChar` + `precision`.
         AppendDynamicPrecisionFloat: EntityHandle
         /// `%+.*f`/`% .*f`/`%+*.*f`: runtime-precision forced-sign float. Signature
-        /// `(value: float, typeChar: char, precision: int, alignment: int, space: bool)`
-        /// — composes the sign in-handler.
+        /// `(value: float, typeChar: char, precision: int, alignment: int, space: bool)`.
+        /// The sign is composed in-handler.
         AppendDynamicPrecisionSignedFloat: EntityHandle
         /// `%A`: instantiates the generic `AppendStructured<T = ty>` for the
         /// structural-format engine. Signature `(value: T, width: int, size: int)` —
@@ -182,7 +182,7 @@ type FormatHandles =
     }
 
 /// The `Vesper.IFormatSink` member refs the synthesised `IStructuralFormattable.Format`
-/// body `callvirt`s — all `instance void`. The body emits the protocol
+/// body `callvirt`s, all of them `instance void`. The body emits the protocol
 /// `BeginRecord; (Field; Child)×n; EndRecord` / `BeginCase; Child×k; EndCase`.
 type FormatSinkHandles =
     {
@@ -212,7 +212,7 @@ type FormatSinkHandles =
 type ICodegenProvider =
     /// `fnTy` is the applied function's full curried type: a multi-typar call can't recover its type args
     /// from the result alone (`List.fold` reads `'T`/`'State` from the folder). `key` dispatches
-    /// by identity — only `Vesper.Printf.printfn` trips cold-printf, never `MyMod.printfn`.
+    /// by identity: only `Vesper.Printf.printfn` trips cold-printf, never `MyMod.printfn`.
     abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption
 
     /// `chosen` is the front-end-resolved `.ctor`'s `SymbolKey.MemberKey` when a `TExpr.New`
@@ -224,21 +224,22 @@ type ICodegenProvider =
 
     /// `tyArgs` are the union type's instantiation arguments; the field values are already
     /// on the stack in declaration order beneath the call. The union is identified by
-    /// key identity, not by name — FSharp.Core `list` vs the Vesper cons-list.
+    /// key identity, not by name, since FSharp.Core's `list` and the Vesper cons-list
+    /// are both written `list`.
     abstract TryEmitUnionCons: key: TypeKey * caseName: string * tyArgs: FrozenType list -> CallRecipe voption
 
     /// A `MemberRef` to one member of an emitted *generic* nominal user type (union /
     /// record / class) `key`, instantiated at `args`. A monomorphic instance never reaches
-    /// here — its `Def` tokens are used directly.
+    /// here because its `Def` tokens are used directly.
     abstract UserGenericMemberRef: key: TypeKey * args: FrozenType list * kind: UserMemberKind -> EntityHandle
 
     /// A `MemberRef` to one member of an emitted *generic* closure `name` (a synthetic
     /// `<closure>$n`), instantiated at `args`. Closures carry no `SymbolKey`.
     abstract UserClosureMemberRef: name: string * args: FrozenType list * which: ClosureMember -> EntityHandle
 
-    /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated at `tyArgs` —
-    /// the record mirror of `TryEmitUnionCons`, for a type declared in another package
-    /// (`Vesper.Ref\`1` in `Vesper.Core.dll`). `ValueNone` ⇒ the record is unknown here.
+    /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated at `tyArgs`,
+    /// for a record declared in another package (`Vesper.Ref\`1` in `Vesper.Core.dll`).
+    /// `ValueNone` ⇒ the record is unknown here.
     abstract TryEmitRecordCons: key: TypeKey * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
 
     /// A `MemberRef` to one named field on a *referenced-assembly* record, instantiated at
@@ -253,8 +254,8 @@ type ICodegenProvider =
     abstract ExternalUnionTag: key: TypeKey * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
 
     /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package union,
-    /// instantiated at `tyArgs`, plus that field's substituted declared type — the
-    /// field-extract slot a `match … Some x` binds. `ValueNone` ⇒ unknown union/case/field.
+    /// instantiated at `tyArgs`, plus that field's substituted declared type. The field is
+    /// the slot a `match … Some x` extracts from. `ValueNone` ⇒ unknown union/case/field.
     abstract ExternalUnionCaseField:
         key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
             (EntityHandle * FrozenType) voption
@@ -271,7 +272,7 @@ type ICodegenProvider =
         declTyparArity: int * methodTyparArity: int * openT: FrozenType * instT: FrozenType ->
             FrozenType list * FrozenType list
 
-    /// Apply a function *value* of type `funcTy` to one argument — `Vesper.Fun\`2::Invoke`.
+    /// `Vesper.Fun\`2::Invoke` — apply a function *value* of type `funcTy` to one argument.
     /// Object argument and argument are both already on the stack (object arg beneath),
     /// so the recipe's arity is `Flat 2`.
     abstract TryEmitInvoke: funcTy: FrozenType -> CallRecipe voption
@@ -295,8 +296,8 @@ type ICodegenProvider =
     abstract TryCapabilityBaseMemberKey: key: SymbolKey -> SymbolKey voption
 
     /// Like `ExternalMemberRef`, but the declaring instantiation is given explicitly via
-    /// `declTy` (`List`1+Enumerator<int>`) — required for a T-free member like `MoveNext():
-    /// bool`, whose signature mentions no typar. A struct `declTy` lands `VALUETYPE` parent.
+    /// `declTy` (`List`1+Enumerator<int>`), because a T-free member like `MoveNext(): bool`
+    /// mentions no typar to recover it from. A struct `declTy` lands `VALUETYPE` parent.
     abstract ExternalMemberRefOn:
         key: SymbolKey * declTy: FrozenType * isProperty: bool * isStatic: bool * memberTy: FrozenType -> EntityHandle
 
@@ -318,9 +319,10 @@ type ICodegenProvider =
     /// derived type's `extends` column names. `ValueNone` ⇒ `key` is not an external class.
     abstract ExternalClassTypeRef: key: SymbolKey -> EntityHandle voption
 
-    /// Resolve an intrinsic-CLASS `inherit` parent — an `FTConst` canon (`exn`) whose
-    /// platform repr is a heritable BCL reference class — to its platform external key
+    /// Resolve an intrinsic-CLASS `inherit` parent to its platform external key
     /// (`System.Exception`) plus its raw `TypeRef`, the derived type's `extends` token.
+    /// Such a parent is an `FTConst` canon (`exn`) whose platform repr is a heritable
+    /// BCL reference class.
     abstract IntrinsicClassBase: canon: SymbolKey -> struct (SymbolKey * EntityHandle) voption
 
     abstract ObjectType: EntityHandle

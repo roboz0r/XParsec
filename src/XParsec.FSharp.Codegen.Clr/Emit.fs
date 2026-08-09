@@ -65,7 +65,7 @@ module Emit =
                 // A function emitted as a static method has no Main local.
                 | ValueSome boundVar when ctx.StaticMethods.ContainsKey boundVar -> ()
                 // A top-level value that follows a top-level `do`: its `public static`
-                // field is written here, in source order — not in the Program `.cctor`,
+                // field is written here, in source order, rather than in the Program `.cctor`,
                 // which runs before `Main`.
                 | ValueSome boundVar when ctx.MainInitValues.ContainsKey boundVar ->
                     buildExpr env b dl.Value
@@ -148,7 +148,7 @@ module Emit =
         buildExpr env b fn.Body
 
         // Every Vesper expression yields a value, so a `void` body leaves the
-        // `unit`-as-`ValueTuple` on the stack — pop it before `ret`. A body that
+        // `unit`-as-`ValueTuple` on the stack. Pop it before `ret`. A body that
         // terminates (`raise`) already left depth 0.
         if fn.ReturnsVoid then
             match b.Depth with
@@ -191,7 +191,7 @@ module Emit =
         prms
         |> EqArray.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- baseIdx + i)
         // `this` as `SelfKey` too, so the struct `this`-pointer path recognises a self-call:
-        // `ldarg.0` is already the byref `this` and must be loaded directly — spilling
+        // `ldarg.0` is already the byref `this` and must be loaded directly, because spilling
         // it to a value temp copies the struct and a mutating self-call would not persist.
         let env =
             EmitEnv.create ctx (ValueOption.map BoundVarKey.identity thisKey) (Dictionary()) args
@@ -200,7 +200,7 @@ module Emit =
 
         // A `void` method must `ret` empty-stacked, so pop the residual
         // `unit`-as-`ValueTuple`. A body that terminates (`raise`) already left depth 0,
-        // and a `Pop` there would be unreachable — the IL balance check rejects it.
+        // and a `Pop` there would be unreachable, which the IL balance check rejects.
         if voidReturn then
             match b.Depth with
             | 0 -> ()
@@ -212,7 +212,7 @@ module Emit =
 
     /// Build a secondary constructor body: run the `let`-preamble into locals, then
     /// chain the primary `.ctor` (`ldarg.0; <primaryArgs>; call instance void
-    /// Self::.ctor`). No base-ctor call — the primary performs it.
+    /// Self::.ctor`). No base-ctor call, because the primary performs it.
     let buildSecondaryCtor
         (ctx: EmitContext)
         (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
@@ -242,7 +242,7 @@ module Emit =
 
     /// Build the explicit field-init secondary ctor (`new(args) = { f = e; … }`): run
     /// the `let`-preamble, then `ldarg.0; <init>; stfld field` per initialiser, in
-    /// source order. NO primary chain — unlisted fields stay zero-initialised.
+    /// source order. NO primary chain, so unlisted fields stay zero-initialised.
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
         (prms: EqArray<BoundVarKeyG<BoundVarId> * FrozenType>)
@@ -373,8 +373,8 @@ module Emit =
         b.Body
 
     /// A value-type (`[<Struct>]`) primary constructor: store each ctor param into its
-    /// backing field and return. NO chained base `.ctor` — `System.ValueType` has none
-    /// accessible. `ldarg 0` is the managed pointer `newobj` passes (`&temp`).
+    /// backing field and return. NO chained base `.ctor`, because `System.ValueType` has
+    /// none accessible. `ldarg 0` is the managed pointer `newobj` passes (`&temp`).
     let buildStructCtor (fields: EntityHandle list) : ILBody =
         let b = IlBuilder()
 
@@ -429,7 +429,8 @@ module Emit =
 
     /// The resolved handles a union's synthesised `Equals` / `GetHashCode` bodies need.
     /// A case factory sets only its own case's payload fields and a DU is immutable, so
-    /// once the tags match, walking EVERY field equals a per-case walk — no tag switch.
+    /// once the tags match, walking EVERY field equals a per-case walk and no tag switch
+    /// is needed.
     type UnionEqualitySupport =
         {
             /// The union's own `TypeDefinition` — the `isinst` target.
@@ -454,7 +455,7 @@ module Emit =
         }
 
     /// The tag-then-field walk shared by both equality entry points: tags must match,
-    /// then each field via `EqualityComparer<F>.Default` (total equality — a `float`
+    /// then each field via `EqualityComparer<F>.Default` (total equality, so a `float`
     /// field gets `NaN = NaN` here). Any mismatch branches to `falseLabel`.
     let private buildTagAndFieldEquality
         (s: UnionEqualitySupport)
@@ -520,7 +521,7 @@ module Emit =
 
     /// `override int GetHashCode()` for a union: a `System.HashCode` seeded with the
     /// `_tag`, every field added through it, then `ToHashCode()`. Equal values hash
-    /// equal — the tag distinguishes cases and inactive-case fields are default.
+    /// equal because the tag distinguishes cases and inactive-case fields are default.
     let buildUnionGetHashCode (s: UnionEqualitySupport) : ILBody =
         let b = IlBuilder()
         let hc = b.Local s.HashCodeLocal
@@ -563,7 +564,7 @@ module Emit =
             HashCodeToHashCode: EntityHandle
         }
 
-    /// The field walk shared by both record equality entry points — the union's, minus
+    /// The field walk shared by both record equality entry points, the union's minus
     /// the leading tag compare. Any field mismatch branches to `falseLabel`.
     let private buildRecordFieldEquality
         (s: RecordEqualitySupport)
@@ -635,7 +636,7 @@ module Emit =
         b.Body
 
     /// `override int GetHashCode()` for a record: every field added through
-    /// `HashCode.Add<T>`, then `ToHashCode()`. No tag seed — a record has one shape.
+    /// `HashCode.Add<T>`, then `ToHashCode()`. No tag seed, because a record has one shape.
     let buildRecordGetHashCode (s: RecordEqualitySupport) : ILBody =
         let b = IlBuilder()
         let hc = b.Local s.HashCodeLocal
@@ -673,7 +674,7 @@ module Emit =
             /// `CompareTo(object)` body throws this on a non-`Self` arg.
             ArgumentExceptionCtor: EntityHandle
             /// The `"Object type mismatch"` literal `CompareTo(object)` throws with.
-            /// Minted by the caller — the builder owns no metadata context.
+            /// Minted by the caller, because the builder owns no metadata context.
             MismatchMessage: UserStringHandle
         }
 
@@ -872,7 +873,7 @@ module Emit =
         b.Body
 
     // Each co-slot shim forwards through a `call`, not a `callvirt`, so the exact method
-    // binds. The object arg is `ldarg.0` — an object reference for a class, a managed
+    // binds. The object arg is `ldarg.0`: an object reference for a class, a managed
     // pointer for a struct enumerator, which `call` on its own instance method takes.
 
     /// `IEnumerator IEnumerable.GetEnumerator()` — forwards to the capability's

@@ -17,7 +17,7 @@ type ClrCompilation =
 
 module ClrCompilation =
 
-    /// References packages, defines no primitives of its own — the shape to reach for unless
+    /// References packages, defines no primitives of its own. The shape to reach for unless
     /// compiling a package that declares `extern` types.
     let consumer (project: ProjectInfo) (manifests: string list) (bclReferences: string list) : ClrCompilation =
         {
@@ -78,7 +78,7 @@ module ClrDriver =
 
     /// `compile` through the frozen-compile cache: a HIT skips parse + analyse + freeze, and an
     /// errored front end comes back as `Error` and is NOT stored. Emission is never elided, so
-    /// the provider is built on both paths — and `digest` must be folded from THESE `inputs`.
+    /// the provider is built on both paths, and `digest` must be folded from THESE `inputs`.
     let compileCachedWith
         (store: ICacheStore)
         (digest: Hashing.CompilationDigest)
@@ -161,8 +161,8 @@ module ClrDriver =
 
         compileAssemblyWith Pipeline.analyseFor inputs.BclReferences provider inputs.Project files
 
-    /// `compile`, then — when `Project.OutputPath` is set — a runnable framework-dependent
-    /// bundle. An in-memory compilation returns the artifact unwritten.
+    /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
+    /// set. An in-memory compilation returns the artifact unwritten.
     let compileApp (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
         compile inputs source
         |> Result.map (fun artifact ->

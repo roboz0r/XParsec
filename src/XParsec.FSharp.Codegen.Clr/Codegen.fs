@@ -98,8 +98,8 @@ module Codegen =
         : ClrArtifact =
         compileFilesWithBclReferences bclReferences symbols project [ tast ]
 
-    /// Assemble a hand-written `Main` body that drives the untyped `Il` surface directly —
-    /// the test seam for a body written with no TAST.
+    /// The test seam for a body written with no TAST: assembles a hand-written `Main` that
+    /// drives the untyped `Il` surface directly.
     let assembleMainEmit (symbols: IExternalSymbolProvider) (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         AssemblerScaffold.assembleWith symbols project (fun _ _ -> build)
 

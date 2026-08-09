@@ -29,7 +29,7 @@ type internal GenericUnionCase =
         Fields: EqArray<string * FrozenType>
     }
 
-/// A *generic* user union, keyed by its nominal `TypeKey` — which embeds the arity, so the
+/// A *generic* user union, keyed by its nominal `TypeKey`, which embeds the arity, so the
 /// same-named `Choice`2`…`Choice`7` don't collide. Monomorphic unions are not registered;
 /// their `Def` tokens suffice.
 type internal GenericUnionShape =
@@ -45,8 +45,8 @@ type internal GenericRecordShape =
         Fields: EqArray<string * FrozenType>
     }
 
-/// A *generic* user class. `Fields` is the FULL field shape in order — ctor-param backing
-/// fields, then `val`s, then instance-`let` / `static let` backing — and the first
+/// A *generic* user class. `Fields` is the FULL field shape in order: ctor-param backing
+/// fields, then `val`s, then instance-`let` / `static let` backing. The first
 /// `CtorParamCount` of them are the primary ctor's parameters; the rest are not ctor args.
 type internal GenericClassShape =
     {
@@ -56,7 +56,7 @@ type internal GenericClassShape =
     }
 
 /// The CLR-only nominals the backend names DIRECTLY. They reach it as an `FTConst` over a bare
-/// platform name — what the front end mints for a name the TARGET owns — and are recognised by
+/// platform name (what the front end mints for a name the TARGET owns) and are recognised by
 /// key identity, so a Vesper type of the same short name cannot false-match.
 [<RequireQualifiedAccess>]
 module internal ClrSinkKeys =
@@ -64,7 +64,7 @@ module internal ClrSinkKeys =
     /// The printf writer sink (`fprintf`).
     let textWriter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName
 
-    /// The `Vesper.Printf` write-through format handler — a printf recipe's handler local.
+    /// The `Vesper.Printf` write-through format handler, a printf recipe's handler local.
     let formatter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.formatterTypeName
 
     /// The `System.HashCode` accumulator local of a synthesised `GetHashCode`.
@@ -108,7 +108,7 @@ type internal ClrEnv
 
     // The BCL identity every emitted assembly needs, sourced from the referenced `System.Runtime`
     // ref pack so the `AssemblyRef` is the REFERENCE identity, not the host
-    // `System.Private.CoreLib` — the ref assembly type-forwards to the impl at run time.
+    // `System.Private.CoreLib`, to which the ref assembly type-forwards at run time.
     let coreRef =
         lazy
             (toEntity (ctx.AssemblyRef(refOrHost "System.Runtime" (fun () -> typeof<System.Object>.Assembly.GetName()))))
@@ -130,8 +130,8 @@ type internal ClrEnv
     let eValueTuple =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))
 
-    // The open generic tuple structs `System.ValueTuple`1..`8`, cached by arity — the bare
-    // `TypeRef` only. `1` is in the family because `ValueTuple`1` arises as the `TRest` tail of
+    // The open generic tuple structs `System.ValueTuple`1..`8`, cached by arity as bare
+    // `TypeRef`s. `1` is in the family because `ValueTuple`1` arises as the `TRest` tail of
     // a ≥ 8 nesting, never as a user-level 1-tuple.
     let valueTupleEntities = Dictionary<int, EntityHandle>()
 
@@ -328,7 +328,7 @@ type internal ClrEnv
 
              toEntity (ctx.MemberRef(eHashCode.Value, "ToHashCode", s)))
 
-    /// Each distinct FSharp.Core construct the emission references — lets a build tell
+    /// Each distinct FSharp.Core construct the emission references, so a build can tell
     /// *positively* whether the PE depends on `FSharp.Core.dll`, and what pins it.
     let fsharpCoreDeps = HashSet<string>()
     let markFSharpCoreDep (construct: string) : unit = fsharpCoreDeps.Add construct |> ignore
@@ -340,7 +340,7 @@ type internal ClrEnv
 
     // A `Vesper.Core`-owned interface, LOCAL-FIRST: when THIS compilation IS `Vesper.Core` the
     // interface is one of its own `TypeDef`s, and an `AssemblyRef` to itself is rejected. A
-    // function, not a `lazy` — `userTypes` fills per file, so a forced value would cache stale.
+    // function, not a `lazy`, because `userTypes` fills per file and a forced value would go stale.
     let coreInterfaceEntity (key: TypeKey) : EntityHandle =
         match userTypes.TryGetValue key with
         | true, h -> h
@@ -355,7 +355,7 @@ type internal ClrEnv
     let eFormatSink () =
         coreInterfaceEntity RuntimeNames.formatSinkKey
 
-    // The CURRIED function interface `Vesper.Fun`2<a,b>` — the type of every function
+    // `Vesper.Fun`2<a,b>` — the CURRIED function interface: the type of every function
     // value, and the interface a synthesised closure implements.
     let eFun2 () =
         coreInterfaceEntity (RuntimeNames.vesperFunKey 2)
@@ -375,7 +375,7 @@ type internal ClrEnv
     /// mint an `AssemblyRef`-scoped `MemberRef` back into the very assembly being emitted.
     let localModuleFns = Dictionary<SymbolKey, EntityHandle>()
 
-    /// Project-local `[<Struct>]` value-type keys — a user struct emits as
+    /// Project-local `[<Struct>]` value-type keys, so a user struct emits as
     /// `ELEMENT_TYPE_VALUETYPE` rather than `ELEMENT_TYPE_CLASS` in every signature.
     let userValueTypes = System.Collections.Generic.HashSet<TypeKey>()
 
@@ -397,7 +397,7 @@ type internal ClrEnv
 
     let externalAsmRef (origin: Origin) : EntityHandle =
         // The CLR emits ONE PE per assembly, so a home refined to its declaring file
-        // scopes to the same `AssemblyRef` — the assembly is all this reads.
+        // scopes to the same `AssemblyRef`, and the assembly is all this reads.
         match origin.AssemblyOption with
         | ValueNone ->
             failwith
@@ -438,7 +438,7 @@ type internal ClrEnv
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
             // A canonically-authored capability interface (`interface disposable`) has no emitted
-            // type of its own — re-resolve through its platform interface so the `InterfaceImpl`
+            // type of its own, so re-resolve through its platform interface and the `InterfaceImpl`
             // binds the real BCL one (`System.IDisposable`). That shape is a plain `Class`: one hop.
             externalClassRef (SymbolKeyOps.qualifiedTypeKey platform 0)
         | _ ->
@@ -464,8 +464,8 @@ type internal ClrEnv
                 ValueSome(typeRefOf t)
             | _ -> ValueNone
 
-    /// Whether a referenced-assembly type is a .NET value type — `false` also for any name the
-    /// provider can't resolve as a class. Drives the `VALUETYPE` vs `CLASS` element tag, and the
+    /// Whether a referenced-assembly type is a .NET value type. A name the provider can't
+    /// resolve as a class also gives `false`. Drives the `VALUETYPE` vs `CLASS` element tag, and the
     /// value object-arg dispatch for the duck-typed struct enumerator (`List`1+Enumerator`).
     let externalIsValueType (key: SymbolKey) : bool =
         match lookupClassShape key with
@@ -480,8 +480,8 @@ type internal ClrEnv
         | _ -> ValueNone
 
     let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
-        // Only a type key mints a `TypeRef` — any other kind gives `ValueNone`, never a
-        // fabricated `(ns = "", name = <whole dotted name>)` ref that only fails at load.
+        // Any non-type key gives `ValueNone`, never a fabricated
+        // `(ns = "", name = <whole dotted name>)` ref that only fails at load.
         match key, externalRecordShape key arity with
         | SymbolKey.Type t, ValueSome(fields, origin) ->
             // A record is never a CLR nested type, so the namespace + `` `n ``-suffixed name come

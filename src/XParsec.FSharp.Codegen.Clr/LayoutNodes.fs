@@ -80,7 +80,7 @@ module internal LayoutNodes =
                                 IsMixed = (variant = TEnumVariant.Mixed)
                                 Cases = structCases
                             }
-                    // No case resolved to a legal literal — nothing to emit.
+                    // No case resolved to a legal literal, so there is nothing to emit.
                     | ValueNone -> ()
                 | TTypeKindG.Class c ->
                     classes.Add
@@ -125,7 +125,7 @@ module internal LayoutNodes =
             Attrs =
                 if isIfaceImpl then ifaceEqualsAttrs
                 elif mem.IsStatic then staticMethodAttrs
-                // An `override` reuses the base slot — `Public Virtual HideBySig`, no
+                // An `override` reuses the base slot: `Public Virtual HideBySig`, no
                 // `NewSlot`. A plain `member` stays non-virtual.
                 elif mem.IsOverride then overrideMethodAttrs
                 else instanceMethodAttrs
@@ -226,8 +226,8 @@ module internal LayoutNodes =
         | k -> failwithf "Layout: type declaration '%s' carries a non-type key %A" td.Name k
 
     /// A nominal type's node. Its `TypeDef` sits in its declaring module's class
-    /// when it has one — empty namespace column, a `NestedClass` row — and at the root
-    /// of its namespace otherwise.
+    /// when it has one, with an empty namespace column and a `NestedClass` row, and at the
+    /// root of its namespace otherwise.
     let private nominalNode
         (kind: TypeSlotKind)
         (td: TastAccessor.TypeDecl)
@@ -403,7 +403,7 @@ module internal LayoutNodes =
                                 ClosureScope = ValueNone
                             }
                         // An immutable instance `let` is written exactly once, by the
-                        // primary `.ctor` — which is what `initonly` permits — so a
+                        // primary `.ctor`, which is what `initonly` permits, so a
                         // `let mutable` is the only preamble bound variable that stays writable.
                         for l in TPreambleEntryG.lets cd.InstancePreamble ->
                             {
@@ -428,7 +428,7 @@ module internal LayoutNodes =
                     ]
 
                 // A `val`-field reference type (`type T = val …; new(…) = …`) has no
-                // primary ctor — a synthesised parameterless one would collide with a
+                // primary ctor, because a synthesised parameterless one would collide with a
                 // `new()`. A struct keeps its primary: F# forbids `new()` there.
                 let emitPrimaryCtor =
                     cd.ValueKind <> ClassValueKind.RefType
@@ -474,7 +474,7 @@ module internal LayoutNodes =
 
     /// Per numeric enum: the special-name `value__` field the CLR reads for
     /// `Enum.GetUnderlyingType`, then one `public static literal` field per case. No
-    /// methods — equality / hashing / compare all come from the `System.Enum` base.
+    /// methods, because equality / hashing / compare all come from the `System.Enum` base.
     let buildEnumNodes (enums: EnumDecl list) : TypeNode list =
         [
             for ed in enums ->
@@ -572,7 +572,7 @@ module internal LayoutNodes =
         ]
 
     /// Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise their typar
-    /// names (`T0`, …) — only the count survives to codegen. A closure stays a ROOT even
+    /// names (`T0`, …), because only the count survives to codegen. A closure stays a ROOT even
     /// though it was lifted out of a module: its name is already globally unique.
     let buildClosureNodes (closures: EmitTypes.Closure list) : TypeNode list =
         [
@@ -593,7 +593,7 @@ module internal LayoutNodes =
                     ]
 
                 // The singleton field: `static readonly` of the closure's own type. Its
-                // `Ty` is unused — the writer mints the self-type signature from the
+                // `Ty` is unused, because the writer mints the self-type signature from the
                 // closure's TypeDef handle (a closure type has no `FrozenType`).
                 let cachedFields =
                     [

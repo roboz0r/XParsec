@@ -6,8 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 
 /// The per-type bound variable/preparer shared by unions, records, and classes. `register`
-/// fills the `EmitContext` registries with layout-derived handles only — no bodies —
-/// so any prepared body can reference any type's ctor, factory, field, or member.
+/// fills the `EmitContext` registries with layout-derived handles only, so any prepared
+/// body can reference any type's ctor, factory, field, or member.
 module internal NominalEmit =
 
     /// The declaring type's own typars as self-describing nodes: position `i` in
@@ -155,7 +155,7 @@ module internal NominalEmit =
                 )
 
             // The val-field reference form (no primary ctor) declares no `NominalCtor`
-            // row, so don't reserve its handle — `Ctor` aliases the first secondary.
+            // row, so don't reserve its handle. `Ctor` aliases the first secondary.
             // Structs and the no-secondary fallback keep the synthesised primary.
             let emitPrimaryCtor =
                 isStruct || cd.HasPrimaryCtor || List.isEmpty secondaryCtorHandles
@@ -343,7 +343,7 @@ module internal NominalEmit =
             let baseCtorCall = cd.BaseCtorCall
             let isStruct = cd.ValueKind <> ClassValueKind.RefType
 
-            // External detection keys off `ExternalClassTypeRef` returning a token —
+            // External detection keys off `ExternalClassTypeRef` returning a token, because
             // a project-local key is never in the provider's external table.
             let baseShape =
                 match baseType with
@@ -353,7 +353,7 @@ module internal NominalEmit =
                     | ValueSome tref -> BaseShape.ExternalBase(SymbolKey.Type baseKey, tref)
                     | ValueNone -> BaseShape.LocalMono baseKey
                 // An intrinsic-class parent (`inherit exn`) arrives as the canon
-                // `FTConst`, not an `FTClass` — resolve it to its platform class
+                // `FTConst`, not an `FTClass`, so resolve it to its platform class
                 // (`System.Exception`).
                 | ValueSome(FTConst(canonKey, args) as bt) when args.IsEmpty ->
                     match icodegen.IntrinsicClassBase canonKey with
@@ -361,7 +361,7 @@ module internal NominalEmit =
                     | ValueNone -> BaseShape.Generic bt
                 | ValueSome bt -> BaseShape.Generic bt
 
-            // A non-generic parent is its token directly — the `extends` column
+            // A non-generic parent is its token directly because the `extends` column
             // rejects a `TypeSpec` that merely wraps a plain class.
             match baseShape with
             | BaseShape.NoBase ->
@@ -444,8 +444,8 @@ module internal NominalEmit =
                 | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, [])
 
             // Base args are the only ctor expressions that reference a primary-ctor param
-            // directly (`this` does not exist yet) — a preamble entry reaches one through
-            // its backing field — so this is empty for every other chain shape.
+            // directly (`this` does not exist yet; a preamble entry reaches one through its
+            // backing field), so this is empty for every other chain shape.
             let ctorParamArgs =
                 match baseCtorCall with
                 | ValueSome bcc -> EqArray.toList bcc.CtorParams
@@ -571,7 +571,7 @@ module internal NominalEmit =
             let methodTypars = mem.MethodTypeParams
             let isGenericMethod = methodTypars.Length > 0
 
-            // A `unit`-returning member — static or instance — encodes as genuine CLR
+            // A `unit`-returning member, static or instance, encodes as genuine CLR
             // `void`. Emitting the `unit`-as-`ValueTuple` return instead breaks
             // cross-assembly binding: a consumer's void member-ref misses it.
             let returnsVoid =
@@ -655,7 +655,7 @@ module internal NominalEmit =
                 | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.TypeKey
                 | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.TypeKey
 
-        // `(handle, type)` flat across a union's cases in declaration order — sound
+        // `(handle, type)` flat across a union's cases in declaration order. Sound
         // because inactive-case fields are always default. Equality and comparison
         // consume the identical set.
         let structuralFields () : (EntityHandle * FrozenType) list =
@@ -822,7 +822,7 @@ module internal NominalEmit =
             | NominalEmissionInput.Class _ -> ()
 
         // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`), emitted
-        // for EVERY record and union — orthogonal to the equality / comparison verdicts.
+        // for EVERY record and union, independently of the equality / comparison verdicts.
         let emitsStructuralFormat =
             match input with
             | NominalEmissionInput.Union _
@@ -893,7 +893,7 @@ module internal NominalEmit =
 
         // The BCL members a capability's platform interface INHERITS but never declared:
         // unsynthesised, the CLR refuses to load the type. Only the non-generic slots
-        // need it — a generic slot binds implicitly by the authored member's signature.
+        // need it, because a generic slot binds implicitly by the authored member's signature.
         let coSlots =
             CapabilityCoSlots.required asm.Symbols [ for (ifaceTy, _) in userInterfaces -> ifaceTy ]
 

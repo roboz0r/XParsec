@@ -88,14 +88,15 @@ type internal TypeSlotKind =
     | Interface
     | Union
     /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
-    /// `System.ValueType` base) — a record is always sealed and never byref-like.
+    /// `System.ValueType` base). No `isSealed`, because a record is always sealed
+    /// and never byref-like.
     | Record of valueKind: ClassValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
     /// value type (flips sequential layout + `Sealed` + the `ValueType` base) vs
     /// `[<IsByRefLike>]`, which additionally stamps `IsByRefLikeAttribute`.
     | Class of isSealed: bool * valueKind: ClassValueKind
     | Closure
-    /// A numeric enum: a sealed `System.Enum` subclass — no methods, a
+    /// A numeric enum: a sealed `System.Enum` subclass with no methods, a
     /// special-name `value__` instance field, and one `static literal` field per case.
     | Enum
     /// A string / mixed enum: a sealed `[<Struct>]` value type over a single field
@@ -136,8 +137,8 @@ type internal FieldKey =
     /// A string/mixed enum's single instance field (the wrapped `string` / `obj`).
     | EnumBackingField of SymbolKey
     | ClosureCapture of closure: string * index: int
-    /// A non-capturing, monomorphic closure's `static readonly` singleton field —
-    /// the one cached instance every construction site `ldsfld`s.
+    /// A non-capturing, monomorphic closure's `static readonly` singleton field, the
+    /// one cached instance every construction site `ldsfld`s.
     | ClosureCached of closure: string
     /// A module-level value's `public static` field, keyed by `SymbolKey`
     /// (declaring module class + emitted name) so the combined field-def map stays injective
@@ -169,7 +170,7 @@ type internal MethodKey =
     | NominalCctor of SymbolKey
     | SecondaryCtor of SymbolKey * index: int
     | UnionFactory of SymbolKey * case: string
-    /// An augmentation member — index over `members @ ifaceMembers`.
+    /// An augmentation member; `index` runs over `members @ ifaceMembers`.
     | Member of SymbolKey * index: int
     | EqGetHashCode of SymbolKey
     | EqEqualsObj of SymbolKey
@@ -178,16 +179,16 @@ type internal MethodKey =
     | CmpCompareToObj of SymbolKey
     /// The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`).
     | FmtFormat of SymbolKey
-    /// A synthesised capability co-slot (`CoSlot`) — the BCL members a capability's
+    /// A synthesised capability co-slot (`CoSlot`), one of the BCL members a capability's
     /// platform interface inherits but its member surface never declared.
     | CapCoSlot of SymbolKey * CoSlot
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
-    /// A non-capturing, monomorphic closure's `.cctor` — `newobj`s the closure once and
-    /// `stsfld`s it into `ClosureCached`. A capturing / generic closure has none.
+    /// A non-capturing, monomorphic closure's `.cctor`, which `newobj`s the closure once
+    /// and `stsfld`s it into `ClosureCached`. A capturing / generic closure has none.
     | ClosureCctor of closure: string
     | ModuleClassCctor of Emit.ModuleClassKey
-    /// The anonymous "Program" class's `.cctor` — initialises the
+    /// The anonymous "Program" class's `.cctor`, which initialises the
     /// leading-prefix top-level values; at most one per assembly.
     | ProgramCctor
     /// A top-level function lowered to a static method, keyed by `SymbolKey` (declaring
@@ -235,8 +236,8 @@ type internal TypeSlot =
     {
         Key: TypeSlotKey
         Kind: TypeSlotKind
-        /// The `TypeDef` namespace column. EMPTY for a nested type — a nested type's
-        /// namespace is its enclosing type's, which is the CLR rule.
+        /// The `TypeDef` namespace column. EMPTY for a nested type, because the CLR takes a
+        /// nested type's namespace from its enclosing type.
         Namespace: string
         /// Metadata name, already arity-suffixed (`Map\`2`). ONE segment: the containment chain
         /// lives in `TypeNode.Enclosing` (a `NestedClass` row), never in the name.
@@ -252,7 +253,7 @@ type internal TypeNode =
     {
         Slot: TypeSlot
         /// `ValueNone` for a root (`<Module>`, a namespace-level type, a closure, a root
-        /// module's class, `Program`); `ValueSome` for a type the CLR nests — exactly the
+        /// module's class, `Program`); `ValueSome` for a type the CLR nests: exactly the
         /// types that get a `NestedClass` row and nested visibility.
         Enclosing: TypeSlotKey voption
         Fields: FieldSlot list
@@ -260,17 +261,17 @@ type internal TypeNode =
         Nested: TypeNode list
     }
 
-/// One file's contribution to the assembly, as data — everything a file produces on its
+/// One file's contribution to the assembly, as data: everything a file produces on its
 /// own, BEFORE the single `<Module>` pseudo-type and the single Program class, which
 /// belong to the assembly and are minted once when the files are combined.
 type internal FileLayout =
     {
-        /// This file's placeable ROOT nodes — its namespace-level nominals, its closures,
+        /// This file's placeable ROOT nodes: its namespace-level nominals, its closures,
         /// its root-module classes (each carrying its own nested subtree). The `<Module>`
         /// and Program roots are deliberately absent.
         Roots: TypeNode list
         /// Every nominal, closure and module-class key this file built, independently of how they
-        /// were placed in the tree — the input to the completeness check.
+        /// were placed in the tree. The completeness check compares these against the placed keys.
         BuiltKeys: TypeSlotKey list
         Lowered: TastAccessor.DeclId list
         Plan: ModuleClassPlan
@@ -278,7 +279,7 @@ type internal FileLayout =
         ClosureByNode: Dictionary<TastAccessor.ExprId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
         /// This file's source-lambda value-struct closure verdicts, keyed by the lambda
-        /// NODE — the id together with the pool that issued it, so an id from another
+        /// NODE, the id together with the pool that issued it, so an id from another
         /// file's pool misses instead of silently naming a different node.
         FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
         /// Whether this file carries the entry point (`Main`): TRUE on the single entry
@@ -287,22 +288,22 @@ type internal FileLayout =
     }
 
 /// The planned assembly: the ranged-table rows as data, plus the lowering products the
-/// plan was computed from — computed once here and consumed by the emission passes, which
-/// must never re-derive them.
+/// plan was computed from. The emission passes consume these and must never re-derive
+/// them.
 type internal AssemblyLayout =
     {
         /// The `TypeDef` table: the PRE-ORDER flattening of the type hierarchy, so each
         /// module class is immediately followed by the types it holds. Index 0 = `<Module>`;
         /// the i-th entry is TypeDef row i+1.
         Types: TypeNode list
-        /// The full `Field` table in row order — the fields of `Types`, in `Types` order.
+        /// The full `Field` table in row order: the fields of `Types`, in `Types` order.
         Fields: FieldSlot list
-        /// The full `MethodDef` table in row order — the methods of `Types`, in `Types` order.
+        /// The full `MethodDef` table in row order: the methods of `Types`, in `Types` order.
         Methods: MethodRow list
         /// The Program slot's presence is a layout decision: exe (`Main`) or
         /// Program-class fns. True iff some file carries the entry point.
         EmitEntryPoint: bool
-        /// The per-file products this layout was combined from — one per source file, so a
+        /// The per-file products this layout was combined from, one per source file, so a
         /// file's bodies resolve their own file-local nodes.
         Files: FileLayout list
     }

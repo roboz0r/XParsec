@@ -139,8 +139,8 @@ module EmitCall =
                 let name = ext.CompiledName
                 let key = ext.Key
                 // The recipe's generic instantiation comes from the function's curried type,
-                // which is stale once an argument became a value-struct closure — that leaf
-                // still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
+                // which is stale once an argument became a value-struct closure, because that
+                // leaf still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
                 let recipeFnTy =
                     if
                         appArgs
@@ -185,8 +185,8 @@ module EmitCall =
                     if recipe.Pushes = 0 then
                         EmitTypes.buildUnitValue env b
 
-                    // The partial-application result at the last consumed argument — the
-                    // type of the value `rest` is applied to.
+                    // The partial-application result at the last consumed argument, the type
+                    // of the value `rest` is applied to.
                     let funcTy =
                         match List.tryLast leading with
                         | Some(_, ty, _) -> ty
@@ -207,8 +207,9 @@ module EmitCall =
                     sm.Handle
                 else
                     // The instantiation is recovered by matching declared types against
-                    // actual. Parameters alone may miss a typar — `zeroCreate: int -> 'T[]`
-                    // carries `'T` only in its result — so a saturated call matches that too.
+                    // actual. `zeroCreate: int -> 'T[]` carries `'T` only in its result, so
+                    // parameters alone may miss a typar and a saturated call matches the
+                    // result too.
                     let defTys, actualTys =
                         match rest with
                         | [] -> sm.ParamTys @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
@@ -218,7 +219,7 @@ module EmitCall =
 
                     // A value-struct closure argument in a constrained `'TF :> Fun<_,_>`
                     // slot must instantiate `!TF` with the closure's own struct, not the
-                    // function type — which encodes to the `Fun\`2` INTERFACE and boxes.
+                    // function type, because that encodes to the `Fun\`2` INTERFACE and boxes.
                     leading
                     |> List.iteri (fun i (arg, _, _) ->
                         match env.ClosureValueTypeByNode.TryGetValue arg with
@@ -231,8 +232,8 @@ module EmitCall =
                         | false, _ -> ()
                     )
 
-                    // A phantom typar — one in no parameter and no result, like `fold`'s
-                    // enumerator `'E` in `'S :> IStructSeq<'T,'E>` — survives matching as
+                    // A phantom typar, one in no parameter and no result like `fold`'s
+                    // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, survives matching as
                     // `ValueNone`; solve it from the constraint's interface witness.
                     TastLower.solvePhantomTypars sm.Typars sm.Constraints (tryInterfaceWitness env) instArr
 
@@ -264,8 +265,8 @@ module EmitCall =
             let key = em.Key
             let name = em.MemberName
             let memberTy = typeOfExpr fn
-            // A .NET method is tupled — `m(a, b)` is ONE application to `(a, b)` — so the
-            // call consumes a single argument, opened to the declared width.
+            // `m(a, b)` is ONE application to the tuple `(a, b)`, so the call consumes a
+            // single argument, opened to the declared width.
             let isStatic = ValueOption.isNone objArg
             let argCount = SymbolKeyOps.memberArity "Emit: external member call" key
 
@@ -317,8 +318,8 @@ module EmitCall =
                 | ValueNone -> typeOfExpr fn
 
             // An F# `unit` return is a .NET **void** method and must declare 0 results, or
-            // the statement discard underflows on a phantom value. Void-ness comes from the
-            // DECLARED codomain — `Span<char>.Fill(T)`'s applied node type is not `unit`.
+            // the statement discard underflows on a phantom value. `Span<char>.Fill(T)`'s
+            // applied node type is not `unit`, so void-ness comes from the DECLARED codomain.
             let returnsVoid =
                 let declaredRet =
                     match memberTy with
@@ -342,7 +343,7 @@ module EmitCall =
             foldInvoke recur env b resultTy rest
 
         | _ ->
-            // The applied expression is itself a function VALUE — a closure local or a
-            // partial result — so there is no call recipe to dispatch to.
+            // The applied expression is itself a function VALUE, a closure local or a
+            // partial result, so there is no call recipe to dispatch to.
             recur env b fn
             foldInvoke recur env b (typeOfExpr fn) appArgs

@@ -28,8 +28,9 @@ module EmitTypes =
             /// captured. `ValueNone` for an anonymous lambda.
             SelfKey: BoundVarId voption
             /// `> 0` ⇒ a generic closure: the TOTAL number of `GenericParam` rows (`T0…`)
-            /// on its `TypeDefinition` — the enclosing class's typars, then the enclosing
-            /// method's. The construction site `Newobj`s a `MemberRef` on the `TypeSpec`.
+            /// on its `TypeDefinition`, the enclosing class's typars followed by the
+            /// enclosing method's. The construction site `Newobj`s a `MemberRef` on the
+            /// `TypeSpec`.
             Typars: int
             /// How many of `Typars` are the enclosing class's (a member-body closure on a
             /// generic class); `0` for a static-fn closure, all of whose typars are
@@ -46,7 +47,7 @@ module EmitTypes =
             /// `Fun\`2<P,R>` with `Invoke(P):R`, `2` ⇒ `Fun\`3<P1,P2,R>` with one flat
             /// `Invoke(P1,P2):R`, up to `4` ⇒ `Fun\`5`. Always `1 + ExtraParams.Length`.
             FunArity: int
-            /// The extra flat parameters beyond the first, in flat order — peeled from
+            /// The extra flat parameters beyond the first, in flat order. Peeled from
             /// successive inner `Lambda`s of a curried `fun x y … -> …` so they do NOT
             /// become their own closures. `Invoke` binds extra param `i` to `ldarg.(2+i)`.
             ExtraParams: (BoundVarId * FrozenType * TastAccessor.PatId) list
@@ -69,7 +70,8 @@ module EmitTypes =
 
     /// An augmentation member on a union/class `TypeDefinition`; `ParamArity` excludes
     /// `this`, and a property's `Handle` is its `get_<name>` method. `Handle` is the `Def`
-    /// token — a generic type reaches the member by `MemberRef` off `MetaName` + signature.
+    /// token, but a generic type reaches the member by `MemberRef` off `MetaName` +
+    /// signature.
     type EmittedMember =
         {
             Handle: EntityHandle
@@ -84,7 +86,7 @@ module EmitTypes =
             MethodTyparCount: int
         }
 
-    /// One step of a class preamble, in declaration order — what the `.cctor` (static
+    /// One step of a class preamble, in declaration order: what the `.cctor` (static
     /// sequence) or the primary `.ctor` (instance sequence) runs. One step type serves
     /// both: the enclosing builder decides whether `Store` is `stsfld` or `stfld`.
     [<RequireQualifiedAccess>]
@@ -97,8 +99,8 @@ module EmitTypes =
     /// A class primary `.ctor`'s base-constructor chain.
     [<RequireQualifiedAccess>]
     type CtorChain =
-        /// `inherit Base(args)`, an external base's `.ctor`, or — for an `inherit`-less
-        /// reference class — `System.Object::.ctor()`. The args are evaluated before
+        /// `inherit Base(args)`, an external base's `.ctor`, or `System.Object::.ctor()`
+        /// for an `inherit`-less reference class. The args are evaluated before
         /// `this` is constructed, so they may only reference the ctor params (`ldarg`).
         | Base of ctor: EntityHandle * args: TastAccessor.ExprId list
         /// A value type: `System.ValueType` has no accessible ctor and value types do
@@ -115,20 +117,20 @@ module EmitTypes =
             TagField: EntityHandle
             Cases: Dictionary<string, EmittedCase>
             /// Augmentation members by source name, each mapping to the LIST of its
-            /// overloads — own members first, interface impls last. `Append(v:'T)` and
+            /// overloads: own members first, interface impls last. `Append(v:'T)` and
             /// `Append(v:'T, width:int)` share a key; the call site picks by argument type.
             Members: Dictionary<string, EmittedMember list>
         }
 
     /// A record emitted into this assembly: a sealed class, one public field per record
-    /// field, one ctor taking `Fields` — `(name, handle, declared type)` — in declaration
-    /// order. `Typars` empty ⇒ monomorphic (`Def`-token handles), non-empty ⇒ generic.
+    /// field, one ctor taking `Fields` in declaration order. `Typars` empty ⇒ monomorphic
+    /// (`Def`-token handles), non-empty ⇒ generic.
     type EmittedRecord =
         {
             Name: string
             Typars: string list
             Fields: (string * EntityHandle * FrozenType) list
-            /// `true` for a `[<Struct>]` value-type record — drives `isValueType`
+            /// `true` for a `[<Struct>]` value-type record. Drives `isValueType`
             /// at use sites (box on `:>`, `unbox.any` on `:?>`), like the class flag.
             IsValueType: bool
             Ctor: EntityHandle
@@ -144,13 +146,13 @@ module EmitTypes =
             Typars: string list
             /// Primary-constructor backing fields, `(name, handle, type)` in declaration
             /// order. Its LENGTH is the primary ctor's arity, which a `TExpr.New` matches
-            /// against — so explicit `val` fields stay out of it, in `InstanceFields`.
+            /// against, so explicit `val` fields stay out of it, in `InstanceFields`.
             Fields: (string * EntityHandle * FrozenType) list
             /// Explicit `val [mutable] x: T` instance fields, `(name, handle, type)`.
             /// Default-initialised (not set by the primary ctor); a `this.x`
             /// `FieldGet`/`FieldSet` resolves its handle here.
             InstanceFields: (string * EntityHandle * FrozenType) list
-            /// `true` for a `[<Struct>]` value type — drives `isValueType` at use
+            /// `true` for a `[<Struct>]` value type. Drives `isValueType` at use
             /// sites (box on `:>`, `unbox.any` on `:?>`).
             IsValueType: bool
             Ctor: EntityHandle
@@ -170,14 +172,14 @@ module EmitTypes =
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
             /// The implemented-interface TEMPLATES, each written over THIS class's
             /// declaring typars (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for
-            /// instantiation at an object argument. Direct impls only — no base recursion.
+            /// instantiation at an object argument. Direct impls only, not a base's.
             Interfaces: FrozenType list
         }
 
     /// How an emitted enum's cases are loaded and compared.
     type EmittedEnumRepr =
         /// A numeric enum: a `System.Enum` subclass. Its case fields are `literal`, so
-        /// metadata-only (`ldsfld` on one throws `MissingFieldException`) — both `E.A` and
+        /// metadata-only (`ldsfld` on one throws `MissingFieldException`). Both `E.A` and
         /// `| E.A` push the underlying integer `CaseValues.[case]` directly instead.
         | NumericEnum of CaseValues: Dictionary<string, TConstValue>
         /// A string / mixed enum: a `[<Struct>]` wrapper whose cases are
@@ -189,7 +191,7 @@ module EmitTypes =
             caseFields: Dictionary<string, EntityHandle> *
             caseLits: Dictionary<string, TEnumLiteral>
 
-    /// An enum emitted into this assembly — monomorphic and memberless, so `Repr` is all
+    /// An enum emitted into this assembly: monomorphic and memberless, so `Repr` is all
     /// there is to carry.
     type EmittedEnum = { Repr: EmittedEnumRepr }
 
@@ -229,7 +231,7 @@ module EmitTypes =
             /// module class.
             ModuleClass: ModuleClassKey option
             /// The flat, tuple-expanded, lone-unit-erased parameters: one CLR `ldarg` slot
-            /// each, so `Params.Length` is the emitted method's parameter count — NOT the
+            /// each, so `Params.Length` is the emitted method's parameter count, NOT the
             /// number of source applications a call collapses (that is `Groups.Length`).
             Params: StaticParam list
             /// The SOURCE curried/tupled groups: `Groups.Length` applications make a
@@ -243,8 +245,8 @@ module EmitTypes =
             /// reifies a `unit` after the `call`.
             ReturnsVoid: bool
             /// The binding's frozen typar bounds, method-axis-indexed templates over the
-            /// method typars. Read by the call-site phantom-typar solve to recover a
-            /// typar — `fold`'s `'E` — that no parameter or result mentions.
+            /// method typars. Read by the call-site phantom-typar solve to recover a typar
+            /// that no parameter or result mentions, like `fold`'s `'E`.
             Constraints: FrozenConstraint list
         }
 
@@ -276,8 +278,8 @@ module EmitTypes =
             Groups: TastAccessor.ArgGroup list
             ResultTy: FrozenType
             /// `0` ⇒ monomorphic, a plain `call`. Otherwise the call site recovers the
-            /// instantiation by matching `ParamTys` — whose leaves are
-            /// `FTTypar(TyparAxis.Method, i)` — against the actual argument types.
+            /// instantiation by matching `ParamTys`, whose leaves are
+            /// `FTTypar(TyparAxis.Method, i)`, against the actual argument types.
             Typars: int
             ParamTys: FrozenType list
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
@@ -315,8 +317,8 @@ module EmitTypes =
             /// Module-level value bindings → their emitted `public static` field, so a
             /// module value resolves the same way in any method, `.ctor` or `.cctor`.
             ModuleValues: Dictionary<BoundVarId, EntityHandle>
-            /// The top-level values `Main` initialises by `stsfld` — those trailing a
-            /// top-level `do` — rather than allocating a `Main` local for. Reads still go
+            /// The top-level values `Main` initialises by `stsfld`, those trailing a
+            /// top-level `do`, rather than allocating a `Main` local for. Reads still go
             /// through `ModuleValues`; values a `.cctor` initialises are absent.
             MainInitValues: Dictionary<BoundVarId, EntityHandle>
         }
@@ -356,7 +358,7 @@ module EmitTypes =
 
     /// A `Var` bound to an addressable local slot in `env` → its slot index. The shared
     /// "is this an addressable local?" test in front of struct object-arg addressing, the
-    /// `&`-address-of intrinsic, and the struct-argument spill — each fails over its own way.
+    /// `&`-address-of intrinsic, and the struct-argument spill, each with its own fallback.
     [<return: Struct>]
     let (|LocalSlot|_|) (env: EmitEnv) (e: TastAccessor.ExprId) : int voption =
         match e with
@@ -368,7 +370,7 @@ module EmitTypes =
 
     module EmitEnv =
         /// `args` maps each parameter to its `ldarg` index; locals (`Slots`) always start
-        /// empty. `selfKey` / `captureFields` are the closure-`Invoke` extras — every
+        /// empty. `selfKey` / `captureFields` are the closure-`Invoke` extras, so every
         /// other builder passes neither.
         let create
             (ctx: EmitContext)
@@ -397,7 +399,7 @@ module EmitTypes =
                 ModuleValues = ctx.ModuleValues
             }
 
-        /// The common builder shape: parameters only — no recursive self, no
+        /// The common builder shape: parameters only, with no recursive self and no
         /// captures.
         let ofContext (ctx: EmitContext) (args: Dictionary<BoundVarId, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args

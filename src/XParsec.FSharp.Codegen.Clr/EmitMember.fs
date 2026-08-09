@@ -10,7 +10,7 @@ open EmitResolve
 open EmitPattern
 open EmitDispatch
 
-/// Field / property / method access — instance and static, project-local and external.
+/// Field / property / method access, instance and static, project-local and external.
 module EmitMember =
 
     /// Load an unboxed value-type object argument as its `this` pointer, so a mutating call
@@ -28,7 +28,8 @@ module EmitMember =
         | TastAccessor.EVar k when env.SelfKey = ValueSome k -> b.Add(ILInstr.Ldarg 0)
         // A struct-typed FIELD object argument (`this.Source.MoveNext()`) is addressed with
         // `ldflda`; the parent recurses when it is itself a struct (`this.a.b.M()`). A struct
-        // from a PROPERTY falls through to the spill — a getter yields a copy, no location.
+        // from a PROPERTY falls through to the spill because a getter yields a copy with no
+        // location.
         | TastAccessor.EFieldGet fieldGet ->
             let parent = fieldGet.ObjArg
             let name = fieldGet.FieldName
@@ -90,7 +91,8 @@ module EmitMember =
 
     /// A member access through an interface-constrained typar (`x : 'T when 'T :> IFace`). The
     /// object argument is an `FTTypar`, not a nominal, so the slot comes off the key's declaring
-    /// interface, dispatched `constrained. <typar> callvirt` — a struct typar by address, no box.
+    /// interface, dispatched `constrained. <typar> callvirt`, so a struct typar goes by address
+    /// with no box.
     let private emitConstrainedInterfaceCall
         (recur: Recur)
         (env: EmitEnv)
@@ -120,7 +122,7 @@ module EmitMember =
                     | false, _ -> failwithf "EmitMember: interface '%A' has no emitted member '%s'" ifaceKey name
 
                 // A generic interface's abstract slot lives on the instantiated `TypeSpec`
-                // (`IStructSeq<int>`), not the bare definition — so mint a `MemberRef` at the
+                // (`IStructSeq<int>`), not the bare definition, so mint a `MemberRef` at the
                 // `ifaceArgs` the node carries. A non-generic one uses the `Def` handle.
                 EmitResolve.memberRef
                     env
@@ -192,8 +194,8 @@ module EmitMember =
         let name = view.FieldName
         let value = view.Value
         // `r.X <- v` on a `mutable` field. `stfld` consumes both pushes and leaves nothing, but
-        // a `FieldSet` is UNIT-TYPED — a `Sequential` middle item or a unit-returning body
-        // expects a value present — so reify `unit` to keep the IL verifier happy.
+        // a `FieldSet` is UNIT-TYPED and a `Sequential` middle item or a unit-returning body
+        // expects a value present, so reify `unit` to keep the IL verifier happy.
         let handle = resolveRecordField env (typeOfExpr objArg) name
         recur env b objArg
         recur env b value
@@ -224,7 +226,7 @@ module EmitMember =
         let view = TastAccessor.exprMethodCall e
         let objArg = view.ObjArg
         let key = view.Key
-        // `MethodCallView.Args` is ONLY the args — `exprChildren` merges the object arg in.
+        // `MethodCallView.Args` is ONLY the args, whereas `exprChildren` merges the object arg in.
         let args = view.Args
         let ty = TastAccessor.exprTy e
 
@@ -239,7 +241,7 @@ module EmitMember =
 
             // A generic instance method's member-ref already carries the `GENERIC` header (its
             // `'U` rides `!!i`), so the call must wrap it in a `MethodSpec`. The node carries no
-            // method type args — recover them from the declared signature.
+            // method type args, so recover them from the declared signature.
             let handle =
                 if m.MethodTyparCount = 0 then
                     handle0
@@ -253,7 +255,7 @@ module EmitMember =
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
-            // A `unit`-returning instance method is emitted `void` — 0 results.
+            // A `unit`-returning instance method is emitted `void`, so it declares 0 results.
             let returnsUnit =
                 match ty with
                 | FTUnit -> true
@@ -271,9 +273,9 @@ module EmitMember =
         let view = TastAccessor.exprStaticFieldGet e
         let declKey = view.Key
         let name = view.FieldName
-        // A numeric enum case (`E.A`) pushes its underlying integer constant — the enum value
-        // IS that integer, and its `literal` field is metadata-only, so `ldsfld` would throw
-        // `MissingFieldException`. A class `static let` backing field is a real `ldsfld`.
+        // A numeric enum case (`E.A`) IS its integer at runtime and its `literal` field is
+        // metadata-only, so `ldsfld` would throw `MissingFieldException`; push the constant
+        // instead. A class `static let` backing field is a real `ldsfld`.
         match tryResolveEnumCaseLoad env declKey name with
         | ValueSome instr -> b.Add instr
         | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
@@ -323,7 +325,7 @@ module EmitMember =
             recur env b a
 
         // A `unit`-returning static member is emitted `void`, and the external member-ref
-        // encoder maps a `unit` return to `void` too — so the `call` declares 0 results and a
+        // encoder maps a `unit` return to `void` too, so the `call` declares 0 results and a
         // value-position consumer reifies a `unit` afterward.
         let returnsUnit =
             match ty with
@@ -385,6 +387,6 @@ module EmitMember =
                     recur env b r
                     b.Add(ILInstr.Callvirt(handle, 1, 1))
         | MemberStorage.Method ->
-            // A method group needs closure synthesis — out of scope. An APPLIED external
+            // A method group needs closure synthesis, which is out of scope. An APPLIED external
             // method never reaches here; it is handled as an `App`'s applied function.
             failwith "Emit: external method used as a first-class value is out of scope"

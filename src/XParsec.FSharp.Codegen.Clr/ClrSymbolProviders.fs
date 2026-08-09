@@ -39,7 +39,7 @@ module ClrSymbolProviders =
 
     /// Content-derived cache tag for an explicit reference set: without it two compilations
     /// with different ref sets but identical manifests would share a contract entry.
-    /// ORDER-PRESERVING — resolution scans paths in order, so do not sort.
+    /// ORDER-PRESERVING because resolution scans paths in order, so do not sort.
     let private refsCacheTag (dllPaths: string list) : string =
         "bcl-refs:"
         + (dllPaths |> List.map System.IO.Path.GetFullPath |> String.concat ";")
@@ -52,13 +52,13 @@ module ClrSymbolProviders =
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr manifestPaths).Provider
 
-    /// `buildContract` for a specific target — `Target.Js` selects the `[targets.js]`
+    /// `buildContract` for a specific target: `Target.Js` selects the `[targets.js]`
     /// lists. `Target.Clr` is identical to `buildContract`.
     let buildContractFor (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).Provider
 
     /// The `{ platform-repr -> [canon] }` axis of the package being compiled, as a consumer
-    /// of it would see it — read off that package's own composed contract sources.
+    /// of it would see it, because it is read off that package's own composed contract sources.
     let selfReverseCanon (target: string) (selfManifest: string option) : Map<string, SymbolKey list> =
         match selfManifest with
         | None -> Map.empty
@@ -110,18 +110,19 @@ module ClrSymbolProviders =
             (SymbolProviders.selfStack selfManifest manifestPaths))
             .Provider
 
-    /// Raw cross-package inline bodies by source name — an introspection seam for tests. A
+    /// An introspection seam for tests: raw cross-package inline bodies by source name. A
     /// simple name is not a resolution channel; production reads a body off its resolved entry.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr manifestPaths).BodiesByName
 
-    /// `contractInlineBodies` for a specific target — introspection seam for target tests.
+    /// `contractInlineBodies` for a specific target. An introspection seam for target tests.
     let contractInlineBodiesFor (target: string) (manifestPaths: string list) : Map<string, InlineBody> =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).BodiesByName
 
     /// The cached contract for one compilation: an explicit reference set, seeded with the
-    /// compiling package's own reverse axis. Both halves are in the cache tag — the seed too,
-    /// else two packages compiling THEMSELVES with empty manifest lists would alias.
+    /// compiling package's own reverse axis. Both halves are in the cache tag, the seed
+    /// included, because two packages compiling THEMSELVES with empty manifest lists
+    /// would otherwise alias.
     let private compilationContract
         (selfManifest: string option)
         (dllPaths: string list)

@@ -9,7 +9,7 @@ open EmitLower
 module EmitFormat =
     /// Lower a `Format` node against the `Vesper.Formatter` ref-struct handler:
     /// construct it in place, fold the segments left-to-right (each hole's arg
-    /// evaluated at its position), then flush — or `ToStringAndClear` for `sprintf`.
+    /// evaluated at its position), then flush, or `ToStringAndClear` for `sprintf`.
     let buildFormat
         (buildExpr: EmitEnv -> IlBuilder -> TastAccessor.ExprId -> unit)
         (env: EmitEnv)
@@ -137,7 +137,7 @@ module EmitFormat =
 
                 b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 4, 0))
 
-            // The dynamic-precision float member — either a runtime precision (`%.*f`,
+            // The dynamic-precision float member: either a runtime precision (`%.*f`,
             // `pushPrec` loads the spilled local) or a forced-sign `%+e`/`%+g` at a
             // static one. Pushes (value, typeChar, precision, alignment[, space]).
             let dynamicFloat (typeChar: char) (signedSpace: bool option) (align: Alignment) (pushPrec: unit -> unit) =
@@ -203,7 +203,7 @@ module EmitFormat =
 
                 | PrintfSpec.HoleKind.OctalZeroPad
                 | PrintfSpec.HoleKind.UnsignedZeroPad ->
-                    // `AppendZeroPadded{Octal,Unsigned}(value, width)` — the field width
+                    // `AppendZeroPadded{Octal,Unsigned}(value, width)`. The field width
                     // rides in the alignment slot as a `Const`, since a star never
                     // reaches the zero-pad forms.
                     let handle =
@@ -285,14 +285,14 @@ module EmitFormat =
             | FormatSegG.Hole(hole, arg) -> emitHole hole arg None None
             | FormatSegG.CallbackHole(_, residue) ->
                 // `%a`/`%t`: the callback (and any scratch sink) was already lowered to an
-                // ordinary residue-*string* expr, so splice it exactly like a literal —
-                // codegen has no sink knowledge.
+                // ordinary residue-*string* expr, so splice it exactly like a literal.
+                // Codegen has no sink knowledge.
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b residue
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
             | FormatSegG.DynHole d ->
                 // Curried application evaluates the dimension args BEFORE the value, but
-                // the handler members take them AFTER it — so spill each present dim
+                // the handler members take them AFTER it, so spill each present dim
                 // (width first, then precision) to a local, then emit the value.
                 let wLocal =
                     match d.Width with
@@ -365,7 +365,7 @@ module EmitFormat =
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
         | FormatSinkG.ToBuilder _ ->
-            // `bprintf` has no newline variant — no trailing `\n`, just flush.
+            // `bprintf` has no newline variant, so no trailing `\n`, just flush.
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b

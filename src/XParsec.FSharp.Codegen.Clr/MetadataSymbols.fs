@@ -30,7 +30,7 @@ module private MetadataMapping =
         let go = tryBuildType reverseCanon
 
         if t.IsByRef then
-            // `in`/`out`/`ref` all collapse to `T&` — direction-agnostic. A C# `in` param's
+            // `in`/`out`/`ref` all collapse to `T&`. A C# `in` param's
             // `modreq(InAttribute)` is dropped, so calling one fails CLR member-ref binding.
             match go (t.GetElementType()) with
             | Some elem -> Some(FTConst(RuntimeNames.byrefKey, EqArray.singleton elem))
@@ -65,7 +65,7 @@ module private MetadataMapping =
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
             | "System.Void" -> Some(FTConst(RuntimeNames.unitKey, EqArray.empty))
-            // A BCL name with a canon surfaces AS the canon — scalar leaves
+            // A BCL name with a canon surfaces AS the canon: scalar leaves
             // (`System.Int32` → `int`) and subtype roots (`System.Object` → `obj`,
             // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.
             | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
@@ -73,7 +73,7 @@ module private MetadataMapping =
             | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
 
     /// `(per-parameter templates, return)` for a method; `None` if any type doesn't map.
-    /// UNCOLLAPSED — one entry per value parameter, so `.Length` is the value arity and the
+    /// UNCOLLAPSED: one entry per value parameter, so `.Length` is the value arity and the
     /// array serves as a member key's structural `ArgSig` directly.
     let tryMethodSignature
         (reverseCanon: Map<string, SymbolKey list>)
@@ -213,8 +213,8 @@ module private MetadataMapping =
         : ExternalSignature =
         ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
 
-    /// The declaring type's `TypeKey`, built by recursion through `Type.DeclaringType` —
-    /// never by cutting `FullName` on `.` and `+`. `Type.Name` is the innermost METADATA
+    /// The declaring type's `TypeKey`, built by recursion through `Type.DeclaringType`,
+    /// not by cutting `FullName` on `.` and `+`. `Type.Name` is the innermost METADATA
     /// segment (bare name plus its own `` `N ``), which `typeKeyOfSegment` parses.
     let rec declTypeKey (t: Type) : TypeKey =
         let t =
@@ -234,7 +234,7 @@ module private MetadataMapping =
 
 /// `IExternalSymbolProvider` over reference-assembly paths, sharing one
 /// `MetadataLoadContext`. `reverseCanon` is `Map.empty` for a leaf with no Vesper.Core in
-/// scope — BCL primitives then stay nominal classes.
+/// scope, so BCL primitives stay nominal classes.
 type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
@@ -375,7 +375,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     let enumerateClassMembers (t: Type) : ExternalMember[] =
         let origin = originOf t
         let declKey = MetadataMapping.declTypeKey t
-        // The declaring type's typar count — the width of the signature
+        // The declaring type's typar count, the width of the signature
         // template's declaring axis (`FTTypar(Declaring,i)`, `i < arity`).
         let arity =
             if t.IsGenericType then
@@ -570,8 +570,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                             | Some m -> [| m |]
                             | None -> [||]
 
-                    // No property / method by this name — a genuine field (`String.Empty`,
-                    // `ValueTuple.Item1`).
+                    // No property / method by this name, so a hit here is a genuine field
+                    // (`String.Empty`, `ValueTuple.Item1`).
                     let fieldOn (st: Type) : ExternalMember[] =
                         let origin, declKey, arity = commonOf st
 
@@ -609,7 +609,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         |> Array.filter (fun m -> seen.Add((m.Key.ArgSig, m.Key.Kind, m.MethodTyparArity)))
                         |> Array.sortByDescending (fun m -> m.Key.ArgSig.Length)
 
-                    // Constructors are NOT inherited — a `.ctor` request stays on `t`.
+                    // Constructors are NOT inherited, so a `.ctor` request stays on `t`.
                     if memberName = ".ctor" then
                         ctorsOn t
                     else
@@ -704,7 +704,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             this.LookupMembersByName(SymbolKeyOps.qualifiedName (SymbolKey.Type key.Decl), key.Name)
             |> ExternalSymbols.memberByKey key
 
-        // .NET metadata has no TS index-signature concept — an indexer is a `get_Item`
+        // .NET metadata has no TS index-signature concept, so an indexer is a `get_Item`
         // member, served through `TryLookupMember`.
         member _.TryLookupIndexSignature _ = []
         // The metadata layer models no free-function symbols at all (`TryLookup` is a
@@ -731,9 +731,9 @@ module MetadataSymbols =
     let createWith (reverseCanon: Map<string, SymbolKey list>) (paths: string seq) : IExternalSymbolProvider =
         MetadataSymbolProvider(reverseCanon, paths) :> IExternalSymbolProvider
 
-    /// `createWith` with no reverse map — BCL primitives stay nominal classes.
+    /// `createWith` with no reverse map, so BCL primitives stay nominal classes.
     let create (paths: string seq) : IExternalSymbolProvider = createWith Map.empty paths
 
-    /// Process-wide provider over the host runtime's assemblies — a test convenience;
+    /// Process-wide provider over the host runtime's assemblies, a test convenience;
     /// production composes a per-compilation leaf seeded with the extracted reverse map.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())

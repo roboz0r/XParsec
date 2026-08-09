@@ -231,7 +231,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
 
         // `fold`'s two method typars are self-describing `FTTypar(Method, i)` nodes (`'State` ⇒
-        // `!!0`, `'T` ⇒ `!!1`), which `encodeType` maps to `!!i` — no ambient typar window.
+        // `!!0`, `'T` ⇒ `!!1`), which `encodeType` maps to `!!i`, so no ambient typar window is needed.
         let sT = FTTypar(TyparAxis.Method, 0)
         let eT = FTTypar(TyparAxis.Method, 1)
         let folderT = FTFun(sT, FTFun(eT, sT))
@@ -301,7 +301,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // so it encodes and recovers against the producer's emitted signature unchanged.
             let methodTyparArity = openSig.MethodTyparArity
 
-            // Peel exactly `n` top-level `->` groups — one per SOURCE argument group. Unlike
+            // Peel exactly `n` top-level `->` groups, one per SOURCE argument group. Unlike
             // `uncurryFrozen`, which peels every `->`, this stops at the source arity, so a
             // function-typed RESULT stays whole.
             let peelN n t = TastLower.peelFunDomains n t
@@ -360,7 +360,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             // A function homed in this compilation's OWN assembly resolves to its local `MethodDef`;
             // on a miss, mint an external `MemberRef` scoped by `openSig.Origin` (the key alone
-            // carries no assembly). Only a module gives that ref a declaring type — hence `ValueNone`.
+            // carries no assembly). Only a module gives that ref a declaring type, hence `ValueNone`.
             let callBaseOpt =
                 match env.LocalModuleFns.TryGetValue valueKey with
                 | true, defHandle -> ValueSome defHandle
@@ -621,8 +621,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(eFormatter.Value, "AppendDynamicPrecisionFloat", s))
 
-        // `instance void AppendDynamicPrecisionSignedFloat(float64, char, int32, int32, bool)`
-        // — `%+.*f`/`% .*f`/`%+*.*f` (value, 'f', runtime precision, field width, space flag).
+        // `instance void AppendDynamicPrecisionSignedFloat(float64, char, int32, int32, bool)` —
+        // `%+.*f`/`% .*f`/`%+*.*f` (value, 'f', runtime precision, field width, space flag).
         let appendDynamicPrecisionSignedFloat =
             let s = BlobBuilder()
 
@@ -936,7 +936,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) selfTy
         toEntity (ctx.TypeSpec tsB)
 
-    /// A `TypeSpec` token for an arbitrary `FrozenType` — the type operand of `isinst` /
+    /// A `TypeSpec` token for an arbitrary `FrozenType`, the type operand of `isinst` /
     /// `castclass` / `box` / `unbox.any` (`:>` / `:?` / `:?>`). A `TypeSpec` is a legal
     /// `TypeDefOrRefOrSpec` operand, so one path serves mono and generic targets alike.
     let typeToken (ty: FrozenType) : EntityHandle =

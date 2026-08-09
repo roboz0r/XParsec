@@ -12,22 +12,22 @@ type MethodSlot =
     | ModuleClassFn of Emit.StaticFn
     | ProgramCctor
 
-/// The module-level emission plan, computed once — purely — from the lowered decls: which
+/// The module-level emission plan, computed once and purely from the lowered decls: which
 /// top-level bindings are module values vs static-method functions, the module class emission
 /// order, the method-row plan, and the module-value field-row order.
 type ModuleClassPlan =
     {
-        /// The lowered decls AFTER bridging — every non-saturated reference to a
+        /// The lowered decls AFTER bridging: every non-saturated reference to a
         /// static-eligible function eta-expanded to a wrapper closure. Downstream passes
         /// walk THIS list, so they see the nodes the plan was computed from.
         Lowered: TastAccessor.DeclId list
         /// Module-level values lowered to `public static` fields on their named module classes,
-        /// in declaration order; every reference is an `ldsfld` — never a `Main` local or
+        /// in declaration order; every reference is an `ldsfld`, never a `Main` local or
         /// a closure capture.
         ModuleValues: Emit.ModuleValue list
         ModuleValueKeys: HashSet<BoundVarId>
         /// Top-level (implicit-"Program"-module) ground values placed in the Program
-        /// module class's `.cctor` as `static initonly` fields — the leading prefix (no top-level
+        /// module class's `.cctor` as `static initonly` fields: the leading prefix (no top-level
         /// `do` before them), in declaration order, initialised before `Main` runs.
         ProgramCctorValues: Emit.ModuleValue list
         /// Top-level ground values that FOLLOW a top-level `do`: plain mutable `static`
@@ -49,9 +49,9 @@ type ModuleClassPlan =
         ValuesByClass: Dictionary<Emit.ModuleClassKey, Emit.ModuleValue list>
         /// Which methods a module class owns and in what order *within* that module class: a `.cctor`
         /// when it has values, then its fns; then the Program class's `.cctor` and its
-        /// Program-class fns. NOT a row order — `MethodDef` rows are the layout tree's.
+        /// Program-class fns. NOT a row order, because `MethodDef` rows are the layout tree's.
         MethodPlan: MethodSlot list
-        /// Every module-level value that gets a static FIELD — named-module values in
+        /// Every module-level value that gets a static FIELD: named-module values in
         /// module class order, then the Program class's. The field ROW order is the layout
         /// tree's, not this.
         AllModuleValues: Emit.ModuleValue list
@@ -78,13 +78,13 @@ module ModuleClassPlan =
         (lowered0: TastAccessor.DeclId list)
         : ModuleClassPlan =
         // How every top-level decl of this file emits (name, module class, handle key), decided
-        // before bridging — which rewrites expressions inside decls but neither adds nor
+        // before bridging, which rewrites expressions inside decls but neither adds nor
         // removes a top-level bound variable, so the same table is valid for `lowered` below.
         let emissions = Emit.emissions moduleMembers programClass lowered0
 
         // Drives bridging: a value-use of a function that survives as a static method
         // becomes a curried bridge; a capture-demoted one keeps its closure. The top-level
-        // *storage* set — an `ldsfld` / `call` target, never a capture.
+        // *storage* set: an `ldsfld` / `call` target, never a capture.
         let preResolvedTopLevel =
             let s = HashSet<BoundVarId>()
 
@@ -115,7 +115,7 @@ module ModuleClassPlan =
         let moduleValueKeys =
             HashSet<BoundVarId>(moduleValues |> List.map (fun mv -> mv.Key))
 
-        // Top-level (implicit-"Program"-module) ground values — top-level `let`s in an
+        // Top-level (implicit-"Program"-module) ground values: top-level `let`s in an
         // exe's last file, collected unclassified; the leading/trailing partition runs
         // below, once `staticFnKeys` is known. Their keys are real storage, never captures.
         let programValues =
@@ -125,8 +125,8 @@ module ModuleClassPlan =
             HashSet<BoundVarId>(programValues |> List.map (fun mv -> mv.Key))
 
         // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a static
-        // FIELD — a non-generic module class has no type parameter to type it — so it lowers to a
-        // zero-arg generic static METHOD; a reference `call`s its `MethodSpec`.
+        // FIELD, because a non-generic module class has no type parameter to type it, so it
+        // lowers to a zero-arg generic static METHOD; a reference `call`s its `MethodSpec`.
         let genericModuleValues = Emit.collectGenericModuleValues emissions lowered
 
         let genericModuleValueKeys =
@@ -220,8 +220,8 @@ module ModuleClassPlan =
 
             fnClasses @ valueOnly
 
-        // `Dictionary`, not `Map`: a `ModuleClassKey` is equatable but not ordered — its
-        // namespace path is an `EqArray`, which has no comparison.
+        // `Dictionary`, not `Map`: a `ModuleClassKey` is equatable but not ordered, because
+        // its namespace path is an `EqArray`, which has no comparison.
         let valuesByClassIndex = Dictionary<Emit.ModuleClassKey, Emit.ModuleValue list>()
 
         for (h, vs) in valuesByClass do

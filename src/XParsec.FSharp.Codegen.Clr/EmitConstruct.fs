@@ -42,8 +42,8 @@ module EmitConstruct =
         let argCount = args.Length
 
         // Parameterless value-type construction (`Counter()`, `Span<char>()`) pushes no
-        // arguments and emits no `newobj`: it is `initobj` on a zeroed scratch local —
-        // `Span<char>` has no parameterless ctor to call, it is `default(Span<char>)`.
+        // arguments and emits no `newobj`: it is `initobj` on a zeroed scratch local.
+        // `Span<char>` has no parameterless ctor to call; it is `default(Span<char>)`.
         let isInitObj =
             argCount = 0
             && (
@@ -65,7 +65,7 @@ module EmitConstruct =
                 match localClass with
                 | ValueSome(classKey, c) ->
                     // The primary ctor's arity equals its field count; any other arg count
-                    // selects a secondary by arity — F# forbids two ctors of the same
+                    // selects a secondary by arity. F# forbids two ctors of the same
                     // signature, so arity is a key. `type T = val …; new(…)` has no primary.
                     if c.HasPrimaryCtor && argCount = List.length c.Fields then
                         let ctorRef =
@@ -253,7 +253,7 @@ module EmitConstruct =
         | true, closure -> closure
         | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
-    /// A value-struct closure is built BY VALUE — no `newobj` — leaving the struct on the
+    /// A value-struct closure is built BY VALUE with no `newobj`, leaving the struct on the
     /// stack for a constrained `!TF` slot. Value-type ctor stack discipline is address
     /// first, then captures, then `call` (which returns void), then `ldloc` the result.
     let private buildValueStructClosure
@@ -311,7 +311,7 @@ module EmitConstruct =
 
         b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
 
-    /// A `Lambda` value: construct its closure — by value if it is a value-struct, else a
+    /// A `Lambda` value: construct its closure by value if it is a value-struct, else a
     /// stateless one `ldsfld`s the singleton cached for it, else `newobj` on the heap.
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         match env.ClosureValueTypeByNode.TryGetValue e with

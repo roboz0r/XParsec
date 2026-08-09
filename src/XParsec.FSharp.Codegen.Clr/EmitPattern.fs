@@ -33,7 +33,7 @@ module EmitPattern =
                     | true, slot -> b.Add(ILInstr.Ldloc slot)
                     | false, _ ->
                         // A module-level value (`let x = e` at module scope) is a
-                        // `public static` field on its module class — `ldsfld`.
+                        // `public static` field on its module class, so `ldsfld`.
                         match env.ModuleValues.TryGetValue key with
                         | true, field -> b.Add(ILInstr.Ldsfld field)
                         | false, _ ->
@@ -85,13 +85,13 @@ module EmitPattern =
                 recur fldSlot subPat
         )
 
-    /// The scalars whose CLR representation is a VALUE type. `string` / `obj` / `unit`
-    /// are absent — reference types.
+    /// The scalars whose CLR representation is a VALUE type. `string` and `obj` are absent
+    /// because they are reference types; `unit` is absent despite its `System.ValueTuple` repr.
     let private isValueTypePrimitive =
         RuntimeNames.isKeyIn (RuntimeNames.boolKey :: RuntimeNames.charKey :: RuntimeNames.numericKeys)
 
-    /// A CLR value type: one of the scalars above, or a `[<Struct>]` class / record —
-    /// emitted into this assembly, or living in a referenced package.
+    /// A CLR value type: one of the scalars above, or a `[<Struct>]` class / record, whether
+    /// emitted into this assembly or living in a referenced package.
     let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
         match ty with
         | FTConst(key, _) -> isValueTypePrimitive key
@@ -195,8 +195,8 @@ module EmitPattern =
             let key, tyArgs = nominalShape "union pattern" ty
             let qualName = SymbolKeyOps.typeMetaName key
 
-            // The tag field, this case's tag value, and a per-index field-ref source —
-            // from the union emitted here, or the provider's refs for one in a
+            // The tag field, this case's tag value, and a per-index field-ref source, either
+            // from the union emitted here or from the provider's refs for one in a
             // referenced package (`match o with Some x -> …`).
             let tagRef, tagValue, fieldRef =
                 match env.Unions.TryGetValue(SymbolKey.Type key) with
@@ -246,7 +246,7 @@ module EmitPattern =
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat
             let ty = TastAccessor.patTy pat
-            // A record pattern never fails on shape — there is no tag to compare, so
+            // A record pattern has no tag to compare, so it never fails on shape and
             // only its sub-patterns can branch to `nextLabel`.
             let key, tyArgs = nominalShape "record pattern" ty
 
@@ -325,13 +325,13 @@ module EmitPattern =
 
             b.Add(ILInstr.Mark matchedLabel)
 
-    /// Bind an *irrefutable* pattern against the value in local `srcSlot` — the `let` /
+    /// Bind an *irrefutable* pattern against the value in local `srcSlot`, the `let` /
     /// `for-in` destructuring bound variable. It emits no branch at all: shape is assumed to
     /// match rather than tested, and `NamedSimple` aliases `srcSlot` rather than copying.
     let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: TastAccessor.PatId) : unit =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
-        | PatShape.Const -> () // irrefutable in a binding position — no compare, no bind
+        | PatShape.Const -> () // irrefutable in a binding position, so no compare and no bind
         | PatShape.NamedSimple ->
             match TastAccessor.patBoundVar pat with
             | ValueSome k -> env.Slots.[k] <- srcSlot
@@ -340,7 +340,7 @@ module EmitPattern =
             destructureTuple env b srcSlot (TastAccessor.patTy pat) (TastAccessor.patChildren pat) (bindPattern env b)
         | _ -> failwithf "Emit: destructuring pattern is out of scope: %A" pat
 
-    /// The fallthrough when no arm matched — a `throw` terminates the path off the last
+    /// The fallthrough when no arm matched: a `throw` terminates the path off the last
     /// arm, and gives a non-exhaustive match defined behaviour.
     let buildMatchFailure (env: EmitEnv) (b: IlBuilder) : unit =
         b.Add(ILInstr.Ldstr(env.Ctx.UserString "The match cases were incomplete"))

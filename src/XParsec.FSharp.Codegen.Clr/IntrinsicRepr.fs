@@ -7,7 +7,7 @@ open System.Reflection.Metadata.Ecma335
 /// `(# … #)` declarations, not here.
 module IntrinsicRepr =
 
-    /// A key is the repr string the `.fs` declares verbatim — usually a BCL name, but the
+    /// A key is the repr string the `.fs` declares verbatim, usually a BCL name, but the
     /// pointer-width pair is IL signature syntax (`type nativeint = (# "native int" #)`)
     /// because `native int` / `unsigned native int` ARE ECMA-335 element types.
     let private valueTypeWriters: Map<string, SignatureTypeEncoder -> unit> =
@@ -39,6 +39,6 @@ module IntrinsicRepr =
             true
         | None -> false
 
-    /// True iff `repr` is a primitive value type the IL encoder writes DIRECTLY — the
+    /// True iff `repr` is a primitive value type the IL encoder writes DIRECTLY. The
     /// encoder-free form, for a caller that has no `SignatureTypeEncoder` to hand.
     let isEncodableValueType (repr: string) : bool = Map.containsKey repr valueTypeWriters

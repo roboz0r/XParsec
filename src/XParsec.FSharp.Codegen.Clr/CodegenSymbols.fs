@@ -39,14 +39,14 @@ module CodegenSymbols =
             member _.TryLookupCtor(declKey, chosen, arity) =
                 match chosen with
                 | ValueSome ck ->
-                    // The recorded identity IS the ctor — a by-key fetch, never a re-pick that
+                    // The recorded identity IS the ctor, so a by-key fetch, never a re-pick that
                     // could disagree with the overload the front end committed to. A heritable
                     // primitive's key arrives platform-valid, so nothing is rebased here.
                     provider.TryLookupMemberByKey(SymbolKeyOps.asMemberKey "ClrProvider: external ctor" ck)
                 | ValueNone ->
                     // A ctor node with no recorded identity: the printf `%a`/`%t` scratch
                     // (`new StringBuilder()`) or an external-base `inherit exn(msg)`, which has
-                    // no `TExpr.New`. Arity alone picks it — neither shape is overloaded.
+                    // no `TExpr.New`. Arity alone picks it because neither shape is overloaded.
                     provider.TryLookupMembers(declKey, ".ctor")
                     |> Array.tryFind (fun m -> m.Key.ArgSig.Length = arity)
                     |> function

@@ -49,7 +49,7 @@ module internal ClosureVerdictRewrite =
             Dictionary<BoundVarId, FrozenType * (FrozenType * FrozenType) list>()
 
         // Replace a stored binding's `'TFunc`-position leaf with the value-struct closure its
-        // initialiser produces — matched by POSITION, so a genuine function-valued field of
+        // initialiser produces, matched by POSITION, so a genuine function-valued field of
         // the same shape is untouched. Returns the container type + the leaf replacements.
         let substituteVerdictClosures
             (ty: FrozenType)
@@ -65,7 +65,7 @@ module internal ClosureVerdictRewrite =
 
             // An OLD nominal maps to exactly ONE NEW one. Re-recording the same target is
             // idempotent (the lockstep walk revisits shared subtrees); a different target
-            // means two closures reached one nominal — fail, don't corrupt the signature.
+            // means two closures reached one nominal, so fail rather than corrupt the signature.
             let record (oldT: FrozenType) (newT: FrozenType) =
                 match nestedSubst.TryGetValue oldT with
                 | true, existing when existing <> newT ->
@@ -140,7 +140,7 @@ module internal ClosureVerdictRewrite =
                 let replaced = ResizeArray<FrozenType * FrozenType>()
 
                 // A recorded earlier-binding nominal is replaced WHOLESALE and not descended
-                // into — its own buried `FTFun` already rode in via the recorded NEW nominal.
+                // into, because its own buried `FTFun` already rode in via the recorded NEW nominal.
                 let rec deep (t: FrozenType) : FrozenType =
                     match nestedSubst.TryGetValue t with
                     | true, newTy -> newTy
@@ -186,7 +186,7 @@ module internal ClosureVerdictRewrite =
 
         // In a producing transformer's result (`MapSeq<…,fn,…>`), replace the `'TFunc`-position
         // leaf with THIS call's own `<closure>$`. A same-shaped function type at any other
-        // position is untouched — the nested source slot is rewritten by its own producing site.
+        // position is untouched, because the nested source slot is rewritten by its own producing site.
         let rewriteAppResultByVerdict (resultTy: FrozenType) (verdict: struct (FrozenType * int)) : FrozenType =
             let struct (closureFt, pos) = verdict
             // Position-only, not recursive: one application rewrites its own slot. An
@@ -194,7 +194,7 @@ module internal ClosureVerdictRewrite =
             resultTy
             |> TastLower.mapFrozenArgs (EqArray.mapi (fun i a -> if i = pos then closureFt else a))
 
-        // A `FieldGet` off a verdict binding has its own type — the projected function —
+        // A `FieldGet` off a verdict binding has its own type, the projected function,
         // mapped to the closure via that binding's recorded replacements; the object arg is
         // retyped to the container so its field `TypeSpec` matches the instantiated field row.
         let retypeBody (e: TastAccessor.ExprId) : TastAccessor.ExprId =

@@ -4,7 +4,7 @@ open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
 /// Synthesised `IStructuralFormattable.Format` bodies (`%A`): straight-line `callvirt`s
-/// on the `sink` arg (`ldarg.1`) — `BeginRecord; (Field name; Child (box f))×n; EndRecord`
+/// on the `sink` arg (`ldarg.1`), `BeginRecord; (Field name; Child (box f))×n; EndRecord`
 /// for a record. The rendered layout is the runtime sink's job, not the body's.
 module internal EmitStructuralFormat =
 

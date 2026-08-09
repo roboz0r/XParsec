@@ -79,8 +79,8 @@ module EmitExpr =
 
         | ExprShape.App -> EmitCall.buildAppCall buildExpr env b e
 
-        // A bare external value — `Set.empty`, compiled to `SetModule.Empty<'T>()` — takes
-        // the same applied-function dispatch as an application, with no arguments.
+        // `Set.empty` compiles to `SetModule.Empty<'T>()`, so a bare external value takes the
+        // same applied-function dispatch as an application, with no arguments.
         | ExprShape.External -> EmitCall.buildAppCall buildExpr env b e
 
         | ExprShape.FieldGet -> EmitMember.buildFieldGet buildExpr env b e
@@ -104,8 +104,8 @@ module EmitExpr =
         | ExprShape.Downcast -> EmitIntrinsic.buildDowncast buildExpr env b e
         | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
 
-        // Nothing lowers `TryWith` away — closure discovery walks its bodies — so it
-        // survives to here.
+        // `TryWith` reaches Emit because no pass lowers it away, and closure discovery walks
+        // its bodies.
         | ExprShape.TryWith -> failwithf "Emit: unsupported expression: %A" e
 
         // A surviving `Range` was reported at Elaborate as `RangeNotFirstClassValue`.

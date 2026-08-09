@@ -4,8 +4,8 @@ open System
 open System.IO
 open System.Runtime.InteropServices
 
-/// Locates the installed SDK's `Microsoft.NETCore.App.Ref` pack for a target TFM — the
-/// no-MSBuild convenience path for compiling against a pinned TFM. The primary mechanism
+/// Locates the installed SDK's `Microsoft.NETCore.App.Ref` pack for a target TFM. This is
+/// the no-MSBuild convenience path for compiling against a pinned TFM; the primary mechanism
 /// is an explicit `dllPaths` set, resolved by whatever drives the build.
 module RefPack =
 

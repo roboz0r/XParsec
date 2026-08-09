@@ -140,7 +140,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         match which with
         | ClassMember.Ctor ->
             // Only the primary ctor's own parameters (the leading `CtorParamCount`
-            // entries) — not the trailing `val`/`static let` backing fields that also
+            // entries), not the trailing `val`/`static let` backing fields that also
             // live in `Fields` for name-based `ClassMember.Field` resolution.
             let paramTys =
                 shape.Fields |> EqArray.truncate shape.CtorParamCount |> EqArray.map snd
@@ -196,8 +196,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         else
             failwithf "ClrProvider: '%A' is not a registered generic union / record / class" key
 
-    /// An augmentation member of ANY generic user type (`UserMemberKind.Member`) — the one
-    /// encoding, because the member ref does not depend on what declares the member: the
+    /// An augmentation member of ANY generic user type (`UserMemberKind.Member`). One
+    /// encoding serves all, because the member ref does not depend on what declares it: the
     /// `key` picks the parent `TypeSpec`, and the rest is the member's own signature.
     let genericMemberRef
         (key: TypeKey)
@@ -248,7 +248,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         let parent = genericClosureTypeSpec name args
 
         // `parent` was minted under the caller's ambient closure scope; the signature
-        // below speaks THIS closure's typars, so force its scope on —
+        // below speaks THIS closure's typars, so force its scope on: under it
         // `FTTypar(Declaring, i)` encodes `!i`, `FTTypar(Method, j)` encodes `!(d + j)`.
         let savedMode = env.ClosureTyparScope
         env.ClosureTyparScope <- ValueSome shape.DeclaringTypars
@@ -308,7 +308,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     member _.GenericClosureTypeSpec(name, args) = genericClosureTypeSpec name args
     member _.GenericClosureMemberRef(name, args, which) = genericClosureMemberRef name args which
 
-    /// A generic union's own instantiation `TypeSpec` over its declaring typars (`List`1<!0>`) — the
+    /// A generic union's own instantiation `TypeSpec` over its declaring typars (`List`1<!0>`): the
     /// `isinst` target / `other`-local / typed-`Equals` self for its synthesised equality triple.
     /// The nominal `TypeKey` embeds the arity, so `Choice\`2`…`Choice\`7` stay distinct.
     member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle =

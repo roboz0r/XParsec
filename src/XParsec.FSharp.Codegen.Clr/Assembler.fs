@@ -54,7 +54,7 @@ type internal Assembler
 
     // Union over every file: a `SymbolKey` identifies an intrinsic assembly-wide, so a key
     // repeated across files is the same declaration and last-wins is safe. Platform repr
-    // only — `extends` comes off the frozen base type.
+    // only, because `extends` comes off the frozen base type.
     let intrinsicReprKeys =
         let d = Dictionary<SymbolKey, string>()
 
@@ -75,8 +75,8 @@ type internal Assembler
     // The narrow emission-side view of the provider: type/member shapes only.
     let codegenSymbols = CodegenSymbols.ofProvider symbols
 
-    // One body-stream encoder for every method — `AddMethodBody` realigns per body
-    // internally, so a fresh encoder per body would leave a tiny body's builder unaligned.
+    // One body-stream encoder for every method, because `AddMethodBody` realigns per body
+    // internally and a fresh encoder per body would leave a tiny body's builder unaligned.
     let bodyStream = ctx.BodyStream
 
     let layout = Layout.buildMany codegenSymbols project tasts
@@ -97,7 +97,7 @@ type internal Assembler
     // file, so one file's body resolves a sibling file's field row through it.
     let fieldDefHandles = Dictionary<FieldKey, FieldDefinitionHandle>()
 
-    // A numeric enum case field's `Constant` value — the case's underlying integer, boxed
+    // A numeric enum case field's `Constant` value: the case's underlying integer, boxed
     // to the authored CLR primitive. The field pass attaches it as it writes the field.
     let enumFieldConstants = Dictionary<FieldKey, obj>()
 
@@ -187,8 +187,8 @@ type internal Assembler
             if not td.TypeParams.IsEmpty then
                 provider.RegisterGenericClass(td.TypeKey, td.TypeParams, 0, [])
 
-        // Every enum — numeric (a `System.Enum` subclass) or string/mixed (a `[<Struct>]`
-        // wrapper) — is a project-local value type → `ELEMENT_TYPE_VALUETYPE`.
+        // Numeric enums (a `System.Enum` subclass) and string/mixed ones (a `[<Struct>]`
+        // wrapper) are both project-local value types → `ELEMENT_TYPE_VALUETYPE`.
         for td in
             (partitioned.Enums |> List.map (fun ed -> ed.Decl))
             @ (partitioned.StructEnums |> List.map (fun sed -> sed.Decl)) do
@@ -258,7 +258,7 @@ type internal Assembler
 
         // A project-local seq class's `GetEnumerator` RETURN type is the enumerator over
         // the class's declaring typars; keep that template per class key. Read off THIS
-        // file's decls — `env.Classes` is not yet populated at the field pass.
+        // file's decls because `env.Classes` is not yet populated at the field pass.
         let enumeratorTemplateByClass =
             let d = Dictionary<SymbolKey, FrozenType>()
 
@@ -396,7 +396,8 @@ type internal Assembler
                 {
                     Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
                     // The flat CLR arg count; the argument split uses `Groups.Length`,
-                    // which can be smaller — a tupled group is one application, N params.
+                    // which can be smaller, because a tupled group is one application
+                    // carrying N params.
                     ParamArity = List.length fn.Params
                     Groups = fn.Groups
                     ResultTy = fn.ResultTy
@@ -462,8 +463,8 @@ type internal Assembler
         ||| TypeAttributes.BeforeFieldInit
 
     // A numeric enum: sealed `auto ansi` extending `System.Enum`, which supplies
-    // value-type-ness + equality/hashing/compare. No `BeforeFieldInit` — there is no
-    // `.cctor`, the case fields being `literal`s in the `Constant` table.
+    // value-type-ness + equality/hashing/compare. No `BeforeFieldInit`, because there is no
+    // `.cctor`: the case fields are `literal`s in the `Constant` table.
     let enumAttrs =
         TypeAttributes.Class
         ||| TypeAttributes.Public
@@ -472,7 +473,7 @@ type internal Assembler
         ||| TypeAttributes.AnsiClass
 
     // A string/mixed enum's `[<Struct>]` wrapper: a sealed value type with NO
-    // `BeforeFieldInit` — its `.cctor` materialises the case singletons and must run
+    // `BeforeFieldInit`, because its `.cctor` materialises the case singletons and must run
     // before the first case `ldsfld`.
     let structEnumAttrs =
         TypeAttributes.Class
@@ -529,7 +530,7 @@ type internal Assembler
             baseAttrs
 
     // `Param` rows are one global table referenced by each `MethodDefinition.ParamList`,
-    // so they must be added in method order — call this immediately before each
+    // so they must be added in method order. Call this immediately before each
     // `AddMethodWithParamList`. Returns the first `Param` handle, past-the-end if none.
     let addParams (names: string list) : ParameterHandle =
         let firstParam = ctx.NextParamHandle
@@ -656,7 +657,7 @@ type internal Assembler
                 )
 
             // The registry's case → literal map feeds the `| E.A` pattern's field
-            // equality, not the `.cctor` — here the literals come off `sed.Cases`.
+            // equality, not the `.cctor`, whose literals come off `sed.Cases`.
             let backingField, caseFields =
                 match enums.[td.Key].Repr with
                 | Emit.EmittedEnumRepr.StructEnum(_, bf, cf, _) -> bf, cf
@@ -738,8 +739,8 @@ type internal Assembler
                     handleForUse
                 )
 
-            // A `Stack` closure's ctor does NOT chain `System.Object::.ctor` — value
-            // types have none. A captureless one's ctor is a bare `ret`: construction is
+            // A `Stack` closure's ctor does NOT chain `System.Object::.ctor`, because
+            // value types have none. A captureless one's ctor is a bare `ret`: construction is
             // by-value (`initobj`), so it is never called, but the row stays for layout.
             let isStack = c.IsValueStruct
 
@@ -804,7 +805,7 @@ type internal Assembler
                     }
                 )
 
-            // `Fun\`2<param, result>` interface `TypeSpec` — the closure ambient is still
+            // `Fun\`2<param, result>` interface `TypeSpec`. The closure ambient is still
             // installed, so free typars encode to `!i`. A flat (arity ≥2) closure
             // implements the wider `Fun\`(N+1)<a, …, result>` instead.
             let ifaceSpec =
@@ -846,7 +847,7 @@ type internal Assembler
 
         let prepareStaticFn (fn: Emit.StaticFn) =
             // A generic static method's body / signature / locals embed
-            // `FTTypar(Method, i)`, which the encoder maps to `!!i` — no ambient window.
+            // `FTTypar(Method, i)`, which the encoder maps to `!!i` without an ambient window.
             let typarCount = staticMethods.[fn.Key].Typars
 
             // Retype the body so a reference to a verdict module value, or an inline
@@ -877,7 +878,7 @@ type internal Assembler
                 }
             )
 
-        // A module class's `.cctor` `stsfld`s its module values in declaration order — the
+        // A module class's `.cctor` `stsfld`s its module values in declaration order, the
         // static analogue of a class's `static let` cctor.
         let prepareModuleClassCctor (h: Emit.ModuleClassKey) =
             let lets =
@@ -927,7 +928,7 @@ type internal Assembler
             | ModuleClassFn fn -> prepareStaticFn fn
             | ProgramCctor -> prepareProgramCctor ()
 
-    /// `Main` belongs to the ENTRY file only — the one whose layout carries the entry
+    /// `Main` belongs to the ENTRY file only, the one whose layout carries the entry
     /// point. A non-entry file contributes no `Main` row, so this is a no-op for it.
     member this.PrepareMain(f: FileEmit) =
         if f.Layout.EmitEntryPoint then
@@ -992,7 +993,8 @@ type internal Assembler
                     (rowOf (toEntity actual))
 
         // Written while the NESTED type is being written, not its enclosing one, so the
-        // `NestedClass` table comes out sorted by the nested handle — what SRM validates.
+        // `NestedClass` table comes out sorted by the nested handle, which is what SRM
+        // validates.
         // The enclosing handle exists already: it precedes this node in the flattening.
         let addNesting (node: TypeNode) (typeHandle: TypeDefinitionHandle) =
             match node.Enclosing with
@@ -1023,8 +1025,8 @@ type internal Assembler
             verifyTypeHandle slot typeHandle
             addNesting node typeHandle
 
-            // A `[<IsByRefLike>]` value type carries the marker attribute — a
-            // parameterless custom attribute, blob = prolog `0x0001` + zero named args =
+            // A `[<IsByRefLike>]` value type carries the marker attribute, a parameterless
+            // custom attribute whose blob is prolog `0x0001` + zero named args =
             // `01 00 00 00`. There is no `TypeAttributes` bit for it.
             if isByRefLike then
                 let blob = BlobBuilder()
@@ -1045,13 +1047,13 @@ type internal Assembler
 
             match slot.Kind with
             | TypeSlotKind.ModulePseudo ->
-                // `<Module>` points at method row 1 — the first real method, or
+                // `<Module>` points at method row 1: the first real method, or
                 // past-the-end of the empty table in a no-method library.
                 ctx.AddModuleType(layoutHandles.FirstMethodOf slot.Key)
 
             | TypeSlotKind.Interface ->
-                // Interfaces have no fields, so the field range is empty (the
-                // prefix sum — row 1, every field-bearing kind follows).
+                // Interfaces have no fields, so the field range is empty: the prefix sum
+                // hands back the row the next field-bearing type starts at.
                 let typeHandle =
                     ctx.AddInterfaceType(
                         nestedAttrsOf node.Enclosing interfaceAttrs,
@@ -1079,7 +1081,7 @@ type internal Assembler
                 let isByRefLike = valueKind = ClassValueKind.RefStruct
                 addNominalRow node (classAttrsOf isSealed isValueType) isByRefLike
 
-            // A numeric enum: base `System.Enum`, no interfaces, no methods — so it has
+            // A numeric enum: base `System.Enum`, no interfaces, no methods, so it has
             // no `TypeRowExtras` (`System.Enum` supplies eq/comp/format) and is written
             // directly rather than through `addNominalRow`.
             | TypeSlotKind.Enum ->
@@ -1109,7 +1111,7 @@ type internal Assembler
                     | true, e -> e
                     | _ -> failwithf "Layout: closure slot '%s' was never prepared" slot.MetaName
 
-                // A `Stack` closure is a `[<Struct>]` value type — sealed, sequential
+                // A `Stack` closure is a `[<Struct>]` value type, so sealed with sequential
                 // layout; the heap closure keeps the sealed-class `closureAttrs`.
                 let attrs =
                     match slot.Key with
@@ -1165,7 +1167,7 @@ type internal Assembler
                 verifyTypeHandle slot typeHandle
 
         // Every handle now exists: add `GenericParam` rows in the order SRM
-        // validates — by the owner's `TypeOrMethodDef` coded index, then index.
+        // validates: by the owner's `TypeOrMethodDef` coded index, then index.
         genericParams
         |> Seq.sortBy (fun (owner, index, _) -> (CodedIndex.TypeOrMethodDef owner, index))
         |> Seq.iter (fun (owner, index, name) -> ctx.AddGenericParameter(owner, index, name) |> ignore)

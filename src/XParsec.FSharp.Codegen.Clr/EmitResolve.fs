@@ -55,7 +55,7 @@ module EmitResolve =
 
     /// Pick the interface template a project-local class implements matching `ifaceKey`,
     /// instantiated at THIS object argument (`FTTypar(Declaring, i) := classArgs.[i]`).
-    /// Direct-declared interfaces only — no walk of base classes or transitive interfaces.
+    /// Direct-declared interfaces only, not those of base classes or transitive interfaces.
     let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match nominal with
         | FTClass(classKey, classArgs) ->
@@ -77,8 +77,8 @@ module EmitResolve =
 
     /// A `FrozenType`'s outermost type constructor as a string identity, for
     /// overload-candidate matching: the nominal's FULLY-QUALIFIED name, or a structural
-    /// tag. Qualified for an intrinsic too, not its display name — two types match only
-    /// when these identities are equal.
+    /// tag. Qualified for an intrinsic too, not its display name, because two types match
+    /// only when these identities are equal.
     let private tyCtorOf (t: FrozenType) : string =
         match t with
         | FTConst(k, _) -> SymbolKeyOps.qualifiedName k
@@ -89,7 +89,7 @@ module EmitResolve =
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
         | FTOr _ -> SymbolKeyOps.qualifiedName RuntimeNames.objKey
-        // A literal erases to its base primitive — match on that instead.
+        // A literal erases to its base primitive, so match on that instead.
         | FTLiteral v -> SymbolKeyOps.qualifiedName (RuntimeNames.literalBaseKey v)
         | FTKeyOf _
         | FTIndexedAccess _
@@ -98,7 +98,7 @@ module EmitResolve =
         | FTTypar _ -> "!typar"
         | FTUnknown n -> n
         // A body-local typar's identity is its `(scheme, index)` pair, so it matches only
-        // itself — unlike `FTTypar`, no overload can be generic in it.
+        // itself. Unlike `FTTypar`, no overload can be generic in it.
         | FTLocalTypar(SchemeId scheme, i) -> "!local:" + string scheme + ":" + string i
 
     /// Does a candidate's declared (open) parameter accept a call argument of type `arg`?
@@ -121,7 +121,7 @@ module EmitResolve =
             let sameArity = many |> List.filter (fun m -> List.length m.ParamTys = arity)
 
             match sameArity with
-            | [] -> List.head many // arity mismatch (unexpected) — first, fail later
+            | [] -> List.head many // no candidate has this arity, so take the first and fail later
             | [ single ] -> single
             | multi ->
                 match multi |> List.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys) with
@@ -137,7 +137,7 @@ module EmitResolve =
         (name: string)
         (argTys: FrozenType list)
         : EntityHandle * EmittedMember =
-        // Project-local types only — an external one goes to `externalInstanceMemberRef`.
+        // Project-local types only. An external one goes to `externalInstanceMemberRef`.
         let key, tyArgs = nominalShape (sprintf "member '%s' access" name) objArgTy
 
         // The member-key registry read, identical across every emitted-nominal kind: pick
@@ -180,7 +180,8 @@ module EmitResolve =
 
     /// Member handle for an instance access on an EXTERNAL (referenced-package) type. A
     /// union/record object argument routes through `ExternalMemberRefOn`, reading the parent
-    /// `TypeSpec` off it — `"Vesper.Option"` carries no `` `1 ``, so its arity is unrecoverable.
+    /// `TypeSpec` off it, because `"Vesper.Option"` carries no `` `1 `` and its arity is
+    /// otherwise unrecoverable.
     let externalInstanceMemberRef
         (env: EmitEnv)
         (key: SymbolKey)
@@ -189,7 +190,7 @@ module EmitResolve =
         (memberTy: FrozenType)
         : EntityHandle =
         // A capability member may really be declared on a BASE of the BCL interface its
-        // capability reconciles to — `MoveNext` lives on non-generic `IEnumerator`. Rebase
+        // capability reconciles to, as `MoveNext` is on non-generic `IEnumerator`. Rebase
         // before the routing below so the ref is minted against that base.
         let key =
             match env.Provider.TryCapabilityBaseMemberKey key with
@@ -203,7 +204,8 @@ module EmitResolve =
         | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
         // A generic external class object arg (`ResizeArray<int>`) carries its instantiation
         // in its own args, which signature recovery cannot get from `Count: int`. Gated on
-        // declKey = rKey since the parent IS the object argument — wrong for an inherited one.
+        // declKey = rKey since the parent IS the object argument, and the instantiation would
+        // be wrong for an inherited member.
         | FTClass(rKey, args) when args.Length > 0 && declKey = rKey ->
             env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
@@ -218,14 +220,15 @@ module EmitResolve =
         (resultTy: FrozenType)
         : EntityHandle =
         // The emitted tables are keyed by `SymbolKey` directly, so the member key's `Decl`
-        // and `Name` are the whole lookup — no class-name reverse index.
+        // and `Name` are the whole lookup and no class-name reverse index is needed.
         let key, name =
             let mk = SymbolKeyOps.asMemberKey "Emit: static member call" memberKey
             mk.Decl, mk.Name
 
         // The declaring type's instantiation at THIS call site: a static member on a generic
         // class compiles to a `MemberRef` on the class `TypeSpec`, so a hardcoded declaring `!0`
-        // mints `Set\`1<!0>::Empty` — an open typar with no owner, `BadImageFormatException` at JIT.
+        // mints `Set\`1<!0>::Empty`, an open typar with no owner, and the JIT throws
+        // `BadImageFormatException`.
         let instantiationFor (typars: 'a list) (m: EmittedMember) : FrozenType list =
             let declaringTypars =
                 [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
@@ -234,9 +237,9 @@ module EmitResolve =
             | ValueSome(rk, rargs) when rk = key && List.length rargs = List.length typars -> rargs
             | _ when List.isEmpty typars -> declaringTypars
             | _ ->
-                // `recoverMemberInst` throws when a slot is unrecoverable — the typar
-                // surfaces nowhere in the signature (`Box<'T>.Describe (x: 'T) : int` called
-                // from a concrete context). The bare declaring typars are the last resort.
+                // `recoverMemberInst` throws when the typar surfaces nowhere in the signature
+                // (`Box<'T>.Describe (x: 'T) : int` called from a concrete context). The bare
+                // declaring typars are the last resort.
                 try
                     let declaringArgs, _ = recoverMemberInst env m (List.length typars) argTys resultTy
                     declaringArgs
@@ -273,7 +276,7 @@ module EmitResolve =
 
     /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle. The stored
     /// handle is the field's `Def` token for a mono class, a `MemberRef` on the open
-    /// self-`TypeSpec` (`Set\`1<!0>::empty`) for a generic one — so this is a direct read.
+    /// self-`TypeSpec` (`Set\`1<!0>::empty`) for a generic one, so this is a direct read.
     let resolveStaticField (env: EmitEnv) (declKey: SymbolKey) (name: string) : EntityHandle =
         match env.Classes.TryGetValue declKey with
         | true, c ->
@@ -304,7 +307,7 @@ module EmitResolve =
             [ load; ILInstr.Box(typeToken ty) ]
 
     /// The IL load of an enum case used as a value (`E.A` / `| E.A`). A NUMERIC enum value IS
-    /// its integer at runtime — its `literal` field is metadata-only — so this pushes the
+    /// its integer at runtime and its `literal` field is metadata-only, so this pushes the
     /// constant; a string/mixed case is a real `static initonly` field, so this `ldsfld`s it.
     let tryResolveEnumCaseLoad (env: EmitEnv) (declKey: SymbolKey) (name: string) : ILInstr voption =
         match env.Enums.TryGetValue declKey with

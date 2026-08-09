@@ -4,8 +4,8 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-// Every method body is built as an `ILBody` — by the TAST walker or by a fixed
-// template — then scanned twice: `analyze` derives `maxStack` and the depth at
+// Every method body is built as an `ILBody` by the TAST walker or by a fixed
+// template, then scanned twice: `analyze` derives `maxStack` and the depth at
 // each label, `lower` replays the buffer through the `Cil.emit*` helpers.
 
 /// The reified instruction. Branch targets are label ids (ints) minted by the
@@ -168,7 +168,7 @@ module private InstrDelta =
         | ILInstr.EndFinally -> 0
 
 /// Mints label ids and local slots, accumulates instructions, and tracks the
-/// running operand-stack `Depth` — which the walker reads to know how many values
+/// running operand-stack `Depth`, which the walker reads to know how many values
 /// a statement left behind to discard.
 type IlBuilder() =
     let locals = ResizeArray<FrozenType>()
@@ -294,8 +294,9 @@ module IlIr =
                     | ValueNone ->
                         if labelDepths.[l] = -1 then
                             // A dead merge point: marked while unreachable and never
-                            // targeted — the never-taken `nextLabel` of an irrefutable
-                            // final `match` arm. CLI §III leaves its depth free, so 0.
+                            // targeted, such as the never-taken `nextLabel` of an
+                            // irrefutable final `match` arm. CLI §III leaves its depth
+                            // free, so 0.
                             labelDepths.[l] <- 0
                             cur <- ValueSome 0
                         else
@@ -343,7 +344,7 @@ module IlIr =
                     cur <- ValueSome 0
                 | ILInstr.BeginCatch _ ->
                     // CLI: the runtime pushes the exception object at handler entry,
-                    // so bump `maxStack` — no `straightDelta` accounts for it.
+                    // so bump `maxStack` here, because no `straightDelta` accounts for it.
                     cur <- ValueSome 1
 
                     if maxStack < 1 then

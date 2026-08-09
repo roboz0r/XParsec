@@ -14,8 +14,8 @@ type internal CoSlot =
     /// `IEnumerator.get_Current() : object` — forwards to the capability's `Current`,
     /// boxing the `'T`.
     | EnumeratorCurrent
-    /// `IEnumerator.Reset() : void` — the pull protocol has no rewind, so there is no
-    /// capability member to forward to; the shim throws `NotSupportedException`.
+    /// `IEnumerator.Reset() : void` — the shim throws `NotSupportedException`, since the
+    /// pull protocol has no rewind and so no capability member to forward to.
     | EnumeratorReset
 
 /// Which co-slots a nominal must synthesise, keyed off each implemented interface's
@@ -31,7 +31,7 @@ module internal CapabilityCoSlots =
         | _ -> []
 
     /// The co-slots the implemented `interfaces` require, in emission order, each paired
-    /// with the interface that demands it — so a shim's forwarding target is looked up in
+    /// with the interface that demands it, so a shim's forwarding target is looked up in
     /// THAT interface's impl block, not by name across every impl member.
     let required (symbols: ICodegenSymbols) (interfaces: FrozenType list) : (FrozenType * CoSlot) list =
         [
@@ -126,8 +126,8 @@ type internal EnumDecl =
         Cases: (string * TConstValue) list
     }
 
-/// A partitioned STRING or MIXED enum, emitted as a `[<Struct>]` wrapper over one field —
-/// `string`, or `obj` when `IsMixed` (a boxed int or string per case) — plus one
+/// A partitioned STRING or MIXED enum, emitted as a `[<Struct>]` wrapper over one field
+/// (`string`, or `obj` when `IsMixed`, a boxed int or string per case) plus one
 /// `.cctor`-initialised `static initonly` field per case, in `Cases` declaration order.
 type internal StructEnumDecl =
     {
@@ -166,8 +166,8 @@ type internal NominalEmissionInput =
 [<RequireQualifiedAccess>]
 module internal NominalMembers =
 
-    /// The grouped `interface … with` impls as one member sequence, in declaration order —
-    /// the order `indexed` numbers impl members in.
+    /// The grouped `interface … with` impls as one member sequence, in declaration order,
+    /// which is the order `indexed` numbers impl members in.
     let flattenIfaceMembers
         (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
         : TastAccessor.TypeMember list =
@@ -191,7 +191,7 @@ module internal NominalMembers =
         ]
 
     /// The `(index, member)` pairs of ONE interface's impl block, in `indexed`'s index
-    /// space — for a consumer that knows which interface it needs and must not match a
+    /// space, for a consumer that knows which interface it needs and must not match a
     /// same-named member declared by another interface.
     let ofInterface
         (members: TastAccessor.TypeMember list)
@@ -223,7 +223,7 @@ type ClrArtifact =
         /// The serialised PE image.
         Pe: BlobBuilder
         /// Simple names of every assembly the emitted PE binds against (its `AssemblyRef`
-        /// table) — the seed of the ship set when materialising a runnable app.
+        /// table), which seed the ship set when materialising a runnable app.
         ReferencedAssemblies: string list
         /// The distinct FSharp.Core constructs the emission referenced. Empty ⇒ the PE has
         /// no `FSharp.Core.dll` dependency.

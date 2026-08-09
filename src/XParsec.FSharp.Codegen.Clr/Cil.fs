@@ -47,8 +47,8 @@ module Cil =
         il.Encoder.LoadLocal(n)
         il.Adjust 1
 
-    /// Managed pointer to local slot `n` — the `this` pointer for a value-type instance
-    /// call, or the target of an in-place `initobj` / `.ctor`.
+    /// Managed pointer to local slot `n`, used as the `this` pointer for a value-type
+    /// instance call, or as the target of an in-place `initobj` / `.ctor`.
     let emitLdloca (il: Il) (n: int) : unit =
         il.Encoder.LoadLocalAddress(n)
         il.Adjust 1
@@ -182,7 +182,7 @@ module Cil =
 
     /// Map an F# inline-IL mnemonic to its `ILOpCode`: an operator body `(# "ceq" … #)`
     /// lowers to a `TExpr.ILIntrinsic` carrying the string. `ValueNone` outside the
-    /// pop-n-push-1 ops — a branch or a load/store needs an operand this can't carry.
+    /// pop-n-push-1 ops, because a branch or a load/store needs an operand this can't carry.
     let tryOpCodeOfMnemonic (mnemonic: string) : ILOpCode voption =
         match mnemonic with
         | "ceq" -> ValueSome ILOpCode.Ceq
@@ -270,7 +270,8 @@ module Cil =
     /// `endfinally` — terminator closing a finally handler; the depth is already 0.
     let emitEndFinally (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Endfinally)
 
-    /// `maxStack` is the peak depth `Il` tracked while `emit` ran — no separate pass.
+    /// `maxStack` is the peak depth `Il` tracked while `emit` ran, so no separate pass
+    /// computes it.
     let buildBody
         (encodeLocals: FrozenType list -> StandaloneSignatureHandle)
         (bodyStream: MethodBodyStreamEncoder)

@@ -56,7 +56,7 @@ module Materialise =
         )
 
     /// The PE, its `runtimeconfig.json` and a copy of every referenced assembly the
-    /// shared framework does not carry, into the PE's directory — after which
+    /// shared framework does not carry, into the PE's directory, after which
     /// `dotnet <OutputPath>` runs the program. Requires `OutputPath`.
     let materialiseApp (project: ProjectInfo) (artifact: ClrArtifact) : unit =
         match artifact.OutputPath with
@@ -96,7 +96,7 @@ module Materialise =
                 fromProject
                 |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
 
-            // Ship set closed over transitive references — a `%A` program's PE names
+            // Ship set closed over transitive references, because a `%A` program's PE names
             // `Vesper.Printf`, which needs `Vesper.Core` beside it or `%A` throws
             // `FileNotFoundException`. A name with no source ends the walk.
             let shipNames =

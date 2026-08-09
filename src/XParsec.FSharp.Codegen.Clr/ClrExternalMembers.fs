@@ -82,7 +82,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     List.length paramTys,
                     // A `System.Void` return surfaces as `FTUnit`, but encoding it as
                     // `FSharp.Core.Unit` mints a signature no external void method binds
-                    // (`MissingMethodException`) — emit `void` (`IDisposable.Dispose`).
+                    // (`MissingMethodException`), so emit `void` (`IDisposable.Dispose`).
                     (fun (ret: ReturnTypeEncoder) ->
                         match retT with
                         | FTUnit -> ret.Void()
@@ -110,8 +110,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome m -> m
         | ValueNone -> failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
 
-    /// The member's open signature as one template: the bare value type for a property, else
-    /// the .NET-tupled `FTFun(params, ret)` — the form matched against the use-site type.
+    /// The member's open signature as one template, the form matched against the use-site type:
+    /// the bare value type for a property, else the .NET-tupled `FTFun(params, ret)`.
     let openTemplate (chosen: ExternalMember) (isProperty: bool) : FrozenType =
         let s = chosen.Signature
 
@@ -222,7 +222,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             externalMemberCache.[memoKey] <- handle
             handle
 
-    /// Mint a field `MemberRef` for an external public field (`String.Empty`) — read via
+    /// Mint a field `MemberRef` for an external public field (`String.Empty`), read via
     /// `ldfld`/`ldsfld`, not a `get_X` accessor. The parent instantiation comes from `declTy`
     /// when the access has an object argument, else it is recovered from the use-site `memberTy`.
     let externalFieldRef (key: SymbolKey) (declTy: FrozenType voption) (memberTy: FrozenType) : EntityHandle =
@@ -290,7 +290,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             ValueSome(toEntity (ctx.MemberRef(parent, ".ctor", s)))
 
-    /// Mint the `MemberRef` for a referenced-assembly union's case factory — the static
+    /// Mint the `MemberRef` for a referenced-assembly union's case factory, the static
     /// `<caseName>(fields…) : Union<…>` the union emitter writes, over open markers so the
     /// signature matches. Returns handle + field count; `ValueNone` ⇒ unknown union or case.
     let externalUnionFactory
@@ -333,7 +333,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome(toEntity (ctx.MemberRef(parent, caseName, s)), List.length paramTys)
 
     /// Mint the `_tag : int` field `MemberRef` on a referenced-package union at `args`, with
-    /// `caseName`'s discriminator — its zero-based index in declaration order, as the union
+    /// `caseName`'s discriminator, its zero-based index in declaration order, as the union
     /// emitter assigns them. `ValueNone` ⇒ unknown union or case.
     let externalUnionTag (key: SymbolKey) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
         let arity = List.length args
@@ -350,7 +350,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
 
     /// Mint the `MemberRef` for the `<caseName>_<i>` public field of one case on a
-    /// referenced-package union at `args` — the slot a cross-package `match … Some x` reads —
+    /// referenced-package union at `args` (the slot a cross-package `match … Some x` reads),
     /// with that field's type after the use-site substitution. `ValueNone` ⇒ unknown case/index.
     let externalUnionCaseField
         (key: SymbolKey)
@@ -424,7 +424,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     }
 
     /// Mint the `MemberRef` for one named field on a referenced-assembly record at `args`, with
-    /// its declared type after the use-site substitution — what a `FieldGet` encodes next.
+    /// its declared type after the use-site substitution, which a `FieldGet` encodes next.
     let externalRecordField
         (key: SymbolKey)
         (args: FrozenType list)
@@ -484,7 +484,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// The raw external `TypeRef` for `key` — the Extends column of a derived type wants the
+    /// The raw external `TypeRef` for `key`. The Extends column of a derived type wants the
     /// bare ref for a non-generic external base, not a `TypeSpec`. `ValueNone` ⇒ not a class.
     member _.ExternalClassTypeRef(key) = externalClassRef key
 

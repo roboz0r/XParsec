@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 module ClrHoleFormat =
 
     /// The third slot carries a total WIDTH for the zero-pad `HoleKind`s that take one
-    /// — `%08o` → `(OctalZeroPad, None, Const 8)` — and the field's own alignment
+    /// (`%08o` → `(OctalZeroPad, None, Const 8)`) and the field's own alignment
     /// otherwise. A zero-pad width is a `Const`; only a plain field alignment can be `Star`.
     let toDotNetFormat (fmt: FieldFormat) (alignment: Alignment) : PrintfSpec.HoleKind * string option * Alignment =
         // A static .NET format string needs a compile-time precision; `%.*f`
@@ -58,7 +58,7 @@ module ClrHoleFormat =
             PrintfSpec.HoleKind.ZeroPaddedFloat, Some(string typeChar + string prec), Alignment.Const w
         | FieldFormat.ForcedSign(space, _prec, typeChar, zeroPad) ->
             // Only the INTEGER `'d'` forms (`%+d` / `% d` / `%+05d`) ride a .NET section
-            // format — integers carry no rounding, so the section format's half-away
+            // format. Integers carry no rounding, so the section format's half-away
             // midpoint behaviour is moot. A float form would round differently.
             if typeChar <> 'd' then
                 failwithf

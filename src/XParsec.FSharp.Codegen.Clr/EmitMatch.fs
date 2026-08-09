@@ -10,7 +10,7 @@ open EmitResolve
 open EmitPattern
 open EmitDispatch
 
-/// The control-flow joins — `match`, `if/then/else`, statement sequencing. The builder's
+/// The control-flow joins: `match`, `if/then/else`, statement sequencing. The builder's
 /// linear depth tracker follows one arm only, so both branching forms `SetDepth` back to
 /// the pre-branch base before the join.
 module EmitMatch =
@@ -19,8 +19,8 @@ module EmitMatch =
         let view = TastAccessor.exprMatch e
         let scrutinee = view.Scrutinee
         let arms = view.Arms
-        // The scrutinee is evaluated once into a local; a mismatching arm — or a failing
-        // guard — branches to the next arm's test.
+        // The scrutinee is evaluated once into a local; a mismatching arm or a failing
+        // guard branches to the next arm's test.
         let scrutSlot = b.Local(typeOfExpr scrutinee)
         recur env b scrutinee
         b.Add(ILInstr.Stloc scrutSlot)

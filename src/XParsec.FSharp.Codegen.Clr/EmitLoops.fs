@@ -31,7 +31,7 @@ module EmitLoops =
             GetEnumeratorViaInterface: bool
             // The source is a generic typar reached through a custom seq interface.
             GetEnumViaConstrained: bool
-            // The enumerator `E` is itself a generic typar — its `MoveNext` / `Current`
+            // The enumerator `E` is itself a generic typar, so its `MoveNext` / `Current`
             // go `constrained. <E> callvirt`, addressing the slot for struct and class.
             MembersViaConstrained: bool
         }
@@ -145,8 +145,8 @@ module EmitLoops =
         let sourceTy = typeOfExpr source
 
         // The `GetEnumerator` object arg is spilled and addressed for a value-type source
-        // (a method call on a value) and for a constrained-typar source — an `FTTypar`
-        // is not statically a value type, but `constrained. callvirt` needs its address.
+        // (a method call on a value) and for a constrained-typar source, because an `FTTypar`
+        // is not statically a value type but `constrained. callvirt` needs its address.
         if EmitPattern.isValueType env sourceTy || loop.GetEnumViaConstrained then
             recur env b source
             let srcSlot = b.Local sourceTy
@@ -195,7 +195,7 @@ module EmitLoops =
             if loop.IsValueType then
                 // A struct value is never null, and `brfalse` on a value is invalid IL,
                 // so dispose unconditionally. `IDisposable.Dispose` returns a real
-                // `void`, so the callvirt consumes only the object arg — nothing to pop.
+                // `void`, so the callvirt consumes only the object arg, leaving nothing to pop.
                 b.Add(ILInstr.Ldloca enumSlot)
 
                 match constrainedTok with
@@ -216,10 +216,10 @@ module EmitLoops =
             b.SetDepth 0
             b.Add(ILInstr.Mark endLabel)
         else
-            // `E` is not `IDisposable` — no `try … finally` region at all.
+            // `E` is not `IDisposable`, so no `try … finally` region at all.
             b.Add(ILInstr.Mark endLabel)
 
-        // `for` is a unit expression — leave the single reified `unit` value.
+        // `for` is a unit expression, so leave the single reified `unit` value.
         EmitTypes.buildUnitValue env b
 
     let buildForIn (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -402,7 +402,7 @@ module EmitLoops =
         b.Add(ILInstr.Br loopBody)
         b.SetDepth baseDepth
         b.Add(ILInstr.Mark loopEnd)
-        // `for` is a unit expression — leave the single reified `unit` value.
+        // `for` is a unit expression, so leave the single reified `unit` value.
         EmitTypes.buildUnitValue env b
 
     let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
