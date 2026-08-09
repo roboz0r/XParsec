@@ -9,7 +9,37 @@ type JsRuntimeModule =
         /// `Vesper.List.mjs` — written beside the output, named in `import … from "./<FileName>"`.
         FileName: string
         Source: string
+        /// The modules `Source`'s own `import` lines name: `Vesper.Seq.mjs` names
+        /// `Vesper.Array.mjs` and `Vesper.Core.mjs`. Read from the output ROOT, the directory
+        /// every asset is written to, so shipping this one means shipping these too.
+        Imports: JsModulePath list
     }
+
+module JsRuntimeModule =
+
+    /// The module specifier of an `import`/`export … from` STATEMENT: the `from "<spec>"`
+    /// clause, or the bare `import "<spec>"` a side-effect import is. Line-anchored, so a
+    /// specifier-shaped string in an expression is not one.
+    let private statementSpecifier =
+        System.Text.RegularExpressions.Regex(
+            "^[ \\t]*(?:import|export)\\b(?:[^;\\n]*?\\bfrom)?[ \\t]*[\"']([^\"']*)[\"']",
+            System.Text.RegularExpressions.RegexOptions.Multiline
+            ||| System.Text.RegularExpressions.RegexOptions.Compiled
+        )
+
+    /// A committed asset, reading its `Imports` off its own text.
+    let ofSource (fileName: string) (source: string) : JsRuntimeModule =
+        {
+            FileName = fileName
+            Source = source
+            Imports =
+                [
+                    for m in statementSpecifier.Matches source do
+                        match JsModulePath.tryOfRootSpecifier m.Groups.[1].Value with
+                        | ValueSome path -> path
+                        | ValueNone -> ()
+                ]
+        }
 
 /// The accumulating import for one MODULE: `(exportName, alias)` named bindings plus at
 /// most one default and one namespace binding. A TS default export cannot be imported by
@@ -184,12 +214,37 @@ module JsImports =
     let importedModules (imports: JsImports) : JsModulePath list =
         [ for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) -> kv.Key ]
 
-    /// The committed runtime ASSETS referenced during the walk, sorted by module. Only the
-    /// directly referenced ones: an asset that imports another asset is not closed over.
+    /// The committed runtime ASSETS this program needs: those referenced during the walk,
+    /// closed over asset→asset imports, sorted by file name. An asset naming a module no
+    /// package in the manifest closure ships is a dangling ESM specifier, and throws here
+    /// rather than at the point Node loads the written output.
     let assets (imports: JsImports) : JsRuntimeModule list =
-        [
-            for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) do
-                match kv.Value.Asset with
-                | ValueSome asset -> yield asset
-                | ValueNone -> ()
-        ]
+        let byPath = System.Collections.Generic.Dictionary<JsModulePath, JsRuntimeModule>()
+
+        for KeyValue(_, rt) in imports.Runtime do
+            byPath.[JsModulePath.asset rt.FileName] <- rt
+
+        let selected = System.Collections.Generic.Dictionary<string, JsRuntimeModule>()
+        let pending = System.Collections.Generic.Stack<JsRuntimeModule>()
+
+        for kv in imports.Entries do
+            match kv.Value.Asset with
+            | ValueSome asset -> pending.Push asset
+            | ValueNone -> ()
+
+        while pending.Count > 0 do
+            let asset = pending.Pop()
+
+            if not (selected.ContainsKey asset.FileName) then
+                selected.[asset.FileName] <- asset
+
+                for target in asset.Imports do
+                    match byPath.TryGetValue target with
+                    | true, dep -> pending.Push dep
+                    | _ ->
+                        failwithf
+                            "JS codegen: runtime asset '%s' imports '%s', which no referenced package ships"
+                            asset.FileName
+                            (JsModulePath.specifierFrom ValueNone target)
+
+        selected.Values |> Seq.sortBy (fun asset -> asset.FileName) |> List.ofSeq

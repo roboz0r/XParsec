@@ -89,18 +89,7 @@ let private chainRuntime =
         ]
 
 let private emitChain (input: string) : string =
-    emitWith
-        chainContract
-        (Map.ofList
-            [
-                "chainlib",
-                {
-                    FileName = "chainlib.mjs"
-                    Source = chainRuntime
-                }
-            ])
-        true
-        input
+    emitWith chainContract (Map.ofList [ "chainlib", JsRuntimeModule.ofSource "chainlib.mjs" chainRuntime ]) true input
 
 let private chainHarness =
     "import { result } from \"./chain-program.mjs\";\nconsole.log(result);\n"

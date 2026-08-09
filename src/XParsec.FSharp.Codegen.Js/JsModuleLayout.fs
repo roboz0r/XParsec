@@ -37,6 +37,24 @@ module JsModulePath =
             FileName = baseName relative + ".mjs"
         }
 
+    /// The module a specifier written FROM THE OUTPUT ROOT names: `./f.mjs` is a root asset,
+    /// `./pkg/f.mjs` a module in `pkg`. The inverse of `specifierFrom ValueNone`, so it is
+    /// `ValueNone` for anything that inverse never produces: a bare specifier (a node builtin
+    /// or an npm package, the host's to resolve) or a `../` escape above the root.
+    let tryOfRootSpecifier (specifier: string) : JsModulePath voption =
+        if not (specifier.StartsWith("./", System.StringComparison.Ordinal)) then
+            ValueNone
+        else
+            match (specifier.Substring 2).Split '/' with
+            | [| file |] -> ValueSome(asset file)
+            | [| package; file |] ->
+                ValueSome
+                    {
+                        Package = ValueSome package
+                        FileName = file
+                    }
+            | _ -> ValueNone
+
     /// The specifier a module in `fromPackage` (`ValueNone` = the output root) names
     /// `target` by: `./f.mjs` within one package, `../pkg/f.mjs` across packages,
     /// `../f.mjs` out to a root asset.

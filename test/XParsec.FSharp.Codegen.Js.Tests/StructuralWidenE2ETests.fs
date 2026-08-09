@@ -48,18 +48,7 @@ let private runtime =
     "export function configure(opts) { return opts.label + \":\" + opts.retries; }\n"
 
 let private emitCfg (input: string) : string =
-    emitWith
-        contract
-        (Map.ofList
-            [
-                "cfglib3",
-                {
-                    FileName = "cfglib3.mjs"
-                    Source = runtime
-                }
-            ])
-        true
-        input
+    emitWith contract (Map.ofList [ "cfglib3", JsRuntimeModule.ofSource "cfglib3.mjs" runtime ]) true input
 
 let private program =
     String.concat

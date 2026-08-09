@@ -70,7 +70,7 @@ let private calcContract =
 /// Emit `input` through the `calc` contract. The stub `calc.mjs` stands in for a runtime
 /// asset the synthetic package does not have, without which the import throws.
 let private emitWithCalc (input: string) : string =
-    emitWith calcContract (Map.ofList [ "calc", { FileName = "calc.mjs"; Source = "" } ]) false input
+    emitWith calcContract (Map.ofList [ "calc", JsRuntimeModule.ofSource "calc.mjs" "" ]) false input
 
 [<Tests>]
 let tests =

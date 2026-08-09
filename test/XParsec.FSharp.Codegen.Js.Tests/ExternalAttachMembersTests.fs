@@ -66,18 +66,7 @@ let private boxRuntime =
 
 /// Emit `input` in library mode with `boxlib` resolved to the runtime above.
 let private emitBox (input: string) : string =
-    emitWith
-        boxContract
-        (Map.ofList
-            [
-                "boxlib",
-                {
-                    FileName = "boxlib.mjs"
-                    Source = boxRuntime
-                }
-            ])
-        true
-        input
+    emitWith boxContract (Map.ofList [ "boxlib", JsRuntimeModule.ofSource "boxlib.mjs" boxRuntime ]) true input
 
 // Prints the library-mode `export const result` the emitted program exports, so Node's
 // stdout carries the observed value.

@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Js.Tests.OptionalParamTests
 open Expecto
 open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
@@ -82,7 +83,7 @@ let private analyseErrors (input: string) : string list =
 /// Emit through the `optlib` provider with a stub runtime module, so the `api` import
 /// resolves (the synthetic package has no `.toml` asset).
 let private emitApi (input: string) : string =
-    emitWith contract (Map.ofList [ "optlib", { FileName = "optlib.mjs"; Source = "" } ]) false (withApi input)
+    emitWith contract (Map.ofList [ "optlib", JsRuntimeModule.ofSource "optlib.mjs" "" ]) false (withApi input)
 
 [<Tests>]
 let tests =

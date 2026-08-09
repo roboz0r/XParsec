@@ -65,14 +65,7 @@ let private runtime = "export function getPoint() { return { x: 3, y: 4 }; }\n"
 let private emitPoint (input: string) : string =
     emitWith
         (contractTs manifest)
-        (Map.ofList
-            [
-                "pointlib",
-                {
-                    FileName = "pointlib.mjs"
-                    Source = runtime
-                }
-            ])
+        (Map.ofList [ "pointlib", JsRuntimeModule.ofSource "pointlib.mjs" runtime ])
         true
         input
 

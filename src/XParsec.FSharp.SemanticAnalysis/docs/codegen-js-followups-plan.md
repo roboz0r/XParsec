@@ -8,8 +8,8 @@ Raised by the comment overhaul of `XParsec.FSharp.Codegen.Js` (all 20 files, 254
 comment lines). Reading every comment against the code it claimed to describe turned up two
 kinds of work that the sweep itself could not do, because both change code:
 
-- **Part A — defects.** Two. Neither is a miscompile; A1 was a missed optimisation with a
-  stack-overflow consequence, A2 emits a dangling import.
+- **Part A — defects.** Two, both now fixed. Neither was a miscompile; A1 was a missed
+  optimisation with a stack-overflow consequence, A2 emitted a dangling import.
 - **Part B — prose that should be a type.** Eight. Each is a comment that was genuinely
   load-bearing and long, where the durable fix is a type that makes the sentence
   unnecessary. This is the half that stops the regrowth: a fact the compiler enforces cannot
@@ -47,29 +47,30 @@ which needs a shared value below both backends.
 Two tests in `FunctionEmissionTests`: the emitted body for a tupled group (both flat params
 written back, then `continue`), and a 60000-deep tupled tail recursion under Node.
 
-## A2. `JsRuntime.assets` takes no transitive closure
+## A2. `JsRuntime.assets` takes no transitive closure — DONE
 
 Assets import each other — `Vesper.Seq.mjs` imports `Vesper.Array.mjs` and `Vesper.Core.mjs`
-— but `assets` returns only the DIRECTLY referenced entries, and `JsDriver.checkResolvable`
-validates only the EMITTED modules' `ImportedModules` against the written set. Neither closes
-over asset→asset edges.
+— but `assets` returned only the DIRECTLY referenced entries, and `JsDriver.checkResolvable`
+validated only the EMITTED modules' `ImportedModules` against the written set. Neither closed
+over asset→asset edges, so a program that reached `Vesper.Seq` without independently reaching
+`Vesper.Core` wrote a dangling ESM specifier that failed when Node loaded it.
 
-So a program that reaches `Vesper.Seq` without independently reaching `Vesper.Core` writes a
-dangling ESM specifier. It fails when Node loads it, not at compile time.
+Fixed by carrying the edges on the asset: `JsRuntimeModule` gains `Imports: JsModulePath list`,
+which `JsRuntimeModule.ofSource` (now the only constructor, production and test alike) reads
+off the asset's own text. `JsModulePath.tryOfRootSpecifier` — the inverse of
+`specifierFrom ValueNone` — maps each `./X.mjs` back to the module it names and drops a bare
+specifier, which is the host's to resolve. `assets` walks that graph and returns the closure;
+an edge naming a module no referenced package ships throws there rather than at load time.
+`checkResolvable` validates the written assets' imports alongside the emitted modules'.
 
-Two fixes, and they are complementary rather than alternative: close `assets` over the
-imports of the assets it selects, and extend `checkResolvable` to validate written assets'
-imports as well as emitted modules'. The second turns any future gap of this shape into a
-compile-time error.
+`RuntimeAssetTests`: the scan against the committed `Vesper.Seq.mjs`, a bare specifier and a
+specifier-shaped string value excluded, the closure and its fault over a synthetic asset
+graph, and a program that names only `Vesper.Seq.mjs` yet ships all three and runs under Node.
 
-A comment asserting each asset is "a self-contained leaf … no transitive closure needed" was
-FALSE and has already been corrected in the sweep to state the limitation instead — the code
-is unchanged.
-
-Worth noting for calibration: `git log -S` dates that false claim to `0f8e2f84`
-(2026-08-04), and the cross-asset imports it denies to `2994a340` (2026-08-03). It was false
-the day it was written, and it is the sentence that had been reassuring readers this hole did
-not exist.
+Worth noting for calibration: a comment asserting each asset was "a self-contained leaf … no
+transitive closure needed" dated to `0f8e2f84` (2026-08-04), the cross-asset imports it denies
+to `2994a340` (2026-08-03). It was false the day it was written, and it is the sentence that
+had been reassuring readers this hole did not exist.
 
 ---
 

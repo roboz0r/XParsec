@@ -66,9 +66,9 @@ module JsDriver =
                 | _ -> ()
         ]
 
-    /// The EMITTED modules' imports, each against what this build writes. An asset's own
-    /// imports are NOT checked, nor closed over: `Vesper.Seq.mjs` imports `./Vesper.Core.mjs`,
-    /// which is written only if the program reached Core directly too.
+    /// Every import of everything this build writes, against what it writes: the emitted
+    /// modules' and the runtime assets' alike, since `Vesper.Seq.mjs` imports
+    /// `./Vesper.Core.mjs` and a build shipping the first must ship the second.
     let private checkResolvable
         (packageName: string)
         (modules: JsPackageModule list)
@@ -79,14 +79,22 @@ module JsDriver =
             @ (assets |> List.map (fun a -> JsModulePath.asset a.FileName))
             |> Set.ofList
 
+        let check (fromPackage: string voption) (fileName: string) (target: JsModulePath) =
+            if not (written.Contains target) then
+                failwithf
+                    "JS package '%s': module '%s' imports '%s', which this build does not write"
+                    packageName
+                    fileName
+                    (JsModulePath.specifierFrom fromPackage target)
+
         for m in modules do
             for target in m.Artifact.ImportedModules do
-                if not (written.Contains target) then
-                    failwithf
-                        "JS package '%s': module '%s' imports '%s', which this build does not write"
-                        packageName
-                        m.Path.FileName
-                        (JsModulePath.specifierFrom m.Path.Package target)
+                check m.Path.Package m.Path.FileName target
+
+        // An asset is written to the output root, so it names its targets from there.
+        for a in assets do
+            for target in a.Imports do
+                check ValueNone a.FileName target
 
     /// Compile an ordered `(path, source)` list as ONE assembly named `packageName`.
     let compileAssemblyWith

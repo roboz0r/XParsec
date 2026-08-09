@@ -61,18 +61,7 @@ let private warningsWith (input: string) : Diagnostic list =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Warning)
 
 let private emitWithDyn (input: string) : string =
-    emitWith
-        dynContract
-        (Map.ofList
-            [
-                "dynlib",
-                {
-                    FileName = "dynlib.mjs"
-                    Source = dynRuntimeSource
-                }
-            ])
-        false
-        input
+    emitWith dynContract (Map.ofList [ "dynlib", JsRuntimeModule.ofSource "dynlib.mjs" dynRuntimeSource ]) false input
 
 [<Tests>]
 let tests =

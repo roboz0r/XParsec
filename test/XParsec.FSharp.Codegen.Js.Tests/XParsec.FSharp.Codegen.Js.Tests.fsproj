@@ -83,6 +83,7 @@
     <Compile Include="FrozenCodecTreeRoundTripTests.fs" />
     <Compile Include="FrozenCacheHitMissTests.fs" />
     <Compile Include="JsPackageTests.fs" />
+    <Compile Include="RuntimeAssetTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

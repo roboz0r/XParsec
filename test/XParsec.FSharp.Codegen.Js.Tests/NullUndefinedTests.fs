@@ -72,14 +72,7 @@ let private program =
 let private emitWithNull (input: string) : string =
     emitWith
         nullContract
-        (Map.ofList
-            [
-                "nulllib",
-                {
-                    FileName = "nulllib.mjs"
-                    Source = nullRuntimeSource
-                }
-            ])
+        (Map.ofList [ "nulllib", JsRuntimeModule.ofSource "nulllib.mjs" nullRuntimeSource ])
         false
         input
 

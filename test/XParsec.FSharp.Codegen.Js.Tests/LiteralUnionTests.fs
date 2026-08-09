@@ -68,14 +68,7 @@ let private widgetRuntime =
 let private emitWidget (input: string) : string =
     emitWith
         widgetContract
-        (Map.ofList
-            [
-                "widgetlib",
-                {
-                    FileName = "widgetlib.mjs"
-                    Source = widgetRuntime
-                }
-            ])
+        (Map.ofList [ "widgetlib", JsRuntimeModule.ofSource "widgetlib.mjs" widgetRuntime ])
         true
         input
 

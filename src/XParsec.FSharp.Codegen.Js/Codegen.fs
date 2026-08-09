@@ -75,7 +75,7 @@ module Codegen =
     let compileWith (contract: SymbolProviders.Contract) (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
         let runtimeAssets =
             ReferencedProject.runtimeModules Target.Js contract.ManifestPaths
-            |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
+            |> Map.map (fun _ (fileName, source) -> JsRuntimeModule.ofSource fileName source)
 
         // A node's anchor is an index into the token table, so a position needs `src.Lexed`, the
         // very table the anchors were numbered against, not just the line starts.

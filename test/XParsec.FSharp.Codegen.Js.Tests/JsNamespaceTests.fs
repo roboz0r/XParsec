@@ -136,11 +136,7 @@ let tests =
                 let runtime =
                     Map.ofList
                         [
-                            "somepkg",
-                            {
-                                FileName = "somepkg.mjs"
-                                Source = "export function poke() {}\n"
-                            }
+                            "somepkg", JsRuntimeModule.ofSource "somepkg.mjs" "export function poke() {}\n"
                         ]
 
                 let js = emitWith (contractTs somepkgManifest) runtime false "poke()\n"

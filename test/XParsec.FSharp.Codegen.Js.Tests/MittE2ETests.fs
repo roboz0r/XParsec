@@ -122,16 +122,8 @@ let private emitWithMitt (input: string) : string =
     let runtime =
         Map.ofList
             [
-                "mitt",
-                {
-                    FileName = "mitt.mjs"
-                    Source = mittRuntimeSource
-                }
-                "recorder",
-                {
-                    FileName = "recorder.mjs"
-                    Source = recorderRuntime
-                }
+                "mitt", JsRuntimeModule.ofSource "mitt.mjs" mittRuntimeSource
+                "recorder", JsRuntimeModule.ofSource "recorder.mjs" recorderRuntime
             ]
 
     emitWith mittContract runtime true input
