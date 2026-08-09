@@ -119,7 +119,7 @@ type ClassInterfaceImplInfo
     member val DeclSite = declSite
     member val Resolved: SemType voption = ValueNone with get, set
 
-/// The shared surface a nominal type exposes to the interface-impl machinery — implemented by
+/// The shared surface a nominal type exposes to the interface-impl machinery, implemented by
 /// the class, union, record and intrinsic-abbrev infos.
 type IInterfaceImplHost =
     abstract member Key: SymbolKey
@@ -230,7 +230,7 @@ type IntrinsicAbbrevInfo
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
-    /// The abbrev's INTRINSIC identity key (contract namespace, arity-suffixed) — the key a
+    /// The abbrev's INTRINSIC identity key (contract namespace, arity-suffixed): the key a
     /// use site resolves the abbrev name to, and what `MkSelfType` returns. Distinct from
     /// `Key`, the container-homed local nominal claim.
     member val SelfKey: SymbolKey = selfKey
@@ -278,8 +278,8 @@ type AbbreviationStatus =
     | InProgress
     | Filled
 
-/// `Body` is filled lazily, so declaration order within a module does not matter — an
-/// abbrev can reference any other type in the same group.
+/// `Body` is filled lazily, so an abbrev can reference any other type declared in the same
+/// group, whatever the declaration order within the module.
 [<Sealed>]
 type AbbreviationInfo
     (
@@ -300,7 +300,7 @@ type AbbreviationInfo
     member val Body: SemType voption = ValueNone with get, set
     member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
 
-/// A primary- or secondary-constructor parameter. `Type` is always a `TyVar` — the
+/// A primary- or secondary-constructor parameter. `Type` is always a `TyVar`, the
 /// parameter's binding-site inference cell, even when the parameter is annotated.
 [<Sealed>]
 type ClassCtorParamInfo(name: string, ty: SemType, declSite: BoundVarSite) =
@@ -318,15 +318,15 @@ type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, declSite: NodeSi
     member val DeclSite = declSite
 
 /// One `[static] let [mutable] [rec] x = <init>` of a class preamble. `Binding` is the WHOLE
-/// CST binding — its pattern AND `argumentPats`, since `let f x = …` binds a FUNCTION value.
+/// CST binding: its pattern AND `argumentPats`, since `let f x = …` binds a FUNCTION value.
 [<Sealed>]
 type ClassLetInfo(name: string, ty: SemType, declKey: NodeKey, binding: Binding<SyntaxToken>, isRec: bool) =
     member val Name = name
     member val Type = ty
     member val DeclKey = declKey
     member val Binding = binding
-    /// `let mutable`. An INSTANCE preamble bound variable is a mutable *field*, never a ref cell —
-    /// a closure over it captures `this`.
+    /// `let mutable`. An INSTANCE preamble bound variable is a mutable *field*, never a ref cell,
+    /// so a closure over it captures `this`.
     member val IsMutable = binding.mutableToken.IsSome
     /// `let rec` — the bound variable is in scope of its OWN initialiser (and only then).
     member val IsRec = isRec
@@ -384,8 +384,8 @@ type ClassTypeInfo
     /// Parent type from `inherit Base(args)` once resolved; `ValueNone` for a class with
     /// no `inherit` clause.
     member val BaseType: SemType voption = ValueNone with get, set
-    /// CST expression for the base constructor arguments — `inherit Base(arg1, arg2)`'s
-    /// `(arg1, arg2)`.
+    /// `inherit Base(arg1, arg2)`'s `(arg1, arg2)` — the CST expression for the base
+    /// constructor arguments.
     member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
     member val IsSealed: bool = false with get, set
     /// `static let` / `static do` in declaration order — the `.cctor` body.
@@ -403,7 +403,7 @@ type ClassTypeInfo
     member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]`, or the `type X = struct … end` shape.
     member val IsValueType: bool = false with get, set
-    /// A project-local *interface* declaration (`type IFoo = abstract member …` — all members
+    /// A project-local *interface* declaration (`type IFoo = abstract member …`: all members
     /// abstract, no ctor / fields / inherit / `let`-preamble), read off the syntactic shape.
     member val IsInterface: bool = false with get, set
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type; implies `IsValueType`.

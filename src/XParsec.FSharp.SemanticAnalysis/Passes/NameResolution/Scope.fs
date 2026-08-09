@@ -15,8 +15,8 @@ module NameResolutionScope =
     type Scope = Map<string, NodeKey * bool>
 
     /// F# keeps no global reverse index for union cases: a bare `Some`/`Red` resolves
-    /// only when its declaring union's namespace is opened or auto-opened. Mirror that
-    /// — a union in the root namespace always matches, its bare candidate being itself.
+    /// only when its declaring union's namespace is opened or auto-opened. Mirror that,
+    /// so a union in the root namespace always matches, its bare candidate being itself.
     let private bareCaseNamespaceOpen (scope: OpenScope) (uc: ExternalUnionCase) : bool =
         // `UnionName`, not the case's own origin: the reverse index stamps the blanket
         // PACKAGE origin, whose namespace can differ. `bareName` strips the arity
@@ -27,7 +27,7 @@ module NameResolutionScope =
 
     /// The external union case a reference resolves to. `qualifier` is the written
     /// declaring type (`Option.Some` ⇒ `ValueSome "Option"`), `ValueNone` for a bare
-    /// reference — which alone is gated on the declaring namespace being open.
+    /// reference, which alone is gated on the declaring namespace being open.
     let private tryExternalCase
         (ctx: PassContext)
         (qualifier: string voption)
@@ -41,7 +41,7 @@ module NameResolutionScope =
             | ValueNone -> bareCaseNamespaceOpen ctx.Resolution.OpenScope uc
         )
 
-    /// Resolve an external VALUE reference and stamp both channels — the `SymbolKey` and
+    /// Resolve an external VALUE reference and stamp both channels: the `SymbolKey` and
     /// the whole symbol. Both or neither: with only the symbol the ref freezes to a
     /// KEYLESS `External`, and inline bodies are spliced by key, so the body is lost.
     let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (name: string) : bool =
@@ -165,10 +165,9 @@ module NameResolutionScope =
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
         | Pat.Named(argumentPats = args) ->
-            // `Circle r`, `Color.Red`: the head is a discriminator, never a bound variable — a
-            // bound variable is a lone ident, which parses as `Pat.NamedSimple`. So the
-            // sub-patterns bind whether or not the head resolves; Unification reports one that
-            // does not resolve.
+            // `Circle r`, `Color.Red`: the head is a discriminator, never a bound variable, because
+            // a bound variable is a lone ident, which parses as `Pat.NamedSimple`. So the sub-patterns
+            // bind whether or not the head resolves; Unification reports one that does not resolve.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub
@@ -245,7 +244,7 @@ module NameResolutionScope =
             }
             p
 
-    /// `stampPatCasesWith` under the plain stamping visitor — the body / value-position
+    /// `stampPatCasesWith` under the plain stamping visitor: the body / value-position
     /// form, where an unresolved name is not an error.
     let stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
         stampPatCasesWith ctx (stampTypeIter ctx) p
@@ -420,7 +419,7 @@ module NameResolutionScope =
                             && (ctx.Resolver.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
 
                         // Stamp the resolved case identity. Tighter than the `.IsSome`
-                        // suppression above — the qualifier must match the union's short
+                        // suppression above because the qualifier must match the union's short
                         // name, so `WrongType.Some` suppresses the error yet stamps nothing.
                         if li.Idents.Length = 2 then
                             match
@@ -488,7 +487,7 @@ module NameResolutionScope =
                                 | _ -> ()
 
                         // An external UNION or RECORD qualifier has no static fields, so an
-                        // unresolved tail is a genuine member miss — stamp its key to be
+                        // unresolved tail is a genuine member miss, so stamp its key to be
                         // diagnosed. A class qualifier is not: it stays a fresh TyVar.
                         match prefixHit with
                         | ValueSome {
@@ -555,7 +554,7 @@ module NameResolutionScope =
                     ctx.Report(CstKeys.firstTokenOfExpr e, Kind.UnresolvedQualifiedName qualName)
             | ValueNone ->
                 // A non-symbolic op segment (active-pattern / nil / range) has no
-                // `op_` member to qualify — keep surfacing the gap.
+                // `op_` member to qualify, so keep surfacing the gap.
                 ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName(ctx.NameOf li.Idents.[0]))
         | Expr.LongIdentOrOp lio ->
             // TODO: a bare non-symbolic `LongIdentOrOp.Op` (an active-pattern or nil
@@ -567,7 +566,7 @@ module NameResolutionScope =
             ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName displayName)
         | Expr.TypeApp(expr = expr; types = types) ->
             // The type-arg count lives on THIS node, so the applied name and its arity are
-            // classified together — `EqualityComparer<int>.Default` resolves at the exact
+            // classified together, so `EqualityComparer<int>.Default` resolves at the exact
             // arity. A local claim wins: `T<'a>(…)` in `T`'s own file means `T`'s decl.
             match typeAppTypeName ctx expr with
             | ValueSome written when

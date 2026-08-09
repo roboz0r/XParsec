@@ -50,7 +50,7 @@ module internal UnificationInferControlFlow =
             match ExternalSymbols.openSignature mn enumArgs with
             | TyFun(_, TyBool) ->
                 // The `finally` exists only when `E : IDisposable`, and disposal always
-                // goes through the `System.IDisposable::Dispose` interface slot — so a
+                // goes through the `System.IDisposable::Dispose` interface slot, so a
                 // bool is enough here, no member key.
                 let disposable =
                     ExternalSymbols.instantiateInterfaces enumShape enumArgs
@@ -89,9 +89,8 @@ module internal UnificationInferControlFlow =
             | ValueNone -> ()
         | _ -> ()
 
-    /// Probe a *user* class `E` for the duck-typed `for … in` members — a parameterless
-    /// `MoveNext(): bool` and a `Current` property — `enumArgs` being `E`'s own
-    /// instantiation.
+    /// Probe a *user* class `E` for the duck-typed `for … in` members: a parameterless
+    /// `MoveNext(): bool` and a `Current` property. `enumArgs` is `E`'s own instantiation.
     let private probeLocalEnumerator
         (ctx: PassContext)
         (enumInfo: ClassTypeInfo)
@@ -190,7 +189,7 @@ module internal UnificationInferControlFlow =
 
     /// Per-arm scrutinee narrowing for a closed anonymous-union match (`match (x: A | B)
     /// with …`): the members not yet caught by an earlier *unguarded* arm, paired 1:1 with
-    /// `rules`, plus the final uncovered residual — a non-exhaustiveness warning if any.
+    /// `rules`, plus the final uncovered residual, reported as an incomplete match if non-empty.
     let private computeArmNarrowing
         (ctx: PassContext)
         (scrutineeTy: SemType)
@@ -353,7 +352,7 @@ module internal UnificationInferControlFlow =
 
     /// The duck-typed enumerator probe: C#'s pattern-based `foreach` accepts a source with a
     /// public parameterless `GetEnumerator()` whose return `E` exposes `MoveNext(): bool` and
-    /// `Current` — no `IEnumerable<'T>`. `srcArgs` substitutes the source class's typars.
+    /// `Current`, with no `IEnumerable<'T>`. `srcArgs` substitutes the source class's typars.
     and tryDuckTypedEnumerator
         (ctx: PassContext)
         (shape: ExternalClassShape)
@@ -390,7 +389,7 @@ module internal UnificationInferControlFlow =
 
     /// A *user* class exposing a parameterless `GetEnumerator()` is a valid `for … in`
     /// source without implementing `IEnumerable<'T>`. Its enumerator `E` may be another
-    /// user class, or external (a BCL `List<'T>.Enumerator`) — a hybrid of both axes.
+    /// user class, or external (a BCL `List<'T>.Enumerator`), making the pair a hybrid of both axes.
     and tryLocalDuckTypedEnumerator
         (ctx: PassContext)
         (nameKey: TypeKey)
@@ -510,7 +509,7 @@ module internal UnificationInferControlFlow =
                     | TyFun(_, TyBool) ->
                         ValueSome
                             {
-                                // `Current` is a property — its type IS the element type.
+                                // `Current` is a property, so its type IS the element type.
                                 ElemTy = zonk ctx.Store curTy
                                 Members = ForInEnumMembers.ConstrainedInterface(ifaceKey, ifaceArgs)
                                 // `constrained.` already addresses a struct `E`, and no
@@ -591,12 +590,12 @@ module internal UnificationInferControlFlow =
                 | None -> ValueNone
             | _ -> ValueNone
         // A project-local RECORD source implementing the iteration capability
-        // (`interface seq<'T>`) — the boxing `Interface` walk, exactly as for a class.
+        // (`interface seq<'T>`) takes the boxing `Interface` walk, exactly as for a class.
         | TyRecord(nameKey, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types nameKey with
             | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
             | ValueNone -> ValueNone
-        // A *generic typar* source — resolve its enumerable surface through the `Coercion`
+        // A *generic typar* source resolves its enumerable surface through the `Coercion`
         // constraint, dispatching `GetEnumerator` via `constrained. callvirt`.
         | TyVar tv -> tryTyparSeqSource ctx tv
         | _ -> ValueNone
@@ -738,7 +737,7 @@ module internal UnificationInferControlFlow =
 
         // Unlike the `GetArray`/`GetIndex` read intrinsics, the write intrinsic of
         // `arr.[i] <- v` is never resolved by the plain type-check, so resolve it here and
-        // stamp it under this node's key — the key the `stelem` body is spliced by.
+        // stamp it under this node's key, the key the `stelem` body is spliced by.
         let rec unwrapLhs e =
             match e with
             | Expr.EnclosedBlock(expr = inner)

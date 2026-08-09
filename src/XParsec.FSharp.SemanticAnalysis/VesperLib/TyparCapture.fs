@@ -102,7 +102,7 @@ module VesperLibTyparCapture =
     type ExtractCtx(target: string) =
         member _.Target: string = target
         member val Symbols = Dictionary<string, ExternalSymbol>(StringComparer.Ordinal) with get
-        /// File-level failures — a file that would not lex, parse, or match an AST shape.
+        /// File-level failures: a file that would not lex, parse, or match an AST shape.
         member val Diagnostics = ResizeArray<VesperLibManifest.LibFile * string>() with get
         /// Per-val extraction failures: an `.fsi` that parses cleanly can still lose vals.
         member val Skipped = ResizeArray<VesperLibManifest.LibFile * string>() with get
@@ -110,7 +110,7 @@ module VesperLibTyparCapture =
         /// when two types share a short name.
         member val Types = Dictionary<string, int * string>(StringComparer.Ordinal) with get
         /// The identity of every type this package declares, indexed by its canonical
-        /// metadata name — the same key the shape tables below use.
+        /// metadata name, the same key the shape tables below use.
         member val TypeKeys = Dictionary<string, TypeKey>(StringComparer.Ordinal) with get
         /// Every `module` this package declares, keyed by the DOTTED path the source writes
         /// -> the container a type declared in it sits in, which carries the compiled chain.
@@ -153,8 +153,8 @@ module VesperLibTyparCapture =
         /// Qualified compiled names of the `[<RequireQualifiedAccess>]` unions this package
         /// declares; every case built from one is stamped, so a bare case name is rejected.
         member val RqaTypes = HashSet<string>(StringComparer.Ordinal) with get
-        /// Type shapes this package did NOT declare — its already-extracted dependencies,
-        /// plus BCL metadata — consulted to kind a nominal type constructor this package only names.
+        /// Type shapes from this package's already-extracted dependencies, plus BCL metadata,
+        /// consulted to kind a nominal type constructor this package only names.
         /// The default answers nothing: a package with no dependencies.
         member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
         /// The ambient prefixes this package's dependencies publish, probed LAST during this
@@ -253,8 +253,8 @@ module VesperLibTyparCapture =
 
                 d :> System.Collections.Generic.IReadOnlyDictionary<_, _>
 
-            // The type channels, addressed by identity rather than by a rendering of one —
-            // that is what answers a module-held type's key, which no written name spells.
+            // The type channels, addressed by identity rather than by a rendering of one,
+            // because that is what answers a module-held type's key, which no written name spells.
             let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
             let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
 

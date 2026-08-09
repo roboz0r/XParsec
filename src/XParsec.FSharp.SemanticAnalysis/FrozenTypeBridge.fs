@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 /// `SemType` ↔ `FrozenType`. `TyVar` is the sole `SemType` case with no frozen
-/// counterpart — that split is the point of `FrozenType`.
+/// counterpart, because that split is the point of `FrozenType`.
 [<AutoOpen>]
 module FrozenTypeBridge =
     let rec toFrozenWith (onVar: SemType -> FrozenType) (ty: SemType) : FrozenType =
@@ -19,7 +19,7 @@ module FrozenTypeBridge =
         // equal), so rebuild through `MkUnion` rather than mapping in place.
         | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> go m })
         | TyLiteral v -> FTLiteral v
-        // The type-level computations are carried inert — never evaluated here.
+        // The type-level computations are carried across without being evaluated.
         | TyKeyOf t -> FTKeyOf(go t)
         | TyIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
         | TyConditional c ->
@@ -97,10 +97,10 @@ module FrozenTypeBridge =
             ft
 
     // A template is an external descriptor's body with its open typars baked as
-    // `FTTypar(Declaring,i)` / `FTTypar(Method,j)`. It carries type shape only —
+    // `FTTypar(Declaring,i)` / `FTTypar(Method,j)`. It carries type shape only,
     // never constraints.
 
-    /// Stands in for a body that can't be built at extraction time — it may
+    /// Stands in for a body that can't be built at extraction time, because it may
     /// forward-reference a type registered later in the same package.
     let deferredTemplate: FrozenType = FTUnknown "<deferred>"
 
@@ -124,7 +124,7 @@ module FrozenTypeBridge =
     let localTyparInTemplate (site: string) (scheme: SchemeId) (k: int) : SemType =
         failwithf "%s: unexpected body-local typar %d of scheme %O in a signature template" site k scheme
 
-    /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`, for a type-shape descriptor —
+    /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`, for a type-shape descriptor:
     /// record field, union-case field, interface arg, base type, abbreviation body.
     /// An index past `declaringArgs` degrades to `TyUnknown "<arity-mismatch>"`.
     let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
@@ -162,8 +162,8 @@ module FrozenTypeBridge =
         | t -> FrozenType.forallChildren ftIsGround t
 
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`, staying in `FrozenType` and
-    /// touching no inference state — how an abbreviation body is expanded against
-    /// use-site args. An under-applied generic abbrev is tolerated, not a crash.
+    /// touching no inference state. This is how an abbreviation body is expanded
+    /// against use-site args. An under-applied generic abbrev is tolerated, not a crash.
     let rec substituteDeclaring (declaringArgs: FrozenType[]) (template: FrozenType) : FrozenType =
         match template with
         | FTTypar(TyparAxis.Declaring, i) ->
@@ -176,7 +176,7 @@ module FrozenTypeBridge =
         | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t
 
     /// The impl in `ifaces` (each `(compiled name, args over the declaring typars)`)
-    /// whose name is `target`, with its args realised at THIS object argument —
+    /// whose name is `target`, with its args realised at THIS object argument:
     /// `FTTypar(Declaring,i) := declArgs.[i]`.
     let pickInterfaceWitness
         (target: string)

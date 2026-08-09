@@ -40,7 +40,7 @@ module VesperLibTypeTranslate =
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome OperatorData.OpRangeStep
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome OperatorData.OpNil
         | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) ->
-            // Active-pattern compiled names are non-trivial — defer.
+            // Active-pattern compiled names are non-trivial, so defer.
             ValueNone
 
     /// First attribute whose short name (last segment) matches a candidate,
@@ -160,12 +160,12 @@ module VesperLibTypeTranslate =
 
                 containsModuleSuffix argExpr
 
-    /// True iff the module-level attributes carry `[<AutoOpen>]` — its members are in
+    /// True iff the module-level attributes carry `[<AutoOpen>]`, so its members are in
     /// scope unqualified for a consumer of the package.
     let isAutoOpen (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed attrs [ "AutoOpen" ] |> ValueOption.isSome
 
-    /// True iff the type-level attributes carry `[<RequireQualifiedAccess>]` — a bare `Red`
+    /// True iff the type-level attributes carry `[<RequireQualifiedAccess>]`, so a bare `Red`
     /// for `[<RequireQualifiedAccess>] type Color = Red | …` must NOT resolve.
     let isRequireQualifiedAccess (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed attrs [ "RequireQualifiedAccess" ] |> ValueOption.isSome
@@ -215,7 +215,7 @@ module VesperLibTypeTranslate =
             match (if isQualified then inAmbient name else None) with
             | Some k -> Ok k
             | None ->
-                // Short-name index hit — only for a *bare* name. A *qualified*
+                // Short-name index hit, but only for a *bare* name. A *qualified*
                 // `System.Collections.Generic.List` must NOT collapse onto a local `List`
                 // (the cons-list union): the written qualifier names a different type.
                 let shortHit =
@@ -252,8 +252,9 @@ module VesperLibTypeTranslate =
     let private primitiveNames: Set<string> =
         RuntimeNames.numericTypeNames + RuntimeNames.referencePrimitiveNames
 
-    /// For a SOURCE-WRITTEN name, before any identity exists for it — the one position where
-    /// a bare spelling is all there is (it may still be an ALIAS, which no key spells).
+    /// For a SOURCE-WRITTEN name, before any identity exists for it, because that is the one
+    /// position where a bare spelling is all there is (it may still be an ALIAS, which no key
+    /// spells).
     let isPrimitiveName (s: string) = primitiveNames.Contains s
 
     /// `isPrimitiveName` for a caller holding the resolved identity: exact, because the key
@@ -382,7 +383,7 @@ module VesperLibTypeTranslate =
             // One not yet finalized in this pass degrades to `FTUnknown "<deferred>"`.
             FrozenTypeBridge.substituteDeclaring (args.AsSpan().ToArray()) frozen
         // An intrinsic's nominal identity is the canon `FTConst`. Read the canon stored on
-        // the matched shape rather than re-deriving it by name — re-minting would hardcode
+        // the matched shape rather than re-deriving it by name, because re-minting would hardcode
         // the `Vesper` namespace and diverge for any non-Vesper-homed intrinsic.
         | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(SymbolKey.Type ishape.Id.Canon, EqArray.empty)
         | ValueSome(ExternalTypeShape.Unmodelled(reason = r)) -> raise (BodylessExternalShape(compiled, r))
@@ -497,7 +498,7 @@ module VesperLibTypeTranslate =
             match translateType ctx lexed opens typars constraints baseTy with
             | Error e -> Error e
             | Ok fb ->
-                // `'T array` is the rank-1 array intrinsic — the postfix-keyword spelling
+                // `'T array` is the rank-1 array intrinsic, the postfix-keyword spelling
                 // of `'T[]`. It does not resolve to a registered type shape, so route it to the
                 // same intrinsic the bracket form bakes rather than `FTUnknown "array"`.
                 if name = "array" then

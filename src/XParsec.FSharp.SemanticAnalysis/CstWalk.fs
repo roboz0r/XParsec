@@ -15,7 +15,7 @@ type LocalOpen =
         Scope: string
         /// How many `module`s enclose the `open` (a namespace body is 0).
         ScopeDepth: int
-        /// Source offset of the `open` keyword — what orders it against the declarations
+        /// Source offset of the `open` keyword: what orders it against the declarations
         /// of its own scope.
         Offset: int
     }
@@ -27,7 +27,7 @@ type OpenScope =
     {
         /// Empty prefixes are never stored.
         Prefixes: string list
-        /// The opens WRITTEN IN THIS FILE, with their positions — what orders a name an
+        /// The opens WRITTEN IN THIS FILE, with their positions: what orders a name an
         /// `open` brings against the declarations around it.
         Locals: LocalOpen list
         /// Module-abbrev aliases (`module R = A.B.C` ⇒ `"R" → "A.B.C"`), expanded
@@ -112,7 +112,7 @@ module TypeDefnPatterns =
                 }
         | _ -> ValueNone
 
-    /// `true` for the explicit `type X = struct … end` shape — a value type even without
+    /// `true` for the explicit `type X = struct … end` shape: a value type even without
     /// a `[<Struct>]` attribute, which instead lands as `Class`/`Anon`.
     let isStructShape (td: TypeDefn<'T>) : bool =
         match td with
@@ -139,7 +139,7 @@ module TypeDefnPatterns =
                        | _ -> false
                    )
 
-    /// A single-ident `Union` or `Record` name with its `with`-block elements — the
+    /// A single-ident `Union` or `Record` name with its `with`-block elements: the
     /// channel an `interface … with` / augmentation member rides.
     let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (TypeName<'T> * TypeDefnElements<'T> voption) voption =
         let extElems (ext: TypeExtensionElements<'T> voption) =
@@ -190,7 +190,7 @@ module DeclContainment =
         if c.Namespace = "" then None else Some c.Namespace
 
     /// The dotted SOURCE path of this containment (`"N.A.B"`; `""` at the top of an
-    /// anonymous module) — the namespace plus each enclosing module's name AS WRITTEN,
+    /// anonymous module): the namespace plus each enclosing module's name AS WRITTEN,
     /// never its compiled module name (`ListModule`).
     let sourcePath (nameOf: 'T -> string) (c: DeclContainment<'T>) : string =
         let mutable path = c.Namespace
@@ -248,7 +248,7 @@ module CstWalk =
             EnterMatchArm = fun env _ -> env
         }
 
-    /// `Expr.LetOrUse(body = ValueNone)` is `use fixed` — pinning a managed value to a
+    /// `Expr.LetOrUse(body = ValueNone)` is `use fixed`, which pins a managed value to a
     /// pointer.
     let requireLetBody (body: Expr<SyntaxToken> voption) : Expr<SyntaxToken> =
         match body with
@@ -457,7 +457,7 @@ module CstWalk =
 
         match construction with
         | ObjectConstruction.ObjectConstruction(expr = e) -> iterExpr walker env e
-        // `interface Foo with …` name — no constructor argument expression.
+        // `interface Foo with …` carries a type name only, so there is no argument expression.
         | ObjectConstruction.InterfaceConstruction _ -> ()
 
         let (ObjectMembers(memberDefns = memberDefns)) = members
@@ -482,7 +482,7 @@ module CstWalk =
             | _ -> ()
 
     /// Every `Type` (and member-signature) node syntactically embedded in ONE expression
-    /// node — its OWN types only; child expressions are `iterExpr`'s job. Pattern
+    /// node: its OWN types only; child expressions are `iterExpr`'s job. Pattern
     /// annotations belong to the pattern walk; a binding contributes its return type.
     let iterExprEmbeddedTypes
         (onType: Type<SyntaxToken> -> unit)
@@ -563,8 +563,8 @@ module CstWalk =
         | Expr.DynamicDowncast(typ = t) -> onType t
 
         // An inline-IL body's result annotation (`(# "…" : T #)`). Its type-arg
-        // slot (`type('T)`) carries raw tokens, not a `Type` node — nothing to
-        // visit there.
+        // slot (`type('T)`) carries raw tokens, not a `Type` node, so there is
+        // nothing to visit there.
         | Expr.ILIntrinsic(returnType = rt) ->
             match rt with
             | ValueSome(ReturnType(typ = t)) -> onType t
@@ -702,7 +702,7 @@ module CstWalk =
 
         iterType it ret
 
-    /// An uncurried signature — a `DelegateSig`, or a GADT-syntax union case's
+    /// An uncurried signature: a `DelegateSig`, or a GADT-syntax union case's
     /// `Name : arg * arg -> ret`.
     and iterTypeUncurriedSig (it: TypeIter) (sign: UncurriedSig<SyntaxToken>) : unit =
         let (UncurriedSig(args = ArgsSpec.ArgsSpec(args = args); returnType = ret)) = sign
@@ -780,7 +780,7 @@ module CstWalk =
             | TypeDefnElement.InterfaceSpec(InterfaceSpec(typ = t)) -> ty t
             | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> onInherit t
 
-        // A `[static] let` in a class preamble is a BODY, not declared structure — only its
+        // A `[static] let` in a class preamble is a BODY, not declared structure, so only its
         // return annotation is part of the type's surface.
         let preamble (d: ClassFunctionOrValueDefn<SyntaxToken>) =
             match d with
@@ -965,7 +965,7 @@ module CstWalk =
             li.Idents |> Seq.map nameOf |> String.concat "."
 
         // The implicit prefix a `namespace N` header contributes: a dotted prefix and no
-        // `LocalOpen` — the namespace holds the body rather than importing it.
+        // `LocalOpen`, because the namespace holds the body rather than importing it.
         let addNamespacePrefix (scope: OpenScope) (li: LongIdent<SyntaxToken>) : OpenScope =
             let prefix = longIdentText li
 
@@ -1029,8 +1029,8 @@ module CstWalk =
                 inherited
 
         // `isRec` is the scope's OWN rec flag (drives the constant-prelude shape).
-        // `recScope` is the PROPAGATED one — the innermost enclosing rec scope's keyword
-        // offset — so `onScope`'s flag is true in a rec namespace's non-rec submodule too.
+        // `recScope` is the PROPAGATED one, so `onScope`'s flag is true in a rec
+        // namespace's non-rec submodule too.
         let rec processElems
             (elems: ModuleElems<SyntaxToken>)
             (start: OpenScope)

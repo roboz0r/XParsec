@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // Each attribute's long-ident is RESOLVED as a type and compared by `TypeKey`, so a user type
-// named `ReferenceEqualityAttribute` elsewhere keeps its own meaning — and an ABBREVIATION
+// named `ReferenceEqualityAttribute` elsewhere keeps its own meaning, and an ABBREVIATION
 // naming a marker resolves to the alias' OWN identity, so it is ignored.
 
 module Attributes =
@@ -184,7 +184,7 @@ module Attributes =
         AttributeDecode.decodeClassAttributes ctx.NameOf attrs
 
     /// `[<Global>]`: the value IS a target global, so no definition is emitted. Checked BOTH
-    /// ways — marking a body that is not a bare intrinsic template silently deletes real code,
+    /// ways because marking a body that is not a bare intrinsic template silently deletes real code,
     /// and an unmarked restatement emits `const undefined = undefined`, which cannot run.
     let declareGlobalBinding
         (ctx: PassContext)

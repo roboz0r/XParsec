@@ -58,7 +58,7 @@ module internal StringLiterals =
         for part in parts do
             match part with
             // A `Text` part can carry an escape-sequence TOKEN, whose `nameOf` is the
-            // raw source span — backslash then `n`, two chars. Decoding it here is what
+            // raw source span: backslash then `n`, two chars. Decoding it here is what
             // makes a literal `"\n"` a newline instead of two characters.
             | StringPart.Text t ->
                 match t.Token with

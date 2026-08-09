@@ -7,7 +7,7 @@ open XParsec.FSharp.Lexer
 /// file refers to one through a key minted here, so a well-known type's SPELLING is written
 /// exactly once in the tree. Recognition is KEY EQUALITY: a `TypeKey` carries its arity as
 /// a field, so there is nothing for a matcher to strip. The few NAMES that remain are for
-/// the axes string-keyed by design — a compiled-name probe, a platform-repr map, a source
+/// the axes string-keyed by design: a compiled-name probe, a platform-repr map, a source
 /// spelling met before any identity exists for it.
 [<RequireQualifiedAccess>]
 module RuntimeNames =
@@ -164,7 +164,7 @@ module RuntimeNames =
     let undefinedTypeName: string = "undefined"
 
     /// Both spellings an impl can take: `Key` the PLATFORM/BCL name, `CanonKey` the BCL-free
-    /// canonical one — `ValueNone` for a canon-only anchor (`seq`, and everything on JS).
+    /// canonical one, `ValueNone` for a canon-only anchor (`seq`, and everything on JS).
     type CapabilityIdentity =
         {
             Key: TypeKey
@@ -238,7 +238,7 @@ module RuntimeNames =
     let private intrinsicContainer: TypeContainer =
         TypeContainer.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
 
-    /// A `namespace Vesper` intrinsic whose NAME satisfies `nameSatisfies` — for the one
+    /// A `namespace Vesper` intrinsic whose NAME satisfies `nameSatisfies`, for the one
     /// classification a finite key set cannot spell: an array of arbitrary rank, whose
     /// identity names (`"[]"`, `"[,]"`, …) are unbounded. Namespace and arity are compared
     /// too, confining the name test to keys already established to be intrinsics. A
@@ -277,7 +277,7 @@ module RuntimeNames =
     /// JS shares `number` between this and `float`, so the key is the only carrier of the width.
     let float32Key: SymbolKey = primitiveKey "float32"
     let decimalKey: SymbolKey = primitiveKey "decimal"
-    /// The arbitrary-precision integer (CLR `System.Numerics.BigInteger`, JS `bigint`) —
+    /// The arbitrary-precision integer (CLR `System.Numerics.BigInteger`, JS `bigint`),
     /// the type a `NumBigInteger*` literal token pins to. Outside `numericKeys`: it is not
     /// a fixed-width scalar, so none of the width-driven classifications admit it.
     let bigintKey: SymbolKey = primitiveKey "bigint"
@@ -286,8 +286,8 @@ module RuntimeNames =
     let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
-    /// The IDENTITY of the base primitive a structural literal erases to — one identity every
-    /// erasing consumer shares, rather than a name each re-mints. Lives here rather than on
+    /// The IDENTITY of the base primitive a structural literal erases to, so every erasing
+    /// consumer shares one identity rather than re-minting a name. Lives here rather than on
     /// `LiteralConst`: the DU compiles before the intrinsic identities do.
     let literalBaseKey (v: LiteralConst) : SymbolKey =
         match v with
@@ -319,7 +319,7 @@ module RuntimeNames =
 
     /// Membership over a FIXED set of intrinsic identities, resolved once into a hash set.
     /// `HashSet` and not `Set`: a `SymbolKey` carries `EqArray`s, which are `NoComparison`
-    /// by design. Bind the result at module level — the set is built per call.
+    /// by design. Bind the result at module level, because the set is built per call.
     let isKeyIn (keys: SymbolKey seq) : SymbolKey -> bool =
         let set = HashSet(keys)
         set.Contains
@@ -350,7 +350,7 @@ module RuntimeNames =
     let referencePrimitiveKeys: SymbolKey list =
         [ boolKey; charKey; stringKey; unitKey; objKey; voidptrKey; exnKey ]
 
-    /// The ALIAS spellings of the numeric primitives — the ones with no key of their own
+    /// The ALIAS spellings of the numeric primitives: the ones with no key of their own
     /// (`type int32 = int`, `type single = float32`). Only the NAME axis meets them, and
     /// only before dealiasing.
     let private numericAliasNames =
@@ -358,7 +358,7 @@ module RuntimeNames =
 
     /// The SOURCE SPELLINGS of the numeric primitives: each identity's own name plus the
     /// aliases that dealias onto one. For the consumers that meet a spelling BEFORE any
-    /// identity exists for it — a source-written annotation, a TS manifest's bare reference.
+    /// identity exists for it: a source-written annotation, a TS manifest's bare reference.
     let numericTypeNames: Set<string> =
         numericKeys
         |> Seq.map SymbolKeyOps.intrinsicName
@@ -366,7 +366,7 @@ module RuntimeNames =
         |> Set.ofSeq
 
     /// The name-axis projection of `referencePrimitiveKeys`; see `numericTypeNames`. No
-    /// aliases — each of these is spelled one way.
+    /// aliases, because each of these is spelled one way.
     let referencePrimitiveNames: Set<string> =
         referencePrimitiveKeys |> Seq.map SymbolKeyOps.intrinsicName |> Set.ofSeq
 

@@ -5,7 +5,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 module ConformanceTypars =
 
     /// A binding whose `.fs`-inferred generic scheme disagrees with its `.fsi`-declared
-    /// one — a different typar COUNT or a different typar ORDER.
+    /// one: a different typar COUNT or a different typar ORDER.
     [<NoEquality; NoComparison>]
     type TyparMismatch =
         {
@@ -25,7 +25,7 @@ module ConformanceTypars =
     let normAxis (t: FrozenType) : FrozenType = normAxisTo TyparAxis.Method t
 
     /// Land a FREE value/function's single typar axis on `Declaring`, the axis a provider
-    /// scheme speaks — instantiating one throws on a `Method` typar.
+    /// scheme speaks, because instantiating one throws on a `Method` typar.
     let toDeclaringAxis (t: FrozenType) : FrozenType = normAxisTo TyparAxis.Declaring t
 
     /// True iff the `.fsi`-declared and `.fs`-inferred schemes are α-equivalent WITH typar

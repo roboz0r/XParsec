@@ -8,7 +8,7 @@ open InlineSpecTable
 open InlineReduction
 
 // The pre-freeze inline-expansion pass, on the still `TyVar`-carrying `TExpr` tree. A saturated
-// use of a `let inline` — local, or cross-file with a served body — is resolved and static-opt
+// use of a `let inline` (local, or cross-file with a served body) is resolved and static-opt
 // selected here, leaving a `TExpr.InlineCall` edge the backends place the body for at emit time.
 
 module InlineExpansion =
@@ -19,12 +19,12 @@ module InlineExpansion =
         | TDecl.Expression(e, ty) -> TDecl.Expression(f e, ty)
         | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl id f td)
 
-    /// `Decls` CARRY EDGES — a `TExpr.InlineCall` per call site — and `Specializations` is the
+    /// `Decls` CARRY EDGES, one `TExpr.InlineCall` per call site, and `Specializations` is the
     /// table those edges name.
     type Expanded =
         {
             Decls: (TDecl * (TyVarId * SemType) list) list
-            /// Slot order — a `SpecializationId` indexes THIS array.
+            /// A `SpecializationId` indexes THIS array.
             Specializations: TSpecialization[]
         }
 
@@ -87,7 +87,7 @@ module InlineExpansion =
         locals
 
     /// A re-entered frame is answered with an edge into the entry it reserved rather than a
-    /// second expansion — how an inline binding that reaches itself leaves a finite table.
+    /// second expansion, which is how an inline binding that reaches itself leaves a finite table.
     let private expandingTemplate (x: Expander) (at: Descent) (call: PendingCall) (fresh: unit -> TExpr) : TExpr =
         match Descent.reentered call.Template at with
         | ValueSome reentered ->
@@ -168,7 +168,7 @@ module InlineExpansion =
             match external with
             | ValueSome ext ->
                 match lookupExternal x.Ctx x.Specs ext.Key, ext.Args with
-                // An external WITH an inline body ALWAYS expands — no operand-groundness gate. An
+                // An external WITH an inline body ALWAYS expands: no operand-groundness gate. An
                 // un-ground `^T` selects no per-primitive `StaticOptimization` clause and falls to
                 // the body's BASE, where the safe generic default lives (`=` → `Equals`).
                 | ValueSome served, ValueSome opened ->
@@ -216,8 +216,8 @@ module InlineExpansion =
             }
             x.Specs
 
-    /// Finish a classified application: walk the body — where every nested inline call inside it
-    /// resolves — and fuse in the call-site material the classification marked.
+    /// Finish a classified application: walk the body, which is where every nested inline call
+    /// inside it resolves, and fuse in the call-site material the classification marked.
     let rec private reduceClassified (x: Expander) (inFlight: InFlight) (peeled: Peeled) : Reduced =
         // Every fusion below is the CALLER's material, so it carries the caller's domain.
         let caller = originOf x inFlight.Caller
@@ -264,9 +264,9 @@ module InlineExpansion =
             Survivors = List.ofSeq survivors
         }
 
-    /// Answer ONE call site against ONE template — of this file or served by another, which differ
-    /// only in the lookup that found them. Resolution and classification run BEFORE the frame is
-    /// pushed.
+    /// Answer ONE call site against ONE template, of this file or served by another; the two
+    /// differ only in the lookup that found them. Resolution and classification run BEFORE the
+    /// frame is pushed.
     and private expandAt (x: Expander) (at: Descent) (template: TemplateBody) (call: PendingCall) : TExpr =
         expandingTemplate
             x
@@ -303,8 +303,8 @@ module InlineExpansion =
             )
 
     /// The expansion walker, as a FUNCTION of the descent the material it is handed was WRITTEN
-    /// under — a `Mapper` has no room for a parameter of its own. Descending into a callee's body
-    /// builds a mapper with that callee's frame pushed; call-site material keeps its own descent.
+    /// under, because a `Mapper` has no room for a parameter of its own. Descending into a callee's
+    /// body builds a mapper with that callee's frame pushed; call-site material keeps its own.
     and private mapperAt (x: Expander) (at: Descent) : TastWalk.Mapper =
         { TastWalk.identityMapper with
             OverrideExpr =
@@ -364,7 +364,7 @@ module InlineExpansion =
                             ValueSome(expandAt x at served call)
                         // No served body: a real static call, arguments walked by default.
                         | ValueNone -> ValueNone
-                    // A BARE reference to a LOCAL inline — the template used as a value. At arity
+                    // A BARE reference to a LOCAL inline: the template used as a value. At arity
                     // 0 no type argument is derivable and the body's typars stay abstract, but it
                     // is the SAME expansion, so static-opt clauses still resolve.
                     | TExpr.Var(k, _, tok) when x.LocalInlines.ContainsKey k ->

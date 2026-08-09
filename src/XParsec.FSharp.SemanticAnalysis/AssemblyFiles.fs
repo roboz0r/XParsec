@@ -64,7 +64,7 @@ module AssemblyFiles =
         string -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
 
     /// The namespaces a file DECLARES. F# implicitly opens a file's own `namespace N` over
-    /// its body, and that is what reaches a PRIOR file's namespace-direct declarations —
+    /// its body, and that is what reaches a PRIOR file's namespace-direct declarations,
     /// including from the provider-layer probes that never see the file's local scope.
     let private declaredNamespaces (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
         let identText (tok: SyntaxToken) =
@@ -88,8 +88,8 @@ module AssemblyFiles =
         | _ -> []
 
     /// Analyse a multi-file assembly in manifest order through a chosen front end. Each file
-    /// resolves the ones BEFORE it — prior file views nearest-first, external last — so a
-    /// name a nearer file re-declares shadows a farther one's.
+    /// resolves the ones BEFORE it, composed nearest-first with the external surface last, so
+    /// a name a nearer file re-declares shadows a farther one's.
     let analyseAssemblyWith
         (analyse: AnalyseFile)
         (assemblyName: string)
@@ -210,7 +210,7 @@ module AssemblyFiles =
     /// came AFTER lexing, and at line 1, col 1 when there is no stream to anchor against.
     let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
         match e.Failure.Lexed with
-        // The `""` bucket: no file was analysed, so no assembly claims this one — the
+        // The `""` bucket: no file was analysed, so no assembly claims this one. The
         // source exists only to resolve the positions the parser's diagnostics carry.
         | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Path e.Failure.Diagnostics
@@ -224,8 +224,8 @@ module AssemblyFiles =
         ]
 
     /// A whole assembly that passed the gate: its files in manifest order, plus their
-    /// retained sources as one domain — a backend needs those to read the anchors of a node
-    /// spliced out of a prior file.
+    /// retained sources as one domain, because a backend needs those to read the anchors of a
+    /// node spliced out of a prior file.
     type AnalysedAssembly =
         {
             Files: FrozenFile list
@@ -234,7 +234,7 @@ module AssemblyFiles =
 
     /// `analyseAssemblyWith`, GATED: every file must parse, and no analysed file may carry
     /// an error-severity diagnostic. A parse failure is fatal for the whole assembly and is
-    /// reported alone — the files after it analysed against a truncated view.
+    /// reported alone, because the files after it analysed against a truncated view.
     let analyseGated
         (analyse: AnalyseFile)
         (assemblyName: string)

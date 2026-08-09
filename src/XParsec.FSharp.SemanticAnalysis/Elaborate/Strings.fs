@@ -50,8 +50,8 @@ module internal ElaborateStrings =
 
             Some(HoleSpecSource.RawFormat fmt)
 
-    /// Lower an interpolated string (`$"…{x}…"`) to a `TExpr.Format`. `None` — keeping the
-    /// literal-stitch fallback — when the string has no holes, or any hole isn't faithfully
+    /// Lower an interpolated string (`$"…{x}…"`) to a `TExpr.Format`. `None`, which keeps the
+    /// literal-stitch fallback, when the string has no holes, or any hole isn't faithfully
     /// renderable: a free hole type, an orphan `%spec`, or an uncovered specifier.
     let private tryTranslateInterpolation
         (translateExpr: TranslateExpr)
@@ -73,7 +73,7 @@ module internal ElaborateStrings =
         for part in parts do
             if lowerable then
                 match part with
-                // `%%` collapses to `%` — an interpolated string rides the same
+                // `%%` collapses to `%`, because an interpolated string rides the same
                 // `PrintfFormat` machinery as printf. Escape sequences stay VERBATIM: the
                 // literal-stitch path does not unescape them either.
                 | StringPart.Text t
@@ -85,7 +85,7 @@ module internal ElaborateStrings =
                     let holeTy = typeOfKey ctx (CstKeys.ofExpr holeExpr)
 
                     match Unification.zonk ctx.Store holeTy with
-                    // A free hole type can't pick an `AppendFormatted<T>` — bail.
+                    // A free hole type can't pick an `AppendFormatted<T>`.
                     | TyVar _ -> lowerable <- false
                     | zHoleTy ->
                         match tryInterpHoleSpec ctx fs fc with
@@ -114,7 +114,7 @@ module internal ElaborateStrings =
                             )
                         | None -> lowerable <- false
                 // A standalone `%spec`, orphan specifier, or lexer-error part has
-                // interpolation-specific semantics this does not model — keep the whole
+                // interpolation-specific semantics this does not model, so keep the whole
                 // string on the literal-stitch fallback.
                 | StringPart.FormatSpecifier _
                 | StringPart.OrphanFormatSpecifier _
@@ -140,7 +140,7 @@ module internal ElaborateStrings =
                 // A format literal at a printf call site denotes `new PrintfFormat<…>(text)`.
                 TExpr.New(
                     PrintfSpec.printfFormatName,
-                    // Single `value: string` ctor — codegen resolves it by arity.
+                    // There is a single `value: string` ctor, so codegen resolves it by arity.
                     ValueNone,
                     EqArray.singleton (
                         TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ctx.Intrinsics.String, tok)

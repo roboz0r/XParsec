@@ -8,8 +8,8 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 module SemTypeQuery =
 
     /// `TyFun`-chain views: which domains a curried function type has, and what it returns
-    /// after `n` of them are applied. A chain shorter than `n` is not an error — callers cap
-    /// `n` at a count they measured — so a short chain yields what it has instead of failing.
+    /// after `n` of them are applied. Callers cap `n` at a count they measured, so a chain
+    /// shorter than `n` is not an error: it yields what it has instead of failing.
     [<RequireQualifiedAccess>]
     module internal Funs =
 
@@ -39,7 +39,7 @@ module SemTypeQuery =
                 | TyFun(_, b) -> resultAfter store (n - 1) b
                 | _ -> t
 
-    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic.
+    /// A (zonked) `SemType` with no free `TyVar` anywhere: fully monomorphic.
     let rec internal isGround (store: TypeStore) (t: SemType) : bool =
         match UnificationEngineCore.zonk store t with
         | TyVar _

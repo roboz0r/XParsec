@@ -14,7 +14,7 @@ module OpenSignature =
         }
 
     /// Projects a symbol's contract scheme onto the method axis, `Declaring i ↦ Method i`
-    /// POSITIONALLY — the producer assigns its `!!i` slots in that same declared order.
+    /// POSITIONALLY, because the producer assigns its `!!i` slots in that same declared order.
     let ofSymbol (sym: ExternalSymbol) : OpenMethodSignature =
         let openSig =
             FrozenTypeBridge.instantiateWith

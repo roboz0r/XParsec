@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateObjArgs
 
 module internal ElaborateCalls =
 
-    // A member is TUPLED — one argument whatever its parameter count — so a tuple
+    // A member is TUPLED, taking one argument whatever its parameter count, so a tuple
     // VALUE selects a 2-parameter member exactly as the literal `(3, 4)` does. But its
     // elements are not expressions, and a spliced `member inline` body needs one each.
 
@@ -237,9 +237,9 @@ module internal ElaborateCalls =
         : TExpr =
         TExpr.UnionCons(caseName, wrapObjArgsEq ctx.Store (unionCaseFieldTys ctx ty caseName) args, ty, tok)
 
-    /// Recover segment `segName`'s declared type from object-argument type `objArgTy` — a
-    /// record field, or a union / class instance-member return type — instantiated at its
-    /// own type arguments. `ValueNone` if it is not a known nominal's member.
+    /// Recover segment `segName`'s declared type (a record field, or a union / class
+    /// instance-member return type) from object-argument type `objArgTy`, instantiated at
+    /// its own type arguments. `ValueNone` if it is not a known nominal's member.
     let recoverFieldStepTy (ctx: PassContext) (objArgTy: SemType) (segName: string) : SemType voption =
         let memberTy (typeParams, args) (members: TypeMemberInfo[]) =
             members
@@ -255,8 +255,8 @@ module internal ElaborateCalls =
             | TyRecord(recKey, args) ->
                 match TypeRegistry.tryRecordByKey ctx.Types recKey with
                 | ValueSome info ->
-                    // A record's chain segment is a field OR an instance-member property
-                    // — check fields first (a record has no inheritance to walk).
+                    // A record's chain segment is a field OR an instance-member property,
+                    // so try fields and then members (a record has no inheritance to walk).
                     let fieldTy =
                         info.Fields
                         |> Array.tryPick (fun f ->
@@ -278,8 +278,8 @@ module internal ElaborateCalls =
                 match TypeRegistry.tryClassByKey ctx.Types clsKey with
                 | ValueSome info ->
                     // A `this.x` chain segment may be a `val` field or a primary-ctor
-                    // parameter, not a member — members-only would fall back to the
-                    // chain's FINAL type, typing `this.stack.IsEmpty`'s object argument `bool`.
+                    // parameter, not a member; otherwise a members-only lookup falls back to
+                    // the chain's FINAL type, typing `this.stack.IsEmpty`'s object argument `bool`.
                     let fieldTy =
                         Seq.append
                             (info.InstanceFields |> Seq.map (fun f -> f.Name, f.Type))
@@ -316,7 +316,7 @@ module internal ElaborateCalls =
         let isMember (members: TypeMemberInfo[]) =
             members |> Array.exists (fun m -> m.Name = segName)
 
-        // A flat nominal (union or record — neither has an inheritance chain): a
+        // A flat nominal (union or record, neither of which has an inheritance chain): a
         // member name is a `PropertyGet`, a record / union case field a `FieldGet`.
         let flatNominalStep (typeKey: TypeKey) : TExpr =
             match tryNominalMemberByKey ctx typeKey segName with

@@ -28,7 +28,7 @@ and [<RequireQualifiedAccess>] SymbolKey =
     | Binding of BindingKey
     | Member of MemberKey
 
-/// The elaborated type representation — `SemType` minus `TyVar`, so a metavar reaching the
+/// The elaborated type representation: `SemType` minus `TyVar`, so a metavar reaching the
 /// backend is unrepresentable. Cases mirror `SemType`'s under an `FT` prefix.
 and FrozenType =
     /// An argless primitive (`FTConst(RuntimeNames.intKey, [])`) or a generic intrinsic
@@ -39,11 +39,11 @@ and FrozenType =
     | FTRecord of key: TypeKey * args: EqArray<FrozenType>
     | FTUnion of key: TypeKey * args: EqArray<FrozenType>
     | FTClass of key: TypeKey * args: EqArray<FrozenType>
-    /// No `args` — enums are never generic. A distinct nominal, NOT its underlying `int`.
+    /// No `args`, because enums are never generic. A distinct nominal, NOT its underlying `int`.
     | FTEnum of key: TypeKey
     /// An anonymous (structural) union: `A | B ≡ B | A`, and `FTOr []` is `never`.
     | FTOr of members: EqSet<FrozenType>
-    /// A structural LITERAL type (`"GET"`, `42`) — ground, no children. A plain Vesper literal
+    /// A structural LITERAL type (`"GET"`, `42`): ground, no children. A plain Vesper literal
     /// does not make one: `"ping"` types as `string`.
     | FTLiteral of value: LiteralConst
     /// `keyof T`, `T[K]`, `C extends E ? T : F` — carried from the manifest as inert nodes with
@@ -52,7 +52,7 @@ and FrozenType =
     | FTIndexedAccess of objTy: FrozenType * index: FrozenType
     | FTConditional of FTConditionalPayload
     /// An open type parameter of the enclosing generic definition; `index` is its position in
-    /// that axis's typar list — the order `freeze` quantifies in.
+    /// that axis's typar list, which is the order `freeze` quantifies in.
     | FTTypar of axis: TyparAxis * index: int
     /// Typar #`index` of a body-local `let`'s OWN generalized scheme (`let g = fun x -> x`
     /// inside a decl), not the enclosing method's. Equate only by the whole `(scheme, index)`.
@@ -61,7 +61,7 @@ and FrozenType =
     | FTUnknown of name: string
 
     /// Instantiation can make two members equal after the fact, so a re-map of an existing
-    /// `FTOr` must come back through here — flatten, dedupe, collapse a singleton — not rebuild.
+    /// `FTOr` must come back through here rather than be rebuilt directly.
     static member MkUnion(members: FrozenType seq) : FrozenType =
         let acc = ResizeArray<FrozenType>()
 
@@ -98,16 +98,16 @@ type SemType =
     | TyConst of key: SymbolKey * args: EqArray<SemType>
     | TyFun of arg: SemType * result: SemType
     | TyTuple of items: EqArray<SemType>
-    /// Field types are not stored inline — look up the record's shape via `key`, and its
+    /// Field types are not stored inline, so look up the record's shape via `key`, and its
     /// declared `TypeParams` to substitute `args` into each field.
     | TyRecord of key: TypeKey * args: EqArray<SemType>
     /// Cases and `TypeParams` live in the union registry, reachable by `key`.
     | TyUnion of key: TypeKey * args: EqArray<SemType>
     | TyClass of key: TypeKey * args: EqArray<SemType>
-    /// `type E = | C1 = v1 | …`. No `args` — enums are never generic; `E` is a DISTINCT
+    /// `type E = | C1 = v1 | …`. No `args`, because enums are never generic; `E` is a DISTINCT
     /// nominal, NOT structurally its underlying `int`.
     | TyEnum of key: TypeKey
-    /// An anonymous (structural) union — `X | Y | null`, no key and no nominal identity.
+    /// An anonymous (structural) union: `X | Y | null`, no key and no nominal identity.
     /// `TyOr []` is `never` (bottom); assignability is `subsumes`, not `unify`.
     | TyOr of members: UnionMembers
     /// A structural LITERAL type (`"GET"`, `42`); ground, and widens OUTWARD to its base
@@ -173,7 +173,7 @@ and [<Sealed>] UnionMembers private (members: EqSet<SemType>) =
     override _.GetHashCode() = hash members
 
 /// Abelian-group expression over named measure atoms. Always stored normalised: duplicates
-/// merged, zero exponents dropped, entries sorted — so equality is structural list equality.
+/// merged, zero exponents dropped, entries sorted, so equality is structural list equality.
 and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
     member _.Exponents = exponents
     member _.IsDimensionless = List.isEmpty exponents
@@ -271,7 +271,7 @@ module MeasureTerm =
 
     let div (a: MeasureTerm) (b: MeasureTerm) : MeasureTerm = mul a (inv b)
 
-    /// `k` is `Rational` so a fractional power — `pow m (1/2)`, square root — is expressible.
+    /// `k` is `Rational`, so a fractional power is expressible: `pow m (1/2)` is a square root.
     let pow (m: MeasureTerm) (k: Rational) : MeasureTerm =
         if k.IsZero then
             empty

@@ -9,7 +9,7 @@ type Accessibility =
     | Private
 
 /// The exportable identity of a module-level `let`. `InModule m` names the compiled module
-/// type — an F# module is a static class (`Vesper.Collections.ListModule::fold`).
+/// type, because an F# module is a static class (`Vesper.Collections.ListModule::fold`).
 type ModuleBindingInfo =
     {
         Container: ModuleContainer
@@ -51,7 +51,7 @@ type ForInGetEnumG<'ty> =
     /// key, whose `unit → E` return recovers the source instantiation.
     | External of getEnumerator: SymbolKey
     /// A *project-local* class: `GetEnumerator` resolves against the source expression's
-    /// type — no key needed.
+    /// type, so no key is needed.
     | Local
     /// A *generic typar* constrained to a project-local seq interface declaring
     /// `GetEnumerator(): E`. Emits `constrained. <Source> callvirt iface::GetEnumerator`,

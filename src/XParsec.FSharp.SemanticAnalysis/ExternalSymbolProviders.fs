@@ -26,7 +26,7 @@ module ExternalSymbolProviders =
 
     module NamedLeaf =
 
-        /// Every channel misses — override just what the leaf models.
+        /// Every channel misses, so override just what the leaf models.
         let empty: NamedLeaf =
             {
                 TryLookup = fun _ -> ValueNone
@@ -46,8 +46,8 @@ module ExternalSymbolProviders =
     type KeyIndexedLeaf =
         {
             ShapesByKey: IReadOnlyDictionary<SymbolKey, ExternalTypeShape>
-            /// A type's FULL member list, in DECLARATION order — the order the by-name
-            /// overload scan and the by-key selection both depend on.
+            /// A type's FULL member list, in DECLARATION order, because the by-name overload
+            /// scan and the by-key selection both depend on that order.
             MembersByKey: IReadOnlyDictionary<SymbolKey, ResizeArray<ExternalMember>>
             /// Written type name -> registered identity.
             ResolveTypeName: string -> TypeKey voption
@@ -172,7 +172,7 @@ module ExternalSymbolProviders =
               member _.TryLookupMembers(key, memberName) = leaf.TypeMembersByKey(key, memberName)
 
               // A leaf indexes members by (declaring type, member NAME), so a key is the
-              // exact-identity selection out of that name's overload set — a
+              // exact-identity selection out of that name's overload set. A
               // first-in-declaration-order pick would answer with a SIBLING overload.
               member _.TryLookupMemberByKey(key: MemberKey) =
                   leaf.TypeMembersByKey(SymbolKey.Type key.Decl, key.Name)
@@ -181,8 +181,8 @@ module ExternalSymbolProviders =
               member _.TryLookupIndexSignature key =
                   named.TryLookupIndexSignature(SymbolKeyOps.qualifiedName key)
 
-              // A `BindingKey`'s rendering `.`-joins its containment chain — how a binding
-              // is WRITTEN — so it round-trips through the name index. A TYPE's does not:
+              // A `BindingKey`'s rendering `.`-joins its containment chain, which is how a
+              // binding is WRITTEN, so it round-trips through the name index. A TYPE's does not:
               // a module-held type's metadata name `+`-nests where the source dots.
               member _.TryLookupByKey key =
                   named.TryLookup(SymbolKeyOps.qualifiedName key)
@@ -227,7 +227,7 @@ module ExternalSymbolProviders =
 
     /// First-hit-wins composition over `sources`, surfacing `ambient` and stamping
     /// `stampHome` onto each resolved entry's `SymbolOrigin.Home`. The origin's NAMESPACE
-    /// is never stamped — a package spans as many as its files declare.
+    /// is never stamped, because a package spans as many as its files declare.
     let stack
         (stampHome: Origin voption)
         (ambient: string list)
@@ -332,8 +332,8 @@ module ExternalSymbolProviders =
                   firstHit (fun s -> s.TryLookupMember(key, memberName))
                   |> ValueOption.map stampMember
 
-              // First source that knows the type wins the whole overload set — a type's
-              // members live in one assembly, so a later source never *adds* overloads.
+              // A type's members live in one assembly, so a later source never *adds*
+              // overloads and the first source that knows the type wins the whole set.
               member _.TryLookupMembers(key, memberName) =
                   let mutable result = [||]
                   let mutable i = 0

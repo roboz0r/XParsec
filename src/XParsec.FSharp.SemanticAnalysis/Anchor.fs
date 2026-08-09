@@ -41,7 +41,7 @@ module Anchor =
     let ofStored (raw: int) : Anchor =
         if raw < 0 then nowhere else { Raw = raw * 1<token> }
 
-/// WHICH FILE a set of `Anchor`s index — the package and the path within it, and no absolute
+/// WHICH FILE a set of `Anchor`s index: the package and the path within it, and no absolute
 /// path. It is folded into the per-file input hash.
 type OriginPath =
     {

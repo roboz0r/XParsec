@@ -130,7 +130,7 @@ module internal ElaborateClassMembers =
                 (declKey: NodeKey voption)
                 : EqArray<string * SemType> =
                 // Materialise each root as a plain `TyVar root`, so the later cut flips it
-                // to `TyTypar(Method, i)` like every other embedded type — the tree field
+                // to `TyTypar(Method, i)` like every other embedded type, and the tree field
                 // never holds a union-find carrier.
                 let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =
                     GeneralizedTypars.toArray g

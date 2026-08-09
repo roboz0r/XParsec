@@ -30,7 +30,7 @@ module FrozenCodecTypes =
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
-    /// The file a set of anchors index, which need NOT be the file the blob is keyed by — so
+    /// The file a set of anchors index, which need NOT be the file the blob is keyed by, so
     /// that file's identity, and a hash of the contents the indices were taken against, have
     /// to be in the blob. A reference like the three above: interned once per file.
     let writeOriginRef (w: FrozenWriter) (f: OriginFile) =
@@ -40,7 +40,7 @@ module FrozenCodecTypes =
 
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
 
-    /// A length-prefixed entry sequence in the dictionary's own enumeration order — no
+    /// A length-prefixed entry sequence in the dictionary's own enumeration order: no
     /// canonical order is imposed, so the read side rebuilds an unordered `Dictionary`
     /// behind the read-only view.
     let writeSymbolDict
@@ -68,7 +68,7 @@ module FrozenCodecTypes =
 
         d :> System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>
 
-    /// The membership-only twin of `writeSymbolDict` — a `SymbolKey` set with no payload.
+    /// The membership-only twin of `writeSymbolDict`, a `SymbolKey` set with no payload.
     let writeSymbolSet (w: FrozenWriter) (s: System.Collections.Generic.IReadOnlySet<SymbolKey>) =
         w.Write s.Count
 
@@ -256,7 +256,7 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar bound — its `target` is a `FrozenType`, so this rides `writeTypeRef`.
+    /// A frozen typar bound. Its `target` is a `FrozenType`, so this rides `writeTypeRef`.
     let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
         match c with
         | FrozenConstraint.Coercion(typarIndex, target) ->
@@ -531,8 +531,8 @@ module FrozenCodecTypes =
         | 1uy -> HoleSpecSource.RawFormat(readOptionWith r (fun r -> r.ReadString()))
         | b -> failwithf "FrozenCodec: unknown HoleSpecSource tag %d" b
 
-    // A `HoleSpec` carries no sub-expression — its `Ty` is a `FrozenType` and its `Tok` an
-    // anchor — so it is a leaf even though the format SEGMENT that holds it is not.
+    // A `HoleSpec` carries no sub-expression, its three fields being a type, a source and an
+    // anchor, so it is a leaf even though the format SEGMENT that holds it is not.
     let writeHoleSpec (w: FrozenWriter) (h: Pooled.HoleSpec) =
         writeTypeRef w h.Ty
         writeHoleSpecSource w h.Source

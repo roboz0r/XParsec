@@ -16,8 +16,8 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateClassMembers
 
 module internal ElaborateTypeDecls =
 
-    /// The `access` keyword token off a `type` definition's `TypeName`. The variants with
-    /// no `TypeName` — a bare delegate / exception form — report absence, i.e. `Public`.
+    /// The `access` keyword token off a `type` definition's `TypeName`. Every other form
+    /// (delegate, type extension, abstract type, parse failure) reports absence, i.e. `Public`.
     let typeDefnAccessToken (td: TypeDefn<SyntaxToken>) : SyntaxToken voption =
         let ofTn (TypeName(_, access, _, _, _, _)) = access
 
@@ -40,7 +40,7 @@ module internal ElaborateTypeDecls =
         else
             ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
-    /// The decl-site `NodeKey` for a single-segment `TypeName` — the same key name
+    /// The decl-site `NodeKey` for a single-segment `TypeName`, the same key name
     /// resolution stamps into `Resolution.ResolvedType`. `ValueNone` for a multi-segment
     /// name, which is never a project-local type and so never registered.
     let private typeNameDeclKey (ctx: PassContext) (tn: TypeName<SyntaxToken>) : NodeKey voption =
@@ -51,8 +51,7 @@ module internal ElaborateTypeDecls =
         else
             ValueNone
 
-    /// Classify an object-model body as an interface — every element an abstract method
-    /// signature, no base type, no `let`/`do` preamble — and build its methods from the
+    /// Classify an object-model body as an interface and build its methods from the
     /// resolved member signatures. An `Anon`/`Interface` body registers as a class.
     let private tryInterfaceMethods
         (ctx: PassContext)
@@ -78,8 +77,8 @@ module internal ElaborateTypeDecls =
             match TypeRegistry.tryClassByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
             | ValueNone -> None
             | ValueSome info ->
-                // The member signatures share these prototype TyVars — they were typed
-                // under the class's typar scope — so the remap reaches every one.
+                // The member signatures were typed under the class's typar scope, so they
+                // share these prototype TyVars and the remap reaches every one.
                 let markers = mkDeclTyparEnv ctx.Store info.TypeParams
                 // The decl's freeze env: declaring typars plus every generic method's own.
                 // The cut from `TyVar` is deferred and applied to the whole decl at once.
@@ -272,7 +271,7 @@ module internal ElaborateTypeDecls =
 
         // A `System.Enum` has exactly one underlying integral type, so explicitly-suffixed
         // cases of differing width (`| A = 1uy | B = 2L`) are a hard error. Unsuffixed cases
-        // are width-flexible — they adopt the single explicit width present — and never do.
+        // adopt the one explicit width present, so they never conflict.
         match TEnumCases.firstWidthConflict tcases with
         | ValueSome(tok, w0, w1) ->
             ctx.Report(
@@ -383,7 +382,7 @@ module internal ElaborateTypeDecls =
 
     /// The resolved interface `TyClass` carries THIS class's declaring typars as roots, so a
     /// generic arg like `IEnumerable<'T>` encodes against this class's own typars after the
-    /// cut. Impls that failed to resolve are dropped — that diagnostic already fired.
+    /// cut. Impls that failed to resolve are dropped, because that diagnostic already fired.
     let private elaborateClassInterfaces
         (ctx: PassContext)
         (info: ClassTypeInfo)
@@ -421,8 +420,7 @@ module internal ElaborateTypeDecls =
         )
 
     /// The `inherit Base(args)` invocation. It carries the derived class's primary-ctor
-    /// params because those are the only slots the args can reference — `this` is not
-    /// constructed yet.
+    /// params, the only slots the args can reference, because `this` is not constructed yet.
     let private tryBaseCtorCall
         (ctx: PassContext)
         (info: ClassTypeInfo)
@@ -435,8 +433,8 @@ module internal ElaborateTypeDecls =
                     seq { for p in info.CtorParams -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) }
                 )
 
-            // The args run before `this` exists, so the INSTANCE rewrite must not apply —
-            // but the `.cctor` has already run, so a `static let` IS in scope here and IS a
+            // The args run before `this` exists, so the INSTANCE rewrite must not apply.
+            // But the `.cctor` has already run, so a `static let` IS in scope here and IS a
             // field; unrewritten, its bound variable survives as a `Var` codegen has no slot for.
             let args = peelOneArg (translateExpr ctx >> rewriteFieldRefs staticRewrite) argExpr
 
@@ -460,8 +458,8 @@ module internal ElaborateTypeDecls =
         (arity: int)
         (elements: TypeDefnElements<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) option =
-        // The key of the type being LOWERED, minted from the module the walk is in — not a
-        // by-name read. A sibling module's same-named class is a different type, and an
+        // The key of the type being LOWERED, minted from the module the walk is in rather
+        // than read by name. A sibling module's same-named class is a different type, and an
         // arity-overloaded `Box\`1`/`Box\`2` does not resolve by bare name at all.
         match TypeRegistry.tryClassByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
         | ValueNone -> None

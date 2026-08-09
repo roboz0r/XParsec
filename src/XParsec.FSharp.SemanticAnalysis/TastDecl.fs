@@ -49,8 +49,8 @@ type TDeclG<'ty, 'tok, 'id> =
 /// itself (`TExprG<'ty,'tok,'id>`) or a dense id naming that expression in a pool.
 and TTypeDeclG<'ty, 'tok, 'id, 'body> =
     {
-        /// Simple (unqualified) type name, e.g. `"Fun"`, never `` `arity ``-mangled — the
-        /// metadata name gets that suffix (`` Fun`2 ``).
+        /// Simple (unqualified) type name, e.g. `"Fun"`, never `` `arity ``-mangled: the
+        /// suffix belongs to the metadata name (`` Fun`2 ``) instead.
         Name: string
         /// The type's stable nominal identity, carried into the backend so the emitted-type
         /// tables key off it instead of re-deriving a string.
@@ -65,7 +65,7 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
         Kind: TTypeKindG<'ty, 'tok, 'id, 'body>
         /// Defaults to `Structural`.
         EqualitySupport: EqualityVerdict
-        /// Defaults to `NoComparison` — comparison is opt-in.
+        /// Defaults to `NoComparison`, because comparison is opt-in.
         ComparisonSupport: ComparisonVerdict
     }
 
@@ -73,7 +73,7 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
 
 and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
     | Interface of methods: EqArray<TAbstractMethodG<'ty>>
-    /// `cases` in declaration order — the index is the runtime tag. `members` are the
+    /// `cases` in declaration order, so a case's index is its runtime tag. `members` are the
     /// augmentation members (`with member …` / `static member …`); each `interfaces` entry
     /// pairs a resolved interface type with the bodies of its `interface … with` block.
     | Union of
@@ -81,8 +81,8 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
         members: EqArray<TTypeMemberG<'ty, 'id, 'body>> *
         interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
     /// `fields` are the record's payload in declaration order; `members` and `interfaces`
-    /// are as for `Union`. `valueKind` is `Struct` for a `[<Struct>]` record — a record
-    /// cannot be `RefStruct`.
+    /// are as for `Union`. `valueKind` is `Struct` for a `[<Struct>]` record, never
+    /// `RefStruct`, because a record cannot be one.
     | Record of
         fields: EqArray<TRecordFieldG<'ty>> *
         members: EqArray<TTypeMemberG<'ty, 'id, 'body>> *
@@ -120,7 +120,7 @@ and TClassG<'ty, 'id, 'body> =
         ValueKind: ClassValueKind
         /// True when the class declares a *primary* constructor (`type T(args) =`, including
         /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) = { … }`),
-        /// whose secondaries ARE the ctors — a synthesised primary would collide with `new()`.
+        /// whose secondaries ARE the ctors, because a synthesised primary would collide with `new()`.
         HasPrimaryCtor: bool
     }
 
@@ -137,25 +137,25 @@ and TUnionCaseG<'ty> =
 /// records `ValueNone` for any other constant it rejects.
 and [<RequireQualifiedAccess>] TEnumLiteral =
     /// Always a `TConstValue.Integral` whose width satisfies `IntWidth.isEnumBase` (never
-    /// pointer-width), carrying the AUTHORED width — the unsuffixed `int` becomes `I32` at
+    /// pointer-width), carrying the AUTHORED width, so an unsuffixed `int` becomes `I32` at
     /// freeze, not here.
     | Int of value: TConstValue
-    /// A string enum-case value — the stitched literal text (escapes decoded).
+    /// A string enum-case value: the stitched literal text, escapes decoded.
     | String of value: string
 
 and TEnumCaseG<'tok> =
     {
         /// Case identifier (`C` in `| C = v`).
         Name: string
-        /// `ValueNone` when the source value is not a legal literal — a non-literal
-        /// expression, an interpolated string, a non-int-non-string constant — for which a
+        /// `ValueNone` when the source value is not a legal literal (a non-literal
+        /// expression, an interpolated string, a non-int-non-string constant), for which a
         /// hard error was reported; the case is kept so its siblings live.
         Value: TEnumLiteral voption
         Tok: 'tok
     }
 
-/// One field of a `TTypeKind.Record`. `Type` carries the field's declared type — with the
-/// declaring type's typar markers (`TyTypar(Declaring, i)`) for a generic record. `IsMutable` is the
+/// One field of a `TTypeKind.Record`. `Type` carries the field's declared type, which for a generic
+/// record uses the declaring type's typar markers (`TyTypar(Declaring, i)`). `IsMutable` is the
 /// source-level `mutable` annotation, and gates the equality triple's all-immutable case.
 and TRecordFieldG<'ty> =
     {
@@ -197,7 +197,7 @@ and TTypeMemberG<'ty, 'id, 'body> =
 
 /// One `[static] let [mutable] x = <init>` of a class preamble: a private static field the
 /// `.cctor` initialises, or a private instance field the primary ctor does. One `let`, one
-/// field — references to it are `FieldGet`/`FieldSet` on `this`, never a `TExpr.Let`.
+/// field, so references to it are `FieldGet`/`FieldSet` on `this`, never a `TExpr.Let`.
 and TClassLetG<'ty, 'body> =
     {
         Name: string
@@ -206,7 +206,7 @@ and TClassLetG<'ty, 'body> =
         Init: 'body
     }
 
-/// One entry of a class preamble, in DECLARATION order — interleaving is order-sensitive
+/// One entry of a class preamble, in DECLARATION order, because interleaving is order-sensitive
 /// (`static let a = f()` / `static do g a` / `static let b = h()`).
 and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'body> =
     | Let of TClassLetG<'ty, 'body>
@@ -240,7 +240,7 @@ and TSecondaryCtorG<'ty, 'id, 'body> =
 
 /// An `inherit Base(args)` invocation: the primary `.ctor` chains to the parent's
 /// (`ldarg.0; <Args>; call instance void Base::.ctor(…)`) before storing its own fields.
-/// `CtorParams` are the *derived* class's primary-ctor params — `this` isn't constructed yet.
+/// `CtorParams` are the *derived* class's primary-ctor params, because `this` isn't constructed yet.
 and TBaseCtorCallG<'ty, 'id, 'body> =
     {
         CtorParams: EqArray<BoundVarKeyG<'id> * 'ty>
@@ -252,14 +252,15 @@ and TBaseCtorCallG<'ty, 'id, 'body> =
     }
 
 /// `Signature` is the curried function type. `MethodTypeParams` are the method's own generic
-/// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`) — source spelling; in
-/// `Signature` they ride as `TyTypar(Method, i)`, the declaring type's as `TyTypar(Declaring, i)`.
+/// parameters in source order (`["'C"]` for `abstract Map<'C> : 'A -> 'C`): the names as written,
+/// whereas in `Signature` they ride as `TyTypar(Method, i)`, the declaring type's as
+/// `TyTypar(Declaring, i)`.
 and TAbstractMethodG<'ty> =
     {
         Name: string
         MethodTypeParams: EqArray<string>
         Signature: 'ty
-        /// `true` for an abstract *property* — an arg-less member sig, `abstract member
+        /// `true` for an abstract *property*: an arg-less member sig, `abstract member
         /// Current : int`, which emits as a `get_Current` slot. A method slot keeps its
         /// bare name.
         IsProperty: bool
@@ -298,7 +299,7 @@ module TTypeKindG =
 module BoundVarKey =
 
     /// The single bound variable a PATTERN introduces. `ValueNone` for one that binds nothing, and
-    /// for one that binds only through nested sub-patterns — walk the children for those.
+    /// for one that binds only through nested sub-patterns, so walk the children for those.
     let ofPat (p: TPatG<'ty, 'tok, 'id>) : BoundVarKeyG<'id> voption =
         match p with
         | TPatG.NamedSimple(boundVar = boundVar) -> ValueSome(BoundVar boundVar)
@@ -320,13 +321,13 @@ module BoundVarKey =
         | TExprG.ForTo(var = var; identTok = identTok) -> ValueSome(struct (BoundVar var, identTok))
         | _ -> ValueNone
 
-    /// The bound variable an EXPRESSION introduces — `siteOfExpr` without the token.
+    /// The bound variable an EXPRESSION introduces: `siteOfExpr` without the token.
     let ofExpr (e: TExprG<'ty, 'tok, 'id>) : BoundVarKeyG<'id> voption =
         siteOfExpr e |> ValueOption.map (fun (struct (b, _)) -> b)
 
     /// `ofPat` before the tree exists: the bound variable a CST pattern introduces. The key is the
-    /// INNERMOST `NamedSimple`'s, after peeling `[<…>] p` / `(p)` / `p : t` / `p as x` — the
-    /// elaborated tree drops those, so a key off `let (x) = 5`'s pattern names a node nothing binds.
+    /// INNERMOST `NamedSimple`'s, after peeling `[<…>] p` / `(p)` / `p : t` / `p as x`, because the
+    /// elaborated tree drops those: a key off `let (x) = 5`'s pattern names a node nothing binds.
     let rec siteOfCstPat (p: Pat<SyntaxToken>) : BoundVarSite voption =
         match p with
         | Pat.NamedSimple t ->
@@ -341,13 +342,13 @@ module BoundVarKey =
         | Pat.As(pat = inner) -> siteOfCstPat inner
         | _ -> ValueNone
 
-    /// The bound variable a CST pattern introduces — `siteOfCstPat` without the token.
+    /// The bound variable a CST pattern introduces: `siteOfCstPat` without the token.
     let ofCstPat (p: Pat<SyntaxToken>) : BoundVarKey voption =
         siteOfCstPat p |> ValueOption.map (fun s -> s.BoundVar)
 
     /// The `this` bound variable a type declaration introduces, shared by every member body and by
-    /// the instance preamble. No node spells it — `type C() =` writes no `this` token — so
-    /// the key is MINTED from the declaration's own.
+    /// the instance preamble. `type C() =` writes no `this` token, so the key is MINTED from
+    /// the declaration's own.
     let ofDeclaredThis (declKey: NodeKey) : BoundVarKey =
         BoundVar(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding)
 
@@ -357,9 +358,9 @@ module BoundVarKey =
     let ofDeclaredBase (declKey: NodeKey) : BoundVarKey =
         BoundVar(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding)
 
-    /// The bound variable a pool INTERNED under this dense id — the whole `BoundVarId` space being
-    /// definition sites. Needed at DESERIALIZATION, where a decl's key slots are read back
-    /// with no key to project from.
+    /// The bound variable a pool INTERNED under this dense id. Every `BoundVarId` is a definition
+    /// site, so this needs no `voption`. Needed at DESERIALIZATION, where a decl's key slots are
+    /// read back with no key to project from.
     let ofInterned (id: BoundVarId) : BoundVarKeyG<BoundVarId> = BoundVar id
 
     /// Every bound variable a TYPE DECLARATION introduces with no pattern node to introduce it. A
@@ -411,8 +412,8 @@ module BoundVarKey =
             | TTypeKindG.Enum _ -> ()
         }
 
-    /// Widen to the tree's own identity axis — for a lookup driven by a REFERENCE, a
-    /// `TExpr.Var` naming its bound variable by that axis.
+    /// Widen to the tree's own identity axis, for a lookup driven by a REFERENCE: a
+    /// `TExpr.Var` names its bound variable by that axis.
     let identity (BoundVar k) : 'id = k
 
     /// Re-file a bound variable into ANOTHER identity space: `f` answers with the identity THIS

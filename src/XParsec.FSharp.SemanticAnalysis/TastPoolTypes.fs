@@ -62,7 +62,7 @@ module ChildColumn =
     let ids (col: ChildColumn<'id>) : 'id[] = col.Ids
 
     /// Re-admit a column from its two stored arrays, off the wire. CHECKED because a `Start`
-    /// out of step with `Ids` does not fault on read — it hands back a different, in-range
+    /// out of step with `Ids` does not fault on read, but hands back a different, in-range
     /// child list for every slot after the discrepancy.
     let ofStored (start: int[]) (ids: 'id[]) : ChildColumn<'id> =
         if start.Length = 0 then
@@ -109,7 +109,7 @@ type PooledInlineValue =
     }
 
 /// One entry of the pooled RESOLVED-SPECIALIZATION table. `Origin` is the file the entry's
-/// anchors index — they are unreadable without it.
+/// anchors index, so without it they cannot be read.
 type PooledSpecialization =
     {
         Key: Frozen.SpecializationKey
@@ -117,7 +117,7 @@ type PooledSpecialization =
         Decl: DeclPoolId
     }
 
-/// Everything of a frozen file that has NO pooled form — the file MINUS its trees and
+/// Everything of a frozen file that has NO pooled form: the file MINUS its trees and
 /// MINUS the side tables.
 type FrozenFileResidue =
     {
@@ -135,20 +135,20 @@ type FrozenFileResidue =
 [<NoEquality; NoComparison>]
 type FrozenPools =
     {
-        /// WHICH FILE the `Anchor` columns index — expr, pat and bound variable token alike.
+        /// WHICH FILE the `Anchor` columns index: expr, pat and bound variable token alike.
         Origin: OriginFile
-        /// The file's own interned type and key tables — what the `ty` columns index.
+        /// The file's own interned type and key tables, which the `ty` columns index.
         /// Interning is injective on structural equality, so equal types share a row.
         Types: FrozenTypeTable
         /// The expression pool's parallel columns, each indexed by `ExprPoolId`. This one is
         /// the node's type, a row of `Types`.
         ExprTys: TypeId[]
-        /// The node's anchor — a token INDEX into this file's own `Lexed`, not the token
+        /// The node's anchor: a token INDEX into this file's own `Lexed`, not the token
         /// struct.
         ExprToks: Anchor[]
         /// The immediate child-expr ids, in the order the pooling walk enumerated them.
         ExprChildren: ChildColumn<ExprPoolId>
-        /// The pat ids the node owns directly — a bound variable pattern, a match arm's.
+        /// The pat ids the node owns directly: a bound variable pattern, a match arm's.
         ExprPatChildren: ChildColumn<PatPoolId>
         /// The `Var` reference's bound variable, `ValueSome` only at a `Var`.
         ExprVarBoundVar: BoundVarId voption[]
@@ -180,8 +180,8 @@ type FrozenPools =
         /// an id against the whole array, not in definition order.
         Specializations: PooledSpecialization[]
         /// The bound variable pool's two parallel columns, indexed by `BoundVarId`. This one is the
-        /// identifier the source spells the bound variable with, EMPTY where none does — a class's
-        /// `this`/`base`, a freshened inline bound variable.
+        /// identifier the source spells the bound variable with, EMPTY where none does, as at a
+        /// class's `this`/`base` or a freshened inline bound variable.
         BoundVarNames: string[]
         /// The token the bound variable's name is spelled at, as an index into this file's `Lexed`.
         /// `Anchor.nowhere` for a definition site no node spells, which still has a name.
@@ -189,16 +189,16 @@ type FrozenPools =
         /// The remainder of the file that has no pooled form, carried verbatim.
         Residue: FrozenFileResidue
         /// The side tables that keep a KEY, re-keyed by `BoundVarId`. A value that is not a
-        /// scalar — a record, a list — stays here rather than becoming a `BoundVarColumn`.
+        /// scalar, such as a record or a list, stays here rather than becoming a `BoundVarColumn`.
         ModuleMembers: DenseTable<BoundVarId, ModuleBindingInfo>
         ClosureReprs: DenseTable<BoundVarId, ClosureRepr>
         /// Keyed by the lambda EXPRESSION: a lambda's dense id IS its `ExprPoolId`. Several
-        /// rows may share a verdict — every copy of a spliced inline body keeps the
+        /// rows may share a verdict, because every copy of a spliced inline body keeps the
         /// definition-site token the verdict was filed under.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
         GenericFnSchemes: DenseTable<BoundVarId, FrozenConstraint list>
         BindingValReprs: DenseTable<BoundVarId, PooledValRepr>
-        /// A binding's typar-axis width. Sparse — most bound variables are parameters and locals,
+        /// A binding's typar-axis width. Most bound variables are parameters and locals,
         /// so most slots are `ValueNone`.
         BindingTyparArities: BoundVarColumn<int>
     }
@@ -206,7 +206,7 @@ type FrozenPools =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module FrozenPools =
 
-    /// The zero column set — a pool that is nobody's file.
+    /// The zero column set, a pool that is nobody's file.
     let empty: FrozenPools =
         {
             Origin = OriginFile.nowhere

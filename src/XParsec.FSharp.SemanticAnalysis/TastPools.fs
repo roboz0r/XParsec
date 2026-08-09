@@ -100,7 +100,7 @@ module TastPools =
                     td
             )
 
-    /// Pool a declaration, its expr/pat roots (see `poolPat`) and — for a `Type` decl —
+    /// Pool a declaration, its expr/pat roots (see `poolPat`) and, for a `Type` decl,
     /// its member bodies, which the payload names by id rather than surfacing as children.
     let poolDecl (sink: PoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
         let struct (exprKids, patKids) =
@@ -117,7 +117,7 @@ module TastPools =
                 Payload = declPayload sink d
             }
 
-    /// The SOURCE arity of every module binding, read off the columns just filled — so a
+    /// The SOURCE arity of every module binding, read off the columns just filled, so a
     /// tuple group's pattern IS the lambda parameter node it was peeled from, not a copy.
     let private bindingValReprs (pools: FrozenPools) : DenseTable<BoundVarId, PooledValRepr> =
         let unLambda (ExprPoolId i) =

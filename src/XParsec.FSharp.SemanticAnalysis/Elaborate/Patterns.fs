@@ -29,9 +29,9 @@ module internal ElaboratePatterns =
         | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> "Cons", "Empty"
         | _ -> "Cons", "Nil"
 
-    /// A `NamedSimple` node, recording HOW THE SOURCE WRITES its bound variable as the node is built
-    /// — the last moment the key and the token that produced it are together. Without that
-    /// spelling the freeze has no name for the bound variable.
+    /// A `NamedSimple` node, recording HOW THE SOURCE WRITES its bound variable as the node is
+    /// built, because that is the last moment the key and the token that produced it are
+    /// together. Without that spelling the freeze has no name for the bound variable.
     let private namedSimple (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TPat =
         let node = TPat.NamedSimple(key, ty, tok)
 
@@ -64,7 +64,7 @@ module internal ElaboratePatterns =
         | Pat.Wildcard _ -> TPat.Wildcard(ty, tok)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
             // `[a; b; c]` → `Cons(a, Cons(b, Cons(c, Empty)))`. Every cons/nil node carries
-            // the WHOLE list type — a tail of a `'T list` is the same `'T list`. A
+            // the WHOLE list type, because a tail of a `'T list` is the same `'T list`. A
             // single-element `[a]` arrives unwrapped; `[]` is `Pat.EmptyBlock`.
             let consName, nilName = listCaseNames ctx ty
 
@@ -92,7 +92,7 @@ module internal ElaboratePatterns =
             TPat.Union(consName, EqArray.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty, tok)
         | Pat.Const c -> TPat.Const(parseConst ctx c, ty, tok)
         | Pat.As(pat = inner) ->
-            // The `as`-name isn't surfaced in TPat yet — downstream Var lookups find the
+            // The `as`-name isn't surfaced in TPat yet, but downstream Var lookups find the
             // alias via the CST + side tables.
             translatePat ctx inner
         | Pat.Typed(pat = inner) ->

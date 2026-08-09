@@ -47,7 +47,7 @@ module internal ElaborateAccess =
             let idxPartial = TyFun(idxTy, valuePartial)
 
             // An index-signature object argument writes through `SetIndex` (the `$0[$1] = $2`
-            // bracket), every other through `SetArray` (`stelem`) — the same
+            // bracket), every other through `SetArray` (`stelem`), the same
             // classification the read branch makes.
             let setName =
                 match Unification.zonk ctx.Store arrTy with
@@ -153,9 +153,8 @@ module internal ElaborateAccess =
         let rTy = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r))
         let objArg = translateExpr ctx r
 
-        // A record exposes BOTH fields and instance-member properties by dot-access, so
-        // — unlike a class/union, whose `.X` is always a member — the decision is made
-        // here: a member name to `PropertyGet`, a field name to `FieldGet`.
+        // A record exposes BOTH fields and instance-member properties by dot-access, so the
+        // decision is made here: a member name to `PropertyGet`, a field name to `FieldGet`.
         match rTy with
         | TyRecord(recKey, _) ->
             match tryNominalMemberByKey ctx recKey memberName with
@@ -163,7 +162,7 @@ module internal ElaborateAccess =
                 let key = LocalSymbolKey.ofProperty declKey memberName
                 TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
             | ValueNone -> TExpr.FieldGet(objArg, memberName, ty, tok)
-        // A class/union object argument's `.X` is always a member — a `PropertyGet` (a
+        // A class/union object argument's `.X` is always a member, so a `PropertyGet` (a
         // method-as-value keeps the shape; codegen eta-expands).
         | TyNominal(nominalKey, _) ->
             let key = LocalSymbolKey.ofProperty nominalKey memberName

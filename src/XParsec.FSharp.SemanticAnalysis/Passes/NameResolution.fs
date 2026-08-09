@@ -72,7 +72,7 @@ module NameResolution =
     /// static member's scope has neither (F# spec §8.7). Members are mutually recursive.
     let private walkTypeBodies (ctx: PassContext) (walker: CstWalk.ExprWalker<Scope list>) (w: TypeBodiesWalk) : unit =
         // Primary-ctor params, `val` fields, `static let` and instance `let` bound variables each mint
-        // a field carrying its source name, and no two fields of one type may share a name — a
+        // a field carrying its source name, and no two fields of one type may share a name: a
         // CLR Field row is (Parent, Name, Signature), static-ness being a flag (ECMA-335 II.22.15).
         let mutable fieldNames: Set<string> = Set.empty
 
@@ -142,7 +142,7 @@ module NameResolution =
         for f in w.InstanceFields do
             declareField f.Name f.DeclSite.Tok
 
-        // The enclosing module's value bindings are visible — unqualified — to every member
+        // The enclosing module's value bindings are visible unqualified to every member
         // body of a type nested in that module (F# spec §8.7). Lowest-priority tail layer, so
         // `this` / ctor params / preamble bound variables shadow on a name clash.
         let moduleMemberScope: Scope = w.EnclosingModuleScope
@@ -181,7 +181,7 @@ module NameResolution =
 
         // `static let` names enter scope for every member body, instance and static alike
         // (F# spec §8.7). Built incrementally, so a `static let` sees neither an instance
-        // bound variable nor a later static one — matching F# (FS0039).
+        // bound variable nor a later static one, matching F# (FS0039).
         let mutable staticLetScope: Scope = Map.empty
 
         for entry in w.StaticPreamble do
@@ -196,9 +196,9 @@ module NameResolution =
                 staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker [ staticLetScope ] e
 
-        // The instance sequence runs inside the primary ctor: it sees the ctor params, the
-        // static bound variables, and the instance bound variables above it — but never `this` / `base` / the
-        // `as` alias, so a preamble `let` naming the object is rejected rather than typed.
+        // The instance sequence runs inside the primary ctor: it sees the ctor params, the static
+        // bound variables, and the instance bound variables above it, but never `this` / `base` /
+        // the `as` alias, so a preamble `let` naming the object is rejected rather than typed.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
             ||> Array.fold (fun acc p -> Map.add p.Name (BoundVarKey.identity p.DeclSite.BoundVar, false) acc)
@@ -335,7 +335,7 @@ module NameResolution =
 
     /// The enclosing module's bindings VISIBLE from a local type's own declaration key. A type
     /// declaration is one contiguous element, so a module `let` is above it (visible to every
-    /// member body) or below it (visible to none) — hence FS0039, and `module rec` lifting it.
+    /// member body) or below it (visible to none), hence FS0039, and `module rec` lifting it.
     let private enclosingModuleScope (ctx: PassContext) (typeName: string) (declKey: NodeKey) : Scope =
         match ctx.Resolution.TypeEnclosingModule.TryGetValue typeName with
         | true, moduleName ->
@@ -483,7 +483,7 @@ module NameResolution =
         =
         // Whole-file pre-scan: the `…Module` suffix rule reads `NominalTypeNames` at the very
         // first key mint, and a `module Foo` may textually precede the `type Foo` it collides
-        // with — so every type name must be known before registration starts.
+        // with, so every type name must be known before registration starts.
         for w in elems do
             noteNominalTypeNames ctx w.Elem
 
@@ -596,7 +596,7 @@ module NameResolution =
                                 | ValueNone -> key.Offset
                         }
 
-        // The innermost enclosing `rec` scope's keyword offset — its own when this scope is
+        // The innermost enclosing `rec` scope's keyword offset: its own when this scope is
         // itself `rec`, else whatever it inherited (a non-rec submodule of a `rec` namespace
         // is still inside that rec scope). A member is VISIBLE FROM that offset.
         let innerRecScope (keyword: SyntaxToken) (isRec: SyntaxToken voption) (inherited: int voption) : int voption =

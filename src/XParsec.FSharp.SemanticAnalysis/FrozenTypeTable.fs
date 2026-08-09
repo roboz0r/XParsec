@@ -4,7 +4,7 @@ open System.Collections.Generic
 open System.Collections.Immutable
 
 // THE TABLES ARE PER FILE: every id is a row index into ONE file's own tables, so an id from
-// another file's blob names a DIFFERENT, valid row rather than a missing one — nothing ever
+// another file's blob names a DIFFERENT, valid row rather than a missing one. Nothing ever
 // widens an id across the `FrozenSignature` seam. Within one file, id equality IS structural.
 
 /// A string in the file's string heap.
@@ -26,7 +26,7 @@ type BindingKeyId = | BindingKeyId of int
 [<Struct>]
 type MemberKeyId = | MemberKeyId of int
 
-/// A row of the file's symbol-key table — a type, a binding or a member key, interned once
+/// A row of the file's symbol-key table: a type, a binding or a member key, interned once
 /// so a repeated `FTConst` type constructor costs one int.
 [<Struct>]
 type SymbolId = | SymbolId of int
@@ -36,7 +36,7 @@ type SymbolId = | SymbolId of int
 [<Struct>]
 type TypeId = | TypeId of int
 
-/// A row of the file's origin table — the producer file a specialization entry's anchors
+/// A row of the file's origin table: the producer file a specialization entry's anchors
 /// point into. Interned because a realistic program draws many entries from ONE producer.
 [<Struct>]
 type OriginId = | OriginId of int
@@ -79,7 +79,7 @@ type MemberKindRow =
     | InterfaceMethod of iface: TypeKeyId
     | ExplicitInterfaceImpl of iface: TypeKeyId
 
-/// `ArgSig` is the one edge from the key cluster back INTO the type table — which is why
+/// `ArgSig` is the one edge from the key cluster back INTO the type table, which is why
 /// keys and types intern as a single recursive problem rather than two.
 type MemberKeyRow =
     {
@@ -112,7 +112,7 @@ type ConditionalRow =
     }
 
 /// One `FrozenType` with every child replaced by the id it interned to. The row is its own
-/// INTERN KEY — children being ids, structural equality on a row is O(arity). `Or` holds an
+/// INTERN KEY, because children being ids makes structural equality O(arity). `Or` holds an
 /// `EqSet` so `A|B` and `B|A` intern to one row, insertion order keeping the declared order.
 [<RequireQualifiedAccess>]
 type TypeRow =
@@ -201,9 +201,9 @@ type private RowTable<'row, 'id when 'row: equality and 'id: equality>(ofIndex: 
     /// handed out, so this may be taken mid-build.
     member _.ToImmutable() : ImmutableArray<'row> = ImmutableArray.CreateRange rows
 
-/// Fill-on-demand memo. The row graph is acyclic but spans the arrays in BOTH directions — a
-/// member row names types, a type row names the symbol that member belongs to — so there is
-/// no array-at-a-time build order. `inline`: the hit path must not allocate the closure.
+/// Fill-on-demand memo. The row graph is acyclic, but a member row names types while a type
+/// row names the symbol that member belongs to, so there is no array-at-a-time build order.
+/// `inline`: the hit path must not allocate the closure.
 module private Materialise =
 
     let inline get<'a when 'a: not struct> (cache: 'a[]) (i: int) ([<InlineIfLambda>] build: unit -> 'a) : 'a =
@@ -215,7 +215,7 @@ module private Materialise =
         | _ -> cache.[i]
 
 /// Interns a file's frozen types and keys BOTTOM-UP: a node's children are interned before
-/// the node, so a row only ever names rows already minted — which is what lets the read side
+/// the node, so a row only ever names rows already minted, which is what lets the read side
 /// materialise by plain recursion with no cycle check. Not thread-safe; belongs to ONE freeze.
 [<Sealed>]
 type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
@@ -356,8 +356,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
     new() = FrozenTypeTableBuilder(FrozenTypeRows.empty)
 
-    /// Re-admits `rows` with every id they were minted with intact — where a consumer that
-    /// must intern MORE into a file's finished tables starts.
+    /// Re-admits `rows` with every id they were minted with intact. This is where a consumer
+    /// that must intern MORE into a file's finished tables starts.
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTableBuilder = FrozenTypeTableBuilder(rows)
 
     /// Snapshots the row arrays; the builder may be interned into afterwards, which simply
@@ -377,7 +377,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
 /// A file's interned type and key tables, READ SIDE: an id resolves back to the very
 /// `FrozenType` / `SymbolKey` the DU declares. One row materialises to ONE object, shared by
-/// every id that names it — so a type is allocated once per DISTINCT type.
+/// every id that names it, so a type is allocated once per DISTINCT type.
 [<Sealed>]
 type FrozenTypeTable private (rows: FrozenTypeRows) =
     let namespaceCache: NamespaceKey[] = Array.zeroCreate rows.Namespaces.Length
@@ -543,12 +543,12 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 | TypeRow.Unknown name -> FTUnknown(str name)
             )
 
-    /// The stored rows — what the codec writes; the materialised side is never serialized.
+    /// The stored rows, which the codec writes; the materialised side is never serialized.
     /// Handed out DIRECTLY, no copy: `FrozenTypeRows` is immutable, so sharing the arrays a
     /// live table is reading through costs nothing.
     member _.Rows: FrozenTypeRows = rows
 
-    /// Resolve an id to the value it names — the ID's TYPE chooses the table, so `t.[id]`
+    /// Resolve an id to the value it names. The ID's TYPE chooses the table, so `t.[id]`
     /// cannot reach the wrong one and a further table adds an overload rather than a method
     /// name to learn. The inverses of the builder's five `Intern*` entry points.
     member _.Item
@@ -568,6 +568,6 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
 
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows)
 
-    /// The tables of a file that interned nothing — an overlay pool's, for one, since it
+    /// The tables of a file that interned nothing, an overlay pool's for one, since it
     /// does not own a frozen file's types.
     static member Empty: FrozenTypeTable = FrozenTypeTable(FrozenTypeRows.empty)

@@ -31,7 +31,7 @@ module Inline =
 
     /// Quantified typars of an inline binding, in the order type arguments must be supplied
     /// in: first occurrence in a pre-order walk of the binding's type. A measure-bearing root
-    /// (Link set to its carrier) is not a typar — the Link is followed, not collected.
+    /// (Link set to its carrier) is not a typar, so the Link is followed, not collected.
     let quantifiedTypars (store: TypeStore) (declTy: SemType) : TyVarId[] =
         let acc = ResizeArray<TyVarId>()
         let seen = HashSet<TyVarId>()
@@ -54,7 +54,7 @@ module Inline =
 
     /// Structural match of two (already typar-substituted) `SemType`s for a static-optimization
     /// `when ^T : Type` clause. `TyVar`s compare by union-find root, so a reflexive `when ^T : ^T`
-    /// matches unconditionally; `TyConst`s by exact `SymbolKey` — name resolution dealiases both.
+    /// matches unconditionally; `TyConst`s by exact `SymbolKey`, both dealiased by name resolution.
     let rec private staticOptTypesMatch (store: TypeStore) (a: SemType) (b: SemType) : bool =
         match a, b with
         | TyVar x, TyVar y -> UnionFind.find store x = UnionFind.find store y
@@ -116,7 +116,7 @@ module Inline =
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
         // No clause body is a trait call: the arithmetic bodies carry the SRTP dispatch in the
-        // BASE, with an explicit clause per supported primitive — so an operand matching no
+        // BASE, with an explicit clause per supported primitive, so an operand matching no
         // clause falls to the base, where the trait call decides whether the type has it.
         let clauseSelected (cl: TStaticOptClause) = cl.Constraints |> EqArray.forall holds
 
@@ -129,7 +129,7 @@ module Inline =
 
         // Rewrite a substituted `TraitCall` to a `StaticMethodCall` on the support type's static
         // operator member; an unpinned support type, or a host carrying no such member, declines.
-        // The result type is `sub ty` — `Vec2 * float -> Vec2` returns neither operand's type.
+        // The result type is `sub ty`, because `Vec2 * float -> Vec2` returns neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
             (supportTy: SemType)
@@ -175,9 +175,9 @@ module Inline =
                     | _ -> ValueNone
         }
 
-    /// Expand an `inline` binding's retained body for one call site. `typeArgs` are the
-    /// caller's types for the quantified typars, in `quantifiedTypars` order; supplying fewer
-    /// leaves the rest abstract. NodeKeys and tokens stay the template's — the caller freshens.
+    /// Expand an `inline` binding's retained body for one call site. `typeArgs` are the caller's
+    /// types for the quantified typars, in `quantifiedTypars` order; supplying fewer leaves the
+    /// rest abstract. NodeKeys and tokens stay the template's, because freshening is the caller's job.
     let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
         | TDecl.Let(_, value, _, declTy) ->
@@ -197,7 +197,7 @@ module Inline =
         | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"
 
     /// Rename every bound variable NodeKey in `body`, and the references to it, to a fresh key from
-    /// `mint`. Two expansions would otherwise share a bound variable — and so a codegen local slot —
+    /// `mint`. Two expansions would otherwise share a bound variable, and so a codegen local slot,
     /// making nested call sites (`succ (succ x)`) clobber each other. Free vars pass through.
     let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
         let remap = Dictionary<NodeKey, NodeKey>()
@@ -273,7 +273,7 @@ module Inline =
 
         TastWalk.mapExpr m body
 
-    /// The number of leading `fun x -> …` abstractions with a simple-named parameter — the arity
+    /// The number of leading `fun x -> …` abstractions with a simple-named parameter: the arity
     /// at which a lambda argument is fully applied. A destructuring parameter (`fun (a, b) -> …`)
     /// does not count, so a use saturating past it never matches and its closure is kept.
     let rec internal lambdaArity (e: TExpr) : int =
@@ -360,9 +360,9 @@ module Inline =
                 | TyFun(a1, r1), TyFun(a2, r2) ->
                     go a1 a2
                     go r1 r2
-                // A generic intrinsic carries its args structurally — the array `'T[]` is
+                // A generic intrinsic carries its args structurally: the array `'T[]` is
                 // `TyConst("[]", ['T])`, whose element typar is reachable only by descending
-                // here: `GetArray` pins `'T` solely through its `'T[]` parameter.
+                // here. `GetArray` pins `'T` solely through its `'T[]` parameter.
                 | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]
@@ -418,8 +418,8 @@ module Inline =
         | ValueNone -> Kind.TraitNotSupported(supportTy, MemberNoun.Member, u.MemberName)
 
     /// How a diagnostic spells a SERVED template: as the user WROTE it wherever the name is an
-    /// operator (`|>`, never `op_PipeRight`) — a spelling the source never contains cannot be
-    /// looked for in it.
+    /// operator (`|>`, never `op_PipeRight`), because a spelling the source never contains cannot
+    /// be looked for in it.
     let servedName (key: SymbolKey) : string =
         let (DisplayName name) = SymbolKeyOps.simpleName key
 

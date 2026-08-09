@@ -41,7 +41,7 @@ module TastLower =
         | _ -> ValueNone
 
     /// As `matchInstantiation`, but leaves a `ValueNone` hole for a typar no
-    /// parameter/result mentions — a phantom constraint typar (`fold`'s enumerator `'E`)
+    /// parameter/result mentions, because a phantom constraint typar (`fold`'s enumerator `'E`)
     /// is unrecoverable by param-matching and must be solved from its bounds.
     let matchInstantiationPartial
         (typarCount: int)
@@ -52,7 +52,7 @@ module TastLower =
 
         let rec go (defT: FrozenType) (actT: FrozenType) =
             match defT, actT with
-            // `act` may itself be an `FTTypar(TyparAxis.Method, j)` — the enclosing
+            // `act` may itself be an `FTTypar(TyparAxis.Method, j)`: the enclosing
             // context's own typar.
             | FTTypar(TyparAxis.Method, i), act ->
                 if i >= 0 && i < typarCount && result.[i].IsNone then
@@ -84,7 +84,7 @@ module TastLower =
 
     /// Recover a generic static method's per-typar instantiation at a call site by
     /// structurally matching each declared parameter type against the actual argument
-    /// type; first occurrence wins. Strict — an unrecovered typar throws.
+    /// type; first occurrence wins. Strict: an unrecovered typar throws.
     let matchInstantiation (typarCount: int) (defTys: FrozenType list) (actualTys: FrozenType list) : FrozenType list =
         let result = matchInstantiationPartial typarCount defTys actualTys
 
@@ -171,8 +171,8 @@ module TastLower =
             | _ -> []
 
     /// Rebuild a frozen type by transforming its top-level type-argument vector: every
-    /// nominal-with-args shape plus the tuple's element vector. Anything else — including
-    /// `FTFun`, whose domain/codomain are not an arg vector — passes through unchanged.
+    /// nominal-with-args shape plus the tuple's element vector. Anything else (including
+    /// `FTFun`, whose domain/codomain are not an arg vector) passes through unchanged.
     let mapFrozenArgs (f: EqArray<FrozenType> -> EqArray<FrozenType>) (t: FrozenType) : FrozenType =
         match t with
         | FTClass(key, args) -> FTClass(key, f args)
@@ -196,7 +196,7 @@ module TastLower =
         | [ ArgGroupG.GUnit _ ] -> true
         | _ -> false
 
-    /// Every source group is a plain single bound variable — the shape whose flat params map
+    /// Every source group is a plain single bound variable: the shape whose flat params map
     /// one-to-one onto the source applications.
     let allSimpleGroups (groups: ArgGroup list) : bool =
         groups
@@ -354,7 +354,7 @@ module TastLower =
     /// being the `*`-separated width within it. A contract's parameter names are dropped.
     let externalValRepr (typars: int) (groups: (int * FrozenType) list) (resultTy: FrozenType) : ValRepr =
         // A contract-minted pattern belongs to no file's tree, so it indexes into no
-        // file's pool — it gets a standalone one, owned by this `ValRepr` and reachable
+        // file's pool and gets a standalone one, owned by this `ValRepr` and reachable
         // only through the handles it hands out. No token spells any of them.
         let contractPats = TastPoolBuilder.openEmpty ()
 
@@ -405,7 +405,7 @@ module TastLower =
 
         // A body still carrying a trait call is TEMPLATE-ONLY: "the type `^T` has this
         // member" is not encodable on a generic parameter, so there is no signature to
-        // emit under. Narrower than "is `inline`" — most `inline` bodies do emit.
+        // emit under. Narrower than "is `inline`", because most `inline` bodies do emit.
         let rec hasTraitCall (e: TastAccessor.ExprId) : bool =
             match TastAccessor.exprKind e with
             | ExprShape.TraitCall -> true

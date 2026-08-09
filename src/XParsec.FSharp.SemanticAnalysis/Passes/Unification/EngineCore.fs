@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// + member instantiation, and the nominal subtype walks.
 module UnificationEngineCore =
 
-    /// One level deep — call recursively for full resolution. Stops at a measure-bearing
+    /// One level deep, so full resolution means calling recursively. Stops at a measure-bearing
     /// root: following `Link` through to the bare carrier would drop the measure.
     let resolveStep (store: TypeStore) (t: SemType) : SemType =
         match t with
@@ -260,7 +260,7 @@ module UnificationEngineCore =
         else
             None
 
-    /// `funSlotArityOfArgs` for a KIND-BLIND caller — one holding the canonicalised key
+    /// `funSlotArityOfArgs` for a KIND-BLIND caller: one holding the canonicalised key
     /// `subtypeNominalOf` surfaces, whose domain includes keys of every kind. A non-type
     /// key cannot be an interface, so it is no `Fun` slot.
     let funSlotArityOfSymbol (tyCtor: SymbolKey) (genericArity: int) : int option =
@@ -284,9 +284,9 @@ module UnificationEngineCore =
 
         go 0 a b []
 
-    /// Fold a capability interface's two nominal keys — its BCL platform key
-    /// (`System.Collections.Generic.IEnumerable\`1`) and its canonical key
-    /// (`Vesper.Collections.seq`) — to the canonical one; any other key passes through.
+    /// Fold a capability interface's two nominal keys to the canonical one: its BCL platform
+    /// key (`System.Collections.Generic.IEnumerable\`1`) and its canonical key
+    /// (`Vesper.Collections.seq`). Any other key passes through.
     let capabilityCanonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
         let caps = ctx.CapabilityIds
 
@@ -388,7 +388,7 @@ module UnificationEngineCore =
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             [ struct (SymbolKey.Type clsKey, typeArgs) ]
         // A structural constructor (`'T []` / `byref`) reprs as the IL artefact `"!0[]"`,
-        // not a nominal surface key — decline before the `TyConst` arm mis-routes onto it.
+        // not a nominal surface key, so it declines before the `TyConst` arm can mis-route onto it.
         | TyStructuralCtor -> []
         | TyConst(key, typeArgs) ->
             let name = SymbolKeyOps.intrinsicName key
@@ -483,7 +483,7 @@ module UnificationEngineCore =
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose canonical
-    /// nominal identity is `tgtKey`, returning that supertype's type args. Reflexive — `src`
+    /// nominal identity is `tgtKey`, returning that supertype's type args. Reflexive: `src`
     /// itself when its canon key is `tgtKey`. Read-only.
     let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtKey: SymbolKey) : EqArray<SemType> voption =
         // An interface supertype is itself walked for its own bases: `C : B`, `B : A<int>`
@@ -520,7 +520,7 @@ module UnificationEngineCore =
 
     /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `objArgTy`, paired
     /// with the supertype's args as reached from it (`[int]` for a `Child :
-    /// Base<int>`). SUPERTYPES ONLY — the caller resolves its own members first.
+    /// Base<int>`). SUPERTYPES ONLY, because the caller resolves its own members first.
     let tryExternalInheritedMember
         (ctx: PassContext)
         (objArgTy: SemType)

@@ -60,7 +60,7 @@ module internal ElaborateExpr =
             let objArg = translateExpr ctx r
             mkMethodCall ctx key objArg declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
-        // `LongIdent [p; M]` — the parser folds the dot into the long ident
+        // `LongIdent [p; M]`, because the parser folds the dot into the long ident
         // rather than emitting `DotLookup` when the anchor is a regular identifier.
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite, objArgTy, memberName)))
@@ -203,7 +203,7 @@ module internal ElaborateExpr =
         // Format(sink, …)` instead of the FSharp.Core cold path.
         | Expr.App(_, args) when ctx.PrintfPartial.ContainsKey key ->
             ElaboratePrintf.translatePrintfPartial ctx key args ty tok
-        // Printf happy-path call, marked in `PrintfApp` — lowers to a `TExpr.Format`.
+        // A printf happy-path call, marked in `PrintfApp`, lowers to a `TExpr.Format`.
         | Expr.App(fn, args) when ctx.PrintfApp.ContainsKey key ->
             match ElaboratePrintf.translatePrintfFormat translateExpr ctx key args ty tok with
             | ValueSome node -> node
@@ -226,7 +226,7 @@ module internal ElaborateExpr =
             TExpr.Tuple(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
         | Expr.Sequential(exprs = items) ->
             TExpr.Sequential(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), ty, tok)
-        // The annotation has no runtime representation — it only constrained
+        // The annotation has no runtime representation, because it only constrained
         // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
         // Casts carry the resolved node type (`ty`): the target type for `:>` /
@@ -282,7 +282,7 @@ module internal ElaborateExpr =
         | Expr.Record(fieldInitializers = inits) -> translateRecord ctx inits ty tok
         | Expr.RecordClone(expr = src; fieldInitializers = inits) -> translateRecordClone ctx src inits ty tok
         // Member access on an *external* type (static `Type.Member` or instance
-        // `value.Member`) resolved through the provider — emit a keyed
+        // `value.Member`), resolved through the provider and emitted as a keyed
         // `TExpr.ExternalMember`; a static access has no object argument.
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when
             li.Idents.Length = 1
@@ -309,7 +309,7 @@ module internal ElaborateExpr =
         | Expr.Null _ -> TExpr.Null(ty, tok)
         // A range reaches here only when the counted-`ForTo` for-in lowering did NOT
         // consume it: value position, a stepped range, or a non-simple loop bound variable.
-        // All unsupported — a range materialises no seq value in this compiler.
+        // All unsupported, because a range materialises no seq value in this compiler.
         | Expr.Range(fromExpr = a; toExpr = b) ->
             ctx.Report(tok, Kind.RangeNotFirstClassValue)
             TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
@@ -361,7 +361,7 @@ module internal ElaborateExpr =
         mkNew ctx className key ty (peelOneArg (translateExpr ctx) argExpr) tok
 
     /// An integer-range source (`for i in a..b do`) lowers to a counted `ForTo`
-    /// loop — F#'s own lowering; a range materialises no `seq` to walk. Only a
+    /// loop, as F# itself does, because a range materialises no `seq` to walk. Only a
     /// unit-step range bound to a *simple* bound variable; the rest take the enumerator path.
     and private translateForIn
         (ctx: PassContext)
@@ -502,8 +502,9 @@ module internal ElaborateExpr =
             TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty, tok)
 
     /// Unification filed each clause's RESOLVED constraints under this construct's
-    /// key, positionally aligned with `clauses`. A missing/short entry yields an
-    /// unconstrained clause, which expansion always selects — so, the source's first.
+    /// key, positionally aligned with `clauses`. A missing entry leaves a clause
+    /// unconstrained, and expansion takes the first clause whose constraints hold, so
+    /// with no entry at all the source's first clause wins.
     and private translateStaticOptimization
         (ctx: PassContext)
         (key: NodeKey)
@@ -623,7 +624,7 @@ module internal ElaborateExpr =
         let mutable nestedElse =
             match elseB with
             | ValueSome(ElseBranch(expr = e)) -> translateExpr ctx e
-            // Synthesised `else ()` (no source token) — anchor at the `if`'s token.
+            // A synthesised `else ()` has no source token, so anchor at the `if`'s token.
             | ValueNone -> TExpr.Const(TConstValue.Unit, ctx.Intrinsics.Unit, tok)
 
         for i = elifs.Length - 1 downto 0 do

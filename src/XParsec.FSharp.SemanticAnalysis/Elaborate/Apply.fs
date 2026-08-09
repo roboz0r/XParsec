@@ -23,7 +23,7 @@ module internal ElaborateApply =
         match cv with
         // `TConstValue.Unit` in this table is the OMITTED-slot marker, not a `unit`
         // value: emit an honest `undefined`, not a `unit` `Const` riding its JS repr.
-        // JS-only — `undefined` has no CLR contract, and only the TS provider mints it.
+        // JS-only, because `undefined` has no CLR contract and only the TS provider mints it.
         | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
         | TConstValue.Integral(w, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntWidth w, tok)
         | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
@@ -249,7 +249,7 @@ module internal ElaborateApply =
             TExpr.App(app1, translateExpr ctx right, resultTy, tok)
         | ValueSome DesugaredForm.ConsExpr ->
             // `h :: t` → `UnionCons("Cons", [h; t])` against the resolved list
-            // union — the same shape `[…]` literals lower to (one cons cell).
+            // union, the same shape `[…]` literals lower to (one cons cell).
             let consName, _ = listCaseNames ctx resultTy
             TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy, tok)
         | ValueSome _

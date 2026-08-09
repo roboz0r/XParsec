@@ -2,14 +2,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 
-// In-memory projection of a FROZEN implementation file to an `IExternalSymbolProvider` —
+// In-memory projection of a FROZEN implementation file to an `IExternalSymbolProvider`,
 // a file's *implicit signature*, so file N+1 resolves file N's exports by NAME with no DLL
 // emitted. Keeps INTERNAL-or-better, where the `.fsi` contract extractor keeps public-only.
 
 module FrozenSignature =
 
     /// Re-axis a binding's frozen `ValRepr` onto the `Declaring` axis its sibling scheme is
-    /// remapped to. The grouping is untouched — only typar leaves move axis.
+    /// remapped to. The grouping is untouched, since only typar leaves move axis.
     let private valReprToDeclaring
         (source: PoolBuilder)
         (pats: PoolBuilder)
@@ -271,8 +271,8 @@ module FrozenSignature =
                     registerCases caseArr caseShapes
 
                 | TTypeKindG.Class c ->
-                    // Directly-implemented interfaces as `(compiled-name, type-args)` pairs —
-                    // the frozen interface type is a nominal whose args carry the typars.
+                    // Directly-implemented interfaces as `(compiled-name, type-args)` pairs,
+                    // because the frozen interface type is a nominal whose args carry the typars.
                     let ifaceOf (ity: FrozenType) : (string * FrozenType[]) option =
                         match ity with
                         | FTClass(k, args)
@@ -400,7 +400,7 @@ module FrozenSignature =
             d
 
         // EVERY module binding rides `Decls`, `inline` ones included, and its identity is in
-        // `ModuleMembers` — a TOP-LEVEL binding's too, keyed in the file's namespace so it
+        // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it
         // exports bare. A template is not a second entry here, but the binding's `InlineBody`.
         for decl in TastAccessor.roots pool do
             match decl with

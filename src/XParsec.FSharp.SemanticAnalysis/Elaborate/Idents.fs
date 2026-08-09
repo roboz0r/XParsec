@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
 // Identifier and LongIdent-chain projection for the Elaborate pass: a resolved local becomes
 // a `Var`, a provider hit an `External`, and a multi-segment `r.X.Y` chain nested
-// field/property reads. Pure leaves — nothing here recurses into expression translation.
+// field/property reads. Nothing here recurses into expression translation.
 
 module internal ElaborateIdents =
 

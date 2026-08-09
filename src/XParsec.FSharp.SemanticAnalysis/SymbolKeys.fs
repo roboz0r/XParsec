@@ -7,14 +7,14 @@ type tyVarId
 /// by it directly.
 type TyVarId = int<tyVarId>
 
-/// An assembly's SIMPLE name — no version, culture or public key.
+/// An assembly's SIMPLE name, with no version, culture or public key.
 [<Struct>]
 type AssemblyName =
     | AssemblyName of name: string
 
     member this.Name = let (AssemblyName n) = this in n
 
-/// Where a symbol PHYSICALLY lives — never part of a key: nominal identity is the
+/// Where a symbol PHYSICALLY lives, and never part of a key: nominal identity is the
 /// containment chain + namespace + name. `Unstamped` is "no home": the compilation being
 /// analysed, or a contract scrape.
 [<RequireQualifiedAccess>]
@@ -31,7 +31,7 @@ type Origin =
         | Origin.InAssembly a -> ValueSome a.Name
         | Origin.InFile f -> ValueSome f.BucketName
 
-    /// `ValueNone` wherever the producer knew only the assembly — a `.fsi` contract view or
+    /// `ValueNone` wherever the producer knew only the assembly: a `.fsi` contract view or
     /// a metadata scrape.
     member this.DeclaringFile: OriginPath voption =
         match this with
@@ -39,21 +39,21 @@ type Origin =
         | Origin.InAssembly _ -> ValueNone
         | Origin.InFile f -> ValueSome f
 
-/// A namespace — the root container. `Path` is SEGMENTED (`["System"; "Collections"]`), so
+/// A namespace, the root container. `Path` is SEGMENTED (`["System"; "Collections"]`), so
 /// prefix relations are segment-list tests. The EMPTY path IS the global namespace.
 type NamespaceKey =
     {
         Path: EqArray<string>
     }
 
-    /// The dotted rendering (`"System.Collections"`; `""` for the global namespace) — a
+    /// The dotted rendering (`"System.Collections"`; `""` for the global namespace), a
     /// BOUNDARY projection only. Identity comparisons use the segmented `Path`.
     member this.Dotted: string = System.String.Join(".", this.Path.Underlying)
 
     static member Global = { Path = EqArray.empty }
 
 /// Also what holds a `BindingKey`, where `InNamespace` means the binding has NO declaring
-/// module — a TOP-LEVEL `let`, or a flat package's export. No CLR type corresponds to it.
+/// module: a TOP-LEVEL `let`, or a flat package's export. No CLR type corresponds to it.
 [<RequireQualifiedAccess>]
 type ModuleContainer =
     | InNamespace of ns: NamespaceKey
@@ -64,7 +64,7 @@ type ModuleContainer =
         | ModuleContainer.InNamespace ns -> ns
         | ModuleContainer.InModule parent -> parent.Namespace
 
-    /// How many `module`s deep this scope is — a namespace body is 0.
+    /// How many `module`s deep this scope is, counting a namespace body as 0.
     member this.Depth: int =
         match this with
         | ModuleContainer.InNamespace _ -> 0
@@ -76,7 +76,7 @@ type ModuleContainer =
         | ModuleContainer.InNamespace _ -> [ this ]
         | ModuleContainer.InModule parent -> this :: parent.Container.SelfAndAncestors
 
-/// A module. NO arity — modules are not generic.
+/// A module. NO arity, because modules are not generic.
 and ModuleKey =
     {
         Container: ModuleContainer
@@ -88,16 +88,16 @@ and ModuleKey =
 [<RequireQualifiedAccess>]
 type TypeContainer =
     | InNamespace of ns: NamespaceKey
-    /// `parent` names the module's COMPILED module class — the `…Module` suffix already
+    /// `parent` names the module's COMPILED module class, with the `…Module` suffix already
     /// applied, never the source name an `open` writes.
     | InModule of parent: ModuleKey
     /// A CLR *nested* type such as `` List`1+Enumerator ``; the parser cannot declare one.
-    /// Nesting is decoded STRUCTURALLY — that `+` is a reflection DISPLAY convention.
+    /// Nesting is decoded STRUCTURALLY, because that `+` is a reflection DISPLAY convention.
     | InType of outer: TypeKey
 
 /// Containment chain + plain SOURCE name (never `` `N ``-mangled) + generic ARITY. CAUTION:
 /// `=` does NOT reconcile a capability's BCL platform key with its canonical key
-/// (`` IEnumerable`1 `` vs `Vesper.Collections.seq`) — use `sameNominalKey`.
+/// (`` IEnumerable`1 `` vs `Vesper.Collections.seq`), so use `sameNominalKey`.
 and TypeKey =
     {
         Container: TypeContainer
@@ -152,7 +152,7 @@ type WrittenTypeName =
         Name: string
     }
 
-    /// The name as the source spells it — for diagnostics.
+    /// The name as the source spells it, for diagnostics.
     member this.Written: string =
         if this.Path.Length = 0 then
             this.Name
@@ -171,7 +171,7 @@ type BindingKey = { Decl: ModuleContainer; Name: string }
 [<Struct>]
 type DisplayName = | DisplayName of string
 
-/// A PLACE (assembly + namespace) — enough to mint a ref without re-resolving. A symbol's
+/// A PLACE (assembly + namespace): enough to mint a ref without re-resolving. A symbol's
 /// declaring type is not here; containment is the key's job.
 type SymbolOrigin =
     {
@@ -185,7 +185,7 @@ type SymbolOrigin =
             Namespace = NamespaceKey.Global
         }
 
-/// `Field` and `Property` are both VALUE members, diverging only at CLR emission — `ldfld`
+/// `Field` and `Property` are both VALUE members, diverging only at CLR emission: `ldfld`
 /// on a field ref vs a `call` to the `get_X` getter; on JS both are a value access.
 [<RequireQualifiedAccess>]
 type MemberStorage =

@@ -87,7 +87,7 @@ module internal ElaborateObjArgs =
             | other -> [ other ]
         | ps, _ -> ps
 
-    /// Empty when the member is unresolved — the call still emits, just unwrapped.
+    /// Empty when the member is unresolved, but the call still emits, just unwrapped.
     let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
         match tryNominalMemberByKey ctx declKey memberName with
         | ValueSome(_, m) -> flatMemberParams ctx.Store m.Type

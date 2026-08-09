@@ -17,7 +17,7 @@ module internal UnificationInferGeneralize =
     let iterTypeVarRoots (store: TypeStore) (onRoot: Rep -> unit) (t: SemType) : unit =
         t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
-    /// Non-quantified TyVars are left alone — they're free w.r.t. the
+    /// Non-quantified TyVars are left alone, because they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is
     /// already zonked by `generalise`, so we don't follow Links here.
     let instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
@@ -40,7 +40,7 @@ module internal UnificationInferGeneralize =
             constraintSubst.[kv.Key] <- kv.Value
 
         // A `Coercion` target may ALSO reference still-free roots that are NOT quantified at
-        // all — an outer-level placeholder that joined the bound when two roots unified. Left
+        // all, such as an outer-level placeholder that joined the bound when two roots unified. Left
         // verbatim it is SHARED, so the first call's grounding leaks into every later one.
         let quantifiedRoots = HashSet<TyVarId>(freshOf.Keys)
 
@@ -83,7 +83,7 @@ module internal UnificationInferGeneralize =
 
     /// Resolve a bound name to its type: instantiate its generalised scheme if one was
     /// written, else take the monomorphic binding-site TyVar (a sibling in the same
-    /// `let rec` group, not yet generalised — which is what forbids polymorphic recursion).
+    /// `let rec` group, not yet generalised, which is what forbids polymorphic recursion).
     let instantiateBinding (ctx: PassContext) (rb: ResolvedBinding) : SemType =
         match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
         | ValueSome scheme -> instantiate ctx scheme
@@ -159,7 +159,7 @@ module internal UnificationInferGeneralize =
             let defaults = store.Defaults.Items root
             // A target resolving only to a still-free TyVar is *deferrable*: `default ^T2 :
             // ^T3` can't fire until ^T3 itself defaults on a later pass. Discarding it loses
-            // the chain's tail — `let g a b = a + b` grounds `a` but leaks `b` as a typar.
+            // the chain's tail: `let g a b = a + b` grounds `a` but leaks `b` as a typar.
             let mutable anyDeferrable = false
 
             for target in defaults do
@@ -171,8 +171,8 @@ module internal UnificationInferGeneralize =
                         // would build an infinite type.
                         store.SetLink(root, ValueSome concrete)
                         fired <- true
-                    | ValueSome _ -> () // resolved but occurs-unsafe — permanently dead
-                    | ValueNone -> anyDeferrable <- true // target still free — retry next pass
+                    | ValueSome _ -> () // resolved but occurs-unsafe, so permanently dead
+                    | ValueNone -> anyDeferrable <- true // target still free, so retry next pass
 
             // Clear once discharged, or once nothing is left to chase. A deferrable default
             // stays so the fixpoint re-evaluates it after its target links; `while changed`
@@ -259,7 +259,7 @@ module internal UnificationInferGeneralize =
         zonkedTy |> iterTypeVarRoots store addRoot
 
         // Dependent typars: a `Coercion` bound may name *further* typars that appear ONLY in
-        // constraints (`'S :> IStructSeq<'T,'E>` — `'E` is in no parameter/return position).
+        // constraints (`'S :> IStructSeq<'T,'E>`, where `'E` is in no parameter/return position).
         // Un-quantified they leak as un-ground `TyVar`s, degraded to `?unresolved-typar` at freeze.
         let mutable i = 0
 

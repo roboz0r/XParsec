@@ -128,7 +128,7 @@ module CstKeys =
             else
                 ValueNone
 
-    /// The leftmost token the CST retains for a type definition — its attributes' `[<`,
+    /// The leftmost token the CST retains for a type definition: its attributes' `[<`,
     /// else the declared name. The `type` / `and` keyword itself is not kept, but nothing
     /// can be written between it and this token, so file-order visibility is exact here.
     let tryFirstTokenOfTypeDefn (td: TypeDefn<SyntaxToken>) : SyntaxToken voption =
@@ -235,7 +235,7 @@ module CstKeys =
     let ofPat (p: Pat<SyntaxToken>) : NodeKey = (siteOfPat p).Key
 
     /// The name a type reference APPLIES, with where it is written and at what arity:
-    /// `List` in `List<int>`, `list` in `int list` — never the argument.
+    /// `List` in `List<int>`, `list` in `int list`, but never the argument.
     [<NoEquality; NoComparison>]
     type TypeRef =
         {
@@ -249,7 +249,7 @@ module CstKeys =
         }
 
     /// Only `NamedType`, `GenericType` and `SuffixedType` name a type; the structural
-    /// shapes (`FunctionType`, `TupleType`, `VarType`, …) apply none — `ValueNone`.
+    /// shapes (`FunctionType`, `TupleType`, `VarType`, …) apply none, so they yield `ValueNone`.
     let ofTypeRef (ty: Type<SyntaxToken>) : TypeRef voption =
         match ty with
         | Type.NamedType li ->

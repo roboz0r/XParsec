@@ -60,7 +60,7 @@ module internal ElaborateNominals =
                 | ValueSome info -> ValueSome info.TypeKey
                 | ValueNone -> ValueNone
 
-    /// The declaring nominal `TypeKey` of a class/union/record object-argument type — the
+    /// The declaring nominal `TypeKey` of a class/union/record object-argument type, the
     /// `Decl` slot of the `MemberKey` minted for an instance member access. Only called where
     /// `ty` is already guarded on `TyNominal`, so a non-nominal one `failwith`s below.
     let nominalDeclKey (store: TypeStore) (ty: SemType) : TypeKey =

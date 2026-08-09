@@ -23,7 +23,7 @@ type TConstValue =
 type ParamAttrs =
     {
         /// `[<CallAtMostOnce>]`: splice the argument unevaluated at its single use instead
-        /// of eager `let`-binding — the mechanism behind `&&`/`||` short-circuiting.
+        /// of eager `let`-binding, which is how `&&`/`||` short-circuit.
         CallAtMostOnce: bool
     }
 
@@ -58,7 +58,7 @@ type TPatG<'ty, 'tok, 'id> =
     | EnumCase of enumKey: SymbolKey * caseName: string * ty: 'ty * tok: 'tok
     /// `p1 | p2 | … | pn`, `alts` having ≥ 2 entries, nested source `|`s flattened into one
     /// level here. Matches iff some alternative does (left-to-right, first wins), and binds
-    /// nothing — an alternative that binds is rejected at elaboration.
+    /// nothing, because an alternative that binds is rejected at elaboration.
     | Or of alts: EqArray<TPatG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
 
 [<RequireQualifiedAccess>]
@@ -70,8 +70,8 @@ type HoleSpecSource =
     /// format string carried verbatim, so it is faithful only on the CLR backend.
     | RawFormat of fmt: string option
 
-/// `Ty` is the hole's static type, which picks the `AppendFormatted<T>` overload — an
-/// unboxed append. `Tok` is the specifier's own source token, for source maps / PDBs.
+/// `Ty` is the hole's static type, which picks the `AppendFormatted<T>` overload, so the
+/// append is unboxed. `Tok` is the specifier's own source token, for source maps / PDBs.
 type HoleSpecG<'ty, 'tok> =
     {
         Ty: 'ty
@@ -100,7 +100,7 @@ type Disposal =
     | ViaCapability of slot: SymbolKey
     /// No capability, but an own pattern `Dispose()`: the `[<IsByRefLike>]` ref-struct
     /// carve-out (unboxable to the interface), or an external type with no `IDisposable`.
-    /// Call the keyed member directly — NOT the capability slot.
+    /// Call the keyed member directly, NOT the capability slot.
     | ViaOwnMember of key: SymbolKey
     /// Disposal never resolved: a `use`-over-non-disposable error was reported, or the
     /// bound variable's type never resolved. Exists so an erroneous file still elaborates; both
@@ -123,8 +123,8 @@ type TExprG<'ty, 'tok, 'id> =
         body: TExprG<'ty, 'tok, 'id> *
         ty: 'ty *
         tok: 'tok
-    /// `use x = value in body` — `Let`'s shape plus the disposal `body` is wrapped in a
-    /// `try … finally` for. `ty` is the body's type.
+    /// `use x = value in body` — `Let`'s shape plus disposal: `body` runs inside a
+    /// `try … finally`. `ty` is the body's type.
     | Use of
         pattern: TPatG<'ty, 'tok, 'id> *
         value: TExprG<'ty, 'tok, 'id> *
@@ -198,7 +198,7 @@ type TExprG<'ty, 'tok, 'id> =
     | RecordCons of fields: EqArray<string * TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `{ r with X = v; … }`. `source` types as the same `TyRecord` as `ty`; `overrides` is
     /// the source-order `(name, replacement)` list. Copying the unlisted fields from
-    /// `source` is the backend's job — no node here represents it.
+    /// `source` is the backend's job, so no node here represents it.
     | RecordClone of
         source: TExprG<'ty, 'tok, 'id> *
         overrides: EqArray<string * TExprG<'ty, 'tok, 'id>> *
@@ -215,8 +215,8 @@ type TExprG<'ty, 'tok, 'id> =
         ty: 'ty *
         tok: 'tok
     /// Union constructor application. `args` matches the ctor's declared arity, so nullary
-    /// (`Point`) and applied (`Rectangle(2.0, 3.0)`) ctors both fold here — the latter has
-    /// its `App` chain peeled at elaboration. `ty` is a `TyUnion`.
+    /// (`Point`) and applied (`Rectangle(2.0, 3.0)`) ctors both fold here, because the latter
+    /// has its `App` chain peeled at elaboration. `ty` is a `TyUnion`.
     | UnionCons of caseName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// Class primary-constructor invocation; `args` is the per-parameter list, the parser's
     /// tuple wrapper (`new Point(3, 4)`) already peeled. `key` names the chosen EXTERNAL
@@ -237,7 +237,7 @@ type TExprG<'ty, 'tok, 'id> =
     | StaticPropertyGet of key: SymbolKey * ty: 'ty * tok: 'tok
     /// Read of a class-level `static let` backing field: `ldsfld` against the class's
     /// private static field, no method call (a static PROPERTY is a `StaticPropertyGet`).
-    /// `declKey` is the declaring class's `TypeKey` — `MemberKind` has no `Field` case.
+    /// `declKey` is the declaring class's `TypeKey`, because `MemberKind` has no `Field` case.
     | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: 'ty * tok: 'tok
     /// Store (`x <- e`) to a class-level `static let mutable` backing field: `stsfld`,
     /// the store analogue of `StaticFieldGet`. `ty` is the FIELD's type; the store itself
@@ -254,7 +254,7 @@ type TExprG<'ty, 'tok, 'id> =
         ty: 'ty *
         tok: 'tok
     /// Lowered printf / string interpolation. `segments` is the interleaved literal / hole
-    /// sequence in source order, each hole carrying its argument inline — so evaluation
+    /// sequence in source order, each hole carrying its argument inline, so evaluation
     /// order is left to right. `ty` is the call's result.
     | Format of
         sink: FormatSinkG<TExprG<'ty, 'tok, 'id>> *
@@ -285,7 +285,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// `e :? T` type test. `testTy` is the tested-against type `T`; `ty` is always `bool`.
     | TypeTest of source: TExprG<'ty, 'tok, 'id> * testTy: 'ty * ty: 'ty * tok: 'tok
     /// SRTP member-trait call `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))`.
-    /// `supportTy` is the LEFT operand's type ONLY — a member declared solely on the right one
+    /// `supportTy` is the LEFT operand's type ONLY, so a member declared solely on the right one
     /// never resolves. Inline expansion rewrites this to a `StaticMethodCall` on a nominal.
     | TraitCall of supportTy: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// A call to the `spec`-th entry of the file's specialization table, applied to `args`.
@@ -298,7 +298,7 @@ type TExprG<'ty, 'tok, 'id> =
         ty: 'ty *
         tok: 'tok
     /// Marks a subtree a reduction FUSED into a specialization entry from a call site: its
-    /// nodes index `origin`, not the file the entry's body was written in — `a && b` outlines
+    /// nodes index `origin`, not the file the entry's body was written in: `a && b` outlines
     /// as `if a then ⟨CallerExpr b⟩ else false`. `ty`/`tok` are its body's; expansion unwraps it.
     | CallerExpr of body: TExprG<'ty, 'tok, 'id> * origin: OriginFile * ty: 'ty * tok: 'tok
 
@@ -313,8 +313,8 @@ and TMatchArmG<'pat, 'e> =
     }
 
 /// Where a format expression writes. `ToWriter`/`ToBuilder` carry the explicit sink
-/// (`fprintf` / `bprintf`); `newline` records the trailing `\n` an `…fn` spelling adds —
-/// `ToBuilder` has none, F# having no `bprintfn`.
+/// (`fprintf` / `bprintf`); `newline` records the trailing `\n` an `…fn` spelling adds,
+/// though `ToBuilder` has none, F# having no `bprintfn`.
 and [<RequireQualifiedAccess>] FormatSinkG<'e> =
     | ToStdOut of newline: bool
     | ToStdErr of newline: bool
@@ -325,7 +325,7 @@ and [<RequireQualifiedAccess>] FormatSinkG<'e> =
 and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok, 'e> =
     | Lit of string
     | Hole of HoleSpecG<'ty, 'tok> * 'e
-    /// A hole with one or both dimensions supplied at runtime — star width (`%*d`, `%-*d`)
+    /// A hole with one or both dimensions supplied at runtime: star width (`%*d`, `%-*d`)
     /// and/or star precision (`%.*f`, `%*.*f`). The curried application evaluates the
     /// dimension args BEFORE the value, in source order: width, then precision.
     | DynHole of DynFormatHoleG<'ty, 'tok, 'e>
@@ -358,7 +358,7 @@ and TStaticOptClauseG<'ty, 'tok, 'id> =
 and StaticParamG<'ty, 'pat, 'id> =
     { Slot: 'id; Ty: 'ty; Pat: 'pat option }
 
-/// One curried argument group of a function's SOURCE signature — the distinction the flat
+/// One curried argument group of a function's SOURCE signature: the distinction the flat
 /// compiled signature loses. `GUnit` (`fun () -> …`) erases to zero params when it is the
 /// sole group; `GTuple` (`fun (a, b, …) -> …`) flattens to one param per element.
 and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'pat, 'id> =

@@ -5,7 +5,7 @@ open System.Collections.Generic
 module SemTypeWalk =
 
     /// `onVar` sees the RAW (un-`find`ed) typar, so each caller's leaf decides its own
-    /// find / link / dedup policy. A `TyVar` is a leaf — this does NOT recurse past it.
+    /// find / link / dedup policy. The walk does NOT recurse past a `TyVar`.
     let iterSemTypeVars (onVar: TyVarId -> unit) (t: SemType) : unit =
         let rec walk (t: SemType) : unit =
             match t with
@@ -82,7 +82,7 @@ module internal GeneralizedTypars =
         ]
 
     /// ORDER-PRESERVING root refresh: `f` returns an entry's CURRENT union-find / link
-    /// representative, or `ValueNone` if it pinned to a concrete type — those entries are
+    /// representative, or `ValueNone` if it pinned to a concrete type. Those entries are
     /// DROPPED, since a kept-but-linked one would inflate the method's GenericParam arity.
     let refreshRoots (f: TyVarId -> TyVarId voption) (GeneralizedTypars roots) : GeneralizedTypars =
         GeneralizedTypars(

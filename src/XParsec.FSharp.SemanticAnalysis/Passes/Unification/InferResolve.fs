@@ -78,7 +78,7 @@ module internal UnificationInferResolve =
         | ValueNone -> TyVar(freshTyVar ctx)
 
     /// Function-shaped type for a DU ctor reference. Multi-field cases bundle the fields
-    /// into a tuple — an F# DU takes a tuple as its single argument. The union's typars
+    /// into a tuple, because an F# DU takes a tuple as its single argument. The union's typars
     /// are instantiated fresh, so two independent uses of `Some` don't share a `'a`.
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
         let unionInfo = TypeRegistry.unionOfCase ctx.Types info
@@ -118,7 +118,7 @@ module internal UnificationInferResolve =
             | 1 -> ValueSome(TyFun(fields.[0], unionTy))
             | _ -> ValueSome(TyFun(TyTuple(EqArray.ofArray fields), unionTy))
 
-    /// The union case `name` refers to at `useSite`. `count = 0` is "no such ctor HERE" —
+    /// The union case `name` refers to at `useSite`. `count = 0` is "no such ctor HERE":
     /// either no union declares it or the one that does is declared below the use;
     /// `count >= 2` is ambiguous. The caller emits the diagnostic.
     let resolveCtorName (ctx: PassContext) (useSite: UseSite) (name: string) : UnionCaseInfo voption * int =
@@ -224,7 +224,7 @@ module internal UnificationInferResolve =
 
             // The classifier's dedup is first-wins, so listing local candidates first is
             // what pins a `TypeKey` present both locally and via a provider to the LOCAL
-            // record — the authoritative one for the compiling file.
+            // record, which is the authoritative one for the compiling file.
             let classification =
                 RecordFieldClassifier.classifyRecordCandidates
                     resolvedRecordTypeKey
@@ -296,7 +296,7 @@ module internal UnificationInferResolve =
 
                 ValueNone
 
-    /// The construction shape of a resolved record — its `TyRecord` key, the fresh type args
+    /// The construction shape of a resolved record: its `TyRecord` key, the fresh type args
     /// to instantiate it at, and a per-field-name type resolver. A local record substitutes
     /// its own typars; an external one instantiates its frozen field-shape templates.
     let recordConstructionOf
@@ -345,8 +345,8 @@ module internal UnificationInferResolve =
         | Pat.Tuple(patterns = pats) -> List.ofSeq pats
         | _ -> [ p ]
 
-    /// A 2+-segment `Q.member` whose qualifier names a known external union/record but whose
-    /// last segment resolved to no value, case or static member — returns `(qualifier, member)`
+    /// For a 2+-segment `Q.member` whose qualifier names a known external union/record but whose
+    /// last segment resolved to no value, case or static member, returns `(qualifier, member)`
     /// to diagnose. The qualifier is the stamp's RESOLVED identity (`Vesper.Option`).
     let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : (string * string) voption =
         match e with
@@ -410,7 +410,7 @@ module internal UnificationInferResolve =
 
     /// If `qualifier` is an external generic type name used as a static-access qualifier
     /// (`EqualityComparer<int>` in `EqualityComparer<int>.Default`), its declaring type's
-    /// stamped key and the raw CST type args — translation is deferred to the caller.
+    /// stamped key and the raw CST type args, left for the caller to translate.
     let tryExternalTypeQualifier
         (ctx: PassContext)
         (qualifier: Expr<SyntaxToken>)
@@ -446,7 +446,7 @@ module internal UnificationInferResolve =
 
     /// A folded-LongIdent external STATIC member reference (`System.String.Concat`), as its
     /// declaring type's stamped `SymbolKey` + member token. An anchor that is a local
-    /// binding — an `r.X.Y` field chain — is excluded.
+    /// binding (an `r.X.Y` field chain) is excluded.
     let tryResolveExternalStaticMemberRef
         (ctx: PassContext)
         (e: Expr<SyntaxToken>)

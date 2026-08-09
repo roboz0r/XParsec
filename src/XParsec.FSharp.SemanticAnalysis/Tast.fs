@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Parser
 
 // The UNIT-level TAST: what a whole compiled file carries. No trivia, parens or token
-// layout survives elaboration — a consumer wanting those reads the CST.
+// layout survives elaboration, so a consumer wanting those reads the CST.
 
 /// A splice TEMPLATE: an inline binding's retained declaration, plus `ParamAttrs` aligned
 /// positionally to its curried parameters and empty when no parameter carries one.
@@ -29,7 +29,7 @@ type SpecializationKeyG<'ty> =
 
 /// One entry of a file's specialization table, addressed by the `SpecializationId` an
 /// `InlineCall` carries. `Decl` is always a `TDecl.Let` of lambdas, and may itself contain
-/// an `InlineCall` — the table is a DAG.
+/// an `InlineCall`, so the table is a DAG.
 type TSpecializationG<'ty, 'tok, 'id> =
     {
         Key: SpecializationKeyG<'ty>
@@ -50,7 +50,7 @@ type IntrinsicReprInfo =
 
 type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
     {
-        /// Source order, every module-level declaration — `inline` bindings INCLUDED, since
+        /// Source order, every module-level declaration, `inline` bindings INCLUDED, since
         /// one is emitted as an ordinary module function as well as spliced.
         Decls: EqArray<TDeclG<'ty, 'tok, 'id>>
         /// A diagnostic of error severity means the TAST is best-effort, not safe to emit from.
@@ -76,7 +76,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         GenericFnSchemes: Map<BoundVarKeyG<'id>, FrozenConstraint list>
         /// The file's INLINE VOCABULARY: every `let inline` binding and every
         /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
-        /// UNEXPANDED body — a different tree from the decl of the same name. Empty pre-freeze.
+        /// UNEXPANDED body, a different tree from the decl of the same name. Empty pre-freeze.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok, 'id>>
         /// One entry per distinct (template, type-arguments) grounding this file's call
         /// sites reached. Resolved against THIS file's operand types, so it is consumed by

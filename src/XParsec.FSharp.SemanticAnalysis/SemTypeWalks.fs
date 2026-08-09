@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 /// The variance a type position carries: `Co` a value read / result, `Contra` a
-/// parameter, `Inv` a generic type ARGUMENT — a slot admitting both reads and writes.
+/// parameter, `Inv` a generic type ARGUMENT, whose slot admits both reads and writes.
 [<RequireQualifiedAccess>]
 type Variance =
     | Co
@@ -120,7 +120,7 @@ module FrozenType =
     let existsChild (p: FrozenType -> bool) (t: FrozenType) : bool =
         not (forallChildren (fun c -> not (p c)) t)
 
-    /// True when `a` and `b` share the same outermost type constructor — same case, and
+    /// True when `a` and `b` share the same outermost type constructor: same case, and
     /// for a nominal the same `key`; child structure is ignored. An `FTTypar` is a
     /// WILDCARD matching anything: an open template slot accepts any instantiated shape.
     let private sameTyCtor (a: FrozenType) (b: FrozenType) : bool =
@@ -141,13 +141,13 @@ module FrozenType =
         | FTConditional _, FTConditional _ -> true
         | FTUnknown n1, FTUnknown n2 -> n1 = n2
         // NOT a wildcard like `FTTypar`: no argument vector instantiates a local typar,
-        // so it matches only the same `(scheme, index)` pair — never index alone.
+        // so it matches only the same `(scheme, index)` pair, not index alone.
         | FTLocalTypar(s1, i1), FTLocalTypar(s2, i2) -> s1 = s2 && i1 = i2
         | _ -> false
 
     /// PAIRWISE descent: `f` on each corresponding child of `a` and `b`. A case, type
-    /// constructor or length mismatch is a silent no-op — the caller decides what it
-    /// means. Nominal KEYS are not compared: this serves open-template vs instantiated
+    /// constructor or length mismatch is a silent no-op, because the caller decides what
+    /// it means. Nominal KEYS are not compared: this serves open-template vs instantiated
     /// matching.
     let iterChildren2 (f: FrozenType -> FrozenType -> unit) (a: FrozenType) (b: FrozenType) : unit =
         let pairwise (xs: EqArray<FrozenType>) (ys: EqArray<FrozenType>) =
@@ -223,7 +223,7 @@ module FrozenType =
 [<AutoOpen>]
 module SemTypePatterns =
 
-    /// A member-bearing nominal — class, union OR record — as `(declaring key, its type
+    /// A member-bearing nominal (class, union or record) as `(declaring key, its type
     /// args)`; NOT `TyEnum` (niladic) or `TyConst` (an intrinsic). An arm where the
     /// kind forks must precede this one. Does NOT zonk: match an already-resolved type.
     [<return: Struct>]
@@ -235,14 +235,14 @@ module SemTypePatterns =
         | _ -> ValueNone
 
 /// One-level structural walks over `SemType`'s DIRECT children. PURELY structural:
-/// nothing here resolves or zonks, so a `TyVar` is a leaf — a walk that needs the
+/// nothing here resolves or zonks, so a `TyVar` is a leaf. A walk that needs the
 /// resolved view takes it first, then delegates the child-carrying remainder here.
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 [<RequireQualifiedAccess>]
 module SemType =
     /// Rebuild with `f` applied to each DIRECT child; a leaf (incl. `TyVar`) returns
-    /// unchanged, and so does a node whose children all come back reference-equal — a ground
-    /// subtree walks allocation-free. `TyOr` excepted: it always rebuilds via `MkUnion`.
+    /// unchanged, and so does a node whose children all come back reference-equal; a ground
+    /// subtree therefore walks allocation-free. `TyOr` excepted: it always rebuilds via `MkUnion`.
     let mapChildren (f: SemType -> SemType) (t: SemType) : SemType =
         match t with
         | TyConst(name, args) ->
@@ -388,7 +388,7 @@ type TStaticOptConstraintG<'ty> =
 
 type TStaticOptConstraint = TStaticOptConstraintG<SemType>
 
-/// `BindingSite` is where the name was INTRODUCED — not the use site.
+/// `BindingSite` is where the name was INTRODUCED, not the use site.
 type ResolvedBinding =
     {
         BindingSite: NodeKey
@@ -403,14 +403,14 @@ type DesugaredForm =
     /// (`op_Addition`, `op_PipeRight`, …). The application is then typed as an ordinary
     /// call to it; a polymorphic `|>` / `>>` is a fresh instantiation per lookup.
     | OpName of compiledName: string
-    /// On an `EnclosedBlock` / `EmptyBlock` node of list `ParenKind` — `[1; 2; 3]` or `[]`.
+    /// `[1; 2; 3]` or `[]` — an `EnclosedBlock` / `EmptyBlock` node of list `ParenKind`.
     /// Lowered to a nested `UnionCons` cons/nil chain over the resolved list union, taking
     /// that union's own case names.
     | ListLiteral
-    /// The array `ParenKind` counterpart — `[|1; 2; 3|]` or `[||]`. Lowered to the same
+    /// `[|1; 2; 3|]` or `[||]` — the array `ParenKind` counterpart. Lowered to the same
     /// list chain as `ListLiteral`, wrapped in an `Array.ofList` external call.
     | ArrayLiteral
-    /// On an `Expr.InfixApp(_, ::, _)` node — `h :: t`. Unlike `+` / `|>`, `::` is not
+    /// `h :: t` — an `Expr.InfixApp(_, ::, _)` node. Unlike `+` / `|>`, `::` is not
     /// provider-resolved: it builds the list union directly, lowering to the same
     /// `UnionCons` chain `ListLiteral` does.
     | ConsExpr

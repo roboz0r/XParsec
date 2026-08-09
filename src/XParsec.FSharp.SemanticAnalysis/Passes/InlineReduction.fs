@@ -11,7 +11,7 @@ open InlineSpecTable
 // written at, the call site getting a `TExpr.InlineCall` edge the backends expand at emit time.
 module InlineReduction =
 
-    /// The peel of a resolved inline body against one call site's arguments — everything about the
+    /// The peel of a resolved inline body against one call site's arguments: everything about the
     /// reduction that is knowable before the body is walked.
     type internal Peeled =
         {
@@ -30,12 +30,12 @@ module InlineReduction =
             Key: SymbolKey
             Decl: TDecl
             ParamAttrs: ParamAttrs[]
-            /// The file every anchor in `Decl` indexes — this file's own for a local template,
+            /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the producer's for a served one.
             Origin: OriginFile
         }
 
-    /// WHICH inline binding a reduction is expanding — the identity a RECURSION is detected on,
+    /// WHICH inline binding a reduction is expanding: the identity a RECURSION is detected on,
     /// and NOT the `SymbolKey` its table entry is keyed by. A local binding's key and a
     /// package's can collide, and the collision must not answer "is this call recursive?".
     [<RequireQualifiedAccess>]
@@ -53,7 +53,7 @@ module InlineReduction =
             /// The anchor domain of the body this frame expands. It rides the chain so a walk
             /// cannot be handed material under a domain the chain disagrees with.
             Origin: OriginFile
-            /// The table slot this expansion reserved — what a re-entering call is answered with.
+            /// The table slot this expansion reserved: what a re-entering call is answered with.
             Spec: SpecializationId
         }
 
@@ -83,33 +83,33 @@ module InlineReduction =
         }
 
     /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
-    /// the arguments an ANSWER needs it in — for an `ExternalMember` that includes the object argument,
-    /// at curried position 0, which the application it was reached through never held.
+    /// the arguments an ANSWER needs it in. For an `ExternalMember` that includes the object
+    /// argument, at curried position 0, which the application it was reached through never held.
     [<NoEquality; NoComparison>]
     type internal PendingCall =
         {
             Template: TemplateId
             /// The position the expansion stands in for: the APPLICATION node's own token, never
-            /// the applied function's — the two differ when an outer fusion substituted it in.
+            /// the applied function's, because the two differ when an outer fusion substituted it in.
             Tok: SyntaxToken
-            /// The node's own result type — the type of every edge minted for this call.
+            /// The node's own result type: the type of every edge minted for this call.
             Ty: SemType
-            /// The arguments AS APPLIED — what the entry's parameters were peeled against, so an
+            /// The arguments AS APPLIED: what the entry's parameters were peeled against, so an
             /// edge's arguments align to them positionally. Unwalked: only the edge answer walks
             /// them, and only the ones it carries.
             Args: (TExpr * SemType * SyntaxToken) list
-            /// Walks one of `Args` — the CALLER's own material, expanded however the call is answered.
+            /// Walks one of `Args`, the CALLER's own material, expanded however the call is answered.
             Walk: TExpr -> TExpr
         }
 
     [<RequireQualifiedAccess>]
     module internal Descent =
 
-        /// The compiling file's own declarations, inside no inline body — where the walk starts.
+        /// The compiling file's own declarations, inside no inline body: where the walk starts.
         let top: Descent = { Frames = []; Site = ValueNone }
 
         /// The file the expressions being walked here were WRITTEN in, whose token array their
-        /// anchors index — the producer's inside a served body, `compiling` outside one.
+        /// anchors index: the producer's inside a served body, `compiling` outside one.
         let originOf (compiling: OriginFile) (d: Descent) : OriginFile =
             match d.Frames with
             | [] -> compiling
@@ -132,7 +132,7 @@ module InlineReduction =
 
         /// Go INSIDE the body this call names: the descent its own expressions are walked at
         /// (this binding pushed onto the caller's), beside the one the call site's arguments
-        /// stay at — they are the caller's expressions and never enter anything.
+        /// stay at, because they are the caller's expressions and never enter anything.
         let enter (d: Descent) (call: PendingCall) (origin: OriginFile) (spec: SpecializationId) : InFlight =
             {
                 Own =
@@ -149,7 +149,7 @@ module InlineReduction =
                 Caller = d
             }
 
-    /// An applied FUNCTION that names a cross-file symbol — a plain `External`, or the dotted
+    /// An applied FUNCTION that names a cross-file symbol: a plain `External`, or the dotted
     /// `ExternalMember` that `x.get_Item(2)` lowers to, whose object argument is a FIELD of the
     /// function rather than an applied argument and so must be prepended at curried position 0.
     [<NoEquality; NoComparison>]
@@ -175,22 +175,23 @@ module InlineReduction =
     /// application rule.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type internal AppliedFunction =
-        /// A function with an inline body, and the arguments its parameters are peeled against —
-        /// for a member the object argument leads, so this is not the list the application was written with.
+        /// A function with an inline body, and the arguments its parameters are peeled against.
+        /// For a member the object argument leads, so this is not the list the application was
+        /// written with.
         | Template of id: TemplateId * body: TemplateBody * args: (TExpr * SemType * SyntaxToken) list
         /// A saturated use of an inline-first lambda parameter: the bound lambda is spliced at
         /// this use, so its closure never exists.
         | Fused of FusedLambda
-        /// Nothing to expand; the function survives its application. A THUNK because the surviving
-        /// function is walked for a member (whose object argument nothing else walks) and must NOT be for a
-        /// plain `External` — walking one etas it into the closure this call is the saturation of.
+        /// Nothing to expand; the function survives its application. A THUNK: a member's surviving
+        /// function must be walked (nothing else walks its object argument), while walking a plain
+        /// `External` etas it into the closure this call is the saturation of.
         | Opaque of rebuiltFn: (unit -> TExpr)
 
     [<RequireQualifiedAccess>]
     module internal Peeled =
 
-        /// No call-site material was fused in, so the body is CLOSED over its parameters — the
-        /// condition under which two sites may share one entry. Fused material is one site's
+        /// No call-site material was fused in, so the body is CLOSED over its parameters, which is
+        /// the condition under which two sites may share one entry. Fused material is one site's
         /// OPERAND: a shared entry holding it would evaluate site 1's argument at site 2's call.
         let isClosed (p: Peeled) : bool =
             p.Params |> List.forall (fun x -> x.Disposition = Disposition.Survive)
@@ -222,7 +223,7 @@ module InlineReduction =
             |}
         | _ -> failwith "InlineExpansion: an inline body must be a TDecl.Let"
 
-    /// Eta-reify an `External` used as a VALUE — `(+)` in `List.fold (+) 0 xs` — into the `App`
+    /// Eta-reify an `External` used as a VALUE (`(+)` in `List.fold (+) 0 xs`) into the `App`
     /// `fun p0 p1 -> (+) p0 p1`. Arity is the reference's parameter count capped by the body's
     /// lambda arity (a partial eta is type-correct); at arity 0 a value etas to `ValueNone`.
     let internal etaReify
@@ -272,7 +273,7 @@ module InlineReduction =
             |> ValueSome
 
     /// Peel a resolved inline body against one call site's arguments and DECIDE each parameter's
-    /// fate — the half of the reduction needing no recursion, so it runs before a specialization
+    /// fate: the half of the reduction needing no recursion, so it runs before a specialization
     /// slot is reserved. `caller` marks a substituted argument, which has left the file it was in.
     let internal classifyApplication
         (caller: OriginFile)
@@ -346,8 +347,8 @@ module InlineReduction =
                     elif candidates.ContainsKey p.Key && not (bad.Contains p.Key) then
                         Disposition.FuseLambda
                     // Substituted at its single (declaration-validated linear) use instead of bound
-                    // eagerly, so the argument is evaluated at most once and on demand — the
-                    // mechanism behind `&&`/`||` short-circuiting. Everything else stays eager.
+                    // eagerly, so the argument is evaluated at most once and on demand, which is
+                    // what makes `&&`/`||` short-circuit. Everything else stays eager.
                     elif i < paramAttrs.Length && paramAttrs.[i].CallAtMostOnce then
                         Disposition.FuseAtMostOnce
                     else

@@ -51,7 +51,7 @@ module internal UnificationInferExternalCall =
             | single -> [| single |]
 
         if facts.Length <> elemTys.Length then
-            argTy // a shape we don't model (spread/rest) — leave the arg untouched
+            argTy // a shape we don't model (spread/rest), so leave the arg untouched
         else
             let refined = Array.copy elemTys
             let mutable changed = false
@@ -137,7 +137,7 @@ module internal UnificationInferExternalCall =
 
     /// The object-argument type + member name of an instance call. `w.Write(arg)` parses with
     /// `fn = LongIdent [w; Write]` (the parser folds the dot after a plain identifier), so the
-    /// anchor must be a local BINDING — `TextWriter.Synchronized` is the static probe's job.
+    /// anchor must be a local BINDING, leaving `TextWriter.Synchronized` to the static probe.
     let private objArgMemberOf
         (infer: Infer)
         (ctx: PassContext)
@@ -255,7 +255,7 @@ module internal UnificationInferExternalCall =
 
     /// Call-site overload resolution for an external *instance* method call (`sb.Append("x")`),
     /// keyed off a call whose object argument infers to a ground external `TyClass`. Needed because
-    /// the single-pick path takes an arbitrary overload — `Append(char[], int, int)` for one `string`.
+    /// the single-pick path takes an arbitrary overload: `Append(char[], int, int)` for one `string`.
     and tryInferExternalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)

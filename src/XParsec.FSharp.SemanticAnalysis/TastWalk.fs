@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 
 // The enumeration of the TAST's recursion shape, in two flavours: a `Mapper` rebuilds each
 // node, an `Iter` only visits it. The TERM shapes are enumerated here; the DECLARATION
-// shape is not and must not be — `mapTypeDecl` delegates it to the shared decl rebuild.
+// shape is not and must not be, because `mapTypeDecl` delegates it to the shared decl rebuild.
 
 [<RequireQualifiedAccess>]
 module TastWalk =
@@ -105,7 +105,7 @@ module TastWalk =
         TExprG.CallerExpr(body, origin, exprTy body, exprTok body)
 
     /// The node under any caller marks. `CallerExpr` is semantically transparent, so a SHAPE
-    /// test (is this an `External`? an applied function?) must read through it — and marks
+    /// test (is this an `External`? an applied function?) must read through it, and marks
     /// NEST, so it pops as many layers as fusion added.
     let rec unmarked (e: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
         match e with
@@ -178,7 +178,7 @@ module TastWalk =
             OverrideArm = fun _ _ -> ValueNone
         }
 
-    /// Only `Interface` carries types — its constraining-interface instantiation args.
+    /// Only `Interface` carries types: its constraining-interface instantiation args.
     let private mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
         match v with
         | CallVia.Interface ifaceArgs ->
@@ -265,7 +265,7 @@ module TastWalk =
 
             // Sharing-preserving: each arm returns the input `e` when `f` and the child
             // walk leave every field reference-unchanged. `ForIn`/`Format`/
-            // `StaticOptimization` always rebuild — their nested records rebuild anyway.
+            // `StaticOptimization` always rebuild, because their nested records rebuild anyway.
             match e with
             | TExpr.Const(v, ty, tok) ->
                 let ty' = f ty
@@ -354,8 +354,8 @@ module TastWalk =
                     e
                 else
                     TExpr.While(c', b', ty', tok)
-            // The loop variable is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
-            // it — a pass that renames bound variables must override `ForTo` at the expr level.
+            // The loop variable is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see it;
+            // a pass that renames bound variables must therefore override `ForTo` at the expr level.
             | TExpr.ForTo(k, it, s, e2, b, ty, tok) ->
                 let s' = pe s
                 let e2' = pe e2
@@ -483,7 +483,7 @@ module TastWalk =
                 | ValueNone -> if refEq ty' ty then e else TExpr.New(c, k, args, ty', tok)
                 | ValueSome args' -> TExpr.New(c, k, args', ty', tok)
             // `CallVia.Interface` carries the constraining interface's instantiation type
-            // args — they reference the enclosing type's typars, so a declaring-typar remap
+            // args, which reference the enclosing type's typars, so a declaring-typar remap
             // must reach them too, else they leak as un-ground `TyVar`s at the freeze cut.
             | TExpr.MethodCall(r, k, via, args, ty, tok) ->
                 let r' = pe r
@@ -683,7 +683,7 @@ module TastWalk =
             let guard' = arm.Guard |> ValueOption.map (mapExpr m)
 
             // The guard's PRESENCE is carried across, so it moved exactly when the
-            // expression inside it did — which `refEq` cannot ask of the `voption` itself.
+            // expression inside it did, which `refEq` cannot ask of the `voption` itself.
             let guardMoved =
                 match arm.Guard, guard' with
                 | ValueSome g, ValueSome g' -> not (refEq g' g)
@@ -878,7 +878,7 @@ module TastWalk =
             iterExpr it arm.Body
 
     /// Every value `f` yields over `e`'s nodes, in walk order and with repeats. `f` is
-    /// asked at EVERY node and a `ValueNone` prunes nothing — a caller that must stop the
+    /// asked at EVERY node and a `ValueNone` prunes nothing, so a caller that must stop the
     /// descent at a node writes its own `Iter` instead.
     let chooseExpr (f: TExpr -> 'a voption) (e: TExpr) : 'a list =
         let acc = ResizeArray<'a>()

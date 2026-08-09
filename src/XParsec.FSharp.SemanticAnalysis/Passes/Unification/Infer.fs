@@ -96,7 +96,7 @@ module UnificationInfer =
             | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
                 inferRange infer ctx node.Tok a (ValueSome s) b
             | Expr.Null _ ->
-                // No reference-type bound yet — a free var lets the context pin it.
+                // No reference-type bound yet, so a free var lets the context pin it.
                 TyVar(freshTyVar ctx)
             | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx node inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone infer ctx node src inits
@@ -150,7 +150,7 @@ module UnificationInfer =
             | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
                 ExternalSymbols.instantiateInterfacesOf ifaces (args.AsSpan().ToArray())
             // A capability interface that inherits another (`enumerator : disposable`) makes
-            // `use e` on an abstract `enumerator<'T>` disposable — BCL parity for
+            // `use e` on an abstract `enumerator<'T>` disposable, matching the BCL's
             // `IEnumerator<'T> : IDisposable`.
             | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                 ExternalSymbols.instantiateInterfacesOf iface.Interfaces (args.AsSpan().ToArray())
@@ -283,7 +283,7 @@ module UnificationInfer =
 
         // Inherit the lexically-enclosing binding's typars (lowest priority) so a named typar
         // in a *nested* `let rec loop (t': Tree<'T>)` resolves to the enclosing function's
-        // TyVar rather than minting a fresh, ungrounded `'T` — F#'s lexical typar scoping.
+        // TyVar rather than minting a fresh, ungrounded `'T`, matching F#'s lexical typar scoping.
         for kv in savedScope do
             ctx.Resolution.TyparScope.[kv.Key] <- kv.Value
 
@@ -299,8 +299,8 @@ module UnificationInfer =
         seedBindingTypars ctx b
 
         // Capture the binding's explicit `<'b,'a>` typars in SOURCE order while `TyparScope`
-        // is still live — the `finally` restores it per binding, so Elaborate cannot recover
-        // the order, and it needs it to put a free function's declared typars first.
+        // is still live, because the `finally` restores it per binding. Elaborate cannot recover
+        // the order afterwards, and needs it to put a free function's declared typars first.
         match b.typarDefns with
         | ValueSome(TyparDefns(defns = ds)) ->
             let declared =
@@ -411,7 +411,7 @@ module UnificationInfer =
                 let key = CstKeys.ofPat b.pattern
                 tvOf ctx key |> ignore
                 // Drop any annotation-derived forward scheme so this group's bodies type
-                // with monomorphic self/sibling references — no polymorphic recursion.
+                // with monomorphic self/sibling references, forbidding polymorphic recursion.
                 ctx.Bindings.Scheme.Remove key
             | _ -> ()
 

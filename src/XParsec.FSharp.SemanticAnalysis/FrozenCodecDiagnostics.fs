@@ -9,11 +9,11 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
 /// The FROZEN diagnostic domain: a `Diagnostic`, the `Kind` that is its verdict, and the
 /// small closed vocabularies a kind's facts are drawn from. A `Kind` carries strings, ints
-/// and its own enums — never a `FrozenType` or a key, so nothing here names the tables.
+/// and its own enums, never a `FrozenType` or a key, so nothing here names the tables.
 module FrozenCodecDiagnostics =
 
     // `XParsec.FSharp.Parser` declares its own `Diagnostic`, so the bare name here would be
-    // the parser's — hence the fully qualified signatures at the bottom of the file.
+    // the parser's, hence the fully qualified signatures at the bottom of the file.
     let private writeLabel (w: FrozenWriter) (l: Label) =
         writeSite w l.Site
         w.Write l.Message
@@ -121,7 +121,7 @@ module FrozenCodecDiagnostics =
         LanguagePrimitives.EnumOfValue(r.ReadUInt16())
 
     /// The PARSER's verdict, forwarded whole. Codeable at all because every `DiagnosticCode`
-    /// payload is a `Token`, a `Site` or a string — never a CST node.
+    /// payload is a `Token`, a `Site` or a string, never a CST node.
     let private writeDiagnosticCode (w: FrozenWriter) (c: DiagnosticCode) =
         match c with
         | DiagnosticCode.Other msg ->

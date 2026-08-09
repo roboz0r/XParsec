@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis
 module Validation =
 
     /// True if `t` has any reachable TyVar whose union-find root carries no `Link` and is
-    /// not in `quantified`. `let f (state: 'State) = let mutable acc = state` is legal —
+    /// not in `quantified`. `let f (state: 'State) = let mutable acc = state` is legal because
     /// `acc`'s root is unpinned but owned by `f`'s scheme; `let mutable r = []` is not.
     let rec private hasFreeTyVar
         (store: TypeStore)
@@ -28,10 +28,10 @@ module Validation =
         | t -> SemType.existsChild (hasFreeTyVar store quantified) t
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
-    /// `IsMutable = false` is an error. An array-slot LHS is out of scope — it
+    /// `IsMutable = false` is an error. An array-slot LHS is out of scope because it
     /// routes through different mutability rules.
     let private checkAssignment (ctx: PassContext) (l: Expr<SyntaxToken>) : unit =
-        // Peel `(x)` and `(x : T)` wrappers — they don't change mutability.
+        // Peel `(x)` and `(x : T)` wrappers because neither changes mutability.
         let rec unwrap e =
             match e with
             | Expr.EnclosedBlock(expr = inner)
@@ -39,7 +39,7 @@ module Validation =
             | _ -> e
 
         let core = unwrap l
-        // The assignment TARGET as a whole — where the "not mutable" arms below point,
+        // The assignment TARGET as a whole, where the "not mutable" arms below point,
         // except the dotted arm, which blames the FIELD segment it is talking about.
         let coreTok = CstKeys.diagTokenOfExpr core
 
@@ -151,9 +151,9 @@ module Validation =
             if rb.IsMutable && kv.Key = rb.BindingSite then
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueSome tv when hasFreeTyVar ctx.Store quantified (TyVar tv) ->
-                    // This pass walks the binding TABLE, not the tree, and `BoundVarNames`
-                    // — the only record of where a bound variable was written — is not filled for an
-                    // ordinary `let mutable` until Elaborate, which runs after. So: nowhere.
+                    // This pass walks the binding TABLE, not the tree, and `BoundVarNames`, the only
+                    // record of where a bound variable was written, is not filled for an ordinary
+                    // `let mutable` until Elaborate, which runs after. So: nowhere.
                     ctx.Report(
                         Site.Nowhere,
                         Kind.Message
@@ -261,7 +261,7 @@ module Validation =
 
             ctx.Report(tok, Kind.NotYetSupported "validation of `exception` declarations")
         // A nested module's body is flattened into the element list before this walk,
-        // so a surviving `ModuleElem.Module` means the flattening missed a construct —
+        // so a surviving `ModuleElem.Module` means the flattening missed a construct:
         // a bug in THIS compiler, not in the source, and the diagnostic says so.
         | ModuleElem.Module(ModuleDefn.ModuleDefn(moduleToken = tok)) ->
             ctx.Report(tok, Kind.Internal(InternalBreak.UnflattenedModule "Validation"))
@@ -270,9 +270,9 @@ module Validation =
         | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
             ctx.Report(tok, Kind.NotYetSupported "validation of compiler directives")
-        // Parse-recovery nodes. The parser already reported each — `MissingModuleElem`
-        // for the hole, `UnexpectedTopLevel` for the skipped run — and those reach the
-        // consumer, so a second verdict here would say one mistake twice.
+        // Parse-recovery nodes. The parser already reported each (`MissingModuleElem` for
+        // the hole, `UnexpectedTopLevel` for the skipped run) and those reach the consumer,
+        // so a second verdict here would say one mistake twice.
         | ModuleElem.Missing
         | ModuleElem.SkipsTokens _ -> ()
 

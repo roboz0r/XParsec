@@ -133,7 +133,7 @@ module UnificationEngine =
         | _ -> false
 
     /// `true` when `expected` is the universal `obj` supertype (after one resolve
-    /// step): an argument coercion must ACCEPT the actual *without* unifying — the
+    /// step): an argument coercion must ACCEPT the actual *without* unifying, because the
     /// implicit boxing upcast F# inserts must never ground the actual's typar.
     let absorbsAsObj (store: TypeStore) (expected: SemType) : bool = isObjType (resolveStep store expected)
 
@@ -151,7 +151,7 @@ module UnificationEngine =
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
         match resolveStep ctx.Store ty with
         // The axis is keyed by platform repr, so only a type whose identity IS a platform
-        // name can hit it — a Vesper-qualified `number` is refused.
+        // name can hit it: a Vesper-qualified `number` is refused.
         | TyConst(PlatformName platform, args) when args.Length = 0 ->
             match ctx.IntrinsicReverseCanon.Value.TryGetValue platform with
             | true, (_ :: _ :: _ as canons) ->
@@ -159,13 +159,13 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr names BOTH — on JS
+    /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr names BOTH: on JS
     /// the numeric family (`"number"` -> int/float/float32); on CLR, never. NOT a
     /// forward-repr comparison: `char` and `string` both repr `"string"` on JS.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep ctx.Store a, resolveStep ctx.Store b with
         | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
-            // Keyed by platform repr, so a canon has no direct entry — scan.
+            // Keyed by platform repr, so a canon does not appear as a key.
             ctx.IntrinsicReverseCanon.Value.Values
             |> Seq.exists (fun canons -> List.contains k1 canons && List.contains k2 canons)
         | _ -> false
@@ -220,7 +220,7 @@ module UnificationEngine =
         // instead of linking a var to an inert carrier.
         | FoldedCarrier ctx folded, _ -> unify ctx tok folded b
         | _, FoldedCarrier ctx folded -> unify ctx tok a folded
-        // An unresolved type constructor unifies with nothing — no Link, so one broken one can't
+        // An unresolved type constructor unifies with nothing: no Link, so one broken one can't
         // cascade. A name this unit's source wrote was already blamed where it was written
         // (`UndefinedTypeNames`); what reports here is a name a baked contract could not resolve.
         | TyUnknown name, _
@@ -252,12 +252,12 @@ module UnificationEngine =
             unify ctx tok a1 a2
             unify ctx tok r1 r2
         | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> unifyArgs ctx tok xs ys
-        // Anonymous unions unify by *set equality only* — `EqSet` makes `string | int` and
+        // Anonymous unions unify by *set equality only*, because `EqSet` makes `string | int` and
         // `int | string` the SAME value, and members are ground, so there is nothing to
         // link. Membership (`int ≤ int | string`) belongs to `subsumes`.
         | TyOr m1, TyOr m2 when m1 = m2 -> ()
         // The carried type-level computations unify STRUCTURALLY, as opaque constructors:
-        // same type constructor, children pairwise. NOT evaluation — no `keyof` expansion.
+        // same type constructor, children pairwise. NOT evaluation: no `keyof` expansion.
         | TyKeyOf t1, TyKeyOf t2 -> unify ctx tok t1 t2
         | TyIndexedAccess(o1, i1), TyIndexedAccess(o2, i2) ->
             unify ctx tok o1 o2
@@ -281,7 +281,7 @@ module UnificationEngine =
             let merged = if newRoot = r1 then r2 else r1
 
             // Fold the loser's deferred-constraint payload into the surviving
-            // representative — payload lives only under the rep id.
+            // representative, because payload lives only under the rep id.
             ctx.Store.MergePayloads(newRoot, merged)
             mergeUnits ctx tok newRoot unitsA unitsB
 
@@ -498,7 +498,7 @@ module UnificationEngine =
         match c.Kind, resolveStep ctx.Store t with
         | _, TyVar _ -> Defer
         // An unresolved contract type supports no constraint, but the mismatch was
-        // already reported where it unified — defer rather than emit a second error.
+        // already reported where it unified, so a second error would be a duplicate.
         | _, TyUnknown _ -> Defer
         | _, TyTypar _ -> Defer
         // Equality on an enum is universal and comparison on one is out of scope, so
@@ -506,8 +506,8 @@ module UnificationEngine =
         | _, TyEnum _ -> Defer
         // A carried type-level computation can decide no constraint until it grounds.
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
-        // A structural literal erases to its base primitive — re-enter with it so every
-        // kind, `Coercion` included, is judged exactly as the base primitive would be.
+        // A structural literal erases to its base primitive, so re-entering with it judges
+        // every kind, `Coercion` included, exactly as the base primitive would be.
         | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: `subsumes` walks user and BCL `inherit` chains, so a thrown
@@ -599,7 +599,7 @@ module UnificationEngine =
 
             for c in cs do
                 // Dependent-typar inference: a bound `'a :> IFace<'b>` whose target carries
-                // free vars — once `'a` grounds to a nominal implementing `IFace`, pin `'b`
+                // free vars. Once `'a` grounds to a nominal implementing `IFace`, pin `'b`
                 // to the witnessed args, so `'S :> IStructSeq<'T,'E>` grounds its `'T` and `'E`.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
@@ -760,10 +760,10 @@ module UnificationEngine =
                                 ctx.Store.Srtp.Solve b
                                 unifySrtpAgainst ctx tok candTy b
                             | _ ->
-                                // Unknown class — leave unsolved.
+                                // Unknown class, so the SRTP stays unsolved.
                                 ()
                     | _ ->
-                        // Target not yet a concrete type-bearing shape — leave unsolved.
+                        // Target not yet a concrete type-bearing shape, so the SRTP stays unsolved.
                         ()
 
     /// Coerce `src` to the nominal target `tgt` as an implicit/`:>` upcast: when `src`
@@ -833,7 +833,7 @@ module UnificationEngine =
             ->
             ()
         // NOMINAL upcast: a concrete actual annotated to a strict SUPERTYPE
-        // (`let toExn (e: InvalidOperationException) : exn = e`). STRICTLY `Subtype` — a
-        // same-nominal annotation grounds via `unify`.
+        // (`let toExn (e: InvalidOperationException) : exn = e`). STRICTLY `Subtype`, because
+        // a same-nominal annotation grounds via `unify`.
         | _ when subsumes ctx actual expected = SubsumeOutcome.Subtype -> ()
         | _ -> unify ctx tok actual expected

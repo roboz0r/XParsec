@@ -12,7 +12,7 @@ open UnificationTranslate
 
 module internal UnificationInferLiterals =
 
-    /// A syntactic string constant's value, seen through paren / annotation wrappers —
+    /// A syntactic string constant's value, seen through paren / annotation wrappers,
     /// the shared notion of "a constant" behind call-site constant propagation.
     let rec constStringArg (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         match e with
@@ -71,7 +71,7 @@ module internal UnificationInferLiterals =
             ctx.Store.SetUnits(root, ValueSome mt)
             TyVar tv
 
-    /// Reads `Units` straight off the root — does NOT use `resolveStep`,
+    /// Reads `Units` straight off the root, never through `resolveStep`,
     /// which would follow a measured TyVar through its `Link` to the bare
     /// carrier and drop the measure.
     let unitsOf (store: TypeStore) (t: SemType) : MeasureTerm voption =
@@ -162,8 +162,8 @@ module internal UnificationInferLiterals =
                 Some ctx.Intrinsics.Bool
             | _ -> None
 
-    /// `ValueNone` when the string is not a simple format literal — interpolation holes,
-    /// orphan specifiers or lexer-error parts — so the printf special-case falls through
+    /// `ValueNone` when the string is not a simple format literal (interpolation holes,
+    /// orphan specifiers or lexer-error parts), so the printf special-case falls through
     /// to standard inference.
     let formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatPlaceholder list voption =
         match e with

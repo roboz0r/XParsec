@@ -16,7 +16,7 @@ module internal UnificationTranslate =
     let exitLevel (ctx: PassContext) : unit =
         ctx.CurrentLevel <- ctx.CurrentLevel - 1
 
-    /// Fresh unkeyed TypeVar — an intermediate "result" var, tied to no CST node.
+    /// Fresh unkeyed TypeVar: an intermediate "result" var, tied to no CST node.
     let freshTyVar (ctx: PassContext) : TyVarId =
         let tv = ctx.NewTypeVar()
         ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
@@ -29,7 +29,7 @@ module internal UnificationTranslate =
         ctx.Bindings.TypeVar.Set(key, tv)
         tv
 
-    /// Get-or-allocate — a missing key is a binding-site pattern not yet walked,
+    /// Get-or-allocate, because a missing key is a binding-site pattern not yet walked,
     /// including a forward reference inside a `let rec` group.
     let tvOf (ctx: PassContext) (key: NodeKey) : TyVarId =
         match ctx.Bindings.TypeVar.TryGetValue key with
@@ -42,8 +42,8 @@ module internal UnificationTranslate =
         TyVar(freshTyVar ctx)
 
     /// The tail of a WRITTEN reference no claim of this file holds and no external shape built.
-    /// The spelling either names an external type the contract registered without a body — a
-    /// gap to name — or resolved to nothing at all.
+    /// The spelling either names an external type the contract registered without a body, which
+    /// is a gap to name, or resolved to nothing at all.
     let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) : SemType =
         let unmodelled =
             match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
@@ -63,7 +63,8 @@ module internal UnificationTranslate =
                 ))
         | ValueSome r -> errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "%s — '%s'" r.Description name))
         | ValueNone ->
-            // Blamed at the name's first token alone — the long-ident span is not in hand here.
+            // Blamed at the name's first token alone, because the long-ident span is not in
+            // hand here.
             ctx.UndefinedType(Site.ofToken site.Tok, name)
             TyUnknown name
 
@@ -111,14 +112,14 @@ module internal UnificationTranslate =
     let externalClassTy (ctx: PassContext) (key: TypeKey) (args: EqArray<SemType>) : SemType =
         // Built on the resolved `key` directly: re-minting an identity from the flattened
         // metadata name loses the container and gives an unequal key. The probe keys on that
-        // NAME — its entries are all bare-IL, where name and key agree.
+        // NAME, which is sound because its entries are all bare-IL, where name and key agree.
         match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.typeMetaName key) with
         | true, (canon :: _) -> TyConst(canon, args)
         | _ -> TyClass(key, args)
 
     /// DEBUG-only, for a DOTTED name neither the store view nor a local claim answered: every
     /// written reference carries a verdict, so NO verdict is a stamping walk that missed this
-    /// syntax position — and an EXTERNAL verdict's key must be servable by the store view.
+    /// syntax position, and an EXTERNAL verdict's key must be servable by the store view.
     let private assertNoDottedStampGap (ctx: PassContext) (nodeKey: NodeKey) (li: LongIdent<SyntaxToken>) : unit =
 #if DEBUG
         if li.Idents.Length > 1 then
@@ -137,7 +138,7 @@ module internal UnificationTranslate =
                         name
                         (SymbolKeyOps.typeMetaName stamped)
                 // Served, but the shape declined to build (no modelled body, or an arity the
-                // shape does not carry) — the use site reports it.
+                // shape does not carry), so the use site reports it.
                 | ValueSome _ -> ()
             | ValueSome TypeRefVerdict.LocalType
             | ValueSome TypeRefVerdict.UnknownType -> ()
@@ -293,8 +294,8 @@ module internal UnificationTranslate =
             translateConstraints ctx cs
             inner
         | Type.ArrayType(baseType = baseTy; commas = commas) ->
-            // `'T[]` / `'T[,]` → `TyConst(arrayKey rank, [elem])`, rank = comma count + 1 —
-            // the same repr array literals use.
+            // `'T[]` / `'T[,]` → `TyConst(arrayKey rank, [elem])`, rank = comma count + 1.
+            // Array literals build the same repr.
             let rank = commas.Length + 1
 
             TyConst(RuntimeNames.arrayKey rank, EqArray.singleton (translateType ctx baseTy))
@@ -308,7 +309,7 @@ module internal UnificationTranslate =
             // one member, and leaves a set that compares equal in any member order.
             mkUnion [ translateType ctx l; translateType ctx r ]
         | _ ->
-            // Shapes with no model — a multi-segment postfix application (`int A.T`), an
+            // Shapes with no model: a multi-segment postfix application (`int A.T`), an
             // anonymous record. A free TyVar lets unification pin it from context.
             TyVar(freshTyVar ctx)
 
@@ -442,8 +443,8 @@ module internal UnificationTranslate =
         | ValueSome ty -> ty
         | ValueNone ->
             // The exact-arity claim missed: the any-arity lookup answers, forwarding the
-            // WRITTEN args and blaming the arity. An IntrinsicRepr is left undiagnosed — a
-            // niladic primitive tolerates stray args, a generic one (`array`) forwards them.
+            // WRITTEN args and blaming the arity. An IntrinsicRepr is left undiagnosed, because
+            // a niladic primitive tolerates stray args and a generic one (`array`) forwards them.
             let fromLocal =
                 match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt site.Key) name with
                 | ValueSome claim ->
@@ -504,7 +505,7 @@ module internal UnificationTranslate =
 
     /// The store-view read of a written external type reference: NameResolution resolved the
     /// spelling opens-aware at its syntactic arity and recorded the `TypeKey`. No by-name
-    /// fallback — any other verdict means local, typar or unresolvable.
+    /// fallback, because any other verdict means local, typar or unresolvable.
     and private tryResolveExternalTypeStamped
         (ctx: PassContext)
         (nodeKey: NodeKey)
@@ -579,8 +580,8 @@ module internal UnificationTranslate =
         | Constraint.Unmanaged _
         | Constraint.Delegate _
         | Constraint.Default _ ->
-            // Each has its own resolution phase (SRTPs / IWSAMs / attribute pass) — a
-            // silent skip, not a diagnostic.
+            // Each has its own resolution phase (SRTPs / IWSAMs / attribute pass), so the
+            // silent skip here is not a missing diagnostic.
             ()
 
     /// The scope must already contain the constrained typars; callers seed it first.
@@ -588,7 +589,7 @@ module internal UnificationTranslate =
         for c in tcs.Constraints do
             translateConstraint ctx c
 
-    /// Idempotent — `Filled` short-circuits. Re-entry through a recursive abbreviation sees
+    /// Idempotent, because `Filled` short-circuits. Re-entry through a recursive abbreviation sees
     /// `InProgress`, diagnoses, and freezes `Status` without a `Body`; the outer call then
     /// leaves `Body` at `ValueNone`, so each use site expands to a fresh TyVar.
     and forceFill (ctx: PassContext) (info: AbbreviationInfo) : unit =

@@ -18,7 +18,7 @@ type internal EnumCaseRejection =
     | InterpolatedString
     /// `| A = - 1uy`: negation is defined on the signed widths only.
     | NegativeUnsigned
-    /// Not a literal at all — `| A = 1 + 1`, `| A = B`.
+    /// `| A = 1 + 1`, `| A = B`: not a literal at all.
     | NotConstant
 
 // `| C = v` → the case's compile-time literal. The `.fsi` package extractor and the Elaborate

@@ -45,8 +45,9 @@ type ICacheStore =
 module Cache =
 
     /// Folded into every key: bumping it makes every blob a prior compiler wrote unreachable. A
-    /// change to the ENCODING counts as much as one to the computed value — an input hash says
-    /// what a blob came from, never how it was written, so a reordered wire field misparses.
+    /// change to the ENCODING counts as much as one to the computed value, because an input
+    /// hash says what a blob came from, never how it was written, so a reordered wire field
+    /// misparses.
     [<Literal>]
     let CodeVersion = 29
 
@@ -61,7 +62,7 @@ module Cache =
 
             member _.Store key bytes = map[key] <- bytes
 
-    /// Lays a key out as `<root>/<query>/<codeVersion>/<hexInputHash>.bin` — every segment
+    /// Lays a key out as `<root>/<query>/<codeVersion>/<hexInputHash>.bin`. Every segment
     /// comes from the key and is filesystem-safe unescaped.
     type FileSystemStore(root: string) =
         let pathOf (key: CacheKey) =

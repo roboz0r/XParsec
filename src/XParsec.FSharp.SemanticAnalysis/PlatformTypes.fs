@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 // Post: ctx.Diagnostics carries an Error per TDecl that MENTIONS an intrinsic the COMPILING
 //       target binds no representation for. ANY mention, not only a use that demands the
-//       representation — `nativeptr<'T>` in a signature is as unsupported as `voidptr`.
+//       representation, so `nativeptr<'T>` in a signature is as unsupported as `voidptr`.
 
 module PlatformTypes =
 
@@ -15,7 +15,7 @@ module PlatformTypes =
     /// and has no value representation, so matching only `Intrinsic` is right, not a gap.
     let private unsupportedOn (ctx: PassContext) (key: SymbolKey) : string voption =
         match ctx.Provider.TryLookupType key with
-        // Scalar or heritable primitive alike — the identity axis is one pattern.
+        // The identity axis is one pattern, so a scalar and a heritable primitive match alike.
         | ValueSome(ExternalTypeShape.Intrinsic {
                                                     Id = {
                                                              Platform = IntrinsicPlatform.Unsupported target
@@ -80,7 +80,7 @@ module PlatformTypes =
                     true
         }
 
-    /// The DECLARED type surface — field / case-payload / ctor-parameter / base / interface
+    /// The DECLARED type surface: field / case-payload / ctor-parameter / base / interface
     /// / abstract-method types. None of these reaches an expression or pattern, so only the
     /// any-mention rule catches them.
     let private addDeclSurface (ctx: PassContext) (acc: HashSet<string * string>) (kind: TTypeKind) : unit =

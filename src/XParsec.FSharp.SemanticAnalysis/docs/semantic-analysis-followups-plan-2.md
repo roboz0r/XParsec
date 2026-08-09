@@ -403,3 +403,145 @@ example is the half a reader will trust. This matters beyond cosmetics: it is ex
 `OperatorNames.ofToken` exists to work around (the `op_Dynamic` / `op_DynamicAssignment` spellings
 have to be listed explicitly there because `GetName` cannot produce them), so a reader who
 believes the example will not understand why those two arms are needed.
+
+---
+
+## From the H19 punctuation pass
+
+A later pass read every em-dash in the project and named the connective each one stood in for.
+That is a verification pass rather than a rewording one, so it turned up claims that were
+false, and two of them are code issues rather than comment issues.
+
+### `Elaborate/TypeDecls.fs`, `typeDefnAccessToken` — three cases silently lose their access token
+
+The function matches eight `TypeDefn` cases for `typeName = tn` and falls through
+`| _ -> ValueNone`. `TypeDefn` has thirteen cases. Of the five that fall through, only
+`Missing` and `SkipsTokens` genuinely carry no `TypeName`: **`Delegate`, `TypeExtension` and
+`AbstractType` all carry one**, and a `TypeName` is where the `access` token lives.
+`Conformance.fs` proves the point by destructuring `typeName = tn` on exactly those three.
+
+So either those three never reach a `TDecl.Type` — in which case the catch-all is hiding a
+dead arm — or `type private X = delegate of int -> int` elaborates as `Public`. The second is
+a silent accessibility widening, which nothing downstream can detect, because by then the
+token is simply absent.
+
+The comment that covered this claimed the fall-through cases were "the variants with no
+`TypeName` — a bare delegate / exception form". Wrong twice: the delegate form does carry one,
+and `TypeDefn` has no exception form at all. Deleted rather than repaired.
+
+**Wants a test either way**: `type private X = delegate of …` asserting the elaborated
+accessibility, which pins down which of the two readings is true.
+
+### `Passes/Unification/Translate.fs`, `translateType` — a forked branch that does not fork
+
+In the `Type.VarType(Typar.Named | Typar.Static)` arm, the `TyparScopeStrict` true and false
+branches are byte-identical apart from the `ctx.Report` call: both run `NewTypeVar`,
+`SetLevel`, `TyparScope.[name] <- tv` and yield `TyVar tv`. Two comments sat above them
+asserting different rationales for what is the same three lines.
+
+The report wants to be a guarded prefix, not a branch. As written, an edit to the shared
+tail has to be made twice and nothing enforces that it is.
+
+### `Passes/InlineSpecTable.fs` — two different arities share the name "arity"
+
+`Grounding.Arity` is the count of parameters the CALL SITE applied (`List.length
+peeled.Params`, and part of the interning key); the entry's own lambda count is the count of
+SURVIVORS after fusion. A comment asserted the two were the same thing, which is how the
+collision stayed invisible.
+
+Renaming the field `AppliedArity` makes the distinction correct-by-construction and deletes
+the sentence now stating the relation. Same family as the `FlatParams` entry in
+`codegen-clr-followups-plan.md` B1: two bare `int`s that mean different things and nothing
+tying either to its meaning.
+
+### Duplicated prose whose fix is choosing an owner
+
+One fact stated twice in two places. Rewording either is the wrong fix; the work is deciding
+which site owns it and deleting the other.
+
+- The dropped-unresolved-impl policy ("the diagnostic already fired"), implemented AND
+  documented in both `Elaborate/TypeDecls.elaborateClassInterfaces` and
+  `Elaborate/Members.elaborateHostMembers`, over the same `impl.Resolved` / `ValueNone -> ()`.
+- `tryInterfaceMethods` and `tryClassType` open with the same `tryClassByKey` /
+  `DeclaredTypeKey` lookup under the same three-line justification.
+- "A `System.Enum` has exactly one underlying integral type, so `| A = 1uy | B = 2L` is
+  illegal" — `Elaborate/TypeDecls.fs` and `TEnumCases.fs`.
+- `InferOverload.fs` — "`M<'T>('T,'T)` opens to the same index at every position", on the
+  `TrialBindings` type doc and again on `matchTypes`' method-typar arm.
+- The monomorphic-siblings ⇒ no-polymorphic-recursion rule — `InferGeneralize.instantiateBinding`
+  and `Infer.fs`'s `let rec` scheme-drop.
+- `InlineSpecTable.fs` — `miscountedFusedEntries`'s `roots` and `SpecTable.finish`'s
+  `declExprs` carry the same sentence about edge counting.
+- `Engine.fs` — "keyed by platform repr", inline in both `numericFamilyOr` and `reprSiblings`.
+- `PrintfHoleForm.fs` — `FixedRightZeroPad`'s doc and the `leftAlign && zeroPad && isFloatLike`
+  arm state the same rule with the same `%-05.2f ⇒ "3.140"` example.
+
+### A dedicated H17 pass is owed — the object-negation shape did not stay retired
+
+The H19 sweep read every comment in the project and found the retired *negate-the-object*
+shape (`names no type`, `claims nothing`, `carries no key`, `sees none`, `binds nothing`) at
+roughly **forty sites** across `TypeRegistration`, `MemberRegistration`, `TypeRefStamp`,
+`NameResolution`, `Scope`, `TastLower`, `FrozenTypeBridge`, `FrozenCodecPrimitives`,
+`FrozenCodec`, `Freeze`, `TastPoolTypes`, `CstKeys`, `Diagnostics`, `RuntimeNames`,
+`VesperLib`, `VesperLib/TypeTranslate`, `VesperLib/TyparCapture`, `Translate`, `Subsume`,
+`InferApp`, `InferControlFlow`, `InferResolve`, `InferGeneralize`.
+
+That density in files an earlier vocabulary pass already touched means it either missed this
+project or the shape regrew. Fixing forty sites ad hoc at the tail of a punctuation sweep is
+the wrong shape of work: it wants one pass driven by the H17 grep signature, which
+`.claude/skills/comment-hygiene/taxonomy.md` records at 63/65 precision (the sole false
+positive being `names` as a plural NOUN).
+
+The rule when doing it: negate the VERB, then check WHICH is true — nothing was looked up
+(**has no**), the lookup missed (**does not resolve to**), or it hit the wrong kind (**is
+neither … nor …**). Picking correctly is where the false comments surface.
+
+### Other comment-only residue, `SemanticAnalysis`
+
+- `SymbolKeyOps.memberArity` restates its own one-line body (H3).
+- `ReferencedProject.targetKeys` is now "Same rule, same reason." — a bare back-reference,
+  not self-contained. Pre-existing, not created by the sweep.
+- `RuntimeNames.referencePrimitiveNames` — `see \`numericTypeNames\`` is a cross-reference
+  that rots on rename.
+- `CstWalk.isStructShape` — the referent of "which" is ambiguous (the attribute, or the
+  attributed type?).
+- `ElaborateExpr.translateNew` — "purely defensive for error paths" is an unverified
+  reachability claim of the "fails loudly" family; the fallback is a `nameOf` walk returning
+  `""`.
+- `Elaborate/ObjArgs.memberParamTys` — "the call still emits, just unwrapped" names no locus;
+  the consumer is in another file.
+- `InferRecordAccess.resolveFieldStep` — "a fact of a shape" needs provider vocabulary from
+  another file (H16, not self-contained).
+- `Engine.DotSource` — two of five cases are glossed in a block doc above the DU while the
+  other two carry per-case docs; the rows are legal H19 form but belong on the cases.
+
+### Comment blocks still over the 3-line ceiling
+
+Pre-existing, none created by the sweep. `TypeRegistry.fs` is the worst: `IntrinsicReprKeys`,
+`IntrinsicKeys`, `IntrinsicAbbrevHost`, `intrinsicKeyOf`, `tryIntrinsicAbbrevHostByCanon` (4
+each) and `tryNonClassMemberHostByKey` (5). Also `TastUnpool.ofPools` (5), `RuntimeNames`'s
+module doc (6), `SemTypeWalks.iterChildren2` (4), `InlineExpansion`'s `PendingCall.Tok` site
+(4), `EngineCore.funSlotArityOfArgs` (4), `InferResolve.tryWrittenClassCtorAsFunction` (4),
+and two in `TypeRegistration` / one in `MemberRegistration`.
+
+**Triage note worth keeping.** Several of these are not one long comment but TWO unrelated
+comments abutting, which a separator resolves without cutting a word — confirmed for
+`PassContext`'s `IntrinsicReverseCanon`, `TypeRegistration`'s self-type-key block,
+`MemberRegistration`'s heritable-local `inherit` arm, and `RuntimeNames`'s module doc (three
+claims). For a `///` doc the separator must be a bare `///` line, since F# requires the block
+to be contiguous. The block-length metric cannot tell adjacency from continuation, so check
+before cutting.
+
+### Two refinements the sweep produced for the H19 rule itself
+
+Belong in `.claude/skills/comment-hygiene/taxonomy.md`, recorded here so they are not lost:
+
+1. **A colon convention predicts a high cut rate only where the colon is FREE.**
+   `PrintfHoleForm.fs` is colon-dominant and went to zero. `PrintfSpec.fs` is legitimately
+   dash-tabled because its gloss already contains a colon (`` `AppendZeroPaddedUnsigned(v,
+   width)` — F# `%05u`: unsigned decimal ``); converting would collide. A two-level table
+   needs both separators.
+2. **Do not invent causation to satisfy the rule.** Where two facts are merely coordinate,
+   `and` is the correct answer and a manufactured `because` is a new false claim. Observed
+   working correctly at `EmitExpr.TryWith`, `TypeRegistration.localContainerChain` and
+   `Elaborate/Printf.fs`.

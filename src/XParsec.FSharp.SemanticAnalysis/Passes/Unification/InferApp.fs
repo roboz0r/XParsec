@@ -86,8 +86,8 @@ module internal UnificationInferApp =
                 | _ -> ValueNone
 
         // A transformer combinator's result nominal (`MapSeq<…,'TF,…>`) carries the lambda's
-        // typar at some arg index. Match by typar IDENTITY, not shape — two function-valued
-        // args would conflate.
+        // typar at some arg index. Match by typar IDENTITY, not shape, because two
+        // function-valued args would otherwise conflate.
         match walkFunChain 0 fnTy with
         | ValueSome resultTy when lambdaSlots.Count > 0 ->
             match resolveStep ctx.Store resultTy with
@@ -212,7 +212,7 @@ module internal UnificationInferApp =
         |> ValueOption.orElseWith (fun () -> single (tryInferLocalInstanceMethodCall infer ctx node fn))
         |> ValueOption.defaultWith (fun () ->
             // The optional-argument fill may inspect the arguments and then decline, and the
-            // curried loop needs them too — so infer each exactly once, here.
+            // curried loop needs them too, so infer each exactly once, here.
             let fnTy = infer ctx fn
             let argTys = [| for a in args -> infer ctx a |]
 
@@ -224,8 +224,8 @@ module internal UnificationInferApp =
             |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
         )
 
-    /// For a printf entry point with a plain-literal format argument, the format spec — not
-    /// the literal's apparent `string` type — drives the call's curried result type. The
+    /// For a printf entry point with a plain-literal format argument, the format spec drives
+    /// the call's curried result type, not the literal's apparent `string` type. The
     /// format argument itself types as `PrintfFormat<printer, …>`.
     and tryInferPrintfApp
         (infer: Infer)
@@ -236,8 +236,8 @@ module internal UnificationInferApp =
         : SemType voption =
         let fnKey = CstKeys.ofExpr fn
 
-        // A local binding shadowing a printf name is an ordinary function —
-        // don't apply the special rule.
+        // A local binding shadowing a printf name is an ordinary function, so the special
+        // rule does not apply.
         if ctx.Bindings.Binding.ContainsKey fnKey then
             ValueNone
         else
@@ -329,7 +329,7 @@ module internal UnificationInferApp =
                                             "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
                                     )
 
-                                // Cold residuals — a specifier no backend renders faithfully,
+                                // Cold residuals: a specifier no backend renders faithfully,
                                 // such as the runtime-width zero-pads (`%0*d`, `%0*A`).
                                 match specs |> List.tryFind (fun p -> (PrintfHoleForm.tryClassify p).IsNone) with
                                 | Some p ->
@@ -427,7 +427,7 @@ module internal UnificationInferApp =
         (toE: Expr<SyntaxToken>)
         : SemType =
         // Endpoints and step are constrained to int; the result type is NOT modelled. A range
-        // materialises no seq value, so it is legal ONLY as a `for … in` source — reaching
+        // materialises no seq value, so it is legal ONLY as a `for … in` source. Reaching
         // here is a range in VALUE position, rejected later where position is known.
         let fromTy = infer ctx fromE
         unify ctx tok fromTy ctx.Intrinsics.Int
@@ -460,7 +460,7 @@ module internal UnificationInferApp =
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
                 | ValueSome sym ->
                     // Record the resolved identity so the `TExpr.External` minted for this
-                    // operator splices the contract's `let inline` body by KEY — including a
+                    // operator splices the contract's `let inline` body by KEY, even for a
                     // primitive `1 + 2`.
                     ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
@@ -481,7 +481,7 @@ module internal UnificationInferApp =
             listTy
         | ValueSome _
         | ValueNone ->
-            // Desugar didn't recognise the operator — leave the result free.
+            // Desugar didn't recognise the operator, so leave the result free.
             TyVar(freshTyVar ctx)
 
     /// `x?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident` desugars to `(?)
@@ -544,8 +544,8 @@ module internal UnificationInferApp =
 
         match ctx.Desugared.TryGetValue node.Key with
         | ValueSome(DesugaredForm.OpName OperatorData.OpAddressOf) ->
-            // `&local` (managed address-of) is the byref intrinsic — `op_AddressOf` has no
-            // provider symbol. Typing it `byref<operandTy>` matches a BCL byref/`out`
+            // `&local` (managed address-of) is the byref intrinsic, because `op_AddressOf` has
+            // no provider symbol. Typing it `byref<operandTy>` matches a BCL byref/`out`
             // parameter (`Int32.TryParse(string, int&)`); addressability is checked at codegen.
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->

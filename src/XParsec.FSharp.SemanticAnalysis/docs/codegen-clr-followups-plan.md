@@ -201,6 +201,12 @@ shapes the backend itself emits as value types fall into that `_` arm:
   `FTRecord` arm can see it. A numeric enum is a `System.Enum` subclass and a string/mixed
   one is `[<Struct>]`; both are value types.
 
+A third, by a different route: `unit` REACHES the `FTConst` arm and is absent from the key
+list, which is `boolKey :: charKey :: numericKeys`. `prim-types-min.clr.fs` binds
+`type unit = (# "System.ValueTuple" #)` and `ClrEncoder` encodes that repr with
+`isValueType = true`, so the encoder and the predicate disagree about the same type. Fixing
+the `_` arm alone leaves this one, which is why it belongs here rather than in its own entry.
+
 Three sites act on the answer: `EmitIntrinsic.buildUpcast` (`box` vs nothing),
 `buildDowncast` (`unbox.any` vs `castclass`) and `EmitPattern`'s `:? T as x`. So
 `(t :> obj)` on a tuple or an enum pushes an unboxed value where a reference is required —
@@ -458,6 +464,46 @@ A `ReferenceSet` resolved once at construction — each entry an identity read o
 whether the package is required-on-demand or host-fallback — deletes the surviving three-line
 `References` doc, the `ClrEnv` header restating the resolution rule, and the `refRequired` /
 `refOrHost` pair, whose only difference is which of the two answers they give.
+
+## B22. Two CLI-fact glossaries that must agree, with nothing making them
+
+Raised by the H19 punctuation pass, which read every dash in the project and so read both
+copies side by side.
+
+`Cil.fs` and `IlIr.fs` document the same twelve instructions twice — `castclass`, `box`,
+`unbox.any`, `initobj`, `constrained.`, `newarr`, `ldelem`, `stelem`, `ldlen`, `ldobj`,
+`leave`, `endfinally` — one set on the `ILInstr` DU cases, one on the `emit*` functions that
+build them. Near-identical text, and these are ECMA-335 facts rather than facts about this
+code, so neither copy is the obvious owner.
+
+Smaller instance of the same shape: `EmitTypes.EmittedClass.Interfaces` and
+`EmitResolve.tryInterfaceWitness` both state the direct-impls-only restriction.
+
+Deleting one copy is a comment edit, which is why the sweep did not do it: choosing WHICH
+side owns an opcode's meaning is a structural call. The DU case is the better candidate — the
+`emit*` function is a constructor for it and can say what it constructs — but that wants
+deciding once for all twelve, not per instruction.
+
+## B23. Comment-only residue left by the H19 pass — `Codegen.Clr`
+
+Filed rather than fixed; the H19 sweep was punctuation-scoped and these are other modes.
+Each is a comment edit, no code change.
+
+- **Object-negation (retired `names no X` family).** `EmitClosures.collectProgramValues`
+  ("those declaring no enclosing module"), `ClrDriver.ClrCompilation.consumer` ("defines no
+  primitives of its own"), `EmitFormat`'s `CallbackHole` branch ("Codegen has no sink
+  knowledge" → "does not know about sinks"), `EmitCall`'s phantom-typar block ("a typar in no
+  parameter and no result"). Note the discriminator found while triaging: `has no <concrete
+  absent artifact>` (`no Dispose row`, `no tag`, `no parameterless ctor`) reads as fact and is
+  NOT this defect — only the negated abstract object is.
+- **`EmitResolve.resolveInstanceMember`** — "An external one goes to
+  `externalInstanceMemberRef`" is a `Module.func` cross-reference that rots on rename.
+- **`MetadataSymbols.tryMethodSignature`** — the H19 pass turned `UNCOLLAPSED — one entry per
+  value parameter` into a colon, since the left side is a bare term rather than a code
+  literal. Recorded in case the dash is preferred.
+
+Already fixed during the sweep, listed so they are not re-reported: `EmitClosures.typeKeyNsName`
+named `TypeSlotKey` for a `TypeKey` parameter (a rename that missed the prose).
 
 ---
 

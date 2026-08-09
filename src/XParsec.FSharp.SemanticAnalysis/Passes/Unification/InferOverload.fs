@@ -12,8 +12,8 @@ open UnificationSubsume
 
 module UnificationInferOverload =
 
-    /// A union whose every member is a structural literal — kept by-VALUE in overload
-    /// filtering, unlike a union with a function / carried-node member, which is
+    /// A union whose every member is a structural literal, so overload filtering can keep it
+    /// by-VALUE, unlike a union with a function / carried-node member, which is
     /// applicability-opaque.
     let isPureLiteralUnion (store: TypeStore) (ms: UnionMembers) : bool =
         ms.Members
@@ -50,15 +50,15 @@ module UnificationInferOverload =
         : bool =
         match zonk store a, zonk store b with
         // A generic method's own typar binds to whatever it first meets and must AGREE at
-        // every later occurrence — index equality across argument positions.
+        // every later occurrence, matched by index across argument positions.
         | TyTypar(TyparAxis.Method, i), other
         | other, TyTypar(TyparAxis.Method, i) -> matchMethodTypar store canon binds i other
         // Applicability-OPAQUE, not bindable: their structural identity can't be decided until
         // a call site grounds them, so they stay "matches anything" and the commit seam decides.
         | (TyKeyOf _ | TyIndexedAccess _ | TyConditional _), _
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> true
-        // A non-literal union parameter / a carried-node union argument stay opaque —
-        // their members can carry a not-yet-ground node.
+        // A non-literal union parameter / a carried-node union argument stay opaque,
+        // because their members can carry a not-yet-ground node.
         | _, TyOr ms when not (isPureLiteralUnion store ms) -> true
         | TyOr ms, _ when EqSet.exists (hasCarriedNode store) ms.Members -> true
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
@@ -110,9 +110,9 @@ module UnificationInferOverload =
                 binds.CallerVars.[root.Id] <- other
                 true
 
-    /// Flattens the tupled signature back to N parameters. The `argSig` length — the
-    /// member's own identity — distinguishes a flattened N-param method from a genuine
-    /// single tuple param; the signature alone cannot.
+    /// Flattens the tupled signature back to N parameters. The `argSig` length, taken from the
+    /// member's own KEY, distinguishes a flattened N-param method from a genuine single tuple
+    /// param; the signature alone cannot.
     let memberParamTypes (store: TypeStore) (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
         let n = m.Key.ArgSig.Length
 
@@ -156,7 +156,7 @@ module UnificationInferOverload =
         }
 
     /// The picker's three-way verdict: `NoneApplicable` (no overload's parameters admit the
-    /// arguments) vs `Ambiguous` (applicable set non-empty but no unique best — F#'s FS0041).
+    /// arguments) vs `Ambiguous` (applicable set non-empty but no unique best, as in F#'s FS0041).
     /// `One` carries the sole winner.
     [<RequireQualifiedAccess>]
     type PickResult<'T> =
@@ -164,7 +164,7 @@ module UnificationInferOverload =
         | NoneApplicable
         | Ambiguous of 'T list
 
-    /// Two ordered tiers — exact match, then subsumption — then betterness, over an ABSTRACT
+    /// Two ordered tiers (exact match, then subsumption), then betterness, over an ABSTRACT
     /// candidate. Subsumption is top-level PER ARGUMENT, never threaded structurally through
     /// `matchTypes`: v1 subtyping is invariant in type args. Callers apply the 1-candidate path.
     let rankCandidates (ctx: PassContext) (candidates: RankCandidate<'T>[]) (argElems: SemType list) : PickResult<'T> =
@@ -198,9 +198,9 @@ module UnificationInferOverload =
             | [||] -> PickResult.NoneApplicable
             | [| only |] -> PickResult.One only.Item
             | many ->
-                // `a` beats `b` when its argument list dominates element-wise, then — the only
-                // tiebreaker beyond argument specificity — when it is non-generic and `b` is
-                // generic. Not modelled: conversions, param arrays, out/optional, extensions.
+                // `a` beats `b` when its argument list dominates element-wise, and failing that
+                // when it is non-generic and `b` is generic, the only tiebreaker beyond argument
+                // specificity. Not modelled: conversions, param arrays, out/optional, extensions.
                 let compareCandidates (a: RankCandidate<'T>) (b: RankCandidate<'T>) : int =
                     let cmps = List.map2 (compareTypes ctx) a.Params b.Params
 
@@ -317,8 +317,8 @@ module UnificationInferOverload =
         d
 
     /// Freeze a user member's value-parameter `SemType`s into the declaring type's open typars
-    /// (`FTTypar(TyparAxis.Declaring, i)`) and its own method typars — the same structural,
-    /// call-site-independent form an external member's argSig takes. `Show(int)` → `[int]`.
+    /// (`FTTypar(TyparAxis.Declaring, i)`) and its own method typars, yielding the same
+    /// structural, call-site-independent form an external member's argSig takes. `Show(int)` → `[int]`.
     let freezeUserMemberArgSig
         (store: TypeStore)
         (declTypars: EqArray<string * TyVarId>)

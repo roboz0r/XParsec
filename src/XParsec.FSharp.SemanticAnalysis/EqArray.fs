@@ -137,7 +137,7 @@ module EqArray =
 
         EqArray<'U>(b.ToImmutable())
 
-    /// Reference-preserving map: `ValueNone` — no allocation at all — when `mapping` returns a
+    /// Reference-preserving map: `ValueNone`, allocating nothing, when `mapping` returns a
     /// reference-equal result for EVERY element, the common case when a structural walk reaches
     /// an already-resolved subtree. Reference types only; a struct element would box per item.
     let mapPreserve<'T when 'T: not struct> (mapping: 'T -> 'T) (xs: EqArray<'T>) : EqArray<'T> voption =
@@ -254,7 +254,7 @@ module EqArray =
 
         acc
 
-    /// Right fold — visits elements last-to-first.
+    /// Visits elements last-to-first.
     let foldBack (folder: 'T -> 'State -> 'State) (xs: EqArray<'T>) (state: 'State) : 'State =
         let src = xs.Underlying
         let mutable acc = state

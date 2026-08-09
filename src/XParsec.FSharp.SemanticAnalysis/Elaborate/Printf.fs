@@ -27,8 +27,8 @@ module internal ElaboratePrintf =
     /// qualifies; only a type the backend can't author an `AppendStructured<T>` argument for stays cold.
     let rec private structuredArgFaithful (t: SemType) : bool =
         match t with
-        // The array intrinsic renders via the `IEnumerable` arm — faithful iff its
-        // element type is.
+        // The array intrinsic renders via the `IEnumerable` arm, so it is faithful iff
+        // its element type is.
         | TyArray elem -> structuredArgFaithful elem
         | TyConst(key, args) ->
             // Matched by KEY, so a user type of the same name is not mistaken for one. All
@@ -120,7 +120,7 @@ module internal ElaboratePrintf =
                     ValueNone
 
             // The callback's OWN function type (`'State -> 'T -> 'Residue`, or `'State ->
-            // 'Residue` for `%t`) drives each `App`'s result type — independent of the arg
+            // 'Residue` for `%t`) drives each `App`'s result type, independently of the arg
             // pushed (a writer family passes a `StringWriter` for a `TextWriter` domain).
             let funcTy = Unification.zonk ctx.Store (TastWalk.exprTy callbackT)
 
@@ -300,7 +300,7 @@ module internal ElaboratePrintf =
 
             ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
 
-    /// Lower a call marked with a `PrintfPartial` sink — a fully-unapplied printf partial —
+    /// Lower a call marked with a `PrintfPartial` sink (a fully-unapplied printf partial)
     /// to a synthesised closure `fun h1 … hn -> Format(sink, …)`. `ty` is the curried printer
     /// `h1 -> … -> hn -> tail`: its domains are the parameter types in specifier order.
     let translatePrintfPartial
@@ -363,7 +363,7 @@ module internal ElaboratePrintf =
                             "Elaborate.translatePrintfPartial: printer type has fewer parameters than holes: %A"
                             (Unification.zonk ctx.Store ty)
 
-                // A parameter key off the specifier's own token offset — distinct per hole
+                // A parameter key off the specifier's own token offset is distinct per hole
                 // and stable, so the synthesised `Var` and its `NamedSimple` bound variable agree.
                 let paramKey = NodeKey.ofSynthetic t.StartIndex NodeKind.SynthLambdaBody
                 parameters.Add(paramKey, holeTy, t)
@@ -393,7 +393,7 @@ module internal ElaboratePrintf =
             | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
             | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
             // The partial marker requires the format at arg 0, so a writer / builder
-            // sink never reaches this path — those partials stay cold.
+            // sink never reaches this path, and those partials stay cold.
             | PrintfSpec.PrintfSink.Writer _
             | PrintfSpec.PrintfSink.Builder ->
                 failwith

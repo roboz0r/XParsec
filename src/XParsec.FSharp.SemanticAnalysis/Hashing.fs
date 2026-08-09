@@ -69,7 +69,7 @@ module Hashing =
         InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// One referenced package's signature: the manifest's bytes plus the CONTENTS of every
-    /// source it names — `.fs` impls included, whose inline templates splice into a consumer's
+    /// source it names, `.fs` impls included, whose inline templates splice into a consumer's
     /// tree. Reads all of them. `depends-on` is not followed from here.
     let dependencySignatureHash (manifestPath: string) : InputHash =
         match ReferencedProject.loadManifest manifestPath with
@@ -83,7 +83,7 @@ module Hashing =
             appendLengthPrefixed hasher (Encoding.UTF8.GetBytes manifest.Name)
 
             // The manifest's OWN bytes: which files it names, under which key, in which order,
-            // plus `depends-on` and `sig-only` — none of it visible in the contents below.
+            // plus `depends-on` and `sig-only`, none of which is visible in the contents below.
             appendLengthPrefixed hasher (File.ReadAllBytes manifestPath)
 
             for rel in ReferencedProject.sourceInputs manifest |> List.sort do
@@ -118,14 +118,14 @@ module Hashing =
             SelfManifest: string option
         }
 
-    /// A folded `CompilationInputs` — the per-compilation half of every file's cache key, paid
+    /// A folded `CompilationInputs`, the per-compilation half of every file's cache key, paid
     /// for ONCE and then carried.
     [<Struct>]
     type CompilationDigest = | CompilationDigest of InputHash
 
     /// How files are compiled, minus any file's text and any package's contents. Reference
     /// assemblies fold by IDENTITY (path, presence, length, write stamp), never contents, and
-    /// in order — resolution is first-hit by name.
+    /// in order, because resolution is first-hit by name.
     let private environmentHash (inputs: CompilationInputs) : InputHash =
         let hasher = XxHash128()
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes inputs.HomeAssembly)
@@ -148,8 +148,8 @@ module Hashing =
         InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// THE expensive step in a cache key: it reads every source file the closure names. The
-    /// `depends-on` closure is taken HERE — inline bodies splice out of transitively-reached
-    /// packages too.
+    /// `depends-on` closure is taken HERE, because inline bodies splice out of
+    /// transitively-reached packages too.
     let compilationDigest (inputs: CompilationInputs) : CompilationDigest =
         let manifests =
             match ReferencedProject.buildClosure inputs.Manifests with

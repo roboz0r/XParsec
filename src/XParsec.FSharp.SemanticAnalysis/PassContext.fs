@@ -53,9 +53,9 @@ type PassContextBindings =
         /// Bindings inside a named `module Foo = …`: which compiled module name (`Foo`/`FooModule`,
         /// not the anonymous "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
-        /// Keyed by the binding's pattern `NodeKey`, in SOURCE order — the method-typar order.
+        /// Keyed by the binding's pattern `NodeKey`, in SOURCE order, which is the method-typar order.
         DeclaredTypars: SideTable<(string * TyVarId) list>
-        /// Top-level EXPORTED entities only — a type MEMBER's accessibility rides on the
+        /// Top-level EXPORTED entities only, because a type MEMBER's accessibility rides on the
         /// member. Un-thresholded: each export filter applies its own.
         Accessibility: Dictionary<SymbolKey, Accessibility>
         /// The `[<Global>]` bindings: the value IS a target global, so no definition is emitted.
@@ -101,16 +101,16 @@ type TypeRefVerdict =
 
 type PassContextResolution =
     {
-        /// The prefixes active at the module element being analysed — constant inside any one
-        /// expression, `open` being declaration-level. Seeded to `AmbientOpenScope`.
+        /// The prefixes active at the module element being analysed. `open` is declaration-level,
+        /// so this stays constant inside any one expression. Seeded to `AmbientOpenScope`.
         mutable OpenScope: OpenScope
-        /// The stable prelude — the referenced contracts' `[<AutoOpen>]` modules. Held apart
+        /// The stable prelude: the referenced contracts' `[<AutoOpen>]` modules. Held apart
         /// from `OpenScope`, which each walk overwrites per element.
         mutable AmbientOpenScope: OpenScope
         /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingContainer: ModuleContainer voption
         /// Per-signature type-parameter scope, restored on exit. Anonymous typars (`_`) never
-        /// enter it — they are fresh per occurrence.
+        /// enter it, because they are fresh per occurrence.
         mutable TyparScope: Dictionary<string, TyVarId>
         /// Prototype TyVars for the NEXT binding's own `<'C, …>` typars: on a name match the
         /// binding reuses one, so a generic member's signature and body share typar roots.
@@ -127,8 +127,8 @@ type PassContextResolution =
         /// Keyed by an external construction node (`new T(args)`, `T args`, `T<'a>(args)`):
         /// the chosen `.ctor`'s key, so a backend selects that exact overload by identity.
         ExternalCtor: SideTable<SymbolKey>
-        /// Keyed by an OVERLOADED project-local method-call node: the member key the picker
-        /// chose — its argSig distinguishes `Show(int)` from `Show(string)`.
+        /// Keyed by an OVERLOADED project-local method-call node: the member key the picker chose,
+        /// which pins the overload because its argSig distinguishes `Show(int)` from `Show(string)`.
         LocalMemberCall: SideTable<SymbolKey>
         /// Keyed by an external method call: the constant defaults of the trailing
         /// optional parameters the call OMITTED, in declaration order.
@@ -136,7 +136,7 @@ type PassContextResolution =
         /// Keyed by the folded `x.M(…)` call whose object argument is a typar coerced to a
         /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
         TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
-        /// Keyed by an external-value use-site — an `Expr.Ident` / `Expr.LongIdentOrOp`.
+        /// Keyed by an `Expr.Ident` / `Expr.LongIdentOrOp` at an external-value use-site.
         ExternalValue: SideTable<SymbolKey>
         /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
         /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
@@ -147,8 +147,8 @@ type PassContextResolution =
         /// Keyed by an external enum-case access `E.C1`'s anchor: the enum's nominal key, minted
         /// at arity 0 and so equal to the key an `(x: E)` annotation mints, letting them unify.
         ExternalEnumCaseStamp: SideTable<TypeKey>
-        /// Keyed by an expression splicing a cross-package `let inline` body — an operator,
-        /// `x?f`, `arr.[i]`, `arr.Length`: the intrinsic's key, so the splice is by KEY.
+        /// Keyed by an expression splicing a cross-package `let inline` body (an operator, `x?f`,
+        /// `arr.[i]`, `arr.Length`): the intrinsic's key, so the splice is by KEY.
         IntrinsicKey: SideTable<SymbolKey>
         TypeTestTargets: SideTable<SemType>
         /// Keyed by a `use` binding's pattern `NodeKey`: how the bound variable is disposed.
@@ -206,12 +206,13 @@ module PassContextResolution =
             TypeEnclosingModule = Dictionary<_, _>()
         }
 
-/// An `x?name` site whose result var (`Root`) may escape `dynamic` through context —
-/// `d?foo + 1` pins it to `int`, which warns. `Node` is the `?` expression itself.
+/// An `x?name` site whose result var (`Root`) may escape `dynamic` through context; for
+/// example `d?foo + 1` pins it to `int`, which warns. `Node` is the `?` expression itself.
 type DynamicEscapeSite = { Root: TyVarId; Node: NodeSite }
 
 /// A bare-program list literal left FLEXIBLE: the container `TypeVar` a consumer may drive,
-/// its element type, and its own token — the settling runs after the walk, so a node is gone.
+/// its element type, and its own token, kept because settling runs after the walk, when the
+/// node is gone.
 type ListLiteral =
     {
         Var: TyVarId
@@ -219,7 +220,7 @@ type ListLiteral =
         Tok: SyntaxToken
     }
 
-/// The Vesper.Core inline ACCESS intrinsics — the array / string / index read+write lowering
+/// The Vesper.Core inline ACCESS intrinsics: the array / string / index read+write lowering
 /// (`arr.[i]`, `arr.[i] <- v`, `arr.Length`). `ValueNone` = the name is not in scope.
 type CoreAccessIntrinsics =
     {
@@ -232,7 +233,7 @@ type CoreAccessIntrinsics =
     }
 
 /// Single-threaded: the side tables, `Diagnostics` and `TypeVar` graph all mutate in place.
-/// Parallelism is per FILE — one context each; only the provider crosses threads.
+/// Parallelism is per FILE, so one context each; only the provider crosses threads.
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     // One file re-asks the same queries many times, each walking every composite layer.
@@ -251,7 +252,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     let mutable synthBoundVars = 0
 
-    /// The STORE view (`SymbolKey → payload`) — what a pass speaks once identity is resolved.
+    /// The STORE view (`SymbolKey → payload`), what a pass speaks once identity is resolved.
     /// Narrowed on purpose: a pass holding only this cannot reach a spelling lookup.
     member _.Provider: IExternalSymbolStore = provider
 
@@ -260,15 +261,15 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member _.Resolver: IExternalSymbolResolver = provider
 
     /// A field name → every external record declaring it. Not a spelling lookup: a bare
-    /// `{ X = … }` does not name a record — the field set IS the identity, pinned at inference.
+    /// `{ X = … }` does not name a record, so the field set IS the identity, pinned at inference.
     member _.TryRecordsWithField(fieldName: string) : ExternalRecordCandidate[] = provider.TryRecordsWithField fieldName
 
     /// The language-capability identities (enumerable, enumerator, disposable, equatable,
-    /// comparable), resolved once from contract names — no BCL identity is hardcoded.
+    /// comparable), resolved once from contract names, so no BCL identity is hardcoded.
     member val CapabilityIds = ExternalSymbols.resolveCapabilities provider with get
 
     /// Resolved ONCE against the ambient prelude scope: the names are opens-insensitive, so it
-    /// hits what a per-node resolve would. `lazy` — a file with no such access pays nothing.
+    /// hits what a per-node resolve would. `lazy`, so a file with no such access pays nothing.
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
             (let one (name: string) =
@@ -313,8 +314,8 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
                  d.[platform] <- canons
              // Local intrinsics are stored canon key -> platform repr; invert so a raw platform
              // name reconciles inside a `--compiling-fslib` file, REPLACING the provider's canons.
-             // A degenerate repr — the platform spelling IS the intrinsic's own name — carries
-             // no reconciliation and is skipped.
+             // A repr whose platform spelling IS the intrinsic's own name carries no
+             // reconciliation, so it is skipped.
              for KeyValue(canon, repr) in types.IntrinsicReprKeys do
                  if repr.Platform <> SymbolKeyOps.intrinsicName canon then
                      d.[repr.Platform] <- [ canon ]
@@ -324,17 +325,17 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get
-    /// Keyed by an `Expr.App`; present only for printf calls lowered inline — literal format,
+    /// Keyed by an `Expr.App`, present only for a printf call lowered inline: literal format,
     /// fully applied, a `StdOut`/`StdErr`/`StringResult` sink, every specifier classifiable.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
     /// Keyed as `PrintfApp`; only for a fully-applied `%a`/`%t` call on a writer/builder sink.
-    /// `sprintf` has no entry — its residue is the returned string.
+    /// `sprintf` has no entry, because its residue is the returned string.
     member val PrintfCallbackScratch = SideTable<PrintfSpec.CallbackScratch>() with get
     /// Keyed by an `Expr.App`; only for a FULLY-UNAPPLIED lowerable printf partial
-    /// (`printfn "%d"`), so never `%A`/`%O` — an unapplied hole there is an unpinned typar.
+    /// (`printfn "%d"`), so never `%A`/`%O`, because an unapplied hole there is an unpinned typar.
     member val PrintfPartial = SideTable<PrintfSpec.PrintfSink>() with get
-    /// A `let`-bound (or ascribed) format-string literal, keyed by its BINDING-SITE `NodeKey` —
-    /// the key a use-site `Ident` resolves to, so such an `Ident` lowers like a literal.
+    /// A `let`-bound (or ascribed) format-string literal, keyed by its BINDING-SITE `NodeKey`,
+    /// which is what a use-site `Ident` resolves to, so such an `Ident` lowers like a literal.
     member val PrintfFormatLiterals = SideTable<Expr<SyntaxToken>>() with get
 
     /// The underlying `Expr.String` when `argExpr` is an `Ident` / `LongIdent` bound to a
@@ -348,7 +349,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// The nodes whose type a source annotation FIXED — `(e : T)`, an annotated `let` / return
+    /// The nodes whose type a source annotation FIXED: `(e : T)`, an annotated `let` / return
     /// / parameter, `new T(…)`, `:> T` / `:? T` / `:?> T`.
     member val private declaredTypeSites = SideTable<unit>() with get
 
@@ -376,7 +377,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.IsInferenceHole(tv: TyVarId) : bool = this.inferenceHoles.Contains tv
 
     /// Whether `ty` carries any `_` hole: `Box<int>` false, `Box<_>` true even with `_` pinned
-    /// to `int` — the walk follows a var's `Link` for structure but STOPS at a hole.
+    /// to `int`, because the walk follows a var's `Link` for structure but STOPS at a hole.
     member this.HasInferenceHoleIn(ty: SemType) : bool =
         let seen = HashSet<TyVarId>()
 
@@ -406,11 +407,11 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// A generalised binding's frozen typar bounds, minted with the body's method-axis indices
     /// so the bounds' typar leaves carry them.
     member val GenericFnSchemes = BoundVarTable<FrozenConstraint list>() with get
-    /// How the SOURCE writes each bound variable this file introduces — the identifier and where.
+    /// How the SOURCE writes each bound variable this file introduces: the identifier and where.
     /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.
     member val BoundVarNames = BoundVarTable<BoundVarIdent>() with get
-    /// Keyed by an `Expr.LibraryOnlyStaticOptimization`: the resolved `when ^T : …` constraints
-    /// — outer array aligned with the node's `clauses`, inner one clause's `and`-joined list.
+    /// Keyed by an `Expr.LibraryOnlyStaticOptimization`: the resolved `when ^T : …` constraints,
+    /// the outer array aligned with the node's `clauses`, the inner one clause's `and`-joined list.
     member val StaticOpt = SideTable<EqArray<EqArray<TStaticOptConstraint>>>() with get
     /// The metavar arena: mints `TypeVar` handles with dense per-file ids, owns their tables.
     member val Store: TypeStore = TypeStore() with get
@@ -418,7 +419,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
 
     /// Mint a bound-variable key for a synthesised node. It has no source position, so one
-    /// construct may mint several, and stays unnamed — a backend names it after its slot.
+    /// construct may mint several, and stays unnamed, so a backend names it after its slot.
     member _.NewSynthBoundVar() : NodeKey =
         let k = NodeKey.ofSyntheticCounter synthBoundVars NodeKind.SynthElaborateBoundVar
         synthBoundVars <- synthBoundVars + 1
@@ -440,7 +441,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
 
     /// Type names this file's SOURCE wrote and nothing defined. The unifier's `TyUnknown` arm
-    /// stays silent for these — its message blames a missing package, not a spelling mistake.
+    /// stays silent for these, because its message blames a missing package, not a spelling mistake.
     member val UndefinedTypeNames = HashSet<string>() with get
 
     /// Written type names already blamed, so one two passes both reach is blamed once.
@@ -478,8 +479,8 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         this.Resolution.EnclosingContainer <- ValueSome chain
         chain
 
-    /// Enter a walked module element: advance BOTH ambient facts a by-name read speaks against
-    /// — the `open`s in scope and the module chain.
+    /// Enter a walked module element, advancing both ambient facts a by-name read speaks
+    /// against: the `open`s in scope and the module chain.
     member this.EnterElement(w: WalkedElem<SyntaxToken>) : unit =
         this.Resolution.OpenScope <- w.Scope
         this.EnterContainment w.Containment |> ignore
@@ -493,8 +494,8 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             Opens = this.Resolution.OpenScope.Locals
         }
 
-    /// The module chain the walk stands in — what HOLDS a declaration written here. Before the
-    /// walk enters anything, the global namespace: a declaration in an anonymous module.
+    /// The module chain the walk stands in, which is what HOLDS a declaration written here.
+    /// Before the walk enters anything, the global namespace: a declaration in an anonymous module.
     member this.CurrentContainer: ModuleContainer =
         match this.Resolution.EnclosingContainer with
         | ValueSome h -> h
@@ -522,7 +523,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             | name -> this.BoundVarNames.Set(boundVar, { Text = name; At = Anchor.ofToken at })
 
     /// The LAST segment is the type's short name, everything before it the dotted SOURCE path
-    /// of the qualifying scope — empty for a single-segment name.
+    /// of the qualifying scope, which is empty for a single-segment name.
     member this.WrittenTypeNameOf(li: LongIdent<SyntaxToken>) : WrittenTypeName =
         let idents = li.Idents
         let last = idents.Length - 1
@@ -541,7 +542,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// Report `kind` at `tok`. There is no per-severity member: the kind decides the severity.
     member this.Report(tok: SyntaxToken, kind: Kind) = this.Report(Site.ofToken tok, kind)
 
-    /// Report `kind` at a `Site` the producer resolved itself — `Site.Nowhere`, or a span.
+    /// Report `kind` at a `Site` the producer resolved itself, either `Site.Nowhere` or a span.
     member this.Report(site: Site, kind: Kind) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
 

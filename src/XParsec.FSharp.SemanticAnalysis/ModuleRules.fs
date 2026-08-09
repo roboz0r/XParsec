@@ -27,8 +27,8 @@ module ModuleRules =
         let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
         compiledModuleNameOf r attrs (VesperLibTypeTranslate.nameOfTok r.Lexed ident)
 
-    /// Every container `c` sits in, OUTERMOST first — the declaring namespace, then each
-    /// enclosing `module` — paired with the dotted path a local `open` writes for it
+    /// Every container `c` sits in (the declaring namespace, then each enclosing `module`),
+    /// OUTERMOST first, paired with the dotted path a local `open` writes for it
     /// (`List`), which is not the compiled module name (`ListModule`).
     let enclosingContainers (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : (string * ModuleContainer) list =
         let mutable container =

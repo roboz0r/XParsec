@@ -23,7 +23,7 @@ module internal UnificationInferIdentExpr =
         match e with
         // `(+)` used as a value: resolve the operator's compiled name through the provider
         // and instantiate its scheme like any other external symbol. Nothing type-directed
-        // is needed here — the SRTP trait call in the operator's contract body makes it.
+        // is needed here, because the SRTP trait call in the operator's contract body makes that choice.
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
@@ -44,7 +44,7 @@ module internal UnificationInferIdentExpr =
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx node li
-        // An EXTERNAL enum-case access `E.C1` — the anchor names a provider enum, not a
+        // An EXTERNAL enum-case access `E.C1`, whose anchor names a provider enum, not a
         // project-local one. Types as the nominal `TyEnum key`, the same key an `(x: E)`
         // annotation resolves to, so the two unify.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp node.Key enumKey when
@@ -164,7 +164,7 @@ module internal UnificationInferIdentExpr =
                         | ValueNone ->
                             // A multi-segment qualified name that resolved to nothing. If its
                             // qualifier names a known external union/record, the tail is a
-                            // missing member (`Option.Nope`) — diagnose rather than mint a TyVar.
+                            // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
                             match tryQualifiedExternalMemberMiss ctx e with
                             | ValueSome(qual, memberName) ->
                                 errorTy ctx node.Tok (Kind.NoMember(qual, MemberNoun.ValueOrMember, memberName))

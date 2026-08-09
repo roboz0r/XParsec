@@ -9,7 +9,7 @@ type Severity =
     | Error
     | Warning
 
-/// The PUBLISHED number a diagnostic is filed under — what a consumer suppresses, filters
+/// The PUBLISHED number a diagnostic is filed under: what a consumer suppresses, filters
 /// or asserts on across compiler versions.
 [<RequireQualifiedAccess>]
 type DiagCode =
@@ -19,7 +19,7 @@ type DiagCode =
     /// This compiler's OWN published families: the `V24x` package-conformance codes, and the
     /// front-end/driver refusals that are about a file rather than about a program.
     | Vesper of code: string
-    /// No published number — most verdicts have none.
+    /// No published number, which is the case for most verdicts.
     | Unpublished
 
 [<RequireQualifiedAccess>]
@@ -32,7 +32,7 @@ module DiagCode =
         | DiagCode.Vesper code -> code
         | DiagCode.Unpublished -> ""
 
-/// Which NOMINAL shape a type is — the axis a "no such type" verdict differs on.
+/// Which NOMINAL shape a type is: the axis a "no such type" verdict differs on.
 [<RequireQualifiedAccess>]
 type NominalKind =
     | Record
@@ -128,8 +128,8 @@ type ConformanceVerdict =
     | StaleSigOnly of name: string
     /// Declared `sig-only`, but no contract `.fsi` in the package has that name at all.
     | UnknownSigOnly of name: string
-    /// Declared `impl-only`, but the target compiles no such contract-less body — the name
-    /// is a typo, or the `.fsi` it disclaims has since appeared.
+    /// Declared `impl-only`, but the target compiles no such contract-less body, so either
+    /// the name is a typo or the `.fsi` it disclaims has since appeared.
     | UnknownImplOnly of name: string
     /// The contract or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
@@ -274,7 +274,7 @@ type Kind =
     | CyclicInline of binding: string * via: string list
 
     // ── Written, understood, not implemented ───────────────────────────────────
-    /// The program is not WRONG — this compiler does not do that yet.
+    /// The program is not WRONG, but this compiler does not do that yet.
     | NotYetSupported of feature: string
     /// A lowering needs an intrinsic the compilation cannot see (`Vesper.Core` absent from
     /// the reference set), so the fault is the reference set's, not the source's.
@@ -545,7 +545,7 @@ type Label = { Site: Site; Message: string }
 type Diagnostic =
     {
         Kind: Kind
-        /// The primary position — what a one-line renderer points at.
+        /// The primary position: what a one-line renderer points at.
         Site: Site
         /// Secondary positions, in the order a renderer should show them.
         Related: Label list

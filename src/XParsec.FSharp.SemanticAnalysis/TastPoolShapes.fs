@@ -9,8 +9,8 @@ open XParsec.FSharp.Lexer
 module TastPoolShapes =
 
     /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT
-    /// children; composite carriers with no node identity of their own — match arms, format
-    /// segments, static-opt clauses — are descended into, each sub-expression once.
+    /// children; composite carriers with no node identity of their own, namely match arms,
+    /// format segments and static-opt clauses, are descended into, each sub-expression once.
     let exprChildren (e: TExprG<FrozenType, 'tok, 'id>) : TExprG<FrozenType, 'tok, 'id>[] =
         let acc = ResizeArray<TExprG<FrozenType, 'tok, 'id>>()
 
@@ -159,7 +159,7 @@ module TastPoolShapes =
 
         acc.ToArray()
 
-    /// The immediate child *patterns* an expression owns directly, in source order — the
+    /// The immediate child *patterns* an expression owns directly, in source order: the
     /// bound variables (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
     /// (`Match`/`TryWith`). `ForTo`'s loop variable is a bare bound variable, so it rides the payload.
     let exprPatChildren (e: TExprG<FrozenType, 'tok, 'id>) : TPatG<FrozenType, 'tok, 'id>[] =
@@ -238,7 +238,7 @@ module TastPoolShapes =
 
         acc.ToArray()
 
-    /// The dense id of the bound variable the node being pooled INTRODUCES — `NamedSimple` and
+    /// The dense id of the bound variable the node being pooled INTRODUCES, at `NamedSimple` and
     /// `ForTo` and no other case. A miss is the pooling walk and the payload projection
     /// disagreeing about which node binds, not a defect of the tree.
     let private introducedBoundVar (site: string) (boundVar: BoundVarId voption) : BoundVarId =
@@ -247,7 +247,7 @@ module TastPoolShapes =
         | ValueNone ->
             failwithf "TastPoolShapes.%s: the node's payload names a bound variable the walk interned none for" site
 
-    /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
+    /// The residual payload of a frozen expression node: its fields MINUS `ty`/`tok`, the
     /// child expr and owned pat ids, and the `Var` bound variable id. `anchor` narrows a walked
     /// token to its stored index; `ForTo`'s `identTok` is the one anchor a payload carries.
     let exprPayload
@@ -255,7 +255,7 @@ module TastPoolShapes =
         (boundVar: BoundVarId voption)
         (e: TExprG<FrozenType, 'tok, 'id>)
         : ExprPayload =
-        // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
+        // Per-arm guard-presence flags, the only residual structure a `Match`/`TryWith`
         // records; the arm pats, guards and bodies themselves ride the child columns.
         let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
             arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
@@ -366,7 +366,7 @@ module TastPoolShapes =
         | TExprG.InlineCall(spec = spec; origin = origin) -> ExprPayload.InlineCall {| Spec = spec; Origin = origin |}
         | TExprG.CallerExpr(origin = origin) -> ExprPayload.CallerExpr origin
 
-    /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
+    /// The residual payload of a frozen pattern node: its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids. `boundVar` is `NamedSimple`'s own bound variable, and no other case's.
     let patPayload (boundVar: BoundVarId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
         match p with

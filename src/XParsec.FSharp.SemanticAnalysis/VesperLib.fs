@@ -34,7 +34,7 @@ module VesperLib =
         | _ -> None
 
     /// Freeze `interface <ty>` impl CSTs into the `(compiled-name, args)` pairs
-    /// `FrozenInterfaces` holds — args over the declaring typars, `FTTypar(Declaring,i)`.
+    /// `FrozenInterfaces` holds, with args over the declaring typars as `FTTypar(Declaring,i)`.
     /// A non-nominal freeze carries no witness and is dropped.
     let private freezeInterfaces
         (ctx: ExtractCtx)
@@ -366,8 +366,8 @@ module VesperLib =
                 ctx.TypeMembers.[k] <- merged
             | _ -> ()
 
-        // Heritable primitives (`extern class with …`: `obj`/`exn`): republish ONCE, now
-        // both surfaces are complete — the base frozen by the shape loop, the `.ctor`s by
+        // Heritable primitives (`extern class with …`: `obj`/`exn`): republish ONCE, now that
+        // both surfaces are complete, the base frozen by the shape loop and the `.ctor`s by
         // the ctor loop.
         for KeyValue(compiled, struct (canon, platform)) in ctx.PendingIntrinsicClasses do
             match ctx.TypeShapes.TryGetValue compiled with
@@ -464,7 +464,7 @@ module VesperLib =
         | ValueNone -> ValueNone
         | ValueSome n -> ValueSome(SymbolKeyOps.bindingKeyOf decl n)
 
-    /// The *source*-qualified name for a val — what the front end writes. IGNORES
+    /// The *source*-qualified name for a val, the one the front end writes. IGNORES
     /// `[<CompiledName(_)>]`: a consumer writes `Set.empty`, not `Set.Empty`.
     let private sourceNameForVal (lexed: Lexed) (path: string list) (ident: IdentOrOp<SyntaxToken>) : string voption =
         match identOrOpName lexed ident with
@@ -584,7 +584,7 @@ module VesperLib =
                     SymbolKeyOps.typeKeyOfContainer (ModuleRules.typeContainerOf decl) short arity
 
                 // The arity suffix plus the `+`-nesting of a module-held type
-                // (`Vesper.Choice`2`) — the same string the emitted `TypeDef` carries.
+                // (`Vesper.Choice`2`), the same string the emitted `TypeDef` carries.
                 let compiled = SymbolKeyOps.typeMetaName key
 
                 // First declaration wins on a *short-name* collision; arity-overloaded
@@ -774,7 +774,7 @@ module VesperLib =
                 ctx.RqaTypes.Add compiled |> ignore
 
             // `Origin` is stamped later by the resolving source; the extractor records
-            // `Empty`. The interfaces start empty — the finalize pass freezes them.
+            // `Empty`. The interfaces start empty because the finalize pass freezes them.
             ctx.TypeShapes.[compiled] <- ExternalTypeShape.Union(arity, caseShapes.ToArray(), [||], SymbolOrigin.Empty)
 
             ctx.DeferredBodies.[compiled] <-
@@ -919,7 +919,7 @@ module VesperLib =
 
     /// F# infers an interface from a bodied type whose members are *all* abstract
     /// (`type IFormatSink = abstract member …`, no `interface`/`class`/`begin` keyword),
-    /// which parses as `TypeSignature.Anon`/`Class` — so no keyword carries the answer.
+    /// which parses as `TypeSignature.Anon`/`Class`, so no keyword carries the answer.
     let private bodyIsInterface (elems: TypeElementsSignature<SyntaxToken>) : bool =
         let mutable hasAbstract = false
         let mutable hasConcrete = false
@@ -974,7 +974,7 @@ module VesperLib =
             )
 
         // For an INTERFACE, an `inherit <ty>` clause is interface inheritance (`enumerator
-        // inherit disposable`), NOT a base class — interfaces have no base type, so it is
+        // inherit disposable`), NOT a base class, because interfaces have no base type, so it is
         // routed into `FrozenInterfaces`. For a CLASS (`exn inherit obj`) it is the base.
         let inheritBase = if isInterface then None else inheritClause
 
@@ -1039,7 +1039,7 @@ module VesperLib =
                 ctx.Diagnostics.Add(file, IntrinsicHost.cannotDeclare name IntrinsicHost.Construct.Override)
             | TypeSignatureElement.Member _
             | TypeSignatureElement.StaticMember _
-            // `abstract` declares a slot and `val` storage — neither is a body. `new` on a
+            // `abstract` declares a slot and `val` storage, so neither is a body. `new` on a
             // heritable primitive (`obj`/`exn`) names a target-provided constructor.
             | TypeSignatureElement.Abstract _
             | TypeSignatureElement.Value _
@@ -1106,8 +1106,8 @@ module VesperLib =
             match registerTypeDecl ctx lexed decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
-                // A class/interface shape carries no body — its members resolve separately
-                // via `TryLookupMember`, this registration only answers `TryLookupType`.
+                // A class/interface shape carries no body, so its members resolve separately
+                // via `TryLookupMember` and this registration only answers `TryLookupType`.
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
 
@@ -1199,7 +1199,7 @@ module VesperLib =
         | TypeSignature.Anon(typeName = typeName; elements = elements)
         | TypeSignature.Class(typeName = typeName; elements = elements) ->
             // A nominal class with a member body (`Vesper.Set`'s `Set<'T>`). The shape stays
-            // the bodiless `basic` `Class`, but the body's sigs ARE extracted — notably the
+            // the bodiless `basic` `Class`, but the body's sigs ARE extracted, notably the
             // `op_Addition` an SRTP `+` hits.
             match registerTypeDecl ctx lexed decl typeName with
             | ValueNone -> ()
@@ -1246,7 +1246,7 @@ module VesperLib =
         // Newest first: a later `open` shadows earlier ones.
         List.ofSeq (Seq.rev acc)
 
-    /// The short name of a type signature that declares a real NOMINAL type — the thing a
+    /// The short name of a type signature that declares a real NOMINAL type, which a
     /// `module` of the same name collides with.
     let private nominalTypeSigName (lexed: Lexed) (ts: TypeSignature<SyntaxToken>) : string voption =
         let named (tn: TypeName<SyntaxToken>) =
@@ -1392,9 +1392,8 @@ module VesperLib =
             let segments =
                 [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed li.Idents.[i] ]
 
-            // `module A.B.C` declares module `C` in namespace `A.B` — the leading segments
-            // are the namespace, only the LAST is a module. The `…Module` suffix applies to
-            // that module segment only.
+            // `module A.B.C` declares module `C` in namespace `A.B`. The `…Module` suffix
+            // applies to that module segment only.
             let decl =
                 match List.rev segments with
                 | [] -> SymbolKeyOps.inNamespace ""
@@ -1422,7 +1421,7 @@ module VesperLib =
 
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
         // The dependency providers' ambient prefixes (`Vesper`, …) seed the file's open
-        // scope at lowest priority — they flow to the TAIL of each descended scope, so an
+        // scope at lowest priority by flowing to the TAIL of each descended scope, so an
         // explicit `open` / the enclosing namespace still wins.
         let fileOpens = ctx.DependencyAmbientPrefixes
 

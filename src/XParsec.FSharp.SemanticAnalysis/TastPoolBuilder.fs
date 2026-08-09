@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 
 /// An append-only overlay stacked over an immutable base `FrozenPools`, so a consumer that
 /// MINTS nodes derives a tree without the base being copied. Reference equality because it
-/// is an append target, not a value — two builders over one base have unrelated ids.
+/// is an append target, not a value. Two builders over one base have unrelated ids.
 [<ReferenceEquality>]
 type PoolBuilder =
     private
@@ -21,8 +21,8 @@ type PoolBuilder =
             OvExprs: ResizeArray<ExprRow>
             OvDecls: ResizeArray<DeclRow>
             OvPats: ResizeArray<PatRow>
-            /// How many bound variables this overlay has handed out — a COUNT and no column, no
-            /// source spelling a minted bound variable.
+            /// How many bound variables this overlay has handed out. A COUNT rather than a column,
+            /// because no source spells a minted bound variable.
             mutable OvBoundVarCount: int
             /// The bound variable key `declTree` hands a DU-typed consumer for each bound variable. Per
             /// BUILDER, not per unpool: two unpools of one subtree are two views of the same
@@ -99,7 +99,7 @@ module TastPoolBuilder =
     let exprTy (b: PoolBuilder) (id: ExprPoolId) : FrozenType =
         readExpr b id (fun p i -> p.Types.[p.ExprTys.[i]]) (fun r -> r.Ty)
 
-    /// Where the node SITS — the index of the token that spells it, or `Anchor.nowhere` where
+    /// Where the node SITS: the index of the token that spells it, or `Anchor.nowhere` where
     /// no source does (an overlay-minted node, an `.fsi` contract's rebuilt pattern).
     let exprTok (b: PoolBuilder) (id: ExprPoolId) : Anchor =
         readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok)
@@ -131,7 +131,7 @@ module TastPoolBuilder =
     /// The node's shape tag, projected from the payload column rather than stored.
     let exprShape (b: PoolBuilder) (id: ExprPoolId) : ExprShape = ExprPayload.shape (exprPayload b id)
 
-    /// The whole row at `id` — the base columns gathered, or the overlay row as stored.
+    /// The whole row at `id`: the base columns gathered, or the overlay row as stored.
     let private exprRow (b: PoolBuilder) (id: ExprPoolId) : ExprRow =
         readExpr
             b
@@ -234,9 +234,9 @@ module TastPoolBuilder =
     let exprCount (b: PoolBuilder) : int = b.ExprBase + b.OvExprs.Count
     let boundVarCount (b: PoolBuilder) : int = b.BoundVarBase + b.OvBoundVarCount
 
-    /// The file's decl roots, in source order — the BASE pool's: a whole-decl rewrite returns
-    /// the derived id for its caller to carry rather than repointing this array. Copied, so a
-    /// caller cannot reach into the immutable base through it.
+    /// The file's decl roots, in source order. They are the BASE pool's: a whole-decl rewrite
+    /// returns the derived id for its caller to carry rather than repointing this array.
+    /// Copied, so a caller cannot reach into the immutable base through it.
     let roots (b: PoolBuilder) : DeclPoolId[] = Array.copy b.Base.Roots
 
     // ── append primitives ───────────────────────────────────────────────────
@@ -258,7 +258,7 @@ module TastPoolBuilder =
         b.OvDecls.Add row
         DeclPoolId id
 
-    /// A bound variable id belonging to NO node of the base pool — the definition site a lowering
+    /// A bound variable id belonging to NO node of the base pool: the definition site a lowering
     /// introduces. It takes no argument: a bound variable's identity IS its slot, nothing to intern.
     let mintBoundVar (b: PoolBuilder) : BoundVarId =
         let id = BoundVarId(b.BoundVarBase + b.OvBoundVarCount)
@@ -270,14 +270,14 @@ module TastPoolBuilder =
     // child edge carried across as the id it was.
 
     /// Append a copy of row `id` with `edit` applied, returning the ORIGINAL id when the edit
-    /// changed nothing — so a rewrite that touches nothing appends nothing, and every cached
+    /// changed nothing, so a rewrite that touches nothing appends nothing, and every cached
     /// id still points at the same node.
     let copyExprWith (b: PoolBuilder) (id: ExprPoolId) (edit: ExprRow -> ExprRow) : ExprPoolId =
         let row = exprRow b id
         let row' = edit row
         if ExprRow.same row' row then id else appendExpr b row'
 
-    /// Append a copy of decl row `id` with `edit` applied — see `copyExprWith`.
+    /// Append a copy of decl row `id` with `edit` applied; see `copyExprWith`.
     let copyDeclWith (b: PoolBuilder) (id: DeclPoolId) (edit: DeclRow -> DeclRow) : DeclPoolId =
         let row = declRow b id
         let row' = edit row
@@ -295,8 +295,8 @@ module TastPoolBuilder =
     let copyPatFresh (b: PoolBuilder) (id: PatPoolId) (edit: PatRow -> PatRow) : PatPoolId =
         appendPat b (edit (patRow b id))
 
-    /// The file this pool's `Anchor`s index — the base's, an overlay deriving nodes onto the
-    /// very file it was opened over.
+    /// The file this pool's `Anchor`s index: the base's, because an overlay derives nodes onto
+    /// the very file it was opened over.
     let origin (b: PoolBuilder) : OriginFile = b.Base.Origin
 
     /// This file's OWN intrinsic-repr type declarations. A backend reads it to tell a
@@ -309,7 +309,7 @@ module TastPoolBuilder =
     /// a backend emits nothing for one.
     let globalValueKeys (b: PoolBuilder) : IReadOnlySet<SymbolKey> = b.Base.Residue.GlobalValueKeys
 
-    /// This file's module-level bindings by bound variable — the SYMBOL identity behind a `let` decl's
+    /// This file's module-level bindings by bound variable: the SYMBOL identity behind a `let` decl's
     /// name, which the columns address only positionally. Indexes on each call.
     let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BoundVarId, ModuleBindingInfo> =
         DenseTable.index b.Base.ModuleMembers
@@ -328,7 +328,7 @@ module TastPoolBuilder =
         b.Base.Specializations.[i]
 
     /// Copy the pattern subtree at `id` into `dest`, mapping every type it carries through
-    /// `fTy` — the node types and the types a payload embeds. `dest` may be a pool other
+    /// `fTy`: the node types and the types a payload embeds. `dest` may be a pool other
     /// than `b`.
     let rec copyPatTreeInto
         (dest: PoolBuilder)
@@ -388,7 +388,7 @@ module TastPoolBuilder =
                     | TastPools.PooledEvent.LambdaPooled _ -> ()
         }
 
-    /// Pool a freshly minted DU subtree into the overlay — the bridge for a mint site that
+    /// Pool a freshly minted DU subtree into the overlay: the bridge for a mint site that
     /// still CONSTRUCTS `Pooled.TExpr` values.
     let appendExprTree (b: PoolBuilder) (e: Pooled.TExpr) : ExprPoolId = TastPools.poolExpr (sinkOf b) e
 

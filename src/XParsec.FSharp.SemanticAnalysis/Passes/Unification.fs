@@ -86,7 +86,7 @@ module Unification =
             // quantifying the arithmetic typar.
             UnificationInferGeneralize.applyDefaults ctx.Store memberTy outerLevel
 
-            // The enclosing class typars — a `'T` is a declaring-axis param, not a method
+            // The enclosing class typars: a `'T` is a declaring-axis param, not a method
             // one. Zonked HERE because a class typar's root can move while a body types.
             let fixedRoots = HashSet<TyVarId>()
 
@@ -209,7 +209,7 @@ module Unification =
                                 ctx.Resolution.BindingTyparSeed <- ValueSome seed
 
                                 // Keep the member's own typars in `EnclosingTypars` for the
-                                // body walk, alongside the class typars — so a nested
+                                // body walk, alongside the class typars, so a nested
                                 // `let c = Comparer<'U>.Default` resolves `'U`, not free.
                                 let memberEnclosing =
                                     Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
@@ -230,8 +230,8 @@ module Unification =
                                 ctx.Resolution.BindingTyparSeed <- savedSeed
                                 ctx.Resolution.EnclosingTypars <- savedMemberEnclosing
 
-                            // Generalise any body-inferred free typar into the member's own
-                            // method typars — an unannotated param no call ever grounded.
+                            // Generalise any body-inferred free typar, an unannotated param no
+                            // call ever grounded, into the member's own method typars.
                             match mInfoOpt with
                             | Some mInfo when
                                 fc.Generalise
@@ -432,7 +432,7 @@ module Unification =
                     |> tupleOrSingle ctx
 
                 // Declared field types (ctor-param backing fields + explicit `val` fields)
-                // keyed by name. `val` fields win a name clash — a positional ctor param
+                // keyed by name. `val` fields win a name clash, because a positional ctor param
                 // sharing a name is the backing store.
                 let fieldTypes =
                     Map.ofSeq (
@@ -485,7 +485,7 @@ module Unification =
             | ValueNone -> ()
         // An intrinsic-class base (`inherit exn(m)`): check the args against the provider
         // shape's `.ctor` surface, so `inherit exn(42)` is a source diagnostic. A shape
-        // miss is a silent no-op — a self-host build has no shape.
+        // miss is a silent no-op, because a self-host build has no shape.
         | ValueSome(TyConst(canonKey, canonArgs)), ValueSome argExpr ->
             match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
             | ValueSome(struct (_, surface)) ->
@@ -565,8 +565,8 @@ module Unification =
             | _ -> ()
         | _ -> ()
 
-    /// Pin each `override` member to its `System.Object` virtual slot — `Equals(obj):bool`,
-    /// `GetHashCode():int`, `ToString():string` — so an unannotated `override _.Equals that`
+    /// Pin each `override` member to its `System.Object` virtual slot (`Equals(obj):bool`,
+    /// `GetHashCode():int`, `ToString():string`), so an unannotated `override _.Equals that`
     /// does not leave `that` free and emit as the generic `bool Equals<M0>(!!0)`.
     let private checkObjectOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
         let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
@@ -592,7 +592,7 @@ module Unification =
                 | ValueNone -> ()
 
     /// Reject authoring a BCL interface a capability already publishes (`interface seq<'T>`
-    /// yields `IEnumerable<'T>`). The forbidden set is derived — the capability's `Platform`
+    /// yields `IEnumerable<'T>`). The forbidden set is derived from the capability's `Platform`
     /// plus its inherited closure; implementing another CAPABILITY from it stays legal.
     let private checkCapabilityInterfaceCollisions (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         // Names compare on the bare (arity-suffix-stripped) compiled name: the metadata
@@ -654,7 +654,7 @@ module Unification =
                             )
 
     /// Resolve each `interface IFace with member …` block's interface type under the
-    /// class's typar scope and stamp `impl.Resolved` before any member body is typed —
+    /// class's typar scope and stamp `impl.Resolved` before any member body is typed, because
     /// class→interface upcast sites read it.
     let private resolveInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         for impl in info.InterfaceImpls do
@@ -675,8 +675,8 @@ module Unification =
                 | TyClass(ifaceKey, _) ->
                     match ctx.Provider.TryLookupType(SymbolKey.Type ifaceKey) with
                     | ValueSome shape -> ExternalSymbols.isInterfaceShape shape
-                    // A project-local interface has no external-provider entry — its
-                    // interface-ness is on the registered `ClassTypeInfo`.
+                    // A project-local interface has no external-provider entry, so its
+                    // interface-ness is read off the registered `ClassTypeInfo`.
                     | ValueNone ->
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome localInfo -> localInfo.IsInterface
@@ -821,9 +821,9 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
-    /// Stamp every project-local type's `InterfaceImpls.Resolved` up front — before any
-    /// module-function or member body types — so a `:>` / argument-coercion /
-    /// `for x in (c: C)` site sees the declared interfaces wherever it appears.
+    /// Stamp every project-local type's `InterfaceImpls.Resolved` before any module-function or
+    /// member body types, so a `:>` / argument-coercion / `for x in (c: C)` site sees the
+    /// declared interfaces wherever it appears.
     let private resolveInterfaceImplsForElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
@@ -899,7 +899,7 @@ module Unification =
     /// equatable capability over Self; `ComparisonSupport = Custom` ⇒ the comparable
     /// capability plus `Custom` equality (custom ordering atop structural equality is incoherent).
     let private validateCustomEqCompImpls (ctx: PassContext) : unit =
-        // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.TypeKey, _)`.
+        // The declaring type's own nominal key: Self is `TyClass`/`TyUnion(info.TypeKey, _)`.
         let argIsSelf (info: IInterfaceImplHost) (arg: SemType) : bool =
             match zonk ctx.Store arg with
             | TyClass(k, _)
@@ -938,7 +938,7 @@ module Unification =
 
             // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
             // (FS0344): the fallback hash is unsound under a non-structural custom
-            // `Equals` — it breaks equal ⇒ same-hash.
+            // `Equals`, because it breaks equal ⇒ same-hash.
             if
                 needsEq
                 && not (info.Members |> Array.exists (fun m -> m.Name = "GetHashCode" && m.IsOverride))
@@ -962,7 +962,7 @@ module Unification =
             checkHost (kv.Value :> IInterfaceImplHost)
 
     /// FS0438: two members agreeing on name, static-ness, kind, value-parameter signature
-    /// and method-typar arity — an unreachable duplicate rather than a legal overload.
+    /// and method-typar arity are an unreachable duplicate rather than a legal overload.
     /// `Show(int)` / `Show(string)` coexist; `M(int)` declared twice collides.
     let private checkDuplicateMembers (ctx: PassContext) : unit =
         let checkHost (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =

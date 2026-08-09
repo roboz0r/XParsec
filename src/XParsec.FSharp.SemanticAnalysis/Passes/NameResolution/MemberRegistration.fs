@@ -22,7 +22,7 @@ module NameResolutionMemberRegistration =
     let private ctorParamsOfPat (ctx: PassContext) (declTok: SyntaxToken) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
         let results = ResizeArray<ClassCtorParamInfo>()
 
-        // The parameter's binding site is the pattern's own — the key a member body's
+        // The parameter's binding site is the pattern's own, the key a member body's
         // reference to the parameter resolves through.
         let addParam (p: Pat<SyntaxToken>) (annotation: Type<SyntaxToken> voption) =
             match BoundVarKey.siteOfCstPat p with
@@ -95,7 +95,7 @@ module NameResolutionMemberRegistration =
 
     /// A member's name + the node key its body is inferred under, from its bound pattern. The
     /// key is the *leaf* pattern's, so `static member (+) (a, b) = …` keys on
-    /// `(lParen, PatOp)`, not `(opToken, PatIdent)` — the key the body's type arrives under.
+    /// `(lParen, PatOp)`, not `(opToken, PatIdent)`.
     let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
         let named (p: Pat<SyntaxToken>) (name: string) =
             ValueSome
@@ -125,7 +125,7 @@ module NameResolutionMemberRegistration =
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome(ctx.NameOf op, op)
         | _ -> ValueNone
 
-    /// A member's own declared typars — the `<'C, …>` after the member name, in
+    /// `<'C, …>` after the member name — a member's own declared typars, in
     /// source order. Skips anonymous typars.
     let private memberTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
         match tds with
@@ -251,7 +251,7 @@ module NameResolutionMemberRegistration =
             match memberNameOf ctx b with
             | ValueSome m ->
                 // A generic method's own `<'C>` typars (`member this.Map<'C> …`), then its
-                // *implicit* ones — a `'U` appearing only in a param/return annotation. Both
+                // *implicit* ones, a `'U` appearing only in a param/return annotation. Both
                 // get prototype TyVars. A property cannot be generic, so it gets neither.
                 let explicit = memberTyparNames ctx b.typarDefns
 
@@ -476,8 +476,8 @@ module NameResolutionMemberRegistration =
 
         struct (statics.ToArray(), instances.ToArray())
 
-    /// Stamp `ClassTypeInfo` for every `TypeDefn.Class` (or `TypeDefn.Anon` — the parser
-    /// emits Anon for the bare `type C(...) = member ...` form). The declared STRUCTURE
+    /// Stamp `ClassTypeInfo` for every `TypeDefn.Class` (or `TypeDefn.Anon`, which the parser
+    /// emits for the bare `type C(...) = member ...` form). The declared STRUCTURE
     /// resolves here, under the class's typar scope; member types are placeholder TyVars.
     let private registerClassTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
@@ -595,7 +595,7 @@ module NameResolutionMemberRegistration =
 
     /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict to stamp),
     /// but `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<CustomEquality>]` are
-    /// still illegal on it — run the kind-legality check and discard the verdicts.
+    /// still illegal on it, so run the kind-legality check and discard the verdicts.
     let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Interface(typeName = tn) ->
@@ -610,7 +610,7 @@ module NameResolutionMemberRegistration =
                 |> ignore
         | _ -> ()
 
-    /// The use site the type named at `li` speaks from — its own place in the file, under
+    /// The use site the type named at `li` speaks from: its own place in the file, under
     /// the module and `open`s the registration scan currently stands in.
     let private useSiteOfTypeName (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
         ctx.UseSiteAt(NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.TypeNamed)
@@ -789,7 +789,7 @@ module NameResolutionMemberRegistration =
                 | ValueNone ->
                     // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read
                     // yields both the repr and the `class`-tag verdict. An `inherit` parent is
-                    // an ARBITRARY written name — a record, a typo, a provider class — so the
+                    // an ARBITRARY written name (a record, a typo, a provider class), so the
                     // name → key step must be allowed to miss here.
                     let heritableLocalRepr =
                         match TypeRegistry.tryIntrinsicKeyOf ctx.Types name with
@@ -806,7 +806,7 @@ module NameResolutionMemberRegistration =
 
     /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. The parent is
     /// resolved against the referent's registered DETAIL, not its identity, so it cannot be
-    /// answered where the clause is seen — `BaseType` is a slot filled at group close.
+    /// answered where the clause is seen, and `BaseType` is instead a slot filled at group close.
     let private registerInheritedSlot (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
@@ -866,7 +866,7 @@ module NameResolutionMemberRegistration =
         : unit =
         let diagnose (tok: SyntaxToken) (message: string) = ctx.Report(tok, Kind.Message message)
 
-        // `ValueNone` for an `abstract` slot — it declares no body, so there is nothing
+        // `ValueNone` for an `abstract` slot because it declares no body, so there is nothing
         // to splice and nothing to mark.
         let bodyTok (d: MethodOrPropDefn<SyntaxToken>) : SyntaxToken voption =
             match d with
@@ -903,7 +903,7 @@ module NameResolutionMemberRegistration =
 
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
     /// union or record; must run after the type itself is registered. The extraction is
-    /// kind-agnostic — only the write-back target differs, so each arm sets its own `info`.
+    /// kind-agnostic, so only the write-back target differs and each arm sets its own `info`.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         let extract (declKey: NodeKey) (typeParams: EqArray<string * TyVarId>) elems =
             let typarNames = [ for (n, _) in typeParams -> n ]
@@ -957,8 +957,8 @@ module NameResolutionMemberRegistration =
         | _ -> ValueNone
 
     /// The types a registered declaration STORES INLINE: a struct record's fields, a struct
-    /// union's case fields, a struct class's `val` and ctor-param backing fields. Only asked
-    /// of a value type — a reference type stores a POINTER, so it contains none immediately.
+    /// union's case fields, a struct class's `val` and ctor-param backing fields. Only asked of
+    /// a value type, because a reference type stores a POINTER to its contents instead.
     let private inlineFieldTypes (ctx: PassContext) (id: TypeIdentity) : SemType seq =
         let key = id.Key
 
@@ -987,9 +987,9 @@ module NameResolutionMemberRegistration =
         | TypeDeclKind.Abbreviation
         | TypeDeclKind.IntrinsicRepr -> Seq.empty
 
-    /// FS0954's other half: a cycle through STRUCT FIELDS. A value type stores its fields
-    /// inline, so `[<Struct>] type A = { x: B } and [<Struct>] B = { y: A }` has no finite
-    /// layout, while the same pair as reference types compiles — the indirection breaks it.
+    /// FS0954's other half: a cycle through STRUCT FIELDS. A value type stores its fields inline,
+    /// so `[<Struct>] type A = { x: B } and [<Struct>] B = { y: A }` has no finite layout, while
+    /// the same pair as reference types compiles because the indirection breaks the cycle.
     let private checkGroupStructFieldCycles (ctx: PassContext) (structs: ClaimedTypeDefn seq) : unit =
         let members = Dictionary<TypeKey, TypeIdentity>()
 
@@ -1011,7 +1011,7 @@ module NameResolutionMemberRegistration =
                             match members.TryGetValue fieldKey with
                             | true, next -> walk next
                             // A struct field of a type OUTSIDE the group cannot lead back
-                            // into it — nothing outside can name into a group.
+                            // into it: mutual naming needs `and`, so a cycle stays in one group.
                             | false, _ -> ()
                     | _ -> ()
 
@@ -1020,8 +1020,8 @@ module NameResolutionMemberRegistration =
             if cyclic then
                 ctx.Report(startId.DeclSite.Tok, Kind.CyclicType(startId.Name, TypeCycle.Immediate))
 
-    /// Register one accepted declaration's kind-specific DETAIL — fields, cases, enum case
-    /// names, class members / ctor params, abbreviation RHS — plus any `with member …`
+    /// Register one accepted declaration's kind-specific DETAIL (fields, cases, enum case
+    /// names, class members / ctor params, abbreviation RHS), plus any `with member …`
     /// augmentation on it. The identity is handed in, never re-derived from the CST.
     let private registerDetail (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match id.Kind with
@@ -1037,8 +1037,8 @@ module NameResolutionMemberRegistration =
         registerNominalMember ctx id td
 
     /// Register one `type … and …` group, in the phases below: claim, classify, file the
-    /// abbreviation entries, register detail, close. File-order type scoping falls out — at
-    /// the moment a group registers, `TypeClaims` holds every type above it and none below.
+    /// abbreviation entries, register detail, close. File-order type scoping falls out because
+    /// at the moment a group registers, `TypeClaims` holds every type above it and none below.
     let registerGroup
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -1071,7 +1071,7 @@ module NameResolutionMemberRegistration =
         for claimed in claims do
             registerDetail ctx claimed.Identity claimed.Defn
 
-        // An `interface … end` declares no type to register — its eq/comp attributes are
+        // An `interface … end` declares no type to register, but its eq/comp attributes are
         // still illegal, so the kind-legality check runs over the group's CST.
         for td in defs do
             validateInterfaceTypeDefn ctx td

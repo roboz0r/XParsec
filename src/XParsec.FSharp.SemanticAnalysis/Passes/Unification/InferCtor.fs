@@ -101,8 +101,8 @@ module internal UnificationInferCtor =
         // A heritable primitive typed by its canon (`new exn "boom"`).
         | TyConst(canonKey, tyArgs) ->
             // A written PLATFORM spelling (`new System.Exception(msg, inner)`) canonicalizes to
-            // the same `TyConst`, but the reference still names the metadata class — the opt-in
-            // to the wider ctor catalogue. Read its external verdict, confirm CLASS.
+            // the same `TyConst`, but the reference still names the metadata class, which is the
+            // opt-in to the wider ctor catalogue. Read its external verdict, confirm CLASS.
             let stampedClassKey =
                 match CstKeys.ofTypeRef t with
                 | ValueSome typeRef ->
@@ -144,7 +144,7 @@ module internal UnificationInferCtor =
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
-    /// Resolve a constructor application on an external (BCL / referenced) class — shared by
+    /// Resolve a constructor application on an external (BCL / referenced) class, shared by
     /// `new T(args)` and the *sugar* form `T args`. Overload-resolves on the argument types,
     /// then unifies the chosen ctor signature so each parameter constrains the arguments.
     and inferExternalCtorOn
@@ -254,7 +254,7 @@ module internal UnificationInferCtor =
                 ValueNone
             else
                 // NameResolution's TypeApp visit stamped the ctor's `ResolvedType` at exact
-                // arity — an abbreviation stamps its OWN key, which `tryExternalTypeOfKey`
+                // arity. An abbreviation stamps its OWN key, which `tryExternalTypeOfKey`
                 // then expands: `ResizeArray<int>` → `TyClass(List`1, [int])`.
                 match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr ctorFun) with
                 | ValueSome symKey ->
@@ -283,7 +283,7 @@ module internal UnificationInferCtor =
             | _ -> fn, ValueNone
 
         // The ctor may name the class bare (`OnceEnum(x)`) or through the module holding it
-        // (`A.OnceEnum(x)`) — one written name either way.
+        // (`A.OnceEnum(x)`), and either form yields one written name.
         let ctorName =
             match ctorFun with
             | Expr.Ident ctorTok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken ctorTok NodeKind.ExprIdent)) ->

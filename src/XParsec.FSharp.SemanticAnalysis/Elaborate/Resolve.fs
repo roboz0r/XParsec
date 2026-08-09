@@ -14,7 +14,7 @@ module internal ElaborateResolve =
 
     /// A class name only where there is no local `Binding` entry, so a shadowing local wins.
     /// Answers for a project-local class, or an external type whose `TypeKey` the `ResolvedType`
-    /// stamp carries. The returned string is DIAGNOSTIC ONLY — backends never lower from it.
+    /// stamp carries. No backend lowers from the returned string; it survives for diagnostics only.
     let rec private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
@@ -41,7 +41,7 @@ module internal ElaborateResolve =
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
-    /// Look up `memberName` on `typeName` — a class, or a union / record augmentation.
+    /// Look up `memberName` on `typeName`, a class or a union / record augmentation.
     /// Returns the DECLARING type's `TypeKey` alongside the member, so the static-member
     /// path can mint a member key off it.
     let private tryClassMember
@@ -118,7 +118,7 @@ module internal ElaborateResolve =
             |> ValueOption.filter (fun (_, m) -> m.IsStatic)
 
     /// DU ctor reference (`Circle`, `Result2.Ok`, or an external `Some` / `None`), returning
-    /// the case name alone — a caller reads the declaring union off the node's resolved
+    /// the case name alone, because a caller reads the declaring union off the node's resolved
     /// `TyUnion`. A local binding of the same name has a `Binding` entry and is excluded.
     let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
@@ -128,7 +128,7 @@ module internal ElaborateResolve =
         else
             // A local *or* external union declares this node's name as a case; the external
             // leg is the stamp's presence. A bare reference to an RQA external case is never
-            // stamped — only its qualified form, in the length-2 arms below.
+            // stamped; only its qualified form is, in the length-2 arms below.
             let isCase (n: string) =
                 TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
                 || ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key

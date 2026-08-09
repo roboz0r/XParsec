@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 // Cross-type structural rebuild of the TAST cluster: every embedded `'ty` through `f`,
-// every POSITION through `fTok`, no hooks. Other payload is copied verbatim — but NOT
+// every POSITION through `fTok`, no hooks. Other payload is copied verbatim, but NOT
 // `MethodTypeParams`, whose entries ride `'ty` and would carry a live `UnionFind` cell.
 
 [<RequireQualifiedAccess>]
@@ -195,7 +195,7 @@ module TastConvert =
     type DeclRebuild<'ta, 'tb, 'toka, 'tokb, 'ida, 'idb, 'bodya, 'bodyb> =
         {
             Ty: 'ta -> 'tb
-            /// An enum case's identifier token — the cluster's only `'tok`, every other slot
+            /// An enum case's identifier token: the cluster's only `'tok`, every other slot
             /// having gone to `'body`.
             Tok: 'toka -> 'tokb
             Id: BoundVarKeyG<'ida> -> 'idb
@@ -353,7 +353,7 @@ module TastConvert =
             ParamAttrs = ib.ParamAttrs
         }
 
-    // The compiled-form cluster, likewise a trifunctor — in `('ty, 'pat, 'id)`. The `'ty`-only
+    // The compiled-form cluster, likewise a trifunctor, in `('ty, 'pat, 'id)`. The `'ty`-only
     // conversion runs it at `fPat = pat fTy` and `fId = id`; pooling runs it at `fTy = id`,
     // `fPat = <pat → pool id>`, `fId = <key → bound variable id>`, and unpooling at its inverse.
     let argGroup

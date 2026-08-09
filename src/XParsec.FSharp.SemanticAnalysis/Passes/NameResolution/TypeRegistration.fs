@@ -26,7 +26,7 @@ module NameResolutionTypeRegistration =
             ctx.Report(declTok, Kind.CustomEqualityOnRecordOrUnion)
 
     /// A `Typar`'s source-text name; the leading `'`/`^` lives on a separate
-    /// token. Anon (`_`) typars don't participate in scope — ValueNone.
+    /// token. Anon (`_`) typars don't participate in scope.
     let typarName (ctx: PassContext) (t: Typar<SyntaxToken>) : string voption =
         match t with
         | Typar.Named(ident = id)
@@ -100,11 +100,11 @@ module NameResolutionTypeRegistration =
     let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer =
         ModuleRules.typeContainer ctx.ModuleNaming c
 
-    /// The container a BINDING declared in `c` sits in — the same chain `localTypeContainer` reads.
+    /// The container a BINDING declared in `c` sits in, and the chain a TYPE's `TypeContainer` narrows.
     let localContainerChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleContainer =
         ModuleRules.containerChain ctx.ModuleNaming c
 
-    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares — recovered by
+    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares, recovered by
     /// the key the declaration mints in the module the walk stands in, never by its name: an
     /// arity-overloaded `Box\`1`/`Box\`2` has no bare name, and two modules may each declare `C`.
     let tryDeclaredClass (ctx: PassContext) (tn: TypeName<SyntaxToken>) : ClassTypeInfo voption =
@@ -118,7 +118,7 @@ module NameResolutionTypeRegistration =
             ValueNone
 
     /// The registered union / record / inline intrinsic-abbrev host the DECLARATION `tn`
-    /// declares — the non-class sibling of `tryDeclaredClass`, key-addressed for the same reason.
+    /// declares. Key-addressed for the same reason as the class-like case above.
     let tryDeclaredNonClassHost (ctx: PassContext) (tn: TypeName<SyntaxToken>) : IInterfaceImplHost voption =
         let (TypeName(ident = nameLi)) = tn
         let name = ctx.NameOf nameLi.Idents.[0]
@@ -126,8 +126,8 @@ module NameResolutionTypeRegistration =
         TypeRegistry.tryNonClassMemberHostByKey ctx.Types (ctx.DeclaredTypeKey(name, arityOfTypeName ctx tn)) name
 
     /// Mint the project-local `SymbolKey` for a type declaration, under the declaring
-    /// containment's containment chain. The collision branch is an INTERNAL-ERROR BACKSTOP — a
-    /// user duplicate is refused by the claim test upstream and never reaches the mint.
+    /// containment's containment chain. The collision branch is an INTERNAL-ERROR BACKSTOP
+    /// because a user duplicate is refused by the claim test upstream and never reaches the mint.
     let private stampLocalTypeKey
         (ctx: PassContext)
         (declSite: NodeSite)
@@ -152,9 +152,9 @@ module NameResolutionTypeRegistration =
 
         key
 
-    /// The assembly whose already-declared type a resolved external shape WITNESSES — the
-    /// `key -> assembly` oracle the collision test below reads. `None` = not a competing claim:
-    /// every package's `int` is THE `int`, and `Abbrev` / `Unmodelled` carry no `SymbolOrigin`.
+    /// The assembly whose already-declared type a resolved external shape WITNESSES.
+    /// `None` = not a competing claim: every package's `int` is THE `int`, and
+    /// `Abbrev` / `Unmodelled` carry no `SymbolOrigin`.
     let private externalClaimant (shape: ExternalTypeShape) : string option =
         // A stamped home is a claim (its assembly name); an unstamped home makes none. A
         // prior file of this very compilation claims under the compilation's own name.
@@ -174,7 +174,7 @@ module NameResolutionTypeRegistration =
         | ExternalTypeShape.Unmodelled _ -> None
 
     /// The CS0433 analogue: a `SymbolKey` carries no home assembly, so a declaration whose key a
-    /// REFERENCED assembly already answers for is refused — equal keys would let the unifier
+    /// REFERENCED assembly already answers for is refused because equal keys would let the unifier
     /// unify two different types. A shape homed under `AssemblyName` is this file's own, waived.
     let private diagnoseExternalClaim (ctx: PassContext) (declTok: SyntaxToken) (key: TypeKey) : unit =
         match ctx.Provider.TryLookupType(SymbolKey.Type key) with
@@ -218,7 +218,7 @@ module NameResolutionTypeRegistration =
             | ValueSome d -> ValueSome(struct (d.TypeName, TypeDeclKind.Class))
             | ValueNone -> ValueNone
 
-    /// The simple name a `TypeName` declares — `ValueNone` for the dotted/empty shapes a
+    /// The simple name a `TypeName` declares. `ValueNone` for the dotted/empty shapes a
     /// registrar declines.
     let private tryDeclaredSimpleName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string voption =
         let (TypeName(ident = nameLi)) = tn
@@ -228,7 +228,7 @@ module NameResolutionTypeRegistration =
         else
             ValueNone
 
-    /// Is this declaration a VALUE type — `[<Struct>]`, or the `type X = struct … end` shape?
+    /// Is this declaration a VALUE type: `[<Struct>]`, or the `type X = struct … end` shape?
     /// Kind-agnostic (a record, a union and a class can each be a struct): a struct stores its
     /// fields inline, so a struct field is an IMMEDIATE containment edge, uncyclable (FS0954).
     let isValueTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : bool =
@@ -261,7 +261,7 @@ module NameResolutionTypeRegistration =
         | _ -> ()
 
     /// The offset every claim of one `type … and …` group is visible from: inside a
-    /// `module rec` / `namespace rec` that scope's keyword, else the group's own first token —
+    /// `module rec` / `namespace rec` that scope's keyword, else the group's own first token,
     /// so a use above the group cannot see it and everything the group writes can.
     let typeGroupVisibleFrom (recScopeOffset: int voption) (defs: ImmutableArray<TypeDefn<SyntaxToken>>) : int =
         match recScopeOffset with
@@ -278,9 +278,9 @@ module NameResolutionTypeRegistration =
             | ValueSome t -> t.StartIndex
             | ValueNone -> 0
 
-    /// The nominal identity — name, arity, decl `NodeKey`, minted `SymbolKey`, visible-from
-    /// offset — of ONE type declaration, whatever its kind. Every type in a `type … and …`
-    /// group is claimed before any detail registers, so `and`-joined recursion needs no deferral.
+    /// The nominal identity of ONE type declaration, whatever its kind. Every type in a
+    /// `type … and …` group is claimed before any detail registers, so `and`-joined recursion
+    /// needs no deferral.
     let claimTypeIdentity
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -292,8 +292,8 @@ module NameResolutionTypeRegistration =
         | ValueSome(tn, kind) ->
             let (TypeName(ident = nameLi)) = tn
 
-            // A dotted / empty declared name claims nothing — and so, being absent from the
-            // group's working set, reaches no registrar.
+            // A dotted / empty declared name claims nothing, so it never enters the group's
+            // working set and reaches no registrar.
             if nameLi.Idents.Length <> 1 then
                 ValueNone
             else
@@ -308,7 +308,7 @@ module NameResolutionTypeRegistration =
                     | TypeDeclKind.Enum -> 0
                     | _ -> arityOfTypeName ctx tn
 
-                // The module chain that HOLDS the declaration — part of its claim, and the
+                // The module chain that HOLDS the declaration is part of its claim, and the
                 // container its key is minted from.
                 let container = localContainerChain ctx c
 
@@ -345,7 +345,7 @@ module NameResolutionTypeRegistration =
 
                     // An intrinsic binding's identity is its qualified key: `type int = (# … #)`
                     // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as
-                    // `Vesper.Collections.seq` at arity 1 — equal to the contract's canon key.
+                    // `Vesper.Collections.seq` at arity 1, each equal to the contract's canon key.
                     if kind = TypeDeclKind.IntrinsicRepr then
                         ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyArity c.Namespace name arity
 
@@ -401,7 +401,7 @@ module NameResolutionTypeRegistration =
             td
 
     /// Carries `it` over a module-level term's body. It resolves NO value and introduces NO
-    /// scope — the hooks below exist solely to reach the annotations on the patterns they bind
+    /// scope because the hooks below exist solely to reach the annotations on the patterns they bind
     /// (`fun (x: A) …`, a nested `let`'s pats, a `for`-in bound variable, a match arm's type test).
     let private classifyingExprWalker (ctx: PassContext) (it: CstWalk.TypeIter) : CstWalk.ExprWalker<unit> =
         let onType = CstWalk.iterType it
@@ -437,7 +437,7 @@ module NameResolutionTypeRegistration =
                     env
         }
 
-    /// Classify + stamp every type name a module-level TERM writes — a `let`'s parameter and
+    /// Classify + stamp every type name a module-level TERM writes: a `let`'s parameter and
     /// return-type annotations, and every annotation reachable in its body. Runs at the term's
     /// own position in the scan, so the registry holds exactly the types declared ABOVE it.
     let classifyTermTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -464,8 +464,8 @@ module NameResolutionTypeRegistration =
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | _ -> ()
 
-    /// Run `f` under a type declaration's typar scope — its prototype TyVars, keyed by the
-    /// source names its header declares — so a `'a` written in the declaration's structure
+    /// Run `f` under a type declaration's typar scope, its prototype TyVars keyed by the
+    /// source names its header declares, so a `'a` written in the declaration's structure
     /// resolves to the registry's TyVar, and an undeclared one is diagnosed, not minted.
     let underTyparScope (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) (f: unit -> 'a) : 'a =
         let savedScope = ctx.Resolution.TyparScope
@@ -732,9 +732,9 @@ module NameResolutionTypeRegistration =
             let declSite = id.DeclSite
             let caseNames = [| for EnumTypeCase(ident = cid) in cases -> ctx.NameOf cid |]
 
-            // The case VALUES, but ONLY when EVERY case is a string literal — the literal-union
-            // admission runs before Elaborate resolves the full case table. The projection peels
-            // a paren, so `| A = ("auto")` counts; one non-string case ⇒ `ValueNone`.
+            // The case VALUES, but ONLY when EVERY case is a string literal, because the
+            // literal-union admission runs before Elaborate resolves the full case table. The
+            // projection peels a paren, so `| A = ("auto")` counts; one non-string case ⇒ `ValueNone`.
             let caseStringValues =
                 let vals =
                     [|
@@ -787,7 +787,7 @@ module NameResolutionTypeRegistration =
             let key = id.Key
             let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
 
-            // Only an `(# … #)` RHS may carry a `with member …` augmentation — a transparent
+            // Only an `(# … #)` RHS may carry a `with member …` augmentation because a transparent
             // alias (`type bad = int with member …`) has no nominal identity to hang a member
             // on. Registered as a host without withdrawing the type from `IntrinsicReprKeys`.
             let registerMemberHostIfAny () =

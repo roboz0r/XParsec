@@ -74,8 +74,8 @@ module Freeze =
         | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, ty)
         | other -> other
 
-    /// Every `Var` in the rewritten body naming a bound variable the splice does not re-create — in
-    /// practice a module-level `let (a, b) = p`, which binds several names at once and so has
+    /// Every `Var` in the rewritten body naming a bound variable the splice does not re-create,
+    /// in practice a module-level `let (a, b) = p`, which binds several names at once and so has
     /// no key. Paired with the FIRST reference's token, which spells what the user wrote.
     let private freeVarsOfBody (d: TDecl) : (NodeKey * SyntaxToken) list =
         match d with

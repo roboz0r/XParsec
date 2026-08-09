@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 
-/// The declaration shell and the scalar clusters a pool payload rides — the shapes whose
+/// The declaration shell and the scalar clusters a pool payload rides, the shapes whose
 /// sub-trees are named by pool id instead of being inlined: a `type` declaration's member
 /// bodies, an inline template's decl, a `ValRepr`'s tuple group.
 module FrozenCodecDecls =
@@ -148,7 +148,7 @@ module FrozenCodecDecls =
             ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs)
         | b -> failwithf "FrozenCodec: unknown ForInEnumMembers tag %d" b
 
-    // The `type` declaration shell — the one declaration shape a pool payload still carries
+    // The `type` declaration shell, the one declaration shape a pool payload still carries
     // whole. Its member / preamble / ctor bodies bottom out at `writeExprPoolId`.
 
     and writeTypeDecl (w: FrozenWriter) (td: PooledTypeDecl) =
@@ -224,7 +224,7 @@ module FrozenCodecDecls =
         | b -> failwithf "FrozenCodec: unknown TTypeKind tag %d" b
 
     // Each `interfaces` entry pairs a resolved interface type with its typed member
-    // bodies — shared by the class / union / record arms.
+    // bodies. Shared by the class / union / record arms.
     and private writeInterfaces
         (w: FrozenWriter)
         (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BoundVarId, ExprPoolId>>>)
@@ -508,8 +508,8 @@ module FrozenCodecDecls =
         }
 
     /// A resolved-specialization entry: the grounding it is keyed by, the file its anchors
-    /// index, then its declaration by pool id. The key's type arguments are INTERNED here —
-    /// the `ty` columns never carried them — and so is the origin.
+    /// index, then its declaration by pool id. The key's type arguments are INTERNED here,
+    /// because the `ty` columns never carried them, and so is the origin.
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
         writeEqArrayWith w writeTypeRef s.Key.TypeArgs

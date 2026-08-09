@@ -27,7 +27,7 @@ module Desugar =
 
     /// `Token.OpSubtraction` / `OpAddition` serve both `a - b` and `-x`; only the prefix
     /// form reaches here, mapping to `op_UnaryNegation` / `op_UnaryPlus`. The spellings
-    /// `~-` / `~+` never do — they appear only as bound names / values.
+    /// `~-` / `~+` never do because they appear only as bound names / values.
     let private prefixOpName (t: Token) : string voption =
         match t with
         | Token.OpSubtraction -> ValueSome OperatorData.OpUnaryNegation
@@ -40,7 +40,7 @@ module Desugar =
         | Token.OpAmp -> ValueSome OperatorData.OpAddressOf
         | _ -> ValueNone
 
-    /// `[ … ]` / `[| … |]` literals share the same lowering target — the
+    /// `[ … ]` / `[| … |]` literals share the same lowering target: the
     /// nested `Cons` / `Nil` chain, with arrays adding an `Array.ofList`
     /// wrap at Elaborate time.
     let private literalFormOfParen (pk: ParenKind<SyntaxToken>) : DesugaredForm voption =
@@ -90,8 +90,8 @@ module Desugar =
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | ModuleElem.Type defs ->
             // A secondary ctor's body (`new(args) = …`) is an `AdditionalConstrExpr`,
-            // not a plain `Expr`, so each embedded expression — `let`-preamble RHS,
-            // chain-call arg, field init `{ f = e }` — has to be walked by hand.
+            // not a plain `Expr`, so each embedded expression (`let`-preamble RHS,
+            // chain-call arg, field init `{ f = e }`) has to be walked by hand.
             let rec walkCtorBody (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
                 match ace with
                 | AdditionalConstrExpr.LetIn(binding = b; body = body) ->

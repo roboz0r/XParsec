@@ -53,7 +53,7 @@ module Conformance =
     [<RequireQualifiedAccess>]
     type ConformanceError =
         /// A concrete type (union/record/class/…) declared in the `.fsi` but not defined
-        /// in the `.fs` — the FS0240 analogue. A transparent `Abbrev` is exempt.
+        /// in the `.fs`, the FS0240 analogue. A transparent `Abbrev` is exempt.
         | MissingInImpl of name: string
         /// `extern` in the signature but the implementation provides no `(# … #)`
         /// intrinsic representation (a capability promised with nothing behind it).
@@ -66,7 +66,7 @@ module Conformance =
         /// opaque value repr (`extern` / `(# … #)`).
         | HeritabilityMismatch of name: string
         /// A module-level `val` declared in the `.fsi` with no corresponding `let` in the
-        /// `.fs` — the value-granularity FS0240 analogue. The converse is not reported:
+        /// `.fs`, the value-granularity FS0240 analogue. The converse is not reported:
         /// F# hides an impl value the signature omits, so a private helper is not drift.
         | ValueMissingInImpl of name: string
 
@@ -285,7 +285,7 @@ module Conformance =
         let seenImpl = HashSet<string>()
 
         // A plain impl type absent from the sig is hidden by F#, not drift. An impl
-        // `(# … #)` with no `extern` is a repr the contract never declares — reported.
+        // `(# … #)` with no `extern` is a repr the contract never declares, so it is reported.
         for d in implDecls do
             if seenImpl.Add d.Name then
                 if not (sigMap.ContainsKey d.Name) then
@@ -298,8 +298,8 @@ module Conformance =
         List.ofSeq errors
 
     // ---- Value-binding presence -------------------------------------------------
-    // Module-level `val`/`let` NAMES only — comparing written signatures would flag false
-    // drift, as `.fsi` and `.fs` legally differ (`'a list` vs `List<'a>`) until resolved.
+    // Module-level `val`/`let` NAMES only, because comparing written signatures would flag
+    // false drift, as `.fsi` and `.fs` legally differ (`'a list` vs `List<'a>`) until resolved.
 
     /// The raw source spelling of a bound name (`+`, not `op_Addition`): the `.fsi`
     /// `val` and `.fs` `let` spell an operator identically, so it matches across sides.

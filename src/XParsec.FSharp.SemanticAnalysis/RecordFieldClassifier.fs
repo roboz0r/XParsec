@@ -9,7 +9,8 @@ module RecordFieldClassifier =
             /// The unique candidate whose declared fields EQUAL the typed set, else `ValueNone`
             /// (zero, or ambiguous).
             Exact: 'cand voption
-            /// Distinct exact matches after dedup — splits "no match" (0) from "ambiguous" (>1).
+            /// Distinct exact matches after dedup, which splits "no match" (0) from
+            /// "ambiguous" (>1).
             ExactCount: int
             /// Candidates whose declared fields ⊇ the typed set (deduped by key, first wins).
             /// `Exact`, when present, is one of these.

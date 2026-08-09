@@ -4,7 +4,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // The SHAPES a frozen-TAST consumer receives: the node handles, the handle-carrying
-// instantiation of each generic tree shape, and the `…View` payload records — a node's
+// instantiation of each generic tree shape, and the `…View` payload records: a node's
 // fields MINUS its child edges and its `ty`/`tok`, named by role.
 
 module TastNodeViews =
@@ -32,12 +32,12 @@ module TastNodeViews =
         {
             Key: Frozen.SpecializationKey
             Origin: OriginFile
-            /// The abstraction this entry's edges apply — the lambda chain an edge's
+            /// The abstraction this entry's edges apply: the lambda chain an edge's
             /// arguments are positional against.
             Value: ExprId
         }
 
-    /// The compiled-form cluster, its tuple-group / destructuring patterns held as handles —
+    /// The compiled-form cluster, its tuple-group / destructuring patterns held as handles,
     /// whether those came from a file's own pool or from the standalone pool an `.fsi`
     /// contract's patterns are minted into.
     type StaticParam = StaticParamG<FrozenType, PatId, BoundVarId>
@@ -61,7 +61,7 @@ module TastNodeViews =
     type ILIntrinsicView =
         {
             OpCode: string
-            /// The `<T>` the opcode takes — the element type of `newarr`/`ldelem`/`stelem`,
+            /// The `<T>` the opcode takes: the element type of `newarr`/`ldelem`/`stelem`,
             /// the boxed type of `box`, the zeroed type of `ilzero`. `ValueNone` for the
             /// type-free arithmetic / `throw` / reinterpret opcodes.
             TypeOperand: FrozenType voption
@@ -82,12 +82,12 @@ module TastNodeViews =
             Body: ExprId
         }
 
-    /// The scalar payload of an `Assignment` node (`lhs <- rhs`) — the two nodes
+    /// The scalar payload of an `Assignment` node (`lhs <- rhs`): the two nodes
     /// `exprChildren` yields, named by role.
     [<Struct>]
     type AssignmentView = { Lhs: ExprId; Rhs: ExprId }
 
-    /// The scalar payload of an `IfThenElse` node — the three nodes `exprChildren` yields,
+    /// The scalar payload of an `IfThenElse` node: the three nodes `exprChildren` yields,
     /// named by role.
     [<Struct>]
     type IfThenElseView =
@@ -105,13 +105,13 @@ module TastNodeViews =
             Key: SymbolKey voption
         }
 
-    /// The scalar payload of an `App` node (`fn arg`) — the two nodes `exprChildren`
+    /// The scalar payload of an `App` node (`fn arg`): the two nodes `exprChildren`
     /// yields, named by role.
     [<Struct>]
     type AppView = { Fn: ExprId; Arg: ExprId }
 
     /// The scalar payload of a `RecordClone` node (`{ source with … }`). `Overrides` are the
-    /// (field-name, replacement) pairs — the labels `exprChildren` drops.
+    /// (field-name, replacement) pairs, carrying the labels `exprChildren` drops.
     [<Struct>]
     type RecordCloneView =
         {
@@ -124,7 +124,7 @@ module TastNodeViews =
     [<Struct>]
     type FieldGetView = { ObjArg: ExprId; FieldName: string }
 
-    /// The scalar payload of a `FieldSet` node (`objArg.FieldName <- value`) — the two
+    /// The scalar payload of a `FieldSet` node (`objArg.FieldName <- value`): the two
     /// nodes `exprChildren` yields, named by role, plus the field label.
     [<Struct>]
     type FieldSetView =
@@ -139,7 +139,7 @@ module TastNodeViews =
     type NewView =
         {
             ClassName: string
-            /// The overload identity the front end chose — the key that disambiguates a
+            /// The overload identity the front end chose: the key that disambiguates a
             /// same-arity external-ctor candidate set; `ValueNone` when arity suffices.
             ChosenCtor: SymbolKey voption
         }
@@ -167,12 +167,12 @@ module TastNodeViews =
             Args: EqArray<ExprId>
         }
 
-    /// The scalar payload of a `StaticFieldGet` node — the declaring class key and the
+    /// The scalar payload of a `StaticFieldGet` node: the declaring class key and the
     /// backing-field name.
     [<Struct>]
     type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
 
-    /// The scalar payload of a `StaticFieldSet` node — the declaring class key and the
+    /// The scalar payload of a `StaticFieldSet` node: the declaring class key and the
     /// backing-field name; `Value` is the sole `exprChildren` entry.
     [<Struct>]
     type StaticFieldSetView =
@@ -186,21 +186,21 @@ module TastNodeViews =
     /// handles.
     type Arm = TMatchArmG<PatId, ExprId>
 
-    /// The scalar payload of a `Match` node — the scrutinee and the arms.
+    /// The scalar payload of a `Match` node: the scrutinee and the arms.
     [<Struct>]
     type MatchView = { Scrutinee: ExprId; Arms: Arm[] }
 
-    /// The scalar payload of a `TryWith` node — the guarded body and the handler arms;
+    /// The scalar payload of a `TryWith` node: the guarded body and the handler arms;
     /// `Body` is the leading `exprChildren` entry.
     [<Struct>]
     type TryWithView = { Body: ExprId; Arms: Arm[] }
 
-    /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`) — the two
+    /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`): the two
     /// `exprChildren` entries. `Body` carries the node's `ty`; `Cleanup` is unit.
     [<Struct>]
     type TryFinallyView = { Body: ExprId; Cleanup: ExprId }
 
-    /// The scalar payload of a `While` node (`while Cond do Body`) — the two nodes
+    /// The scalar payload of a `While` node (`while Cond do Body`): the two nodes
     /// `exprChildren` yields, named by role.
     [<Struct>]
     type WhileView = { Cond: ExprId; Body: ExprId }
@@ -246,7 +246,7 @@ module TastNodeViews =
     type FormatSeg = FormatSegG<FrozenType, Anchor, ExprId>
     type DynFormatHole = DynFormatHoleG<FrozenType, Anchor, ExprId>
 
-    /// The scalar payload of a `Format` node — the sink and the interleaved literal/hole
+    /// The scalar payload of a `Format` node: the sink and the interleaved literal/hole
     /// segments.
     [<Struct>]
     type FormatView =
@@ -255,7 +255,7 @@ module TastNodeViews =
             Segments: FormatSeg[]
         }
 
-    /// The scalar payload of an `EnumCase` pattern — the case's enum-key / case-name identity.
+    /// The scalar payload of an `EnumCase` pattern: the case's enum-key / case-name identity.
     [<Struct>]
     type EnumCasePatView =
         { EnumKey: SymbolKey; CaseName: string }

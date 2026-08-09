@@ -4,7 +4,7 @@ open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// Symbolic operator — a token, or a parenthesised binding name — to its
+/// Symbolic operator, whether a token or a parenthesised binding name, to its
 /// compiled member name: `+` → `op_Addition`, `<<<` → `op_LeftShift`.
 module OperatorNames =
 
@@ -52,7 +52,7 @@ module OperatorNames =
             | ValueSome op -> ValueSome(op.GetName text)
             | ValueNone -> ValueNone
 
-    /// Union-case ctor name: `([])` → `Empty`, `(::)` → `Cons` — the source ctor
+    /// Union-case ctor name: `([])` → `Empty`, `(::)` → `Cons`. These are the source ctor
     /// spellings, NOT the `op_Nil` / `op_ColonColon` compiled-op form. `ValueNone`
     /// for a name with no ctor form (range / active-pattern op): drop that case.
     let unionCaseCtorName (nameOf: SyntaxToken -> string) (ident: IdentOrOp<SyntaxToken>) : string voption =

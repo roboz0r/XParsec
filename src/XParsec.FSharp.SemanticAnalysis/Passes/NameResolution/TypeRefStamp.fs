@@ -127,7 +127,7 @@ module NameResolutionTypeRefStamp =
             )
             anchorName
 
-    /// A local claim WINS — including one qualified by a module of this file. The claims
+    /// A local claim WINS, including one qualified by a module of this file. The claims
     /// consulted are those VISIBLE AT THE USE SITE, so one written ABOVE a same-named local
     /// declaration sees none: F#'s file-order shadowing.
     let classifyTypeRef (ctx: PassContext) (typeRef: CstKeys.TypeRef) : TypeRefVerdict =
@@ -159,7 +159,7 @@ module NameResolutionTypeRefStamp =
                 Keys = System.Collections.Generic.HashSet()
             }
 
-    /// F#'s suffix rule: `Attribute`-suffixed FIRST, then as written — `[<Foo>]` binds
+    /// F#'s suffix rule: `Attribute`-suffixed FIRST, then as written, so `[<Foo>]` binds
     /// `FooAttribute` even where a non-attribute `Foo` is in scope. Deliberately unstamped.
     let tryResolveAttributeTypeKey (ctx: PassContext) (typ: Type<SyntaxToken>) : TypeKey voption =
         match CstKeys.ofTypeRef typ with
@@ -244,7 +244,7 @@ module NameResolutionTypeRefStamp =
     let stampMemberSig (ctx: PassContext) (ms: MemberSig<SyntaxToken>) : unit =
         CstWalk.iterTypeMemberSig (stampTypeIter ctx) ms
 
-    /// A type header's trailing constraints hang off `TypeName`, reached by no other stamper —
+    /// A type header's trailing constraints hang off `TypeName`, reached by no other stamper,
     /// so a coercion bound there must be stamped here or codegen cannot lower its `.Invoke`.
     let stampTyparConstraints (ctx: PassContext) (cs: TyparConstraints<SyntaxToken>) : unit =
         CstWalk.iterTypeConstraints (stampTypeIter ctx) cs

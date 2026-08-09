@@ -17,7 +17,7 @@ module FrozenCodec =
 
     // ── the pool columns (the stored wire form) ─────────────────────────────
     //
-    // A node's SHAPE tag has no writer — it projects from the payload, whose tag IS written.
+    // A node's SHAPE tag has no writer, because it projects from the payload, whose tag IS written.
 
     /// A child-id column: the slot starts, then the one flat id array they delimit. Two flat
     /// arrays, so the wire carries ONE length prefix per column where the jagged form carried
@@ -32,15 +32,15 @@ module FrozenCodec =
 
         ChildColumn.ofStored start ids
 
-    /// A decoded child column delimits the pool it is indexed by, and no other count — the
-    /// check `ChildColumn.ofStored` cannot make from one column in isolation. A truncated
+    /// A decoded child column delimits the pool it is indexed by, and no other count. That is
+    /// the check `ChildColumn.ofStored` cannot make from one column in isolation. A truncated
     /// column is internally consistent and would run off the end at some later node.
     let private checkSlots (name: string) (poolSize: int) (col: ChildColumn<'id>) =
         if ChildColumn.length col <> poolSize then
             failwithf "FrozenCodec: %s delimits %d slots but its pool holds %d" name (ChildColumn.length col) poolSize
 
-    /// One optional value per bound variable slot, in bound-variable pool order. NO id is written — the
-    /// slot's POSITION is the bound variable, so the wire carries a presence byte per slot.
+    /// One optional value per bound variable slot, in bound-variable pool order. NO id is written,
+    /// because the slot's POSITION is the bound variable, so the wire carries a presence byte per slot.
     let private writeBoundVarColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BoundVarColumn<'v>) =
         writeArrayWith w (fun w v -> writeVOptionWith w writeVal v) col
 
@@ -435,7 +435,7 @@ module FrozenCodec =
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
 
-    /// The un-pooled fields, verbatim — none of them a tree.
+    /// The un-pooled fields, verbatim, because none of them is a tree.
     let private writeResidue (w: FrozenWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
         writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
@@ -455,7 +455,7 @@ module FrozenCodec =
             Accessibility = accessibility
         }
 
-    /// Every column and side table, in `FrozenPools` declaration order — but NOT the tables
+    /// Every column and side table, in `FrozenPools` declaration order, but NOT the tables
     /// the types in them are ids into, which `writePools` puts in front of this.
     let private writeBody (w: FrozenWriter) (p: FrozenPools) =
         writeOriginRef w p.Origin

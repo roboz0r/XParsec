@@ -21,7 +21,7 @@ module internal UnificationInferTypeOps =
 
     /// Explicit type application on a value or ctor (`Box<int>(x)`): the given args
     /// unify pairwise with the *nominal result* type args, so `ResizeArray<int>()`
-    /// pins. A bare generic function (`id<int>`) has no nominal result — args are a no-op.
+    /// pins. A bare generic function (`id<int>`) has no nominal result, so args are a no-op.
     let rec inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
@@ -78,7 +78,7 @@ module internal UnificationInferTypeOps =
 
     /// `defaultExpr when ^T : Type = optimizedExpr` — a library-only static optimization.
     /// The default's type is the node's; each clause body is typed only to solve its own
-    /// subtrees, never cross-unified (clause results differ — `byte`/`int16` for `(+)`).
+    /// subtrees, never cross-unified (clause results differ: `byte`/`int16` for `(+)`).
     and inferLibraryOnlyStaticOptimization
         (infer: Infer)
         (ctx: PassContext)
@@ -97,7 +97,7 @@ module internal UnificationInferTypeOps =
             | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
                 TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
 
-        // One entry per clause, in the node's clause order — the consumer pairs by index.
+        // One entry per clause, in the node's clause order, because the consumer pairs by index.
         let resolved = ResizeArray(clauses.Length)
 
         for clause in clauses do
@@ -136,8 +136,8 @@ module internal UnificationInferTypeOps =
         ctx.MarkTypeDeclared(node.Key, annTy)
 
         // A format literal ascribed to a `PrintfFormat` family (`("%d" : StringFormat<_>)`)
-        // types AS the format, not `string`: skip `infer` on it — that would pin the node's
-        // TyVar to `string` — and stamp the annotation's format type onto the literal node.
+        // types AS the format, not `string`: stamp the annotation's format type onto the literal
+        // node and skip `infer`, because inferring would pin the node's TyVar to `string`.
         match tryTypeFormatLiteral ctx node.Tok inner annTy with
         | ValueSome fmt ->
             ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr inner)), ValueSome fmt)
@@ -195,7 +195,7 @@ module internal UnificationInferTypeOps =
         : SemType =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
-        // The node's own type is `bool`, so stash the tested-against type — nothing else
+        // The node's own type is `bool`, so stash the tested-against type. Nothing else
         // records what the emitted `isinst` tests against.
         ctx.Resolution.TypeTestTargets.Set(node.Key, tgtTy)
 

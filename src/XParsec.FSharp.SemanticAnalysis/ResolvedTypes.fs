@@ -4,13 +4,13 @@ open System.Collections.Generic
 open XParsec.FSharp.Parser
 
 // Post: ctx.Diagnostics carries an Error per TDecl whose TAST still references an unresolved
-//       TyVar — after generalisation every reachable TyVar should bottom out in a concrete
+//       TyVar, because after generalisation every reachable TyVar should bottom out in a concrete
 //       shape via Link chains, or be a quantified typar of the enclosing generalised `let`.
 
 module ResolvedTypes =
 
-    /// Walk `t` adding any free TyVar root — one whose `Link` is `ValueNone` — that is not
-    /// in `allowed` to `acc`.
+    /// Walk `t` adding to `acc` any free TyVar root (one whose `Link` is `ValueNone`) that is
+    /// not in `allowed`.
     let private addFreeRoots
         (store: TypeStore)
         (allowed: HashSet<TyVarId>)

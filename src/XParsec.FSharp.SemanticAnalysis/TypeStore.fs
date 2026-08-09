@@ -55,8 +55,7 @@ type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
             table.Remove(int loser.Id) |> ignore
 
 /// A `PayloadList` plus a reference-keyed `solved` set: a discharged item is recorded, not
-/// removed. One shared item stamped on several typars discharges once — hence
-/// `'T : not struct`.
+/// removed. One shared item stamped on several typars discharges once, hence `'T : not struct`.
 [<Sealed>]
 type BoundTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) =
     let items = PayloadList<'T>(combine)
@@ -90,7 +89,7 @@ type TypeStore() =
     let mutable level: int[] = Array.empty
     let mutable link: SemType voption[] = Array.empty
     let mutable units: MeasureTerm voption[] = Array.empty
-    // Write-once region id — NOT migrated on union, so it stays a per-node cell keyed by
+    // Write-once region id, NOT migrated on union, so it stays a per-node cell keyed by
     // raw `TyVarId`.
     let mutable region: RegionId[] = Array.empty
 

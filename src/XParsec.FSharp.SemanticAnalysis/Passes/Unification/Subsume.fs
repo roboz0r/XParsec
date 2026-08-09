@@ -8,8 +8,8 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 
 /// The DIRECTIONAL layer: the read-only subtyping query `subsumes` and the ground
-/// evaluation of the carried type-level computations (`keyof`/`T[K]`/conditional) —
-/// mutually recursive, since a conditional's `extends` test IS `subsumes`.
+/// evaluation of the carried type-level computations (`keyof`/`T[K]`/conditional). The two
+/// are mutually recursive, since a conditional's `extends` test IS `subsumes`.
 module UnificationSubsume =
 
     /// The result of the subtyping query `subsumes`: `Equal` for the same nominal type
@@ -52,8 +52,8 @@ module UnificationSubsume =
             | ValueNone -> ValueNone
         | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupType(SymbolKey.Type key) with
-            // `keyof` reads any external nominal's members — a plain class as well as an
-            // interface — so it takes the un-guarded member surface.
+            // `keyof` reads any external nominal's members, a plain class as well as an
+            // interface, so it takes the un-guarded member surface.
             | ValueSome(ExternalSymbols.ExternalMembers members) ->
                 ValueSome(
                     members
@@ -86,7 +86,7 @@ module UnificationSubsume =
 
     /// The literal members of `t` when it is a PURE literal shape: a single `TyLiteral`
     /// yields a singleton, a `TyOr` yields its members iff EVERY member is a literal,
-    /// anything else is `ValueNone`. Only `resolveStep`s — a caller needing a fold pre-folds.
+    /// anything else is `ValueNone`. Only `resolveStep`s, so a caller needing a fold pre-folds.
     let tryLiteralMembers (store: TypeStore) (t: SemType) : LiteralConst list voption =
         match resolveStep store t with
         | TyLiteral v -> ValueSome [ v ]
@@ -124,7 +124,7 @@ module UnificationSubsume =
                 ValueNone
         | ValueNone -> ValueNone
 
-    /// No free `TyVar` and no still-carried type-level node anywhere in `t` — the gate a
+    /// No free `TyVar` and no still-carried type-level node anywhere in `t`, the gate a
     /// conditional's `check`/`extends` must pass before its `extends` test can decide.
     let rec private isGroundEval (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
@@ -144,9 +144,9 @@ module UnificationSubsume =
         | TyConditional _ -> true
         | t -> SemType.existsChild (hasCarriedNode store) t
 
-    /// Subtyping query distinct from `unify`: does a value of type `src` coerce to `tgt`? A
-    /// pure read — never mutates `Link` / `Constraints`, so a read-only `:?` site needs no
-    /// undo trace. A `TyOr` operand resolves structurally, with its members folded first.
+    /// Subtyping query distinct from `unify`: does a value of type `src` coerce to `tgt`? It
+    /// never mutates `Link` / `Constraints`, so a read-only `:?` site needs no undo trace.
+    /// A `TyOr` operand resolves structurally, with its members folded first.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match resolveStep ctx.Store src, resolveStep ctx.Store tgt with
         // union → union (`A | B ≤ A | B | C`): identical member sets are `Equal` (`EqSet`
@@ -169,8 +169,8 @@ module UnificationSubsume =
             else
                 SubsumeOutcome.Unrelated
         // A Vesper string ENUM admits into a literal union when its case-VALUE set ⊆ the
-        // union's literal set — the nominal companion for code that wants to name the
-        // literal type. A non-string enum declines the guard and takes the arm below.
+        // union's literal set, so an enum can be the nominal companion for code that wants to
+        // name the literal type. A non-string enum declines the guard and takes the arm below.
         | TyEnum ek, TyOr ts when enumAdmitsIntoLiteralUnion ctx ek ts.Members -> SubsumeOutcome.Subtype
         // member → union (`A ≤ A | B`): `Equal` when `src` *is* a member by structural `=`,
         // `Subtype` when it subsumes into some member (a subclass of a member, or a literal
@@ -188,7 +188,7 @@ module UnificationSubsume =
             else
                 SubsumeOutcome.Unrelated
         // union → member/other (`A | B ⋠ A`): coerces only when *every* member subsumes the
-        // target (`obj` or a wider type) — otherwise the consumer must narrow first.
+        // target (`obj` or a wider type); otherwise the consumer must narrow first.
         // `never` (`TyOr []`) subsumes into everything (`forall` over the empty set).
         | TyOr ss, _ ->
             if
@@ -199,8 +199,8 @@ module UnificationSubsume =
             else
                 SubsumeOutcome.Unrelated
         // OUTWARD widening: a structural literal widens to its BASE primitive (`"a" ≤
-        // string`). DIRECTIONAL — the converse, plain `string` into a literal, is not
-        // admitted here: a `string` source reaches `subsumesNominal` and is `Unrelated`.
+        // string`). The converse, plain `string` into a literal, is not admitted here, because
+        // a `string` source reaches `subsumesNominal` and is `Unrelated`.
         | TyLiteral v, TyConst(key, _) when key = RuntimeNames.literalBaseKey v -> SubsumeOutcome.Subtype
         // A structural `TyFun(a, …)` IS a subtype of `Vesper.Fun`(k+1)<a1..ak, r>`: peel
         // `k = targs.Length - 1` domains, each invariant-`Equal` to its `Fun` arg, and the
@@ -303,7 +303,7 @@ module UnificationSubsume =
                         WhenTrue = evalTypeLevel ctx c.WhenTrue
                         WhenFalse = evalTypeLevel ctx c.WhenFalse
                     }
-        // COMPOUND types recurse so a carrier NESTED inside them folds too — a `keyof`/`T[K]`
+        // COMPOUND types recurse so a carrier NESTED inside them folds too, such as a `keyof`/`T[K]`
         // under a `TyFun`, `TyOr`, tuple, or nominal argument. `mapChildren` routes `TyOr`
         // through its smart constructor, since a folded member can collapse or reorder the set.
         | t when hasCarriedNode ctx.Store t -> SemType.mapChildren (evalTypeLevel ctx) t

@@ -14,7 +14,7 @@ module PrintfHoleForm =
         | Default
         | Never
         | Cols of int
-        /// `%*A` — the column budget is a runtime argument (the leading star `int`), so
+        /// `%*A`: the column budget is a runtime argument (the leading star `int`), so
         /// there is no static column count.
         | Star
 
@@ -36,11 +36,11 @@ module PrintfHoleForm =
     /// The base / case of an integer rendered in a non-decimal radix.
     [<RequireQualifiedAccess>]
     type Radix =
-        /// `%x` / `%X` — the `upper` flag is the digit case (`'a'` vs `'A'`).
+        /// `%x` / `%X`: the `upper` flag is the digit case (`'a'` vs `'A'`).
         | Hex of upper: bool
-        /// `%B` — .NET 8 binary; two's-complement for negatives.
+        /// `%B`: .NET 8 binary; two's-complement for negatives.
         | Binary
-        /// `%o` — `Convert.ToString(v, 8)`; two's-complement for negatives.
+        /// `%o`: `Convert.ToString(v, 8)`; two's-complement for negatives.
         | Octal
 
     /// A non-`%A` hole's per-value formatting, semantically.
@@ -63,10 +63,11 @@ module PrintfHoleForm =
         /// (`Star` ⇒ runtime precision).
         | Fixed of precision: Prec
         /// `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
-        /// Precision stays a static `int` — a star precision is not admitted here.
+        /// A star precision (`%0w.*f`) is declined rather than reaching this case.
         | FixedZeroPad of precision: int * width: int
         /// `%-0w.Nf`: fixed-point, then zeros on the RIGHT (past the point) to a total field
-        /// of `width` — F#'s left-align + zero-pad on a float (`%-05.2f` 3.14159 ⇒ `"3.140"`).
+        /// of `width`, because F#'s left-align plus zero-pad on a float fills the right
+        /// (`%-05.2f` 3.14159 ⇒ `"3.140"`).
         | FixedRightZeroPad of precision: int * width: int
         /// `%e` / `%E` / `%.*e`: scientific, `precision` fraction digits (`Star` ⇒ runtime),
         /// `upper` exponent case. JS `toExponential` gives a minimal exponent width, not
@@ -94,19 +95,19 @@ module PrintfHoleForm =
         | Star of leftJustify: bool
 
     /// A classified format hole. `Field` carries the field alignment (the `%5d` / `%-5d`
-    /// width) alongside the formatting — the zero-pad forms set it `None`, their width
+    /// width) alongside the formatting, but the zero-pad forms set it `None`, their width
     /// riding inside the `FieldFormat`.
     [<RequireQualifiedAccess>]
     type HoleForm =
         | PercentA of width: PrintWidth * size: PrintSize
         | Field of fmt: FieldFormat * alignment: Alignment
-        /// `%a` (`hasValue = true`) / `%t` (`hasValue = false`) — a printer callback hole.
+        /// `%a` (`hasValue = true`) / `%t` (`hasValue = false`): a printer callback hole.
         /// `%a` consumes a callback `('State -> 'T -> 'Residue)` AND a value `'T`; `%t` just
         /// `('State -> 'Residue)`.
         | Callback of hasValue: bool
 
     /// Resolve a *static* `%A` width budget to the concrete column count the engines take
-    /// (80 by default). `Star` (`%*A`) has none — the width arrives as a runtime argument.
+    /// (80 by default). `Star` (`%*A`) has none, because the width arrives as a runtime argument.
     let percentAWidth (w: PrintWidth) : int voption =
         match w with
         | PrintWidth.Default -> ValueSome 80
@@ -115,7 +116,7 @@ module PrintfHoleForm =
         | PrintWidth.Star -> ValueNone
 
     /// Resolve a *static* `%A` size budget (F#'s `PrintSize` node count) to a concrete count
-    /// (10000 by default). `Star` (`%.*A`) has none — the size arrives as a runtime argument.
+    /// (10000 by default). `Star` (`%.*A`) has none, because the size arrives as a runtime argument.
     let percentASize (size: PrintSize) : int voption =
         match size with
         | PrintSize.Default -> ValueSome 10000
@@ -169,7 +170,7 @@ module PrintfHoleForm =
         "%" + p.Flags + dim p.Width + prec + string p.TypeChar
 
     /// Classify a placeholder into its target-neutral `HoleForm`, or `ValueNone` for a
-    /// specifier no backend renders faithfully — the caller then keeps the generic printf
+    /// specifier no backend renders faithfully, so the caller keeps the generic printf
     /// call shape. Parity with F# `printf` under `InvariantCulture` is the bar for accepting.
     let tryClassify (p: FormatPlaceholder) : HoleForm voption =
         let precIsStar = p.Precision = FormatDim.Star
@@ -216,7 +217,7 @@ module PrintfHoleForm =
                 | Some w -> Alignment.Const(if leftAlign then -w else w)
                 | None -> Alignment.None
 
-        // Only reached in the float arms — every other type defers a star precision first.
+        // Only reached in the float arms, because every other type defers a star precision first.
         let precDim (dflt: int) : Prec =
             match p.Precision with
             | FormatDim.Star -> Prec.Star
@@ -231,8 +232,8 @@ module PrintfHoleForm =
 
         if p.Type = FormatType.Structured then
             // `%A`: the `0` flag forces flat (width 0) ahead of any explicit width, and
-            // `+`/`-`/` ` are no-ops. `%0*A` is declined — in F# the `0` flag also discards
-            // the runtime column budget.
+            // `+`/`-`/` ` are no-ops. `%0*A` is declined: in F# the `0` flag also discards
+            // the runtime column budget, so the hole would consume a star argument and ignore it.
             if widthIsStar then
                 if zeroPad then
                     ValueNone
@@ -251,8 +252,8 @@ module PrintfHoleForm =
 
                 ValueSome(HoleForm.PercentA(pw, sizeDim))
         elif widthIsStar && zeroPad then
-            // `%0*d`: a star zero-pad width rides *inside* `FieldFormat` (no
-            // compile-time value to embed) — stays cold.
+            // `%0*d`: the zero-pad forms embed the width *inside* `FieldFormat` as a
+            // compile-time `int`, and a star width has none, so it stays cold.
             ValueNone
         elif plusSign || spaceSign then
             // Forced-sign. `+` wins over a space flag when both are present, and this arm
@@ -260,7 +261,7 @@ module PrintfHoleForm =
             let space = not plusSign
 
             // A literal precision as a static digit count (default `dflt`), or `ValueNone`
-            // for a star precision (no consumer on these forms — defer it).
+            // for a star precision, because these forms build a `Prec.Const` only.
             let constPrecOr (dflt: int) : int voption =
                 match p.Precision with
                 | FormatDim.Star -> ValueNone
@@ -270,7 +271,7 @@ module PrintfHoleForm =
             match p.Type with
             | FormatType.DecimalInt ->
                 // Integer forced sign has no precision slot, so a star precision (`%+.*d`)
-                // is deferred. `%+05d` zero-pads through the sign — the width rides inside
+                // is deferred. `%+05d` zero-pads through the sign, so the width rides inside
                 // the `FieldFormat`, leaving `Alignment.None`.
                 if precIsStar then
                     ValueNone
@@ -348,7 +349,7 @@ module PrintfHoleForm =
             // Reached only when `zeroPad` ⇒ `width` guaranteed present.
             let zpWidth () = width.Value
             // The non-float forms have no runtime-precision slot, so a star precision reaches
-            // them only as an argument with no consumer — defer it.
+            // them only as an argument with no consumer. Defer it.
             let deferIfStarPrec r = if precIsStar then ValueNone else r
 
             match p.Type with
@@ -443,6 +444,7 @@ module PrintfHoleForm =
                 else
                     field FieldFormat.Verbatim
             | FormatType.Structured -> ValueNone
-            // Whether the hole actually lowers is the gate's call — it holds the provider.
+            // Whether the hole actually lowers is the gate's call, because only it sees the
+            // provider-resolved sink type.
             | FormatType.FormatFunction -> ValueSome(HoleForm.Callback true)
             | FormatType.Text -> ValueSome(HoleForm.Callback false)

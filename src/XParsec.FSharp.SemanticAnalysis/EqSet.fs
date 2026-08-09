@@ -12,8 +12,9 @@ open System.Runtime.CompilerServices
 type EqSet<'T> =
     val private items: ImmutableArray<'T>
 
-    /// `Equals`/`GetHashCode` below assume the members are distinct. The scan is quadratic —
-    /// member counts are tiny — and an already-distinct input keeps its original array uncopied.
+    /// `Equals`/`GetHashCode` below assume the members are distinct. The scan is quadratic,
+    /// which is fine at these member counts, and an already-distinct input keeps its original
+    /// array uncopied.
     new(items: ImmutableArray<'T>) =
         let cmp = EqualityComparer<'T>.Default
         let acc = ImmutableArray.CreateBuilder<'T>(items.Length)

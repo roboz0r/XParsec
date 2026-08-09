@@ -130,5 +130,5 @@ module RefCellPromotion =
         else
             let decls' = tast.Decls |> EqArray.map (rewriteDecl promote)
             // The cell type lives in `Vesper.Core.dll` and resolves through the codegen's
-            // external-record path — no synthesised `TDecl.Type` ships with the consumer.
+            // external-record path, so no synthesised `TDecl.Type` ships with the consumer.
             { tast with Decls = decls' }

@@ -14,7 +14,7 @@ module InlineSpecTable =
     /// site-specific; only a `Survive` parameter can be a parameter of a shared entry.
     [<RequireQualifiedAccess>]
     type Disposition =
-        /// Bound to a bare `External` function VALUE — pure and capture-free, so it is
+        /// Bound to a bare `External` function VALUE: pure and capture-free, so it is
         /// substituted into the body and its `let` disappears.
         | FuseExternalValue
         /// A lambda argument every use of which is a fully saturated application: spliced
@@ -34,8 +34,8 @@ module InlineSpecTable =
             Ty: SemType
             /// The call-site argument. Unwalked in a peel; walked in a `Reduced`.
             Arg: TExpr
-            /// The template's own bound variable, where an entry's abstraction is anchored — the call
-            /// site's own position belongs to the EDGE instead.
+            /// The template's own bound variable, where an entry's abstraction is anchored. The
+            /// call site's own position belongs to the EDGE instead.
             PatTok: SyntaxToken
             Disposition: Disposition
         }
@@ -73,15 +73,15 @@ module InlineSpecTable =
             Site: SyntaxToken
             Grounding: Grounding
             /// May a LATER site at the same grounding name this same entry? False when the
-            /// reduction fused any call-site material, or when its type arguments are not
-            /// ground — either way the entry belongs to this site rather than the template.
+            /// reduction fused any call-site material, or when its type arguments are not ground,
+            /// because either way the entry belongs to this site rather than the template.
             Shareable: bool
-            /// The file the entry's nodes stay anchored in — the template's, which for a
+            /// The file the entry's nodes stay anchored in: the template's, which for a
             /// template of this file is the file being compiled.
             Origin: OriginFile
-            /// The position, anchor domain and result type of the EDGE — the call site's, never
-            /// read off the entry: a reused entry's types belong to the thaw that built it,
-            /// where this node belongs to the material the call was written in.
+            /// The position, anchor domain and result type of the EDGE, taken from the call site
+            /// and never read off the entry: a reused entry's types belong to the thaw that built
+            /// it, where this node belongs to the material the call was written in.
             EdgeTok: SyntaxToken
             EdgeOrigin: OriginFile
             EdgeTy: SemType
@@ -94,7 +94,7 @@ module InlineSpecTable =
             Build: SpecializationId -> Reduced
         }
 
-    // Queries over a FINISHED `TSpecialization[]` — the graph invariants the finish step
+    // Queries over a FINISHED `TSpecialization[]`: the graph invariants the finish step
     // discharges.
 
     /// Does the tree hold material FUSED from a call site? The question a SHAREABLE entry must
@@ -118,7 +118,7 @@ module InlineSpecTable =
 
         found
 
-    /// Every specialization `e` NAMES, in walk order and with repeats — the graph's EDGE
+    /// Every specialization `e` NAMES, in walk order and with repeats: the graph's EDGE
     /// relation, read off a tree rather than stored.
     let edges (e: TExpr) : SpecializationId list =
         e
@@ -144,7 +144,7 @@ module InlineSpecTable =
     /// finite and inspectable, rather than during the substitution that would not terminate.
     let findCycle (entries: TSpecialization[]) : SpecializationId list voption =
         // An edge back into the current DFS path is a cycle; an edge into a FINISHED entry is
-        // ordinary sharing — a diamond is legal and must not be reported.
+        // ordinary sharing, so a diamond is legal and must not be reported.
         let unvisited, onPath, finished = 0, 1, 2
         let state = Array.create entries.Length unvisited
         let path = ResizeArray<int>()
@@ -174,8 +174,8 @@ module InlineSpecTable =
         found
 
     /// Entries that FUSED call-site material yet are named by other than exactly ONE edge,
-    /// paired with the edge count that convicts them. `roots` are the trees OUTSIDE the table —
-    /// the file's own declarations — whose edges count exactly as an entry's do.
+    /// paired with the edge count that convicts them. `roots` are the file's own declarations,
+    /// whose edges count exactly as an entry's do.
     let miscountedFusedEntries (roots: TExpr seq) (entries: TSpecialization[]) : (SpecializationId * int) list =
         let counts = Array.zeroCreate<int> entries.Length
 
@@ -196,9 +196,9 @@ module InlineSpecTable =
                     yield SpecializationId i, counts.[i]
         ]
 
-    /// The resolved-specialization table one run of the pass builds. Slot order is entry order —
-    /// a `SpecializationId` an edge carries indexes it — so a slot is briefly empty and the
-    /// array is materialised only once every build has finished.
+    /// The resolved-specialization table one run of the pass builds. An edge's `SpecializationId`
+    /// indexes the slots, so a slot is reserved before its entry exists and the array is
+    /// materialised only once every build has finished.
     [<NoEquality; NoComparison>]
     type SpecTable =
         {
@@ -225,8 +225,8 @@ module InlineSpecTable =
             }
 
         /// Retain the producer file a served body arrived with, and hand back everything
-        /// retained so far — which is what READS a foreign anchor. Keyed by path, so a file
-        /// serving many templates is retained once.
+        /// retained so far, which is what a foreign anchor is READ through. Keyed by path, so a
+        /// file serving many templates is retained once.
         let retainOrigin (src: OriginSource) (t: SpecTable) : OriginSources =
             t.Origins <- OriginSources.add src t.Origins
             t.Origins
@@ -243,8 +243,8 @@ module InlineSpecTable =
                 ValueNone
 
         /// The TABLE form of a reduction: a new entry, its surviving parameters abstracted back
-        /// into the lambda chain an `InlineCall`'s arguments are positional against. Arity is
-        /// the surviving-parameter count — a fused parameter is not a parameter of the entry.
+        /// into the lambda chain an `InlineCall`'s arguments are positional against. One lambda
+        /// per SURVIVOR, below `Grounding.Arity` whenever a parameter fused.
         let private mintEntry (o: Outlining) (t: SpecTable) : SpecializationId * InlineParam list =
             let slot = t.Entries.Count
             let spec = SpecializationId slot
@@ -262,8 +262,8 @@ module InlineSpecTable =
                     reduced.Survivors
                     (reduced.Body, TastWalk.exprTy reduced.Body)
 
-            // `shareable` implies a CLOSED peel — no parameter fused — so a fusion bug faults
-            // here instead of silently sharing one site's material across sites.
+            // `shareable` implies that no parameter fused, so a fusion bug faults here instead
+            // of silently sharing one site's material across sites.
             if o.Shareable && containsCallerExpr value then
                 failwithf
                     "InlineExpansion: specialization %d is shareable but marks caller material — a closed reduction fused nothing, so this entry's parameters were mis-classified"
@@ -274,8 +274,8 @@ module InlineSpecTable =
                     {
                         Key = o.Grounding.Key
                         Origin = o.Origin
-                        // The bound variable is unread — every consumer matches on the VALUE alone — so
-                        // it is minted rather than taken from anything.
+                        // Every consumer matches on the VALUE alone, so this bound variable is
+                        // minted rather than taken from anything.
                         Decl =
                             TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)
                     }
@@ -322,8 +322,8 @@ module InlineSpecTable =
             match findCycle table with
             | ValueSome cycle ->
                 // Named in call order, so the verdict reads as the loop runs, and positioned at
-                // the site of the entry the cycle CLOSES ON — a position in the file being
-                // compiled, where an entry's own anchors index its template's file.
+                // the site of the entry the cycle CLOSES ON, because that is a position in the
+                // file being compiled, where an entry's own anchors index its template's file.
                 match cycle, [ for SpecializationId i in cycle -> Inline.servedName table.[i].Key.Template ] with
                 | SpecializationId closes :: _, binding :: via ->
                     t.Report t.Entries.[closes].Site (Kind.CyclicInline(binding, via))

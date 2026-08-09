@@ -2,8 +2,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Lexer
 
-// The `%[flags][width][.precision][type]` grammar belongs to the lexer — a
-// placeholder arrives already classified as a `FormatType`, and only its typing
+// The `%[flags][width][.precision][type]` grammar belongs to the lexer, so a
+// placeholder arrives already classified as a `FormatType` and only its typing
 // happens here.
 
 module PrintfSpec =
@@ -147,7 +147,7 @@ module PrintfSpec =
         | FormatType.Structured -> false
         | t -> not (isCallbackHole t)
 
-    /// EXACTLY ONE argument, of fixed concrete type — what a one-arg-per-hole peel needs.
+    /// EXACTLY ONE argument, of fixed concrete type, which is what a one-arg-per-hole peel needs.
     /// A star dimension yields a leading `int` too, so a star hole is concrete yet multi-arg.
     let isUnaryConcreteHole (p: FormatPlaceholder) : bool =
         hasConcreteArgType p.Type
@@ -155,7 +155,7 @@ module PrintfSpec =
         && p.Precision <> FormatDim.Star
 
     /// `FormatArgIndex` is the format string's positional slot: 0 for `printf`/`sprintf`,
-    /// 1 for `fprintf`. `Tail` is the curried printer's final result — `unit` when
+    /// 1 for `fprintf`. `Tail` is the curried printer's final result: `unit` when
     /// writing, `string` for `sprintf`.
     type Family =
         {
@@ -205,8 +205,9 @@ module PrintfSpec =
             ScratchSink = tyUnit
         }
 
-    /// Keyed by source short name. The `k*` continuation forms are absent — they
-    /// carry an extra leading continuation argument.
+    /// Keyed by source short name. The `k*` continuation forms are absent because their
+    /// leading continuation is typed by the call site's result, not by a fixed type like
+    /// `fprintf`'s `TextWriter`.
     let families: Map<string, Family> =
         [
             "printf", writerFamily 0 []
@@ -257,7 +258,8 @@ module PrintfSpec =
         }
 
     /// Whether a `%a`/`%t` hole can lower on this target: the family's `'State` sink must be
-    /// nameable here. Takes a resolved `Family` — a slot still a by-name `TyConst` is not.
+    /// nameable here. Takes a resolved `Family`, because an unresolved sink is still a
+    /// by-name `TyConst` and fails this test.
     let callbackSinkAvailable (fam: Family) : bool =
         match fam.State with
         | TyClass _ -> true
@@ -285,8 +287,8 @@ module PrintfSpec =
     let printerType (argTypes: SemType list) (fam: Family) : SemType =
         List.foldBack (fun a r -> TyFun(a, r)) argTypes fam.Tail
 
-    /// Curried arguments the placeholders consume — the sum of per-hole `argTypes` lengths,
-    /// NOT the hole count: a star hole consumes 2–3. Only the count is read, so the dummy
+    /// Curried arguments the placeholders consume: the sum of per-hole `argTypes` lengths,
+    /// NOT the hole count, since a star hole consumes 2–3. Only the count is read, so the dummy
     /// `fresh` and `tyUnit` state/residue below never surface.
     let totalArity (specs: FormatPlaceholder list) : int =
         specs
@@ -323,9 +325,9 @@ module PrintfSpec =
 
             ValueSome(fnTy, fmt, printer)
 
-    /// The PRINTER type (`arg1 -> … -> result`) the specifiers denote where the position
-    /// already fixes `state`/`residue`/`result` — a format-typed annotation, not an
-    /// application. The printer alone: the caller keeps its own format type.
+    /// The PRINTER type (`arg1 -> … -> result`) the specifiers denote at a format-typed
+    /// annotation rather than an application, where the position already fixes
+    /// `state`/`residue`/`result`. The printer alone: the caller keeps its own format type.
     let printerFromSlots
         (fresh: unit -> SemType)
         (specs: FormatPlaceholder list)

@@ -22,7 +22,7 @@ module Regions =
             /// lambda-reach threshold from 2 to 1, so any closure capture forces
             /// `HeapShared`.
             IsMutableCell: bool
-            /// This region is itself a heap-repr sink — an aggregate container (tuple /
+            /// This region is itself a heap-repr sink: an aggregate container (tuple /
             /// record / union / `new`), or the source of a box / interface upcast.
             /// `solveRepr` flows `RequiresHeapRepr` DOWN this node's `Outlives` edges.
             mutable HeapReprSink: bool
@@ -98,7 +98,7 @@ module Regions =
         s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, true)
 
     /// Parameter regions live in the callee frame, one level below the binding's
-    /// RHS — hence `LetLevel`, not `EnclosingLet`.
+    /// RHS, hence `LetLevel`, not `EnclosingLet`.
     let private freshParam (s: State) : RegionId =
         s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false)
 
@@ -133,7 +133,7 @@ module Regions =
 
     /// Does this type represent an allocation we should track? Primitive scalars
     /// and `unit` don't allocate; closures, tuples and named composites do.
-    /// Unresolved shapes resolve as non-allocating — conservative on "don't stamp".
+    /// Unresolved shapes resolve as non-allocating, so the pass errs toward not stamping.
     let rec private isAllocation (store: TypeStore) (t: SemType) : bool =
         match resolveLink store t with
         // Matched by KEY: a user type merely SPELLED `int` is a nominal composite and
@@ -156,9 +156,9 @@ module Regions =
         // An open typar: like a free `TyVar`, whether it allocates is unknown.
         | TyTypar _ -> false
         // An enum is a value type (numeric → `System.Enum`; string / mixed →
-        // a `[<Struct>]` wrapper) — it does not heap-allocate.
+        // a `[<Struct>]` wrapper), so it does not heap-allocate.
         | TyEnum _ -> false
-        // A literal erases to its base primitive — an interned `string` or a
+        // A literal erases to its base primitive, an interned `string` or a
         // scalar, both non-allocating here.
         | TyLiteral _ -> false
 
@@ -209,7 +209,7 @@ module Regions =
 
     /// An outlives edge from each captured binding's region to the closure region `r`.
     // TODO(byref-capture): a byref-like capture (`Span` / `ref struct`) of a closure
-    // solved `HeapShared` is the reject site — blocked on a byref-like predicate.
+    // solved `HeapShared` is the reject site, blocked on a byref-like predicate.
     let private addCaptureEdges (s: State) (freeVars: HashSet<NodeKey>) (r: RegionId) : unit =
         for bs in freeVars do
             match s.BindingRegions.TryGetValue bs with
@@ -240,7 +240,7 @@ module Regions =
             holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]
         | TExpr.New(_, _, args, _, _)
         | TExpr.UnionCons(_, args, _, _) -> holds s [ for a in args -> inferRegion s ctx a ]
-        // A field / property read allocates nothing — it rides the object argument's region.
+        // A field / property read allocates nothing, so it rides the object argument's region.
         // Walk the object argument so its capture edges still register.
         | TExpr.FieldGet(r, _, _, _) -> inferRegion s ctx r
         | TExpr.PropertyGet(r, _, _, _, _) -> inferRegion s ctx r
@@ -284,7 +284,7 @@ module Regions =
             RegionId.Unknown
         | TExpr.Sequential(items, _, _) ->
             // Evaluate every item for side-effects (capture edges). The
-            // sequence's region is the LAST item — intermediates don't escape.
+            // sequence's region is the LAST item because intermediates don't escape.
             let n = items.Length
 
             if n = 0 then
@@ -386,7 +386,7 @@ module Regions =
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // The entry's body is a separate root shared by every call site, so walking it
         // here would mint one region per site for one body's allocations. Treated as
-        // the opaque call it is — coarse in the same direction `App` is.
+        // the opaque call it is, coarse in the same direction `App` is.
         | TExpr.InlineCall(args = args) ->
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Purely an anchor-domain marker: it allocates nothing and evaluates to its body,
@@ -407,7 +407,7 @@ module Regions =
 
     and private registerParam (s: State) (ctx: PassContext) (p: TPat) : unit =
         // ONE region per parameter pattern, shared by every bound variable in it: for
-        // `(a, b)` that over-approximates safely — if any escapes, so do its siblings.
+        // `(a, b)` that over-approximates safely because if any escapes, so do its siblings.
         match TastWalk.boundVarsOfTPat p with
         | [] -> ()
         | _ -> recordBindingRegion s ctx p (freshParam s)
@@ -504,7 +504,7 @@ module Regions =
 
     and private recordBindingRegion (s: State) (ctx: PassContext) (p: TPat) (r: RegionId) : unit =
         // Map every bound variable this pattern introduces to `r`; tuple / record / union
-        // sub-patterns recurse so each name shares it. An approximation —
+        // sub-patterns recurse so each name shares it. An approximation, because
         // destructuring really projects each element separately.
         match p with
         | TPat.NamedSimple(k, _, _) ->
@@ -527,7 +527,7 @@ module Regions =
         | TPat.EnumCase _
         | TPat.Const _ -> ()
 
-    /// Distinct lambda regions reachable from `start` via outlives edges — the input to
+    /// Distinct lambda regions reachable from `start` via outlives edges, the input to
     /// the `HeapShared` seed rule. `visited` / `stack` are caller-owned scratch, cleared
     /// on entry and reused across the per-node calls.
     let private countReachableLambdas
@@ -578,7 +578,7 @@ module Regions =
 
             // A lambda needs the STRICT inequality: it lives at its bind level, so
             // `let f x = … in f 3` inside another function doesn't escape. Other
-            // allocations use `<=` — anything at frame level can be returned.
+            // allocations use `<=` because anything at frame level can be returned.
             if node.MintFunctionLevel > 0 then
                 let escapes =
                     if node.IsLambda then
@@ -712,7 +712,7 @@ module Regions =
                 ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv.Id).Raw])
 
     /// One verdict per bound variable in `decls`, after `run` has filled both side tables: `Stack`
-    /// iff frame-confined (`LocalStack`) AND free of any heap-repr channel. `decls` only —
+    /// iff frame-confined (`LocalStack`) AND free of any heap-repr channel. `decls` only, because
     /// emit-time expansion re-mints bound variables, so an entry's own bound variable is unlookupable.
     let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BoundVarKey, ClosureRepr> =
         Map.ofSeq (

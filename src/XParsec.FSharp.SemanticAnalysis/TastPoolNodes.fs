@@ -95,7 +95,7 @@ module Pooled =
     type TInlineValue = TInlineValueG<FrozenType, Anchor, BoundVarId>
     type TastFile = TastFileG<FrozenType, Anchor, BoundVarId>
 
-/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template. BoundVars are
+/// The TAST as it CROSSES A UNIT BOUNDARY: a package's inline template. BoundVars are
 /// re-minted `NodeKey`s, a `BoundVarId` slot meaning nothing outside the pool that issued it.
 module Wire =
     type TPat = TPatG<FrozenType, Anchor, NodeKey>
@@ -176,7 +176,7 @@ type FormatSegShape =
     | DynHole of hasWidth: bool * hasPrecision: bool * spec: Pooled.HoleSpec
     | CallbackHole of Pooled.HoleSpec
 
-/// The residual payload of a frozen expression node — one case per `ExprShape`, carrying
+/// The residual payload of a frozen expression node, one case per `ExprShape`, carrying
 /// only what the columnar split left: not `ty`/`tok`, the child expr/pat ids, or a `Var`'s
 /// bound variable id. A composite carrier also records the STRUCTURE that re-nests those columns.
 [<RequireQualifiedAccess>]
@@ -196,8 +196,8 @@ type ExprPayload =
     | Tuple
     | Sequential
     | While
-    /// `Var` is the bound variable this node INTRODUCES — not a reference, so it is not on the
-    /// bound-variable-reference column — named by the dense id the body's `Var`s resolve to.
+    /// `Var` is the bound variable this node INTRODUCES, named by the dense id the body's `Var`s
+    /// resolve to. It is not a reference, so it is not on the bound-variable-reference column.
     | ForTo of {| Var: BoundVarId; IdentTok: Anchor |}
     | ForIn of Frozen.ForInEnumerator
     /// One flag per arm: whether the arm carries a guard. The scrutinee is the first
@@ -391,13 +391,13 @@ module ExprPayload =
         | ExprPayload.Downcast
         | ExprPayload.TypeTest _
         | ExprPayload.TraitCall _
-        // An `Origin` is a file IDENTITY and not an `Anchor` — a MOVE that remapped it would
-        // be claiming the subtree came from somewhere it did not.
+        // An `Origin` is a file IDENTITY and not an `Anchor`, because a MOVE that remapped it
+        // would be claiming the subtree came from somewhere it did not.
         | ExprPayload.InlineCall _
         | ExprPayload.CallerExpr _ -> p
 
     // ── re-nesting the flat child columns ───────────────────────────────────
-    // A composite carrier — an arm, a format segment — has no node identity of its own: its
+    // A composite carrier, such as an arm or a format segment, has no node identity of its own: its
     // pieces go in the child columns and the payload keeps the STRUCTURE that puts them back.
 
     /// A reader that draws a node's children in column order, one per call. `start` skips the
@@ -411,8 +411,8 @@ module ExprPayload =
             x
 
     /// Re-nest the arm children of a `Match`/`TryWith`: each arm draws its pat, then its
-    /// guard when `guardPresent` says it has one, then its body — the order the pooling
-    /// walk enumerated them in. Arm count is the flag array's length.
+    /// guard when `guardPresent` says it has one, then its body, because that is the order the
+    /// pooling walk enumerated them in. Arm count is the flag array's length.
     let arms (guardPresent: bool[]) (nextPat: unit -> 'pat) (nextExpr: unit -> 'e) : TMatchArmG<'pat, 'e>[] =
         guardPresent
         |> Array.map (fun hasGuard ->
@@ -465,7 +465,7 @@ module ExprPayload =
 
         sink', segments'
 
-/// The residual payload of a frozen pattern node — one case per `PatShape`, carrying only
+/// The residual payload of a frozen pattern node, one case per `PatShape`, carrying only
 /// what the columnar split left: not `ty`/`tok`, not the child sub-pat ids. A pattern owns
 /// no child expressions.
 [<RequireQualifiedAccess>]
@@ -522,8 +522,8 @@ module PatPayload =
         | PatPayload.Union _
         | PatPayload.EnumCase _ -> p
 
-/// How a backend SPELLS a bound variable. A source identifier is carried verbatim — dialect
-/// mangling (JS reserved words, apostrophes) belongs to the backend that emits it.
+/// How a backend SPELLS a bound variable. A source identifier is carried verbatim, because
+/// dialect mangling (JS reserved words, apostrophes) belongs to the backend that emits it.
 [<RequireQualifiedAccess>]
 [<Struct>]
 type BoundVarNaming =
@@ -543,7 +543,7 @@ module BoundVarNaming =
         | 0 -> BoundVarNaming.Minted slot
         | _ -> BoundVarNaming.Source name
 
-/// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
+/// The residual payload of a frozen declaration node, one case per `DeclShape`. A decl
 /// has no node-level `ty`/`tok` column, so each case rides whatever type/scalars it needs;
 /// its child expr/pat roots live in the decl child columns.
 [<RequireQualifiedAccess>]
@@ -588,7 +588,7 @@ module ExprRow =
 
     /// Same answer as `a = b`, but reference-checks `Ty`/`Payload` first: F# record
     /// equality has no physical-identity shortcut, so it walks a whole `FrozenType` an edit
-    /// carried across unmoved. Children stay by value — a substitution mints a fresh array.
+    /// carried across unmoved. Children stay by value, because a substitution mints a fresh array.
     let same (a: ExprRow) (b: ExprRow) : bool =
         (obj.ReferenceEquals(a.Ty, b.Ty) || a.Ty = b.Ty)
         && a.Tok = b.Tok
@@ -607,7 +607,7 @@ type PatRow =
     }
 
 /// One declaration node's slice across the `Decl*` columns, in column order (a decl has no
-/// node-level `ty`/`tok` — its type rides the payload).
+/// node-level `ty`/`tok`, so its type rides the payload).
 type DeclRow =
     {
         ExprChildren: ExprPoolId[]

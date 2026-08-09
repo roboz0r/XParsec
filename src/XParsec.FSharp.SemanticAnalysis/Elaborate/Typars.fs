@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // The declaring / method typar envs a decl quantifies, and the `TyVar -> TyTypar` cut
-// deferred until the whole decl is surfaced — so a member signature, a local and a case
+// deferred until the whole decl is surfaced, so a member signature, a local and a case
 // field all flip on the same indices.
 
 module internal ElaborateTypars =
@@ -43,7 +43,7 @@ module internal ElaborateTypars =
         ]
 
     /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in the F#
-    /// canonical order — `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
+    /// canonical order: `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
     /// then the remaining free roots by first appearance, then the constraint-only typars.
     let mkMethodQuantEnv
         (store: TypeStore)
@@ -104,7 +104,7 @@ module internal ElaborateTypars =
 
     /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted `selfTy` and
     /// surface its method-axis typar roots so the caller folds them into the decl's freeze
-    /// env. Signature / body / return types stay verbatim — the cut is deferred.
+    /// env. Signature / body / return types stay verbatim, because the cut is deferred.
     let elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
         let methodMarkers =
             [
@@ -116,8 +116,8 @@ module internal ElaborateTypars =
 
         { m with ThisTy = selfTy }, methodMarkers
 
-    /// The per-member elaborator each host surfacer folds over its members — they differ
-    /// only in `selfTy`'s type constructor. Surface a member when the declaring type is generic
+    /// The per-member elaborator each host surfacer folds over its members. Host elaborators
+    /// differ only in `selfTy`'s type constructor. Surface a member when the declaring type is generic
     /// (declaring axis) OR the member itself is generic (method axis); else leave it as is.
     let mkMemberElaborator
         (selfTy: SemType)

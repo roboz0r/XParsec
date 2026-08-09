@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 /// The `SymbolKey` ↔ compiled-name algebra. A key holds arity as an INT; the `` `N ``
 /// suffix and `+` nesting are CLR NAME-axis spellings, confined to this module. Parsing
-/// mints only `InNamespace` / `InType` — no compiled name says "module".
+/// mints only `InNamespace` / `InType`, because no compiled name says "module".
 [<RequireQualifiedAccess>]
 module SymbolKeyOps =
 
@@ -77,7 +77,7 @@ module SymbolKeyOps =
 
     // --- `TypeKey` ↔ metadata-name renderer / parser ----------------------------------
 
-    /// The CLR metadata spelling of ONE segment of a type key — its own name plus its own
+    /// The CLR metadata spelling of ONE segment of a type key: its own name plus its own
     /// `` `N `` (`` List`1 ``), the name a `TypeDef` / `TypeRef` row carries.
     let typeSegmentName (t: TypeKey) : string = arityName t.Name t.TyparArity
 
@@ -92,7 +92,7 @@ module SymbolKeyOps =
         }
 
     /// The `+`-joined chain of a module's COMPILED CLASS names, WITHOUT the namespace
-    /// (`A+B` for `module A` ⊃ `module B`) — a module compiles to a static class.
+    /// (`A+B` for `module A` ⊃ `module B`), because a module compiles to a static class.
     let rec private moduleNestedName (m: ModuleKey) : string =
         match m.Container with
         | ModuleContainer.InNamespace _ -> m.Name
@@ -112,13 +112,13 @@ module SymbolKeyOps =
     let typeNs (t: TypeKey) : string = t.Namespace.Dotted
 
     /// The full metadata/reflection name of a type (`` Ns.Outer`2+Inner `` for a nested
-    /// one) — the string handed to `asm.GetType`, and what provider stores are keyed by.
+    /// one): the string handed to `asm.GetType`, and what provider stores are keyed by.
     let typeMetaName (t: TypeKey) : string =
         let ns = typeNs t
         let simple = typeNestedName t
         if ns = "" then simple else ns + "." + simple
 
-    /// `name` may carry a `+`-mangled nested chain AND `` `N `` suffixes — each segment's
+    /// `name` may carry a `+`-mangled nested chain AND `` `N `` suffixes. Each segment's
     /// suffix PARSES into that segment's `TyparArity`, round-tripping via `typeMetaName`.
     let typeKeyOf (dottedNs: string) (name: string) : TypeKey =
         let ns = TypeContainer.InNamespace(namespaceKey dottedNs)
@@ -185,7 +185,7 @@ module SymbolKeyOps =
 
     // --- Modules ---------------------------------------------------------------------
 
-    /// The full dotted name of a module (`Vesper.Collections`) — namespace path plus the
+    /// The full dotted name of a module (`Vesper.Collections`): namespace path plus the
     /// module chain, and the name of the CLR type it compiles to.
     let rec moduleFullName (m: ModuleKey) : string =
         match m.Container with
@@ -201,14 +201,14 @@ module SymbolKeyOps =
     let inNamespace (dottedNs: string) : ModuleContainer =
         ModuleContainer.InNamespace(namespaceKey dottedNs)
 
-    /// `namespace Vesper` + `module Collections`, named SEPARATELY — no dotted string to cut.
+    /// `namespace Vesper` + `module Collections`, named SEPARATELY, so no dotted string to cut.
     let moduleInNamespace (dottedNs: string) (name: string) : ModuleKey = moduleKeyOf (inNamespace dottedNs) name
 
     // --- Smart constructors -----------------------------------------------------------
 
     let typeKey (ns: string) (name: string) : SymbolKey = SymbolKey.Type(typeKeyOf ns name)
 
-    /// `SymbolKey.Type` from `(dotted ns, BARE name, arity)` — no suffix is parsed.
+    /// `SymbolKey.Type` from `(dotted ns, BARE name, arity)`, so no suffix is parsed.
     let typeKeyArity (ns: string) (name: string) (arity: int) : SymbolKey =
         SymbolKey.Type(typeKeyOfArity ns name arity)
 
@@ -259,7 +259,7 @@ module SymbolKeyOps =
 
     let declTypeKeyOf (what: string) (k: SymbolKey) : TypeKey = (asMemberKey what k).Decl
 
-    /// How many value parameters a member position's key DECLARES — its `ArgSig` width.
+    /// How many value parameters a member position's key DECLARES: its `ArgSig` width.
     let memberArity (what: string) (k: SymbolKey) : int = (asMemberKey what k).ArgSig.Length
 
     /// A tupled member's ONE argument opened to the `arity` positions it DECLARES. Declared
@@ -275,7 +275,7 @@ module SymbolKeyOps =
 
     // --- Generic `SymbolKey` projection ----------------------------------------------
 
-    /// The key's `name` with containment dropped — the PLAIN SOURCE name, never
+    /// The key's `name` with containment dropped: the PLAIN SOURCE name, never
     /// arity-suffixed. To COMPARE against a well-known intrinsic, match the key instead.
     let intrinsicName (k: SymbolKey) : string =
         match k with

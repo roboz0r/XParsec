@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 // Constant / string-literal parsing primitives for the Elaborate pass. No dependency on the
 // recursive `translateExpr`, so both the pattern and the expression projection share them.
 
-/// Why a constant literal does not project to a `TConstValue` — the reasons a USER can cause, so a
+/// Why a constant literal does not project to a `TConstValue`: the reasons a USER can cause, so a
 /// consumer with a diagnostic channel can distinguish them (`52I` is not an out-of-range
 /// magnitude). The lexer's `NumericLiteralRejection` minus the `NotNumeric` that throws.
 [<RequireQualifiedAccess>]
@@ -17,7 +17,7 @@ type internal ConstRejection =
     /// A custom numeric literal (`52I`): a call into a `NumericLiteral<suffix>` module, so
     /// there is no constant to project, by construction.
     | CustomLiteral
-    /// The magnitude or sign does not fit the authored width — `300uy`, or the negative
+    /// The magnitude or sign does not fit the authored width: `300uy`, or the negative
     /// unsigned `-1uy` the lexer's negative-literal merge forms.
     | OutOfRange
 
@@ -78,7 +78,7 @@ module internal ElaborateLiterals =
             failwithf "Elaborate.parseConst: non-representable literal %A (%A) in constant position" t.Token reason
 
     /// Concatenate the literal text of every string part, rendering an interpolation hole
-    /// (`StringPart.Expr`) through `onHole` — the only thing the IL-intrinsic and
+    /// (`StringPart.Expr`) through `onHole`, the only thing the IL-intrinsic and
     /// literal-string stitchers differ in.
     let foldStringParts = StringLiterals.foldStringParts
 

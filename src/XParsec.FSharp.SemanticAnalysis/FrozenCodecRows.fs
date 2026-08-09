@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
-/// The file's interned type / key TABLES on the wire — the ROW form of `FrozenType` and the
+/// The file's interned type / key TABLES on the wire: the ROW form of `FrozenType` and the
 /// `SymbolKey`/`TypeKey` cluster, every child already a row id. The one place in the codec a
 /// type's structure is spelled out; every other occurrence of it costs a plain `int`.
 module FrozenCodecRows =
@@ -20,8 +20,8 @@ module FrozenCodecRows =
     let private writeModuleId (w: FrozenWriter) (ModuleId i) = w.Write i
     let private readModuleId (r: FrozenReader) : ModuleId = ModuleId(r.ReadInt32())
 
-    /// Public: a nominal type key crosses the wire on its own — a `PooledTypeDecl`'s
-    /// identity, a constrained interface — and not only inside a type.
+    /// Public: a nominal type key crosses the wire on its own, as a `PooledTypeDecl`'s
+    /// identity or a constrained interface, and not only inside a type.
     let writeTypeKeyId (w: FrozenWriter) (TypeKeyId i) = w.Write i
     let readTypeKeyId (r: FrozenReader) : TypeKeyId = TypeKeyId(r.ReadInt32())
 
@@ -35,7 +35,7 @@ module FrozenCodecRows =
     let writeSymbolId (w: FrozenWriter) (SymbolId i) = w.Write i
     let readSymbolId (r: FrozenReader) : SymbolId = SymbolId(r.ReadInt32())
 
-    /// A row of the file's type table — the identity a `ty` column entry holds.
+    /// A row of the file's type table: the identity a `ty` column entry holds.
     let writeTypeId (w: FrozenWriter) (TypeId i) = w.Write i
     let readTypeId (r: FrozenReader) : TypeId = TypeId(r.ReadInt32())
 
@@ -258,7 +258,7 @@ module FrozenCodecRows =
             w.Write 14uy
             writeStrId w name
 
-    // Rebuilt case for case with NO normalisation — the stored row is already the canonical
+    // Rebuilt case for case with NO normalisation, because the stored row is already the canonical
     // one the freeze interned. `Or` in particular keeps the stored member sequence verbatim.
     let private readTypeRow (r: FrozenReader) : TypeRow =
         match r.ReadByte() with
@@ -333,9 +333,9 @@ module FrozenCodecRows =
 
     // ── the nine arrays ────────────────────────────────────────────────────
 
-    /// The whole of the file's type/key tables, in `FrozenTypeRows` declaration order — the
-    /// order that is also MINT order, so a row's children are rows of a table already at
-    /// least this far read. The materialised side is derived on read and never stored.
+    /// The whole of the file's type/key tables, in `FrozenTypeRows` declaration order, which is
+    /// also MINT order, so a row's children are rows of a table already at least this far read.
+    /// The materialised side is derived on read and never stored.
     let writeTypeRows (w: FrozenWriter) (rows: FrozenTypeRows) =
         writeImmutableWith w (fun w (s: string) -> w.Write s) rows.Strings
         writeImmutableWith w writeNamespaceRow rows.Namespaces

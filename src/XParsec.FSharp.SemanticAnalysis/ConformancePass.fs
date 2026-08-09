@@ -11,7 +11,7 @@ open XParsec.FSharp.Parser
 module ConformancePass =
 
     /// The leading `module`/`namespace` declarations of a paired `.fsi`/`.fs`
-    /// disagree — the pairing rule paired two files F# would not consider a pair.
+    /// disagree, so the pairing rule paired two files F# would not consider a pair.
     [<Struct; NoEquality; NoComparison>]
     type ModuleDeclMismatch = { SigDecl: string; ImplDecl: string }
 
@@ -33,10 +33,10 @@ module ConformancePass =
     type PairOutcome =
         /// `.fsi` with a companion `.fs` in the impl set.
         | Paired of PairResult
-        /// `.fsi` with NO companion `.fs` in the impl set — impl-free.
+        /// `.fsi` with NO companion `.fs` in the impl set.
         | SigOnly of sigFile: string
         /// `.fsi` with no companion `.fs` for this target, and NOTHING in it that a `.fs`
-        /// could supply — every declaration is an `extern` or a transparent abbreviation.
+        /// could supply: every declaration is an `extern` or a transparent abbreviation.
         /// Derived from the file's CONTENT: the absent `.fs` states the target has no repr.
         | Unrepresentable of sigFile: string * types: string list
         /// `.fsi` with no companion `.fs` for this target, whose every `val` the target's
@@ -75,7 +75,7 @@ module ConformancePass =
     let private longIdentText (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
         li.Idents |> Seq.map (identText lexed) |> String.concat "."
 
-    /// The dotted leading `module`/`namespace` path of a parsed file — the basis of
+    /// The dotted leading `module`/`namespace` path of a parsed file, the basis of
     /// F#'s `QualifiedNameOfFile` pairing key. `"global"` for an explicit
     /// `namespace global`; `""` for an anonymous module (no declaration).
     let private leadingDeclPath (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) : string =
@@ -137,7 +137,7 @@ module ConformancePass =
             }
 
     /// Conform every `.fsi` in a package manifest against its `.fs` companion for `target`.
-    /// `Error` ONLY when the package is wholly un-checkable — a malformed/absent manifest;
+    /// `Error` ONLY when the package is wholly un-checkable, meaning a malformed/absent manifest;
     /// a per-file parse failure becomes a `ParseFailed` verdict instead.
     let checkManifest (target: string) (manifestPath: string) : Result<PackageOutcome, string> =
         match ReferencedProject.loadManifest manifestPath with
@@ -167,8 +167,8 @@ module ConformancePass =
 
             let declaredSigOnly = ReferencedProject.resolveSigOnly target m |> Set.ofList
 
-            // The target's committed runtime asset and the names it publishes — a contract may
-            // ship no `.fs` because its bodies live here. Only the FIRST asset counts.
+            // The target's committed runtime asset and the names it publishes, needed because a
+            // contract may ship no `.fs` when its bodies live here. Only the FIRST asset counts.
             let runtimeAsset =
                 match ReferencedProject.resolveRuntime target m with
                 | rel :: _ ->
@@ -181,8 +181,9 @@ module ConformancePass =
                 | [] -> None
 
             // A companion-less `.fsi`, split on its own CONTENT: it owes a `.fs` unless EVERY
-            // declaration is satisfied without one — an `extern` or transparent abbreviation
-            // is, and a `val` is exactly when the committed runtime asset exports it.
+            // declaration is satisfied without one, which an `extern` or transparent
+            // abbreviation always is, and a `val` is exactly when the committed runtime
+            // asset exports it.
             let unpaired (fsiRel: string) : PairOutcome =
                 if declaredSigOnly.Contains fsiRel then
                     // A manifest `sig-only` declaration outranks the content split.
@@ -288,7 +289,7 @@ module ConformancePass =
 
             let pairs = sigFiles |> List.map outcome
 
-            // `.fs` files with no `.fsi` contract — a body with no published surface.
+            // A body with no published surface.
             let contractKeys = sigFiles |> List.map pairingKey |> Set.ofList
 
             let implOnly =
@@ -312,7 +313,7 @@ module ConformancePass =
         let err (verdict: ConformanceVerdict) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
             Diagnostic.nowhere (Kind.Conformance(outcome.Package, verdict))
 
-        // The contract `.fsi` files that DID pair — the basis for catching a `sig-only`
+        // The contract `.fsi` files that DID pair, the basis for catching a `sig-only`
         // exemption naming a file that in fact has a companion `.fs`.
         let pairedSigs =
             set

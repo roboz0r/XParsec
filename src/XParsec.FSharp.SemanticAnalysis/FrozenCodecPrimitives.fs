@@ -27,7 +27,7 @@ type FrozenWriter =
     member inline this.Write(v: string) = this.Out.Write v
     member inline this.Write(buffer: byte[], index: int, count: int) = this.Out.Write(buffer, index, count)
 
-/// The codec's READ seam — the mirror of `FrozenWriter`. The tables are FINISHED here rather
+/// The codec's READ seam, the mirror of `FrozenWriter`. The tables are FINISHED here rather
 /// than under construction: reading resolves an id, and a blob that named a row its own tables
 /// do not carry is a corrupt blob, not a row to mint.
 [<Struct>]
@@ -72,7 +72,7 @@ module FrozenCodecPrimitives =
         read { In = br; Types = types }
 
     /// Length prefix, then each element. `readArrayWith` is the inverse, returning a bare
-    /// array — every `EqArray` reader wraps that.
+    /// array, which every `EqArray` reader wraps.
     let writeEqArrayWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: EqArray<'a>) =
         w.Write xs.Length
 
@@ -88,7 +88,7 @@ module FrozenCodecPrimitives =
 
         arr
 
-    /// Members in the set's own stored order — for a union, the order it was declared in.
+    /// Members in the set's own stored order, which for a union is the order it was declared in.
     /// Nothing here re-derives set identity; the `EqSet` the reader lands them in holds it.
     let writeEqSetWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: EqSet<'a>) =
         w.Write xs.Length
@@ -202,13 +202,13 @@ module FrozenCodecPrimitives =
         | 3uy -> Site.After(r.ReadInt32() * 1<token>)
         | b -> failwithf "FrozenCodec: unknown Site tag %d" b
 
-    /// A bound variable's dense pool index — the identity every pooled REFERENCE to a definition
+    /// A bound variable's dense pool index: the identity every pooled REFERENCE to a definition
     /// site is written as.
     let writeBoundVarId (w: FrozenWriter) (BoundVarId i) = w.Write i
     let readBoundVarId (r: FrozenReader) : BoundVarId = BoundVarId(r.ReadInt32())
 
     /// A declaration shape's key SLOT: the same id on the wire, re-admitted as the bound variable key
-    /// the slot is typed by — a decoded column carries no key to project one from.
+    /// the slot is typed by, because a decoded column carries no key to project one from.
     let writeBoundVarSlot (w: FrozenWriter) (k: BoundVarKeyG<BoundVarId>) =
         writeBoundVarId w (BoundVarKey.identity k)
 
@@ -216,7 +216,7 @@ module FrozenCodecPrimitives =
         BoundVarKey.ofInterned (readBoundVarId r)
 
     /// A bare token index, absence and all. The blob is keyed by the source hash, so a reader
-    /// resolves it against the same `Lexed` the writer indexed — which is what keeps the
+    /// resolves it against the same `Lexed` the writer indexed, which is what keeps the
     /// token's text, span and kind out of the blob entirely.
     let writeAnchor (w: FrozenWriter) (a: Anchor) = w.Write(Anchor.toStored a)
     let readAnchor (r: FrozenReader) : Anchor = Anchor.ofStored (r.ReadInt32())

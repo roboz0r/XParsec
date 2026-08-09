@@ -8,7 +8,7 @@ open XParsec.Toml
 /// `ExtractCtx` exposed as a provider. A symbol's namespace is its FILE's `namespace` header.
 module ReferencedProject =
 
-    /// The `[core]` lists — what a package declares once for EVERY target. No `Runtime`
+    /// The `[core]` lists, what a package declares once for EVERY target. No `Runtime`
     /// field: a runtime asset is a per-target artifact.
     type SharedLists =
         {
@@ -17,9 +17,10 @@ module ReferencedProject =
             /// Target-neutral `.fs` bodies compiled into the package DLL, and the splice
             /// sources those same bodies publish (`[core] impl`).
             Impl: string list
-            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`) —
-            /// a front-end intrinsic lowered inline (`printf.fsi`) or a BCL-resolved
-            /// contract (`exceptions.fsi`). An impl-free `.fsi` NOT listed is a hard error.
+            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`)
+            /// because each is a front-end intrinsic lowered inline (`printf.fsi`) or a
+            /// BCL-resolved contract (`exceptions.fsi`). An impl-free `.fsi` NOT listed is
+            /// a hard error.
             SigOnly: string list
             /// `.fs` bodies that implement NO contract (`[core] impl-only`), publishing their
             /// whole public surface. Naming one here keeps the pairing rule from marrying it
@@ -48,7 +49,7 @@ module ReferencedProject =
             SigOnly: string list
             /// Target-only contract-less bodies, after the shared ones.
             ImplOnly: string list
-            /// Hand-authored runtime *asset* modules — not sources the front end parses, but
+            /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
         }
@@ -67,10 +68,10 @@ module ReferencedProject =
     /// one `[targets.<t>]` table per target the package participates in.
     type Manifest =
         {
-            /// Package / assembly simple name — `[core] name` when present, else
+            /// Package / assembly simple name: `[core] name` when present, else
             /// the manifest's directory name (`src/Vesper.Core` ⇒ `"Vesper.Core"`).
             Name: string
-            /// Other packages this one depends on (`[core] depends-on`) — the
+            /// Other packages this one depends on (`[core] depends-on`): the
             /// package names whose DLLs/contracts must be built/referenced first.
             DependsOn: string list
             Shared: SharedLists
@@ -98,7 +99,7 @@ module ReferencedProject =
         | Some(TomlValue.Array xs) -> xs |> List.choose asString |> Some
         | _ -> None
 
-    /// The `[targets.<t>]` table for `target`, or an all-empty one — a target a manifest
+    /// The `[targets.<t>]` table for `target`, or an all-empty one. A target a manifest
     /// says nothing about contributes nothing, so it resolves to exactly the shared lists.
     let private listsFor (target: string) (m: Manifest) : TargetLists =
         m.Targets |> Map.tryFind target |> Option.defaultValue TargetLists.empty
@@ -142,7 +143,7 @@ module ReferencedProject =
         |> Option.defaultValue noExt
 
     /// Every path the provider build may READ for this manifest, relative to the manifest's
-    /// own directory; a path named here need not exist. TARGET-BLIND — every target's lists
+    /// own directory; a path named here need not exist. TARGET-BLIND: every target's lists
     /// UNIONED. `Runtime` is omitted: an asset is never parsed, so determines no frozen tree.
     let sourceInputs (m: Manifest) : string list =
         [
@@ -173,7 +174,7 @@ module ReferencedProject =
                 "impl-only"
             ]
 
-    /// The keys a `[targets.<t>]` table may carry — same rule, same reason.
+    /// The keys a `[targets.<t>]` table may carry. Same rule, same reason.
     let private targetKeys = set [ "files"; "impl"; "sig-only"; "impl-only"; "runtime" ]
 
     let private unknownKey (tableName: string) (allowed: Set<string>) (t: TomlTable) : string option =
@@ -408,7 +409,7 @@ module ReferencedProject =
 
     /// The per-target runtime *asset* modules (`[targets.<t>] runtime`) for a manifest set
     /// closed over `depends-on`, read off disk: package name → `(fileName, source)`, the
-    /// `.mjs` the backend imports by `./<fileName>`. One per package — the first listed.
+    /// `.mjs` the backend imports by `./<fileName>`. One per package: the first listed.
     let runtimeModules (target: string) (rootManifests: string list) : Map<string, string * string> =
         match buildClosure rootManifests with
         | Error _ -> Map.empty
@@ -436,7 +437,7 @@ module ReferencedProject =
         ExternalSymbolProviders.stack (ValueSome home) ambient [ inner ]
 
     /// One built package. `DeclaredTypeNames` are the qualified compiled names of the NOMINAL
-    /// types it OWNS — those that would first-hit-shadow a peer package's same-named type.
+    /// types it OWNS: those that would first-hit-shadow a peer package's same-named type.
     type BuiltPackage =
         {
             Provider: IExternalSymbolProvider
@@ -558,7 +559,7 @@ module ReferencedProject =
                     DeclaredTypeNames = declaredTypeNames
                 }
 
-    /// Stand up a referenced project in isolation — no dependency shapes in scope, so
+    /// Stand up a referenced project in isolation: no dependency shapes in scope, so
     /// `ambientShapes` resolves nothing. For a package with no `depends-on`.
     let buildProvider
         (target: string)

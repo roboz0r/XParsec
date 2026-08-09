@@ -8,7 +8,7 @@ open XParsec.FSharp.Parser
 // 31..0 offset. The offset slot is SIGNED and the sign is load-bearing: negative is the
 // uniqueness-counter space, a domain no genuine source offset inhabits.
 
-/// (offset, kind) — not offset alone — makes a real NodeKey unique: two CST node types can
+/// A real NodeKey is unique on (offset, kind), not on offset alone: two CST node types can
 /// start at the same source offset (a LetBinding and its Pattern both start at the `let`).
 type NodeKind =
     | Unknown = 0us
@@ -68,7 +68,8 @@ type NodeKind =
     /// `for i = …` loop variable; the `i` token has no surrounding `Pat` in the CST.
     | PatForToVar = 110us
     | PatEmptyBlock = 111us
-    /// Operator-named binding (`let (=) x y = …`) — the `IdentOrOp` carries the operator token.
+    /// Operator-named binding (`let (=) x y = …`), keyed off the `IdentOrOp`'s `(`, not the
+    /// operator token.
     | PatOp = 112us
     /// Cons pattern (`h :: t`), keyed off the `::` token, not its head sub-pattern's.
     | PatCons = 113us
@@ -130,7 +131,7 @@ type NodeKey =
     member this.IsSourcePosition: bool = this.Offset >= 0
 
     /// The offset slot with the counter flag masked off, for NAMING a bound variable (`_s7`,
-    /// `value@7`) — never for scoping: counter `7` and spawning offset `7` render alike.
+    /// `value@7`), but never for scoping: counter `7` and spawning offset `7` render alike.
     member this.NameIndex: int = int (uint32 this.Raw &&& 0x7FFFFFFFu)
 
     member this.Kind: NodeKind =
@@ -211,6 +212,6 @@ module NodeSite =
         }
 
 /// Identity of a source LAMBDA expression: the INDEX of its anchor token, not the character
-/// offset a `NodeKey` carries — one integer names a different node in each space.
+/// offset a `NodeKey` carries, because one integer names a different node in each space.
 [<Struct>]
 type LambdaKey = | LambdaKey of anchor: Anchor

@@ -4,7 +4,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // The UNPOOL direction of the frozen pools: columns back to the DU. Every rebuild here is
-// parameterised by the identity space it lands in — the columns hold no identity but the
+// parameterised by the identity space it lands in, because the columns hold no identity but the
 // slot, so the unpool itself can only produce `BoundVarId`s.
 
 [<RequireQualifiedAccess>]
@@ -12,7 +12,7 @@ module TastUnpool =
 
     /// Re-author one expression node from its columns and its ALREADY-REBUILT child
     /// subtrees, drawn in the order the pooling walk enumerated them. `tok` goes back
-    /// unchanged — re-axising it would silently rebase a producer's indices onto this file.
+    /// unchanged, because re-axising it would silently rebase a producer's indices onto this file.
     let substituteExpr
         (widenBoundVar: BoundVarId -> 'id)
         (ty: FrozenType)
@@ -223,12 +223,12 @@ module TastUnpool =
     /// The whole-file unpool, in the pool's OWN identity space: a rebuilt bound variable is named by
     /// the `BoundVarId` the columns address it with. The `Decls` are re-authored from the pool
     /// roots, the side tables re-keyed back through the bound variable/lambda id spaces, and the
-    /// `Residue` fields carried verbatim. Only the tests call it — structural
+    /// `Residue` fields carried verbatim. Only the tests call it. The structural
     /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
     let ofPools (pools: FrozenPools) : Pooled.TastFile =
         // The bound variable ids back in the BOUND-VARIABLE key space by PROJECTION: as the trees below are
         // rebuilt, each node is asked what it binds, and only what they answer can key a
-        // rebuilt side table — so no bound variable identity the tree does not bear can be minted.
+        // rebuilt side table, so no bound variable identity the tree does not bear can be minted.
         let readmitted =
             System.Collections.Generic.Dictionary<BoundVarId, BoundVarKeyG<BoundVarId>>()
 
@@ -299,7 +299,7 @@ module TastUnpool =
             |> EqArray.ofArray
 
         // Likewise the specialization table, in SLOT ORDER: the `SpecializationId`s the
-        // rebuilt tree carries index this array, so it must not be reordered or compacted —
+        // rebuilt tree carries index this array, so it must not be reordered or compacted,
         // not even for an entry no surviving call site names.
         let specializations =
             pools.Specializations
@@ -326,7 +326,7 @@ module TastUnpool =
             InlineBodies = inlineBodies
             Specializations = specializations
             Accessibility = pools.Residue.Accessibility
-            // No `BindingValReprs`: the DU does not carry one — it is a PROJECTION of the
+            // No `BindingValReprs`: the DU does not carry one, because it is a PROJECTION of the
             // lambda chain, re-derived off the columns on the way back in.
             BindingTyparArities = boundVarColumnMap readmittedBoundVar pools.BindingTyparArities
         }

@@ -28,8 +28,8 @@ module internal UnificationInferPat =
             && System.Char.IsUpper n.[0]
             && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
             ->
-            // Uppercase-leading bare ident matching a ctor IN SCOPE HERE — reinterpret as a
-            // nullary ctor pattern. A case whose union is declared BELOW is not in scope here,
+            // An uppercase-leading bare ident matching a ctor IN SCOPE HERE is reinterpreted as
+            // a nullary ctor pattern. A case whose union is declared BELOW is not in scope here,
             // so that ident stays an ordinary bound variable, as in F#.
             let n = ctx.NameOf t
             let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
@@ -59,7 +59,7 @@ module internal UnificationInferPat =
         | Pat.NamedSimple t & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
             // Nullary case of an *external* (referenced-package) union (`None`), stamped
             // upstream and read here by node key. A bare RQA case is NOT stamped, so it
-            // falls to the bound variable arm below — as in F#, where it is a fresh variable.
+            // falls to the bound variable arm below, as in F#, where it is a fresh variable.
             let unionTy, fields = externalCasePattern ctx uc
 
             if fields.Length <> 0 then
@@ -78,7 +78,7 @@ module internal UnificationInferPat =
             TyVar(tvOf ctx key)
         | Pat.Named(argumentPats = args) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey ->
             // `| E.C1` external enum-case pattern, stamped upstream and read by node key.
-            // Types as `TyEnum key` — the same key an `E.C1` expression and an `(x: E)`
+            // Types as `TyEnum key`, the same key an `E.C1` expression and an `(x: E)`
             // annotation carry, so the scrutinee unifies. Nullary; sub-patterns are ill-formed.
             for sub in args do
                 inferPat ctx sub |> ignore
@@ -277,7 +277,7 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome annTy)
             annTy
         | Pat.TypeTestAs(typ = t; pat = inner) ->
-            // `:? T as x` — the inner bound variable `x` sees the tested type `T`; the pattern
+            // `:? T as x`: the inner bound variable `x` sees the tested type `T`; the pattern
             // itself matches the scrutinee's type (left free, typically `obj`). Stash `T`
             // keyed on this node so Elaborate can carry it into `TPat.TypeTestAs`.
             let tgtTy = translateType ctx t
@@ -316,8 +316,8 @@ module internal UnificationInferPat =
             ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Only the alternatives' overall types are unified, for scrutinee consistency.
-            // The two sides' bound variables are typed independently and never reconciled —
-            // an or-pattern that binds names is rejected before lowering.
+            // The two sides' bound variables are typed independently and never reconciled,
+            // because an or-pattern that binds names is rejected before lowering.
             let leftTy = inferPat ctx leftPat
             let rightTy = inferPat ctx rightPat
             unify ctx tok leftTy rightTy

@@ -424,7 +424,7 @@ module TastAccessor =
         | ExprPayload.InlineCall p -> ValueSome p.Spec
         | _ -> ValueNone
 
-    /// The specialization slot an `InlineCall` names — an index into the pools'
+    /// The specialization slot an `InlineCall` names: an index into the pools'
     /// `Specializations` root array, NOT into any column this handle reads. The call's args
     /// are the node's `exprChildren`.
     let exprInlineCallSpec (e: ExprId) : SpecializationId =
@@ -436,8 +436,8 @@ module TastAccessor =
         | ExprPayload.InlineCall p -> ValueSome p.Origin
         | _ -> ValueNone
 
-    /// The file an `InlineCall`'s own anchor — and its arguments', they being CALLER material
-    /// — is read against. NOT the entry's: the entry states its own origin.
+    /// The file an `InlineCall`'s own anchor is read against, and its arguments' too, they being
+    /// CALLER material. NOT the entry's: the entry states its own origin.
     let exprInlineCallOrigin (e: ExprId) : OriginFile =
         expect "TastAccessor.exprInlineCallOrigin: not an InlineCall node" (|EInlineCallOrigin|_|) e
 
@@ -586,7 +586,7 @@ module TastAccessor =
         | ExprPayload.TypeTest testTy -> ValueSome testTy
         | _ -> ValueNone
 
-    /// The tested-against type `T` of `e :? T` — the `isinst` operand, distinct from
+    /// The tested-against type `T` of `e :? T`: the `isinst` operand, distinct from
     /// `exprTy`, which is the `bool` result. The tested `e` is the sole `exprChildren` entry.
     let exprTypeTestTestTy (e: ExprId) : FrozenType =
         expect "TastAccessor.exprTypeTestTestTy: not a TypeTest node" (|ETypeTest|_|) e
@@ -608,7 +608,7 @@ module TastAccessor =
         | ExprPayload.StaticOptimization _ -> ValueSome(exprChild e (exprChildCount e - 1))
         | _ -> ValueNone
 
-    /// The dynamic default of a `StaticOptimization` — the branch taken when no clause's
+    /// The dynamic default of a `StaticOptimization`: the branch taken when no clause's
     /// constraints hold, and the LAST of the node's `exprChildren`.
     let exprStaticOptimizationDefault (e: ExprId) : ExprId =
         expect
@@ -702,7 +702,7 @@ module TastAccessor =
         | PatPayload.TypeTestAs testTy -> ValueSome testTy
         | _ -> ValueNone
 
-    /// The tested-against type `T` of `:? T as x` — the `isinst` operand, distinct from
+    /// The tested-against type `T` of `:? T as x`: the `isinst` operand, distinct from
     /// `patTy`, which is the scrutinee's type. The bound `as`-name is `patChildren.[0]`.
     let patTypeTestTestTy (p: PatId) : FrozenType =
         expect "TastAccessor.patTypeTestTestTy: not a TypeTestAs pattern" (|PTypeTestAs|_|) p
@@ -754,8 +754,8 @@ module TastAccessor =
 
         e
 
-    /// The declared slot type an `Expression` decl carries alongside its body expression —
-    /// what a consumer must preserve when it rebuilds the decl.
+    /// The declared slot type an `Expression` decl carries alongside its body expression,
+    /// which a consumer must preserve when it rebuilds the decl.
     let declExpressionTy (d: DeclId) : FrozenType =
         let struct (_, ty) =
             expect "TastAccessor.declExpressionTy: not an Expression decl" (|DExpression|_|) d
@@ -778,7 +778,7 @@ module TastAccessor =
     let declLet (d: DeclId) : DeclLetView =
         expect "TastAccessor.declLet: not a Let decl" (|DLet|_|) d
 
-    /// The file's declarations, in source order — the pool roots as handles.
+    /// The file's declarations, in source order: the pool roots as handles.
     let roots (pool: PoolBuilder) : DeclId[] =
         TastPoolBuilder.roots pool |> Array.map (fun id -> { Pool = pool; Id = id })
 
@@ -807,7 +807,7 @@ module TastAccessor =
     // ── generic traversal ───────────────────────────────────────────────────
 
     /// Rebuild `e` with `f` applied to each immediate child expression. Its owned
-    /// sub-patterns are untouched — a rewrite that must reach them walks `exprPatChildren`.
+    /// sub-patterns are untouched, so a rewrite that must reach them walks `exprPatChildren`.
     let mapChildren (f: ExprId -> ExprId) (e: ExprId) : ExprId =
         let kids = exprChildren e |> Array.map (fun c -> (f c).Id)
         at e (TastPoolBuilder.copyExprWith e.Pool e.Id (fun row -> { row with Children = kids }))
@@ -874,8 +874,8 @@ module TastAccessor =
                     }
         }
 
-    /// A reference to `boundVar` — the bound variable's own dense id, so a reference minted before
-    /// (or without) its defining pattern names the same bound variable either way.
+    /// A reference to `boundVar`, keyed by the bound variable's own dense id, so a reference
+    /// minted before (or without) its defining pattern names the same bound variable either way.
     let mintVar (pool: PoolBuilder) (boundVar: BoundVarId) (ty: FrozenType) (tok: Anchor) : ExprId =
         {
             Pool = pool
@@ -896,7 +896,7 @@ module TastAccessor =
     let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
 
-    /// Re-apply a function to a list of `(arg, result type, token)` levels — the inverse
+    /// Re-apply a function to a list of `(arg, result type, token)` levels: the inverse
     /// of `collectAppChain`.
     let mintAppChain (fn: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
         List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) fn args
@@ -1001,7 +1001,7 @@ module TastAccessor =
         at d (TastPoolBuilder.copyDeclWith d.Pool d.Id (fun row -> { row with ExprChildren = kids }))
 
     /// Apply `f` to EVERY expression a declaration carries, including a `type` decl's member
-    /// bodies, class preambles, secondary ctors and base-ctor args — all named INSIDE the
+    /// bodies, class preambles, secondary ctors and base-ctor args, all named INSIDE the
     /// payload, so they escape a child-column rewrite.
     let mapDeclBodies (f: ExprId -> ExprId) (d: DeclId) : DeclId =
         match declPayload d with

@@ -97,7 +97,7 @@ module internal UnificationInferRecordAccess =
         | TyRecord(recKey, srcArgs) ->
             match TypeRegistry.tryRecordByKey ctx.Types recKey with
             | ValueSome info ->
-                // Clone preserves the source's arg list — overrides unify
+                // Clone preserves the source's arg list, so overrides unify
                 // against the substituted field type (`'a` → source's arg).
                 let subst = mkNamedTypeSubst ctx.Store info.TypeParams srcArgs
 
@@ -196,14 +196,14 @@ module internal UnificationInferRecordAccess =
 
         scan (ctx.Store.Constraints.Items root)
 
-    /// `access` is the whole access EXPRESSION — its key files the resolved member for
+    /// `access` is the whole access EXPRESSION, whose key files the resolved member for
     /// Elaborate. `memberTok` is the SEGMENT: a folded `r.X.Y` is one expression with one
     /// key whose intermediate segments have no node of their own, so diagnostics use the token.
     and resolveFieldStep (ctx: PassContext) (access: NodeSite) (memberTok: SyntaxToken) (rTy: SemType) : SemType =
         let memberName = ctx.NameOf memberTok
         // Commit a single-candidate external instance member; `memberArgs` instantiate ITS
         // declaring type's typars (the object argument's own, or a supertype's as-reached for an
-        // INHERITED one). Freshens method typars per site — `openSignature` shares one.
+        // INHERITED one). Method typars freshen per site, because `openSignature` shares them across sites.
         let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
             let memberSig =
                 ExternalSymbols.instantiateSignature ctx.Store m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
@@ -227,12 +227,12 @@ module internal UnificationInferRecordAccess =
             | ValueSome info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember ctx.Store (info.TypeParams, args) field.Type
-                // Not a field — a record also carries augmentation members, so `r.Bar`
-                // takes the class/union path rather than reporting a field miss.
+                // A record also carries augmentation members, so `r.Bar` takes the
+                // class/union path rather than reporting a field miss.
                 | None ->
                     resolveLocalInstanceMember ctx memberTok info.Name info.TypeParams args info.Members memberName
             | ValueNone ->
-                // Not project-local — an external record (prior file / referenced package).
+                // Not project-local, so the record is the provider's (a prior file, or a referenced package).
                 let recQual = SymbolKeyOps.typeMetaName recKey
 
                 match ctx.Provider.TryLookupType(SymbolKey.Type recKey) with
@@ -244,8 +244,8 @@ module internal UnificationInferRecordAccess =
                         // lowers to a property call instead of `TExpr.FieldGet` / `ldfld`.
                         FrozenTypeBridge.instantiateDeclaring fieldShape.Frozen (args.AsSpan().ToArray())
                     | None ->
-                        // Not a field — an external record also carries augmentation members.
-                        // This IS a member, so stamping `ExternalAccess` is correct here.
+                        // An external record also carries augmentation members. This IS a
+                        // member, so stamping `ExternalAccess` is correct here.
                         match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
                         | _ -> errorTy ctx memberTok (Kind.NoMember(recQual, MemberNoun.FieldOrMember, memberName))
@@ -271,7 +271,7 @@ module internal UnificationInferRecordAccess =
                     | None ->
                         resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
             | ValueNone ->
-                // Not project-local — an external type (a BCL
+                // Not project-local, so the class is the provider's (a BCL
                 // `TyClass("…EqualityComparer\`1", [int])` from a prior static access).
                 let clsQual = SymbolKeyOps.typeMetaName clsKey
 
@@ -281,7 +281,7 @@ module internal UnificationInferRecordAccess =
 
                     // The TS-manifest provider stores heritage un-flattened (the CLR metadata
                     // layer already flattens), so an own-member miss may still resolve on a
-                    // supertype — committed at ITS args, so `Base<int>.value` types as `int`.
+                    // supertype. That commits at the SUPERTYPE's args, so `Base<int>.value` types as `int`.
                     match tryExternalInheritedMember ctx rTy memberName with
                     | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
                     | ValueNone ->
@@ -299,8 +299,8 @@ module internal UnificationInferRecordAccess =
                         with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
                         | _ ->
-                            // The provider stack has NO shape for this key at all — an identity
-                            // minted by one package whose HOME manifest was never stacked. Name
+                            // The provider stack has NO shape for this key at all, because the
+                            // package that minted it never had its HOME manifest stacked. Name
                             // the NAMESPACE; the owning package is a fact of a shape, and none resolved.
                             let clsNs = clsKey.Namespace.Dotted
 
@@ -323,7 +323,7 @@ module internal UnificationInferRecordAccess =
 
                 resolveLocalInstanceMember ctx memberTok shown info.TypeParams args info.Members memberName
             | ValueNone ->
-                // Not project-local — an external union (a referenced `Vesper.Option`, whose
+                // Not project-local, so the union is the provider's (a referenced `Vesper.Option`, whose
                 // `IsSome`/`IsNone`/`Value` augmentation members the contract provider publishes).
                 let unionQual = SymbolKeyOps.typeMetaName unionKey
 
@@ -340,7 +340,7 @@ module internal UnificationInferRecordAccess =
             let root = UnionFind.find ctx.Store tv
 
             // A typar object argument never grounds to a nominal, so the `Pda` park below would
-            // never discharge (and the binding would not generalise) — resolve the member
+            // never discharge (and the binding would not generalise). Resolve the member
             // now, through an interface the typar is coerced to (`'T :> IFace`).
             match tryTyparInterfaceMember ctx access.Key root memberName with
             | ValueSome ty -> ty
@@ -492,7 +492,7 @@ module internal UnificationInferRecordAccess =
                 )
 
                 // The accessor is `idx -> ret`, and `ret` is by-ref (`Span<char>.get_Item :
-                // T&`) or by-value (`string.get_Chars : char`) — the unify RHS must match.
+                // T&`) or by-value (`string.get_Chars : char`), so the unify RHS must match.
                 let retIsByref =
                     match memberSig with
                     | TyFun(_, TyByref _) -> true
@@ -511,8 +511,8 @@ module internal UnificationInferRecordAccess =
             | _ -> ValueNone
 
         // An index-signature object argument (`{ [k: K]: V }`) reads through the `GetIndex`
-        // intrinsic — the `$0[$1]` bracket form; bracket IS the accessor, so no `get_Item`
-        // exists. `GetIndex`'s scheme `'T -> 'K -> 'V` has three INDEPENDENT typars.
+        // intrinsic, whose `$0[$1]` bracket form IS the accessor, so no `get_Item` exists.
+        // `GetIndex`'s scheme `'T -> 'K -> 'V` has three INDEPENDENT typars.
         let tryIndexSignature (declKey: SymbolKey) (clsArgs: SemType[]) : SemType voption =
             match ctx.Provider.TryLookupIndexSignature declKey with
             | [] -> ValueNone
@@ -579,9 +579,8 @@ module internal UnificationInferRecordAccess =
                 match resolveExternalIndexer (SymbolKey.Type clsKey) clsArgsArr "get_Item" with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
-        // A rank-1 array reads through the intrinsic array's `get_Item` member accessor —
-        // the member-inline twin of the free `GetArray` — keyed by the array's bare
-        // member-contract identity. A MISS falls back to `GetArray` unchanged.
+        // A rank-1 array reads through the intrinsic array's `get_Item` member accessor, the
+        // member-inline twin of the free `GetArray`. A MISS falls back to `GetArray` unchanged.
         | TyArray elem ->
             match
                 resolveExternalIndexer
@@ -592,7 +591,7 @@ module internal UnificationInferRecordAccess =
             | ValueSome resultTy -> resultTy
             | ValueNone -> getArrayIndex ()
         | _ ->
-            // An intrinsic object argument mapped to a BCL type — `string` (`s.[i]`), whose indexer
+            // An intrinsic object argument mapped to a BCL type, namely `string` (`s.[i]`), whose indexer
             // is `System.String.get_Chars(int) : char`. On JS no surface publishes it, since
             // `string`'s platform repr is the bare `"string"`, which is not a class.
             let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
@@ -622,7 +621,7 @@ module internal UnificationInferRecordAccess =
 
         currTy
 
-    /// The type of a folded field chain MINUS its last segment — the object argument of a
+    /// The type of a folded field chain MINUS its last segment, namely the object argument of a
     /// folded-LongIdent instance method call (`w.Write(arg)` parses with
     /// `fn = LongIdent [w; Write]`), so the last segment can be resolved arg-aware.
     and inferLongIdentPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =

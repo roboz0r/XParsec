@@ -79,7 +79,7 @@ type SafeContext =
     | CallingMethod
     /// (.NET 7+) May be returned *by value* (sret), but not stored into a caller-visible ref.
     | ReturnOnly
-    /// Confined to this frame — the ref-struct green-light, modulo the representation axis.
+    /// Confined to this frame: the ref-struct green-light, modulo the representation axis.
     | CurrentMethod
 
 /// Tofte–Talpin coarsening of `EscapeState` for a native backend (MLIR / LLVM).
@@ -119,7 +119,7 @@ module EscapeState =
         | HeapShared -> NativeRegionTier.Heap
 
 /// Orthogonal to the `EscapeState` *lifetime* axis: a frame-confined closure is still pinned
-/// to the heap by a boxing channel — a class capture, an `obj` upcast.
+/// to the heap by a boxing channel such as a class capture or an `obj` upcast.
 [<RequireQualifiedAccess>]
 type RegionRepr =
     /// No heap-repr channel reaches this region.
@@ -184,14 +184,14 @@ type SchemeId = | SchemeId of int
 [<Struct>]
 type BoundVarId = | BoundVarId of int
 
-/// A dense index into a file's `Specializations` table — how a `TExprG.InlineCall` names the
+/// A dense index into a file's `Specializations` table: how a `TExprG.InlineCall` names the
 /// body it calls. An entry IS its slot.
 [<Struct>]
 type SpecializationId = | SpecializationId of int
 
 /// The constant value a structural LITERAL type carries: `"GET"`, or an `Int` for a numeric
-/// literal union. External vocabulary ONLY — inference never mints one. Erases to its base
-/// primitive on both backends — the projection compiles after this DU.
+/// literal union. External vocabulary ONLY, so inference never mints one; it subsumes to its
+/// base primitive, and the CLR backend encodes it as that base.
 [<RequireQualifiedAccess>]
 type LiteralConst =
     | String of string

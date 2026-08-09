@@ -11,8 +11,8 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateMembers
 open XParsec.FSharp.SemanticAnalysis.ElaborateTypeDecls
 
 module Elaborate =
-    /// `ValueNone` below `i+1` lambdas, or where the parameter is not a simple name — a
-    /// destructured parameter can't carry `[<CallAtMostOnce>]`.
+    /// `ValueNone` below `i+1` lambdas, or where the parameter is not a simple name, because
+    /// a destructured parameter can't carry `[<CallAtMostOnce>]`.
     let rec private nthLambdaParam (body: TExpr) (i: int) : (NodeKey * TExpr) voption =
         match body with
         | TExpr.Lambda(p, inner, _, _) ->
@@ -177,7 +177,7 @@ module Elaborate =
         else
             match Unification.zonk ctx.Store declTy with
             | TyFun _ -> mkMethodQuantEnv ctx.Store declaredTypars declTy
-            // A bare free var is value-restricted — never a method typar.
+            // A bare free var is value-restricted, so never a method typar.
             | TyVar _
             | TyTypar _ -> []
             | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
@@ -271,8 +271,9 @@ module Elaborate =
         let elaborateDecls () =
             let elaborated = elaborate ctx file
 
-            // Snapshotted ahead of the expansion walk, which resolves static-opt clauses and
-            // trait calls against the DEFINITION's types — nothing, for an `^T` template.
+            // Snapshotted ahead of the expansion walk, because that walk resolves static-opt
+            // clauses and trait calls against the DEFINITION's types, which do not ground an
+            // `^T` template.
             for (d, env) in elaborated do
                 match d with
                 | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
@@ -312,7 +313,7 @@ module Elaborate =
 
         {
             Decls = EqArray.ofList decls
-            // Published later, ADDITIVELY — an inline binding stays a decl here.
+            // Published later, ADDITIVELY, so an inline binding stays a decl here.
             InlineBodies = EqArray.empty
             // Slot order: the `SpecializationId`s the decls' edges carry index THIS array.
             Specializations = EqArray.ofArray specializations

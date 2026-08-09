@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExpr
 
 module internal ElaborateMembers =
 
-    /// An unmarked declaration is `Public` — the F# default.
+    /// An unmarked declaration is `Public`, the F# default.
     let accessibilityOfToken (tok: SyntaxToken voption) : Accessibility =
         match tok with
         | ValueSome t when t.Token = Token.KWPrivate -> Accessibility.Private
@@ -67,7 +67,7 @@ module internal ElaborateMembers =
                 | TPat.Tuple(items, _, _) ->
                     for it in items do
                         yield! flatten it
-                // A component that binds nothing — a wildcard, a nested destructuring —
+                // A component that binds nothing (a wildcard, a nested destructuring)
                 // yields no pair and so occupies no parameter slot.
                 | _ ->
                     match BoundVarKey.ofPat tp with
@@ -100,7 +100,7 @@ module internal ElaborateMembers =
         (host: IInterfaceImplHost)
         (el: TypeDefnElement<SyntaxToken>)
         : TTypeMember voption =
-        // Unions/records are not inheritable — `base` never in scope.
+        // Unions/records are not inheritable, so `base` is never in scope.
         let selfTy = host.MkSelfType EqArray.empty
 
         match el with
@@ -160,7 +160,7 @@ module internal ElaborateMembers =
 
     /// Surface a union/record host's augmentation members and its resolved `interface …
     /// with` impl bodies as the `(members, interfaces)` pair. Impls whose interface failed
-    /// to resolve are dropped — the "is not an interface" diagnostic already fired.
+    /// to resolve are dropped, because the "is not an interface" diagnostic already fired.
     let elaborateHostMembers
         (ctx: PassContext)
         (host: IInterfaceImplHost)

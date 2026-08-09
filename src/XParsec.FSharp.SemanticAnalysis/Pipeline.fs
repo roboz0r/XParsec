@@ -27,9 +27,9 @@ module Pipeline =
             Diagnostics: Diagnostic list
         }
 
-    /// The parser's diagnostics as the semantic layer sees them, in SOURCE order — the
-    /// parser accumulates them reversed. The underlying `ParseError` does not cross: it is
-    /// parser-internal.
+    /// The parser's diagnostics as the semantic layer sees them, put back into SOURCE order
+    /// because the parser accumulates them reversed. The underlying `ParseError` does not
+    /// cross: it is parser-internal.
     let private ofParseDiagnostics (diagnostics: XParsec.FSharp.Parser.Diagnostic list) : Diagnostic list =
         // Both delimiter diagnostics point back at the delimiter left open.
         let openedHere (openedAt: Site) : Label list =
@@ -48,7 +48,7 @@ module Pipeline =
                     // mistake is the hole it went into, not the token that exposed it.
                     | DiagnosticCode.UnclosedDelimiter(openedAt = openedAt) ->
                         Site.gapBefore (Site.ofToken d.Token), openedHere openedAt
-                    // The close IS written, just the wrong one, and nothing was inserted —
+                    // The close IS written, just the wrong one, and nothing was inserted,
                     // so that token is the mistake.
                     | DiagnosticCode.MismatchedDelimiter(openedAt = openedAt) ->
                         Site.ofToken d.Token, openedHere openedAt
@@ -229,7 +229,7 @@ module Pipeline =
         : FrozenPools =
         analyseFor "" provider source file
 
-    /// The self-host pre-freeze entry — like `analyseSem` but a bare-program list
+    /// The self-host pre-freeze entry: like `analyseSem`, but a bare-program list
     /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`. The JS
     /// target has no FSharp.Core, so the cons-list is its only list representation.
     let analyseSemForSelfHost

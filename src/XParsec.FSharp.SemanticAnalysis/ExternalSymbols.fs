@@ -59,7 +59,7 @@ type InlineBody =
     {
         Decl: Wire.TDecl
         ParamAttrs: ParamAttrs[]
-        /// The producer file's anchors — its text and token table. `Decl`'s nodes carry
+        /// The producer file's anchors: its text and token table. `Decl`'s nodes carry
         /// token INDICES into that file, unreadable without it.
         Origin: OriginSource
     }
@@ -92,7 +92,7 @@ type ExternalSymbol =
         /// contract-extracted.
         ValRepr: TastAccessor.ValRepr voption
         ImportForm: ImportForm
-        /// The symbol's splice TEMPLATE — a `val inline` whose home file published its body.
+        /// The symbol's splice TEMPLATE: a `val inline` whose home file published its body.
         InlineBody: InlineBody voption
     }
 
@@ -162,14 +162,14 @@ type ExternalUnionCase =
     }
 
     /// Does a reference written with `qualifier` resolve to this case? A bare (`ValueNone`)
-    /// one does not when the union is RQA — F# requires `Color.Red`.
+    /// one does not when the union is RQA, because F# requires `Color.Red`.
     member uc.ResolvesWith(qualifier: string voption) : bool =
         match qualifier with
         | ValueNone -> not uc.IsRequireQualifiedAccess
         | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q
 
 /// One hit from the per-field reverse index: a record declaring the queried field. Field
-/// TYPES are not here — they come from the shape.
+/// TYPES are not here, because they come from the shape.
 type ExternalRecordCandidate =
     {
         /// The exact `TypeKey` the declaring file minted: a module-held record's `InModule`
@@ -183,7 +183,7 @@ type ExternalRecordCandidate =
         /// EVERY declared field name, not only the queried one.
         FieldNames: string[]
         /// `[<RequireQualifiedAccess>]`: a consumer excludes such a record from bare
-        /// field-set resolution — `{ X = … }` must be written `{ R.X = … }`.
+        /// field-set resolution: `{ X = … }` must be written `{ R.X = … }`.
         IsRequireQualifiedAccess: bool
     }
 
@@ -246,11 +246,11 @@ type ExternalMember =
         /// (`Return(array, [<Optional>] clearArray = false)` ⇒ `[Bool false]`), in
         /// declaration order; a call may omit any suffix of them.
         OptionalDefaults: TConstValue list
-        /// An OPTIONAL interface member (`verbose?: T`) — a structural-width admission at a
+        /// An OPTIONAL interface member (`verbose?: T`), so a structural-width admission at a
         /// foreign-call arg position treats it as not-required. `false` from every
         /// non-interface producer.
         IsOptional: bool
-        /// The member's splice TEMPLATE — a `member inline`, lifted `this`-first so it
+        /// The member's splice TEMPLATE: a `member inline`, lifted `this`-first so it
         /// splices through the same path a `let inline` value does.
         InlineBody: InlineBody voption
     }
@@ -290,7 +290,7 @@ type ExternalMember =
 
 /// HOW an external type's instance-member CALLS lower on the JS backend.
 type MemberLowering =
-    /// Members live ON the object as prototype/own methods — native
+    /// Members live ON the object as prototype/own methods: native
     /// `x.member(args)` calls. F#/Fable's `[<AttachMembers>]`.
     | AttachedNative
     /// Members compile to FREE FUNCTIONS named `<Type>__<member>`, taking the object
@@ -305,11 +305,11 @@ type ExternalClassFlags =
         IsSealed: bool
         IsAbstract: bool
         AllowNullLiteral: bool
-        /// `true` for a .NET value type (`struct`) — codegen emits a value-type `this`
+        /// `true` for a .NET value type (`struct`), so codegen emits a value-type `this`
         /// pointer (`ldloca` + `constrained.`) rather than reference `callvirt`.
         IsValueType: bool
         MemberLowering: MemberLowering
-        /// A GLOBAL (ambient) type the JS runtime provides (`Map`, `Set`, `Promise`) —
+        /// A GLOBAL (ambient) type the JS runtime provides (`Map`, `Set`, `Promise`), so
         /// reachable by its BARE name with NO `import`. Rides the type's HOME, not the type.
         Global: bool
         /// The import-STATEMENT shape for this type's home-module exports.
@@ -358,11 +358,11 @@ type ExternalClassShape =
         }
 
 /// What the compiling target does about an intrinsic: binds a representation, or names
-/// itself as the target that binds none — a use-site diagnostic must say WHICH.
+/// itself as the target that binds none, because a use-site diagnostic must say WHICH.
 [<RequireQualifiedAccess>]
 type IntrinsicPlatform =
     /// The target's own name for the type, from the `<base>.<target>.fs` companion's
-    /// `type x = (# "<repr>" #)` — `"System.Int32"` on CLR, `"number"`/`"Error"` on JS.
+    /// `type x = (# "<repr>" #)`: `"System.Int32"` on CLR, `"number"`/`"Error"` on JS.
     | Repr of platform: string
     /// The target binds no representation, so naming the type is an error there
     /// (`nativeint` / `nativeptr` / `voidptr` on JS).
@@ -377,18 +377,18 @@ type IntrinsicIdentity =
         /// Usually `0`, but the structural type constructors are intrinsics too
         /// (`type 'T [] = (# "!0[]" #)` has arity 1; `byref`, nd-array).
         TyparArity: int
-        /// The per-target repr, or the target that binds none. Many-to-one — it must never
+        /// The per-target repr, or the target that binds none. Many-to-one, so it must never
         /// drive unification.
         Platform: IntrinsicPlatform
     }
 
 /// The class surface a HERITABLE primitive (`obj`/`exn`) carries and a scalar lacks.
-/// Instance members (`exn.Message`) are NOT here — they route through the platform type.
+/// Instance members (`exn.Message`) are NOT here, because they route through the platform type.
 type IntrinsicClassSurface =
     {
         /// The declared `inherit` parent (`exn`'s is `obj`; `obj`'s is `ValueNone`).
         BaseType: FrozenType voption
-        /// The contract `.ctor`s (`new: string -> exn`) — the constructible surface both
+        /// The contract `.ctor`s (`new: string -> exn`): the constructible surface both
         /// `new exn "…"` and `inherit exn(…)` check against.
         Members: ExternalMember[]
     }
@@ -418,7 +418,7 @@ type IntrinsicShape =
 /// identity is a `TyClass` CONSTRAINT, not a `TyConst` value identity.
 type IntrinsicInterfaceShape =
     {
-        /// The platform-INVARIANT `.fsi` identity (`Vesper.disposable`) — the
+        /// The platform-INVARIANT `.fsi` identity (`Vesper.disposable`): the
         /// capability-matching key, NOT the value-resolution key.
         Canon: TypeKey
         TyparArity: int
@@ -427,7 +427,7 @@ type IntrinsicInterfaceShape =
         Platform: string
         /// The abstract member surface (`Dispose`).
         Members: ExternalMember[]
-        /// The directly-inherited interfaces as `(compiled-name, type-args)` pairs —
+        /// The directly-inherited interfaces as `(compiled-name, type-args)` pairs:
         /// `enumerator` inherits `disposable`. Empty for a leaf capability.
         Interfaces: (string * FrozenType[])[]
         Origin: SymbolOrigin
@@ -443,14 +443,14 @@ type ExternalTypeShape =
     /// Case order matches source. `interfaces` are the union's directly-declared
     /// `interface <ty>` impls as `(compiled-name, type-args)` pairs.
     | Union of arity: int * cases: ExternalCaseShape[] * interfaces: (string * FrozenType[])[] * origin: SymbolOrigin
-    /// An external enum: named constant cases in source order. No `arity` — enums are never
-    /// generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
+    /// An external enum: named constant cases in source order. No `arity`, because enums are
+    /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
     | Enum of cases: ExternalEnumCaseShape[] * origin: SymbolOrigin
     | Class of shape: ExternalClassShape
     /// A referenced package's intrinsic-repr binding (`type exn = (# class
-    /// "System.Exception" #)`) — scalar (`int`) or heritable class (`obj`/`exn`).
+    /// "System.Exception" #)`): scalar (`int`) or heritable class (`obj`/`exn`).
     | Intrinsic of shape: IntrinsicShape
-    /// A capability interface (`disposable`/`equatable`/`comparable`). CLR-only — a JS
+    /// A capability interface (`disposable`/`equatable`/`comparable`). CLR-only, because a JS
     /// capability is a plain canon-only interface `Class`.
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
     /// NAME + ARITY are registered, the body is not modelled. `reason` says which gap, so a
@@ -473,8 +473,8 @@ type ExternalTypeShape =
 type IExternalSymbolResolver =
     /// `name` is the compiled name ("op_Addition", not "(+)").
     abstract TryLookup: name: string -> ExternalSymbol voption
-    /// Look up a `type` by canonical compiled name — its REGISTERED identity plus its body
-    /// shape, from the one hit.
+    /// Look up a `type` by canonical compiled name, returning its REGISTERED identity plus
+    /// its body shape from the one hit.
     abstract TryLookupType: name: string -> struct (TypeKey * ExternalTypeShape) voption
 
     /// Reverse case-name lookup: a bare case name → its declaring union, so `Some 5` /
@@ -501,26 +501,26 @@ type IExternalSymbolStore =
     /// several overloads share a name this collapses to a single best-by-arity pick.
     abstract TryLookupMember: key: SymbolKey * memberName: string -> ExternalMember voption
 
-    /// ALL overloads of a member by name — the candidate set the application-site overload
+    /// ALL overloads of a member by name: the candidate set the application-site overload
     /// resolver picks from. `[||]` from providers that don't model members.
     abstract TryLookupMembers: key: SymbolKey * memberName: string -> ExternalMember[]
 
-    /// A member by resolved `MemberKey` — the channel a MEMBER splice site reaches an
+    /// A member by resolved `MemberKey`: the channel a MEMBER splice site reaches an
     /// `InlineBody` through. BY KEY: a by-name lookup collapses an overload set to one pick
     /// and can hand back a different overload's entry.
     abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
 
-    /// The TS index signature(s) `{ [k: K]: V }` — the seam `x.[k]` / `x.[k] <- v` goes
+    /// The TS index signature(s) `{ [k: K]: V }`: the seam `x.[k]` / `x.[k] <- v` goes
     /// through, `(key, value)` templates over the DECLARING typars. Both kinds may be present.
     abstract TryLookupIndexSignature: key: SymbolKey -> (FrozenType * FrozenType) list
 
-    /// A value/free-function symbol by resolved key — the channel a VALUE splice site
+    /// A value/free-function symbol by resolved key: the channel a VALUE splice site
     /// reaches an `InlineBody` through.
     abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
 
     /// `{ platform-repr -> [canon] }`: an incoming BCL/native runtime name
-    /// (`"System.Exception"`) back to the `.fsi` identity (`"exn"`). ONE-TO-MANY — on JS
-    /// `int`, `float` and `float32` all repr to `"number"`.
+    /// (`"System.Exception"`) back to the `.fsi` identity (`"exn"`). ONE-TO-MANY, because on
+    /// JS `int`, `float` and `float32` all repr to `"number"`.
     abstract IntrinsicReverseCanon: Map<string, SymbolKey list>
 
     /// `{ canon -> platform-repr }`: the `.fsi` short name to its `.fs` `(# … #)` repr for
@@ -553,8 +553,8 @@ type CodegenOpenSignature =
 /// inference surface. Every channel is key-addressed and NONE returns an overload set.
 type ICodegenSymbols =
     abstract TryLookupType: key: SymbolKey -> ExternalTypeShape voption
-    /// The exact member the front end resolved, by the `MemberKey` it stamped — no overload
-    /// re-pick.
+    /// The exact member the front end resolved, by the `MemberKey` it stamped, with no
+    /// overload re-pick.
     abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
     /// Select the `.ctor` a `new` emits: by the exact `MemberKey` the front end recorded
     /// when it has one, telling `ArgumentException(string, string)` from
@@ -576,7 +576,7 @@ module ExternalSymbols =
     let emptyForwardRepr: IReadOnlyDictionary<SymbolKey, string> =
         Dictionary<SymbolKey, string>() :> IReadOnlyDictionary<_, _>
 
-    /// Invert a NAME-INDEXED leaf's qualified name back to a key — sound only when the
+    /// Invert a NAME-INDEXED leaf's qualified name back to a key. Sound only when the
     /// leaf's type keys are `InNamespace`. Arity comes from the SHAPE, never from the arity
     /// probed for.
     let nameKeyedTypeHit (name: string) (shape: ExternalTypeShape) : struct (TypeKey * ExternalTypeShape) =
@@ -601,7 +601,7 @@ module ExternalSymbols =
         | _ -> ValueNone
 
     /// The member surface of an external INTERFACE specifically. A non-interface `Class` is
-    /// excluded — a record cannot widen to a concrete class.
+    /// excluded, because a record cannot widen to a concrete class.
     [<return: Struct>]
     let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : ExternalMember[] voption =
         match shape with
@@ -612,7 +612,7 @@ module ExternalSymbols =
         | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
         | _ -> ValueNone
 
-    /// A capability is an interface on BOTH targets — only the carried shape differs.
+    /// A capability is an interface on BOTH targets, and only the carried shape differs.
     let isInterfaceShape (shape: ExternalTypeShape) : bool =
         match shape with
         | ExternalTypeShape.Class s -> s.IsInterface
@@ -631,9 +631,9 @@ module ExternalSymbols =
             ValueSome(struct (id, surface))
         | _ -> ValueNone
 
-    /// Resolve a `(# "…" #)` REPR STRING — never a source-written name, whose `open`s this
-    /// would miss — to the first shape `choose` ACCEPTS; a rejected shape does not stop the
-    /// scan.
+    /// Resolve a `(# "…" #)` REPR STRING to the first shape `choose` ACCEPTS; a rejected
+    /// shape does not stop the scan. Never a source-written name, because this would miss
+    /// the `open`s it was written under.
     let tryPickRuntimeType
         (provider: IExternalSymbolResolver)
         (choose: ExternalTypeShape -> 'a voption)
@@ -656,7 +656,7 @@ module ExternalSymbols =
         tryPickRuntimeType provider ValueSome repr
 
     /// Resolve the language-capability identities from their canonical contract names
-    /// (`Vesper.disposable`). Keys are minted at arity 0 — the fqn already carries the
+    /// (`Vesper.disposable`). Keys are minted at arity 0, because the fqn already carries the
     /// backtick-arity suffix.
     let resolveCapabilities (provider: IExternalSymbolProvider) : RuntimeNames.CapabilityIds =
         let ofKey (key: TypeKey) : RuntimeNames.CapabilityIdentity =
@@ -748,7 +748,7 @@ module ExternalSymbols =
 
     /// The OPEN realisation of a member's `Signature`: declaring typars substituted from
     /// `declaringArgs`, the member's own method typars left as `TyTypar(Method,j)` markers.
-    /// The applicability-filtering form — a generic method's marker stays a wildcard.
+    /// The applicability-filtering form, in which a generic method's marker stays a wildcard.
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
@@ -922,7 +922,7 @@ module ExternalSymbols =
             Scheme = scheme
         }
 
-    /// A symbol from a `FrozenType` scheme over `arity` declaring typars — a template
+    /// A symbol from a `FrozenType` scheme over `arity` declaring typars: a template
     /// freshened per use site, not a closure.
     let scheme
         (decl: ModuleContainer)
