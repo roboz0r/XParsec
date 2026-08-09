@@ -1299,7 +1299,7 @@ would carry the qualifier that the qualified arm currently filters on AFTER the 
 Its sibling `recordFieldTy` (`:148`) grew an external arm that reads provider field shapes and
 instantiates them at the object argument's args, precisely so `wrapObjArg` boxes an `obj`-typed field
 of a cross-file record. `unionCaseFieldTys` immediately below still has only a `LocalUnion` arm
-and a `| _ -> []`, so a value flowing into an explicitly `obj`-typed field of an EXTERNAL union
+and a `| _ -> []`, so a value assigned to an explicitly `obj`-typed field of an EXTERNAL union
 case gets no box. Since inference coerces into such a slot (`InferCtor`'s `unifyArg`), this is
 the same invalid-IL shape the record arm was added to fix. Found because
 `InferResolve.recordConstructionOf` carried a doc claiming BOTH were still `LocalRecord`-only;

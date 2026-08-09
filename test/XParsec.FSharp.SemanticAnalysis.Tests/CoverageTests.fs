@@ -402,7 +402,7 @@ let tests =
             }
 
             test "range constrains adjacent context: `let r = (1..n) ; n + 0` forces n : int" {
-                // `n` flows through both the range endpoint and the use site `n + 0`, so
+                // `n` is constrained by both the range endpoint and the use site `n + 0`, so
                 // the endpoint constraint holds even though binding `r` is itself rejected.
                 let tast = analyse "let f n = let r = 1..n in n + 0"
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)

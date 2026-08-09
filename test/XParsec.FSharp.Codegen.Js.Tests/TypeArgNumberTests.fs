@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 /// `boxlib`: a generic `interface Box<T> { value: T }`, a `makeNumBox(): Box<number>` factory
 /// (the type-arg `number` under test), and a scalar `consume(x: number)` the union must still
-/// flow into.
+/// be accepted by.
 let private manifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -46,7 +46,7 @@ let tests =
     testList
         "TypeArgNumber"
         [
-            test "a `Box<number>` value read flows into a `number` parameter (family absorption)" {
+            test "a `Box<number>` value read is accepted by a `number` parameter (family absorption)" {
                 // The invariant type-arg resolves to the SAME family a `number` parameter
                 // widens to, so the union read is admitted at the scalar arg seam.
                 let errs = analyseErrors "let b = makeNumBox()\nconsume b.value\n"

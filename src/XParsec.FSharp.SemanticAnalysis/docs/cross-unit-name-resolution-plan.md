@@ -24,7 +24,7 @@ design record behind those comments.
 
 ## 4. `obj`-field boxing (records DONE; union cross-unit rides the union-construction gap)
 
-A value flowing into an `obj` field (`{ X = 5 }` into `X: obj`, `C 5` into `C of obj`) is boxed
+A value assigned to an `obj` field (`{ X = 5 }` into `X: obj`, `C 5` into `C of obj`) is boxed
 by `wrapObjArg`. F# accepts both via an implicit box; the original framing ("external records skip
 `wrapObjArg`; extend the box functions through the provider") was WRONG — the box home was
 unreachable because record field-init unified via *symmetric* `unify`, which rejected the value→obj

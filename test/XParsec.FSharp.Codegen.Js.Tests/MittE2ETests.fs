@@ -116,7 +116,7 @@ let private harness =
             ""
         ]
 
-// The DEFAULT-import lowering needs no wiring here: it flows from the import form the
+// The DEFAULT-import lowering needs no wiring here: it derives from the import form the
 // provider stamps on mitt's factory.
 let private emitWithMitt (input: string) : string =
     let runtime =

@@ -82,7 +82,7 @@ Net first-cut layout = the existing reference-union field set, emitted as a seal
 2. **`UnionTypeInfo.IsValueType`** (SA): add the flag (currently only `ClassTypeInfo` has it),
    set at union registration from the `[<Struct>]` attribute (the same `classAttrs.IsValueType ||
    isStructShape` predicate `MemberRegistration.fs:604` already uses for classes; the struct-field
-   cycle check already reads struct-ness off the CST via `isValueTypeDefn`), and flow it to the
+   cycle check already reads struct-ness off the CST via `isValueTypeDefn`), and thread it to the
    codegen IR through Elaborate (mirror the class path at `Elaborate.fs:1623`).
 3. **CLR emission as a value type.** Route a struct union through the EXISTING value-type
    machinery: `RegisterUserValueType td.Key` (`Assembler.fs:160`), `System.ValueType` base +

@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// A Vesper record flows into a foreign `configure(opts: Options)` by structural width and
+// A Vesper record is passed to a foreign `configure(opts: Options)` by structural width and
 // RUNS under Node: the record emits verbatim as a POJO, the foreign function reads its
 // fields, and `int` satisfies the interface's `number` member.
 

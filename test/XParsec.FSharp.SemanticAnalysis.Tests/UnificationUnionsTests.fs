@@ -109,12 +109,12 @@ let tests =
 
             test "let binding annotated with a union accepts a member value" {
                 let ctx = analyse "let x: int | string = 1"
-                Expect.isEmpty ctx.Diagnostics "int flows into (int | string) annotation"
+                Expect.isEmpty ctx.Diagnostics "an int is accepted by an (int | string) annotation"
             }
 
             test "let binding annotated with a reordered union accepts the other member" {
                 let ctx = analyse "let x: string | int = \"a\""
-                Expect.isEmpty ctx.Diagnostics "string flows into (string | int) annotation"
+                Expect.isEmpty ctx.Diagnostics "a string is accepted by a (string | int) annotation"
             }
 
             test "a union-typed parameter accepts arguments of each member" {
@@ -155,7 +155,7 @@ let tests =
             }
 
             test "a union slot accepts a value by assignability WITHOUT pinning its typar" {
-                // A value that subsumes into a member flows in without `unify`, so the
+                // A value that subsumes into a member is accepted without `unify`, so the
                 // actual's typar stays free — a plain `unify` against the union would link it.
                 let ctx = subsumeCtx ()
                 let tv = ctx.Store.NewTypeVar()

@@ -178,7 +178,7 @@ augmentation member signatures via the shared `fillTypeMembers` driver with
   member → union static member → qualified ctor (`resolveQualifiedCtor`,
   bypassing the `CtorIndex` ambiguity check) → external qualified case.
 - Application is ordinary function application: the ctor's `TyFun` type
-  flows through the normal `App` arm, unifying the argument (a tuple for
+  is handled by the normal `App` arm, unifying the argument (a tuple for
   multi-field) against the declared field shape. Arity / type mismatch
   diagnoses there.
 

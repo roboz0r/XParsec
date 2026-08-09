@@ -402,7 +402,7 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
         Some(Schema.Export.TypeAlias(name, List.length env, mapType ctx target))
     elif hasFlag flags Ts.SymbolFlags.Module then
         // `namespace NS { … }` / `module NS { … }`: recursing the namespace's own
-        // exports means a nested namespace flows back through this arm.
+        // exports means a nested namespace re-enters this arm.
         // `getExportsOfModule` is in declaration order, so the golden stays stable.
         let nested =
             checker.getExportsOfModule resolved

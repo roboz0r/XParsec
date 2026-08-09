@@ -153,7 +153,7 @@ module (default import + bare-erased call + no grouping throw), an overloaded Na
 (`import * as` + member call), and a `node/fs`-homed manifest (mounts under `Node.Fs`, emits a real
 import — the mount/is-global split).
 
-**Residue (deferred, not W2):** a node module's import SPECIFIER still flows through the
+**Residue (deferred, not W2):** a node module's import SPECIFIER still travels through the
 `JsRuntimeModule.FileName` seam (`import … from "./fs.mjs"`), not the bare node specifier
 (`"fs"`/`"node:fs"`). Bare-specifier emission (and the runtime-asset-vs-external-package
 distinction it needs) lands with real `@types/node` consumption (W7), where a node manifest carries
@@ -255,7 +255,7 @@ It is NOT just data-carrying — it has a lowering wrinkle, its OWN mechanism (d
   intrinsic member. The two only resemble each other in emitting a non-dotted shape; the mechanisms
   differ (interface-call lowering vs `(# … #)` body splice) and neither depends on the other.
 - **Fun-coercion for an external nominal** must be verified: lambdas coerce into a `Fun`-bounded slot;
-  an external Fun-implementing nominal flowing into an arrow slot needs confirming (it should ride the
+  an external Fun-implementing nominal passed to an arrow slot needs confirming (it should ride the
   G5 upcast + the arg-position structural width, but is unexercised).
 - **Overloaded call signatures** compound it — `isFunctionType` already bails on >1 call sig, so a
   callable object with overloaded call sigs needs the multi-signature story first.

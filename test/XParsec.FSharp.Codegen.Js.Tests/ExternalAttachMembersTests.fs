@@ -18,7 +18,7 @@ let private unitT = named "unit"
 
 /// `boxlib`: a stateful `Box { get(): int; set(x: int): unit; addTo(a: int, b: int): unit;
 /// value: int }` plus a `makeBox(): Box` factory whose RETURN freezes to `FTClass`, so a
-/// Vesper value flowing from it admits native member calls.
+/// Vesper value returned by it admits native member calls.
 let private boxManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion

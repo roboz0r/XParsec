@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // A NON-GENERIC emitter-style external object, driven end to end under Node. A Vesper
-// LAMBDA flows into a native `objArg.member(args)` call, its parameter type inferred from
+// LAMBDA is passed to a native `objArg.member(args)` call, its parameter type inferred from
 // `handler: int -> unit` in the manifest, and its own body calls back on a captured object.
 
 // ─── Hand-built manifest (no JSON round-trip); builders from `SchemaDsl` ────────

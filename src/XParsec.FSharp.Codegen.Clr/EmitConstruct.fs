@@ -198,7 +198,7 @@ module EmitConstruct =
         let key, tyArgs = nominalShape "UnionCons" ty
         let qualName = SymbolKeyOps.typeMetaName key
 
-        // A value flowing into a case field typed `obj` is boxed by an explicit `Upcast`
+        // A value assigned to a case field typed `obj` is boxed by an explicit `Upcast`
         // node from Elaborate, so push each argument raw.
         for a in args do
             recur env b a

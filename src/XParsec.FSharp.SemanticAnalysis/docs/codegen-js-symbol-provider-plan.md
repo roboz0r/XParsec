@@ -146,7 +146,7 @@ already rides obj's directional `subsumes` — so the unifier learns no subtypin
 - a Vesper string ENUM (landed: `type PingPong = | Ping = "ping" | Pong = "pong"`,
   JS repr already the bare string) admits when its case-VALUE set ⊆ the union — the
   nominal companion for code that wants to name/abstract the type;
-- plain `string` does NOT flow in (directional, exactly like `T <: T|null` holding and
+- plain `string` is NOT admitted (directional, exactly like `T <: T|null` holding and
   its converse not);
 - outward, a literal (union) WIDENS to its base primitive (`string`/`number`), so
   reading a literal-typed value back into Vesper needs nothing new.
@@ -173,7 +173,7 @@ faithful schema arm + `FrozenType` node, ground-EVALUATED rather than degraded):
   The key becomes known through **call-site constant propagation**: a literal argument
   instantiating the method typar grounds `K` — the printf machinery is the in-repo
   precedent (a literal format string already drives external-call typing). A NON-literal
-  key (flows through a variable) degrades, documented: payload = union of member value
+  key (read from a variable) degrades, documented: payload = union of member value
   types (or use the enum companion, which grounds `K` to its case set).
 - `A extends B ? X : Y` → evaluate when ground; mitt's
   `undefined extends Events[Key] ? Key : never` folds once `Events[Key]` does (the
@@ -281,7 +281,7 @@ deferred). This is the same answer as "flatten into one record" at two
 milestones, not a different one: flatten-via-`getPropertiesOfType` (the checker
 pre-merges the members for you) only has somewhere to land **once the content-
 hash structural-record machinery exists** — which is deferred below. So once
-structural records land, an intersection *of object types* flows through the
+structural records land, an intersection *of object types* takes the
 **same** content-hash record path for free; non-object intersections
 (function/branded) stay erased. Gate the flatten on the structural-records
 milestone, not before.

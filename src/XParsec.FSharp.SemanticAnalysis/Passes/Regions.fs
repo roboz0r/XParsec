@@ -24,7 +24,7 @@ module Regions =
             IsMutableCell: bool
             /// This region is itself a heap-repr sink: an aggregate container (tuple /
             /// record / union / `new`), or the source of a box / interface upcast.
-            /// `solveRepr` flows `RequiresHeapRepr` DOWN this node's `Outlives` edges.
+            /// `solveRepr` propagates `RequiresHeapRepr` DOWN this node's `Outlives` edges.
             mutable HeapReprSink: bool
             mutable Outlives: ResizeArray<RegionId>
         }
@@ -144,8 +144,8 @@ module Regions =
         | TyRecord _ -> true
         | TyUnion _ -> true
         | TyClass _ -> true
-        // An anonymous union erases to a boxed reference (`obj` + `isinst`), so a
-        // value flowing into one allocates.
+        // An anonymous union erases to a boxed reference (`obj` + `isinst`), so
+        // converting a value to one allocates.
         | TyOr _ -> true
         // An unevaluated type-level computation erases like `TyOr` once evaluated.
         | TyKeyOf _

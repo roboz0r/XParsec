@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
-// The implicit value→`obj` upcast. A value or open typar flowing into an `obj`
+// The implicit value→`obj` upcast. A value or open typar passed to an `obj`
 // parameter type-checks *without grounding* the typar, so the box that upcast implies
 // is made explicit here, at Elaborate, as a `TExpr.Upcast(arg, obj)` node.
 
@@ -14,7 +14,7 @@ module internal ElaborateObjArgs =
     let private isObjTy (store: TypeStore) (t: SemType) : bool =
         UnificationEngine.isObjType (Unification.zonk store t)
 
-    /// Wrap an argument flowing into parameter `paramTy` in an explicit obj-`Upcast` when
+    /// Wrap an argument passed to parameter `paramTy` in an explicit obj-`Upcast` when
     /// the parameter is the universal `obj` slot and the argument is not already obj. A
     /// tupled parameter facing a `TExpr.Tuple` argument wraps element-wise.
     let rec wrapObjArg (store: TypeStore) (paramTy: SemType) (arg: TExpr) : TExpr =
@@ -106,7 +106,7 @@ module internal ElaborateObjArgs =
                 | None -> []
         | _ -> []
 
-    /// The declared SemType of a record field, for boxing a value flowing into an `obj`
+    /// The declared SemType of a record field, for boxing a value assigned to an `obj`
     /// field. The external / cross-file arm is load-bearing: inference COERCES a value into
     /// an `obj` field, so without the box a cross-file `{ X = v }` emits invalid IL.
     let recordFieldTy (ctx: PassContext) (recordTy: SemType) (fieldName: string) : SemType voption =
@@ -126,8 +126,8 @@ module internal ElaborateObjArgs =
                 | _ -> ValueNone
             | _ -> ValueNone
 
-    /// Field SemTypes of a union case, in declaration order, for boxing a value flowing
-    /// into an `obj` case field. Empty for an external union.
+    /// Field SemTypes of a union case, in declaration order, for boxing a value assigned to
+    /// an `obj` case field. Empty for an external union.
     let unionCaseFieldTys (ctx: PassContext) (unionTy: SemType) (caseName: string) : SemType list =
         match unionTy with
         | LocalUnion ctx info ->

@@ -2037,7 +2037,7 @@ let interfaceImplCodegenTests =
 
                 Expect.isTrue
                     (il |> Array.contains 0x8Cuy)
-                    "HashVia emits a box (0x8C) for the 'T argument flowing into the obj parameter"
+                    "HashVia emits a box (0x8C) for the 'T argument passed to the obj parameter"
             }
 
             // The same box on the project-local path: `this.M(5)` has to push a boxed
@@ -2056,9 +2056,7 @@ let interfaceImplCodegenTests =
                 let bytes = Codegen.toBytes artifact
                 let il = peMethodIl bytes "C" "Probe"
 
-                Expect.isTrue
-                    (il |> Array.contains 0x8Cuy)
-                    "Probe boxes (0x8C) the int arg flowing into the obj parameter"
+                Expect.isTrue (il |> Array.contains 0x8Cuy) "Probe boxes (0x8C) the int arg passed to the obj parameter"
 
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C", throwOnError = true)

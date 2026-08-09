@@ -11,8 +11,8 @@ module Unsafe =
 [<AutoOpen>]
 module DynamicOperators =
 
-    /// <summary>Enter <c>dynamic</c> — the same JS value, retyped. A value never flows
-    /// into <c>dynamic</c> silently; you write <c>dynamic x</c>.</summary>
+    /// <summary>Enter <c>dynamic</c> — the same JS value, retyped. No value is converted to
+    /// <c>dynamic</c> implicitly; you write <c>dynamic x</c>.</summary>
     val inline dynamic: value: ^T -> dynamic
 
     /// <summary>Dynamic member access — <c>x?foo</c> (F# spec 6.4.5) emits the computed

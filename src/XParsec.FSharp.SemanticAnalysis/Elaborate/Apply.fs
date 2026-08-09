@@ -138,7 +138,7 @@ module internal ElaborateApply =
                     else
                         argT
 
-                // Box a value / open-typar argument flowing into an `obj` parameter.
+                // Box a value / open-typar argument passed to an `obj` parameter.
                 let argT =
                     match externalDom with
                     | ValueSome dom when isFirst -> wrapObjArg ctx.Store dom argT

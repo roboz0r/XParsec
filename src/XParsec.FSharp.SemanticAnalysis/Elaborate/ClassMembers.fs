@@ -122,7 +122,7 @@ module internal ElaborateClassMembers =
                     rewriteFieldRefs instanceRewrite body
 
             // The member's own generic parameters, recovered from the registered
-            // `TypeMemberInfo.CanonicalTypars`. That order flows through UNCHANGED, so the
+            // `TypeMemberInfo.CanonicalTypars`. That order is PRESERVED, so the
             // ABI index a frozen `TyTypar(Method, i)` marker names stays valid.
             let methodTypeParams
                 (n: string)

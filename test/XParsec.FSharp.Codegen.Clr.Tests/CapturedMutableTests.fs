@@ -408,7 +408,7 @@ let tests =
             }
 
             // `mkConst` is the genuine trigger: no operator applies to `x`, so it stays
-            // `'a -> unit -> 'a` and the typar flows into the capture-field signature.
+            // `'a -> unit -> 'a` and the typar reaches the capture-field signature.
             // (`let mkAdder x = fun y -> y + x` is NOT, because `(+)`'s `default ^T1: int` forces int.)
             test "Higher-order returning a closure with an un-pinned typar" {
                 // The inner `fun () -> x` is a generic closure over `'a`: capture field `!0`,

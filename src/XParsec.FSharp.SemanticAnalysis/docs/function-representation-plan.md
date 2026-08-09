@@ -68,7 +68,7 @@ deferred "until generics work correctly end-to-end." That has been **superseded*
 the zero-alloc value-struct shape landed (rung-4). There are now two representations,
 chosen by where the closure lands:
 
-- **Zero-alloc value-struct** — a source lambda flowing into a **constrained
+- **Zero-alloc value-struct** — a source lambda passed to a **constrained
   `'TF :> Fun<a,b>` / `'TF :> Fun<a,b,c>` method-typar slot** lowers to a readonly
   `System.ValueType` struct: captureless → `initobj` (M1); capturing → captures stored
   by value into struct fields via a value-type ctor (M2), a mutable capture promoted to
@@ -104,7 +104,7 @@ interface value still heaps. The .NET 9 `allows ref struct` story is later still
 ## What this does to the canonical sample
 
 > Note: the lowering below is the **value-struct shape** — constrained calls, JIT
-> devirt, no box. For a source lambda or operator flowing into `fold`'s constrained
+> devirt, no box. For a source lambda or operator passed to `fold`'s constrained
 > `'TFunc :> Fun<_,_,_>` slot this is the **landed** shape (rung-4; the `Vesper.Seq`
 > `map`/`fold` flip proves the zero-alloc pipeline end-to-end). A closure that instead
 > escapes into a plain `Fun<_,_>` interface value still takes the reference-type heap
@@ -357,7 +357,7 @@ generic locals land.
 A captured `let mutable` of typar type goes through both the F2 cell
 promotion ([`records-architecture.md`](records-architecture.md)) and the C3 generic-closure synthesis.
 The mechanism is exercised indirectly (a `Vesper.Ref<'T>` capture
-flows through the same `encodeType` path that the C3 tests pin), but
+takes the same `encodeType` path that the C3 tests pin), but
 no explicit `let mkCell x = let mutable n = x; fun () -> n <- n; n`
 test exists yet. Small additive test — add when the surrounding
 syntax (the trivial `n <- n; n` body in particular) types cleanly in

@@ -139,7 +139,7 @@ let tests =
         "Regions"
         [
             test "local closure doesn't escape" {
-                // `f` is called inside `useLocal`'s body and never flows out; `useLocal`
+                // `f` is called inside `useLocal`'s body and never escapes; `useLocal`
                 // returns the `int` result of `f 3`.
                 let input = "let useLocal () = let f x = x + 1 in f 3"
                 let useLocalEscape = escapeOf input "useLocal"

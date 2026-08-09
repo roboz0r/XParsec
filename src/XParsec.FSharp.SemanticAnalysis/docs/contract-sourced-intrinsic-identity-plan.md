@@ -17,8 +17,8 @@ flow-sensitive nullability analysis was spun out to `nullability-analysis-plan.m
 
 ## Principle (user, confirmed)
 
-Strings flow only at **name resolution** (user/bootstrap source → a fully-qualified identity).
-After that, `SymbolKey`s flow everywhere and compare by **exact `=`**. An intrinsic's identity is
+Strings appear only at **name resolution** (user/bootstrap source → a fully-qualified identity).
+After that, everything downstream carries `SymbolKey`s and compares by **exact `=`**. An intrinsic's identity is
 **resolved from the `prim-types-*` contract** through ordinary name resolution — never authored
 from a hardcoded front-end name set (`feedback_mockbuiltins_is_a_trap`).
 

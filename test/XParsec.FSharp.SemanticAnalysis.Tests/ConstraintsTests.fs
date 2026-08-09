@@ -211,7 +211,7 @@ let tests =
                 Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
             }
 
-            test "constraint flows through generic record's field type" {
+            test "constraint propagates through generic record's field type" {
                 let ctx =
                     analyseFull "type Box<'a when 'a : equality> = { Value: 'a }\nlet b : Box<int> = { Value = 1 }"
 

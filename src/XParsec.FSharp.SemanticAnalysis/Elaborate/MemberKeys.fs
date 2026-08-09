@@ -100,7 +100,7 @@ module LocalMemberKeys =
             | [||] -> singular ()
             | [| only |] -> ValueSome(SymbolKey.Member only.Key)
             // ≥2 overloads sharing this name: a genuine set. A `ValueNone` pick
-            // (none-applicable / ambiguous) flows to the caller's diagnostic, never a wrong key.
+            // (none-applicable / ambiguous) is left for the caller to diagnose, never a wrong key.
             | members ->
                 match operands with
                 | ValueSome ops ->

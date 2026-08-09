@@ -801,7 +801,8 @@ module UnificationEngine =
 
     /// Unify an *argument* against its expected parameter type, admitting the implicit
     /// class→interface / class→base upcast F# inserts at a coercion point: a
-    /// `Comparer<'T>` value flows into an `IComparer<'T>` slot. Tuples walk element-wise.
+    /// `Comparer<'T>` value is passed where an `IComparer<'T>` is expected. Tuples walk
+    /// element-wise.
     let rec unifyArg (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->

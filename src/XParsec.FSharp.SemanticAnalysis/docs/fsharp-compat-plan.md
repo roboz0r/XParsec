@@ -26,7 +26,7 @@ dependency for interop.
 "Transparent interop" is two problems, and dual-implementing closures only solves
 the first.
 
-### Vesper → F# (a Vesper function value flows into an F# API)
+### Vesper → F# (a Vesper function value is passed to an F# API)
 
 This is the easy half, and R1 already built most of it. A **compat closure**:
 

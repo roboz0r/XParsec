@@ -149,19 +149,19 @@ let tests =
             }
 
             // ── Interface→interface supertype assignability ────────────────────────
-            test "DIRECT super-interface assignability: B flows into an A<int> param" {
+            test "DIRECT super-interface assignability: B is accepted by an A<int> param" {
                 let errors = analyse (String.concat "\n" [ "let b = makeB()"; "useA(b)"; "" ])
 
                 Expect.isEmpty errors (sprintf "expected no errors, got:\n%A" (errors |> List.map (fun d -> d.Message)))
             }
 
-            test "TRANSITIVE super-interface assignability: C flows into an A<int> param" {
+            test "TRANSITIVE super-interface assignability: C is accepted by an A<int> param" {
                 let errors = analyse (String.concat "\n" [ "let c = makeC()"; "useA(c)"; "" ])
 
                 Expect.isEmpty errors (sprintf "expected no errors, got:\n%A" (errors |> List.map (fun d -> d.Message)))
             }
 
-            test "NEGATIVE: an unrelated value does not flow into an A<int> param" {
+            test "NEGATIVE: an unrelated value is rejected by an A<int> param" {
                 let errors = analyse (String.concat "\n" [ "let x = 5"; "useA(x)"; "" ])
                 Expect.isNonEmpty errors "an int must not be assignable to an A<int> parameter"
             }

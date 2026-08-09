@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// A manifest `Interface`/`Class` name freezes to `FTClass`, so a value whose type flows
+// A manifest `Interface`/`Class` name freezes to `FTClass`, so a value whose type comes
 // from a function or member RETURN admits `.member` access. Negative gates: an `int`
 // return stays `FTConst`, and a `TypeAlias` name stays a transparent `Abbrev`.
 
@@ -124,7 +124,7 @@ let tests =
         "ExternalNominalClass"
         [
             test "a value from a manifest-interface-returning function admits .member access" {
-                // `b`'s type flows from `makeBox`'s return, freezing to `FTClass`, so
+                // `b`'s type comes from `makeBox`'s return, freezing to `FTClass`, so
                 // `.get`/`.set` resolve through the provider. Analysis only; emission is
                 // the member-call path's concern.
                 let program =
