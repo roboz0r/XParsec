@@ -1,6 +1,6 @@
 # Platform facts — move CLR-shaped primitive classification to the backend
 
-*Depends on `extern-is-self-evident-plan.md`. Independent of `per-target-manifest-plan.md`
+*Its `extern`-classification prerequisite has landed. Independent of `per-target-manifest-plan.md`
 except for the note on `CompilationInputs.Target` below. The steps here are ORDERED: step 1 is a
 hard prerequisite for step 2, and taking them out of order silently breaks `when 'T : equality`
 on JS with no diagnostic.*

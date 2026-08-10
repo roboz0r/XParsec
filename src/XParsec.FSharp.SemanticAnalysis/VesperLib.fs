@@ -1118,18 +1118,16 @@ module VesperLib =
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
 
         | TypeSignature.Extern(typeName = typeName; kindTag = kindTag; members = members) ->
-            // An `extern` type is either an intrinsic-repr primitive (its sibling `.fs`
-            // carries `type x = (# "<repr>" #)`, pre-extracted into `ctx.IntrinsicReprs`)
-            // or an opaque abstract type with no `.fs` binding, which becomes a `Class`.
+            // `extern` DECLARES that the platform supplies the representation, so the type is
+            // an intrinsic on every target. Whether THIS target supplies it is the separate
+            // question `ctx.IntrinsicReprs` answers, pre-extracted from this target's `.fs`.
             match registerTypeDecl ctx lexed decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 let short = shortNameOfTypeName lexed typeName
-                let isIntrinsic = ctx.IntrinsicMarkers.Contains short
 
-                // `short` (the `.fsi` name) is the platform-invariant `canon` key;
-                // intrinsic-ness is decided TARGET-BLIND, so a target that omits a
-                // primitive's repr still publishes it as an `Intrinsic`, marked unsupported.
+                // `short` (the `.fsi` name) is the platform-invariant `canon` key, so a
+                // target that omits the repr still publishes the type, marked unsupported.
                 let registerIntrinsic () =
                     let platform =
                         match ctx.IntrinsicReprs.TryGetValue short with
@@ -1151,60 +1149,51 @@ module VesperLib =
                         | ValueSome(ExternKind.Interface _) -> true
                         | _ -> false
 
-                    if isIntrinsic then
-                        requireInlineExternMembers ctx file short elems
+                    requireInlineExternMembers ctx file short elems
 
                     extractBodiedClassLike ctx lexed opens compiled arity isInterface typeName elems
 
-                    // For an intrinsic, RECORD it for a one-shot finalize-time republish,
-                    // since neither surface is complete at extraction.
-                    if isIntrinsic then
-                        match kindTag with
-                        // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound member
-                        // surface. Re-registers the `Intrinsic` shape the bodied-class extraction
-                        // overwrote; the members ride their own table, not the shape.
-                        //
-                        // A declared `interface` is the exception, because it rides the SHAPE and
-                        // is not frozen until finalize (`'T[]` is a `seq<'T>`). Being a supertype
-                        // is not being inheritable: the repr stays untagged, so `Heritable` is
-                        // false and no `inherit` may name it.
-                        | ValueNone ->
-                            let declaresInterface =
-                                elems
-                                |> Seq.exists (
-                                    function
-                                    | TypeSignatureElement.Interface _ -> true
-                                    | _ -> false
-                                )
+                    // RECORD a one-shot finalize-time republish, since neither surface is
+                    // complete at extraction.
+                    match kindTag with
+                    // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound member
+                    // surface. Re-registers the `Intrinsic` shape the bodied-class extraction
+                    // overwrote; the members ride their own table, not the shape.
+                    //
+                    // A declared `interface` is the exception, because it rides the SHAPE and
+                    // is not frozen until finalize (`'T[]` is a `seq<'T>`). Being a supertype
+                    // is not being inheritable: the repr stays untagged, so `Heritable` is
+                    // false and no `inherit` may name it.
+                    | ValueNone ->
+                        let declaresInterface =
+                            elems
+                            |> Seq.exists (
+                                function
+                                | TypeSignatureElement.Interface _ -> true
+                                | _ -> false
+                            )
 
-                            match declaresInterface, ctx.IntrinsicReprs.TryGetValue short with
-                            | true, (true, platform) ->
-                                ctx.PendingIntrinsicClasses.[compiled] <-
-                                    struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
-                            | true, _ ->
-                                ctx.Diagnostics.Add(file, IntrinsicHost.interfaceNeedsRepr short ctx.Target)
-                                registerIntrinsic ()
-                            | false, _ -> registerIntrinsic ()
-                        | ValueSome tag ->
-                            match ctx.IntrinsicReprs.TryGetValue short with
-                            | true, platform ->
-                                let canon = struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
+                        match declaresInterface, ctx.IntrinsicReprs.TryGetValue short with
+                        | true, (true, platform) ->
+                            ctx.PendingIntrinsicClasses.[compiled] <-
+                                struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
+                        | true, _ ->
+                            ctx.Diagnostics.Add(file, IntrinsicHost.interfaceNeedsRepr short ctx.Target)
+                            registerIntrinsic ()
+                        | false, _ -> registerIntrinsic ()
+                    | ValueSome tag ->
+                        match ctx.IntrinsicReprs.TryGetValue short with
+                        | true, platform ->
+                            let canon = struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
 
-                                match tag with
-                                // `extern class with …` (obj/exn): a heritable PRIMITIVE.
-                                | ExternKind.Class _ -> ctx.PendingIntrinsicClasses.[compiled] <- canon
-                                // `extern interface with …` (`disposable`/`equatable`/`comparable`):
-                                // republishes to an `IntrinsicInterface`.
-                                | ExternKind.Interface _ -> ctx.PendingCapabilityInterfaces.[compiled] <- canon
-                            | _ -> ()
-                | _ ->
-                    // No member body. A primitive/capability anchor (`IntrinsicMarkers`)
-                    // publishes as `Intrinsic`; any other `extern` is a real opaque `Class`.
-                    if isIntrinsic then
-                        registerIntrinsic ()
-                    else
-                        ctx.TypeShapes.[compiled] <-
-                            ExternalTypeShape.Class(ExternalClassShape.basic (arity, false, SymbolOrigin.Empty))
+                            match tag with
+                            // `extern class with …` (obj/exn): a heritable PRIMITIVE.
+                            | ExternKind.Class _ -> ctx.PendingIntrinsicClasses.[compiled] <- canon
+                            // `extern interface with …` (`disposable`/`equatable`/`comparable`):
+                            // republishes to an `IntrinsicInterface`.
+                            | ExternKind.Interface _ -> ctx.PendingCapabilityInterfaces.[compiled] <- canon
+                        | _ -> ()
+                | _ -> registerIntrinsic ()
 
         | TypeSignature.Struct(typeName = typeName) ->
             // A `type X = struct … end` value type: the same nominal `Class` shape as a

@@ -1,8 +1,8 @@
 module XParsec.FSharp.Codegen.Js.Tests.UnsupportedOnTargetTests
 
 // The unsupported-on-target rule, driven end to end through the REAL JS contract stack.
-// `prim-types-nativeint.fsi` stays in the shared `[core] files` tier, so JS knows these
-// types; what it lacks is a `.js.fs` binding a repr, and that absence is the statement.
+// `prim-types-nativeint.fsi` stays in the shared `[core] files` tier, so its `extern`
+// declares the intrinsic on JS too; lacking a `.js.fs` repr only makes it unsupported.
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis

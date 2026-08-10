@@ -1,8 +1,8 @@
 # Per-target package manifests — `manifest.<target>.toml`
 
 *Replaces the `[core]` + `[targets.<t>]` two-tier manifest with one flat manifest per target.
-Depends on `extern-is-self-evident-plan.md` landing first: while intrinsic-ness is derived from
-the union of every target's `impl` list, no single-target manifest can reach the right verdict.*
+The prerequisite has landed: intrinsic-ness is now the `extern` declaration itself, read from
+this target's files alone, so a single-target manifest can reach the right verdict.*
 
 ## The defect: the shared tier does not share
 
@@ -56,8 +56,7 @@ consumes. `[targets.<t>]` and the `SharedLists`/`TargetLists` split are deleted.
   (`ReferencedProject.fs:104-105`), so "this package does not build for JS" and "this package
   contributes nothing extra on JS" are indistinguishable states. An absent `manifest.js.toml` is
   unambiguous.
-- **Per-target conformance becomes cheap**, which closes the loose end from
-  `extern-is-self-evident-plan.md`: the real-package sweep is CLR-only today
+- **Per-target conformance becomes cheap**: the real-package sweep is CLR-only today
   (`ConformanceTests.fs:250`), so `ExternWithoutIntrinsic` is never checked on JS.
 
 ## Accepted costs
@@ -105,8 +104,7 @@ right.
   `parseManifest`).
 - Resolution API to flatten: `ReferencedProject.fs:104-161`.
 - Closure + dependency path: `ReferencedProject.fs:277-408`.
-- Provider build (also the `everyBody` site retired by `extern-is-self-evident-plan.md`):
-  `ReferencedProject.fs:452-560`.
+- Provider build: `ReferencedProject.fs:452-560`.
 - Hash inputs: `Hashing.fs:74-98` (`dependencySignatureHash`), `:102-119` (`CompilationInputs`).
 - Other manifest readers: `ConformancePass.fs:145-200`, `SymbolProviders.fs:150-208`
   (`inlineBodies`), `ReferencedProject.fs:413-431` (`runtimeModules`).

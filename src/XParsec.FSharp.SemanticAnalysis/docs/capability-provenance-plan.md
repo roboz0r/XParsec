@@ -170,18 +170,16 @@ not know a backend, so the target dialect stays in the backend and the front end
 
 ## Order, against the other plans in flight
 
-1. `extern-is-self-evident-plan.md` — already the declared prerequisite for both
-   `per-target-manifest-plan.md` and `platform-facts-plan.md`. Small and behaviour-preserving.
-2. `array-key-spelling.md` — independent of all of it, and a prerequisite for anything that
+1. `array-key-spelling.md` — independent of all of it, and a prerequisite for anything that
    keys a capability query on the array's identity.
-3. `per-target-manifest-plan.md` — **before Change A, not after.** It shrinks `pairingKey`
+2. `per-target-manifest-plan.md` — **before Change A, not after.** It shrinks `pairingKey`
    from "strip a suffix for any target this manifest declares" to "strip `.<myTarget>`", and
    the `.fsi`↔`.fs` pairing is precisely what Change A needs the manifest to hand it. It also
    threads `target` out of `SymbolProviders.inlineBodies`, the function Change A generalises
    to the assembly route. Change A first would mean writing that plumbing against a rule that
    is about to be deleted, then writing it again.
-4. `intrinsic-capability-representation-plan.md` (which absorbs Change B) and
-   `platform-facts-plan.md` — both gated on step 1, independent of the manifest split.
-5. **Change A**, last. Biggest, newest, and the one that benefits from every step above:
+3. `intrinsic-capability-representation-plan.md` (which absorbs Change B) and
+   `platform-facts-plan.md` — independent of the manifest split.
+4. **Change A**, last. Biggest, newest, and the one that benefits from every step above:
    simpler pairing, a target already threaded out, and the capability axis already sourced
    from the contract so the signatures object has something correct to carry.

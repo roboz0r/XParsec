@@ -131,9 +131,6 @@ module VesperLibTyparCapture =
         /// Short type name -> the platform repr for the target being compiled, read out of
         /// the package's per-target `.fs` companion (`prim-types-int.js.fs` ⇒ `int` -> `number`).
         member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
-        /// The short type names ANY target's `.fs` binds a `(# … #)` repr for. Membership
-        /// makes an `extern` publish as an `Intrinsic` rather than an opaque `Class`.
-        member val IntrinsicMarkers = HashSet<string>(StringComparer.Ordinal) with get
 
         /// Heritable primitives (`extern class with …`: `obj`/`exn`) awaiting republish as an
         /// `Intrinsic`: compiled name -> (canon key, platform repr). A side table because

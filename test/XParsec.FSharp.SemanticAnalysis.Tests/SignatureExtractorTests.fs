@@ -452,14 +452,18 @@ let tests =
                 | ValueNone -> failtestf "Container registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
-            test "`extern with` publishes interfaces into FrozenInterfaces and members" {
-                // A NON-intrinsic `extern … with` body registers exactly as a bodied class
-                // would. The intrinsic-primitive form (`type string = extern with …`) takes
-                // another branch.
-                let ctx =
-                    extractFsi
+            test "`extern with` publishes its declared interfaces onto the shape, and its members" {
+                // An untagged `extern … with interface …` extracts as a bodied class would,
+                // then republishes as an `Intrinsic` carrying that class surface: the declared
+                // interface rides the SHAPE, the members ride `ctx.TypeMembers`.
+                let ctx = VesperLib.ExtractCtx.empty "clr"
+                ctx.IntrinsicReprs.["Foo"] <- "App.Foo`1"
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi
                         "app.fsi"
-                        "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member M: unit -> 'T\n"
+                        "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member inline M: unit -> 'T\n")
 
                 let fooShape =
                     let mutable found = ValueNone
@@ -471,8 +475,8 @@ let tests =
                     found
 
                 match fooShape with
-                | ValueSome(ExternalTypeShape.Class shape) ->
-                    match shape.FrozenInterfaces with
+                | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
+                    match surface.Interfaces with
                     | EqOne iface ->
                         match iface.Key with
                         | SymbolKey.Type key -> Expect.equal key.Name "IBar" "the IBar interface is published"
@@ -484,10 +488,10 @@ let tests =
                         | FTTypar(TyparAxis.Declaring, 0) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBar); got %A" other
-                | ValueSome other -> failtestf "expected a Class shape for the extern type; got %A" other
+                | ValueSome other -> failtestf "expected an Intrinsic shape carrying a class surface; got %A" other
                 | ValueNone -> failtestf "Foo registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
-                // A non-interface class's members ride `ctx.TypeMembers`, not the shape.
+                // Members ride `ctx.TypeMembers`, not the shape.
                 let fooMembers =
                     let mutable found = ValueNone
 
@@ -692,8 +696,6 @@ let tests =
             // on one can only be spliced — and the `.fsi` contract must say so.
             test "a concrete member on an intrinsic must be declared inline" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
-                // Intrinsic-ness is the target-blind marker, not the compiling target's repr.
-                ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 VesperLib.extractSymbols
@@ -715,7 +717,6 @@ let tests =
             // is about members WITH a body.
             test "an extern interface's abstract members do not want inline" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
-                ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 VesperLib.extractSymbols
@@ -735,7 +736,6 @@ let tests =
             // host that publishes no method table neither the slot nor the remedy exists.
             test "an override on an intrinsic is rejected outright, not asked for inline" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
-                ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 VesperLib.extractSymbols
@@ -760,7 +760,6 @@ let tests =
             // to splice.
             test "a heritable primitive's constructor signature is exempt" {
                 let ctx = VesperLib.ExtractCtx.empty "clr"
-                ctx.IntrinsicMarkers.Add "obj" |> ignore
                 ctx.IntrinsicReprs.["obj"] <- "System.Object"
 
                 VesperLib.extractSymbols
@@ -784,7 +783,6 @@ let tests =
                 // repr extract to ONE `IntrinsicInterface` carrying the members and
                 // `{ Canon; Platform }`, so the type reconciles to its BCL spelling.
                 let ctx = VesperLib.ExtractCtx.empty "clr"
-                ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 let parsed =
@@ -839,8 +837,6 @@ let tests =
                 // with `static member (+)`) must keep the `TyConst` identity that intrinsic
                 // recognisers, repr lookup and literal inference key on. Members ride a table.
                 let ctx = VesperLib.ExtractCtx.empty "clr"
-                // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
-                ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 // A CONCRETE instance member (`member M`), NOT `abstract member`.

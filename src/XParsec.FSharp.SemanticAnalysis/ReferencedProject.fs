@@ -465,24 +465,10 @@ module ReferencedProject =
             // dependency's type by bare name (`Fun`2` / `Fun`3`).
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
 
-            // Extract intrinsic reprs from the `.fs` bodies FIRST, so the `extern` arm of
-            // the `.fsi` extraction below publishes a matched primitive as `Intrinsic`
-            // rather than an opaque `Class`. The `.fsi` commits `type exn = extern`, no repr.
-            let targetBodies = resolveImpl target manifest |> Set.ofList
-
-            // `IntrinsicMarkers` takes every target's bodies, so `decimal` (which ships no
-            // JS repr) still publishes there as an `Intrinsic` with `platform = None`;
-            // `IntrinsicReprs` takes THIS target's (`prim-types-int.js.fs` ⇒ `number`).
-            let everyBody =
-                [
-                    yield! manifest.Shared.Impl
-
-                    for KeyValue(_, t) in manifest.Targets do
-                        yield! t.Impl
-                ]
-                |> List.distinct
-
-            for rel in everyBody do
+            // Extract intrinsic reprs from THIS target's `.fs` bodies FIRST, so the `extern`
+            // arm of the `.fsi` extraction below can pick `IntrinsicPlatform.Repr` over
+            // `Unsupported`. The `.fsi` commits `type exn = extern`, no repr.
+            for rel in resolveImpl target manifest do
                 let abs = Path.Combine(dir, rel)
 
                 if File.Exists abs then
@@ -505,10 +491,7 @@ module ReferencedProject =
                         VesperLib.extractIntrinsicReprsInto reprs parsed
 
                         for KeyValue(k, v) in reprs do
-                            ctx.IntrinsicMarkers.Add k |> ignore
-
-                            if targetBodies.Contains rel then
-                                ctx.IntrinsicReprs.[k] <- v
+                            ctx.IntrinsicReprs.[k] <- v
 
             // Shared contracts, then this target's APPENDED extras, so an extra's RHS
             // (`Vesper.disposable`) is already in the registry.
