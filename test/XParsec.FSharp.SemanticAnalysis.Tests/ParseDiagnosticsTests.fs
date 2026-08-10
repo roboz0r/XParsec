@@ -69,6 +69,56 @@ let tests =
                 Expect.isEmpty (parsed "let f () = 1 + 2\n").Diagnostics "nothing to recover, nothing to report"
             }
 
+            // A `with` clause binds `get` and `set` and nothing else, so a third name is a
+            // GRAMMAR mistake. The message names the property and the offending word, since
+            // neither is recoverable from the position alone.
+            test "a `with` clause naming neither get nor set is a parse error" {
+                let p = parsed "type C() =\n    member this.P with frobnicate () = 1\n"
+
+                match p.Diagnostics |> List.map (fun d -> d.Message) with
+                | [ msg ] ->
+                    Expect.equal
+                        msg
+                        "Expected 'get' or 'set' after 'with' on 'P' but got 'frobnicate'"
+                        "names the property and the word written"
+                | other -> failtestf "expected exactly one diagnostic, got %A" other
+            }
+
+            test "a rejected `with` half recovers to the next member" {
+                let p =
+                    parsed "type C() =\n    member this.P with frobnicate () = 1\n    member this.Q = 2\n"
+
+                Expect.equal p.Diagnostics.Length 1 "the good member after it parses without further complaint"
+            }
+
+            // The property ident is consumed before the `with` on this path, so it reaches
+            // the diagnostic differently from the `member this.P` form above.
+            test "a static property with no self-identifier is checked too" {
+                let p = parsed "type C() =\n    static member P with frobnicate () = 1\n"
+
+                match p.Diagnostics |> List.map (fun d -> d.Message) with
+                | [ msg ] ->
+                    Expect.equal
+                        msg
+                        "Expected 'get' or 'set' after 'with' on 'P' but got 'frobnicate'"
+                        "names the property and the word written"
+                | other -> failtestf "expected exactly one diagnostic, got %A" other
+            }
+
+            test "a well-formed `with get`/`set` clause needs no recovery" {
+                let p =
+                    parsed "type C() =\n    member this.P with get () = 1 and set (v: int) = ()\n"
+
+                Expect.isEmpty p.Diagnostics "get and set are the two names the clause admits"
+            }
+
+            test "a static `with get`/`set` clause needs no recovery" {
+                let p =
+                    parsed "type C() =\n    static member P with get () = 1 and set (v: int) = ()\n"
+
+                Expect.isEmpty p.Diagnostics "the no-self-identifier path admits the same two names"
+            }
+
             // The two delimiter codes say different things about the same shape of mistake,
             // and the only observable difference is the primary site.
             test "an INSERTED close blames the hole it went into" {

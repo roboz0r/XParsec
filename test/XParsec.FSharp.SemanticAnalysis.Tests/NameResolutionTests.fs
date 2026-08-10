@@ -603,19 +603,6 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "a `with` clause naming neither get nor set diagnoses" {
-                // The parser reads any binding after `with`, so the rejection is here.
-                let ctx = analyse "type C() =\n    member this.P with frobnicate () = 1"
-
-                let rejected =
-                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "frobnicate")
-
-                Expect.isTrue rejected "unknown accessor diagnosed"
-
-                let info = expectClass ctx "C"
-                Expect.isEmpty info.Members "an unknown accessor registers nothing"
-            }
-
             // --- `abstract P: T with get` slots ---------------------------------
 
             test "an abstract parameterless property signature registers as a property" {

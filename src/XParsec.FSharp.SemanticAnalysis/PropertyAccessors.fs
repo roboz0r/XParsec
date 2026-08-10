@@ -84,9 +84,18 @@ module PropertyAccessors =
                 | ValueNone -> ()
         |]
 
+    /// A binding the PARSER rejected and replaced with a placeholder. Its error is already
+    /// reported, so it is owed no further complaint.
+    let private isRecovered (b: Binding<SyntaxToken>) : bool =
+        match b.pattern with
+        | Pat.Missing
+        | Pat.SkipsTokens _ -> true
+        | _ -> false
+
     /// A `with` clause binds `get` / `set` and nothing else — a property with no clause at
-    /// all is an implicit get — so anything else here is an invariant break, not mis-typed
-    /// source. Registration is the only consumer: every other pass walks the accessors alone.
+    /// all is an implicit get, and the parser rejects any other name — so anything else
+    /// reaching here is an invariant break. Registration is the only consumer: every other
+    /// pass walks the accessors alone.
     let reportNonAccessors
         (ctx: PassContext)
         (propIdent: SyntaxToken)
@@ -97,6 +106,7 @@ module PropertyAccessors =
         for b in defns do
             match accessorOf ctx propName b with
             | ValueSome _ -> ()
+            | ValueNone when isRecovered b -> ()
             | ValueNone ->
                 let tok =
                     match MemberNames.ofBinding ctx b with
