@@ -1,0 +1,40 @@
+namespace            'namespace'       KWNamespace         tok=   0  pos=   0
+                     'Vesper'          Identifier          tok=   2  pos=  10
+  Type:
+    type             'type'            KWType              tok=  21  pos= 482
+    TypeSig.Extern:
+      PrefixTypar:
+        Typar.Named:
+                     ''T'              TypeParameter       tok=  23  pos= 487
+      TypeName       '``[]``'          BacktickedIdentifier  tok=  25  pos= 490
+      =              '='               OpEquality          tok=  27  pos= 497
+      extern         'extern'          KWExtern            tok=  29  pos= 499
+      with           'with'            KWWith              tok=  31  pos= 506
+        InterfaceSpec:
+          interface  'interface'       KWInterface         tok=  34  pos= 515
+          GenericType:
+            LongIdent:
+                     'Vesper'          Identifier          tok=  36  pos= 525
+                     'Collection...'   Identifier          tok=  38  pos= 532
+                     'seq'             Identifier          tok=  40  pos= 544
+            <        '<'               op_LessThan         tok=  41  pos= 547
+            TypeArg.Type:
+              VarType:
+                Typar.Named:
+                     ''T'              TypeParameter       tok=  42  pos= 548
+            >        '>'               op_GreaterThan      tok=  43  pos= 550
+      end            <virt>            KWEnd               tok=virt  pos= 707
+  Type:
+    type             'type'            KWType              tok=  52  pos= 707
+    TypeSig.Abbrev:
+      PrefixTypar:
+        Typar.Named:
+                     ''T'              TypeParameter       tok=  54  pos= 712
+      TypeName       'array'           Identifier          tok=  56  pos= 715
+      =              '='               OpEquality          tok=  58  pos= 721
+        ArrayType:
+          VarType:
+            Typar.Named:
+                     ''T'              TypeParameter       tok=  60  pos= 723
+                     '['               KWLBracket          tok=  61  pos= 725
+                     ']'               KWRBracket          tok=  62  pos= 726

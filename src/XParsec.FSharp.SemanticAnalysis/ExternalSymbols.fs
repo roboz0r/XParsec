@@ -385,12 +385,16 @@ type IntrinsicIdentity =
         Platform: IntrinsicPlatform
     }
 
-/// The class surface a HERITABLE primitive (`obj`/`exn`) carries and a scalar lacks.
-/// Instance members (`exn.Message`) are NOT here, because they route through the platform type.
+/// The declared SUPERTYPE surface an `extern class` primitive carries and a scalar lacks:
+/// what a subtype walk off it can reach. Instance members (`exn.Message`) are NOT here,
+/// because they route through the platform type.
 type IntrinsicClassSurface =
     {
         /// The declared `inherit` parent (`exn`'s is `obj`; `obj`'s is `ValueNone`).
         BaseType: FrozenType voption
+        /// The declared `interface <ty>` impls (`'T[]`'s is `seq<'T>`), written over the
+        /// declaring typars. The target supplies each one; no Vesper code implements them.
+        Interfaces: EqArray<FrozenInterface>
         /// The contract `.ctor`s (`new: string -> exn`): the constructible surface both
         /// `new exn "…"` and `inherit exn(…)` check against.
         Members: EqArray<ExternalMember>

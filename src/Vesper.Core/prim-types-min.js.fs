@@ -27,8 +27,6 @@ type int =
     end
 type bool = (# "boolean" #)
 type unit = (# "undefined" #)
-type 'T ``[]`` = (# "!0[]" #)
-type 'T array = 'T[]
 
 type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B

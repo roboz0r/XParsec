@@ -1,10 +1,13 @@
 [core]
 description = "Minimal language fundamentals: the primitive types, Fun, Ref, capabilities, and the operators."
 
-# Declaration order: `prim-types-min` first (it defines int/bool/array/`Fun`/`unit`),
-# `core-types` before the operator files.
+# Declaration order, top-down as F# resolves: `prim-types-min` first (int/bool/unit/`Fun`),
+# then `capabilities`, then `prim-types-array` — the array declares the `seq` capability, so
+# both must already be in scope. `core-types` before the operator files.
 files = [
     "prim-types-min.fsi",
+    "capabilities.fsi",
+    "prim-types-array.fsi",
     "prim-types-int.fsi",
     "prim-types-float.fsi",
     "prim-types-string.fsi",
@@ -17,7 +20,6 @@ files = [
     "prim-types-attr.fsi",
     "compiler-attributes.fsi",
     "core-types.fsi",
-    "capabilities.fsi",
     "structural-format.fsi",
     "ops-platform.fsi",
     "ops-std.fsi",
@@ -40,6 +42,8 @@ files = [
 # TypeDef, so a `(# … #)` body reaches a use site only by being spliced.
 impl = [
     "prim-types-min.clr.fs",
+    "capabilities.clr.fs",
+    "prim-types-array.fs",
     "prim-types-int.clr.fs",
     "prim-types-float.clr.fs",
     "prim-types-string.clr.fs",
@@ -53,7 +57,6 @@ impl = [
     "compiler-attributes.fs",
     "core-types.fs",
     "fun-adapters.fs",
-    "capabilities.clr.fs",
     "structural-format.fs",
     "ops-platform.clr.fs",
     "ops-std.fs",
@@ -75,8 +78,8 @@ files = [
     "prim-types-dynamic.js.fsi",
     # After `prim-types-dynamic.js.fsi` — these operators reference the `dynamic` type.
     "ops-dynamic.js.fsi",
-    # A `get_Item` indexer on the intrinsic array. Declared in the GLOBAL namespace so its
-    # member-contract key is the array's bare `` ``[]`` `` identity, as the lookup expects.
+    # A `get_Item` indexer on the intrinsic array. Declared in the GLOBAL namespace so this
+    # member host cannot displace the `Vesper` shape carrying the array's capabilities.
     "array-index.js.fsi",
 ]
 
@@ -91,6 +94,7 @@ sig-only = [
 # source, not compiled. nativeint / decimal / nd-array / attr / capabilities have no JS body.
 impl = [
     "prim-types-min.js.fs",
+    "prim-types-array.fs",
     "prim-types-int.js.fs",
     "prim-types-float.js.fs",
     "prim-types-string.js.fs",

@@ -395,6 +395,27 @@ let forInTests =
                 runsPackages [] "1\n2\n3" src
             }
 
+            // `'T[]` declares `interface seq<'T>`, whose platform repr is
+            // `IEnumerable<T>` — an interface a CLR array implements without any Vesper code.
+            // So this takes the boxing `Interface` walk: correct, though an index loop would
+            // be faster. Built by the raw `newarr` intrinsic, an array LITERAL lowering
+            // through a module this test's package set does not serve.
+            test "`for x in arr` walks an array through the seq capability on CLR (runtime)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let a : int[] = (# \"newarr !0\" type (int) 3 : int[] #)"
+                            "a.[0] <- 1"
+                            "a.[1] <- 2"
+                            "a.[2] <- 3"
+                            "for x in a do"
+                            "    printfn \"%d\" x"
+                        ]
+
+                runsPackages [] "1\n2\n3" src
+            }
+
             test "for-in over a user class implementing IEnumerable<int> resolves through its interface slots" {
                 let src =
                     String.concat

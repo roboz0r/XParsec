@@ -27,33 +27,23 @@ let private compileSeqConsumer (name: string) (input: string) : JsArtifact =
 
     Codegen.compileWith seqConsumerContract.Value project (frozenImplJs seqConsumerContract.Value.Provider input)
 
-/// A `seq<int>` of 0 … 4 spelled in the program itself, since an array does not widen to
-/// `seq<'T>` here. Its `GetEnumerator` returns its own cursor, so it imports nothing.
-let private counterPrelude =
-    [
-        "type Enum ="
-        "    val mutable Cur : int"
-        "    val Stop : int"
-        "    new(cur: int, stop: int) = { Cur = cur; Stop = stop }"
-        "    interface System.Collections.Generic.IEnumerator<int> with"
-        "        member this.MoveNext() : bool ="
-        "            this.Cur <- this.Cur + 1"
-        "            this.Cur < this.Stop"
-        "        member this.Current : int = this.Cur"
-        "type Counter(stop: int) ="
-        "    interface System.Collections.Generic.IEnumerable<int> with"
-        "        member _.GetEnumerator() : System.Collections.Generic.IEnumerator<int> ="
-        "            (new Enum(-1, stop) :> System.Collections.Generic.IEnumerator<int>)"
-    ]
-
 /// `Seq.truncate` and `Seq.toArray` are the only external functions; nothing here names the
-/// Array or Core packages, whose assets `Vesper.Seq.mjs` imports on its own account.
+/// Array or Core packages, whose assets `Vesper.Seq.mjs` imports on its own account. The
+/// source is an ARRAY, which carries the `seq<'T>` capability — built by the raw `newarr`
+/// intrinsic, since an array LITERAL lowers through a module this contract does not serve.
 let private seqConsumer =
     String.concat
         "\n"
         [
-            yield! counterPrelude
-            "let first3 = Seq.toArray (Seq.truncate 3 (Counter(5) :> seq<int>))"
+            "let build () ="
+            "    let a : int[] = (# \"newarr !0\" type (int) 5 : int[] #)"
+            "    a.[0] <- 3"
+            "    a.[1] <- 1"
+            "    a.[2] <- 4"
+            "    a.[3] <- 1"
+            "    a.[4] <- 5"
+            "    a"
+            "let first3 = Seq.toArray (Seq.truncate 3 (build ()))"
             "printfn \"%d\" first3.Length"
         ]
 

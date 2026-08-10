@@ -65,7 +65,6 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
         }
 
     VesperLib.extractSymbols ctx parsed
-    VesperLib.finalizeDeferred ctx
 
     let key =
         match ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget") with

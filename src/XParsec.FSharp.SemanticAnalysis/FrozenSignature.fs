@@ -422,8 +422,10 @@ module FrozenSignature =
             match key with
             | SymbolKey.Type typeKey ->
                 // A HERITABLE `(# class … #)` primitive (`obj` / `exn`) also carries a class
-                // surface, so a later file's `inherit` resolves it. No `BaseType`: the impl
-                // `.fs` binds only the repr, never the parent nominal.
+                // surface, so a later file's `inherit` resolves it. The surface is EMPTY: the
+                // impl `.fs` binds only the repr, so neither the parent nominal nor the
+                // declared interfaces (`'T[]` is a `seq<'T>`) survive this route — they are
+                // recovered by re-extracting the `.fsi`, not from a frozen residue.
                 let shape =
                     if repr.Heritable then
                         ExternalTypeShape.Intrinsic
@@ -438,6 +440,7 @@ module FrozenSignature =
                                     ValueSome
                                         {
                                             BaseType = ValueNone
+                                            Interfaces = EqArray.empty
                                             Members = EqArray.empty
                                         }
                             }

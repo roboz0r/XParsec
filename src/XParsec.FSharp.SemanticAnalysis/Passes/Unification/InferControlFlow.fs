@@ -586,6 +586,17 @@ module internal UnificationInferControlFlow =
                 | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                 | None -> ValueNone
             | _ -> ValueNone
+        // A PRIMITIVE source (`for x in arr`): an `extern class` declares its interfaces on
+        // the intrinsic's class surface, matched against the capability as in the union arm.
+        | TyConst(key, args) ->
+            match ctx.Provider.TryLookupType(RuntimeNames.declarationKey key) with
+            | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
+                let argArr = args.AsSpan().ToArray()
+
+                match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfacesOf surface.Interfaces argArr) with
+                | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
+                | None -> ValueNone
+            | _ -> ValueNone
         // A project-local RECORD source implementing the iteration capability
         // (`interface seq<'T>`) takes the boxing `Interface` walk, exactly as for a class.
         | TyRecord(nameKey, args) ->

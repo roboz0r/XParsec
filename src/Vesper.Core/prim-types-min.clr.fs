@@ -21,8 +21,6 @@ type int =
     end
 type bool = (# "System.Boolean" #)
 type unit = (# "System.ValueTuple" #)
-type 'T ``[]`` = (# "!0[]" #)
-type 'T array = 'T[]
 
 type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B

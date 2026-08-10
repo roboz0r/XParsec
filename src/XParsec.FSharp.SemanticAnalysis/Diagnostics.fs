@@ -100,6 +100,15 @@ module IntrinsicHost =
             hostName
             what
 
+    /// An `interface <ty>` on an intrinsic says the TARGET supplies the impl for the type's
+    /// representation. With no `(# … #)` there is no representation to supply it for, and the
+    /// declaration would be dropped without this.
+    let interfaceNeedsRepr (hostName: string) (target: string) : string =
+        sprintf
+            "Intrinsic type '%s' declares an interface but binds no '(# … #)' representation on target '%s': the target supplies the implementation for a representation, so the interface would resolve to nothing"
+            hostName
+            target
+
 /// Which sort of type declares the cases a `NoCase` verdict is about.
 [<RequireQualifiedAccess>]
 type CaseOwner =

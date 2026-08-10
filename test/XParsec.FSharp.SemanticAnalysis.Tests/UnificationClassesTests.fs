@@ -215,6 +215,24 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            // `'T[]` declares `interface seq<'T>`, so an array subsumes to the capability at
+            // an argument position exactly as a cons-list does. The front end refused this
+            // until the array carried the declaration, while both backends could already
+            // lower it — a CLR `T[]` implements `IEnumerable<T>` and a JS array is iterable.
+            test "an `int[]` argument subsumes to a `seq<int>` parameter" {
+                let ctx =
+                    analyse "let count (s: seq<int>) : int = 0\nlet f (a: int[]) : int = count a"
+
+                Expect.isEmpty ctx.Diagnostics "an array is accepted where `seq<int>` is asked for"
+            }
+
+            test "an `int[]` argument does NOT subsume to `seq<string>`" {
+                let ctx =
+                    analyse "let count (s: seq<string>) : int = 0\nlet f (a: int[]) : int = count a"
+
+                Expect.isNonEmpty ctx.Diagnostics "the element type still has to match"
+            }
+
             test "empty list `[]` types as `list<'a>` (element TyVar stays free)" {
                 let ctx = analyse "let xs = []"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent

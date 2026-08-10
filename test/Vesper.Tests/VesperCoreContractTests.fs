@@ -23,6 +23,8 @@ let private vesperCorePath (fileName: string) = vesperPath "Vesper.Core" fileNam
 let private contractFiles =
     [
         "prim-types-min.fsi"
+        "capabilities.fsi"
+        "prim-types-array.fsi"
         "prim-types-int.fsi"
         "prim-types-float.fsi"
         "prim-types-string.fsi"
@@ -36,7 +38,6 @@ let private contractFiles =
         "compiler-attributes.fsi"
         "core-types.fsi"
         "fun-adapters.fsi"
-        "capabilities.fsi"
         "ops-platform.fsi"
         "ops-std.fsi"
         "int-comparison.fsi"
@@ -51,6 +52,8 @@ let private contractFiles =
 let private implFiles =
     [
         "prim-types-min.clr.fs"
+        "capabilities.clr.fs"
+        "prim-types-array.fs"
         "prim-types-int.clr.fs"
         "prim-types-float.clr.fs"
         "prim-types-string.clr.fs"
@@ -63,7 +66,6 @@ let private implFiles =
         "prim-types-attr.clr.fs"
         "core-types.fs"
         "fun-adapters.fs"
-        "capabilities.clr.fs"
         "ops-platform.clr.fs"
         "ops-std.fs"
         "int-comparison.clr.fs"

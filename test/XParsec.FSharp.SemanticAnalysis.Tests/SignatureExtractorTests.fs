@@ -36,13 +36,11 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
         Ast = ast
     }
 
-/// extract + finalize over one in-memory `.fsi`. A fixture that must seed the ctx first
-/// (`AmbientShapes`, intrinsic reprs) or pin the PRE-finalize state spells the steps out
-/// instead of coming through here.
+/// Extract one in-memory `.fsi`. A fixture that must seed the ctx first (`AmbientShapes`,
+/// intrinsic reprs) spells the steps out instead of coming through here.
 let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
     let ctx = VesperLib.ExtractCtx.empty "clr"
     VesperLib.extractSymbols ctx (parseFsi relative input)
-    VesperLib.finalizeDeferred ctx
     ctx
 
 [<Tests>]
@@ -70,10 +68,9 @@ let tests =
 
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.AmbientShapes <- ambient
+                // Vals are stashed as the file is walked, then built into `ctx.Symbols` once
+                // it is fully registered.
                 VesperLib.extractSymbols ctx parsed
-                // Vals are stashed during extraction; the finalize pass builds them into
-                // `ctx.Symbols` once the registry is complete.
-                VesperLib.finalizeDeferred ctx
 
                 // By source-name suffix, so the assertion does not hinge on the module path.
                 let instOf (suffix: string) : SemType =
@@ -129,6 +126,82 @@ let tests =
                     | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.simpleName k = DisplayName "int" ->
                         Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
+            }
+
+            // A record field is the probe throughout: its frozen type is `FTRecord` when the
+            // name resolved and `FTUnknown` when it did not.
+            let fieldTypeOf (ctx: VesperLib.ExtractCtx) (typeName: string) : FrozenType =
+                let mutable found = ValueNone
+
+                for kv in ctx.TypeShapes do
+                    // A module-nested type's compiled key joins with `+`, not `.`.
+                    if found.IsNone && kv.Key.EndsWith("+" + typeName) then
+                        match kv.Value with
+                        | ExternalTypeShape.Record(_, fields, _) when fields.Length = 1 ->
+                            found <- ValueSome fields.[0].Frozen
+                        | other -> failtestf "expected a one-field Record for '%s'; got %A" typeName other
+
+                match found with
+                | ValueSome ft -> ft
+                | ValueNone ->
+                    failtestf "type '%s' registered no shape. Shapes: %A" typeName (Seq.toList ctx.TypeShapes.Keys)
+
+            test "a type naming one declared LATER in the file does not resolve" {
+                // Declarations come into scope where they are written, as F# resolves them.
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        ("namespace App\n\nmodule M =\n"
+                         + "    type Ahead = { P: Behind }\n"
+                         + "    type Behind = { X: int }\n"
+                         + "    type Trailing = { P: Behind }\n")
+
+                match fieldTypeOf ctx "Ahead" with
+                | FTUnknown name -> Expect.stringContains name "Behind" "the forward name is carried unresolved"
+                | other -> failtestf "a forward reference must not resolve; got %A" other
+
+                match fieldTypeOf ctx "Trailing" with
+                | FTRecord _ -> ()
+                | other -> failtestf "a BACKWARD reference to the same type must resolve; got %A" other
+            }
+
+            test "an `and`-joined type group resolves mutually" {
+                // The group is walked whole before it is finalized, so the two may name each
+                // other — the one place a declaration sees a name written below it.
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        ("namespace App\n\nmodule M =\n"
+                         + "    type Node = { Edge: Link }\n"
+                         + "    and Link = { Target: int }\n")
+
+                match fieldTypeOf ctx "Node" with
+                | FTRecord _ -> ()
+                | other -> failtestf "`Node.Edge` must resolve to the `Link` declared below it; got %A" other
+            }
+
+            test "a signature naming a type declared in a LATER file bakes TyUnknown" {
+                // Files are processed top-down into one ctx, so the same rule holds across
+                // them: `b.fsi`'s type is not in scope while `a.fsi` is being walked.
+                let ctx = VesperLib.ExtractCtx.empty "clr"
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi "a.fsi" "namespace App\n\nmodule A =\n    val needsB: App.B.Thing -> int\n")
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi "b.fsi" "namespace App\n\nmodule B =\n    type Thing = { X: int }\n")
+
+                let mutable found = ValueNone
+
+                for kv in ctx.Symbols do
+                    if found.IsNone && kv.Key.EndsWith ".needsB" then
+                        found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
+
+                match found with
+                | ValueSome(TyFun(TyUnknown name, _)) -> Expect.stringContains name "Thing" "carried unresolved"
+                | other -> failtestf "a later file's type must not be in scope; got %A" other
             }
 
             test "module-function ValRepr / CompiledForm captured from the .fsi arity" {
@@ -291,7 +364,6 @@ let tests =
 
                 let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
 
                 let mutable found = ValueNone
 
@@ -523,7 +595,6 @@ let tests =
                 ctx.AmbientShapes <- ambient
 
                 VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
 
                 let qualifiedRegistered =
                     ctx.Symbols.Keys |> Seq.exists (fun k -> k.EndsWith ".qualified")
@@ -722,7 +793,6 @@ let tests =
                         "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
                 VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
 
                 let key =
                     let mutable found = ValueNone
@@ -780,7 +850,6 @@ let tests =
                         "namespace Vesper\n\ntype widget = extern with\n    member inline M : unit -> unit\n"
 
                 VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
 
                 let key =
                     match ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget") with
@@ -975,5 +1044,43 @@ let tests =
                         Expect.isFalse (store.Srtp.IsSolved bound) "a freshly stamped bound is undischarged"
                     | other -> failtestf "expected exactly one SrtpBound on the fresh TyVar; got %A" other
                 | other -> failtestf "expected (^T -> ^T -> ^T) over a fresh TyVar; got %A" other
+            }
+
+            // Over the REAL Vesper.Core contract, not a snippet: the publishing route is what
+            // is under test. `freezeBodyType` degrades an unresolvable name to `unfreezable`
+            // and `freezeInterfaces` DROPS a non-nominal freeze, so a declaration written
+            // before `seq<'T>` — or a republish that stops carrying `Interfaces` — leaves the
+            // array a bare `Scalar` with NO error. Asserting on the published shape is what
+            // catches that; a use site would only report the eventual mismatch.
+            test "the array publishes an intrinsic surface carrying `seq<'T>` over its element" {
+                let key = RuntimeNames.declarationKey (RuntimeNames.arrayKey 1)
+
+                let surface =
+                    match realProvider.Value.TryLookupType key with
+                    | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface
+                    | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueNone }) ->
+                        failtest
+                            "`'T[]` published as a SCALAR intrinsic: its `interface seq<'T>` was dropped between extraction and republish"
+                    | other -> failtestf "expected an Intrinsic shape for `'T[]`; got %A" other
+
+                let elem = TyConst(RuntimeNames.intKey, EqArray.empty)
+
+                let instantiated =
+                    ExternalSymbols.instantiateInterfacesOf surface.Interfaces [| elem |]
+
+                let carriesSeqOfInt =
+                    instantiated
+                    |> Array.exists (fun ifaceTy ->
+                        // `TyClass` here is the TestHelpers pattern: it projects the key back
+                        // to its metadata name.
+                        match ifaceTy with
+                        | TyClass(name, args) ->
+                            args.Length = 1 && args.[0] = elem && SymbolKeyOps.shortName name = "seq"
+                        | _ -> false
+                    )
+
+                Expect.isTrue
+                    carriesSeqOfInt
+                    (sprintf "`int[]`'s declared interfaces do not include `seq<int>`; they are %A" instantiated)
             }
         ]

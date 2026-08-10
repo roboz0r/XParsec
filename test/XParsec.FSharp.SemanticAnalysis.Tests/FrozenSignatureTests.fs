@@ -294,7 +294,6 @@ module M =
                 let ectx = VesperLib.ExtractCtx.empty "clr"
                 ectx.AmbientShapes <- (fun n -> realProvider.Value.TryLookupType n |> ExternalSymbols.typeShapeOf)
                 VesperLib.extractSymbols ectx parsed
-                VesperLib.finalizeDeferred ectx
 
                 let fsiSymbolBySuffix (name: string) : ExternalSymbol option =
                     let mutable found = None

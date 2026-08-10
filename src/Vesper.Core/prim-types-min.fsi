@@ -47,17 +47,6 @@ type bool = extern
 /// <category>Basic Types</category>
 type unit = extern
 
-/// <summary>Single dimensional, zero-based arrays, written <c>int array</c>, <c>string array</c> etc.</summary>
-///
-/// <category>Basic Types</category>
-/// <exclude />
-type 'T ``[]`` = extern
-
-/// <summary>Single dimensional, zero-based arrays, written <c>int array</c>, <c>string array</c> etc.</summary>
-///
-/// <category>Basic Types</category>
-type 'T array = 'T[]
-
 /// <summary>The function type: a value with a single abstract <c>Invoke</c> method.</summary>
 ///
 /// <category>Basic Types</category>

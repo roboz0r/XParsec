@@ -295,6 +295,19 @@ module RuntimeNames =
     let undefinedKey: SymbolKey = primitiveKey undefinedTypeName
     let byrefKey: SymbolKey = primitiveKey byrefName
     let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
+
+    /// The DECLARATION of the type `key` names, where the two spellings differ. Only the array
+    /// does: a value carries the bare `[]`, but a declaration must spell the name
+    /// backtick-escaped, so its shape is filed under `` Vesper.`[]` ``. Identity elsewhere.
+    ///
+    /// A WART, not a design: the escape is source spelling and belongs nowhere near a key.
+    /// Unifying the two costs a sweep of every name → key sink; see `array-key-spelling.md`.
+    let declarationKey (key: SymbolKey) : SymbolKey =
+        if key = arrayKey 1 then
+            primitiveKey arrayContractName
+        else
+            key
+
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
     /// The IDENTITY of the base primitive a structural literal erases to, so every erasing

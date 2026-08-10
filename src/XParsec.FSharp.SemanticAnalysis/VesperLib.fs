@@ -220,17 +220,22 @@ module VesperLib =
                 ctx.Symbols.[source] <- { sym with Name = source }
             | _ -> ()
 
-    /// Freeze the deferred body / member / val CSTs stashed during extraction into
-    /// `FrozenType` templates, in place, once every shape is registered.
-    let finalizeDeferred (ctx: ExtractCtx) : unit =
-        let shapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
+    /// Freeze the body / member / val CSTs the declaration just walked stashed, then DROP
+    /// them. Declarations resolve top-down as F# does: a body reaches its own `and`-group and
+    /// everything declared before it, and nothing declared after — which is no longer
+    /// deferred by the time a later declaration is walked.
+    let private finalizeDeferred (ctx: ExtractCtx) : unit =
+        let bodyKeys = ctx.DeferredBodies.Keys |> Seq.toArray
+        // A member list is rebuilt (dropped members removed) and written back, so we can't
+        // enumerate while mutating.
+        let memberKeys = ctx.DeferredMembers.Keys |> Seq.toArray
 
-        for k in shapeKeys do
+        for k in bodyKeys do
             let shape = ctx.TypeShapes.[k]
 
             let finalized =
-                match shape, ctx.DeferredBodies.TryGetValue k with
-                | ExternalTypeShape.Record(arity, fields, origin), (true, DeferredBody.Record(dc, csts)) ->
+                match shape, ctx.DeferredBodies.[k] with
+                | ExternalTypeShape.Record(arity, fields, origin), DeferredBody.Record(dc, csts) ->
                     let fields' =
                         fields
                         |> EqArray.mapi (fun i f ->
@@ -240,7 +245,7 @@ module VesperLib =
                         )
 
                     ExternalTypeShape.Record(arity, fields', origin)
-                | ExternalTypeShape.Union(arity, cases, _, origin), (true, DeferredBody.Union(dc, caseCsts, ifaceCsts)) ->
+                | ExternalTypeShape.Union(arity, cases, _, origin), DeferredBody.Union(dc, caseCsts, ifaceCsts) ->
                     let cases' =
                         cases
                         |> EqArray.mapi (fun i c ->
@@ -252,11 +257,10 @@ module VesperLib =
                     // Freeze the union's `interface <ty>` impls so a bare cons-list's
                     // `interface seq<'T>` matches the enumerable capability.
                     ExternalTypeShape.Union(arity, cases', freezeInterfaces ctx dc ifaceCsts, origin)
-                | ExternalTypeShape.Abbrev(arity, _), (true, DeferredBody.Abbrev(dc, rhs)) ->
+                | ExternalTypeShape.Abbrev(arity, _), DeferredBody.Abbrev(dc, rhs) ->
                     ExternalTypeShape.Abbrev(arity, freezeBodyType ctx dc rhs)
-                // A class's deferred `inherit <type>` base + `interface <type>` impls,
-                // frozen now the registry is complete (either may forward-reference a sibling).
-                | ExternalTypeShape.Class shape, (true, DeferredBody.Class(dc, baseOpt, ifaces, _)) ->
+                // A class's deferred `inherit <type>` base + `interface <type>` impls.
+                | ExternalTypeShape.Class shape, DeferredBody.Class(dc, baseOpt, ifaces, _) ->
                     ExternalTypeShape.Class
                         { shape with
                             FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
@@ -266,14 +270,10 @@ module VesperLib =
 
             ctx.TypeShapes.[k] <- finalized
 
-        // Snapshot the keys: a member list is rebuilt (dropped members removed) and
-        // written back, so we can't enumerate the dictionary while mutating it.
-        let memberKeys = ctx.TypeMembers.Keys |> Seq.toArray
-
         for key in memberKeys do
-            match ctx.DeferredMembers.TryGetValue key with
-            | true, deferred ->
-                let members = ctx.TypeMembers.[key]
+            match ctx.TypeMembers.TryGetValue key with
+            | true, members ->
+                let deferred = ctx.DeferredMembers.[key]
                 let kept = ResizeArray<ExternalMember>(members.Count)
 
                 for i in 0 .. members.Count - 1 do
@@ -310,7 +310,7 @@ module VesperLib =
         // A contract INTERFACE carries its (now-finalized) members in the shape too: a
         // nominal class serves members only through `TryLookupMember`, but the
         // `interface … with` conformance check reads `shape.Members` directly.
-        for k in shapeKeys do
+        for k in memberKeys do
             match ctx.TypeShapes.[k] with
             | ExternalTypeShape.Class shape when shape.IsInterface && shape.Members.IsEmpty ->
                 match ctx.TypeMembers.TryGetValue k with
@@ -325,9 +325,9 @@ module VesperLib =
 
         // Constructors: a class's deferred `new: … -> T` sigs freeze into `.ctor` members,
         // named `.ctor` and instance as the metadata layer spells them.
-        for k in shapeKeys do
-            match ctx.DeferredBodies.TryGetValue k with
-            | true, DeferredBody.Class(dc, _, _, ctors) when not (List.isEmpty ctors) ->
+        for k in bodyKeys do
+            match ctx.DeferredBodies.[k] with
+            | DeferredBody.Class(dc, _, _, ctors) when not (List.isEmpty ctors) ->
                 let arity =
                     match ctx.TypeShapes.TryGetValue k with
                     | true, ExternalTypeShape.Class shape -> shape.TyparArity
@@ -402,6 +402,7 @@ module VesperLib =
                                 ValueSome
                                     {
                                         BaseType = shape.FrozenBaseType
+                                        Interfaces = shape.FrozenInterfaces
                                         Members = ctors
                                     }
                         }
@@ -432,11 +433,16 @@ module VesperLib =
         for dv in ctx.DeferredVals do
             finalizeVal ctx dv
 
+        ctx.DeferredBodies.Clear()
+        ctx.DeferredMembers.Clear()
+        ctx.DeferredVals.Clear()
+        ctx.PendingIntrinsicClasses.Clear()
+        ctx.PendingCapabilityInterfaces.Clear()
+
     module ExtractCtx =
         let empty = VesperLibTyparCapture.ExtractCtx.empty
 
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
-            finalizeDeferred ctx
             VesperLibTyparCapture.ExtractCtx.toProvider ctx
 
     let private isAccessible (access: Access<SyntaxToken> voption) : bool =
@@ -1157,7 +1163,28 @@ module VesperLib =
                         // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound member
                         // surface. Re-registers the `Intrinsic` shape the bodied-class extraction
                         // overwrote; the members ride their own table, not the shape.
-                        | ValueNone -> registerIntrinsic ()
+                        //
+                        // A declared `interface` is the exception, because it rides the SHAPE and
+                        // is not frozen until finalize (`'T[]` is a `seq<'T>`). Being a supertype
+                        // is not being inheritable: the repr stays untagged, so `Heritable` is
+                        // false and no `inherit` may name it.
+                        | ValueNone ->
+                            let declaresInterface =
+                                elems
+                                |> Seq.exists (
+                                    function
+                                    | TypeSignatureElement.Interface _ -> true
+                                    | _ -> false
+                                )
+
+                            match declaresInterface, ctx.IntrinsicReprs.TryGetValue short with
+                            | true, (true, platform) ->
+                                ctx.PendingIntrinsicClasses.[compiled] <-
+                                    struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
+                            | true, _ ->
+                                ctx.Diagnostics.Add(file, IntrinsicHost.interfaceNeedsRepr short ctx.Target)
+                                registerIntrinsic ()
+                            | false, _ -> registerIntrinsic ()
                         | ValueSome tag ->
                             match ctx.IntrinsicReprs.TryGetValue short with
                             | true, platform ->
@@ -1309,6 +1336,8 @@ module VesperLib =
         match elem with
         | ModuleSignatureElement.Val valSig -> extractValSig ctx file lexed opens decl sourcePath valSig
 
+        // The whole `type A … and B …` group is walked before it is finalized, so the two
+        // may name each other; a plain `type` is a group of one and names only what precedes it.
         | ModuleSignatureElement.Type(_, typeSigs) ->
             let (TypeSignatures(first, rest)) = typeSigs
             extractTypeSig ctx file lexed opens decl first
@@ -1347,6 +1376,8 @@ module VesperLib =
                     extractModuleSigElement ctx file naming lexed childOpens childDecl childSourcePath elems.[i]
 
         | _ -> ()
+
+        finalizeDeferred ctx
 
     let private extractNamespaceGroup
         (ctx: ExtractCtx)

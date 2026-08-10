@@ -43,6 +43,23 @@ let private arraySrc =
             "printfn \"%d\" (build ())"
         ]
 
+/// `arraySrc`'s build, summed by `for … in` instead of by index.
+let private forInArraySrc =
+    String.concat
+        "\n"
+        [
+            "let build () ="
+            "    let a : int[] = (# \"newarr !0\" type (int) 3 : int[] #)"
+            "    a.[0] <- 10"
+            "    a.[1] <- 20"
+            "    a.[2] <- 30"
+            "    let mutable sum = 0"
+            "    for x in a do"
+            "        sum <- sum + x"
+            "    sum"
+            "printfn \"%d\" (build ())"
+        ]
+
 let private forToSrc =
     String.concat
         "\n"
@@ -139,6 +156,26 @@ let tests =
 
             test "the array build+index+length+loop executes (10+20+30 = 60)" {
                 match runJs "arrayloop-array-sum" arraySrc with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "60" "prints 60"
+            }
+
+            // ---- for … in over an array --------------------------------------
+
+            // `'T[]` declares `interface seq<'T>`, so an array is a `for … in` source like
+            // any other iterable. A JS array carries `Symbol.iterator`, so it emits `for…of`
+            // with no adapter and no import.
+            test "`for x in arr` emits a `for…of` over the array itself" {
+                let js = emitJs forInArraySrc
+                Expect.stringContains js "for (const " "the loop binds its element per iteration"
+                Expect.stringContains js " of " "an iterable source emits for…of"
+                Expect.isFalse (js.Contains "enumeratorOf") "a JS array needs no cursor adapter"
+            }
+
+            test "the `for x in arr` sum executes (10+20+30 = 60)" {
+                match runJs "arrayloop-forin-array" forInArraySrc with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)

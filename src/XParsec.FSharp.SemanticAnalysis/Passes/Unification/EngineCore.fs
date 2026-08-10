@@ -473,9 +473,14 @@ module UnificationEngineCore =
                     | ValueNone -> ()
             ]
         | ValueNone ->
-            match ctx.Provider.TryLookupType key with
+            match ctx.Provider.TryLookupType(RuntimeNames.declarationKey key) with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
+                |> Array.toList
+            // A primitive's declared interfaces (`'T[]` is a `seq<'T>`), so the walk crosses
+            // off the contract chain as `subtypeParentOf` does for its base.
+            | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
+                ExternalSymbols.instantiateInterfacesOf surface.Interfaces (args.AsSpan().ToArray())
                 |> Array.toList
             | _ -> []
 

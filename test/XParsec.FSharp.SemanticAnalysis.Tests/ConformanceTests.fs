@@ -67,10 +67,30 @@ let tests =
                 let intrinsics = intrinsicNames (Conformance.summariseImpl implLexed implFile)
 
                 Expect.equal externs intrinsics "extern set == intrinsic set"
-                Expect.equal (Set.count externs) 4 "four primitives are extern"
+                Expect.equal (Set.count externs) 3 "three primitives are extern"
                 Expect.isTrue (externs.Contains "int") "int is extern"
                 Expect.isTrue (externs.Contains "bool") "bool is extern"
                 Expect.isTrue (externs.Contains "unit") "unit is extern"
+            }
+
+            test "prim-types-array.fsi conforms to prim-types-array.fs (no drift)" {
+                // The array is declared apart from the other primitives because it names the
+                // `seq` capability, which must already be in scope. Its impl is target-neutral,
+                // so one `.fs` serves both targets.
+                let sigSrc = readNormalised (vesperCorePath "prim-types-array.fsi")
+                let implSrc = readNormalised (vesperCorePath "prim-types-array.fs")
+                let errors = conform sigSrc implSrc
+                Expect.isEmpty errors "prim-types-array should conform with no errors"
+
+                let sigLexed, sigFile = parseSigFile sigSrc
+                let implLexed, implFile = parseFile implSrc
+                let externs = externNames (Conformance.summariseSig sigLexed sigFile)
+
+                Expect.equal
+                    externs
+                    (intrinsicNames (Conformance.summariseImpl implLexed implFile))
+                    "extern set == intrinsic set"
+
                 Expect.isTrue (externs.Contains "``[]``") "the array type constructor is extern"
             }
 
