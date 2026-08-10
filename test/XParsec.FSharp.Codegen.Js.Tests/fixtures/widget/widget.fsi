@@ -13,6 +13,13 @@ type widget = extern with
     /// one lambda per parameter, so this is the member that pins the untupling.
     member inline Poke2: a: int * b: int -> int
 
+/// A GENERIC `extern` host declaring an indexer, which lowers to the accessor method pair
+/// `get_Item` / `set_Item`. The setter's value parameter is the declaring typar `'T`.
+type 'T slot = extern with
+
+    /// `s.[i]` reads and `s.[i] <- v` writes, both splicing from the `.js.fs` bodies.
+    member inline Item: int -> 'T with get, set
+
 /// A second intrinsic/`extern` host whose one member has a body that is NOT inline IL —
 /// it is a keyed call to `widget.Poke`, foreign to `gadget.js.fs`. `inline` on the
 /// declaration is the whole reason its body publishes; nothing about the body's shape is.

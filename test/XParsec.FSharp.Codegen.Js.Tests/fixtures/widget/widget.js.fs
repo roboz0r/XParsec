@@ -19,3 +19,16 @@ type widget =
         member inline _.Poke2(a: int, b: int) : int = (# "$0 + $1" a b : int #)
 
     end
+
+// The indexer half of the fixture. The `set` accessor's parameters are spelled CURRIED here
+// and tupled in the `.fsi`; both spell the two .NET parameters `(int, 'T)`.
+type 'T slot =
+    (# "object" #)
+
+    with
+
+        member inline this.Item
+            with get (i: int) : 'T = (# "$0[$1]" this i : 'T #)
+            and set (i: int) (v: 'T) : unit = (# "$0[$1] = $2" this i v : unit #)
+
+    end

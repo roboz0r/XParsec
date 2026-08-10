@@ -64,8 +64,7 @@ module internal ElaborateTypeDecls =
             && body.elements
                |> Seq.forall (fun el ->
                    match el with
-                   | TypeDefnElement.Member(MemberDefn.Member(
-                       defn = MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig _))) -> true
+                   | TypeDefnElement.Member(MemberDefn.Member(defn = MethodOrPropDefn.AbstractSignature _)) -> true
                    | _ -> false
                )
 
@@ -371,12 +370,13 @@ module internal ElaborateTypeDecls =
         (elaborateOne: TTypeMember -> TTypeMember)
         (elements: TypeDefnElements<SyntaxToken>)
         : EqArray<TTypeMember> =
+        let declaring = classDeclaringType ctx info
+
         EqArray.ofSeq (
             seq {
                 for el in elements do
-                    match translateClassMember ctx info el with
-                    | ValueSome m -> yield elaborateOne m
-                    | ValueNone -> ()
+                    for m in translateMemberElement ctx declaring el do
+                        yield elaborateOne m
             }
         )
 

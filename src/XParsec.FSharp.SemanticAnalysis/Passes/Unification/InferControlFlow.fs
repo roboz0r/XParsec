@@ -16,6 +16,7 @@ open UnificationInferPat
 open UnificationInferOverload
 open UnificationInferForwardSchemes
 open UnificationInferDispatch
+open UnificationInferRecordAccess
 
 module internal UnificationInferControlFlow =
 
@@ -731,6 +732,74 @@ module internal UnificationInferControlFlow =
         unify ctx tok finallyTy ctx.Intrinsics.Unit
         resultTy
 
+    /// The setter a WRITE-ONLY slot goes through. A readable half types the LHS itself, so a
+    /// slot that has one declines here and takes the read path. The two names are given
+    /// rather than derived: an indexer reads through `get_Item` but a property through `P`.
+    and private tryWriteOnlySetter
+        (ctx: PassContext)
+        (objArgTy: SemType)
+        (readName: string)
+        (setName: string)
+        : SemType voption =
+        match tryLocalInstanceMember ctx objArgTy readName with
+        | ValueSome _ -> ValueNone
+        | ValueNone -> tryLocalInstanceMember ctx objArgTy setName
+
+    /// The object argument of an assignment LHS, inferred ONCE: both the setter path and the
+    /// read fall-through read this type, so they cannot disagree about the object.
+    and private inferAssignObjArg (infer: Infer) (ctx: PassContext) (access: NodeSite) (objArg: AssignObjArg) =
+        match objArg with
+        | AssignObjArg.Expr e -> infer ctx e
+        | AssignObjArg.ChainPrefix li -> inferLongIdentPrefix ctx access li
+
+    /// The type an assignment LHS accepts. Unlike a read, a slot may resolve through a
+    /// declared `set_` accessor, so the LHS walk lives here rather than in `infer`.
+    and private inferAssignLhs (infer: Infer) (ctx: PassContext) (lhs: AssignLhs) (left: Expr<SyntaxToken>) : SemType =
+        let access = lhs.Access
+
+        // `infer` links every node it walks; the paths below bypass it, so the LHS node and
+        // any parens around it link here.
+        let linkLhs (ty: SemType) =
+            unify ctx access.Tok (TyVar(tvOf ctx access.Key)) ty
+            unify ctx access.Tok (TyVar(tvOf ctx (CstKeys.ofExpr left))) ty
+            ty
+
+        match lhs.Target with
+        | AssignTarget.Slot(objArg, slotTok) ->
+            let objArgTy = inferAssignObjArg infer ctx access objArg
+            let name = ctx.NameOf slotTok
+
+            let setterValueTy =
+                match tryWriteOnlySetter ctx objArgTy name (AccessorNames.setterName name) with
+                // An INDEXED setter takes the index first, so it does not answer a
+                // `x.P <- v` write; only a one-argument `set_P : T -> unit` does.
+                | ValueSome setterTy ->
+                    match zonk ctx.Store setterTy with
+                    | TyFun(valueTy, ret) ->
+                        match zonk ctx.Store ret with
+                        | TyFun _ -> ValueNone
+                        | _ -> ValueSome valueTy
+                    | _ -> ValueNone
+                | ValueNone -> ValueNone
+
+            match setterValueTy with
+            | ValueSome valueTy -> linkLhs valueTy
+            | ValueNone -> linkLhs (resolveFieldStep ctx access slotTok objArgTy)
+        | AssignTarget.Indexed(objArg, index) ->
+            let objArgTy = infer ctx objArg
+            let idxTy = infer ctx index
+
+            match tryWriteOnlySetter ctx objArgTy AccessorNames.itemGetter AccessorNames.itemSetter with
+            | ValueSome setterTy ->
+                let valueTy = TyVar(freshTyVar ctx)
+                unify ctx access.Tok setterTy (TyFun(idxTy, TyFun(valueTy, ctx.Intrinsics.Unit)))
+                linkLhs valueTy
+            | ValueNone -> linkLhs (resolveIndexedStep ctx access objArgTy idxTy)
+        // The dispatcher routes an unparenthesised `x?n <- v` to `inferDynamicSet` before
+        // reaching here, so a dynamic LHS only ever arrives wrapped, as a read.
+        | AssignTarget.Dynamic _
+        | AssignTarget.Plain -> infer ctx left
+
     and inferAssignment
         (infer: Infer)
         (ctx: PassContext)
@@ -738,35 +807,32 @@ module internal UnificationInferControlFlow =
         (left: Expr<SyntaxToken>)
         (right: Expr<SyntaxToken>)
         : SemType =
+        let lhs = AssignTarget.ofExpr ctx left
         // Mutability of the LHS is a Validation concern; here we only typecheck.
-        let leftTy = infer ctx left
+        let leftTy = inferAssignLhs infer ctx lhs left
         let rightTy = infer ctx right
         unify ctx node.Tok leftTy rightTy
 
         // Unlike the `GetArray`/`GetIndex` read intrinsics, the write intrinsic of
         // `arr.[i] <- v` is never resolved by the plain type-check, so resolve it here and
         // stamp it under this node's key, the key the `stelem` body is spliced by.
-        let rec unwrapLhs e =
-            match e with
-            | Expr.EnclosedBlock(expr = inner)
-            | Expr.TypeAnnotation(expr = inner) -> unwrapLhs inner
-            | _ -> e
-
-        match unwrapLhs left with
-        | Expr.IndexedLookup(expr = arrE) ->
+        match lhs.Target with
+        | AssignTarget.Indexed(objArg = arrE) ->
             let arrTy = zonk ctx.Store (TyVar(tvOf ctx (CstKeys.ofExpr arrE)))
 
-            let setSym =
-                match arrTy with
-                | TyClass(clsKey, _) when
-                    not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)
-                    ->
-                    ctx.CoreAccess.Value.SetIndex
-                | _ -> ctx.CoreAccess.Value.SetArray
+            // A declared `set_Item` write is a method call, which splices no intrinsic body.
+            if (tryLocalInstanceMember ctx arrTy AccessorNames.itemSetter).IsNone then
+                let setSym =
+                    match arrTy with
+                    | TyClass(clsKey, _) when
+                        not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)
+                        ->
+                        ctx.CoreAccess.Value.SetIndex
+                    | _ -> ctx.CoreAccess.Value.SetArray
 
-            match setSym with
-            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-            | ValueNone -> ()
+                match setSym with
+                | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+                | ValueNone -> ()
         | _ -> ()
 
         ctx.Intrinsics.Unit

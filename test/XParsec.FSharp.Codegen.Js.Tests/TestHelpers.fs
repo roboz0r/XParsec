@@ -87,6 +87,39 @@ let jsContract: Lazy<SymbolProviders.Contract> =
 /// position.
 let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 
+/// A member declared in a `.fsi` and bodied in an `impl` file is keyed twice, and the
+/// inline-body store is keyed by the WHOLE member key. Assert the two halves agree for each of
+/// `members`, so an `ArgSig` divergence is named here instead of surfacing as an absent body.
+let expectMemberKeyHalvesAgree
+    (contract: SymbolProviders.Contract)
+    (implManifests: string list)
+    (declKey: SymbolKey)
+    (members: string list)
+    : unit =
+    let implBodies =
+        (SymbolProviders.inlineBodies Target.Js contract.Provider implManifests).Members
+
+    for memberName in members do
+        let contractKey =
+            match contract.Provider.TryLookupMember(declKey, memberName) with
+            | ValueSome m -> SymbolKey.Member m.Key
+            | ValueNone -> failtestf "the contract of %A publishes no `%s`" declKey memberName
+
+        match
+            implBodies
+            |> List.filter (fun mb -> SymbolKeyOps.simpleName mb.Key = DisplayName memberName)
+        with
+        | [ mb ] ->
+            Expect.equal
+                mb.Key
+                contractKey
+                (sprintf "`%s`: the contract half and the impl half key differently" memberName)
+        | found ->
+            failtestf
+                "expected exactly one impl-side `%s` body, got %A"
+                memberName
+                (found |> List.map (fun mb -> mb.Key))
+
 /// Front-end a program to its frozen `FrozenPools`, through `jsProvider`. Fails on any error
 /// diagnostic.
 let frozenOf (input: string) : FrozenPools =

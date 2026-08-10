@@ -37,6 +37,17 @@ let tests =
                     "the `get_Item` entry carries NO inline body — the inline-body store key DISAGREES with the lookup key"
             }
 
+            // The array's own two halves: the key `array-index.js.fsi` publishes and the key
+            // the lifted `array-index.js.fs` body was collected under. Compared WHOLE, so an
+            // `ArgSig` divergence names itself here.
+            test "the array `get_Item` contract-side and impl-side member keys are equal, ArgSig included" {
+                expectMemberKeyHalvesAgree
+                    jsContract.Value
+                    [ vesperCoreManifest ]
+                    (SymbolKeyOps.qualifiedTypeKey arrayMemberKey 0)
+                    [ "get_Item" ]
+            }
+
             // An `arr.[i]` read must leave an `ExternalAccess` entry for `get_Item`; the
             // `GetArray` fallback resolves through the open scope and leaves none. The
             // entry is written before inline-splicing, so it survives the splice.

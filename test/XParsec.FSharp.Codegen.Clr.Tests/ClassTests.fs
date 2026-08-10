@@ -2065,6 +2065,189 @@ let interfaceImplCodegenTests =
                 Expect.equal (result :?> int) 5 "Probe() returns the boxed 5"
             }
 
+            // A parameterless getter is a property; an indexed getter and every setter are
+            // accessor METHODS, because a property node carries an object argument and no index.
+            test "explicit `with get` / `set` accessors emit and run" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C(v: int) ="
+                            "    let mutable q = v"
+                            "    member this.P with get () = v"
+                            "    member this.Item with get (i: int) = i + v"
+                            "    member this.Q with get () = q and set (w: int) = q <- w"
+                            "    member this.RoundTrip(n: int) ="
+                            "        this.Q <- n"
+                            "        this.Q"
+                        ]
+
+                let _, artifact = compileSource "ClsGetSet" src
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("C", throwOnError = true)
+
+                let declared =
+                    ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.map (fun m -> m.Name)
+                    |> Set.ofArray
+
+                Expect.isTrue (declared.Contains "get_P") "the parameterless getter emits as get_P"
+                Expect.isTrue (declared.Contains "get_Item") "the indexed getter emits as get_Item"
+                Expect.isTrue (declared.Contains "set_Q") "the setter emits as set_Q"
+
+                let instance = Activator.CreateInstance(ty, [| box 7 |])
+                Expect.equal (ty.GetMethod("get_P").Invoke(instance, [||]) :?> int) 7 "get_P() returns v"
+
+                Expect.equal
+                    (ty.GetMethod("get_Item").Invoke(instance, [| box 5 |]) :?> int)
+                    12
+                    "get_Item(5) returns 5 + v"
+
+                Expect.equal
+                    (ty.GetMethod("RoundTrip").Invoke(instance, [| box 21 |]) :?> int)
+                    21
+                    "`this.Q <- 21` then `this.Q` reads back 21"
+
+                // `Q` is a declared property, so the class has no field of that name to
+                // write: an `stfld` (0x7D) here would be a write to storage that never exists.
+                let roundTrip = peMethodIl bytes "C" "RoundTrip"
+
+                Expect.isFalse
+                    (roundTrip |> Array.contains 0x7Duy)
+                    "RoundTrip writes through set_Q rather than emitting stfld"
+            }
+
+            // Nothing is named `Q` but the setter, so the write has no read to be typed
+            // against and no field to fall back on.
+            test "a write-only property assigns through its `set_` accessor" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    let mutable q = 0"
+                            "    member this.Q with set (w: int) = q <- w"
+                            "    member this.Write(n: int) = this.Q <- n"
+                            "    member this.Read() = q"
+                        ]
+
+                let _, artifact = compileSource "ClsWriteOnlyProp" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType("C", throwOnError = true)
+
+                let declared =
+                    ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.map (fun m -> m.Name)
+                    |> Set.ofArray
+
+                Expect.isTrue (declared.Contains "set_Q") "the setter emits as set_Q"
+                Expect.isFalse (declared.Contains "get_Q") "a write-only property emits no getter"
+
+                let instance = Activator.CreateInstance ty
+                ty.GetMethod("Write").Invoke(instance, [| box 9 |]) |> ignore
+                Expect.equal (ty.GetMethod("Read").Invoke(instance, [||]) :?> int) 9 "the setter stored 9"
+            }
+
+            test "an abstract property signature emits its accessor slots" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IBox ="
+                            "    abstract P: int with get, set"
+                            "    abstract Item: int -> int with get"
+                        ]
+
+                let _, artifact = compileSource "IfaceAbstractProp" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType("IBox", throwOnError = true)
+
+                Expect.isTrue ty.IsInterface "an all-abstract body is an interface"
+
+                let declared =
+                    ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.map (fun m -> m.Name)
+                    |> Set.ofArray
+
+                Expect.isTrue (declared.Contains "get_P") "the parameterless getter slot emits as get_P"
+                Expect.isTrue (declared.Contains "set_P") "the setter slot emits as set_P"
+                Expect.isTrue (declared.Contains "get_Item") "the indexed getter slot emits as get_Item"
+            }
+
+            // The accessors are the only element access: `RoundTrip` calls them, and the
+            // `ldelem` / `stelem` the array intrinsic would splice appear nowhere in it.
+            test "`x.[i]` and `x.[i] <- v` dispatch through a declared indexer" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C(v: int) ="
+                            "    let mutable slot = v"
+                            "    member this.Item with get (i: int) = slot + i and set (i: int) (w: int) = slot <- w + i"
+                            "type Driver() ="
+                            "    member _.RoundTrip(i: int, w: int) ="
+                            "        let c = C(0)"
+                            "        c.[i] <- w"
+                            "        c.[i]"
+                        ]
+
+                let _, artifact = compileSource "ClsIndexer" src
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("C", throwOnError = true)
+
+                let declared =
+                    ty.GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.map (fun m -> m.Name)
+                    |> Set.ofArray
+
+                Expect.isTrue (declared.Contains "get_Item") "the indexed getter emits as get_Item"
+                Expect.isTrue (declared.Contains "set_Item") "the indexed setter emits as set_Item"
+
+                let roundTrip = peMethodIl bytes "Driver" "RoundTrip"
+
+                Expect.isFalse (roundTrip |> Array.contains 0xA3uy) "the read is a call, not `ldelem`"
+                Expect.isFalse (roundTrip |> Array.contains 0xA4uy) "the write is a call, not `stelem`"
+
+                let driver = asm.GetType("Driver", throwOnError = true)
+                let instance = Activator.CreateInstance driver
+
+                Expect.equal
+                    (driver.GetMethod("RoundTrip").Invoke(instance, [| box 2; box 5 |]) :?> int)
+                    9
+                    "`c.[2] <- 5` stores 7, and `c.[2]` reads it back as 9"
+            }
+
+            // The array declares no `Item` accessor, so it keeps the element intrinsics.
+            test "a plain array index still lowers to `ldelem` / `stelem`" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Arr() ="
+                            "    member _.Probe(xs: int[], i: int, w: int) ="
+                            "        xs.[i] <- w"
+                            "        xs.[i]"
+                        ]
+
+                let _, artifact = compileSource "ArrIndexUnchanged" src
+                let bytes = Codegen.toBytes artifact
+                let probe = peMethodIl bytes "Arr" "Probe"
+
+                Expect.isTrue (probe |> Array.contains 0xA3uy) "`xs.[i]` emits `ldelem`"
+                Expect.isTrue (probe |> Array.contains 0xA4uy) "`xs.[i] <- w` emits `stelem`"
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("Arr", throwOnError = true)
+                let instance = Activator.CreateInstance ty
+
+                Expect.equal
+                    (ty.GetMethod("Probe").Invoke(instance, [| box [| 0; 0; 0 |]; box 1; box 4 |]) :?> int)
+                    4
+                    "the array write and read round-trip"
+            }
+
             // A `void` member whose body ends in `raise`: the residual-`unit` pop must
             // be guarded on a live operand, since after a `Throw` the stack-depth scan
             // has no reachable depth to pop from and rejects the body.

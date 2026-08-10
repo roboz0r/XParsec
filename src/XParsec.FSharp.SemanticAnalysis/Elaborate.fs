@@ -129,11 +129,11 @@ module Elaborate =
     /// `[<CompiledName>]`, else the source name. Matches the contract extractor, so a
     /// consumer resolving `Set.empty` to `SetModule.Empty` finds the method this emits.
     let private emittedNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
-        memberNameOfBinding ctx b
-        |> ValueOption.map (fun nm ->
+        MemberNames.ofBinding ctx b
+        |> ValueOption.map (fun m ->
             match VesperLibTypeTranslate.tryCompiledName ctx.Lexed b.attributes with
             | ValueSome cn -> cn
-            | ValueNone -> nm
+            | ValueNone -> m.Name
         )
 
     /// A pattern with no single bound variable (`let (a, b) = p`) has no name to export,

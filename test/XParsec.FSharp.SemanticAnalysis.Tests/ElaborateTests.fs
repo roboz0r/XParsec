@@ -1082,3 +1082,164 @@ let globalAttributeTests =
                 | other -> failtestf "expected exactly one error, got %A" other
             }
         ]
+
+[<Tests>]
+let propertySetterTests =
+    // Every `set` accessor lowers to a `set_P` METHOD, so a write to a declared property is a
+    // call; only a real field write reaches `TExpr.FieldSet`.
+    let classDecl =
+        String.concat
+            "\n"
+            [
+                "type C() ="
+                "    let mutable q = 0"
+                "    member this.Q with get () = q and set (w: int) = q <- w"
+            ]
+
+    /// The member names called and the field names written, across every top-level value and
+    /// class member body.
+    let writes (tast: TastFile) =
+        let calls = ResizeArray<string>()
+        let fieldSets = ResizeArray<string>()
+
+        let collect =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun _ e ->
+                        match e with
+                        | TExpr.MethodCall(key = key) ->
+                            let (DisplayName name) = SymbolKeyOps.simpleName key
+                            calls.Add name
+                        | TExpr.FieldSet(_, name, _, _, _) -> fieldSets.Add name
+                        | _ -> ()
+
+                        true
+            }
+
+        for d in EqArray.toList tast.Decls do
+            match d with
+            | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr collect value
+            | TDecl.Expression(e, _) -> TastWalk.iterExpr collect e
+            | TDecl.Type td ->
+                match td.Kind with
+                | TTypeKind.Class c ->
+                    for m in EqArray.toList c.Members do
+                        TastWalk.iterExpr collect m.Body
+                | _ -> ()
+
+        {|
+            Calls = List.ofSeq calls
+            FieldSets = List.ofSeq fieldSets
+        |}
+
+    testList
+        "PropertySetterElaboration"
+        [
+            test "`c.Q <- v` on a declared setter lowers to a set_Q call" {
+                let tast = analyse (classDecl + "\nlet s (c: C) = c.Q <- 1")
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let w = writes tast
+                Expect.contains w.Calls "set_Q" "the write dispatches through the accessor method"
+                Expect.isFalse (w.FieldSets |> List.contains "Q") "C declares no field Q to write"
+            }
+
+            // A computed object argument parses as `Expr.DotLookup`, the other of the two
+            // shapes an assignment LHS folds through.
+            test "`(mk ()).Q <- v` lowers to a set_Q call" {
+                let src = classDecl + "\nlet mk () = C()\nlet s () = (mk ()).Q <- 1"
+
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let w = writes tast
+                Expect.contains w.Calls "set_Q" "the write dispatches through the accessor method"
+                Expect.isFalse (w.FieldSets |> List.contains "Q") "C declares no field Q to write"
+            }
+
+            test "a mutable record field write stays a FieldSet" {
+                let tast = analyse "type R = { mutable X: int }\nlet s (r: R) = r.X <- 1"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let w = writes tast
+                Expect.contains w.FieldSets "X" "a real field takes the field-write path"
+                Expect.isEmpty w.Calls "no accessor call is minted for a field"
+            }
+
+            // A write-only property declares `set_Q` and no `Q`, so the LHS has no readable
+            // half: the RHS is checked against the setter's declared value instead.
+            test "a write-only property's assignment type-checks against set_Q's parameter" {
+                let writeOnly =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    let mutable q = 0"
+                            "    member this.Q with set (w: int) = q <- w"
+                            "    member this.Write(n: int) = this.Q <- n"
+                        ]
+
+                let tast = analyse writeOnly
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.contains (writes tast).Calls "set_Q" "the write dispatches through the accessor method"
+            }
+
+            test "a write-only property rejects a value of the wrong type" {
+                let bad =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    let mutable q = 0"
+                            "    member this.Q with set (w: int) = q <- w"
+                            "    member this.Write(n: string) = this.Q <- n"
+                        ]
+
+                match (analyse bad).Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
+                | [ msg ] ->
+                    Expect.stringContains
+                        msg
+                        "int"
+                        "the setter's declared int parameter is what the string is checked against"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
+            // The type-check and the lowering classify the LHS through one `AssignTarget`, so
+            // every object-argument shape the lowering writes through `set_Q` also types
+            // through it. These two shapes reach no binding to read a type off.
+            test "a write-only property takes a computed object argument" {
+                let probe =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    let mutable q = 0"
+                            "    member this.Q with set (w: int) = q <- w"
+                            "let mk () = C()"
+                            "let s () = (mk ()).Q <- 1"
+                        ]
+
+                let tast = analyse probe
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.contains (writes tast).Calls "set_Q" "the write dispatches through the accessor method"
+            }
+
+            test "a write-only property takes a three-segment object argument" {
+                let probe =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    let mutable q = 0"
+                            "    member this.Q with set (w: int) = q <- w"
+                            "type D() ="
+                            "    member val Inner = C() with get"
+                            "let s (d: D) = d.Inner.Q <- 1"
+                        ]
+
+                let tast = analyse probe
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.contains (writes tast).Calls "set_Q" "the write dispatches through the accessor method"
+            }
+        ]

@@ -93,32 +93,6 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// A member's name + the node key its body is inferred under, from its bound pattern. The
-    /// key is the *leaf* pattern's, so `static member (+) (a, b) = …` keys on
-    /// `(lParen, PatOp)`, not `(opToken, PatIdent)`.
-    let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
-        let named (p: Pat<SyntaxToken>) (name: string) =
-            ValueSome
-                {|
-                    Name = name
-                    Site = CstKeys.siteOfPat p
-                |}
-
-        let rec walk (p: Pat<SyntaxToken>) =
-            match p with
-            | Pat.NamedSimple id -> named p (ctx.NameOf id)
-            // Operator-named member: register under the operator's compiled name
-            // (`op_Addition`), which is what a desugared use site looks up.
-            | Pat.Op io ->
-                match Desugar.opPatCompiledName ctx.NameOf io with
-                | ValueSome n -> named p n
-                | ValueNone -> ValueNone
-            | Pat.EnclosedBlock(pat = inner) -> walk inner
-            | Pat.Typed(pat = inner) -> walk inner
-            | _ -> ValueNone
-
-        walk b.pattern
-
     let private identOrOpNameTok (ctx: PassContext) (id: IdentOrOp<SyntaxToken>) : (string * SyntaxToken) voption =
         match id with
         | IdentOrOp.Ident t -> ValueSome(ctx.NameOf t, t)
@@ -247,25 +221,29 @@ module NameResolutionMemberRegistration =
             memberInfos.Add cmi
             cmi
 
+        // The name and site are supplied because a `with get`/`set` accessor registers under
+        // an accessor name (`set_P`), not the one its own pattern spells.
+        let registerBinding mName (mSite: NodeSite) (b: Binding<SyntaxToken>) kind isStatic isOverride =
+            // A generic method's own `<'C>` typars (`member this.Map<'C> …`), then its
+            // *implicit* ones, a `'U` appearing only in a param/return annotation. Both get
+            // prototype TyVars; a property takes no implicit ones.
+            let explicit = memberTyparNames ctx b.typarDefns
+
+            let implicit =
+                match kind with
+                | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
+                | _ -> []
+
+            // The count marks the leading `explicit` prefix of the seed: only those are
+            // "declared-first", the implicit tail orders by appearance per the F# rule.
+            let seed = mkTypeParams ctx.Store (explicit @ implicit)
+
+            addMember mName kind isStatic isOverride mSite seed (List.length explicit)
+            |> ignore
+
         let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
-            match memberNameOf ctx b with
-            | ValueSome m ->
-                // A generic method's own `<'C>` typars (`member this.Map<'C> …`), then its
-                // *implicit* ones, a `'U` appearing only in a param/return annotation. Both
-                // get prototype TyVars. A property cannot be generic, so it gets neither.
-                let explicit = memberTyparNames ctx b.typarDefns
-
-                let implicit =
-                    match kind with
-                    | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
-                    | _ -> []
-
-                // The count marks the leading `explicit` prefix of the seed: only those are
-                // "declared-first", the implicit tail orders by appearance per the F# rule.
-                let seed = mkTypeParams ctx.Store (explicit @ implicit)
-
-                addMember m.Name kind isStatic isOverride m.Site seed (List.length explicit)
-                |> ignore
+            match MemberNames.ofBinding ctx b with
+            | ValueSome m -> registerBinding m.Name m.Site b kind isStatic isOverride
             | ValueNone -> ()
 
         let registerAutoProperty id isStatic isOverride =
@@ -279,21 +257,37 @@ module NameResolutionMemberRegistration =
                 0
             |> ignore
 
+        let registerAbstractSlot (mName: string) (mTok: SyntaxToken) tds isStatic kind =
+            let explicit = memberTyparNames ctx tds
+            let seed = mkTypeParams ctx.Store explicit
+            // An `abstract` signature is a slot declaration, never an override.
+            addMember mName kind isStatic false (NodeSite.ofToken NodeKind.PatIdent mTok) seed (List.length explicit)
+            |> ignore
+
         let registerAbstractMethod idOrOp tds isStatic kind =
             match identOrOpNameTok ctx idOrOp with
-            | ValueSome(mName, mTok) ->
-                let explicit = memberTyparNames ctx tds
-                let seed = mkTypeParams ctx.Store explicit
-                // An `abstract` signature is a slot declaration, never an override.
-                addMember
-                    mName
-                    kind
-                    isStatic
-                    false
-                    (NodeSite.ofToken NodeKind.PatIdent mTok)
-                    seed
-                    (List.length explicit)
-                |> ignore
+            | ValueSome(mName, mTok) -> registerAbstractSlot mName mTok tds isStatic kind
+            | ValueNone -> ()
+
+        // `abstract P: T with get, set` declares the same halves an impl-side
+        // `with get … and set …` does, each keyed on its own `get` / `set` token.
+        let registerAbstractProperty idOrOp tds isStatic (sigArgs: ImmutableArray<_>) getSet =
+            match identOrOpNameTok ctx idOrOp with
+            | ValueSome(propName, _) ->
+                let halves = AccessorNames.halvesOf ctx.NameOf getSet
+
+                match halves.Getter with
+                | ValueSome tok ->
+                    match sigArgs.Length with
+                    | 0 -> registerAbstractSlot propName tok tds isStatic ClassMemberKind.Property
+                    | _ ->
+                        registerAbstractSlot (AccessorNames.getterName propName) tok tds isStatic ClassMemberKind.Method
+                | ValueNone -> ()
+
+                match halves.Setter with
+                | ValueSome tok ->
+                    registerAbstractSlot (AccessorNames.setterName propName) tok tds isStatic ClassMemberKind.Method
+                | ValueNone -> ()
             | ValueNone -> ()
 
         for el in elements do
@@ -323,12 +317,14 @@ module NameResolutionMemberRegistration =
                             ClassMemberKind.Method
 
                     registerAbstractMethod idOrOp tds isStatic kind
-                | MethodOrPropDefn.PropertyWithGetSet _ ->
-                    diagnose (Kind.NotYetSupported "properties with explicit `get`/`set` blocks")
-                | MethodOrPropDefn.AbstractSignature _ ->
-                    // The non-MethodOrPropSig form is the property-signature form
-                    // (`abstract Item : int with get`).
-                    diagnose (Kind.NotYetSupported "abstract property signatures")
+                | MethodOrPropDefn.PropertyWithGetSet(ident = propId; defns = defns) ->
+                    PropertyAccessors.reportNonAccessors ctx propId defns
+
+                    for a in PropertyAccessors.accessors ctx propId defns do
+                        registerBinding a.Name a.Site a.Defn a.MemberKind isStatic isOverride
+                | MethodOrPropDefn.AbstractSignature(MemberSig.PropSig(
+                    ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs); getSet = getSet)) ->
+                    registerAbstractProperty idOrOp tds isStatic sigArgs getSet
             | TypeDefnElement.Member(MemberDefn.Value _) ->
                 // `val [mutable] x: T` fields are not members; `extractInstanceFields` has them.
                 ()

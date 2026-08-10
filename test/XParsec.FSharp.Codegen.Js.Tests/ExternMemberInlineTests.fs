@@ -423,6 +423,17 @@ let tests =
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed"
             }
 
+            // The `.fsi` spells the indexer's setter parameters TUPLED and the `.js.fs` body
+            // spells them curried; both encode the same two .NET parameters, and the store is
+            // keyed by the whole member key, so the derived `ArgSig`s have to come out identical.
+            test "an indexer's contract-side and impl-side member keys are equal, ArgSig included" {
+                TestHelpers.expectMemberKeyHalvesAgree
+                    widgetFixtureContract.Value
+                    [ widgetManifest ]
+                    (SymbolKeyOps.qualifiedTypeKey "Widgets.slot" 1)
+                    [ "get_Item"; "set_Item" ]
+            }
+
             // Two same-name lifted signatures differing only by parameter TYPE must mint two
             // DISTINCT keys, or the second lifted body overwrites the first. Hand-built,
             // because two `(# … #)`-bodied same-name overloads are not declarable in one file.

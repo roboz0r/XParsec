@@ -604,6 +604,36 @@ module TypeRegistry =
     /// Resolve a union by its project-local `TypeKey`.
     let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
 
+    /// A member-bearing nominal: its members, and the type parameters a member signature is
+    /// instantiated against. Class, union and record share this shape.
+    [<Struct>]
+    type NominalDecl =
+        {
+            TypeKey: TypeKey
+            TypeParams: EqArray<string * TyVarId>
+            Members: TypeMemberInfo[]
+        }
+
+    /// Resolve a class / union / record by its project-local `TypeKey`, whichever kind holds it.
+    let tryNominalByKey (types: PassContextTypes) (key: TypeKey) : NominalDecl voption =
+        let decl (typeKey: TypeKey) (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
+            ValueSome
+                {
+                    TypeKey = typeKey
+                    TypeParams = typeParams
+                    Members = members
+                }
+
+        match tryClassByKey types key with
+        | ValueSome info -> decl info.TypeKey info.TypeParams info.Members
+        | ValueNone ->
+            match tryUnionByKey types key with
+            | ValueSome info -> decl info.TypeKey info.TypeParams info.Members
+            | ValueNone ->
+                match tryRecordByKey types key with
+                | ValueSome info -> decl info.TypeKey info.TypeParams info.Members
+                | ValueNone -> ValueNone
+
     /// The inline intrinsic-abbrev host a NAME denotes: the name is resolved to the intrinsic's
     /// canon key through `IntrinsicKeys`, and the host read by that key. A name that claimed no
     /// intrinsic identity misses here rather than matching a same-named entry, so a bare read

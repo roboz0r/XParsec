@@ -424,9 +424,12 @@ module internal UnificationInferRecordAccess =
         (objArg: Expr<SyntaxToken>)
         (index: Expr<SyntaxToken>)
         : SemType =
-        let objArgTy = infer ctx objArg
-        let idxTy = infer ctx index
+        resolveIndexedStep ctx node (infer ctx objArg) (infer ctx index)
 
+    /// The element type `x.[i]` reads, from the ALREADY-INFERRED operand types. An assignment
+    /// LHS infers its operands itself, so the choice of accessor / intrinsic lives here rather
+    /// than inside the inferring wrapper.
+    and resolveIndexedStep (ctx: PassContext) (node: NodeSite) (objArgTy: SemType) (idxTy: SemType) : SemType =
         // `arr.[i]` resolves to the core `GetArray` inline function: instantiate its scheme
         // (`'T[] -> int -> 'T`) and unify against `arr -> idx -> result`. That pins element,
         // index and result, and grounds them so `InlineExpansion` splices the `ldelem`.
@@ -569,39 +572,46 @@ module internal UnificationInferRecordAccess =
                 | ValueNone ->
                     ValueSome(errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"))
 
-        match resolveStep ctx.Store objArgTy with
-        | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-            let clsArgsArr = clsArgs.AsSpan().ToArray()
+        // A declared `get_Item` read is a method call, which stamps no intrinsic key.
+        match tryLocalInstanceMember ctx objArgTy AccessorNames.itemGetter with
+        | ValueSome accessorTy ->
+            let resultTy = TyVar(freshTyVar ctx)
+            unify ctx node.Tok accessorTy (TyFun(idxTy, resultTy))
+            resultTy
+        | ValueNone ->
+            match resolveStep ctx.Store objArgTy with
+            | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
+                let clsArgsArr = clsArgs.AsSpan().ToArray()
 
-            match tryIndexSignature (SymbolKey.Type clsKey) clsArgsArr with
-            | ValueSome resultTy -> resultTy
-            | ValueNone ->
-                match resolveExternalIndexer (SymbolKey.Type clsKey) clsArgsArr "get_Item" with
+                match tryIndexSignature (SymbolKey.Type clsKey) clsArgsArr with
+                | ValueSome resultTy -> resultTy
+                | ValueNone ->
+                    match resolveExternalIndexer (SymbolKey.Type clsKey) clsArgsArr AccessorNames.itemGetter with
+                    | ValueSome resultTy -> resultTy
+                    | ValueNone -> getArrayIndex ()
+            // A rank-1 array reads through the intrinsic array type's declared `get_Item`, the
+            // member form of the free `GetArray`.
+            | TyArray elem ->
+                match
+                    resolveExternalIndexer
+                        (SymbolKeyOps.qualifiedTypeKey RuntimeNames.arrayContractName 0)
+                        [| elem |]
+                        AccessorNames.itemGetter
+                with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
-        // A rank-1 array reads through the intrinsic array's `get_Item` member accessor, the
-        // member-inline twin of the free `GetArray`. A MISS falls back to `GetArray` unchanged.
-        | TyArray elem ->
-            match
-                resolveExternalIndexer
-                    (SymbolKeyOps.qualifiedTypeKey RuntimeNames.arrayContractName 0)
-                    [| elem |]
-                    "get_Item"
-            with
-            | ValueSome resultTy -> resultTy
-            | ValueNone -> getArrayIndex ()
-        | _ ->
-            // An intrinsic object argument mapped to a BCL type, namely `string` (`s.[i]`), whose indexer
-            // is `System.String.get_Chars(int) : char`. On JS no surface publishes it, since
-            // `string`'s platform repr is the bare `"string"`, which is not a class.
-            let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
-                match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
-                | ValueSome resultTy -> Some resultTy
-                | ValueNone -> None
+            | _ ->
+                // An intrinsic object argument mapped to a BCL type, namely `string` (`s.[i]`),
+                // whose indexer is `System.String.get_Chars(int) : char`. On JS no surface
+                // publishes it, since `string`'s platform repr is the bare `"string"`.
+                let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
+                    match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
+                    | ValueSome resultTy -> Some resultTy
+                    | ValueNone -> None
 
-            match externalSurfaceKeys ctx objArgTy |> List.tryPick charsIndexer with
-            | Some resultTy -> resultTy
-            | None -> stringOrArrayIndex ()
+                match externalSurfaceKeys ctx objArgTy |> List.tryPick charsIndexer with
+                | Some resultTy -> resultTy
+                | None -> stringOrArrayIndex ()
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// anchor segment NameResolution resolved as a local binding; the remaining

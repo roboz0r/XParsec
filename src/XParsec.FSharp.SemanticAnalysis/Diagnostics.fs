@@ -200,6 +200,10 @@ type InternalBreak =
     | MemberNotResolvable of resolver: string * declaringType: string * memberName: string
     /// A nested `module` reached a pass that runs on the FLATTENED element list.
     | UnflattenedModule of pass: string
+    /// A binding under `member x.P with …` named something other than `get` / `set`. A
+    /// property with no `with` clause at all is an implicit get, so the clause being
+    /// PRESENT means its halves are named.
+    | NonAccessorInWithClause of propertyName: string * bindingName: string
 
 [<RequireQualifiedAccess>]
 module InternalBreak =
@@ -217,6 +221,11 @@ module InternalBreak =
                 declaringType
         | InternalBreak.UnflattenedModule pass ->
             sprintf "a nested `module` reached %s; the `implFileElems` flattening invariant has drifted" pass
+        | InternalBreak.NonAccessorInWithClause(propertyName, bindingName) ->
+            sprintf
+                "the `with` clause of property '%s' binds '%s'; the grammar admits only `get` and `set` there"
+                propertyName
+                bindingName
 
 /// WHAT a diagnostic says. A case carries the facts its sentence is built from, never the
 /// sentence, so a consumer selects on the verdict instead of parsing English.

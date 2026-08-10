@@ -82,139 +82,84 @@ module internal ElaborateClassMembers =
                     TExpr.FieldSet(TExpr.Var(BoundVarKey.identity info.ThisKey, classTy, tok), name, rhs, ty, tok)
         }
 
-    /// Translate one class member element into a `TTypeMember`. A reference to a ctor param
-    /// or an instance-`let` bound variable in an INSTANCE body becomes a `FieldGet`/`FieldSet` on
-    /// `this`; a static member sees neither, so only the `static let` rewrite applies there.
-    let translateClassMember
-        (ctx: PassContext)
-        (info: ClassTypeInfo)
-        (el: TypeDefnElement<SyntaxToken>)
-        : TTypeMember voption =
+    /// The class as a member-declaring type. In an INSTANCE body a ctor param or
+    /// instance-`let` bound variable becomes a `FieldGet`/`FieldSet` on `this`; a static
+    /// member sees only `static let`.
+    let classDeclaringType (ctx: PassContext) (info: ClassTypeInfo) : DeclaringType =
         // The instantiated self-type the synthesised `this` Var carries. Declaring typars
         // ride as `TyVar` roots here; the cut to `TyTypar` is made over the whole decl.
         let classTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
-        // `base` is in scope only when the class has an `inherit` clause; an instance
-        // member then carries the shared `BaseKey` so a `base.M(...)` object argument resolves.
-        let baseKey =
-            if info.BaseType.IsSome then
-                ValueSome info.BaseKey
-            else
-                ValueNone
-
         let staticRewrite = staticFieldRewrite info
         let instanceRewrite = instanceFieldRewrite info classTy
 
-        match el with
-        | TypeDefnElement.Member(MemberDefn.Member(
-            staticToken = s; keyword = kw; inlineToken = inlineTok; access = memberAccess; defn = d)) ->
-            let isStatic = s.IsSome
-            let isOverride = isOverrideKeyword kw
-            let isInline = inlineTok.IsSome
-            let memberAccessibility = accessibilityOfToken memberAccess
+        let lowerBody (site: MemberSite) (e: Expr<SyntaxToken>) : TExpr =
+            let body = translateExpr ctx e |> rewriteFieldRefs staticRewrite
 
-            let lowerBody (e: Expr<SyntaxToken>) : TExpr =
-                let body = translateExpr ctx e |> rewriteFieldRefs staticRewrite
+            if site.IsStatic then
+                body
+            else
+                rewriteFieldRefs instanceRewrite body
 
-                if isStatic then
-                    body
+        // The member's own generic parameters, recovered from the registered
+        // `TypeMemberInfo.CanonicalTypars`. That order is PRESERVED, so the
+        // ABI index a frozen `TyTypar(Method, i)` marker names stays valid.
+        let methodTypeParams (site: MemberSite) : EqArray<string * SemType> =
+            // Materialise each root as a plain `TyVar root`, so the later cut flips it
+            // to `TyTypar(Method, i)` like every other embedded type, and the tree field
+            // never holds a union-find carrier.
+            let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =
+                GeneralizedTypars.toArray g
+                |> Array.map (fun (name, root) -> name, TyVar root)
+                |> EqArray.ofArray
+
+            let kindMatches (mi: TypeMemberInfo) =
+                match mi.Kind, site.Kind with
+                | ClassMemberKind.Method, TMemberKind.Method
+                | ClassMemberKind.Property, TMemberKind.Property -> true
+                | _ -> false
+
+            // Match the exact overload by its registration `DeclKey` first: same-name
+            // overloads share `Name`/`Kind`/`IsStatic`, so a name-only find would give
+            // every one the FIRST overload's typars, dropping the others' own `'T`.
+            let byKey =
+                match site.DeclKey with
+                | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
+                | ValueNone -> None
+
+            match
+                byKey
+                |> Option.orElseWith (fun () ->
+                    info.Members
+                    |> Array.tryFind (fun mi -> mi.Name = site.Name && mi.IsStatic = site.IsStatic && kindMatches mi)
+                )
+            with
+            | Some mi ->
+                // A root unioned away since generalise keys the body's frozen typar
+                // markers on its SURVIVOR; a root linked to a concrete type is no
+                // longer a typar, and keeping it would inflate the GenericParam arity.
+                mi.CanonicalTypars
+                |> GeneralizedTypars.refreshRoots (fun tv ->
+                    match Unification.zonk ctx.Store (TyVar tv) with
+                    | TyVar r -> ValueSome r
+                    | _ -> ValueNone
+                )
+                |> ofRoots
+            | None -> EqArray.empty
+
+        {
+            ThisKey = info.ThisKey
+            ThisTy = TyClass(info.TypeKey, EqArray.empty)
+            // `base` is in scope only when the class has an `inherit` clause; an instance
+            // member then carries the shared `BaseKey` so a `base.M(...)` object argument resolves.
+            BaseKey =
+                if info.BaseType.IsSome then
+                    ValueSome info.BaseKey
                 else
-                    rewriteFieldRefs instanceRewrite body
-
-            // The member's own generic parameters, recovered from the registered
-            // `TypeMemberInfo.CanonicalTypars`. That order is PRESERVED, so the
-            // ABI index a frozen `TyTypar(Method, i)` marker names stays valid.
-            let methodTypeParams
-                (n: string)
-                (kind: TMemberKind)
-                (declKey: NodeKey voption)
-                : EqArray<string * SemType> =
-                // Materialise each root as a plain `TyVar root`, so the later cut flips it
-                // to `TyTypar(Method, i)` like every other embedded type, and the tree field
-                // never holds a union-find carrier.
-                let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =
-                    GeneralizedTypars.toArray g
-                    |> Array.map (fun (name, root) -> name, TyVar root)
-                    |> EqArray.ofArray
-
-                let kindMatches (mi: TypeMemberInfo) =
-                    match mi.Kind, kind with
-                    | ClassMemberKind.Method, TMemberKind.Method
-                    | ClassMemberKind.Property, TMemberKind.Property -> true
-                    | _ -> false
-
-                // Match the exact overload by its registration `DeclKey` first: same-name
-                // overloads share `Name`/`Kind`/`IsStatic`, so a name-only find would give
-                // every one the FIRST overload's typars, dropping the others' own `'T`.
-                let byKey =
-                    match declKey with
-                    | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
-                    | ValueNone -> None
-
-                match
-                    byKey
-                    |> Option.orElseWith (fun () ->
-                        info.Members
-                        |> Array.tryFind (fun mi -> mi.Name = n && mi.IsStatic = isStatic && kindMatches mi)
-                    )
-                with
-                | Some mi ->
-                    // A root unioned away since generalise keys the body's frozen typar
-                    // markers on its SURVIVOR; a root linked to a concrete type is no
-                    // longer a typar, and keeping it would inflate the GenericParam arity.
-                    mi.CanonicalTypars
-                    |> GeneralizedTypars.refreshRoots (fun tv ->
-                        match Unification.zonk ctx.Store (TyVar tv) with
-                        | TyVar r -> ValueSome r
-                        | _ -> ValueNone
-                    )
-                    |> ofRoots
-                | None -> EqArray.empty
-
-            let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
-                match memberNameOfBinding ctx b with
-                | ValueSome n ->
-                    ValueSome
-                        {
-                            Name = n
-                            IsStatic = isStatic
-                            Accessibility = memberAccessibility
-                            IsInline = isInline
-                            Kind = kind
-                            IsOverride = isOverride
-                            ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
-                            BaseKey = (if isStatic then ValueNone else baseKey)
-                            ThisTy = TyClass(info.TypeKey, EqArray.empty)
-                            Params = memberParams ctx b
-                            Body = lowerBody b.expr
-                            ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
-                            MethodTypeParams = methodTypeParams n kind (memberKeyOfBinding b)
-                        }
-                | ValueNone -> ValueNone
-
-            match d with
-            | MethodOrPropDefn.Method(defn = b) -> build TMemberKind.Method b
-            | MethodOrPropDefn.Property(defn = b) -> build TMemberKind.Property b
-            | MethodOrPropDefn.AutoProperty(access = acc; ident = id; expr = e) ->
-                ValueSome
-                    {
-                        Name = ctx.NameOf id
-                        IsStatic = isStatic
-                        Accessibility = autoPropertyAccess memberAccessibility acc
-                        IsInline = isInline
-                        Kind = TMemberKind.Property
-                        IsOverride = isOverride
-                        ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
-                        BaseKey = (if isStatic then ValueNone else baseKey)
-                        ThisTy = TyClass(info.TypeKey, EqArray.empty)
-                        Params = EqArray.empty
-                        Body = lowerBody e
-                        ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
-                        // Auto-properties never carry their own generic params.
-                        MethodTypeParams = EqArray.empty
-                    }
-            | _ -> ValueNone
-        | _ -> ValueNone
+                    ValueNone
+            LowerBody = lowerBody
+            MethodTypeParams = methodTypeParams
+        }
 
     /// Each `let`-preamble binding becomes a `TCtorLet`, the final chain call's arguments
     /// become `PrimaryArgs`. Sequencing / conditional preambles recurse to the chain and

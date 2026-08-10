@@ -186,7 +186,7 @@ module NameResolutionScope =
         | Pat.Op io ->
             // Operator-named binding (`let (=) x y = …`) binds the compiled name
             // `op_Equality`; use sites resolve through the desugared form instead.
-            match Desugar.opPatCompiledName ctx.NameOf io with
+            match OperatorNames.ofPatOp ctx.NameOf io with
             | ValueSome n -> [ n, CstKeys.ofPat p ]
             | ValueNone -> []
         | Pat.OpNamed _

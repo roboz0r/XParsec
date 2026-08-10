@@ -271,6 +271,114 @@ let tests =
                 Expect.isTrue hasCloseDiag "mismatched-delimiter diagnostic emitted"
             }
 
+            test "parameterless getter types as the property's value" {
+                let ctx = analyse "type C() =\n    member this.P with get () = 1"
+
+                let info = expectClass ctx "C"
+                let m = info.Members |> Array.find (fun mm -> mm.Name = "P")
+
+                Expect.equal (typeOf ctx m.DeclSite.Key) (TyConst(RuntimeNames.intKey, EqArray.empty)) "P : int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "indexed getter takes its index as a parameter" {
+                let ctx = analyse "type C() =\n    member this.Item with get (i: int) = i"
+
+                let info = expectClass ctx "C"
+                let m = info.Members |> Array.find (fun mm -> mm.Name = "get_Item")
+                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
+
+                Expect.equal (typeOf ctx m.DeclSite.Key) (TyFun(intTy, intTy)) "get_Item : int -> int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "an abstract property signature types both of its slots" {
+                let ctx = analyse "type C() =\n    abstract P: int with get, set"
+
+                let info = expectClass ctx "C"
+
+                // A slot has no body binding, so its type is read off the registry entry.
+                let slotTy n =
+                    Unification.zonk ctx.Store (info.Members |> Array.find (fun mm -> mm.Name = n)).Type
+
+                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
+                let unitTy = TyConst(RuntimeNames.unitKey, EqArray.empty)
+
+                Expect.equal (slotTy "P") intTy "P : int"
+                Expect.equal (slotTy "set_P") (TyFun(intTy, unitTy)) "set_P : int -> unit"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "an abstract indexed property signature types index-then-value on its setter" {
+                let ctx = analyse "type C() =\n    abstract Item: int -> string with get, set"
+
+                let info = expectClass ctx "C"
+
+                // A slot has no body binding, so its type is read off the registry entry.
+                let slotTy n =
+                    Unification.zonk ctx.Store (info.Members |> Array.find (fun mm -> mm.Name = n)).Type
+
+                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
+                let stringTy = TyConst(RuntimeNames.stringKey, EqArray.empty)
+                let unitTy = TyConst(RuntimeNames.unitKey, EqArray.empty)
+
+                Expect.equal (slotTy "get_Item") (TyFun(intTy, stringTy)) "get_Item : int -> string"
+
+                Expect.equal
+                    (slotTy "set_Item")
+                    (TyFun(intTy, TyFun(stringTy, unitTy)))
+                    "set_Item : int -> string -> unit"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // Without the declared accessor the object argument unifies against `'T[]`, so
+            // this same source reports `Type mismatch: [] vs C`.
+            test "a declared indexer types `x.[i]` as its element type" {
+                let src =
+                    "type C(v: int) =\n    member this.Item with get (i: int) = i + v\nlet c = C(1)\nlet x = c.[2]"
+
+                let ctx = analyse src
+                Expect.equal (typeOf ctx (keyOfLet src "x")) BuiltinTypes.tyInt "x : int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "a generic indexer reads at the object argument's type args" {
+                let src =
+                    "type Box<'T>(v: 'T) =\n    member this.Item with get (i: int) = v\nlet b = Box(\"s\")\nlet x = b.[0]"
+
+                let ctx = analyse src
+                Expect.equal (typeOf ctx (keyOfLet src "x")) BuiltinTypes.tyString "x : string"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "a record's declared indexer types `r.[i]` too" {
+                let src =
+                    "type R =\n    { N: int }\n    member this.Item with get (i: int) = i + this.N\nlet r = { N = 1 }\nlet x = r.[2]"
+
+                let ctx = analyse src
+                Expect.equal (typeOf ctx (keyOfLet src "x")) BuiltinTypes.tyInt "x : int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // Nothing readable is named `Item`, so the write is typed from `set_Item` alone.
+            test "a write-only indexer types `x.[i] <- v` from its setter" {
+                let src =
+                    "type C() =\n    let mutable q = 0\n    member this.Item with set (i: int) (w: int) = q <- i + w\nlet c = C()\nlet u = (c.[2] <- 3)"
+
+                let ctx = analyse src
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // An index on a type declaring no accessor still resolves as an array read.
+            test "an array index is unaffected by the accessor lookup" {
+                let src = "let xs = [| 1; 2 |]\nlet x = xs.[1]"
+
+                let ctx = analyse src
+                Expect.equal (typeOf ctx (keyOfLet src "x")) BuiltinTypes.tyInt "x : int"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
             // `null` types as a fresh TyVar that the annotation links to `TyClass C`; nothing
             // yet consults the attribute, so this passes without it too.
             test "[<AllowNullLiteral>] permits `let x: C = null`" {

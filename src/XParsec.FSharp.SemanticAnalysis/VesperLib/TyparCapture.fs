@@ -61,6 +61,9 @@ module VesperLibTyparCapture =
         {
             Ctx: DeferredCtx
             Signature: CurriedSig<SyntaxToken>
+            /// `P: T with get, set` writes ONE signature, the getter's. The `set` half freezes
+            /// from it as `args… -> T -> unit`; there is no `unit` in the source to translate.
+            IsSetter: bool
         }
 
     /// One `val` signature CST, frozen into a complete `ExternalSymbol` by the finalize pass.

@@ -52,6 +52,66 @@ module Unification =
         let retTy = translateType ctx ret
         List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
 
+    /// The token an abstract slot keys on: the name it declares, or the operator naming it.
+    let private abstractSlotToken (idOrOp: IdentOrOp<SyntaxToken>) : SyntaxToken voption =
+        match idOrOp with
+        | IdentOrOp.Ident t -> ValueSome t
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome op
+        | _ -> ValueNone
+
+    /// The `set` half of `P: T with get, set`, which the source spells only as the getter:
+    /// `Item: int -> 'T with get, set` gives the setter `int -> 'T -> unit`, at `groups` = 1.
+    let rec private setterSemType (groups: int) (getterTy: SemType) : SemType =
+        match getterTy with
+        | TyFun(p, r) when groups > 0 -> TyFun(p, setterSemType (groups - 1) r)
+        | value -> TyFun(value, TyConst(RuntimeNames.unitKey, EqArray.empty))
+
+    /// The ABI order an abstract slot's own typars take, minted from its elaborated signature
+    /// because it has no body to infer one from. The declaring type's typars are FIXED — they
+    /// are the type's axis, not the method's — and a seed typar already linked to a concrete
+    /// type is no longer one.
+    let private canonicalSlotTypars
+        (ctx: PassContext)
+        (declTypars: EqArray<string * TyVarId>)
+        (mInfo: TypeMemberInfo)
+        (sigTy: SemType)
+        : GeneralizedTypars =
+        let rootOf (tv: TyVarId) =
+            match zonk ctx.Store (TyVar tv) with
+            | TyVar r -> ValueSome(UnionFind.find ctx.Store r)
+            | _ -> ValueNone
+
+        let fixedRoots = HashSet<TyVarId>()
+
+        for (_, ptv) in declTypars do
+            match rootOf ptv with
+            | ValueSome r -> fixedRoots.Add r.Id |> ignore
+            | ValueNone -> ()
+
+        let seed = EqArray.toList mInfo.SeedTypars
+
+        // Only the leading `DeclaredTyparCount` are declared-first; the implicit tail orders
+        // by appearance in the signature.
+        let declared =
+            seed
+            |> List.truncate mInfo.DeclaredTyparCount
+            |> List.choose (fun (name, ptv) ->
+                match rootOf ptv with
+                | ValueSome r when (ctx.Store.Link r).IsNone -> Some(name, r.Id)
+                | _ -> None
+            )
+
+        let knownNames = Dictionary<TyVarId, string>()
+
+        for (name, ptv) in seed do
+            match rootOf ptv with
+            | ValueSome r ->
+                if not (knownNames.ContainsKey r.Id) then
+                    knownNames.[r.Id] <- name
+            | ValueNone -> ()
+
+        GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store sigTy)
+
     /// Parameters for a registry-driven walk over a class or union's member bodies.
     /// `PrelinkExtras` runs after the typar scope is set but before `this` is bound.
     [<NoEquality; NoComparison>]
@@ -162,87 +222,115 @@ module Unification =
             ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
+            let inferMemberBinding (mKey: NodeKey) (b: Binding<SyntaxToken>) =
+                let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey)
+
+                match mInfoOpt with
+                | Some mInfo ->
+                    match mInfo.Type with
+                    | TyVar tv -> ctx.Bindings.TypeVar.Set(mKey, tv)
+                    | _ -> ()
+                | None -> ()
+
+                // Seed the binding's own `<'C, …>` typars with their registration
+                // prototypes, so the signature inferred in the fresh binding
+                // scope shares roots with `mInfo.SeedTypars`.
+                let savedSeed = ctx.Resolution.BindingTyparSeed
+                let savedMemberEnclosing = ctx.Resolution.EnclosingTypars
+
+                match mInfoOpt with
+                | Some mInfo when not mInfo.SeedTypars.IsEmpty ->
+                    let seed = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
+
+                    for (n, ptv) in mInfo.SeedTypars do
+                        seed.[n] <- ptv
+
+                    ctx.Resolution.BindingTyparSeed <- ValueSome seed
+
+                    // Keep the member's own typars in `EnclosingTypars` for the
+                    // body walk, alongside the class typars, so a nested
+                    // `let c = Comparer<'U>.Default` resolves `'U`, not free.
+                    let memberEnclosing =
+                        Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
+
+                    for (n, ptv) in mInfo.SeedTypars do
+                        memberEnclosing.[n] <- ptv
+
+                    ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
+                | _ -> ()
+
+                let outerLevel = ctx.CurrentLevel
+                enterLevel ctx
+
+                try
+                    inferBinding ctx b
+                finally
+                    exitLevel ctx
+                    ctx.Resolution.BindingTyparSeed <- savedSeed
+                    ctx.Resolution.EnclosingTypars <- savedMemberEnclosing
+
+                // Generalise any body-inferred free typar, an unannotated param no
+                // call ever grounded, into the member's own method typars.
+                match mInfoOpt with
+                | Some mInfo when
+                    fc.Generalise
+                    && mInfo.Kind = ClassMemberKind.Method
+                    // An `override` conforms to a base virtual slot, so it is
+                    // never generic.
+                    && not mInfo.IsOverride
+                    ->
+                    generaliseMemberTypars ctx outerLevel fc.TypeParams mInfo
+                | _ -> ()
+
+            // An abstract slot has no body: its type is the declared signature, computed by
+            // `mkSigTy` under the slot's own typar scope.
+            let linkAbstractSlot (mTok: SyntaxToken) (mkSigTy: unit -> SemType) =
+                let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+
+                match fc.Members |> Array.tryFind (fun mm -> mm.DeclSite.Key = mKey) with
+                | Some mInfo ->
+                    match mInfo.Type with
+                    | TyVar tv ->
+                        let root = UnionFind.find ctx.Store tv
+
+                        // Extend the scope with the method's own `<'C, …>`
+                        // typars, else they diagnose as free.
+                        let savedMScope = ctx.Resolution.TyparScope
+
+                        if not mInfo.SeedTypars.IsEmpty then
+                            let extended =
+                                Dictionary<string, TyVarId>(savedMScope, System.StringComparer.Ordinal)
+
+                            for (n, ptv) in mInfo.SeedTypars do
+                                extended.[n] <- ptv
+
+                            ctx.Resolution.TyparScope <- extended
+
+                        try
+                            let sigTy = mkSigTy ()
+                            ctx.Store.SetLink(root, ValueSome sigTy)
+
+                            // An abstract method has no body to infer, so mint its
+                            // canonical ABI order from the elaborated signature.
+                            if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
+                                mInfo.Generalise(canonicalSlotTypars ctx fc.TypeParams mInfo sigTy)
+                        finally
+                            ctx.Resolution.TyparScope <- savedMScope
+                    | _ -> ()
+                | None -> ()
+
             for el in fc.Elements do
                 match el with
                 | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
                     match d with
                     | MethodOrPropDefn.Method(defn = b)
                     | MethodOrPropDefn.Property(defn = b) ->
-                        // The *leaf* pattern's key, the one stamped as
-                        // `mInfo.DeclSite.Key`: a `Pat.Op` keys on `(lParen, PatOp)`.
-                        let mKeyOpt =
-                            let rec walkP (p: Pat<SyntaxToken>) =
-                                match p with
-                                | Pat.NamedSimple _
-                                | Pat.Op _ -> ValueSome(CstKeys.ofPat p)
-                                | Pat.EnclosedBlock(pat = inner)
-                                | Pat.Typed(pat = inner)
-                                | Pat.Attributed(pat = inner) -> walkP inner
-                                | _ -> ValueNone
-
-                            walkP b.pattern
-
-                        match mKeyOpt with
-                        | ValueSome mKey ->
-                            let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey)
-
-                            match mInfoOpt with
-                            | Some mInfo ->
-                                match mInfo.Type with
-                                | TyVar tv -> ctx.Bindings.TypeVar.Set(mKey, tv)
-                                | _ -> ()
-                            | None -> ()
-
-                            // Seed the binding's own `<'C, …>` typars with their registration
-                            // prototypes, so the signature inferred in the fresh binding
-                            // scope shares roots with `mInfo.SeedTypars`.
-                            let savedSeed = ctx.Resolution.BindingTyparSeed
-                            let savedMemberEnclosing = ctx.Resolution.EnclosingTypars
-
-                            match mInfoOpt with
-                            | Some mInfo when not mInfo.SeedTypars.IsEmpty ->
-                                let seed = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-                                for (n, ptv) in mInfo.SeedTypars do
-                                    seed.[n] <- ptv
-
-                                ctx.Resolution.BindingTyparSeed <- ValueSome seed
-
-                                // Keep the member's own typars in `EnclosingTypars` for the
-                                // body walk, alongside the class typars, so a nested
-                                // `let c = Comparer<'U>.Default` resolves `'U`, not free.
-                                let memberEnclosing =
-                                    Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
-
-                                for (n, ptv) in mInfo.SeedTypars do
-                                    memberEnclosing.[n] <- ptv
-
-                                ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
-                            | _ -> ()
-
-                            let outerLevel = ctx.CurrentLevel
-                            enterLevel ctx
-
-                            try
-                                inferBinding ctx b
-                            finally
-                                exitLevel ctx
-                                ctx.Resolution.BindingTyparSeed <- savedSeed
-                                ctx.Resolution.EnclosingTypars <- savedMemberEnclosing
-
-                            // Generalise any body-inferred free typar, an unannotated param no
-                            // call ever grounded, into the member's own method typars.
-                            match mInfoOpt with
-                            | Some mInfo when
-                                fc.Generalise
-                                && mInfo.Kind = ClassMemberKind.Method
-                                // An `override` conforms to a base virtual slot, so it is
-                                // never generic.
-                                && not mInfo.IsOverride
-                                ->
-                                generaliseMemberTypars ctx outerLevel fc.TypeParams mInfo
-                            | _ -> ()
+                        match MemberNames.declKeyOfBinding b with
+                        | ValueSome mKey -> inferMemberBinding mKey b
                         | ValueNone -> ()
+                    | MethodOrPropDefn.PropertyWithGetSet(ident = propId; defns = defns) ->
+                        for a in PropertyAccessors.accessors ctx propId defns do
+                            inferMemberBinding a.Site.Key a.Defn
                     | MethodOrPropDefn.AutoProperty(ident = id; expr = e; returnType = rt) ->
                         enterLevel ctx
 
@@ -267,93 +355,26 @@ module Unification =
                             | None -> ()
                         finally
                             exitLevel ctx
-                    | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; sign = csig)) when
-                        fc.AllowAbstractSig
-                        ->
-                        let mTokOpt =
-                            match idOrOp with
-                            | IdentOrOp.Ident t -> ValueSome t
-                            | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome op
-                            | _ -> ValueNone
+                    | MethodOrPropDefn.AbstractSignature sign when fc.AllowAbstractSig ->
+                        match sign with
+                        | MemberSig.MethodOrPropSig(ident = idOrOp; sign = csig) ->
+                            match abstractSlotToken idOrOp with
+                            | ValueSome mTok -> linkAbstractSlot mTok (fun () -> curriedSigToSemType ctx csig)
+                            | ValueNone -> ()
+                        | MemberSig.PropSig(sign = csig; getSet = getSet) ->
+                            let halves = AccessorNames.halvesOf ctx.NameOf getSet
+                            let (CurriedSig(args = sigArgs)) = csig
 
-                        match mTokOpt with
-                        | ValueSome mTok ->
-                            let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
+                            match halves.Getter with
+                            | ValueSome tok -> linkAbstractSlot tok (fun () -> curriedSigToSemType ctx csig)
+                            | ValueNone -> ()
 
-                            match fc.Members |> Array.tryFind (fun mm -> mm.DeclSite.Key = mKey) with
-                            | Some mInfo ->
-                                match mInfo.Type with
-                                | TyVar tv ->
-                                    let root = UnionFind.find ctx.Store tv
-
-                                    // Extend the scope with the method's own `<'C, …>`
-                                    // typars, else they diagnose as free.
-                                    let savedMScope = ctx.Resolution.TyparScope
-
-                                    if not mInfo.SeedTypars.IsEmpty then
-                                        let extended =
-                                            Dictionary<string, TyVarId>(savedMScope, System.StringComparer.Ordinal)
-
-                                        for (n, ptv) in mInfo.SeedTypars do
-                                            extended.[n] <- ptv
-
-                                        ctx.Resolution.TyparScope <- extended
-
-                                    try
-                                        let sigTy = curriedSigToSemType ctx csig
-                                        ctx.Store.SetLink(root, ValueSome sigTy)
-
-                                        // An abstract method has no body to infer, so mint its
-                                        // canonical ABI order from the elaborated signature.
-                                        if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
-                                            let fixedRoots = HashSet<TyVarId>()
-
-                                            for (_, ptv) in fc.TypeParams do
-                                                match zonk ctx.Store (TyVar ptv) with
-                                                | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
-                                                | _ -> ()
-
-                                            let seed = EqArray.toList mInfo.SeedTypars
-
-                                            let declared =
-                                                seed
-                                                |> List.truncate mInfo.DeclaredTyparCount
-                                                |> List.choose (fun (name, ptv) ->
-                                                    match zonk ctx.Store (TyVar ptv) with
-                                                    | TyVar r ->
-                                                        let dRoot = UnionFind.find ctx.Store r
-
-                                                        if (ctx.Store.Link dRoot).IsNone then
-                                                            Some(name, dRoot.Id)
-                                                        else
-                                                            None
-                                                    | _ -> None
-                                                )
-
-                                            let knownNames = Dictionary<TyVarId, string>()
-
-                                            for (name, ptv) in seed do
-                                                match zonk ctx.Store (TyVar ptv) with
-                                                | TyVar r ->
-                                                    let kRoot = UnionFind.find ctx.Store r
-
-                                                    if not (knownNames.ContainsKey kRoot.Id) then
-                                                        knownNames.[kRoot.Id] <- name
-                                                | _ -> ()
-
-                                            mInfo.Generalise(
-                                                GeneralizedTypars.canonical
-                                                    ctx.Store
-                                                    declared
-                                                    fixedRoots
-                                                    knownNames
-                                                    (zonk ctx.Store sigTy)
-                                            )
-                                    finally
-                                        ctx.Resolution.TyparScope <- savedMScope
-                                | _ -> ()
-                            | None -> ()
-                        | ValueNone -> ()
+                            match halves.Setter with
+                            | ValueSome tok ->
+                                linkAbstractSlot
+                                    tok
+                                    (fun () -> setterSemType sigArgs.Length (curriedSigToSemType ctx csig))
+                            | ValueNone -> ()
                     | _ -> ()
                 | _ -> ()
         finally

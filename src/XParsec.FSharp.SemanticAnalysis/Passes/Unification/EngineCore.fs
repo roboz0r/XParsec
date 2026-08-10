@@ -188,6 +188,19 @@ module UnificationEngineCore =
 
         substituteWith ctx.Store subst ty
 
+    /// A project-local class / union / record's OWN instance member, instantiated at the
+    /// object argument's `args`. An inherited member does not answer here.
+    let tryLocalInstanceMember (ctx: PassContext) (objArgTy: SemType) (memberName: string) : SemType voption =
+        match resolveStep ctx.Store objArgTy with
+        | TyNominal(typeKey, args) ->
+            match TypeRegistry.tryNominalByKey ctx.Types typeKey with
+            | ValueSome decl ->
+                match decl.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
+                | Some m -> ValueSome(instantiateMemberCall ctx (decl.TypeParams, args) m.EffectiveMethodTypars m.Type)
+                | None -> ValueNone
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     /// The chain walk's result: the DECLARING class's instantiated nominal type, at the
     /// level the member was found, plus the member's type instantiated against that
     /// level's args.

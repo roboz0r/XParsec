@@ -56,6 +56,69 @@ let tests =
                     Expect.equal out "40\n42" "field access reads the ctor-stored field; the free member adds"
             }
 
+            // A setter is an accessor METHOD named `set_Value`, so the write is a call and
+            // there is no field of that name for it to land on.
+            test "a write through an explicit property setter runs on JS" {
+                match
+                    runJs
+                        "class-prop-setter"
+                        (lines
+                            [
+                                "type Box(value: int) ="
+                                "    let mutable v = value"
+                                "    member this.Value with get () = v and set (n: int) = v <- n"
+                                "let b = Box(1)"
+                                "b.Value <- 42"
+                                "printfn \"%d\" b.Value"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "42" "the write dispatches through set_Value and reads back"
+            }
+
+            // The accessors are members, so both ends are calls, never the `$0[$1]` bracket
+            // the array/index-signature intrinsics splice.
+            test "an indexed property emits accessor calls, not a bracket index" {
+                let src =
+                    emitJs (
+                        lines
+                            [
+                                "type Box(value: int) ="
+                                "    let mutable v = value"
+                                "    member this.Item with get (i: int) = v + i and set (i: int) (n: int) = v <- n + i"
+                                "let b = Box(1)"
+                                "b.[2] <- 40"
+                                "printfn \"%d\" b.[2]"
+                            ]
+                    )
+
+                Expect.stringContains src "const Box__get_Item = (" "the indexed getter emits as get_Item"
+                Expect.stringContains src "const Box__set_Item = (" "the indexed setter emits as set_Item"
+                Expect.isFalse (src.Contains "b[2]") "neither end lowers to a bracket index"
+            }
+
+            test "an indexed property read and write run on JS" {
+                match
+                    runJs
+                        "class-indexer"
+                        (lines
+                            [
+                                "type Box(value: int) ="
+                                "    let mutable v = value"
+                                "    member this.Item with get (i: int) = v + i and set (i: int) (n: int) = v <- n + i"
+                                "let b = Box(1)"
+                                "b.[2] <- 40"
+                                "printfn \"%d\" b.[2]"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "44" "the write stores 42 through set_Item and get_Item reads 44"
+            }
+
             test "a [<CustomEquality>] class attaches its dispatch slots under registry symbols" {
                 let src =
                     emitJs (

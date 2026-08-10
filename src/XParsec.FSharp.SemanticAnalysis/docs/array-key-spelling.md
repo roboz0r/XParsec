@@ -39,16 +39,21 @@ Plus one rule in the key algebra:
    `byref`) takes arity 0 however it is minted — its element type rides the type's args —
    so that has to become the stated rule rather than a side effect of the escape.
 
-## Found on the way, NOT fixed
+## Checked on the way, and NOT a defect
 
-The two halves of the array's `get_Item` disagree, and the escaped spelling was hiding it.
-The `.fsi` (`array-index.js.fsi`) freezes its parameter as `int`; the `.fs`
-(`array-index.js.fs`) freezes the same parameter as `FTUnknown "?unresolved-typar"`. The
-inline-body store is keyed by the WHOLE member key, `ArgSig` included, so the two keys are
-not equal — the contract half and the impl half only meet today because
-`Contract.Provider.TryLookupMember` resolves by NAME. Any change that makes the member key
-the lookup key will surface this. Worth chasing on its own: the impl's parameter type not
-resolving is a bug wherever it comes from.
+An earlier revision of this section claimed the two halves of the array's `get_Item`
+disagree — the `.fsi` freezing its parameter as `int`, the `.fs` as
+`FTUnknown "?unresolved-typar"`. Measured against the built JS contract, both halves key it
+
+```
+{ Decl = (ns "", "``[]``", arity 0); Name = "get_Item"
+  ArgSig = [FTConst(Vesper.int, [])]; MethodTyparArity = 0; Kind = Method }
+```
+
+The inline-body store is keyed by the WHOLE member key, and it serves the body — so the two
+keys ARE equal, `ArgSig` included, and `TryLookupMemberByKey` hits on that key too. No
+`?unresolved-typar` occurs in any collected member key of the whole JS manifest set. The
+agreement is pinned by a test, so unescaping the name will report a break rather than hide one.
 
 ## Done when
 

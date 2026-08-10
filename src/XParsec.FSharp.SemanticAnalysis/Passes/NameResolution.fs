@@ -309,19 +309,21 @@ module NameResolution =
                                 Map.add name (w.ThisKey, false) Map.empty :: instanceScope
                         | ValueNone -> instanceScope
 
-                match d with
-                | MethodOrPropDefn.Method(defn = b)
-                | MethodOrPropDefn.Property(defn = b) ->
-                    // The argument pats bind the method's parameters; the bound pattern (the member
-                    // name) does NOT enter scope.
+                // The argument pats bind the method's parameters; the bound pattern (the member
+                // name) does NOT enter scope.
+                let walkBindingBody (b: Binding<SyntaxToken>) =
                     let mutable inner = scope
 
                     if not b.argumentPats.IsEmpty then
                         inner <- extendScope ctx b.argumentPats Map.empty :: inner
 
                     CstWalk.iterExpr walker inner b.expr
+
+                match d with
                 | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker scope e
-                | _ -> ()
+                | d ->
+                    for b in CstWalk.memberBindings d do
+                        walkBindingBody b
             | _ -> ()
 
         for el in w.Elements do

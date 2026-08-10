@@ -19,26 +19,18 @@ module LocalMemberKeys =
     /// The declaring type's own typar bound variables come back alongside the member: they are the
     /// declaring axis a value signature freezes against.
     let tryNominalMemberWithTypars (ctx: PassContext) (typeKey: TypeKey) (memberName: string) : NominalMember voption =
-        let pick (key: TypeKey) (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
-            match members |> Array.tryFind (fun m -> m.Name = memberName) with
+        match TypeRegistry.tryNominalByKey ctx.Types typeKey with
+        | ValueSome decl ->
+            match decl.Members |> Array.tryFind (fun m -> m.Name = memberName) with
             | Some m ->
                 ValueSome
                     {
-                        DeclKey = key
-                        DeclTypars = typeParams
+                        DeclKey = decl.TypeKey
+                        DeclTypars = decl.TypeParams
                         Member = m
                     }
             | None -> ValueNone
-
-        match TypeRegistry.tryClassByKey ctx.Types typeKey with
-        | ValueSome info -> pick info.TypeKey info.TypeParams info.Members
-        | ValueNone ->
-            match TypeRegistry.tryUnionByKey ctx.Types typeKey with
-            | ValueSome info -> pick info.TypeKey info.TypeParams info.Members
-            | ValueNone ->
-                match TypeRegistry.tryRecordByKey ctx.Types typeKey with
-                | ValueSome info -> pick info.TypeKey info.TypeParams info.Members
-                | ValueNone -> ValueNone
+        | ValueNone -> ValueNone
 
     /// The ground operand types a genuinely-overloaded EXTERNAL member set is discriminated
     /// by. `DeclArgs` substitute the candidate signature's declaring typars; `ArgElems` are

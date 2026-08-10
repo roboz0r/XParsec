@@ -70,6 +70,14 @@ module OperatorNames =
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ofParenSymbolic (nameOf op) op
         | _ -> ValueNone
 
+    /// The compiled name an operator-named DEFINITION binds, the name its use sites reference:
+    /// `let (=) x y = …` → `op_Equality`, `let (~-) n = …` → `op_UnaryNegation`,
+    /// `([])` → `op_Nil`.
+    let ofPatOp (nameOf: SyntaxToken -> string) (idOp: IdentOrOp<SyntaxToken>) : string voption =
+        match idOp with
+        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome OperatorData.OpNil
+        | _ -> ofIdentOp nameOf idOp
+
     /// `A.B.(+)` → `"A.B.op_Addition"`; an empty qualifier gives the bare
     /// `"op_Addition"`. `ValueNone` for a non-symbolic op segment.
     let qualifiedOpName

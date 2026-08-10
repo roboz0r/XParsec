@@ -47,18 +47,33 @@ module VesperLib =
         let (TypeName(attributes = attrs)) = typeName
         (AttributeDecode.decodeClassAttributes (nameOfTok lexed) attrs).IsValueType
 
-    /// Splits the OUTERMOST `FTFun(params, ret)`; a property takes the whole result as its value.
-    /// `ValueNone` drops the member; a body-less shape degrades to `unit -> FTUnknown`.
+    /// Splits the OUTERMOST `FTFun(params, ret)`; a signature written with no argument group
+    /// takes the whole result as its value. `ValueNone` drops the member; a body-less shape
+    /// degrades to `unit -> FTUnknown`.
     let private freezeMemberSig
         (ctx: ExtractCtx)
-        (isProperty: bool)
         (declaringTyparArity: int)
         (dm: DeferredMember)
         : ExternalSignature voption =
         let dc = dm.Ctx
+        let (CurriedSig(argGroups, _)) = dm.Signature
 
         let methodTyparArityNow () =
             max 0 (dc.Typars.Count - declaringTyparArity)
+
+        // The value a setter accepts is the getter's result, appended to the getter's own
+        // parameters, so `Item: int -> 'T with set` takes `(int, 'T)`.
+        let asAccessor (parameters: FrozenType) (ret: FrozenType) =
+            if dm.IsSetter then
+                let ps = ResizeArray<FrozenType>(ExternalSymbols.argSigOfParameters parameters)
+                ps.Add ret
+                ExternalSymbols.tupledParams (EqArray.ofResizeArray ps), ExternalSymbols.unitFrozen
+            else
+                parameters, ret
+
+        let signatureOf (parameters: FrozenType) (ret: FrozenType) =
+            let parameters, ret = asAccessor parameters ret
+            ExternalSignature.make (declaringTyparArity, methodTyparArityNow (), parameters, ret)
 
         try
             match translateCurriedSig ctx dc.Lexed dc.Opens dc.Typars (ConstraintCollector()) dm.Signature with
@@ -66,25 +81,18 @@ module VesperLib =
                 let frozen = FrozenTypeBridge.reaxisMethodTypars declaringTyparArity frozen
 
                 let parameters, ret =
-                    if isProperty then
-                        FTConst(RuntimeNames.unitKey, EqArray.empty), frozen
-                    else
+                    match argGroups.Length with
+                    | 0 -> ExternalSymbols.unitFrozen, frozen
+                    | _ ->
                         match frozen with
                         | FTFun(p, r) -> p, r
-                        // A non-property member whose sig isn't a `FTFun` folds to a nullary value.
-                        | other -> FTConst(RuntimeNames.unitKey, EqArray.empty), other
+                        // A member with arguments whose sig isn't a `FTFun` folds to a nullary value.
+                        | other -> ExternalSymbols.unitFrozen, other
 
-                ValueSome(ExternalSignature.make (declaringTyparArity, methodTyparArityNow (), parameters, ret))
+                ValueSome(signatureOf parameters ret)
             | Error _ -> ValueNone
         with BodylessExternalShape _ ->
-            ValueSome(
-                ExternalSignature.make (
-                    declaringTyparArity,
-                    methodTyparArityNow (),
-                    FTConst(RuntimeNames.unitKey, EqArray.empty),
-                    ExternalSymbols.unfreezable
-                )
-            )
+            ValueSome(signatureOf ExternalSymbols.unitFrozen ExternalSymbols.unfreezable)
 
     /// A non-`Trait` entry translates its target to a template over the val's declaring
     /// typars. An undeclared typar or an untranslatable target drops the whole entry.
@@ -280,7 +288,7 @@ module VesperLib =
                     let m = members.[i]
                     let s = m.Signature
 
-                    match freezeMemberSig ctx m.IsValueMember s.DeclaringTyparArity deferred.[i] with
+                    match freezeMemberSig ctx s.DeclaringTyparArity deferred.[i] with
                     | ValueSome sign ->
                         // Rebuild the member key's `ArgSig` from the now-frozen parameters:
                         // extraction stamped it empty, the signature still being deferred.
@@ -873,35 +881,53 @@ module VesperLib =
                     let identAndSig =
                         match sign with
                         | MemberSig.MethodOrPropSig(ident = ioo; typarDefns = defns; sign = csig) ->
-                            ValueSome(ioo, defns, csig, false)
-                        | MemberSig.PropSig(ident = ioo; typarDefns = defns; sign = csig) ->
-                            ValueSome(ioo, defns, csig, true)
+                            {|
+                                Ident = ioo
+                                TyparDefns = defns
+                                Sig = csig
+                                WithClause = ValueNone
+                            |}
+                        | MemberSig.PropSig(ident = ioo; typarDefns = defns; sign = csig; getSet = gs) ->
+                            {|
+                                Ident = ioo
+                                TyparDefns = defns
+                                Sig = csig
+                                WithClause = ValueSome gs
+                            |}
 
-                    match identAndSig with
+                    match identOrOpName lexed identAndSig.Ident with
                     | ValueNone -> ()
-                    | ValueSome(ioo, defns, csig, isPropSig) ->
-                        match identOrOpName lexed ioo with
-                        | ValueNone -> ()
-                        | ValueSome memberName ->
-                            // Full-defer: stash the member + its signature CST. The collector
-                            // takes the type's own typars and THEN the member's explicit `<'a>`
-                            // ones, so those land at indices `>= arity` in declared order.
-                            let collector = collectorForTypeName lexed typeName
-                            registerExplicitTypars lexed collector defns
-                            let (CurriedSig(args, _)) = csig
-                            let isProperty = isPropSig || args.Length = 0
+                    | ValueSome memberName ->
+                        // Full-defer: stash the member + its signature CST. The collector
+                        // takes the type's own typars and THEN the member's explicit `<'a>`
+                        // ones, so those land at indices `>= arity` in declared order.
+                        let collector = collectorForTypeName lexed typeName
+                        registerExplicitTypars lexed collector identAndSig.TyparDefns
+                        let csig = identAndSig.Sig
+                        let (CurriedSig(args, _)) = csig
+                        // A property carries an object argument and nothing else, so a
+                        // signature with arguments declares a method.
+                        let takesArgs = args.Length > 0
 
+                        let publish
+                            (m:
+                                {|
+                                    Name: string
+                                    IsProperty: bool
+                                    IsSetter: bool
+                                |})
+                            =
                             let kind =
-                                if isProperty then
+                                if m.IsProperty then
                                     MemberKind.Property
                                 else
                                     MemberKind.Method
 
                             members.Add
-                                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey memberName EqArray.empty 0 kind) with
+                                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name EqArray.empty 0 kind) with
                                     IsStatic = isStatic
                                     Storage =
-                                        if isProperty then
+                                        if m.IsProperty then
                                             MemberStorage.Property
                                         else
                                             MemberStorage.Method
@@ -917,7 +943,39 @@ module VesperLib =
                                             Typars = collector
                                         }
                                     Signature = csig
+                                    IsSetter = m.IsSetter
                                 }
+
+                        match identAndSig.WithClause with
+                        | ValueNone ->
+                            publish
+                                {|
+                                    Name = memberName
+                                    IsProperty = not takesArgs
+                                    IsSetter = false
+                                |}
+                        | ValueSome getSet ->
+                            let halves = AccessorNames.halvesOf (nameOfTok lexed) getSet
+
+                            if halves.Getter.IsSome then
+                                publish
+                                    {|
+                                        Name =
+                                            if takesArgs then
+                                                AccessorNames.getterName memberName
+                                            else
+                                                memberName
+                                        IsProperty = not takesArgs
+                                        IsSetter = false
+                                    |}
+
+                            if halves.Setter.IsSome then
+                                publish
+                                    {|
+                                        Name = AccessorNames.setterName memberName
+                                        IsProperty = false
+                                        IsSetter = true
+                                    |}
 
             if members.Count > 0 then
                 ctx.TypeMembers.[compiled] <- members

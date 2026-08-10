@@ -29,6 +29,7 @@
     <Compile Include="SemTypeOps.fs" />
     <Compile Include="RuntimeNames.fs" />
     <Compile Include="OperatorNames.fs" />
+    <Compile Include="AccessorNames.fs" />
     <Compile Include="AttributeDecode.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
@@ -96,6 +97,9 @@
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />
     <Compile Include="PassContext.fs" />
+    <Compile Include="MemberNames.fs" />
+    <Compile Include="PropertyAccessors.fs" />
+    <Compile Include="AssignTarget.fs" />
     <Compile Include="Passes\Desugar.fs" />
     <Compile Include="Passes\NameResolution\TypeRefStamp.fs" />
     <!-- After name resolution: an attribute is decoded by RESOLVING its long-ident

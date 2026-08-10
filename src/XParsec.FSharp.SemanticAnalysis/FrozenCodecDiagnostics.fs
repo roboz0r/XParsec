@@ -194,6 +194,10 @@ module FrozenCodecDiagnostics =
         | InternalBreak.UnflattenedModule pass ->
             w.Write 2uy
             w.Write pass
+        | InternalBreak.NonAccessorInWithClause(propertyName, bindingName) ->
+            w.Write 3uy
+            w.Write propertyName
+            w.Write bindingName
 
     let private readInternalBreak (r: FrozenReader) : InternalBreak =
         match r.ReadByte() with
@@ -203,6 +207,9 @@ module FrozenCodecDiagnostics =
             let declaringType = r.ReadString()
             InternalBreak.MemberNotResolvable(resolver, declaringType, r.ReadString())
         | 2uy -> InternalBreak.UnflattenedModule(r.ReadString())
+        | 3uy ->
+            let propertyName = r.ReadString()
+            InternalBreak.NonAccessorInWithClause(propertyName, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown InternalBreak tag %d" b
 
     let private writeKind (w: FrozenWriter) (k: Kind) =

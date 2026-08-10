@@ -211,7 +211,7 @@ module internal ElaborateApply =
             | MemberSig.PropSig(ident = ident) -> ident
 
         let memberName =
-            match Desugar.opPatCompiledName ctx.NameOf ident with
+            match OperatorNames.ofPatOp ctx.NameOf ident with
             | ValueSome n -> n
             | ValueNone -> failwithf "Elaborate: unsupported static-member-trait operator %A" ident
 

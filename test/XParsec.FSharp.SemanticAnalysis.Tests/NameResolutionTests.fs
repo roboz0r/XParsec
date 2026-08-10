@@ -563,6 +563,111 @@ let tests =
                 Expect.isFalse info.Members.[0].IsOverride "plain member is not an override"
             }
 
+            // --- explicit `with get` / `set` accessors --------------------------
+
+            test "with get/set pair registers a property plus a set_ accessor method" {
+                let ctx =
+                    analyse "type C() =\n    member this.P with get () = 1 and set (v: int) = ()"
+
+                let info = expectClass ctx "C"
+                Expect.equal info.Members.Length 2 "one member per accessor"
+
+                let byName n =
+                    info.Members |> Array.find (fun m -> m.Name = n)
+
+                Expect.equal (byName "P").Kind ClassMemberKind.Property "a parameterless getter stays a property"
+                Expect.equal (byName "set_P").Kind ClassMemberKind.Method "a setter is an accessor method"
+
+                Expect.notEqual
+                    (byName "P").DeclSite.Key
+                    (byName "set_P").DeclSite.Key
+                    "each accessor keys on its own `get` / `set` token"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "accessor bodies resolve in the member scope" {
+                let ctx =
+                    analyse "type C(v: int) =\n    member this.P with get () = v and set (w: int) = w"
+
+                Expect.isEmpty ctx.Diagnostics "the ctor param and the setter's own argument both resolve"
+            }
+
+            test "indexed getter registers as a get_ accessor method" {
+                let ctx = analyse "type C() =\n    member this.Item with get (i: int) = i"
+
+                let info = expectClass ctx "C"
+                Expect.equal info.Members.Length 1 "one member"
+                Expect.equal info.Members.[0].Name "get_Item" "an index makes the getter a method"
+                Expect.equal info.Members.[0].Kind ClassMemberKind.Method "registered as a method"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "a `with` clause naming neither get nor set diagnoses" {
+                // The parser reads any binding after `with`, so the rejection is here.
+                let ctx = analyse "type C() =\n    member this.P with frobnicate () = 1"
+
+                let rejected =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "frobnicate")
+
+                Expect.isTrue rejected "unknown accessor diagnosed"
+
+                let info = expectClass ctx "C"
+                Expect.isEmpty info.Members "an unknown accessor registers nothing"
+            }
+
+            // --- `abstract P: T with get` slots ---------------------------------
+
+            test "an abstract parameterless property signature registers as a property" {
+                let ctx = analyse "type C() =\n    abstract P: int with get"
+
+                let info = expectClass ctx "C"
+                Expect.equal info.Members.Length 1 "one slot"
+                Expect.equal info.Members.[0].Name "P" "a parameterless getter is the property itself"
+                Expect.equal info.Members.[0].Kind ClassMemberKind.Property "registered as a property"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "an abstract indexed property signature registers as a get_ accessor method" {
+                let ctx = analyse "type C() =\n    abstract Item: int -> string with get"
+
+                let info = expectClass ctx "C"
+                Expect.equal info.Members.Length 1 "one slot"
+                Expect.equal info.Members.[0].Name "get_Item" "an index makes the getter a method"
+                Expect.equal info.Members.[0].Kind ClassMemberKind.Method "registered as a method"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "an abstract `with get, set` signature registers both halves" {
+                let ctx = analyse "type C() =\n    abstract P: int with get, set"
+
+                let info = expectClass ctx "C"
+                Expect.equal info.Members.Length 2 "one slot per accessor"
+
+                let byName n =
+                    info.Members |> Array.find (fun m -> m.Name = n)
+
+                Expect.equal (byName "P").Kind ClassMemberKind.Property "the getter half"
+                Expect.equal (byName "set_P").Kind ClassMemberKind.Method "the setter half"
+
+                Expect.notEqual
+                    (byName "P").DeclSite.Key
+                    (byName "set_P").DeclSite.Key
+                    "each half keys on its own `get` / `set` token"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "an abstract write-only property signature registers only the setter" {
+                let ctx = analyse "type C() =\n    abstract P: int with set"
+
+                let info = expectClass ctx "C"
+                Expect.equal info.Members.Length 1 "one slot"
+                Expect.equal info.Members.[0].Name "set_P" "no getter is declared, so none is registered"
+                Expect.equal info.Members.[0].Kind ClassMemberKind.Method "a setter is an accessor method"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
             test "inheriting from a non-class diagnoses" {
                 let ctx = analyse "type R = { X: int }\ntype D() =\n    inherit R()"
 

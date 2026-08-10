@@ -43,6 +43,20 @@ let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
     VesperLib.extractSymbols ctx (parseFsi relative input)
     ctx
 
+/// The members published for the type whose compiled name ends `compiledSuffix`
+/// (`Box\`1`), in declaration order.
+let membersOf (ctx: VesperLib.ExtractCtx) (compiledSuffix: string) : ExternalMember list =
+    let mutable found = ValueNone
+
+    for kv in ctx.TypeMembers do
+        if found.IsNone && kv.Key.EndsWith compiledSuffix then
+            found <- ValueSome(List.ofSeq kv.Value)
+
+    match found with
+    | ValueSome ms -> ms
+    | ValueNone ->
+        failtestf "no members published for '%s'. Member tables: %A" compiledSuffix (Seq.toList ctx.TypeMembers.Keys)
+
 [<Tests>]
 let tests =
     testList
@@ -1040,6 +1054,122 @@ let tests =
                         Expect.isFalse (store.Srtp.IsSolved bound) "a freshly stamped bound is undischarged"
                     | other -> failtestf "expected exactly one SrtpBound on the fresh TyVar; got %A" other
                 | other -> failtestf "expected (^T -> ^T -> ^T) over a fresh TyVar; got %A" other
+            }
+
+            // --- property signatures (`member P: T with get, set`) ------------------
+
+            test "an indexed property signature publishes as a get_ accessor method" {
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get\n"
+
+                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+
+                match membersOf ctx "Box`1" with
+                | [ m ] ->
+                    Expect.equal m.Name "get_Item" "an index makes the getter a method"
+                    Expect.equal m.Storage MemberStorage.Method "storage is a method, not a property"
+                    Expect.equal m.Key.Kind MemberKind.Method "and so is the key's kind"
+                    Expect.equal m.Key.ArgSig (EqArray.singleton intF) "the index is the member's one argument"
+                    Expect.equal m.Signature.Parameters intF "the index survives into the signature"
+                    Expect.equal m.Signature.Return (FTTypar(TyparAxis.Declaring, 0)) "the getter returns the element"
+                | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
+            }
+
+            test "a parameterless property signature keeps its own name and property storage" {
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with get\n"
+
+                match membersOf ctx "Box" with
+                | [ m ] ->
+                    Expect.equal m.Name "Count" "a parameterless getter is the property itself"
+                    Expect.equal m.Storage MemberStorage.Property "storage is a property"
+                    Expect.isEmpty (EqArray.toList m.Key.ArgSig) "a property takes no argument"
+                    Expect.equal m.Signature.Return (FTConst(RuntimeNames.intKey, EqArray.empty)) "the declared value"
+                | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
+            }
+
+            test "the `set` half of a property signature publishes as a set_ accessor method" {
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with get, set\n"
+
+                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+
+                match membersOf ctx "Box" with
+                | [ getter; setter ] ->
+                    Expect.equal getter.Name "Count" "the getter half"
+                    Expect.equal setter.Name "set_Count" "the setter half"
+                    Expect.equal setter.Storage MemberStorage.Method "a setter is an accessor method"
+                    Expect.equal setter.Key.ArgSig (EqArray.singleton intF) "it accepts the property's value"
+                    Expect.equal setter.Signature.Parameters intF "which is the getter's result"
+                    Expect.equal setter.Signature.Return ExternalSymbols.unitFrozen "and it returns unit"
+                | other -> failtestf "expected both halves; got %A" [ for m in other -> m.Name ]
+            }
+
+            test "an indexed setter takes the index and then the value" {
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get, set\n"
+
+                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+                let elemF = FTTypar(TyparAxis.Declaring, 0)
+
+                match membersOf ctx "Box`1" with
+                | [ getter; setter ] ->
+                    Expect.equal getter.Name "get_Item" "the getter half"
+                    Expect.equal setter.Name "set_Item" "the setter half"
+                    Expect.equal setter.Key.ArgSig (EqArray.ofList [ intF; elemF ]) "index then value"
+                    Expect.equal setter.Signature.Return ExternalSymbols.unitFrozen "a setter returns unit"
+                | other -> failtestf "expected both halves; got %A" [ for m in other -> m.Name ]
+            }
+
+            test "a write-only property signature publishes only the setter" {
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with set\n"
+
+                match membersOf ctx "Box" with
+                | [ m ] ->
+                    Expect.equal m.Name "set_Count" "no getter is declared, so none is published"
+                    Expect.equal m.Signature.Return ExternalSymbols.unitFrozen "a setter returns unit"
+                | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
+            }
+
+            test "a member signature with arguments and no `with` clause keeps its own name" {
+                // The `with get` clause is what makes an accessor: a plain method signature
+                // that happens to take arguments must not gain a `get_` prefix.
+                let ctx =
+                    extractFsi "app.fsi" "namespace App\n\nmodule M =\n    type Box =\n        member Get: int -> int\n"
+
+                match membersOf ctx "Box" with
+                | [ m ] ->
+                    Expect.equal m.Name "Get" "an ordinary method signature"
+                    Expect.equal m.Storage MemberStorage.Method "kept as a method"
+                | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
+            }
+
+            test "the cons-list's declared indexer publishes under the name a use site resolves" {
+                // `list.fsi` declares `member Item: index: int -> 'T with get`, and
+                // `x.[i]` resolves an indexer by the `get_Item` name only.
+                let listKey = SymbolKey.Type RuntimeNames.vesperListKey
+
+                match realProvider.Value.TryLookupMembers(listKey, "get_Item") with
+                | EqOne m ->
+                    Expect.equal m.Storage MemberStorage.Method "the declared indexer is an accessor method"
+
+                    Expect.equal
+                        m.Key.ArgSig
+                        (EqArray.singleton (FTConst(RuntimeNames.intKey, EqArray.empty)))
+                        "keyed on its index argument"
+                | other ->
+                    failtestf "expected exactly one `get_Item` on the cons-list; got %A" [ for m in other -> m.Name ]
             }
 
             // Over the REAL Vesper.Core contract, not a snippet: the publishing route is what

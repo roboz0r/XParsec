@@ -245,10 +245,10 @@ module Validation =
                         match el with
                         | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
                             match d with
-                            | MethodOrPropDefn.Method(defn = b)
-                            | MethodOrPropDefn.Property(defn = b) -> CstWalk.iterExpr walker () b.expr
                             | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
-                            | _ -> ()
+                            | d ->
+                                for b in CstWalk.memberBindings d do
+                                    CstWalk.iterExpr walker () b.expr
                         | _ -> ()
                 | ValueNone -> ()
         // Report rather than crash: one unhandled element shouldn't halt validation

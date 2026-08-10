@@ -13,17 +13,8 @@ module Desugar =
 
     /// Compiled name for a symbolic operator (`+` → `"op_Addition"`). Reliable for a
     /// BARE operator, which lexes to its own `Token`; one inside parens can lex to a
-    /// generic operator token and needs `opPatCompiledName`'s source-text fallback.
+    /// generic operator token and needs a source-text fallback.
     let symbolicOpCompiledName (t: Token) : string voption = OperatorNames.ofToken t
-
-    /// Compiled name for an operator-named binding (`let (=) x y = …` →
-    /// `"op_Equality"`, `let (~-) n = …` → `"op_UnaryNegation"`), so a definition
-    /// freezes under the same member name its use sites reference.
-    let opPatCompiledName (nameOf: SyntaxToken -> string) (io: IdentOrOp<SyntaxToken>) : string voption =
-        match io with
-        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome OperatorData.OpNil
-        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> OperatorNames.ofParenSymbolic (nameOf tok) tok
-        | _ -> ValueNone
 
     /// `Token.OpSubtraction` / `OpAddition` serve both `a - b` and `-x`; only the prefix
     /// form reaches here, mapping to `op_UnaryNegation` / `op_UnaryPlus`. The spellings
@@ -124,10 +115,10 @@ module Desugar =
                     match el with
                     | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
                         match d with
-                        | MethodOrPropDefn.Method(defn = b)
-                        | MethodOrPropDefn.Property(defn = b) -> CstWalk.iterExpr walker () b.expr
                         | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
-                        | _ -> ()
+                        | d ->
+                            for b in CstWalk.memberBindings d do
+                                CstWalk.iterExpr walker () b.expr
                     | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(body = body)) -> walkCtorBody body
                     // An `interface Foo with member …` body holds member bodies too, nested
                     // under `ObjectMembers`; reproject each onto a `TypeDefnElement.Member`

@@ -216,6 +216,17 @@ type WalkedElem<'T> =
 
 module CstWalk =
 
+    /// Every binding a member definition holds: one per accessor of a `with get`/`set`
+    /// clause, one for a plain member, none for an auto-property (whose body is an
+    /// initialiser, not a binding) or an abstract slot.
+    let memberBindings (d: MethodOrPropDefn<'T>) : ImmutableArray<Binding<'T>> =
+        match d with
+        | MethodOrPropDefn.Method(defn = b)
+        | MethodOrPropDefn.Property(defn = b) -> ImmutableArray.Create b
+        | MethodOrPropDefn.PropertyWithGetSet(defns = bs) -> bs
+        | MethodOrPropDefn.AutoProperty _
+        | MethodOrPropDefn.AbstractSignature _ -> ImmutableArray.Empty
+
     type ExprWalker<'env> =
         {
             /// Called on every Expr node before recursing into its children.
