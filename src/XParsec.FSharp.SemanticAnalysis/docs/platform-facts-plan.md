@@ -122,8 +122,52 @@ and a reasonable place to prototype the query shape.
   `MetadataSymbols` path).
 - **`IntrinsicPlatform`, not `string`.** `decimal` on JS has no `(# … #)`; the `Unsupported` arm
   is where the "not supported on this platform" verdict comes from.
-- **Its own interface, not `IExternalSymbolProvider`.** Otherwise every test double sprouts a
-  method it has no opinion about.
+- ~~**Its own interface, not `IExternalSymbolProvider`.** Otherwise every test double sprouts a
+  method it has no opinion about.~~ **REVERSED (2026-08-10). The facts go ON
+  `IExternalSymbolProvider`.**
+
+  `IExternalSymbolProvider` is the ONLY view a file under analysis has of the outside world.
+  That is a property worth keeping, and a second interface spends it to save churn that
+  turns out not to exist.
+
+  The test-double premise is false on this tree. Exactly ONE test implements the interface
+  (`MemoizeTests`, and it counts calls, so it would forward a stub in one line); `MockBuiltins`
+  was deliberately deleted and every other test resolves through real `Vesper.*` contracts
+  (`feedback_mockbuiltins_is_a_trap`). A test that needs a synthetic surface builds a
+  `KeyIndexedLeaf` — a record of dictionaries with a `KeyIndexedLeaf.empty` default — and
+  calls `ofKeyIndexes`. That IS the shared, data-driven double, and a new fact channel joins
+  it as one more field with a "no opinion" default.
+
+  The purity argument does not survive either: `IntrinsicReverseCanon` and
+  `IntrinsicForwardRepr` are already on `IExternalSymbolStore`, and both are platform-repr
+  facts rather than symbol lookups. The interface already carries this kind of answer.
+
+  **The real cost, which the reversed bullet mis-stated:** six `{ new IExternalSymbolProvider … }`
+  object expressions live in `ExternalSymbolProviders.fs` (`ofKeyedLeaf`, `stack`,
+  `mapProviderTypes`, `withInlineBodies`, `memoize`, and `composite` through `stack`). Each
+  gains a forwarding arm. That is decorator churn in ONE file, mechanical and compiler-checked,
+  not a cost spread over the test suite.
+
+  **Merge policy: FOLD**, like `mergeReverseCanon` / `mergeForwardRepr`, not first-hit.
+
+  In practice the fold has at most one contributor: platform facts come from the PLATFORM
+  provider, which is the backend-injected layer-2 leaf at the bottom of the stack
+  (`MetaTailFactory`, the CLR's BCL reflection tail / the JS native leaf). Contract providers
+  above it have no opinion. So folding and first-hit agree today — fold is chosen because it
+  does not DEPEND on that agreeing, and `MetaTailFactory` returns a `IExternalSymbolProvider
+  list`, so "exactly one leaf" is an intent the type does not enforce. Whether the fold can be
+  optimised on the strength of that intent is a later question; do not build it in.
+
+  **The zero-leaf case is the real hazard, and it is live.** `noMetaTail` returns `[]`, and
+  `SemanticAnalysis.Tests/TestHelpers.realProvider` uses it — so the entire SA front-end
+  suite runs today with NO platform provider. Once step 1 routes `Equality` / `Comparison`
+  through facts, "nobody had an opinion" folds to no opinion, which is `Defer`, which is
+  exactly the silent non-resolution this plan opens by warning about — landing on every SA
+  test at once rather than on JS.
+
+  So the fold needs a defined answer for an empty contribution set, and it must be LOUD: either
+  a compilation asserts it has a platform-facts source, or `noMetaTail` is replaced by an
+  explicit facts-only leaf. Decide this BEFORE step 1, not during it.
 
 ## Frozen cache
 

@@ -141,6 +141,39 @@ This mirrors the `use`-boundVar precedent `Infer.tryExternalDispose` (prefer the
 own `Dispose`, fall back to the interface slot). See the sited TODO in
 `probeLocalEnumerator`.
 
+### `tryForInEnumerator` is five arms where one mechanism would do
+
+`tryForInEnumerator` matches on the type former — `TyClass`, `TyUnion`, `TyConst`, `TyRecord`,
+`TyVar` — and each arm re-derives "does this publish the enumerable capability" its own way.
+Re-rooting the whole function on `tryUpcastWitness … Enumerable` is the more principled shape:
+one upcast walk instead of five recognisers.
+
+The blocker is PRECEDENCE, not plumbing. C# (and this code) gives a pattern-based
+`GetEnumerator()` priority over the `IEnumerable<'T>` interface, which is what makes `List<'T>`
+walk its non-boxing struct `Enumerator` rather than the boxing interface one. An upcast-rooted
+version has to keep that ordering explicitly, because the witness walk does not encode it.
+
+### CLR `for x in arr` takes the boxing walk
+
+`'T[]` reaches `ForInEnumeratorG.Interface`, so `EmitLoops.buildForIn` calls `GetEnumerator`
+on `IEnumerable<T>` — correct, and the runtime supplies the implementation, but it allocates an
+enumerator to walk an array. A `ForInEnumeratorG` case for a direct index loop is the fix, and
+it is a pure optimisation: no program's meaning depends on it. Pinned by the runtime test
+`` `for x in arr` walks an array through the seq capability on CLR ``.
+
+### `string` publishes no `seq<char>`
+
+Exactly the defect `'T[]` had. `prim-types-string.fsi` declares `type string = extern with`
+carrying only `(+)`, so `for c in s` does not type and a `string` is not accepted where a
+`seq<char>` is asked for, on either target — though both targets can already lower it.
+
+The ordering prerequisite is now satisfied: `capabilities.fsi` sits second in `[core] files`
+and `prim-types-string.fsi` sixth, so `seq<char>` is in scope at the declaration, and `char` is
+declared directly above `string` in the same file. The route is the one the array uses — an
+untagged intrinsic with members AND an `interface` republishes through `PendingIntrinsicClasses`
+— so the surface plumbing already exists. Not free, though: `string` also carries the
+`get_Chars` / `s.[i]` member path, which is the part to check.
+
 ### `Vesper.Seq.truncate` is CLR-only
 
 Unrelated to enumeration lowering, but the remaining thing keeping `Vesper.Seq` off
