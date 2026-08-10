@@ -174,16 +174,66 @@ module MethodOrPropDefn =
     let private errExpectedDotAfterUnderscore: ErrorType<PositionedToken, ParseState> =
         Message "Expected '.' after '_' in member definition"
 
+    let private errExpectedGetOrSet: ErrorType<PositionedToken, ParseState> =
+        Message "Expected 'get' or 'set'"
+
     // Distinguishes:
     // member x.P = ... (Property)
     // member x.M args = ... (Method)
     // member x.P with get ... (PropWithGetSet)
 
+    /// The placeholder a rejected `get` / `set` binding leaves behind, carrying the tokens
+    /// skipped past it.
+    let private skippedGetSetBinding (at: SyntaxToken) (skipped: ImArr<SyntaxToken>) : Binding<SyntaxToken> =
+        {
+            attributes = ValueNone
+            inlineToken = ValueNone
+            mutableToken = ValueNone
+            access = ValueNone
+            pattern = missingOrSkipped Pat.Missing Pat.SkipsTokens skipped
+            typarDefns = ValueNone
+            argumentPats = ImmutableArray.Empty
+            returnType = ValueNone
+            equals = virtualToken (mkVirtualPT Token.OpEquality at.PositionedToken.StartIndex)
+            expr = Expr.Missing
+        }
+
+    /// `member x.P with get … and set …`. A property written without a `with`
+    /// clause is an implicit get, so a third name is rejected here and the tree carries
+    /// only `get` and `set` in that position.
+    let private pGetSetBinding (propIdent: SyntaxToken) attrs : FSParser<Binding<SyntaxToken>> =
+        parser {
+            let! state = getUserState
+            let! next = peekNextSyntaxToken
+
+            if tokenStringIs "get" next state || tokenStringIs "set" next state then
+                return! Binding.parse attrs
+            else
+                // A virtual token spells no source text, so name its kind instead.
+                let shown =
+                    match tokenString next state with
+                    | "" -> string next.Token
+                    | text -> text
+
+                let msg =
+                    sprintf
+                        "Expected 'get' or 'set' after 'with' on '%s' but got '%s'"
+                        (tokenString propIdent state)
+                        shown
+
+                return!
+                    recoverWith
+                        StoppingTokens.afterGetSetBinding
+                        (DiagnosticCode.Other msg)
+                        (skippedGetSetBinding next)
+                        (fail errExpectedGetOrSet)
+        }
+
     let pPropertyWithGetSet =
         parser {
             let! ident = pIdent
             let! w = pWith
-            let! bindings, ands = Binding.parseSepByAnd1 ValueNone
+            let! bindings, ands = Binding.sepByAnd1 (pGetSetBinding ident) ValueNone
             return fun thisIdent -> MethodOrPropDefn.PropertyWithGetSet(thisIdent, ident, w, bindings, ands)
         }
 
@@ -277,10 +327,10 @@ module MethodOrPropDefn =
                         return MethodOrPropDefn.Property(ValueNone, binding)
 
                     | t when t.Token = Token.KWWith ->
-                        // Property with explicit accessors (e.g., static member BuildPhase with get () = ... and set v = ...)
-                        // The property ident was already consumed above.
+                        // A property member whose ident was already consumed above
+                        // (`static member BuildPhase with get () = … and set v = …`).
                         let! w = consumePeeked t
-                        let! bindings, ands = Binding.parseSepByAnd1 ValueNone
+                        let! bindings, ands = Binding.sepByAnd1 (pGetSetBinding ident) ValueNone
                         return MethodOrPropDefn.PropertyWithGetSet(ValueNone, ident, w, bindings, ands)
 
                     | _ ->

@@ -339,17 +339,19 @@ module Binding =
     let parse attrs : FSParser<Binding<_>> =
         choiceL [ parseFunction attrs; parseValue attrs ] "Binding"
 
-    let parseSepByAnd1 attrs =
+    /// `b and b and …`, over a caller-supplied binding parser: a property's `with` clause
+    /// admits only `get` / `set` in that position, not the general binding.
+    let sepByAnd1 (pBinding: Attributes<SyntaxToken> voption -> FSParser<Binding<_>>) attrs =
         let pAndBinding =
             parser {
                 let! andTok = pAnd
                 let! andAttrs = opt Attributes.parse
-                let! binding = parse andAttrs
+                let! binding = pBinding andAttrs
                 return struct (andTok, binding)
             }
 
         fun (reader: Reader<_, _, _>) ->
-            match parse attrs reader with
+            match pBinding attrs reader with
             | Error e -> Error e
             | Ok first ->
                 match many pAndBinding reader with
@@ -365,6 +367,8 @@ module Binding =
                         bindings.Add(b)
 
                     preturn (struct (bindings.ToImmutable(), ands.ToImmutable())) reader
+
+    let parseSepByAnd1 attrs = sepByAnd1 parse attrs
 
 [<AutoOpen>]
 module private MemberHelpers =

@@ -1162,6 +1162,24 @@ module Parsing =
             | Token.EOF -> true
             | _ -> false
 
+        /// Inside `member x.P with get … and set …`: a rejected member resumes at the next
+        /// `and`, or at whatever starts the next member of the enclosing type.
+        let afterGetSetBinding (tok: SyntaxToken) =
+            match tok.Token with
+            | Token.KWAnd
+            | Token.KWMember
+            | Token.KWAbstract
+            | Token.KWStatic
+            | Token.KWOverride
+            | Token.KWDefault
+            | Token.KWVal
+            | Token.KWNew
+            | Token.KWInterface
+            | Token.KWEnd
+            | Token.KWType
+            | Token.EOF -> true
+            | _ -> false
+
         let afterTypeDefn (tok: SyntaxToken) =
             match tok.Token with
             | Token.KWAnd
