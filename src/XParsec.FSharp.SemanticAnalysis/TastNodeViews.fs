@@ -54,6 +54,7 @@ module TastNodeViews =
             Key: SymbolKey
             MemberName: string
             Storage: MemberStorage
+            ArgGroupWidths: EqArray<int>
         }
 
     /// The scalar payload of an `ILIntrinsic` node; its args are the node's `exprChildren`.

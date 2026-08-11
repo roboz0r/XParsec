@@ -38,7 +38,7 @@ module internal ElaborateExpr =
         // Always static, so there is no object argument (`ValueNone`).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.Storage, ty, tok)
+            TExpr.ExternalMember(ValueNone, info.Key, memberName, info.Storage, info.ArgGroupWidths, ty, tok)
         // `E.C1` — an enum-case access (project-local or external). Enum cases are
         // static fields on the enum type, so this lowers to `StaticFieldGet`; the
         // case's underlying literal stays on the frozen `TTypeKind.Enum` case table.
@@ -295,7 +295,7 @@ module internal ElaborateExpr =
                 else
                     ValueSome(translateExpr ctx r)
 
-            TExpr.ExternalMember(objArg, info.Key, memberName, info.Storage, ty, tok)
+            TExpr.ExternalMember(objArg, info.Key, memberName, info.Storage, info.ArgGroupWidths, ty, tok)
         // `ClassName<'args>.Prop` — static property read on an explicitly
         // instantiated generic class (`Set<'T>.Empty`). The `<'args>` only pinned
         // the instantiation in inference and is carried on `ty`.

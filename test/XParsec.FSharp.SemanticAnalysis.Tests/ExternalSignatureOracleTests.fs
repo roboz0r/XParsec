@@ -54,6 +54,26 @@ let private declaringTemplates: (string * int * FrozenType * SemType) list =
 /// would mint fresh.
 let private argsForArity (arity: int) : SemType[] = Array.sub groundArgs 0 arity
 
+let private ftInt: FrozenType = FTConst(RuntimeNames.intKey, EqArray.empty)
+let private ftUnit: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+
+/// A stand-in for one applied argument, carrying only what the group open reads: whether it
+/// is a literal tuple, and if so its elements.
+type private Arg =
+    | Atom of string
+    | Tup of Arg list
+
+let private asTuple (a: Arg) : Arg list voption =
+    match a with
+    | Tup elems -> ValueSome elems
+    | Atom _ -> ValueNone
+
+let private openGroups (widths: int list) (args: Arg list) =
+    SymbolKeyOps.openArgGroups asTuple (EqArray.ofList widths) args
+
+let private opened (flat: Arg list) (residual: Arg list) : SymbolKeyOps.OpenedArgGroups<Arg> voption =
+    ValueSome { Flat = flat; Residual = residual }
+
 [<Tests>]
 let tests =
     testList
@@ -217,17 +237,14 @@ let tests =
                             )
                         ))
 
-                    // Property: bare value type, no parameters / leading `->`.
+                    // Property: bare value type, no parameters / leading `->`. It is the EMPTY
+                    // argument-group list that drops the `->`, not the `Storage` flag.
                     memberOracle
                         "property bare value"
                         true
                         1
                         0
-                        (TestHelpers.mkSignature
-                            1
-                            0
-                            (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                            (FTClass(kRec, EqArray.singleton (d 0))))
+                        (ExternalSignature.value (1, 0, FTClass(kRec, EqArray.singleton (d 0))))
                         (Some(TyClass(kRec, EqArray.singleton groundArgs.[0])))
 
                     // Ctor-shaped: `(p1 * p2) -> declType`.
@@ -260,5 +277,114 @@ let tests =
                             (FTTypar(TyparAxis.Method, 0))
                             (FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])))
                         None
+                ]
+
+            // The signature's SOURCE argument groups are the only thing that says how a use
+            // site applies a member: the key interns the flat parameter vector, in which the
+            // tupled and curried spellings below are indistinguishable.
+            testList
+                "argument groups drive how a member is applied"
+                [
+                    test "a group's width is its own tupled domain, not the member's flat arity" {
+                        let tupled =
+                            TestHelpers.mkSignature 0 0 (FTTuple(EqArray.ofList [ ftInt; ftInt ])) ftInt
+
+                        let curried = ExternalSignature.ofGroups (0, 0, [ ftInt; ftInt ], ftInt)
+
+                        Expect.equal
+                            (ExternalSignature.argGroupWidths tupled)
+                            (EqArray.ofList [ 2 ])
+                            "`M(a, b)` is one 2-wide group"
+
+                        Expect.equal
+                            (ExternalSignature.argGroupWidths curried)
+                            (EqArray.ofList [ 1; 1 ])
+                            "`M a b` is two 1-wide groups"
+
+                        Expect.equal
+                            (ExternalSignature.argSigOf tupled)
+                            (ExternalSignature.argSigOf curried)
+                            "and both flatten to the same parameter vector, which is why the key cannot tell them apart"
+
+                        Expect.equal
+                            (ExternalSignature.argGroupWidths (TestHelpers.mkSignature 0 0 ftUnit ftInt))
+                            (EqArray.ofList [ 0 ])
+                            "`M: unit -> r` is one 0-wide group: an argument that erases"
+
+                        Expect.equal
+                            (ExternalSignature.argGroupWidths (ExternalSignature.value (0, 0, ftInt)))
+                            EqArray.empty
+                            "and a value member has no group at all"
+                    }
+
+                    test "each group consumes ONE argument, opened to its own width" {
+                        let a, b, c = Atom "a", Atom "b", Atom "c"
+
+                        Expect.equal
+                            (openGroups [ 2 ] [ Tup [ a; b ] ])
+                            (opened [ a; b ] [])
+                            "a 2-wide group opens its one literal tuple"
+
+                        Expect.equal
+                            (openGroups [ 1; 1 ] [ a; b ])
+                            (opened [ a; b ] [])
+                            "two 1-wide groups take their arguments as they stand"
+
+                        Expect.equal
+                            (openGroups [ 0 ] [ a ])
+                            (opened [] [])
+                            "a 0-wide group consumes its `()` and contributes nothing"
+
+                        Expect.equal
+                            (openGroups [ 1 ] [ a; b; c ])
+                            (opened [ a ] [ b; c ])
+                            "arguments past the groups are residual, applied to the member's RESULT"
+                    }
+
+                    // Each of these is a miscompile if group boundaries are guessed from the
+                    // arguments' shapes against a flat arity instead of read off the widths.
+                    test "a group takes its argument WHOLE at width 1, tuple-shaped or not" {
+                        let a, b, c = Atom "a", Atom "b", Atom "c"
+
+                        // `member Pair: 'a -> 'b -> r` applied `Pair (a, b) c`: `'a` is ONE
+                        // parameter that happens to be given a tuple, and `c` fills `'b`.
+                        Expect.equal
+                            (openGroups [ 1; 1 ] [ Tup [ a; b ]; c ])
+                            (opened [ Tup [ a; b ]; c ] [])
+                            "a tuple argument in a 1-wide group stays one position"
+
+                        // `member Run: unit -> int -> r` applied `Run () a`: the flat arity is
+                        // 1, but it is the SECOND group that holds the parameter.
+                        Expect.equal
+                            (openGroups [ 0; 1 ] [ Atom "()"; a ])
+                            (opened [ a ] [])
+                            "a leading `()` group does not swallow the next group's argument"
+
+                        // `member Go: unit -> unit -> r` applied `Go () ()`: no parameters, but
+                        // still TWO applications to consume.
+                        Expect.equal
+                            (openGroups [ 0; 0 ] [ Atom "()"; Atom "()" ])
+                            (opened [] [])
+                            "both `()` groups are consumed"
+                    }
+
+                    test "a group that cannot be opened is `ValueNone`, never a partial open" {
+                        let a, b, c = Atom "a", Atom "b", Atom "c"
+
+                        Expect.equal
+                            (openGroups [ 1; 1 ] [ a ])
+                            ValueNone
+                            "under-application: a group with no argument to consume"
+
+                        Expect.equal
+                            (openGroups [ 2 ] [ a ])
+                            ValueNone
+                            "a 2-wide group whose argument is not a literal tuple"
+
+                        Expect.equal
+                            (openGroups [ 2 ] [ Tup [ a; b; c ] ])
+                            ValueNone
+                            "a literal tuple of the wrong width"
+                    }
                 ]
         ]

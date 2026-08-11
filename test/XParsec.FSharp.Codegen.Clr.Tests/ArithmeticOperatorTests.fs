@@ -51,7 +51,7 @@ let private opcodesOf: string -> string list =
 let private externalCallsOf: string -> string list =
     splicedNames (fun e ->
         match e with
-        | TExpr.ExternalMember(ValueNone, key, memberName, MemberStorage.Method, _, _) ->
+        | TExpr.ExternalMember(ValueNone, key, memberName, MemberStorage.Method, _, _, _) ->
             let decl = SymbolKeyOps.declTypeKeyOf "an external static in a spliced body" key
             ValueSome(SymbolKeyOps.typeMetaName decl + "." + memberName)
         | _ -> ValueNone

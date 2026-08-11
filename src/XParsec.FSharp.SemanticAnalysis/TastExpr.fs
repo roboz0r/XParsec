@@ -244,13 +244,14 @@ type TExprG<'ty, 'tok, 'id> =
     /// results in unit.
     | StaticFieldSet of declKey: SymbolKey * fieldName: string * value: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     /// Member access on an EXTERNAL type. `objArg` is `ValueNone` for a static member
-    /// (`EqualityComparer<int>.Default`), `ValueSome` for an instance one. `storage` splits
-    /// field (`ldfld`) from property (`call get_X`) from method value, whose `ty` is curried.
+    /// (`EqualityComparer<int>.Default`), `ValueSome` for an instance one; `storage` splits
+    /// field (`ldfld`) from property (`call get_X`) from method. `M(a, b)` widths `[2]`, `M a b` `[1; 1]`.
     | ExternalMember of
         objArg: TExprG<'ty, 'tok, 'id> voption *
         key: SymbolKey *
         memberName: string *
         storage: MemberStorage *
+        argGroupWidths: EqArray<int> *
         ty: 'ty *
         tok: 'tok
     /// Lowered printf / string interpolation. `segments` is the interleaved literal / hole

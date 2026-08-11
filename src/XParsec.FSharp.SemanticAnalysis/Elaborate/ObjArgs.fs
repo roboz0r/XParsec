@@ -66,7 +66,7 @@ module internal ElaborateObjArgs =
     /// come from its own function-type domain at the call site.
     let externalFnDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
         match fnT with
-        | TExpr.ExternalMember(_, _, _, MemberStorage.Method, _, _) -> externalMethodParamTy ctx fnKey
+        | TExpr.ExternalMember(_, _, _, MemberStorage.Method, _, _, _) -> externalMethodParamTy ctx fnKey
         | _ -> ValueNone
 
     /// A tupled member `M(a, b)` carries ONE `TyTuple` parameter, but its call arguments

@@ -110,17 +110,28 @@ module UnificationInferOverload =
                 binds.CallerVars.[root.Id] <- other
                 true
 
-    /// Flattens the tupled signature back to N parameters. The `argSig` length, taken from the
-    /// member's own KEY, distinguishes a flattened N-param method from a genuine single tuple
-    /// param; the signature alone cannot.
+    /// One entry per DECLARED parameter: the realised signature peeled one `->` per argument
+    /// group, each domain untupled to its width. The width comes from the FROZEN group, which
+    /// is what tells a flattened 2-param group from a genuine single tuple param.
     let memberParamTypes (store: TypeStore) (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
-        let n = m.Key.ArgSig.Length
+        let widths = ExternalSignature.argGroupWidths m.Signature
 
-        match zonk store (ExternalSymbols.openSignature m typeArgs) with
-        | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
-        | TyFun(TyUnit, _) when n = 0 -> []
-        | TyFun(p, _) -> [ p ]
-        | _ -> []
+        let rec peel (i: int) (ty: SemType) : SemType list =
+            if i = widths.Length then
+                []
+            else
+                match ty with
+                | TyFun(domain, rest) ->
+                    let here =
+                        match widths.[i], domain with
+                        | 0, _ -> []
+                        | n, TyTuple elems when n >= 2 && elems.Length = n -> EqArray.toList elems
+                        | _ -> [ domain ]
+
+                    here @ peel (i + 1) rest
+                | _ -> []
+
+        peel 0 (zonk store (ExternalSymbols.openSignature m typeArgs))
 
     /// Lift a boolean "at least as good" predicate to a three-way comparison: `+1` when `x`
     /// one-directionally dominates `y`, `-1` when `y` dominates `x`, `0` when they are

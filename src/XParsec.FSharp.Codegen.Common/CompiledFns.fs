@@ -39,14 +39,33 @@ module CompiledFns =
         | ExprShape.Tuple -> ValueSome(List.ofArray (TastAccessor.exprChildren a))
         | _ -> ValueNone
 
-    /// The push plan for a TUPLED member call's ONE argument, opened to the `arity`
-    /// positions the member's key declares. Elaborate rewrites `w.M t` into
-    /// `let (a, b) = t in w.M(a, b)`, so both spellings arrive as a literal tuple.
-    let tupledMemberPlan (what: string) (arity: int) (arg: TastAccessor.ExprId) : FlatStep list =
-        match SymbolKeyOps.openTupledArg tupleElemsOf arity arg with
-        | ValueSome opened -> [ for a in opened -> FlatStep.Arg a ]
-        | ValueNone ->
-            failwithf "%s expects %d tupled arguments but its argument is typed %A" what arity (TastAccessor.exprTy arg)
+    type AppliedArg = TastAccessor.ExprId * FrozenType * Anchor
+
+    /// A member call opened at its argument groups.
+    [<NoEquality; NoComparison>]
+    type MemberCallPlan =
+        {
+            /// One push per DECLARED parameter, in .NET argument order.
+            Steps: FlatStep list
+            /// Applied to what the member RETURNS, so the backend folds these on afterwards.
+            Residual: AppliedArg list
+        }
+
+    /// Elaborate rewrites `w.M t` into `let (a, b) = t in w.M(a, b)`, so a tupled group always
+    /// arrives as a literal tuple. `ValueNone` is an under-applied member or a group that is
+    /// not that tuple: neither is a direct call, and both eta-wrap instead.
+    let memberCallPlan (widths: EqArray<int>) (args: AppliedArg list) : MemberCallPlan voption =
+        let asTuple ((a, _, _): AppliedArg) : AppliedArg list voption =
+            tupleElemsOf a
+            |> ValueOption.map (List.map (fun e -> e, TastAccessor.exprTy e, TastAccessor.exprTok e))
+
+        SymbolKeyOps.openArgGroups asTuple widths args
+        |> ValueOption.map (fun opened ->
+            {
+                Steps = [ for (a, _, _) in opened.Flat -> FlatStep.Arg a ]
+                Residual = opened.Residual
+            }
+        )
 
     /// Flatten a saturated call's LEADING arguments (one per SOURCE group): a lone `()`
     /// group contributes nothing; a `GSimple` / non-lone `GUnit` one `Arg`; a `GTuple` a

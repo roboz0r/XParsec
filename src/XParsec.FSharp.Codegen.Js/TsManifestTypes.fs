@@ -388,11 +388,8 @@ module internal TsManifestTranslate =
             else
                 EqArray.empty
 
-        {
-            DeclaringTyparArity = declTyparArity
-            MethodTyparArity = sg.TypeParams
-            Parameters = paramsFrozen ctx sg.Params
-            Return = toFrozen ctx sg.Returns
+        // A TS signature has ONE parameter list, so one argument group.
+        { ExternalSignature.make (declTyparArity, sg.TypeParams, paramsFrozen ctx sg.Params, toFrozen ctx sg.Returns) with
             MethodTyparBounds = bounds
         }
 

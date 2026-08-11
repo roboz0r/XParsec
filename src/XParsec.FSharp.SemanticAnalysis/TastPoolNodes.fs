@@ -252,6 +252,7 @@ type ExprPayload =
             Key: SymbolKey
             MemberName: string
             Storage: MemberStorage
+            ArgGroupWidths: EqArray<int>
         |}
     | Format of
         {|

@@ -434,6 +434,90 @@ let tests =
                     [ "get_Item"; "set_Item" ]
             }
 
+            // The `.fsi` spells `Poke3`'s parameters as two CURRIED argument groups and the
+            // `.js.fs` body as two curried patterns. One `FTFun` peeled per group is what makes
+            // the contract half key `[int; int]` rather than `[int]` with a function result.
+            test "a CURRIED contract signature keys as its argument groups, matching the impl half" {
+                TestHelpers.expectMemberKeyHalvesAgree
+                    widgetFixtureContract.Value
+                    [ widgetManifest ]
+                    (SymbolKeyOps.qualifiedTypeKey "Widgets.widget" 0)
+                    [ "Poke3" ]
+            }
+
+            // The published groups make `Poke3` realise `int -> int -> int` at the use site,
+            // even though it keys and compiles as `Poke2`'s ONE two-parameter slot.
+            test "`w.Poke3 3 4` splices its body: a curried contract is applied a group at a time" {
+                let js = emitWidget "open Widgets\nlet useP3 (w: widget) : int = w.Poke3 3 4\n"
+
+                Expect.stringContains js "(3) + (4)" (sprintf "expected the spliced `(3) + (4)` body, got:\n%s" js)
+                Expect.isFalse (js.Contains ".Poke3") (sprintf "a `.Poke3` method call leaked into emit:\n%s" js)
+                Expect.equal (js.Split("=>").Length - 1) 1 (sprintf "a curried remnant survived the splice:\n%s" js)
+            }
+
+            // The other half of the same rule: the tupled IL form the two groups compile to is
+            // NOT callable from source. `(3, 4)` lands in the FIRST group, whose type is `int`.
+            test "`w.Poke3(3, 4)` is rejected: the tupled form a curried declaration compiles to is not callable" {
+                let errors =
+                    TestHelpers.analyseWith
+                        widgetFixtureContract.Value.Provider
+                        "open Widgets\nlet useP3 (w: widget) : int = w.Poke3(3, 4)\n"
+
+                Expect.isNonEmpty errors "a tupled call on a curried member must not type-check"
+            }
+
+            // `poker` is an `extern interface`: nothing splices, so these three reach the JS
+            // call plan and eta-wrap with a member whose groups the KEY cannot describe.
+            test "a curried member's groups fill ONE native call: `p.Jab 3 4` is `p.Jab(3, 4)`" {
+                let js = emitWidget "open Widgets\nlet useJab (p: poker) : int = p.Jab 3 4\n"
+
+                Expect.stringContains js "p.Jab(3, 4)" (sprintf "expected one two-argument call, got:\n%s" js)
+            }
+
+            // The group's DECLARED width decides, and here it is 1: `'a` is a single parameter
+            // that happens to be given a tuple. Guessing boundaries from the arguments' shapes
+            // instead opens `(1, 2)` into two positions and leaves `3` applied to the result.
+            test "a tuple argument in a 1-wide group stays ONE position, and the next group still fills" {
+                let js = emitWidget "open Widgets\nlet usePair (p: poker) : int = p.Pair (1, 2) 3\n"
+
+                Expect.stringContains js "p.Pair([1, 2], 3)" (sprintf "expected the tuple kept whole, got:\n%s" js)
+
+                Expect.isFalse
+                    (js.Contains ")(3)")
+                    (sprintf "`3` was applied to the call's RESULT instead of filling the second group:\n%s" js)
+            }
+
+            // Elaborate opens a tuple-VALUED argument into one expression per parameter, which
+            // a spliced body needs. The first GROUP's width says whether there is anything to
+            // open; against the flat vector `t` is destructured only for the emit to rebuild it.
+            test "a tuple-VALUED argument at a 1-wide group is passed whole, not destructured" {
+                let js =
+                    emitWidget
+                        "open Widgets\nlet usePairV (p: poker) : int =\n\x20   let t = (1, 2)\n\x20   p.Pair t 3\n"
+
+                Expect.stringContains js "p.Pair(t, 3)" (sprintf "expected `t` passed whole, got:\n%s" js)
+            }
+
+            // A value use has to re-expose the member's own type, `int -> int -> int`, so a
+            // caller's `f(3)(4)` lands. ONE arrow reading `_a[0]` / `_a[1]` is the tupled
+            // member's shape, and this member does not have it.
+            test "a curried member used as a VALUE eta-wraps one arrow per group" {
+                let js = emitWidget "open Widgets\nlet valJab (p: poker) = p.Jab\n"
+
+                // Each group's own parameter, forwarded in order: `(a) => (b) => p.Jab(a, b)`.
+                let nested =
+                    System.Text.RegularExpressions.Regex.Match(
+                        js,
+                        @"\((\w+)\)\s*=>\s*\((\w+)\)\s*=>\s*p\.Jab\(\1,\s*\2\)"
+                    )
+
+                Expect.isTrue nested.Success (sprintf "expected one arrow per argument group, got:\n%s" js)
+
+                Expect.isFalse
+                    (js.Contains "[0]")
+                    (sprintf "the eta-wrap read its parameter positionally, as if the two groups were one tuple:\n%s" js)
+            }
+
             // Two same-name lifted signatures differing only by parameter TYPE must mint two
             // DISTINCT keys, or the second lifted body overwrites the first. Hand-built,
             // because two `(# … #)`-bodied same-name overloads are not declarable in one file.

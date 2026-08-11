@@ -51,22 +51,16 @@ let (|TyClass|_|) (t: SemType) =
     | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
     | _ -> None
 
-/// An `ExternalSignature` with `MethodTyparBounds` defaulted to empty — reflection,
-/// `.fsi` and JS-native producers carry no keyof bound. Call it qualified from a file that
-/// must not take this module's shadow `TyUnion`/`TyRecord`/`TyClass` constructors.
+/// A ONE-argument-group `ExternalSignature` with `MethodTyparBounds` defaulted to empty —
+/// reflection, `.fsi` and JS-native producers carry no keyof bound. Call it qualified from a
+/// file that must not take this module's shadow `TyUnion`/`TyRecord`/`TyClass` constructors.
 let mkSignature
     (declaringTyparArity: int)
     (methodTyparArity: int)
     (parameters: FrozenType)
     (ret: FrozenType)
     : ExternalSignature =
-    {
-        DeclaringTyparArity = declaringTyparArity
-        MethodTyparArity = methodTyparArity
-        Parameters = parameters
-        Return = ret
-        MethodTyparBounds = EqArray.empty
-    }
+    ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
 
 /// A skeleton `ExternalMember` named `name`: a static `unit -> unit` method on a stub
 /// declaring type `C`.

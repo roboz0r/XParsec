@@ -145,6 +145,7 @@ module TastAccessor =
                     Key = p.Key
                     MemberName = p.MemberName
                     Storage = p.Storage
+                    ArgGroupWidths = p.ArgGroupWidths
                 }
         | _ -> ValueNone
 

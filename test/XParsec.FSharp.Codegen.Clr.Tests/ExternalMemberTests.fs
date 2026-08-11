@@ -64,7 +64,7 @@ let tests =
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
-                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, ghTy, _),
+                | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, _, ghTy, _),
                             TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
                             resultTy,
                             _) ->
@@ -108,7 +108,7 @@ let tests =
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     match inner with
-                    | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, defTy, _) ->
+                    | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, _, defTy, _) ->
                         match Unification.zonk ctx.Store defTy with
                         | TyClass(name, args) when
                             args.Length = 1
@@ -190,6 +190,7 @@ let tests =
                                                            ghKey,
                                                            "GetHashCode",
                                                            MemberStorage.Method,
+                                                           _,
                                                            ghTy,
                                                            _),
                                       TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
@@ -235,7 +236,7 @@ let tests =
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     match inner with
-                    | TExpr.ExternalMember(ValueNone, _, "Default", MemberStorage.Property, _, _) -> ()
+                    | TExpr.ExternalMember(ValueNone, _, "Default", MemberStorage.Property, _, _, _) -> ()
                     | other -> failtestf "expected a static `Default` ExternalMember object argument, got %A" other
                 | other -> failtestf "expected App(ExternalMember GetHashCode, 5), got %A" other
             }
@@ -423,7 +424,7 @@ let tests =
                     | _ -> failtestf "expected a single let binding, got %A" tast.Decls
 
                 match value with
-                | TExpr.ExternalMember(ValueNone, key, "Out", MemberStorage.Property, ty, _) ->
+                | TExpr.ExternalMember(ValueNone, key, "Out", MemberStorage.Property, _, ty, _) ->
                     match Unification.zonk ctx.Store ty with
                     | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
@@ -474,6 +475,7 @@ let tests =
                                                                   },
                                                  "Out",
                                                  MemberStorage.Property,
+                                                 _,
                                                  _,
                                                  _)) when SymbolKeyOps.typeMetaName decl = "System.Console" -> ()
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other

@@ -325,11 +325,17 @@ module EmitJs =
                 | MemberDispatch.ErasedBare form, ValueNone ->
                     JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey em.MemberName form loc
                 | MemberDispatch.Application, ValueSome r ->
-                    JsExternalMembers.etaWrapApplication (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
+                    JsExternalMembers.etaWrapApplication (buildExpr ctx) r em.ArgGroupWidths ctx.Pool loc
                 | MemberDispatch.NativeData, ValueSome r ->
                     JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc
                 | MemberDispatch.AttachedMethod, ValueSome r ->
-                    JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
+                    JsExternalMembers.etaWrapAttachedMethod
+                        (buildExpr ctx)
+                        r
+                        em.ArgGroupWidths
+                        em.MemberName
+                        ctx.Pool
+                        loc
                 | MemberDispatch.InterfaceProperty, ValueSome r ->
                     JsExpr.Call(JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc, [], loc)
                 // JS has no field/property distinction at access, so a `Field` and a `Property`

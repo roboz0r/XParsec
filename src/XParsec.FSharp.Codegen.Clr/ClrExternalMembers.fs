@@ -35,18 +35,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     let externalMemberCache = Dictionary<ExternalMemberCacheKey, EntityHandle>()
 
-    /// The .NET-tupled `Parameters` slot opened back to one `FrozenType` per declared
-    /// parameter. A length mismatch is a malformed provider entry, not a user-writable call.
+    /// The .NET-tupled argument slot opened back to one `FrozenType` per declared parameter.
+    /// A length mismatch is a malformed provider entry, not a user-writable call.
     let openParams (what: string) (argSigLen: int) (paramsT: FrozenType) : FrozenType list =
-        let asTuple t =
-            match t with
-            | FTTuple elems -> ValueSome(EqArray.toList elems)
-            | _ -> ValueNone
-
-        match SymbolKeyOps.openTupledArg asTuple argSigLen paramsT with
-        | ValueSome ps -> ps
-        | ValueNone ->
-            failwithf "ClrProvider: %s declares %d parameters but its signature slot is %A" what argSigLen paramsT
+        match argSigLen, paramsT with
+        | 0, _ -> []
+        | 1, _ -> [ paramsT ]
+        | n, FTTuple elems when elems.Length = n -> EqArray.toList elems
+        | _ -> failwithf "ClrProvider: %s declares %d parameters but its signature slot is %A" what argSigLen paramsT
 
     /// The member-ref signature blob from the member's open template: `paramsT` the .NET-tupled
     /// argument slot, `retT` the return, both over `FTTypar(Declaring, i)` / `FTTypar(Method, j)`
@@ -110,16 +106,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome m -> m
         | ValueNone -> failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
 
-    /// The member's open signature as one template, the form matched against the use-site type:
-    /// the bare value type for a property, else the .NET-tupled `FTFun(params, ret)`.
-    let openTemplate (chosen: ExternalMember) (isProperty: bool) : FrozenType =
-        let s = chosen.Signature
-
-        if isProperty then
-            s.Return
-        else
-            FTFun(s.Parameters, s.Return)
-
     /// Mint the `MemberRef` for a `TExpr.ExternalMember`. Both typar axes' use-site
     /// instantiations are recovered by matching the open signature against `memberTy`: the
     /// declaring args parameterise the parent `TypeSpec`, the method args the `MethodSpec`.
@@ -143,7 +129,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let sig_ = chosen.Signature
 
             let declArgs, methodArgs =
-                recoverOpenTypars declTyparArity methodTyparArity (openTemplate chosen isProperty) memberTy
+                recoverOpenTypars declTyparArity methodTyparArity (ExternalSignature.openTemplate sig_) memberTy
 
             // A cross-file member whose declaring type is emitted INTO this assembly parents on
             // that type's local `TypeDef`; reaching `externalClassRef` here would instead emit
@@ -164,7 +150,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (mintMemberRef
                         parent
                         methodTyparArity
-                        sig_.Parameters
+                        (ExternalSignature.tupledParameters sig_)
                         sig_.Return
                         isProperty
                         isStatic
@@ -202,7 +188,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             // Only the method axis is recovered here; declaring arity 0 leaves the template's
             // `FTTypar(Declaring, i)` slots to encode as `!i` when the blob is minted.
             let _, methodArgs =
-                recoverOpenTypars 0 methodTyparArity (openTemplate chosen isProperty) memberTy
+                recoverOpenTypars 0 methodTyparArity (ExternalSignature.openTemplate sig_) memberTy
 
             let parent = typeSpecOf declTy
 
@@ -211,7 +197,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (mintMemberRef
                         parent
                         methodTyparArity
-                        sig_.Parameters
+                        (ExternalSignature.tupledParameters sig_)
                         sig_.Return
                         isProperty
                         isStatic
@@ -400,7 +386,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     openParams
                         (sprintf "ctor of '%s'" (SymbolKeyOps.typeMetaName chosenCtor.Key.Decl))
                         chosenCtor.Key.ArgSig.Length
-                        chosenCtor.Signature.Parameters
+                        (ExternalSignature.tupledParameters chosenCtor.Signature)
 
                 let s = BlobBuilder()
 
@@ -487,6 +473,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// The raw external `TypeRef` for `key`. The Extends column of a derived type wants the
     /// bare ref for a non-generic external base, not a `TypeSpec`. `ValueNone` ⇒ not a class.
     member _.ExternalClassTypeRef(key) = externalClassRef key
+
+    member _.ExternalMemberReturnsVoid(key: SymbolKey) : bool =
+        let mk = SymbolKeyOps.asMemberKey "ClrProvider: external member return" key
+
+        match (lookupChosen (SymbolKeyOps.typeMetaName mk.Decl) mk.Name mk).Signature.Return with
+        | FTUnit -> true
+        | _ -> false
 
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
         externalMemberRef key isProperty isStatic memberTy

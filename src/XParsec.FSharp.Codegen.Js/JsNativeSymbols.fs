@@ -42,7 +42,7 @@ module JsNativeSymbols =
     let private errorMessage: ExternalMember =
         { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" EqArray.empty 0 MemberKind.Property) with
             Storage = MemberStorage.Property
-            Signature = ExternalSignature.make (0, 0, unitTy, stringTy)
+            Signature = ExternalSignature.value (0, 0, stringTy)
             Origin = errorOrigin
         }
 

@@ -288,6 +288,8 @@ type ClrProvider
         member _.EqualityComparerGetHashCode(elem) =
             recipes.EqualityComparerGetHashCode elem
 
+        member _.ExternalMemberReturnsVoid(key) = ext.ExternalMemberReturnsVoid key
+
         member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
             ext.ExternalMemberRef(key, isProperty, isStatic, memberTy)
 

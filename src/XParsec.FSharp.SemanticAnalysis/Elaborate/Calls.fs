@@ -12,8 +12,8 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateObjArgs
 
 module internal ElaborateCalls =
 
-    // A member is TUPLED, taking one argument whatever its parameter count, so a tuple
-    // VALUE selects a 2-parameter member exactly as the literal `(3, 4)` does. But its
+    // An argument GROUP is tupled, taking one argument whatever its parameter count, so a
+    // tuple VALUE selects a 2-parameter group exactly as the literal `(3, 4)` does. But its
     // elements are not expressions, and a spliced `member inline` body needs one each.
 
     /// The `let`s an opened call now sits inside (outermost first), and its rewritten
@@ -31,14 +31,15 @@ module internal ElaborateCalls =
     /// before its argument and the argument's `let` would otherwise hoist above it.
     let openTupledMemberArg (ctx: PassContext) (fn: TExpr) (arg: TExpr) : OpenedTupledCall voption =
         match fn with
-        | TExpr.ExternalMember(objArg, key, name, MemberStorage.Method, memberTy, memberTok) ->
-            let arity = SymbolKeyOps.memberArity (sprintf "Elaborate: member '%s'" name) key
+        | TExpr.ExternalMember(objArg, key, name, MemberStorage.Method, widths, memberTy, memberTok) ->
+            // This opens the FIRST applied argument, so only the first group's width decides.
+            let width = if widths.Length = 0 then 0 else widths.[0]
 
             let argTy = Unification.zonk ctx.Store (TastWalk.exprTy arg)
 
             match arg, argTy with
             | TExpr.Tuple _, _ -> ValueNone
-            | _, TyTuple elemTys when arity >= 2 && elemTys.Length = arity ->
+            | _, TyTuple elemTys when width >= 2 && elemTys.Length = width ->
                 let argTok = TastWalk.exprTok arg
 
                 let elems =
@@ -63,6 +64,7 @@ module internal ElaborateCalls =
                             key,
                             name,
                             MemberStorage.Method,
+                            widths,
                             memberTy,
                             memberTok
                         )

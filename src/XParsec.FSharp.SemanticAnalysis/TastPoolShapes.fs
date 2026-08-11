@@ -313,13 +313,15 @@ module TastPoolShapes =
                     DeclKey = declKey
                     FieldName = fieldName
                 |}
-        | TExprG.ExternalMember(objArg = objArg; key = key; memberName = memberName; storage = storage) ->
+        | TExprG.ExternalMember(
+            objArg = objArg; key = key; memberName = memberName; storage = storage; argGroupWidths = argGroupWidths) ->
             ExprPayload.ExternalMember
                 {|
                     HasObjArg = objArg.IsSome
                     Key = key
                     MemberName = memberName
                     Storage = storage
+                    ArgGroupWidths = argGroupWidths
                 |}
         | TExprG.Format(sink = sink; segments = segments) ->
             let sink' =

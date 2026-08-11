@@ -18,6 +18,8 @@ type widget =
 
         member inline _.Poke2(a: int, b: int) : int = (# "$0 + $1" a b : int #)
 
+        member inline _.Poke3 (a: int) (b: int) : int = (# "$0 + $1" a b : int #)
+
     end
 
 // The indexer half of the fixture. The `set` accessor's parameters are spelled CURRIED here

@@ -1072,7 +1072,12 @@ let tests =
                     Expect.equal m.Storage MemberStorage.Method "storage is a method, not a property"
                     Expect.equal m.Key.Kind MemberKind.Method "and so is the key's kind"
                     Expect.equal m.Key.ArgSig (EqArray.singleton intF) "the index is the member's one argument"
-                    Expect.equal m.Signature.Parameters intF "the index survives into the signature"
+
+                    Expect.equal
+                        (ExternalSignature.tupledParameters m.Signature)
+                        intF
+                        "the index survives into the signature"
+
                     Expect.equal m.Signature.Return (FTTypar(TyparAxis.Declaring, 0)) "the getter returns the element"
                 | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
             }
@@ -1106,8 +1111,13 @@ let tests =
                     Expect.equal setter.Name "set_Count" "the setter half"
                     Expect.equal setter.Storage MemberStorage.Method "a setter is an accessor method"
                     Expect.equal setter.Key.ArgSig (EqArray.singleton intF) "it accepts the property's value"
-                    Expect.equal setter.Signature.Parameters intF "which is the getter's result"
-                    Expect.equal setter.Signature.Return ExternalSymbols.unitFrozen "and it returns unit"
+
+                    Expect.equal
+                        (ExternalSignature.tupledParameters setter.Signature)
+                        intF
+                        "which is the getter's result"
+
+                    Expect.equal setter.Signature.Return ExternalSignature.unitFrozen "and it returns unit"
                 | other -> failtestf "expected both halves; got %A" [ for m in other -> m.Name ]
             }
 
@@ -1125,7 +1135,7 @@ let tests =
                     Expect.equal getter.Name "get_Item" "the getter half"
                     Expect.equal setter.Name "set_Item" "the setter half"
                     Expect.equal setter.Key.ArgSig (EqArray.ofList [ intF; elemF ]) "index then value"
-                    Expect.equal setter.Signature.Return ExternalSymbols.unitFrozen "a setter returns unit"
+                    Expect.equal setter.Signature.Return ExternalSignature.unitFrozen "a setter returns unit"
                 | other -> failtestf "expected both halves; got %A" [ for m in other -> m.Name ]
             }
 
@@ -1138,8 +1148,53 @@ let tests =
                 match membersOf ctx "Box" with
                 | [ m ] ->
                     Expect.equal m.Name "set_Count" "no getter is declared, so none is published"
-                    Expect.equal m.Signature.Return ExternalSymbols.unitFrozen "a setter returns unit"
+                    Expect.equal m.Signature.Return ExternalSignature.unitFrozen "a setter returns unit"
                 | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
+            }
+
+            // A curried declaration compiles to the SAME one two-parameter slot a tupled one
+            // does, so the key cannot tell them apart — the published groups are what makes
+            // F# demand `x.Add 1 2` where the tupled declaration demands `x.Add(1, 2)`.
+            test "a CURRIED member signature publishes its argument groups and realises curried" {
+                let curried =
+                    extractFsi
+                        "curried.fsi"
+                        "namespace App\n\nmodule M =\n    type Box =\n        member Add: a: int -> b: int -> int\n"
+
+                let tupled =
+                    extractFsi
+                        "tupled.fsi"
+                        "namespace App\n\nmodule M =\n    type Box =\n        member Add: a: int * b: int -> int\n"
+
+                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
+                let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
+
+                match membersOf curried "Box", membersOf tupled "Box" with
+                | [ c ], [ t ] ->
+                    Expect.equal (EqArray.toList c.Signature.ArgGroups) [ intF; intF ] "two source argument groups"
+                    Expect.equal (EqArray.toList t.Signature.ArgGroups) [ FTTuple(EqArray.ofList [ intF; intF ]) ] "one"
+
+                    Expect.equal c.Key t.Key "both compile to the same key: one two-parameter slot"
+
+                    Expect.equal
+                        (ExternalSignature.tupledParameters c.Signature)
+                        (ExternalSignature.tupledParameters t.Signature)
+                        "and to the same .NET parameter slot"
+
+                    Expect.equal
+                        (ExternalSymbols.instantiateSignature (TypeStore()) c [||] 0)
+                        (TyFun(intTy, TyFun(intTy, intTy)))
+                        "the curried one is applied a group at a time"
+
+                    Expect.equal
+                        (ExternalSymbols.instantiateSignature (TypeStore()) t [||] 0)
+                        (TyFun(TyTuple(EqArray.ofList [ intTy; intTy ]), intTy))
+                        "the tupled one takes one tuple"
+                | c, t ->
+                    failtestf
+                        "expected one member each; got %A and %A"
+                        [ for m in c -> m.Name ]
+                        [ for m in t -> m.Name ]
             }
 
             test "a member signature with arguments and no `with` clause keeps its own name" {

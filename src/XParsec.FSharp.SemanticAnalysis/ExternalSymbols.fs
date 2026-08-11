@@ -191,14 +191,16 @@ type ExternalRecordCandidate =
         IsRequireQualifiedAccess: bool
     }
 
-/// A member's tupled `(Parameters, Return)` as `FrozenType` templates: `Parameters` is the
-/// .NET-tupled argument type (`N ≥ 2` → one `FTTuple`; 0 params → `unit`). Open typars are
-/// baked as `FTTypar(Declaring,i)` (the declaring type's) / `FTTypar(Method,j)` (its own).
+/// A member's type as `FrozenType` templates, with open typars baked as `FTTypar(Declaring,i)`
+/// (the declaring type's) / `FTTypar(Method,j)` (its own).
 type ExternalSignature =
     {
         DeclaringTyparArity: int
         MethodTyparArity: int
-        Parameters: FrozenType
+        /// One entry per `->` the source wrote, each already .NET-tupled: `M: a * b -> r` holds
+        /// `[a * b]` and the curried `M: a -> b -> r` holds `[a; b]`. EMPTY for a value member,
+        /// whose type is `Return` with no `->` in front of it.
+        ArgGroups: EqArray<FrozenType>
         Return: FrozenType
         /// Per-method-typar UPPER BOUND (`<Key extends keyof Events>`): index `j` is the
         /// `j`-th method typar's bound, baked over the DECLARING typars (`keyof Events` at
@@ -206,29 +208,115 @@ type ExternalSignature =
         MethodTyparBounds: EqArray<FrozenType voption>
     }
 
-    /// The sentinel a contract-layer member carries until the finalize pass fills
-    /// `Parameters` / `Return` from its stashed signature CST.
-    static member deferred(declaringTyparArity: int, methodTyparArity: int) : ExternalSignature =
+    /// The sentinel a contract-layer member carries until the finalize pass fills its groups /
+    /// `Return` from the stashed signature CST. `argGroupCount` is already known there, and
+    /// keeping it exact is what makes a deferred value member read as one.
+    static member deferred(declaringTyparArity: int, methodTyparArity: int, argGroupCount: int) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTyparArity = methodTyparArity
-            Parameters = deferredTemplate
+            ArgGroups = EqArray.ofList (List.replicate argGroupCount deferredTemplate)
             Return = deferredTemplate
             MethodTyparBounds = EqArray.empty
         }
 
-    /// Known `Parameters` / `Return` with no method bounds; a bound-carrying producer
-    /// builds the record explicitly instead.
+    /// The .NET norm: ONE argument group, taking the tupled `parameters` whole, and no method
+    /// bounds. Every reflection, manifest and tupled-source producer mints this shape; a
+    /// bound-carrying producer builds the record explicitly instead.
     static member make
         (declaringTyparArity: int, methodTyparArity: int, parameters: FrozenType, return': FrozenType)
         : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
             MethodTyparArity = methodTyparArity
-            Parameters = parameters
+            ArgGroups = EqArray.singleton parameters
             Return = return'
             MethodTyparBounds = EqArray.empty
         }
+
+    /// A FIELD or PROPERTY, whose type is `return'` with no `->` in front of it. Distinct from
+    /// the `unit -> r` METHOD `make` mints for a `member M: unit -> r`, which a use site must
+    /// still apply.
+    static member value(declaringTyparArity: int, methodTyparArity: int, return': FrozenType) : ExternalSignature =
+        {
+            DeclaringTyparArity = declaringTyparArity
+            MethodTyparArity = methodTyparArity
+            ArgGroups = EqArray.empty
+            Return = return'
+            MethodTyparBounds = EqArray.empty
+        }
+
+    /// One group per `->` the source wrote, each holding that group's own tupled domain.
+    static member ofGroups
+        (declaringTyparArity: int, methodTyparArity: int, argGroups: FrozenType list, return': FrozenType)
+        : ExternalSignature =
+        {
+            DeclaringTyparArity = declaringTyparArity
+            MethodTyparArity = methodTyparArity
+            ArgGroups = EqArray.ofList argGroups
+            Return = return'
+            MethodTyparBounds = EqArray.empty
+        }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module ExternalSignature =
+
+    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+
+    let unfreezable = FTUnknown "<unfreezable external template>"
+
+    /// `[a; b]` ⟶ `a * b`, `[]` ⟶ `unit`: one argument group's .NET-tupled domain.
+    let tupledParams (ps: EqArray<FrozenType>) : FrozenType =
+        match ps.Length with
+        | 0 -> unitFrozen
+        | 1 -> ps.[0]
+        | _ -> FTTuple ps
+
+    /// `a * b` ⟶ `[a; b]`, `unit` ⟶ `[]`: one group's domain back to one entry per source
+    /// parameter.
+    let argSigOfParameters (parameters: FrozenType) : EqArray<FrozenType> =
+        match parameters with
+        | FTUnit -> EqArray.empty
+        | FTTuple items -> items
+        | single -> EqArray.singleton single
+
+    /// `a * b` ⟶ `2`, `unit` ⟶ `0`: the same count, without building the flattening.
+    let groupWidth (parameters: FrozenType) : int =
+        match parameters with
+        | FTUnit -> 0
+        | FTTuple items -> items.Length
+        | _ -> 1
+
+    /// The groups folded back onto `Return`, so `([a; b], r)` ⟶ `a -> b -> r` — the type a use
+    /// site writes. A value member has no group and is its bare `Return`.
+    let openTemplate (s: ExternalSignature) : FrozenType =
+        let mutable t = s.Return
+
+        for i in s.ArgGroups.Length - 1 .. -1 .. 0 do
+            t <- FTFun(s.ArgGroups.[i], t)
+
+        t
+
+    /// `M: a * b -> r` ⟶ `[2]`, the curried `M: a -> b -> r` ⟶ `[1; 1]`: how many arguments
+    /// each application consumes.
+    let argGroupWidths (s: ExternalSignature) : EqArray<int> = s.ArgGroups |> EqArray.map groupWidth
+
+    /// Every group flattened in source order, so `a -> b * c -> r` ⟶ `[a; b; c]`: the member's
+    /// .NET parameter vector, and the `ArgSig` its key interns.
+    let argSigOf (s: ExternalSignature) : EqArray<FrozenType> =
+        match s.ArgGroups.Length with
+        | 1 -> argSigOfParameters s.ArgGroups.[0]
+        | _ ->
+            let flat = ResizeArray<FrozenType>(s.ArgGroups.Length)
+
+            for g in s.ArgGroups do
+                flat.AddRange(argSigOfParameters g)
+
+            EqArray.ofResizeArray flat
+
+    /// The ONE .NET-tupled slot the groups compile to: `a -> b -> r` and `a * b -> r` both
+    /// occupy `a * b`.
+    let tupledParameters (s: ExternalSignature) : FrozenType = tupledParams (argSigOf s)
 
 /// A resolved member (method, field or property) on an external type.
 type ExternalMember =
@@ -266,7 +354,7 @@ type ExternalMember =
             Name = key.Name
             IsStatic = false
             Storage = MemberStorage.Method
-            Signature = ExternalSignature.deferred (0, 0)
+            Signature = ExternalSignature.deferred (0, 0, 1)
             MethodTyparArity = 0
             Origin = SymbolOrigin.Empty
             Key = key
@@ -720,16 +808,11 @@ module ExternalSymbols =
         let methodVar = methodFreshener store cache level
         let decl i = declaringArgs.[i]
         let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureWith"
-        let s = m.Signature
-
-        if m.IsValueMember then
-            instantiateWith decl methodVar noLocal s.Return
-        else
-            TyFun(instantiateWith decl methodVar noLocal s.Parameters, instantiateWith decl methodVar noLocal s.Return)
+        instantiateWith decl methodVar noLocal (ExternalSignature.openTemplate m.Signature)
 
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per index, shared
-    /// across `Parameters` and `Return`). `TyFun(params, ret)`, or the bare value type.
+    /// across the argument groups and `Return`).
     let instantiateSignature (store: TypeStore) (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
         instantiateSignatureWith store [] m declaringArgs level
 
@@ -740,15 +823,7 @@ module ExternalSymbols =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
         let noLocal = localTyparInTemplate "ExternalSymbols.openSignature"
-        let s = m.Signature
-
-        if m.IsValueMember then
-            instantiateWith decl methodOpen noLocal s.Return
-        else
-            TyFun(
-                instantiateWith decl methodOpen noLocal s.Parameters,
-                instantiateWith decl methodOpen noLocal s.Return
-            )
+        instantiateWith decl methodOpen noLocal (ExternalSignature.openTemplate m.Signature)
 
     /// A member's method-typar BOUNDS at a use site, one per index.
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`; a `FTTypar(Method,j)` ref stays an
@@ -782,26 +857,6 @@ module ExternalSymbols =
 
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
         instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs
-
-    /// Flatten a frozen signature's .NET-tupled `Parameters` back to one entry per source
-    /// parameter.
-    let argSigOfParameters (parameters: FrozenType) : EqArray<FrozenType> =
-        match parameters with
-        | FTUnit -> EqArray.empty
-        | FTTuple items -> items
-        | single -> EqArray.singleton single
-
-    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
-
-    /// Fold per-parameter frozen types into the single .NET-tupled `Parameters` form an
-    /// `ExternalSignature` carries.
-    let tupledParams (ps: EqArray<FrozenType>) : FrozenType =
-        match ps.Length with
-        | 0 -> unitFrozen
-        | 1 -> ps.[0]
-        | _ -> FTTuple ps
-
-    let unfreezable = FTUnknown "<unfreezable external template>"
 
     /// Realise a value/free-function symbol's `Scheme` at `level`: a fresh `TyVar` per
     /// declaring typar, the `Constraints` stamped onto them, then the scheme realised

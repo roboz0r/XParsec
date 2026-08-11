@@ -508,7 +508,7 @@ type private Renderer() =
 
             push "]"
 
-        | TExpr.ExternalMember(objArg, _, name, _, _, _) ->
+        | TExpr.ExternalMember(objArg, _, name, _, _, _, _) ->
             match objArg with
             | ValueSome r ->
                 this.Expr r

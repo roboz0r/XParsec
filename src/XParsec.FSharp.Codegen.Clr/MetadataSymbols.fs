@@ -194,9 +194,9 @@ module private MetadataMapping =
         else
             Some(paramTys |> Array.map Option.get, retTy.Value)
 
-    /// Property `ExternalSignature`: `Parameters = unit`, value type in `Return`.
+    /// Property `ExternalSignature`: no argument group, value type in `Return`.
     let propertySignature (declaringTyparArity: int) (valueTy: FrozenType) : ExternalSignature =
-        ExternalSignature.make (declaringTyparArity, 0, FTConst(RuntimeNames.unitKey, EqArray.empty), valueTy)
+        ExternalSignature.value (declaringTyparArity, 0, valueTy)
 
     /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
     let methodSignature
@@ -339,7 +339,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
                 IsStatic = m.IsStatic
                 Signature =
-                    MetadataMapping.methodSignature arity methodTyparArity (ExternalSymbols.tupledParams argSig, ret)
+                    MetadataMapping.methodSignature arity methodTyparArity (ExternalSignature.tupledParams argSig, ret)
                 MethodTyparArity = methodTyparArity
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
@@ -401,7 +401,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
                         IsStatic = getter.IsStatic
-                        Signature = MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams argSig, ret)
+                        Signature =
+                            MetadataMapping.methodSignature arity 0 (ExternalSignature.tupledParams argSig, ret)
                         Origin = origin
                     }
                 )
@@ -421,7 +422,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     ExternalMember.ctor
                         declKey
-                        (MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams argSig, ret))
+                        (MetadataMapping.methodSignature arity 0 (ExternalSignature.tupledParams argSig, ret))
                         argSig
                         origin
                         (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -535,7 +536,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                                     (MetadataMapping.methodSignature
                                         arity
                                         0
-                                        (ExternalSymbols.tupledParams argSig, ret))
+                                        (ExternalSignature.tupledParams argSig, ret))
                                     argSig
                                     origin
                                     (MetadataMapping.optionalDefaults (c.GetParameters()))

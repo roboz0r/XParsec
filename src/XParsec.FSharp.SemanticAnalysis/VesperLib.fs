@@ -22,9 +22,9 @@ module VesperLib =
         try
             match translateType ctx dc.Lexed dc.Opens dc.Typars (ConstraintCollector()) cst with
             | Ok ft -> ft
-            | Error _ -> ExternalSymbols.unfreezable
+            | Error _ -> ExternalSignature.unfreezable
         with BodylessExternalShape _ ->
-            ExternalSymbols.unfreezable
+            ExternalSignature.unfreezable
 
     /// Freeze `interface <ty>` impl CSTs, with args over the declaring typars as
     /// `FTTypar(Declaring,i)`. A non-nominal freeze carries no witness and is dropped.
@@ -47,8 +47,30 @@ module VesperLib =
         let (TypeName(attributes = attrs)) = typeName
         (AttributeDecode.decodeClassAttributes (nameOfTok lexed) attrs).IsValueType
 
-    /// Splits the OUTERMOST `FTFun(params, ret)`; a signature written with no argument group
-    /// takes the whole result as its value. `ValueNone` drops the member; a body-less shape
+    /// A setter is dispatched from `x.[i] <- v`, never applied a group at a time, so its groups
+    /// collapse to ONE .NET parameter vector with the getter's result appended: `Item: int -> 'T
+    /// with set` takes `(int, 'T)`.
+    let private setterSignature
+        (declaringTyparArity: int)
+        (methodTyparArity: int)
+        (groupDomains: FrozenType list)
+        (ret: FrozenType)
+        : ExternalSignature =
+        let ps = ResizeArray<FrozenType>()
+
+        for domain in groupDomains do
+            ps.AddRange(ExternalSignature.argSigOfParameters domain)
+
+        ps.Add ret
+
+        ExternalSignature.make (
+            declaringTyparArity,
+            methodTyparArity,
+            ExternalSignature.tupledParams (EqArray.ofResizeArray ps),
+            ExternalSignature.unitFrozen
+        )
+
+    /// A member's published `ExternalSignature`. `ValueNone` drops the member; a body-less shape
     /// degrades to `unit -> FTUnknown`.
     let private freezeMemberSig
         (ctx: ExtractCtx)
@@ -56,43 +78,23 @@ module VesperLib =
         (dm: DeferredMember)
         : ExternalSignature voption =
         let dc = dm.Ctx
-        let (CurriedSig(argGroups, _)) = dm.Signature
 
-        let methodTyparArityNow () =
-            max 0 (dc.Typars.Count - declaringTyparArity)
+        let signatureOf (groupDomains: FrozenType list) (ret: FrozenType) =
+            let methodTyparArity = max 0 (dc.Typars.Count - declaringTyparArity)
 
-        // The value a setter accepts is the getter's result, appended to the getter's own
-        // parameters, so `Item: int -> 'T with set` takes `(int, 'T)`.
-        let asAccessor (parameters: FrozenType) (ret: FrozenType) =
             if dm.IsSetter then
-                let ps = ResizeArray<FrozenType>(ExternalSymbols.argSigOfParameters parameters)
-                ps.Add ret
-                ExternalSymbols.tupledParams (EqArray.ofResizeArray ps), ExternalSymbols.unitFrozen
+                setterSignature declaringTyparArity methodTyparArity groupDomains ret
             else
-                parameters, ret
+                ExternalSignature.ofGroups (declaringTyparArity, methodTyparArity, groupDomains, ret)
 
-        let signatureOf (parameters: FrozenType) (ret: FrozenType) =
-            let parameters, ret = asAccessor parameters ret
-            ExternalSignature.make (declaringTyparArity, methodTyparArityNow (), parameters, ret)
+        let reaxis = FrozenTypeBridge.reaxisMethodTypars declaringTyparArity
 
         try
-            match translateCurriedSig ctx dc.Lexed dc.Opens dc.Typars (ConstraintCollector()) dm.Signature with
-            | Ok frozen ->
-                let frozen = FrozenTypeBridge.reaxisMethodTypars declaringTyparArity frozen
-
-                let parameters, ret =
-                    match argGroups.Length with
-                    | 0 -> ExternalSymbols.unitFrozen, frozen
-                    | _ ->
-                        match frozen with
-                        | FTFun(p, r) -> p, r
-                        // A member with arguments whose sig isn't a `FTFun` folds to a nullary value.
-                        | other -> ExternalSymbols.unitFrozen, other
-
-                ValueSome(signatureOf parameters ret)
+            match translateSigGroups ctx dc.Lexed dc.Opens dc.Typars (ConstraintCollector()) dm.Signature with
+            | Ok(groupDomains, ret) -> ValueSome(signatureOf (List.map reaxis groupDomains) (reaxis ret))
             | Error _ -> ValueNone
         with BodylessExternalShape _ ->
-            ValueSome(signatureOf ExternalSymbols.unitFrozen ExternalSymbols.unfreezable)
+            ValueSome(signatureOf [ ExternalSignature.unitFrozen ] ExternalSignature.unfreezable)
 
     /// A non-`Trait` entry translates its target to a template over the val's declaring
     /// typars. An undeclared typar or an untranslatable target drops the whole entry.
@@ -290,26 +292,18 @@ module VesperLib =
 
                     match freezeMemberSig ctx s.DeclaringTyparArity deferred.[i] with
                     | ValueSome sign ->
-                        // Rebuild the member key's `ArgSig` from the now-frozen parameters:
+                        // Rebuild the member key's `ArgSig` from the now-frozen groups:
                         // extraction stamped it empty, the signature still being deferred.
-                        let m' =
-                            if m.IsValueMember then
-                                { m with
-                                    Signature = sign
-                                    MethodTyparArity = sign.MethodTyparArity
-                                }
-                            else
-                                { m with
-                                    Signature = sign
-                                    Key =
-                                        { m.Key with
-                                            ArgSig = ExternalSymbols.argSigOfParameters sign.Parameters
-                                            MethodTyparArity = sign.MethodTyparArity
-                                        }
-                                    MethodTyparArity = sign.MethodTyparArity
-                                }
-
-                        kept.Add m'
+                        kept.Add
+                            { m with
+                                Signature = sign
+                                Key =
+                                    { m.Key with
+                                        ArgSig = ExternalSignature.argSigOf sign
+                                        MethodTyparArity = sign.MethodTyparArity
+                                    }
+                                MethodTyparArity = sign.MethodTyparArity
+                            }
                     | ValueNone -> ()
 
                 ctx.TypeMembers.[key] <- kept
@@ -350,14 +344,14 @@ module VesperLib =
                                 paramCsts
                                 |> Array.map (freezeBodyType ctx dc)
                                 |> EqArray.ofArray
-                                |> ExternalSymbols.tupledParams
+                                |> ExternalSignature.tupledParams
 
                             let ret = freezeBodyType ctx dc retCst
 
                             ExternalMember.ctor
                                 declKey
                                 (ExternalSignature.make (arity, 0, parameters, ret))
-                                (ExternalSymbols.argSigOfParameters parameters)
+                                (ExternalSignature.argSigOfParameters parameters)
                                 SymbolOrigin.Empty
                                 []
                     ]
@@ -923,6 +917,10 @@ module VesperLib =
                                 else
                                     MemberKind.Method
 
+                            // A setter's groups collapse to the ONE parameter vector it is
+                            // dispatched with, however many the getter's signature wrote.
+                            let argGroupCount = if m.IsSetter then 1 else args.Length
+
                             members.Add
                                 { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name EqArray.empty 0 kind) with
                                     IsStatic = isStatic
@@ -931,7 +929,7 @@ module VesperLib =
                                             MemberStorage.Property
                                         else
                                             MemberStorage.Method
-                                    Signature = ExternalSignature.deferred (arity, 0)
+                                    Signature = ExternalSignature.deferred (arity, 0, argGroupCount)
                                 }
 
                             memberCsts.Add

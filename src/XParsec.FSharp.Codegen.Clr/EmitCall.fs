@@ -265,15 +265,18 @@ module EmitCall =
             let key = em.Key
             let name = em.MemberName
             let memberTy = typeOfExpr fn
-            // `m(a, b)` is ONE application to the tuple `(a, b)`, so the call consumes a
-            // single argument, opened to the declared width.
             let isStatic = ValueOption.isNone objArg
-            let argCount = SymbolKeyOps.memberArity "Emit: external member call" key
+            let widths = em.ArgGroupWidths
 
-            let argList, rest =
-                match appArgs with
-                | first :: more -> ValueSome first, more
-                | [] -> ValueNone, []
+            let plan =
+                match CompiledFns.memberCallPlan widths appArgs with
+                | ValueSome plan -> plan
+                | ValueNone ->
+                    failwithf
+                        "Emit: external member '%s' takes argument groups %A, which its %d applied arguments do not fill"
+                        name
+                        widths
+                        (List.length appArgs)
 
             // An instance method on an unboxed value-type object arg (`Span<char>`, any
             // external struct) is reached by address + non-virtual `call`; by value +
@@ -295,13 +298,7 @@ module EmitCall =
             | ValueSome r -> recur env b r
             | ValueNone -> ()
 
-            let pushedArgs =
-                match argList with
-                | ValueNone -> 0 // no argument supplied (a 0-param method)
-                | ValueSome(argExpr, _, _) ->
-                    CompiledFns.tupledMemberPlan (sprintf "Emit: external member '%s'" name) argCount argExpr
-                    |> pushFlatSteps recur env b
-                    |> List.length
+            let pushedArgs = plan.Steps |> pushFlatSteps recur env b |> List.length
 
             let handle =
                 match objArg with
@@ -310,25 +307,14 @@ module EmitCall =
 
             let total = (if isStatic then 0 else 1) + pushedArgs
 
-            // For a method returning a function value applied further, the result type is
-            // the consumed `App` node's type.
-            let resultTy =
-                match argList with
-                | ValueSome(_, ty, _) -> ty
-                | ValueNone -> typeOfExpr fn
+            // What a method returning a function value applies its residual arguments to:
+            // `memberTy` with one `->` peeled per group consumed.
+            let resultTy = TastLower.peelFunDomains widths.Length memberTy |> snd
 
-            // An F# `unit` return is a .NET **void** method and must declare 0 results, or
-            // the statement discard underflows on a phantom value. `Span<char>.Fill(T)`'s
-            // applied node type is not `unit`, so void-ness comes from the DECLARED codomain.
-            let returnsVoid =
-                let declaredRet =
-                    match memberTy with
-                    | FTFun(_, r) -> r
-                    | other -> other
-
-                match declaredRet with
-                | FTUnit -> true
-                | _ -> false
+            // An F# `unit` return is a .NET **void** method and must declare 0 results, or the
+            // statement discard underflows on a phantom value. `resultTy` cannot answer this:
+            // `M: 'a -> 'a` at `'a = unit` still returns `!0`, so it must be the DECLARED one.
+            let returnsVoid = env.Provider.ExternalMemberReturnsVoid key
 
             let resultCount = if returnsVoid then 0 else 1
 
@@ -340,7 +326,7 @@ module EmitCall =
             if returnsVoid then
                 EmitTypes.buildUnitValue env b
 
-            foldInvoke recur env b resultTy rest
+            foldInvoke recur env b resultTy plan.Residual
 
         | _ ->
             // The applied expression is itself a function VALUE, a closure local or a

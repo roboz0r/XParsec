@@ -436,6 +436,10 @@ type ResolvedExternalMember =
         /// The member's DECLARED type in the object argument's instantiation: a `TyFun` for a
         /// method, the property type for a property.
         Signature: SemType
+        /// How many arguments each application consumes: `M: a * b -> r` is `[2]`, the curried
+        /// `M: a -> b -> r` is `[1; 1]`. `Signature` cannot tell those apart, and neither can
+        /// `Key` — both members intern the flat `[a; b]`.
+        ArgGroupWidths: EqArray<int>
         /// The resolved member's trailing optional-parameter defaults. Empty for a member
         /// with no omittable optionals.
         OptionalDefaults: TConstValue list

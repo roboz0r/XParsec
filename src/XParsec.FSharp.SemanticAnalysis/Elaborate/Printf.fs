@@ -160,6 +160,8 @@ module internal ElaboratePrintf =
                                 scratch.ToStringKey,
                                 "ToString",
                                 MemberStorage.Method,
+                                // `ToString()`: one group taking `unit`, so zero pushed arguments.
+                                EqArray.singleton 0,
                                 TyFun(ctx.Intrinsics.Unit, ctx.Intrinsics.String),
                                 t
                             ),

@@ -80,40 +80,27 @@ module FrozenSignature =
         // --- member projection --------------------------------------------------------
         // A member's frozen `Params` / `ReturnTy` already carry the declaring type's typars as
         // `FTTypar(Declaring,i)` and its own as `FTTypar(Method,j)`, the axis convention here.
+
+        /// A member with no argument group is a value member, so `Storage` reads off the
+        /// signature rather than being passed alongside it and risking disagreement.
         let memberFromParts
             (declKey: TypeKey)
             (declArity: int)
             (name: string)
-            (isValueMember: bool)
             (isStatic: bool)
             (methodArity: int)
-            (parameters: FrozenType)
-            (returnTy: FrozenType)
+            (signature: ExternalSignature)
             : ExternalMember =
-            let kind =
-                if isValueMember then
-                    MemberKind.Property
-                else
-                    MemberKind.Method
+            let kind, storage =
+                match signature.ArgGroups.Length with
+                | 0 -> MemberKind.Property, MemberStorage.Property
+                | _ -> MemberKind.Method, MemberStorage.Method
 
-            let signature =
-                ExternalSignature.make (declArity, methodArity, parameters, returnTy)
-
-            // A value member interns an EMPTY argSig (no value parameters); a method interns
-            // its tupled parameter signature, the structural overload identity.
-            let argSig =
-                if isValueMember then
-                    EqArray.empty
-                else
-                    ExternalSymbols.argSigOfParameters parameters
+            let argSig = ExternalSignature.argSigOf signature
 
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name argSig methodArity kind) with
                 IsStatic = isStatic
-                Storage =
-                    (if isValueMember then
-                         MemberStorage.Property
-                     else
-                         MemberStorage.Method)
+                Storage = storage
                 Signature = signature
                 MethodTyparArity = methodArity
                 Origin = originIn declKey.Namespace
@@ -123,13 +110,18 @@ module FrozenSignature =
             let isValueMember = (m.Kind = TMemberKind.Property)
             let methodArity = m.MethodTypeParams.Length
 
-            let parameters =
+            let signature =
                 if isValueMember then
-                    ExternalSymbols.unitFrozen
+                    ExternalSignature.value (declArity, methodArity, m.ReturnTy)
                 else
-                    ExternalSymbols.tupledParams (EqArray.ofSeq [ for (_, ty) in m.Params -> ty ])
+                    ExternalSignature.make (
+                        declArity,
+                        methodArity,
+                        ExternalSignature.tupledParams (EqArray.ofSeq [ for (_, ty) in m.Params -> ty ]),
+                        m.ReturnTy
+                    )
 
-            memberFromParts declKey declArity m.Name isValueMember m.IsStatic methodArity parameters m.ReturnTy
+            memberFromParts declKey declArity m.Name m.IsStatic methodArity signature
 
         // An interface's abstract method carries a single CURRIED `Signature`; a concrete
         // member carries decurried `Params` / `ReturnTy`. Peel ONE `->` to the `.NET`-tupled
@@ -137,15 +129,18 @@ module FrozenSignature =
         let abstractMemberOf (declKey: TypeKey) (declArity: int) (am: Frozen.TAbstractMethod) : ExternalMember =
             let methodArity = am.MethodTypeParams.Length
 
-            let parameters, returnTy =
+            let signature =
                 if am.IsProperty then
-                    ExternalSymbols.unitFrozen, am.Signature
+                    ExternalSignature.value (declArity, methodArity, am.Signature)
                 else
-                    match am.Signature with
-                    | FTFun(domain, codomain) -> domain, codomain
-                    | other -> ExternalSymbols.unitFrozen, other
+                    let parameters, returnTy =
+                        match am.Signature with
+                        | FTFun(domain, codomain) -> domain, codomain
+                        | other -> ExternalSignature.unitFrozen, other
 
-            memberFromParts declKey declArity am.Name am.IsProperty false methodArity parameters returnTy
+                    ExternalSignature.make (declArity, methodArity, parameters, returnTy)
+
+            memberFromParts declKey declArity am.Name false methodArity signature
 
         let membersOf
             (declKey: TypeKey)

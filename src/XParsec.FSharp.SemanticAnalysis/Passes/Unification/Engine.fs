@@ -414,6 +414,7 @@ module UnificationEngine =
                                 IsStatic = false
                                 Storage = m.Storage
                                 Signature = memberSig
+                                ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
                                 OptionalDefaults = m.OptionalDefaults
                             }
                         )

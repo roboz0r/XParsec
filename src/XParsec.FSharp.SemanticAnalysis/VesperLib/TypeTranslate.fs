@@ -575,17 +575,16 @@ module VesperLibTypeTranslate =
             | Some e -> Error e
             | None -> Ok(FTTuple(EqArray.ofResizeArray items))
 
-    /// The curried signature folds right-associatively into nested `FTFun` nodes. The
-    /// finalize pass splits the OUTERMOST `FTFun(params, ret)` into a member's two-axis
-    /// `ExternalSignature`, or takes the whole chain as a val's template.
-    let translateCurriedSig
+    /// `a -> b * c -> r` ⟶ `([a; b * c], r)`: one domain per ARGUMENT GROUP, so a group's own
+    /// `b * c` stays one `FTTuple`.
+    let translateSigGroups
         (ctx: ExtractCtx)
         (lexed: Lexed)
         (opens: string list)
         (typars: TyparCollector)
         (constraints: ConstraintCollector)
         (sigCurried: CurriedSig<SyntaxToken>)
-        : Result<FrozenType, string> =
+        : Result<FrozenType list * FrozenType, string> =
         let (CurriedSig(args, retTy)) = sigCurried
 
         // Intern typars ARGS-first (left-to-right) with the RETURN type LAST, so Declaring
@@ -607,13 +606,19 @@ module VesperLibTypeTranslate =
         | None ->
             match translateType ctx lexed opens typars constraints retTy with
             | Error e -> Error e
-            | Ok retF ->
-                let mutable acc = retF
+            | Ok retF -> Ok(List.ofSeq argFs, retF)
 
-                for k in argFs.Count - 1 .. -1 .. 0 do
-                    acc <- FTFun(argFs.[k], acc)
-
-                Ok acc
+    /// `([a; b], r)` ⟶ `a -> b -> r`, for a val template that keeps no argument groups.
+    let translateCurriedSig
+        (ctx: ExtractCtx)
+        (lexed: Lexed)
+        (opens: string list)
+        (typars: TyparCollector)
+        (constraints: ConstraintCollector)
+        (sigCurried: CurriedSig<SyntaxToken>)
+        : Result<FrozenType, string> =
+        translateSigGroups ctx lexed opens typars constraints sigCurried
+        |> Result.map (fun (domains, ret) -> List.foldBack (fun d acc -> FTFun(d, acc)) domains ret)
 
     let registerExplicitTypars (lexed: Lexed) (typars: TyparCollector) (defns: TyparDefns<SyntaxToken> voption) : unit =
         match defns with

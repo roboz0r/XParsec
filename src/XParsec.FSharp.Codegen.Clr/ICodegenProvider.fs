@@ -284,6 +284,11 @@ type ICodegenProvider =
     /// `EqualityComparer<'T>.Default.Equals(!0, !0)` — a boxing-free typed field compare.
     abstract EqualityComparerEquals: elem: FrozenType -> EntityHandle
 
+    /// `true` when the member's DECLARED codomain is `unit`, so its call must declare 0
+    /// results. The use-site result type cannot answer this: `M: 'a -> 'a` at `'a = unit`
+    /// still returns `!0`.
+    abstract ExternalMemberReturnsVoid: key: SymbolKey -> bool
+
     /// Mint a `MemberRef` for a `TExpr.ExternalMember`; `isProperty` selects the `get_<name>`
     /// getter shape. `memberTy` is the access's *instantiated* type (a method's curried
     /// `arg → … → ret`), matched against the open signature to recover the declaring args.

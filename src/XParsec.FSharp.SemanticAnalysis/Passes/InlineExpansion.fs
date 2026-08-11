@@ -100,13 +100,12 @@ module InlineExpansion =
             )
         | ValueNone -> fresh ()
 
-    /// A METHOD call's applied arguments OPENED to the parameters the lifted body curried: the
-    /// call applies ONE tuple whatever the parameter count, while the lift wraps one lambda per
-    /// parameter. `ValueNone` is an argument that is not the literal tuple its arity needs.
+    /// A METHOD call's applied arguments opened to the parameters the lifted body curried: the
+    /// lift wraps one lambda per PARAMETER, so `M(a, b)`'s one tuple and the curried `M a b`'s
+    /// two arguments both arrive as `[a; b]`, with residual arguments riding through unopened.
     let private untupleMemberArgs
-        (key: SymbolKey)
-        (memberName: string)
         (storage: MemberStorage)
+        (widths: EqArray<int>)
         (args: (TExpr * SemType * SyntaxToken) list)
         : (TExpr * SemType * SyntaxToken) list voption =
         let asTuple (arg: TExpr, _, _) =
@@ -118,13 +117,10 @@ module InlineExpansion =
                     ]
             | _ -> ValueNone
 
-        match storage, args with
-        | MemberStorage.Method, first :: rest ->
-            let arity =
-                SymbolKeyOps.memberArity (sprintf "InlineExpansion: member '%s'" memberName) key
-
-            SymbolKeyOps.openTupledArg asTuple arity first
-            |> ValueOption.map (fun opened -> opened @ rest)
+        match storage with
+        | MemberStorage.Method ->
+            SymbolKeyOps.openArgGroups asTuple widths args
+            |> ValueOption.map (fun opened -> opened.Flat @ opened.Residual)
         | _ -> ValueSome args
 
     let private appliedFunction
@@ -150,12 +146,12 @@ module InlineExpansion =
                             Args = ValueSome args
                             RebuiltFn = fun () -> markedFn
                         }
-                | TExpr.ExternalMember(objArg, key, memberName, storage, _, memberTok) ->
+                | TExpr.ExternalMember(objArg, key, _, storage, widths, _, memberTok) ->
                     ValueSome
                         {
                             Key = ValueSome key
                             Args =
-                                untupleMemberArgs key memberName storage args
+                                untupleMemberArgs storage widths args
                                 |> ValueOption.map (fun opened ->
                                     match objArg with
                                     | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: opened
@@ -386,7 +382,7 @@ module InlineExpansion =
                     // A PROPERTY read applies nothing, so the `App` arm never classifies it: its
                     // object argument IS the one argument the lifted `this`-first body takes
                     // (`arr.Length` → the `ldlen` body).
-                    | TExpr.ExternalMember(objArg, key, _, MemberStorage.Property, ty, tok) ->
+                    | TExpr.ExternalMember(objArg, key, _, MemberStorage.Property, _, ty, tok) ->
                         let callArgs =
                             match objArg with
                             | ValueSome r -> [ r, TastWalk.exprTy r, tok ]

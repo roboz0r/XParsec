@@ -138,13 +138,6 @@ module JsExternalMembers =
 
         climb 0 ty
 
-    // ---- The attached-member arity contract -----------------------------------
-
-    /// The SHARED tupled-call width, so this flatten and the pre-freeze splice of the same
-    /// member open its one argument to the same number of positions.
-    let memberArgCount (key: SymbolKey) (memberName: string) : int =
-        SymbolKeyOps.memberArity (sprintf "EmitJs: attached member '%s'" memberName) key
-
     /// `objArg.<member>` — a manifest Property read IS this bare Member node (a JS DATA
     /// property, not a zero-arg call); the call forms wrap it.
     let attachedMember (objArgJs: JsExpr) (memberName: string) (loc: JsLoc voption) : JsExpr =
@@ -154,22 +147,20 @@ module JsExternalMembers =
     let attachedCall (objArgJs: JsExpr) (memberName: string) (args: JsExpr list) (loc: JsLoc voption) : JsExpr =
         JsExpr.Call(attachedMember objArgJs memberName loc, args, loc)
 
-    /// The eta-wrap's SINGLE parameter forwarded to the member's positional arguments: dropped
-    /// at 0, straight through at 1, spread element-wise for a tupled ≥2. `argVar` has no
-    /// expression behind it, so this opens by INDEX rather than sharing the arity open.
-    let attachedForwardArgs (argVar: JsExpr) (argCount: int) : JsExpr list =
-        if argCount = 0 then
-            []
-        elif argCount = 1 then
-            [ argVar ]
-        else
-            [ for j in 0 .. argCount - 1 -> JsFlatFns.indexMember argVar j ]
+    /// ONE eta-wrap parameter forwarded to the positions its GROUP declares: dropped at width
+    /// 0, straight through at 1, spread element-wise for a tupled ≥2. `argVar` has no
+    /// expression behind it, so this opens by INDEX rather than sharing the call-site open.
+    let attachedForwardArgs (argVar: JsExpr) (width: int) : JsExpr list =
+        match width with
+        | 0 -> []
+        | 1 -> [ argVar ]
+        | n -> [ for j in 0 .. n - 1 -> JsFlatFns.indexMember argVar j ]
 
     // ---- The lowerings ---------------------------------------------------------
 
-    /// A function dispatching on the object argument folds every applied argument into ONE
-    /// `objArg.member(args)`. The member is tupled, so it consumes the FIRST argument as its
-    /// argument list, at the key's `argSig` width; residual application folds on as unary calls.
+    /// A function dispatching on the object argument folds its applied arguments into ONE
+    /// `objArg.member(args)`, consuming one per SOURCE argument group; residual application
+    /// folds on as unary calls. `ValueNone` leaves an under-applied member to the eta-wrap.
     let tryAttachedCall
         (provider: IExternalSymbolProvider)
         (pool: PoolBuilder)
@@ -182,14 +173,9 @@ module JsExternalMembers =
         | InstanceExternalMember(objArg, em) ->
             // ONE argument plan for both object-argument-dispatched shapes; only the callee differs.
             let saturate (callee: JsExpr -> JsExpr list -> JsExpr) : JsExpr voption =
-                match appArgs with
-                | (argExpr, _, _) :: rest ->
-                    let args, argSpills =
-                        CompiledFns.tupledMemberPlan
-                            (sprintf "EmitJs: external attached member '%s'" em.MemberName)
-                            (memberArgCount em.Key em.MemberName)
-                            argExpr
-                        |> JsFlatFns.renderFlatSteps pool build
+                match CompiledFns.memberCallPlan em.ArgGroupWidths appArgs with
+                | ValueSome plan ->
+                    let args, argSpills = JsFlatFns.renderFlatSteps pool build plan.Steps
 
                     // A spill hoists the argument out of the call, so the object argument hoists
                     // ahead of it or the two swap evaluation order.
@@ -200,11 +186,11 @@ module JsExternalMembers =
                             let tmp = freshTemp pool "_objArg"
                             JsExpr.Identifier(tmp, ValueNone), (tmp, build objArg) :: argSpills
 
-                    rest
+                    plan.Residual
                     |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) (callee objArgJs args)
                     |> fun folded -> JsFlatFns.wrapSpills spills folded loc
                     |> ValueSome
-                | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 argument
+                | ValueNone -> ValueNone
 
             match dispatchOf provider (declKey em.Key) em.Storage with
             | MemberDispatch.Application -> saturate (fun objArgJs args -> JsExpr.Call(objArgJs, args, loc))
@@ -217,11 +203,12 @@ module JsExternalMembers =
         | _ -> ValueNone
 
     /// An external member escaping as a VALUE: the object argument spills to a temp unless it is
-    /// a trivial `Var`, and a tupled member escapes as a ONE-parameter `arg -> ret`.
+    /// a trivial `Var`, and the member escapes as ONE arrow per argument group, so `M: a -> b -> r`
+    /// becomes `(a) => (b) => …` and a tupled group's one parameter is read element-wise.
     let private etaWrapMember
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
-        (argCount: int)
+        (widths: EqArray<int>)
         (callee: JsExpr -> JsExpr list -> JsExpr)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
@@ -233,11 +220,19 @@ module JsExternalMembers =
                 let tmp = freshTemp pool "_objArg"
                 JsExpr.Identifier(tmp, ValueNone), ValueSome(tmp, build objArg)
 
-        let argName = freshTemp pool "_a"
-        let argVar = JsExpr.Identifier(argName, ValueNone)
+        let paramNames, forwarded =
+            [
+                for width in widths ->
+                    let argName = freshTemp pool "_a"
+                    argName, attachedForwardArgs (JsExpr.Identifier(argName, ValueNone)) width
+            ]
+            |> List.unzip
 
         let arrow =
-            JsExpr.Arrow([ argName ], JsFnBody.Expr(callee objArgJs (attachedForwardArgs argVar argCount)), loc)
+            List.foldBack
+                (fun p body -> JsExpr.Arrow([ p ], JsFnBody.Expr body, loc))
+                paramNames
+                (callee objArgJs (List.concat forwarded))
 
         match spill with
         | ValueNone -> arrow
@@ -249,7 +244,7 @@ module JsExternalMembers =
     let etaWrapAttachedMethod
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
-        (key: SymbolKey)
+        (widths: EqArray<int>)
         (memberName: string)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
@@ -257,25 +252,25 @@ module JsExternalMembers =
         etaWrapMember
             build
             objArg
-            (memberArgCount key memberName)
+            widths
             (fun objArgJs args -> JsExpr.Call(attachedMember objArgJs memberName ValueNone, args, loc))
             pool
             loc
 
-    /// A member dispatching on its object argument as a VALUE (`let g = f.Invoke`). At ONE
-    /// parameter it already has that shape; the flat `Fun` arities are N-POSITIONAL, so they wrap.
+    /// A member dispatching on its object argument as a VALUE (`let g = f.Invoke`). At one
+    /// group of ONE parameter it already has that shape; every other grouping is N-POSITIONAL
+    /// per call, so it wraps.
     let etaWrapApplication
         (build: TastAccessor.ExprId -> JsExpr)
         (objArg: TastAccessor.ExprId)
-        (key: SymbolKey)
-        (memberName: string)
+        (widths: EqArray<int>)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
         : JsExpr =
-        match memberArgCount key memberName with
-        | 1 -> build objArg
-        | argCount ->
-            etaWrapMember build objArg argCount (fun objArgJs args -> JsExpr.Call(objArgJs, args, loc)) pool loc
+        if widths.Length = 1 && widths.[0] = 1 then
+            build objArg
+        else
+            etaWrapMember build objArg widths (fun objArgJs args -> JsExpr.Call(objArgJs, args, loc)) pool loc
 
     /// ERASE: the declaring type is a synthetic grouping with no runtime existence, so the
     /// callee is the BARE member name, the real export, not an external static's mangled one.

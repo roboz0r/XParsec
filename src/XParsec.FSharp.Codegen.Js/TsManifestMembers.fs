@@ -76,7 +76,7 @@ module internal TsManifestMembers =
                 { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name EqArray.empty 0 MemberKind.Property) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
-                    Signature = ExternalSignature.make (declTyparArity, 0, unitFrozen, ret)
+                    Signature = ExternalSignature.value (declTyparArity, 0, ret)
                     Origin = origin
                     IsOptional = mem.Optional
                 }

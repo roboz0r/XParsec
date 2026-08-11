@@ -244,7 +244,7 @@ module Regions =
         // Walk the object argument so its capture edges still register.
         | TExpr.FieldGet(r, _, _, _) -> inferRegion s ctx r
         | TExpr.PropertyGet(r, _, _, _, _) -> inferRegion s ctx r
-        | TExpr.ExternalMember(rOpt, _, _, _, _, _) ->
+        | TExpr.ExternalMember(rOpt, _, _, _, _, _, _) ->
             match rOpt with
             | ValueSome r -> inferRegion s ctx r
             | ValueNone -> RegionId.Unknown

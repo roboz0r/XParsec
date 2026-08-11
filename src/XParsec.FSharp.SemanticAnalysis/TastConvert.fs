@@ -93,8 +93,8 @@ module TastConvert =
         | TExprG.StaticPropertyGet(k, ty, tok) -> TExprG.StaticPropertyGet(k, f ty, tk tok)
         | TExprG.StaticFieldGet(k, n, ty, tok) -> TExprG.StaticFieldGet(k, n, f ty, tk tok)
         | TExprG.StaticFieldSet(k, n, v, ty, tok) -> TExprG.StaticFieldSet(k, n, pe v, f ty, tk tok)
-        | TExprG.ExternalMember(r, k, n, isProp, ty, tok) ->
-            TExprG.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty, tk tok)
+        | TExprG.ExternalMember(r, k, n, isProp, widths, ty, tok) ->
+            TExprG.ExternalMember(ValueOption.map pe r, k, n, isProp, widths, f ty, tk tok)
         | TExprG.Format(sink, segs, ty, tok) ->
             TExprG.Format(sinkOf f fTok sink, EqArray.map (segOf f fTok) segs, f ty, tk tok)
         | TExprG.ILIntrinsic(op, operand, args, ty, tok) ->

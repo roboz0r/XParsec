@@ -280,19 +280,43 @@ module SymbolKeyOps =
 
     let declTypeKeyOf (what: string) (k: SymbolKey) : TypeKey = (asMemberKey what k).Decl
 
-    /// How many value parameters a member position's key DECLARES: its `ArgSig` width.
-    let memberArity (what: string) (k: SymbolKey) : int = (asMemberKey what k).ArgSig.Length
+    /// Arguments consumed by a member's argument groups, and what is left over.
+    type OpenedArgGroups<'a> =
+        {
+            /// One entry per DECLARED parameter, groups concatenated in source order.
+            Flat: 'a list
+            /// Applies to what the member RETURNS, so it is left untouched.
+            Residual: 'a list
+        }
 
-    /// A tupled member's ONE argument opened to the `arity` positions it DECLARES. Declared
-    /// width, not surface shape: an `(int * int)` parameter stays one position.
-    let openTupledArg (asTuple: 'a -> 'a list voption) (arity: int) (arg: 'a) : 'a list voption =
-        match arity with
-        | 0 -> ValueSome []
-        | 1 -> ValueSome [ arg ]
-        | n ->
-            match asTuple arg with
-            | ValueSome elems when List.length elems = n -> ValueSome elems
-            | _ -> ValueNone
+    /// One argument per group, opened to the `widths.[i]` positions it declares: `[2]` against
+    /// `M(a, b)` opens one literal tuple, `[1; 1]` against `M a b` takes both as they stand,
+    /// `[0]` erases its `()`. `ValueNone` is under-application or a wrongly-shaped group.
+    let openArgGroups
+        (asTuple: 'a -> 'a list voption)
+        (widths: EqArray<int>)
+        (args: 'a list)
+        : OpenedArgGroups<'a> voption =
+        let rec go (i: int) (args: 'a list) (flat: 'a list) =
+            if i = widths.Length then
+                ValueSome
+                    {
+                        Flat = List.rev flat
+                        Residual = args
+                    }
+            else
+                match args with
+                | [] -> ValueNone
+                | a :: moreArgs ->
+                    match widths.[i] with
+                    | 0 -> go (i + 1) moreArgs flat
+                    | 1 -> go (i + 1) moreArgs (a :: flat)
+                    | n ->
+                        match asTuple a with
+                        | ValueSome elems when List.length elems = n -> go (i + 1) moreArgs (List.rev elems @ flat)
+                        | _ -> ValueNone
+
+        go 0 args []
 
     // --- Generic `SymbolKey` projection ----------------------------------------------
 

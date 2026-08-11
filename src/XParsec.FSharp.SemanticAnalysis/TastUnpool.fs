@@ -128,7 +128,7 @@ module TastUnpool =
             TExprG.StaticFieldSet(p.DeclKey, p.FieldName, value, ty, tok)
         | ExprPayload.ExternalMember p ->
             let objArg' = if p.HasObjArg then ValueSome(nextE ()) else ValueNone
-            TExprG.ExternalMember(objArg', p.Key, p.MemberName, p.Storage, ty, tok)
+            TExprG.ExternalMember(objArg', p.Key, p.MemberName, p.Storage, p.ArgGroupWidths, ty, tok)
         | ExprPayload.Format p ->
             let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)

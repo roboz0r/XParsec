@@ -197,6 +197,7 @@ module internal UnificationInferExternalCall =
                 IsStatic = chosen.IsStatic
                 Storage = chosen.Storage
                 Signature = memberSig
+                ArgGroupWidths = ExternalSignature.argGroupWidths chosen.Signature
                 OptionalDefaults = chosen.OptionalDefaults
             }
         )

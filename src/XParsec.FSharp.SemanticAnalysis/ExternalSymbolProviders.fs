@@ -399,12 +399,12 @@ module ExternalSymbolProviders =
         let contra t = transform Variance.Contra t
         let inv t = transform Variance.Inv t
 
-        // A member's `Return` is a covariant read; its `Parameters` contravariant.
+        // A member's `Return` is a covariant read; every argument group contravariant.
         let mapMember (m: ExternalMember) : ExternalMember =
             { m with
                 Signature =
                     { m.Signature with
-                        Parameters = contra m.Signature.Parameters
+                        ArgGroups = m.Signature.ArgGroups |> EqArray.map contra
                         Return = co m.Signature.Return
                     }
             }

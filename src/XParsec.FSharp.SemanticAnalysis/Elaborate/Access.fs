@@ -64,6 +64,7 @@ module internal ElaborateAccess =
                 info.Key,
                 SymbolKeyOps.intrinsicName info.Key,
                 MemberStorage.Method,
+                info.ArgGroupWidths,
                 TyFun(argTy, callTy),
                 tok
             )

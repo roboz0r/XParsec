@@ -13,6 +13,24 @@ type widget = extern with
     /// one lambda per parameter, so this is the member that pins the untupling.
     member inline Poke2: a: int * b: int -> int
 
+    /// The same two parameters written as two CURRIED argument groups. It keys as `[int; int]`
+    /// like `Poke2`, and compiles to the same one two-parameter slot, but the published groups
+    /// make the use site write `w.Poke3 3 4` — `w.Poke3(3, 4)` puts the tuple in `a`.
+    member inline Poke3: a: int -> b: int -> int
+
+/// An `extern` INTERFACE: it has no `(# … #)` repr and no body source, so its members are
+/// real attached `obj.name(…)` calls rather than splices. This is the fixture surface on
+/// which a CURRIED member reaches a backend's call plan.
+type poker = extern interface with
+
+    /// Two curried groups filling the one two-parameter slot: `p.Jab 3 4` is `p.Jab(3, 4)`.
+    abstract member Jab: a: int -> b: int -> int
+
+    /// A curried member whose FIRST group is ONE parameter of its own generic type, so a
+    /// tuple ARGUMENT there is that single parameter, not two positions. The group's
+    /// declared width is what decides; the flat key `['a; 'b]` cannot.
+    abstract member Pair: a: 'a -> b: 'b -> int
+
 /// A GENERIC `extern` host declaring an indexer, which lowers to the accessor method pair
 /// `get_Item` / `set_Item`. The setter's value parameter is the declaring typar `'T`.
 type 'T slot = extern with

@@ -213,6 +213,7 @@ module FrozenCodec =
             writeSymbolRef w p.Key
             w.Write p.MemberName
             writeMemberStorage w p.Storage
+            writeEqArrayWith w (fun w (n: int) -> w.Write n) p.ArgGroupWidths
         | ExprPayload.Format p ->
             w.Write 32uy
             writeFormatSinkShape w p.Sink
@@ -316,6 +317,7 @@ module FrozenCodec =
             let key = readSymbolRef r
             let memberName = r.ReadString()
             let storage = readMemberStorage r
+            let argGroupWidths = readEqArrayWith r (fun r -> r.ReadInt32())
 
             ExprPayload.ExternalMember
                 {|
@@ -323,6 +325,7 @@ module FrozenCodec =
                     Key = key
                     MemberName = memberName
                     Storage = storage
+                    ArgGroupWidths = argGroupWidths
                 |}
         | 32uy ->
             let sink = readFormatSinkShape r

@@ -99,7 +99,15 @@ module internal ElaborateIdents =
             curr <-
                 match lastExternal with
                 | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
-                    TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.Storage, stepTy, tok)
+                    TExpr.ExternalMember(
+                        ValueSome curr,
+                        info.Key,
+                        segName,
+                        info.Storage,
+                        info.ArgGroupWidths,
+                        stepTy,
+                        tok
+                    )
                 | _ ->
                     // The entry is keyed by the chain's first token, which `this.Source` (the
                     // object argument of `this.Source.MoveNext()`) shares with the full chain.

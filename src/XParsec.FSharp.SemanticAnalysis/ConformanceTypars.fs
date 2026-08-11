@@ -115,18 +115,18 @@ module ConformanceTypars =
         }
 
     let private tupledParams (ps: EqArray<BoundVarKeyG<'id> * FrozenType>) : FrozenType =
-        match ps.Length with
-        | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
-        | 1 -> snd ps.[0]
-        | _ -> FTTuple(EqArray.ofSeq (seq { for kv in ps -> snd kv }))
+        ExternalSignature.tupledParams (EqArray.map snd ps)
 
     /// The single-`FrozenType` shape both the `.fs` member and the `.fsi` overload fold
     /// to, so a `=` is the conformance check.
     let private memberSigOf (isProperty: bool) (parameters: FrozenType) (ret: FrozenType) : FrozenType =
         if isProperty then ret else FTFun(parameters, ret)
 
+    /// The published half folded to the ONE .NET parameter slot it compiles to, curried groups
+    /// and all: a `.fs` binding flattens its curried patterns to one parameter vector, so
+    /// grouping is not what this pass compares. Typar ORDER is.
     let private extractedSigOf (m: ExternalMember) : FrozenType =
-        memberSigOf m.IsValueMember m.Signature.Parameters m.Signature.Return
+        memberSigOf m.IsValueMember (ExternalSignature.tupledParameters m.Signature) m.Signature.Return
 
     /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against its
     /// `.fsi` contract `provider`: conformance holds when one published overload of the

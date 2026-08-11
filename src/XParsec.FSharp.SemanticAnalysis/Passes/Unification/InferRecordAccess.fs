@@ -44,6 +44,7 @@ module internal UnificationInferRecordAccess =
             IsStatic = false
             Storage = MemberStorage.Method
             Signature = signature
+            ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
             OptionalDefaults = []
         }
 
@@ -249,6 +250,7 @@ module internal UnificationInferRecordAccess =
                     IsStatic = false
                     Storage = m.Storage
                     Signature = memberSig
+                    ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
                     OptionalDefaults = m.OptionalDefaults
                 }
             )
@@ -404,6 +406,7 @@ module internal UnificationInferRecordAccess =
                         IsStatic = false
                         Storage = m.Storage
                         Signature = memberSig
+                        ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
                         OptionalDefaults = m.OptionalDefaults
                     }
                 )

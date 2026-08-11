@@ -145,7 +145,12 @@ let tests =
             test "a member's Parameters are contravariant and its Return covariant" {
                 let info = clsShape ()
                 let m = info.Members.[0]
-                Expect.equal m.Signature.Parameters (witness Variance.Contra) "Parameters root is contra"
+
+                Expect.equal
+                    (ExternalSignature.tupledParameters m.Signature)
+                    (witness Variance.Contra)
+                    "Parameters root is contra"
+
                 Expect.equal m.Signature.Return (witness Variance.Co) "Return root is co"
             }
 
@@ -197,13 +202,22 @@ let tests =
             test "the member channels (single + overloads) map identically to the class member" {
                 match wrapped.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Cls" 0, "m") with
                 | ValueSome m ->
-                    Expect.equal m.Signature.Parameters (witness Variance.Contra) "single: Parameters contra"
+                    Expect.equal
+                        (ExternalSignature.tupledParameters m.Signature)
+                        (witness Variance.Contra)
+                        "single: Parameters contra"
+
                     Expect.equal m.Signature.Return (witness Variance.Co) "single: Return co"
                 | ValueNone -> failtest "member should resolve"
 
                 let all = wrapped.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Cls" 0, "m")
                 Expect.equal all.Length 1 "one overload"
-                Expect.equal all.[0].Signature.Parameters (witness Variance.Contra) "overloads: Parameters contra"
+
+                Expect.equal
+                    (ExternalSignature.tupledParameters all.[0].Signature)
+                    (witness Variance.Contra)
+                    "overloads: Parameters contra"
+
                 Expect.equal all.[0].Signature.Return (witness Variance.Co) "overloads: Return co"
             }
 
