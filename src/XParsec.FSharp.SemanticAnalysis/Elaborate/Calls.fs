@@ -316,9 +316,9 @@ module internal ElaborateCalls =
         // A flat nominal (union or record, neither of which has an inheritance chain): a
         // member name is a `PropertyGet`, a record / union case field a `FieldGet`.
         let flatNominalStep (typeKey: TypeKey) : TExpr =
-            match tryNominalMemberByKey ctx typeKey segName with
-            | ValueSome(declKey, _) ->
-                let key = LocalSymbolKey.ofProperty declKey segName
+            match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey segName with
+            | ValueSome nm ->
+                let key = LocalSymbolKey.ofProperty nm.Decl.TypeKey segName
                 TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, stepTy, tok)
             | ValueNone -> TExpr.FieldGet(objArg, segName, stepTy, tok)
 

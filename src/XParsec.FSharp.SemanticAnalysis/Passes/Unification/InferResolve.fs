@@ -46,6 +46,13 @@ module internal UnificationInferResolve =
 
         EqArray.ofResizeArray acc, subst
 
+    /// A member's signature at FRESH args for its declaring type's typars. The explicit
+    /// `<'args>` a `C<int>.M` qualifier writes are NOT unified into these: the member's own
+    /// annotated type is what pins the instantiation.
+    let freshMemberInstance (ctx: PassContext) (hit: TypeRegistry.NominalMember) : SemType =
+        let _, subst = freshNamedInstance ctx hit.Decl.TypeParams
+        substituteWith ctx.Store subst hit.Member.Type
+
     /// Function value whose argument shape matches the primary constructor and whose result
     /// is the constructed `TyClass`, routing `Point(3, 4)` / `A.Point(3, 4)` (no `new`)
     /// through function application. `ValueNone` if `written` does not resolve to a class

@@ -67,16 +67,3 @@ module internal ElaborateNominals =
         match Unification.zonk store ty with
         | TyNominal(key, _) -> key
         | other -> failwithf "Elaborate: expected a class/union/record type for a member access, got %A" other
-
-    /// Resolve the declaring class / union / record by its arity-qualified key (``Name`arity``
-    /// read verbatim), never by the bare simple name: an arity-overloaded type
-    /// (`Fun`2` / `Fun`3`) does not resolve by bare name, so such a lookup would miss.
-    let tryNominalMemberByKey
-        (ctx: PassContext)
-        (typeKey: TypeKey)
-        (memberName: string)
-        : (TypeKey * TypeMemberInfo) voption =
-        // Drops the declaring typars, for the callers that need only the member and its key.
-        match LocalMemberKeys.tryNominalMemberWithTypars ctx typeKey memberName with
-        | ValueSome nm -> ValueSome(nm.DeclKey, nm.Member)
-        | ValueNone -> ValueNone

@@ -387,17 +387,12 @@ module NameResolutionScope =
                             && (let typeName = ctx.NameOf li.Idents.[0]
                                 let memberName = ctx.NameOf li.Idents.[1]
 
-                                let staticIn (members: TypeMemberInfo[]) =
-                                    members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
+                                let declares name =
+                                    (TypeRegistry.tryStaticMember ctx.Types useSite typeName name).IsSome
 
-                                (match TypeRegistry.tryClass ctx.Types useSite typeName with
-                                 | ValueSome info -> staticIn info.Members
-                                 | ValueNone -> false)
-                                || (
-                                    match TypeRegistry.tryUnionBare ctx.Types useSite typeName with
-                                    | ValueSome info -> staticIn info.Members
-                                    | ValueNone -> false
-                                ))
+                                // A WRITE-ONLY property is declared under `set_P` alone, so the
+                                // name still resolves here; Unification says it cannot be read.
+                                declares memberName || declares (AccessorNames.setterName memberName))
 
                         // `A.T` — a project-local TYPE named through its module, so the
                         // reference is a ctor / static qualifier, not a value. Suppress.

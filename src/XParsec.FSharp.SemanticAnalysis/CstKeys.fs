@@ -161,6 +161,17 @@ module CstKeys =
         | Expr.HighPrecedenceApp(funcExpr = Expr.DotLookup(longIdentOrOp = lio)) -> firstTokenOfLongIdentOrOp lio
         | _ -> firstTokenOfExpr e
 
+    /// The lone ident token of a one-segment expression. The parser produces `Ident x` and
+    /// `LongIdent[x]` for the same source, so both answer here; anything longer misses.
+    let trySingleIdent (e: Expr<SyntaxToken>) : SyntaxToken voption =
+        match e with
+        | Expr.Ident t -> ValueSome t
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 -> ValueSome li.Idents.[0]
+        | _ -> ValueNone
+
+    [<return: Struct>]
+    let (|SingleIdent|_|) (e: Expr<SyntaxToken>) : SyntaxToken voption = trySingleIdent e
+
     let private kindOfExpr (e: Expr<SyntaxToken>) : NodeKind =
         match e with
         | Expr.Const _ -> NodeKind.ExprConst

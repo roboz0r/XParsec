@@ -74,41 +74,41 @@ module internal UnificationInferIdentExpr =
             ->
             let anchorName = ctx.NameOf li.Idents.[0]
             let tailName = ctx.NameOf li.Idents.[1]
-
-            let tryStaticMember (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
-                match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = tailName) with
-                | Some m ->
-                    let _, subst = freshNamedInstance ctx typeParams
-                    ValueSome(substituteWith ctx.Store subst m.Type)
-                | None -> ValueNone
-
-            // The qualifier resolves AS SEEN FROM this node: a class / union declared
+            // The qualifier resolves AS SEEN FROM this node: a class / union / record declared
             // below it does not answer for the name, so `Foo.Bar` above `type Foo` falls
             // through to the external cascade and lands unresolved.
-            let classHit =
-                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt node.Key) anchorName with
-                | ValueSome info -> tryStaticMember info.TypeParams info.Members
-                | ValueNone -> ValueNone
+            let useSite = ctx.UseSiteAt node.Key
 
-            match classHit with
-            | ValueSome ty -> ty
+            // Reached once every reading of the name has failed. A `set_P` declaring it makes
+            // the read itself the error; a write never arrives here, because the assignment
+            // path types its LHS off that setter without inferring a read.
+            let orWriteOnly (fallback: unit -> SemType) : SemType =
+                let setterName = AccessorNames.setterName tailName
+
+                match TypeRegistry.tryStaticMember ctx.Types useSite anchorName setterName with
+                | ValueSome _ ->
+                    errorTy ctx node.Tok (Kind.Message(sprintf "Property '%s.%s' is write-only" anchorName tailName))
+                | ValueNone -> fallback ()
+
+            match TypeRegistry.tryStaticMember ctx.Types useSite anchorName tailName with
+            | ValueSome hit -> freshMemberInstance ctx hit
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt node.Key) anchorName with
-                | ValueSome info ->
-                    match tryStaticMember info.TypeParams info.Members with
-                    | ValueSome ty -> ty
+                match TypeRegistry.tryUnionBare ctx.Types useSite anchorName with
+                | ValueSome _ ->
+                    // Qualified ctor reference, resolved through the union registry
+                    // and so bypassing the `CtorIndex` ambiguity check.
+                    match resolveQualifiedCtor ctx useSite anchorName tailName with
+                    | ValueSome info -> ctorType ctx info
                     | ValueNone ->
-                        // Qualified ctor reference, resolved through the union registry
-                        // and so bypassing the `CtorIndex` ambiguity check.
-                        match resolveQualifiedCtor ctx (ctx.UseSiteAt node.Key) anchorName tailName with
-                        | ValueSome info -> ctorType ctx info
-                        | ValueNone -> errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, anchorName, tailName))
+                        orWriteOnly (fun () ->
+                            errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, anchorName, tailName))
+                        )
                 | ValueNone ->
                     // Qualified external union case (`Option.Some`); NameResolution
                     // stamped the resolved case at this node's key.
                     match tryExternalCtorType ctx node.Key with
                     | ValueSome t -> t
-                    | ValueNone -> inferIdentDefault ctx e node
+                    | ValueNone -> orWriteOnly (fun () -> inferIdentDefault ctx e node)
         | _ -> inferIdentDefault ctx e node
 
     and inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
@@ -182,40 +182,17 @@ module internal UnificationInferIdentExpr =
         | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
     /// `Set<'T>.Empty` parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`, and
-    /// inferring that prefix as a value would yield the ctor function type. The explicit
-    /// `<'args>` are not unified here; the member's annotated type pins the instantiation.
+    /// inferring that prefix as a value would yield the ctor function type.
     and tryLocalTypeAppStaticMember
         (ctx: PassContext)
         (qualifier: Expr<SyntaxToken>)
         (memberTok: SyntaxToken)
         : SemType voption =
         match qualifier with
-        | Expr.TypeApp(expr = classExpr) ->
-            let classNameOpt =
-                match classExpr with
-                | Expr.Ident t -> ValueSome(ctx.NameOf t)
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                    ValueSome(ctx.NameOf li.Idents.[0])
-                | _ -> ValueNone
+        // The written class name's own token IS the use site.
+        | Expr.TypeApp(expr = CstKeys.SingleIdent classTok) ->
+            let useSite = ctx.UseSiteAt(NodeKey.ofToken classTok NodeKind.ExprIdent)
 
-            match classNameOpt with
-            | ValueNone -> ValueNone
-            | ValueSome className ->
-                let memberName = ctx.NameOf memberTok
-
-                let resolve (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
-                    match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
-                    | Some m ->
-                        let _, subst = freshNamedInstance ctx typeParams
-                        ValueSome(substituteWith ctx.Store subst m.Type)
-                    | None -> ValueNone
-
-                let useSite = ctx.UseSiteAt(CstKeys.ofExpr qualifier)
-
-                match TypeRegistry.tryClass ctx.Types useSite className with
-                | ValueSome info -> resolve info.TypeParams info.Members
-                | ValueNone ->
-                    match TypeRegistry.tryUnionBare ctx.Types useSite className with
-                    | ValueSome info -> resolve info.TypeParams info.Members
-                    | ValueNone -> ValueNone
+            TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf classTok) (ctx.NameOf memberTok)
+            |> ValueOption.map (freshMemberInstance ctx)
         | _ -> ValueNone

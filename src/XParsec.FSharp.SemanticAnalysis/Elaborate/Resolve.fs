@@ -41,33 +41,6 @@ module internal ElaborateResolve =
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
-    /// Look up `memberName` on `typeName`, a class or a union / record augmentation.
-    /// Returns the DECLARING type's `TypeKey` alongside the member, so the static-member
-    /// path can mint a member key off it.
-    let private tryClassMember
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (typeName: string)
-        (memberName: string)
-        : (TypeKey * TypeMemberInfo) voption =
-        let pick (key: TypeKey) (members: TypeMemberInfo[]) =
-            match members |> Array.tryFind (fun m -> m.Name = memberName) with
-            | Some m -> ValueSome(key, m)
-            | None -> ValueNone
-
-        // The QUALIFIER is resolved from the access's own position: `Foo.Bar` written above
-        // `type Foo` does not resolve to a type there, so it must not lower to a static
-        // access on the class below.
-        match TypeRegistry.tryClass ctx.Types useSite typeName with
-        | ValueSome info -> pick info.TypeKey info.Members
-        | ValueNone ->
-            match TypeRegistry.tryUnionBare ctx.Types useSite typeName with
-            | ValueSome info -> pick info.TypeKey info.Members
-            | ValueNone ->
-                match TypeRegistry.tryRecord ctx.Types useSite typeName with
-                | ValueSome info -> pick info.TypeKey info.Members
-                | ValueNone -> ValueNone
-
     /// Resolve `r.M` when the anchor `r` is a local binding of a `TyClass`/`TyUnion`
     /// with a known member `M`. The parser folds the dot into the long ident
     /// rather than emitting `DotLookup` when the anchor is a regular identifier.
@@ -93,29 +66,24 @@ module internal ElaborateResolve =
                         // By the arity-qualified key: an arity-overloaded type
                         // (`Fun`2`/`Fun`3`) does not resolve by bare name, so a bare lookup
                         // would miss and `f.Invoke(a, b)` mis-lower to a function application.
-                        match tryNominalMemberByKey ctx typeKey memberName with
-                        | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk ctx.Store (TyVar tv), m)
+                        match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey memberName with
+                        | ValueSome nm -> ValueSome(rb.BindingSite, Unification.zonk ctx.Store (TyVar tv), nm.Member)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
 
-    /// Resolve `ClassName.MemberName` to its static member info. `ValueNone` if
-    /// either is unknown or the member is an instance member (use
-    /// `tryLongIdentClassTail` for instance dispatch on a local binding).
+    /// Resolve `ClassName.MemberName` to its static member info. The written qualifier's own
+    /// token IS the use site: `Foo.Bar` above `type Foo` does not resolve to a type there, so
+    /// it must not lower to a static access on the class below.
     let private tryLongIdentStaticMember
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (TypeKey * TypeMemberInfo) voption =
+        : TypeRegistry.NominalMember voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
-            let className = ctx.NameOf li.Idents.[0]
-            let memberName = ctx.NameOf li.Idents.[1]
-            // The written qualifier's own token IS the use site.
-            let useSite =
-                ctx.UseSiteAt(NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
+            let useSite = ctx.UseSiteAt(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
 
-            tryClassMember ctx useSite className memberName
-            |> ValueOption.filter (fun (_, m) -> m.IsStatic)
+            TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])
 
     /// DU ctor reference (`Circle`, `Result2.Ok`, or an external `Some` / `None`), returning
     /// the case name alone, because a caller reads the declaring union off the node's resolved
@@ -186,14 +154,14 @@ module internal ElaborateResolve =
     [<return: Struct>]
     let (|StaticMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (TypeKey * string) voption =
         match tryLongIdentStaticMember ctx li with
-        | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method ->
-            ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
+        | ValueSome nm when nm.Member.Kind = ClassMemberKind.Method ->
+            ValueSome(nm.Decl.TypeKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | _ -> ValueNone
 
     [<return: Struct>]
     let (|StaticMember|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (TypeKey * string) voption =
         match tryLongIdentStaticMember ctx li with
-        | ValueSome(declKey, _) -> ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
+        | ValueSome nm -> ValueSome(nm.Decl.TypeKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | ValueNone -> ValueNone
 
     /// `ClassName<'args>.Member` — a static member access on an *explicitly* instantiated
@@ -205,24 +173,15 @@ module internal ElaborateResolve =
         (e: Expr<SyntaxToken>)
         : (TypeKey * string * ClassMemberKind) voption =
         match e with
-        | Expr.DotLookup(expr = Expr.TypeApp(expr = classExpr); longIdentOrOp = LongIdentOrOp.LongIdent li) when
+        | Expr.DotLookup(
+            expr = Expr.TypeApp(expr = CstKeys.SingleIdent classTok); longIdentOrOp = LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 1
             ->
-            let classNameOpt =
-                match classExpr with
-                | Expr.Ident t -> ValueSome(ctx.NameOf t)
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent cli) when cli.Idents.Length = 1 ->
-                    ValueSome(ctx.NameOf cli.Idents.[0])
-                | _ -> ValueNone
+            let memberName = ctx.NameOf li.Idents.[0]
+            let useSite = ctx.UseSiteAt(NodeKey.ofToken classTok NodeKind.ExprIdent)
 
-            match classNameOpt with
-            | ValueSome className ->
-                let memberName = ctx.NameOf li.Idents.[0]
-
-                match tryClassMember ctx (ctx.UseSiteAt(CstKeys.ofExpr e)) className memberName with
-                | ValueSome(declKey, m) when m.IsStatic -> ValueSome(declKey, memberName, m.Kind)
-                | _ -> ValueNone
-            | ValueNone -> ValueNone
+            TypeRegistry.tryStaticMember ctx.Types useSite (ctx.NameOf classTok) memberName
+            |> ValueOption.map (fun nm -> nm.Decl.TypeKey, memberName, nm.Member.Kind)
         | _ -> ValueNone
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its instance methods.
@@ -239,8 +198,8 @@ module internal ElaborateResolve =
 
             match Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r)) with
             | TyNominal(typeKey, _) ->
-                match tryNominalMemberByKey ctx typeKey memberName with
-                | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, declKey, memberName)
+                match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey memberName with
+                | ValueSome nm when nm.Member.Kind = ClassMemberKind.Method -> ValueSome(r, nm.Decl.TypeKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
@@ -292,8 +251,8 @@ module internal ElaborateResolve =
             | ValueSome(TyNominal(typeKey, _) as objArgTy) ->
                 let memberName = ctx.NameOf li.Idents.[n - 1]
 
-                match tryNominalMemberByKey ctx typeKey memberName with
-                | ValueSome(_, m) when m.Kind = ClassMemberKind.Method ->
+                match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey memberName with
+                | ValueSome nm when nm.Member.Kind = ClassMemberKind.Method ->
                     ValueSome(chainPrefix li, objArgTy, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone

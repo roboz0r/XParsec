@@ -8,30 +8,6 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module LocalMemberKeys =
 
-    [<Struct>]
-    type NominalMember =
-        {
-            DeclKey: TypeKey
-            DeclTypars: EqArray<string * TyVarId>
-            Member: TypeMemberInfo
-        }
-
-    /// The declaring type's own typar bound variables come back alongside the member: they are the
-    /// declaring axis a value signature freezes against.
-    let tryNominalMemberWithTypars (ctx: PassContext) (typeKey: TypeKey) (memberName: string) : NominalMember voption =
-        match TypeRegistry.tryNominalByKey ctx.Types typeKey with
-        | ValueSome decl ->
-            match decl.Members |> Array.tryFind (fun m -> m.Name = memberName) with
-            | Some m ->
-                ValueSome
-                    {
-                        DeclKey = decl.TypeKey
-                        DeclTypars = decl.TypeParams
-                        Member = m
-                    }
-            | None -> ValueNone
-        | ValueNone -> ValueNone
-
     /// The ground operand types a genuinely-overloaded EXTERNAL member set is discriminated
     /// by. `DeclArgs` substitute the candidate signature's declaring typars; `ArgElems` are
     /// the call's argument-element types, one per (flattened) parameter position.
@@ -83,9 +59,12 @@ module LocalMemberKeys =
             | ValueSome em -> ValueSome(SymbolKey.Member em.Key)
             | ValueNone -> ValueNone
 
-        match tryNominalMemberWithTypars ctx declKey memberName with
+        // The declaring type's own typars are the axis the signature freezes against.
+        match TypeRegistry.tryNominalMemberByKey ctx.Types declKey memberName with
         | ValueSome nm ->
-            ValueSome(UnificationInferOverload.frozenUserMemberKey ctx.Store nm.DeclKey nm.DeclTypars nm.Member)
+            ValueSome(
+                UnificationInferOverload.frozenUserMemberKey ctx.Store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member
+            )
         | ValueNone ->
             match ctx.Provider.TryLookupMembers(SymbolKey.Type declKey, memberName) with
             // A provider that models this member only singularly (or not at all).

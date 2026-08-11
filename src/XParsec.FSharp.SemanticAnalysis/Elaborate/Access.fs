@@ -159,6 +159,11 @@ module internal ElaborateAccess =
             match trySetterCall translateExpr ctx key objArgExpr slotName right ty tok with
             | ValueSome call -> call
             | ValueNone -> TExpr.FieldSet(objArgExpr, slotName, translateExpr ctx right, ty, tok)
+        // `C.P <- v` through the STATIC `set_P` the qualifier's type declares. There is no
+        // object argument, so the write is an ordinary static call carrying the value alone.
+        | AssignTarget.StaticSlot(setter, _) ->
+            let args = EqArray.singleton (translateExpr ctx right)
+            mkStaticMethodCall ctx setter.Decl.TypeKey setter.Member.Name args ty tok
         | AssignTarget.Indexed(arrE, idxE) ->
             let objArg = translateExpr ctx arrE
 

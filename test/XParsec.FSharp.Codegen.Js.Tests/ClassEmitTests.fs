@@ -78,6 +78,28 @@ let tests =
                     Expect.equal out "42" "the write dispatches through set_Value and reads back"
             }
 
+            // `Read` takes an argument because an argument-less static member emits as a
+            // module-load `const`, reading `Box.v` before the class body ever sets it.
+            test "a write through an explicit STATIC property setter runs on JS" {
+                match
+                    runJs
+                        "class-static-prop-setter"
+                        (lines
+                            [
+                                "type Box() ="
+                                "    static let mutable v = 1"
+                                "    static member Value with set (n: int) = v <- n"
+                                "    static member Read (k: int) = v + k"
+                                "Box.Value <- 42"
+                                "printfn \"%d\" (Box.Read 0)"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "42" "the write dispatches through set_Value and reads back"
+            }
+
             // The accessors are members, so both ends are calls, never the `$0[$1]` bracket
             // the array/index-signature intrinsics splice.
             test "an indexed property emits accessor calls, not a bracket index" {

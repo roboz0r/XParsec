@@ -614,25 +614,74 @@ module TypeRegistry =
             Members: TypeMemberInfo[]
         }
 
+    let private nominalDecl
+        (typeKey: TypeKey)
+        (typeParams: EqArray<string * TyVarId>)
+        (members: TypeMemberInfo[])
+        : NominalDecl voption =
+        ValueSome
+            {
+                TypeKey = typeKey
+                TypeParams = typeParams
+                Members = members
+            }
+
     /// Resolve a class / union / record by its project-local `TypeKey`, whichever kind holds it.
     let tryNominalByKey (types: PassContextTypes) (key: TypeKey) : NominalDecl voption =
-        let decl (typeKey: TypeKey) (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
-            ValueSome
-                {
-                    TypeKey = typeKey
-                    TypeParams = typeParams
-                    Members = members
-                }
-
         match tryClassByKey types key with
-        | ValueSome info -> decl info.TypeKey info.TypeParams info.Members
+        | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
         | ValueNone ->
             match tryUnionByKey types key with
-            | ValueSome info -> decl info.TypeKey info.TypeParams info.Members
+            | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
             | ValueNone ->
                 match tryRecordByKey types key with
-                | ValueSome info -> decl info.TypeKey info.TypeParams info.Members
+                | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
                 | ValueNone -> ValueNone
+
+    /// The same by NAME, resolved AS SEEN FROM `useSite`: a type declared below the reference
+    /// does not answer for its name.
+    let tryNominal (types: PassContextTypes) (useSite: UseSite) (name: string) : NominalDecl voption =
+        match tryClass types useSite name with
+        | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
+        | ValueNone ->
+            match tryUnionBare types useSite name with
+            | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
+            | ValueNone ->
+                match tryRecord types useSite name with
+                | ValueSome info -> nominalDecl info.TypeKey info.TypeParams info.Members
+                | ValueNone -> ValueNone
+
+    /// A member found on a nominal, alongside the declaration holding it: the `TypeKey` a call
+    /// is minted against, and the type parameters the member's signature instantiates at.
+    [<Struct>]
+    type NominalMember =
+        {
+            Decl: NominalDecl
+            Member: TypeMemberInfo
+        }
+
+    let private pickMember (memberName: string) (decl: NominalDecl) : NominalMember voption =
+        match decl.Members |> Array.tryFind (fun m -> m.Name = memberName) with
+        | Some m -> ValueSome { Decl = decl; Member = m }
+        | None -> ValueNone
+
+    /// `memberName` on the class / union / record under `key`, read by the ARITY-QUALIFIED key
+    /// (``Name`arity``): an arity-overloaded type does not resolve by bare name.
+    let tryNominalMemberByKey (types: PassContextTypes) (key: TypeKey) (memberName: string) : NominalMember voption =
+        tryNominalByKey types key |> ValueOption.bind (pickMember memberName)
+
+    /// `C.M`: the static `M` on the class / union / record `C` names, resolved AS SEEN FROM
+    /// `useSite`. An instance member of that name misses, so a caller cannot mistake one for
+    /// a qualified static access.
+    let tryStaticMember
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (typeName: string)
+        (memberName: string)
+        : NominalMember voption =
+        tryNominal types useSite typeName
+        |> ValueOption.bind (pickMember memberName)
+        |> ValueOption.filter (fun nm -> nm.Member.IsStatic)
 
     /// The inline intrinsic-abbrev host a NAME denotes: the name is resolved to the intrinsic's
     /// canon key through `IntrinsicKeys`, and the host read by that key. A name that claimed no

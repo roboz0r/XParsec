@@ -1839,6 +1839,9 @@ let interfaceImplTests =
 
 [<Tests>]
 let interfaceImplCodegenTests =
+    let declaredStatic =
+        BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly
+
     // `C` just hands back the `IEnumerator<int>` it was constructed with and builds
     // no enumerator of its own, so what is under test is interface-impl emission
     // rather than enumeration.
@@ -2147,6 +2150,80 @@ let interfaceImplCodegenTests =
                 let instance = Activator.CreateInstance ty
                 ty.GetMethod("Write").Invoke(instance, [| box 9 |]) |> ignore
                 Expect.equal (ty.GetMethod("Read").Invoke(instance, [||]) :?> int) 9 "the setter stored 9"
+            }
+
+            // A static write has no object argument to resolve a setter from, so the qualifier's
+            // resolved TYPE is what carries it; the call is an ordinary static one.
+            test "`C.P <- v` dispatches through a STATIC `set_P` accessor" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    static let mutable q = 0"
+                            "    static member P with get () = q and set (w: int) = q <- w + 1"
+                            "    static member RoundTrip(n: int) ="
+                            "        C.P <- n"
+                            "        C.P"
+                        ]
+
+                let _, artifact = compileSource "ClsStaticSetter" src
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+                let ty = asm.GetType("C", throwOnError = true)
+
+                let declared =
+                    ty.GetMethods declaredStatic |> Array.map (fun m -> m.Name) |> Set.ofArray
+
+                Expect.isTrue (declared.Contains "get_P") "the static getter emits as get_P"
+                Expect.isTrue (declared.Contains "set_P") "the static setter emits as set_P"
+
+                Expect.equal
+                    (ty.GetMethod("RoundTrip", declaredStatic, null, [| typeof<int> |], null).Invoke(null, [| box 4 |])
+                    :?> int)
+                    5
+                    "`C.P <- 4` runs the setter's `w + 1`, and `C.P` reads 5 back"
+
+                // `P` is a declared property, so `C` has no field of that name to write:
+                // an `stsfld` (0x80) here would be a write to storage that never exists.
+                let roundTrip = peMethodIl bytes "C" "RoundTrip"
+
+                Expect.isFalse
+                    (roundTrip |> Array.contains 0x80uy)
+                    "RoundTrip writes through set_P rather than emitting stsfld"
+            }
+
+            // Only `set_Q` declares the name, so the qualifier's type is the sole source for
+            // both the write's type and the accessor it calls.
+            test "a write-only STATIC property assigns through its `set_` accessor" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    static let mutable q = 0"
+                            "    static member Q with set (w: int) = q <- w"
+                            "    static member Write(n: int) = C.Q <- n"
+                            "    static member Read() = q"
+                        ]
+
+                let _, artifact = compileSource "ClsStaticWriteOnlyProp" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType("C", throwOnError = true)
+
+                let declared =
+                    ty.GetMethods declaredStatic |> Array.map (fun m -> m.Name) |> Set.ofArray
+
+                Expect.isTrue (declared.Contains "set_Q") "the static setter emits as set_Q"
+                Expect.isFalse (declared.Contains "get_Q") "a write-only property emits no getter"
+
+                ty.GetMethod("Write", declaredStatic, null, [| typeof<int> |], null).Invoke(null, [| box 9 |])
+                |> ignore
+
+                Expect.equal
+                    (ty.GetMethod("Read", declaredStatic, null, [||], null).Invoke(null, [||]) :?> int)
+                    9
+                    "the setter stored 9"
             }
 
             test "an abstract property signature emits its accessor slots" {

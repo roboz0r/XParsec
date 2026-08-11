@@ -368,6 +368,72 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            // The qualifier is a TYPE, so there is no object argument to resolve a setter from:
+            // the write goes through the static `set_P` the resolved qualifier declares.
+            test "a static property write types `C.P <- v` from its static setter" {
+                let src =
+                    "type C() =\n    static let mutable q = 0\n    static member P with get () = q and set (w: int) = q <- w\nlet u = (C.P <- 3)"
+
+                let ctx = analyse src
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // Nothing is named `Q` but the setter, so the name resolves through `set_Q` alone.
+            test "a write-only static property types `C.Q <- v` from its setter" {
+                let src =
+                    "type C() =\n    static let mutable q = 0\n    static member Q with set (w: int) = q <- w\nlet u = (C.Q <- 3)"
+
+                let ctx = analyse src
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // `C<int>.P` parses as `DotLookup(TypeApp …)`, not the folded LongIdent the bare
+            // form takes, so the write reaches its setter down a second classification arm.
+            test "a static property write types `C<int>.P <- v` from its static setter" {
+                let src =
+                    "type C<'T>() =\n    static let mutable q = 0\n    static member P with get () = q and set (w: int) = q <- w\nlet u = (C<int>.P <- 3)"
+
+                let ctx = analyse src
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // A record's augmentation bears statics exactly as a class's does.
+            test "a static property write types `R.P <- v` on a record" {
+                let src =
+                    "type R =\n    { X: int }\n    static member P with get () = 0 and set (w: int) = ()\nlet u = (R.P <- 3)"
+
+                let ctx = analyse src
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // `set_Q : i -> v -> unit` wants an index that `C.Q <- 3` supplies nothing for, so
+            // the setter's ARITY is what rejects the write.
+            test "a write to an INDEXED static property says the index is missing" {
+                let src =
+                    "type C() =\n    static let mutable q = 0\n    static member Q with set (i: int) (w: int) = q <- i + w\nlet u = (C.Q <- 3)"
+
+                let ctx = analyse src
+
+                Expect.equal
+                    (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
+                    [ "'Q' is an indexed property; a write must supply its index" ]
+                    "one diagnostic, naming the index rather than a type mismatch"
+            }
+
+            // `set_Q` makes the NAME resolve, so a read gets past name resolution; the error
+            // it then earns names the reason rather than reporting an unknown name.
+            test "a read of a write-only static property says so" {
+                let src =
+                    "type C() =\n    static let mutable q = 0\n    static member Q with set (w: int) = q <- w\nlet x = C.Q"
+
+                let ctx = analyse src
+
+                Expect.equal
+                    (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
+                    [ "Property 'C.Q' is write-only" ]
+                    "one diagnostic, naming the property rather than the qualified name"
+            }
+
             // The array declares its own `get_Item`, so it reaches the same accessor lookup
             // every other indexable type does.
             test "an array index is unaffected by the accessor lookup" {

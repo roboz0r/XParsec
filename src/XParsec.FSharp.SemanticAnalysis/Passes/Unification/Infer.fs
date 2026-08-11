@@ -20,6 +20,7 @@ open UnificationInferRecordAccess
 open UnificationInferExternalCall
 open UnificationInferCtor
 open UnificationInferTypeOps
+open UnificationInferAssign
 open UnificationInferControlFlow
 open UnificationInferIdentExpr
 open UnificationInferApp
