@@ -13,7 +13,7 @@ module VesperLibTypeTranslate =
 
     let nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
+        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
         | TokenIndex.Virtual -> ""
 
     let longIdentName (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =

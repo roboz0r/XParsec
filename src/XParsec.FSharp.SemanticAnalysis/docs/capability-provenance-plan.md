@@ -164,22 +164,19 @@ not know a backend, so the target dialect stays in the backend and the front end
   the capability no longer being visible in the source at all. The first is better: a
   capability a reader cannot see in `prim-types-array.fsi` is a capability nobody knows about.
 - **What is the identity a backend is asked about?** The array reaches this code as
-  `TyConst(arrayKey 1, [elem])`, and the array is exactly the type whose key has two spellings
-  (see `array-key-spelling.md`). That wart should be fixed BEFORE a new provider member is
-  keyed on it, or the new member inherits it.
+  `TyConst(arrayKey 1, [elem])`. That is now its only spelling — the declaration files its
+  shape under the same key — so a new provider member may be keyed on it directly.
 
 ## Order, against the other plans in flight
 
-1. `array-key-spelling.md` — independent of all of it, and a prerequisite for anything that
-   keys a capability query on the array's identity.
-2. `per-target-manifest-plan.md` — **before Change A, not after.** It shrinks `pairingKey`
+1. `per-target-manifest-plan.md` — **before Change A, not after.** It shrinks `pairingKey`
    from "strip a suffix for any target this manifest declares" to "strip `.<myTarget>`", and
    the `.fsi`↔`.fs` pairing is precisely what Change A needs the manifest to hand it. It also
    threads `target` out of `SymbolProviders.inlineBodies`, the function Change A generalises
    to the assembly route. Change A first would mean writing that plumbing against a rule that
    is about to be deleted, then writing it again.
-3. `intrinsic-capability-representation-plan.md` (which absorbs Change B) and
+2. `intrinsic-capability-representation-plan.md` (which absorbs Change B) and
    `platform-facts-plan.md` — independent of the manifest split.
-4. **Change A**, last. Biggest, newest, and the one that benefits from every step above:
+3. **Change A**, last. Biggest, newest, and the one that benefits from every step above:
    simpler pairing, a target already threaded out, and the capability axis already sourced
    from the contract so the signatures object has something correct to carry.

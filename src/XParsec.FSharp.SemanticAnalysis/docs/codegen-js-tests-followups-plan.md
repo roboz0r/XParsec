@@ -129,20 +129,12 @@ Test bodies, so out of the sweep's scope, but the same failure modes:
   assertion in the file that does not interpolate `out`, so a failure there prints less than
   its siblings.
 
-## A8. The array-intrinsic test passes on a spelling mismatch **[verified]**
+## A8. The array-intrinsic test passes on a spelling mismatch **[LANDED]**
 
-`PrimitiveExprTests.fs`, `"a generic intrinsic (array) is NOT flagged unsupported on JS"`.
-
-- `RuntimeNames.arrayKey` mints off `arrayName 1` = `[]` (`RuntimeNames.fs:286`)
-- `RuntimeNames.arrayContractName` is `` "``" + arrayName 1 + "``" `` = `` `[]` ``
-  (`:137`), and that is what the contract registers the shape under
-
-The test asserts a lookup **misses**. It passes because the two spellings differ, not because
-arrays are deliberately admitted. Unify the keys — which the `arrayContractName` doc reads as
-the intended direction — and this test silently changes meaning rather than failing.
-
-Decide which invariant is meant: "an array intrinsic is admitted" (assert it positively) or
-"the two keys are deliberately distinct" (a `RuntimeNames` assertion, not a JS-emission one).
+The two spellings were unified, so the lookup this test relied on missing now hits. The
+positive invariant it was asked to state — the array publishes an intrinsic shape carrying
+JS's repr — is asserted in `ArrayIndexMemberTests.fs`; the `PrimitiveExprTests.fs` test keeps
+only the target-verdict check, an `[| … |]` literal still failing on JS for a separate reason.
 
 ## A9. A target divergence carried only as a comment, now deleted **[verified]**
 

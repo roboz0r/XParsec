@@ -69,7 +69,7 @@ module AssemblyFiles =
     let private declaredNamespaces (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
         let identText (tok: SyntaxToken) =
             match tok.Index with
-            | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
+            | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
             | TokenIndex.Virtual -> ""
 
         match file with

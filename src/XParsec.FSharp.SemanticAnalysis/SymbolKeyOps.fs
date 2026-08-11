@@ -14,24 +14,47 @@ module SymbolKeyOps =
         let tick = name.IndexOf '`'
         if tick < 0 then name else name.Substring(0, tick)
 
-    /// An F#-BACKTICK-ESCAPED identifier (`` ``[]`` ``), which can carry no `` `N `` suffix
-    /// and so is held at `TyparArity = 0`.
-    let private isEscapedName (name: string) = name.Contains '`'
+    /// The name of an array of `rank` dimensions: `[]`, `[,]`, `[,,]`, …
+    let arrayName (rank: int) : string =
+        if rank <= 1 then
+            "[]"
+        else
+            "[" + System.String(',', rank - 1) + "]"
+
+    /// The TYPE, not the `&` operator that constructs one.
+    let byrefName: string = "byref"
+
+    /// An array of any rank, or a by-ref: a type whose element type rides its ARGS rather
+    /// than a declared typar, so it is keyed at arity 0 however it is minted and a use site
+    /// agrees with `` type 'T ``[]`` ``.
+    let isStructuralConstructorName (name: string) : bool =
+        name = byrefName
+        || (name.Length >= 2
+            && name.[0] = '['
+            && name.[name.Length - 1] = ']'
+            && (let mutable ok = true
+
+                for i in 1 .. name.Length - 2 do
+                    if name.[i] <> ',' then
+                        ok <- false
+
+                ok))
+
+    /// The arity a key over `name` may hold, which is NONE for a structural constructor.
+    let private permittedArity (name: string) (arity: int) : int =
+        if isStructuralConstructorName name then 0 else arity
 
     /// Render `(name, arity)` as the CLR metadata spelling (`List` + 1 ⇒ `` List`1 ``);
-    /// unchanged at arity ≤ 0 or for an escaped name. Never build a key's `Name` with it.
+    /// unchanged at arity ≤ 0. Never build a key's `Name` with it.
     let arityName (name: string) (arity: int) : string =
-        if arity > 0 && not (isEscapedName name) then
-            sprintf "%s`%d" name arity
-        else
-            name
+        if arity > 0 then sprintf "%s`%d" name arity else name
 
     /// The inverse of `arityName` on ONE metadata name segment: a trailing `` `N `` splits
     /// into `(bare name, N)`, otherwise `(segment, 0)`.
     let private parseArity (segment: string) : struct (string * int) =
         let tick = segment.LastIndexOf '`'
 
-        if tick <= 0 || tick = segment.Length - 1 || segment.[tick - 1] = '`' then
+        if tick <= 0 || tick = segment.Length - 1 then
             struct (segment, 0)
         else
             let mutable n = 0
@@ -153,13 +176,12 @@ module SymbolKeyOps =
                 | ValueSome container -> exact (typeMetaName (typeKeyOfSegment container (probe.Substring(dot + 1))))
                 | ValueNone -> ValueNone
 
-    /// A BARE source name plus its arity as an INT. An ESCAPED name is forced to arity 0, so
-    /// `type ``[]``<'T>` keys equal to the `` ``[]`` `` a name-axis producer meets.
+    /// A BARE source name plus its arity as an INT.
     let typeKeyOfContainer (container: TypeContainer) (name: string) (arity: int) : TypeKey =
         {
             Container = container
             Name = name
-            TyparArity = if isEscapedName name then 0 else arity
+            TyparArity = permittedArity name arity
         }
 
     /// `typeKeyOfContainer` for a type declared directly in a namespace.
@@ -168,7 +190,6 @@ module SymbolKeyOps =
 
     let rec private spelledArity (t: TypeKey) : bool =
         t.TyparArity > 0
-        || isEscapedName t.Name
         || (
             match t.Container with
             | TypeContainer.InType outer -> spelledArity outer
@@ -178,7 +199,7 @@ module SymbolKeyOps =
     /// Supply an arity the compiled NAME did not spell, to the INNERMOST segment. Declines
     /// when any segment spelled one: in `` List`1+Enumerator `` the typar belongs to `List`.
     let private withArity (arity: int) (t: TypeKey) : TypeKey =
-        if arity > 0 && not (spelledArity t) then
+        if permittedArity t.Name arity > 0 && not (spelledArity t) then
             { t with TyparArity = arity }
         else
             t

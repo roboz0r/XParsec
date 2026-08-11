@@ -231,15 +231,9 @@ sibling arms (`:342`, `:403`, `:419`, `:434`) and `precDim` (`:237`) take `int p
 digit-parsed `Literal` cannot be negative, so the clamp is inert but reads as though the others
 are missing a guard.
 
-### `SymbolKeyOps.fs:20` — `isEscapedName` does not test what its name says
+### `SymbolKeyOps.fs:20` — `isEscapedName` does not test what its name says **[LANDED]**
 
-`let private isEscapedName (name: string) = name.Contains '\`'` answers TRUE for an
-already-mangled `` List`1 ``, not only for a backtick-escaped name. At `:174`,
-`TyparArity = if isEscapedName name then 0 else arity` therefore keys an arity-suffixed name at
-arity 0, where it can never compare equal to the parsed key. Also consumed at `:26` and `:183`.
-
-Not currently triggered — every path into these reaches them with a bare source name — but the
-predicate is a string test standing in for a distinction the type does not make.
+`isEscapedName` is deleted; see the same entry in `semantic-analysis-followups-plan-2.md`.
 
 ### `Diagnostics.fs:372` — a parser-owned code is published under `DiagCode.Vesper`
 

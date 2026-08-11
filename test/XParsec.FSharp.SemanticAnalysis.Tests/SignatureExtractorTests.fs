@@ -1179,7 +1179,7 @@ let tests =
             // array a bare `Scalar` with NO error. Asserting on the published shape is what
             // catches that; a use site would only report the eventual mismatch.
             test "the array publishes an intrinsic surface carrying `seq<'T>` over its element" {
-                let key = RuntimeNames.declarationKey (RuntimeNames.arrayKey 1)
+                let key = RuntimeNames.arrayKey 1
 
                 let surface =
                     match realProvider.Value.TryLookupType key with

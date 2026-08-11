@@ -116,33 +116,6 @@ module RuntimeNames =
 
     let stringWriterTypeName: string = "System.IO.StringWriter"
 
-    let arrayName (rank: int) : string =
-        if rank <= 1 then
-            "[]"
-        else
-            "[" + System.String(',', rank - 1) + "]"
-
-    /// The array's name as a member-bearing declaration must SPELL it: backtick-escaped, so
-    /// it can carry no `` `N ``. THIS is the member-store / contract key, not `arrayName`.
-    let arrayContractName: string = "``" + arrayName 1 + "``"
-
-    /// The TYPE, not the `&` operator that constructs one.
-    let byrefName: string = "byref"
-
-    /// An array of any rank, or a by-ref.
-    let isStructuralConstructorName (name: string) : bool =
-        name = byrefName
-        || (name.Length >= 2
-            && name.[0] = '['
-            && name.[name.Length - 1] = ']'
-            && (let mutable ok = true
-
-                for i in 1 .. name.Length - 2 do
-                    if name.[i] <> ',' then
-                        ok <- false
-
-                ok))
-
     /// The function an `[| … |]` literal lowers to; codegen emits the array directly from it.
     let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
 
@@ -259,13 +232,10 @@ module RuntimeNames =
         | SymbolKey.Type t -> t.TyparArity = 0 && t.Container = intrinsicContainer && nameSatisfies t.Name
         | _ -> false
 
-    /// The KEY-based form of `isStructuralConstructorName`: an array of any rank or a
-    /// managed by-ref, compared as an identity so a user type named `byref` in its own
-    /// namespace cannot claim the dedicated backend path these ride.
+    /// An array of any rank or a managed by-ref, compared as an IDENTITY so a user type named
+    /// `byref` in its own namespace cannot claim the dedicated backend path these ride.
     let isStructuralConstructorKey (k: SymbolKey) : bool =
-        isIntrinsicKeyWhere isStructuralConstructorName k
-
-    // The generic ones mint off `arrayName`/`byrefName`.
+        isIntrinsicKeyWhere SymbolKeyOps.isStructuralConstructorName k
 
     let unitKey: SymbolKey = primitiveKey "unit"
     let boolKey: SymbolKey = primitiveKey "bool"
@@ -293,20 +263,15 @@ module RuntimeNames =
     /// a fixed-width scalar, so none of the width-driven classifications admit it.
     let bigintKey: SymbolKey = primitiveKey "bigint"
     let undefinedKey: SymbolKey = primitiveKey undefinedTypeName
-    let byrefKey: SymbolKey = primitiveKey byrefName
-    let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
+    let byrefKey: SymbolKey = primitiveKey SymbolKeyOps.byrefName
 
-    /// The DECLARATION of the type `key` names, where the two spellings differ. Only the array
-    /// does: a value carries the bare `[]`, but a declaration must spell the name
-    /// backtick-escaped, so its shape is filed under `` Vesper.`[]` ``. Identity elsewhere.
-    ///
-    /// A WART, not a design: the escape is source spelling and belongs nowhere near a key.
-    /// Unifying the two costs a sweep of every name → key sink; see `array-key-spelling.md`.
-    let declarationKey (key: SymbolKey) : SymbolKey =
-        if key = arrayKey 1 then
-            primitiveKey arrayContractName
-        else
-            key
+    let arrayKey (rank: int) : SymbolKey =
+        primitiveKey (SymbolKeyOps.arrayName rank)
+
+    /// The array's `get_Item` host, declared in the GLOBAL namespace by `array-index.js.fsi`
+    /// so this member surface cannot displace the `Vesper` shape carrying the array's
+    /// capabilities. The same identity otherwise: `opaqueKey`, so no `Vesper` prefix.
+    let arrayMemberHostKey: SymbolKey = opaqueKey (SymbolKeyOps.arrayName 1)
 
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 

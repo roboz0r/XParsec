@@ -590,7 +590,7 @@ module internal UnificationInferControlFlow =
         // A PRIMITIVE source (`for x in arr`): an `extern class` declares its interfaces on
         // the intrinsic's class surface, matched against the capability as in the union arm.
         | TyConst(key, args) ->
-            match ctx.Provider.TryLookupType(RuntimeNames.declarationKey key) with
+            match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
                 let argArr = args.AsSpan().ToArray()
 

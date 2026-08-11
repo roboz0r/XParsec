@@ -507,10 +507,11 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
         LocalSymbolKey.ofType (ModuleRules.typeContainerOf this.CurrentContainer) name arity
 
-    /// Source text of `token`. Empty for virtual (synthesised) tokens.
+    /// Source text of `token`, a backtick-escaped identifier reading as the name it spells.
+    /// Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =
         match token.Index with
-        | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT)
+        | TokenIndex.Regular iT -> this.Lexed.GetTokenName(iT)
         | TokenIndex.Virtual -> ""
 
     /// Record how the source writes `boundVar`. Idempotent, and must be: a ctor parameter's key

@@ -102,16 +102,11 @@ the declarations would take those tests with them. The decision is therefore whe
 tier is still intended, not whether the code is reachable — if it is intended, say so where a
 reader can tell it is unbuilt; if not, the tests go too.
 
-### `SymbolKeyOps.fs:17` — `isEscapedName` also answers true for an already-arity-suffixed compiled name
+### `SymbolKeyOps.fs:17` — `isEscapedName` also answers true for an already-arity-suffixed compiled name **[LANDED]**
 
-The body tests only for the presence of a backtick, so `` List`1 `` satisfies it as readily as an
-F#-escaped `` ``[]`` ``. At the two guarded sites the resulting behaviour happens to be wanted —
-`arityName` must not append a second suffix, and `withArity`/`spelledArity` must not overwrite
-an arity the name already spelled — but the predicate's name says something narrower than what
-it tests, and `typeKeyOfContainer` reads it as "escaped, therefore arity 0", which would silently
-zero the arity of a caller that handed in a compiled name. Renaming it to something like
-`hasBacktick`, or splitting the two questions, would make the third site's assumption visible.
-The doc comment claiming "True iff `name` is an F#-BACKTICK-ESCAPED identifier" was cut here.
+`isEscapedName` is deleted. The escape is stripped at the token → name read
+(`Lexed.GetTokenName`), so no name reaching a key carries one, and the arity-0 rule the
+predicate stood in for is now stated directly as `isStructuralConstructorName`.
 
 ### `SemanticScalars.fs:14` — `Rational`'s `Equals` and `CompareTo` disagree on non-canonical values
 
@@ -358,7 +353,7 @@ outside the swept scope. One-line edits, no behaviour.
 The deleted module header read: "The canonical `*Key` identity of each well-known runtime type.
 Identity is the key, never a string." Roughly a third of the module is the opposite — a
 platform-repr STRING axis: `objAbbrevName`, `systemObjectQualifiedName`, `textWriterTypeName`,
-`stringBuilderTypeName`, `stringWriterTypeName`, `arrayName`, `arrayContractName`, `byrefName`,
+`stringBuilderTypeName`, `stringWriterTypeName`, `arrayName`, `byrefName`,
 `arrayOfListName`, `nullTypeName`, `undefinedTypeName`, plus the `Set<string>` tables
 `numericTypeNames` / `referencePrimitiveNames` and the by-name recognisers `isVesperListName`,
 `isStructuralConstructorName`. Nothing in the types tells a caller which axis it is on, so

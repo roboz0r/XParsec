@@ -69,7 +69,7 @@ module ConformancePass =
 
     let private identText (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
+        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
         | TokenIndex.Virtual -> ""
 
     let private longIdentText (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =

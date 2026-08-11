@@ -299,11 +299,11 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
   [`contract-sourced-intrinsic-identity-plan.md`](contract-sourced-intrinsic-identity-plan.md).
   W9 landed indexers localized on top of the then-bare identities.
 - **Array contract-name reality (corrects §3 below):** the key-agreement string is NOT `"[]``1"`.
-  VesperLib's `nameOfTok` registers array under its verbatim backtick-escaped token `` ``[]`` `` and
-  `arityName`'s backtick-guard suppresses the suffix, so both the consumer contract AND the harvest store
-  key it as `` ``[]`` `` — single-sourced as `RuntimeNames.arrayContractName`, which the `InferRecordAccess`
-  array branch uses for the lookup. This escaped bridge is a localized cost of deferring array-identity
-  normalization (tracked in the identity doc for removal there).
+  The name is the bare `[]`: the escape is stripped at the token → name read, and a structural
+  constructor takes arity 0 however it is minted, so both the consumer contract AND the lifted
+  store key it as `[]`. The `InferRecordAccess` array branch looks it up under
+  `RuntimeNames.arrayMemberHostKey`, which differs only in being GLOBAL-namespace: the indexer
+  is declared there so it cannot displace the `Vesper` shape carrying the array's capabilities.
 
 **REMAINING (pick up in order):**
 - **2b** — array WRITE (`arr.[i] <- v` → `set_Item`) via the new `inferIndexedSet` from

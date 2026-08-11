@@ -9,27 +9,39 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // `GetArray` inline. Both emit the same `arr[i]`, so a key-agreement miss would fall back
 // to `GetArray` silently; these tests are the ANTI-MASKING proof the member path is taken.
 
-/// The array's member-contract key `` ``[]`` ``: the same string the member-access lookup,
-/// the consumer contract and the inline-body store all pass to `TryLookupMember`.
-let private arrayMemberKey: string = RuntimeNames.arrayContractName
+/// The array's member-contract key: the same key the member-access lookup, the consumer
+/// contract and the inline-body store all pass to `TryLookupMember`.
+let private arrayMemberKey: SymbolKey = RuntimeNames.arrayMemberHostKey
 
 [<Tests>]
 let tests =
     testList
         "Codegen.Js ArrayIndexMember"
         [
+            // The array's DECLARATION files its shape under the very key a value's type
+            // carries, so a support verdict is read off JS's repr rather than off a miss.
+            test "the array publishes an intrinsic shape carrying its JS repr under the array key" {
+                match jsProvider.Value.TryLookupType(RuntimeNames.arrayKey 1) with
+                | ValueSome(ExternalTypeShape.Intrinsic {
+                                                            Id = {
+                                                                     Platform = IntrinsicPlatform.Repr repr
+                                                                 }
+                                                        }) -> Expect.equal repr "!0[]" "the array's JS platform repr"
+                | other -> failtestf "expected `Vesper.[]` as an Intrinsic shape with a JS repr, got %A" other
+            }
+
             // Over the REAL loaded JS-native contract stack, the array's `get_Item`
-            // resolves under the bare key `` ``[]`` `` and its lifted inline body rides
-            // that very entry, so the store key and the lookup key agree.
+            // resolves under the bare key `[]` and its lifted inline body rides that very
+            // entry, so the store key and the lookup key agree.
             test "the array `get_Item` member resolves and carries its inline body under the bare array key" {
                 let provider = jsProvider.Value
 
                 let mem =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey arrayMemberKey 0, "get_Item") with
+                    match provider.TryLookupMember(arrayMemberKey, "get_Item") with
                     | ValueSome m -> m
                     | ValueNone ->
                         failtestf
-                            "TryLookupMember(%s, get_Item) MISSED — the `array-index.js.fsi` contract half is absent"
+                            "TryLookupMember(%A, get_Item) MISSED — the `array-index.js.fsi` contract half is absent"
                             arrayMemberKey
 
                 Expect.isTrue
@@ -41,11 +53,7 @@ let tests =
             // the lifted `array-index.js.fs` body was collected under. Compared WHOLE, so an
             // `ArgSig` divergence names itself here.
             test "the array `get_Item` contract-side and impl-side member keys are equal, ArgSig included" {
-                expectMemberKeyHalvesAgree
-                    jsContract.Value
-                    [ vesperCoreManifest ]
-                    (SymbolKeyOps.qualifiedTypeKey arrayMemberKey 0)
-                    [ "get_Item" ]
+                expectMemberKeyHalvesAgree jsContract.Value [ vesperCoreManifest ] arrayMemberKey [ "get_Item" ]
             }
 
             // An `arr.[i]` read must leave an `ExternalAccess` entry for `get_Item`; the

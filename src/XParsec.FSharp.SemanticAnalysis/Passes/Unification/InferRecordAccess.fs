@@ -592,12 +592,7 @@ module internal UnificationInferRecordAccess =
             // A rank-1 array reads through the intrinsic array type's declared `get_Item`, the
             // member form of the free `GetArray`.
             | TyArray elem ->
-                match
-                    resolveExternalIndexer
-                        (SymbolKeyOps.qualifiedTypeKey RuntimeNames.arrayContractName 0)
-                        [| elem |]
-                        AccessorNames.itemGetter
-                with
+                match resolveExternalIndexer RuntimeNames.arrayMemberHostKey [| elem |] AccessorNames.itemGetter with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
             | _ ->

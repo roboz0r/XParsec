@@ -91,7 +91,7 @@ let tests =
                     (intrinsicNames (Conformance.summariseImpl implLexed implFile))
                     "extern set == intrinsic set"
 
-                Expect.isTrue (externs.Contains "``[]``") "the array type constructor is extern"
+                Expect.isTrue (externs.Contains "[]") "the array type constructor is extern"
             }
 
             // ---- Negative cases: each drift the check is meant to catch ----

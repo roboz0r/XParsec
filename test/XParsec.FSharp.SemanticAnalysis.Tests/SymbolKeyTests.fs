@@ -134,18 +134,23 @@ let tests =
                 | TypeContainer.InType outer -> Expect.equal outer.TyparArity 1 "the OUTER declares one of its own"
                 | other -> failtestf "expected InType, got %A" other
 
-                // The array's declared name is backtick-escaped, F# having no bare `[]`
-                // identifier. Those backticks are an escape, not an arity.
-                let arr = roundTrip "Vesper" RuntimeNames.arrayContractName
+                // `type 'T ``[]`` ` spells its name backtick-escaped, F# having no bare `[]`
+                // identifier, but the escape is source spelling and reaches no key.
+                let arr = roundTrip "Vesper" (SymbolKeyOps.arrayName 1)
 
-                Expect.equal arr.Name RuntimeNames.arrayContractName "the escape is not mangled into a name + arity"
+                Expect.equal arr.Name "[]" "the array's key holds the bare name"
 
-                Expect.equal arr.TyparArity 0 "a backtick ESCAPE is not a `` `N ``"
+                Expect.equal arr.TyparArity 0 "a structural constructor takes no arity"
 
                 Expect.equal
-                    (SymbolKeyOps.qualifiedTypeKeyOf ("Vesper." + RuntimeNames.arrayContractName) 1)
+                    (SymbolKeyOps.qualifiedTypeKeyOf "Vesper.[]" 1)
                     arr
-                    "an escaped name takes no arity, however it is minted"
+                    "the array's element type rides its args, so no arity is supplied however it is minted"
+
+                Expect.equal
+                    (SymbolKeyOps.typeKeyOfArity "Vesper" (SymbolKeyOps.arrayName 1) 1)
+                    arr
+                    "the DECLARATION's one typar keys the same, so a use site and a declaration agree"
             }
 
             test "module full name renders the containment chain" {

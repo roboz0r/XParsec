@@ -170,6 +170,22 @@ type Lexed =
     /// token spells no name" reads as, no identifier being empty.
     member this.GetIdentifier(i: int<token>) : string = this.GetIdentifierSpan(i).ToString()
 
+    /// Token `i`'s text, with a backtick-escaped identifier read as the NAME it spells
+    /// (`` ``my value`` `` ⇒ `my value`); every other token comes back verbatim, so this
+    /// serves wherever `GetTokenString` does. F# emits the bare name to metadata, so a
+    /// consumer that reads a name through this one cannot carry the escape into an identity.
+    member this.GetTokenName(i: int<token>) : string =
+        let tokens = this.Tokens
+
+        if
+            i >= 0<_>
+            && int i < tokens.Length
+            && tokens[i].Token = Token.BacktickedIdentifier
+        then
+            this.GetIdentifier(i)
+        else
+            this.GetTokenString(i)
+
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
 

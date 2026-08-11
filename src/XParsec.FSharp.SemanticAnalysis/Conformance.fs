@@ -91,7 +91,7 @@ module Conformance =
 
     let private nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
+        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
         | TokenIndex.Virtual -> ""
 
     /// A type declaration names a single ident, so its last segment is the short name.

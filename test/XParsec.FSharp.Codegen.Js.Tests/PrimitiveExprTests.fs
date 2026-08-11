@@ -182,10 +182,10 @@ let tests =
                     Expect.equal out "3" "the lambda's three writes to the module-level mutable are observed"
             }
 
+            // Narrow by design: an `[| … |]` literal still fails on JS for a SEPARATE reason
+            // (`ArrayModule.OfList` has no JS binding), so only the target verdict is asserted.
+            // That the array carries a JS repr at all is pinned in `ArrayIndexMemberTests`.
             test "a generic intrinsic (array) is NOT flagged unsupported on JS" {
-                // An array's front-end key spells `Vesper.[]`, while the contract registers
-                // its shape under `` Vesper.``[]`` ``, so the shape lookup misses and no
-                // unsupported verdict is produced.
                 let msg =
                     try
                         emitJs "let x = [| 1; 2; 3 |]" |> ignore

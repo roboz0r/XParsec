@@ -486,7 +486,7 @@ module UnificationEngineCore =
                     | ValueNone -> ()
             ]
         | ValueNone ->
-            match ctx.Provider.TryLookupType(RuntimeNames.declarationKey key) with
+            match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
