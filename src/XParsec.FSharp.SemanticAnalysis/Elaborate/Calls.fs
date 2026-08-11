@@ -127,9 +127,9 @@ module internal ElaborateCalls =
             tok
         )
 
-    /// Instance `MethodCall` resolved to `declKey.memberName`. For an OVERLOADED name,
-    /// Unification recorded the chosen overload's frozen `SymbolKey` in `LocalMemberCall`
-    /// under `callKey`; a non-overloaded name has no entry and mints its own.
+    /// Instance `MethodCall` resolved to `declKey.memberName`, through the overload Unification
+    /// pinned in `LocalMemberCall` under `callKey`. An access it never resolved (an external
+    /// member call folded to this shape) has no entry and mints its own.
     let mkMethodCall
         (ctx: PassContext)
         (callKey: NodeKey)
@@ -142,7 +142,7 @@ module internal ElaborateCalls =
         : TExpr =
         let key =
             match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
-            | ValueSome frozen -> ValueSome frozen
+            | ValueSome resolved -> ValueSome resolved.Key
             | ValueNone ->
                 // External overload discrimination reads the object argument's declaring-type args
                 // and the ground operand element types; a non-ground operand declines to the
@@ -157,7 +157,7 @@ module internal ElaborateCalls =
 
         match key with
         | ValueSome key ->
-            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args
+            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx key) args
             TExpr.MethodCall(objArg, key, viaOfObjArg ctx objArg, argsList, ty, tok)
         | ValueNone ->
             // Post-inference a miss is an internal invariant break, not mis-typed source.
@@ -191,7 +191,7 @@ module internal ElaborateCalls =
 
         match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with
         | ValueSome key ->
-            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx ifaceKey memberName) args
+            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx key) args
             TExpr.MethodCall(objArg, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
         | ValueNone ->
             ctx.Report(
@@ -217,8 +217,7 @@ module internal ElaborateCalls =
             LocalMemberKeys.externalOperands ctx.Store [||] [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx declKey memberName operands with
-        | ValueSome key ->
-            TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args, ty, tok)
+        | ValueSome key -> TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx key) args, ty, tok)
         | ValueNone ->
             ctx.Report(
                 tok,

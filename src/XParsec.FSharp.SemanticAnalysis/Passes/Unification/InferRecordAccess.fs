@@ -541,16 +541,22 @@ module internal UnificationInferRecordAccess =
                 | ValueNone ->
                     ValueSome(errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"))
 
-        // A declared `get_Item` read is a method call, not a spliced body, so it stamps no key.
-        match tryLocalInstanceMember ctx objArgTy AccessorNames.itemGetter with
-        | ValueSome accessorTy ->
+        // A declared `get_Item` read is a method call, not a spliced body, so it stamps no
+        // intrinsic key. It does pin WHICH `get_Item`, because Elaborate cannot tell the object
+        // argument's own from an inherited one by looking at the object argument's type.
+        match pickInstanceMember ctx objArgTy AccessorNames.itemGetter [ idxTy ] with
+        | InstanceMemberPick.Resolved accessor ->
             let resultTy = TyVar(freshTyVar ctx)
-            unify ctx node.Tok accessorTy (TyFun(idxTy, resultTy))
+            unify ctx node.Tok accessor.MemberTy (TyFun(idxTy, resultTy))
+            stampInstanceMember ctx node.Key accessor
             ValueSome resultTy
+        // A `get_Item` that EXISTS but did not apply is not a missing indexer, so the surfaces
+        // below cannot answer for it and its own verdict is reported instead.
+        | InstanceMemberPick.Unresolved kind -> ValueSome(errorTy ctx node.Tok kind)
         // An index signature is not a member, so no `get_Item` lookup can find it and it needs
         // its own probe. Otherwise each surface answers with its declared `get_Item`: an
         // external class's, or an intrinsic's own contract (`arr.[i]`, `s.[i]`).
-        | ValueNone ->
+        | InstanceMemberPick.NotFound ->
             match pickSurface ctx objArgTy tryIndexSignature with
             | ValueSome resultTy -> ValueSome resultTy
             | ValueNone -> pickSurface ctx objArgTy resolveExternalIndexer
@@ -590,10 +596,16 @@ module internal UnificationInferRecordAccess =
 
                 ValueSome()
 
-        // A declared `set_Item` write is a method call, not a spliced body, so it stamps no key.
-        match tryLocalInstanceMember ctx objArgTy AccessorNames.itemSetter with
-        | ValueSome setterTy -> unify ctx node.Tok setterTy (TyFun(idxTy, TyFun(valueTy, ctx.Intrinsics.Unit)))
-        | ValueNone ->
+        // A declared `set_Item` write is a method call, not a spliced body, so it stamps no
+        // intrinsic key. It pins WHICH `set_Item`, as the read does.
+        match pickInstanceMember ctx objArgTy AccessorNames.itemSetter [ idxTy; valueTy ] with
+        | InstanceMemberPick.Resolved setter ->
+            unify ctx node.Tok setter.MemberTy (TyFun(idxTy, TyFun(valueTy, ctx.Intrinsics.Unit)))
+            stampInstanceMember ctx node.Key setter
+        // A `set_Item` that EXISTS but did not apply is not a missing indexer, so its own
+        // verdict is reported rather than the surfaces' "no such member".
+        | InstanceMemberPick.Unresolved kind -> ctx.Report(node.Tok, kind)
+        | InstanceMemberPick.NotFound ->
             match pickSurface ctx objArgTy tryIndexSignature with
             | ValueSome() -> ()
             | ValueNone ->

@@ -2219,6 +2219,199 @@ let interfaceImplCodegenTests =
                     "`c.[2] <- 5` stores 7, and `c.[2]` reads it back as 9"
             }
 
+            // The derived type declares no accessor at all, so both halves of the round trip
+            // resolve up the `inherit` chain and call the base that emits them.
+            test "`x.[i]` and `x.[i] <- v` dispatch through an INHERITED indexer" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Store(v: int) ="
+                            "    let mutable slot = v"
+                            "    member this.Item with get (i: int) = slot + i and set (i: int) (w: int) = slot <- w + i"
+                            "type Cache(v: int) ="
+                            "    inherit Store(v)"
+                            "    member this.Tag = 1"
+                            "type Driver() ="
+                            "    member _.RoundTrip(i: int, w: int) ="
+                            "        let c = Cache(0)"
+                            "        c.[i] <- w"
+                            "        c.[i]"
+                        ]
+
+                let _, artifact = compileSource "InhIndexer" src
+                let bytes = Codegen.toBytes artifact
+                let asm = loadAssembly bytes
+
+                let declaredOn (name: string) =
+                    asm
+                        .GetType(name, throwOnError = true)
+                        .GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.map (fun m -> m.Name)
+                    |> Set.ofArray
+
+                Expect.isTrue ((declaredOn "Store").Contains "get_Item") "the base declares get_Item"
+                Expect.isTrue ((declaredOn "Store").Contains "set_Item") "the base declares set_Item"
+
+                Expect.isFalse
+                    ((declaredOn "Cache").Contains "get_Item")
+                    "the derived declares no get_Item of its own, so the call reached the base"
+
+                let roundTrip = peMethodIl bytes "Driver" "RoundTrip"
+                Expect.isFalse (roundTrip |> Array.contains 0xA3uy) "the read is a call, not `ldelem`"
+                Expect.isFalse (roundTrip |> Array.contains 0xA4uy) "the write is a call, not `stelem`"
+
+                let driver = asm.GetType("Driver", throwOnError = true)
+                let instance = Activator.CreateInstance driver
+
+                Expect.equal
+                    (driver.GetMethod("RoundTrip").Invoke(instance, [| box 2; box 5 |]) :?> int)
+                    9
+                    "`c.[2] <- 5` stores 7 through the base setter, and `c.[2]` reads it back as 9"
+            }
+
+            // `c.Q <- n` resolves its `set_Q` up the chain exactly as the indexer does, and the
+            // object argument upcasts so the call names the base that emits the accessor.
+            test "`x.P <- v` dispatches through an INHERITED setter" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Holder(v: int) ="
+                            "    let mutable q = v"
+                            "    member this.Q with get () = q and set (w: int) = q <- w"
+                            "type Tagged(v: int) ="
+                            "    inherit Holder(v)"
+                            "    member this.Tag = 1"
+                            "type Driver() ="
+                            "    member _.RoundTrip(n: int) ="
+                            "        let t = Tagged(0)"
+                            "        t.Q <- n"
+                            "        t.Q"
+                        ]
+
+                let _, artifact = compileSource "InhSetter" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+
+                let declaredOnTagged =
+                    asm
+                        .GetType("Tagged", throwOnError = true)
+                        .GetMethods(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                    |> Array.map (fun m -> m.Name)
+                    |> Set.ofArray
+
+                Expect.isFalse
+                    (declaredOnTagged.Contains "set_Q")
+                    "the derived declares no set_Q, so the write reached the base"
+
+                let driver = asm.GetType("Driver", throwOnError = true)
+                let instance = Activator.CreateInstance driver
+
+                Expect.equal
+                    (driver.GetMethod("RoundTrip").Invoke(instance, [| box 21 |]) :?> int)
+                    21
+                    "the write and the read both go through the inherited accessors"
+            }
+
+            // F#'s hiding rule: a derived accessor hides a base one only at the SAME signature.
+            // A base `get_Item(string)` differs from the derived `get_Item(int)`, so both stay
+            // callable and the index type picks between them.
+            test "a derived indexer does not hide a base indexer of a different signature" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Named() ="
+                            "    member this.Item with get (k: string) = k.Length"
+                            "type Both() ="
+                            "    inherit Named()"
+                            "    member this.Item with get (i: int) = i + 100"
+                            "type Driver() ="
+                            "    member _.ByInt(i: int) ="
+                            "        let b = Both()"
+                            "        b.[i]"
+                            "    member _.ByName(k: string) ="
+                            "        let b = Both()"
+                            "        b.[k]"
+                        ]
+
+                let _, artifact = compileSource "InhIndexerOverload" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let driver = asm.GetType("Driver", throwOnError = true)
+                let instance = Activator.CreateInstance driver
+
+                Expect.equal
+                    (driver.GetMethod("ByInt").Invoke(instance, [| box 5 |]) :?> int)
+                    105
+                    "an int index reaches the derived `get_Item(int)`"
+
+                Expect.equal
+                    (driver.GetMethod("ByName").Invoke(instance, [| box "abcd" |]) :?> int)
+                    4
+                    "a string index is not hidden by the derived indexer; it reaches the base"
+            }
+
+            // The other half of F#'s hiding rule: at the SAME signature the derived accessor
+            // DOES hide the base one, so the read reaches the derived one rather than tying.
+            test "a derived indexer hides a base indexer of the same signature" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Under() ="
+                            "    member this.Item with get (i: int) = i + 10"
+                            "type Over() ="
+                            "    inherit Under()"
+                            "    member this.Item with get (i: int) = i + 100"
+                            "type Driver() ="
+                            "    member _.Read(i: int) ="
+                            "        let o = Over()"
+                            "        o.[i]"
+                        ]
+
+                let _, artifact = compileSource "InhIndexerHiding" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let driver = asm.GetType("Driver", throwOnError = true)
+                let instance = Activator.CreateInstance driver
+
+                Expect.equal
+                    (driver.GetMethod("Read").Invoke(instance, [| box 5 |]) :?> int)
+                    105
+                    "the derived `get_Item(int)` hides the base's of the same signature"
+            }
+
+            // `set_P` has two candidates here, the base's indexed one and the derived's plain
+            // one, so the write only picks correctly if the probe discriminates by ARITY.
+            test "`x.P <- v` picks the plain setter over an inherited INDEXED one" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Slots(v: int) ="
+                            "    let mutable slot = v"
+                            "    member this.P with get (i: int) = slot + i and set (i: int) (w: int) = slot <- w + i"
+                            "type Single(v: int) ="
+                            "    inherit Slots(v)"
+                            "    let mutable only = 0"
+                            "    member this.P with get () = only and set (w: int) = only <- w"
+                            "type Driver() ="
+                            "    member _.RoundTrip(n: int) ="
+                            "        let s = Single(0)"
+                            "        s.P <- n"
+                            "        s.P"
+                        ]
+
+                let _, artifact = compileSource "PlainOverIndexedSetter" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let driver = asm.GetType("Driver", throwOnError = true)
+                let instance = Activator.CreateInstance driver
+
+                Expect.equal
+                    (driver.GetMethod("RoundTrip").Invoke(instance, [| box 21 |]) :?> int)
+                    21
+                    "the write reached the derived one-argument `set_P`, not the base's indexed one"
+            }
+
             // The array declares no `Item` accessor, so it keeps the element intrinsics.
             test "a plain array index still lowers to `ldelem` / `stelem`" {
                 let src =

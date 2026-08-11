@@ -442,3 +442,16 @@ type ResolvedExternalMember =
     }
 
     member m.IsValueMember = m.Storage.IsValueMember
+
+/// A member access on a *project-local* type that inference resolved, recorded per access
+/// node. Both halves are needed to emit the call: `Key` pins WHICH overload, `DeclaringTy`
+/// WHERE it lives.
+[<Struct>]
+type ResolvedLocalMember =
+    {
+        Key: SymbolKey
+        /// The declaring level's type at ITS type arguments, which for an INHERITED member is
+        /// not the object argument's own. The object argument upcasts to it, so the call names
+        /// the type that emits the member.
+        DeclaringTy: SemType
+    }

@@ -211,43 +211,105 @@ module UnificationEngineCore =
             MemberTy: SemType
         }
 
-    /// Walk a class's `inherit` chain for a NON-STATIC `memberName`, instantiated against
-    /// the object argument's `args`. `BaseType` is written in the DERIVED class's typar scope, so
-    /// applying `TypeParams ↦ args` to it threads the derived args up to the parent.
+    /// One level of an `inherit` chain that declares a name, at that level's own type args:
+    /// the identity a member found here is keyed and called on.
+    [<NoEquality; NoComparison>]
+    type ChainLevel =
+        {
+            DeclKey: TypeKey
+            DeclaringTy: SemType
+            TypeParams: EqArray<string * TyVarId>
+            Args: EqArray<SemType>
+            /// Non-static, in declaration order; never empty.
+            Candidates: TypeMemberInfo[]
+        }
+
+    /// Every level of a class's `inherit` chain declaring a NON-STATIC `memberName`, MOST
+    /// DERIVED FIRST. `BaseType` is written in the DERIVED class's typar scope, so applying
+    /// `TypeParams ↦ args` to it threads the derived args up to the parent.
+    let classChainLevels
+        (ctx: PassContext)
+        (clsKey: TypeKey)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : ChainLevel list =
+        let seen = HashSet<TypeKey>()
+        let levels = ResizeArray<ChainLevel>()
+
+        let rec walk (clsKey: TypeKey) (args: EqArray<SemType>) : unit =
+            if seen.Add clsKey then
+                match TypeRegistry.tryClassByKey ctx.Types clsKey with
+                | ValueSome info ->
+                    match info.Members |> Array.filter (fun m -> m.Name = memberName && not m.IsStatic) with
+                    | [||] -> ()
+                    | candidates ->
+                        levels.Add
+                            {
+                                DeclKey = info.TypeKey
+                                DeclaringTy = TyClass(info.TypeKey, args)
+                                TypeParams = info.TypeParams
+                                Args = args
+                                Candidates = candidates
+                            }
+
+                    match info.BaseType with
+                    | ValueSome parentTy ->
+                        match resolveStep ctx.Store (instantiateMember ctx.Store (info.TypeParams, args) parentTy) with
+                        | TyClass(parentKey, parentArgs) -> walk parentKey parentArgs
+                        | _ -> ()
+                    | ValueNone -> ()
+                | ValueNone -> ()
+
+        walk clsKey args
+        List.ofSeq levels
+
+    /// Every level of an object argument's declaration that declares a NON-STATIC `memberName`,
+    /// MOST DERIVED FIRST: the `inherit` chain for a class, the single declaration for a union
+    /// or record, which have no chain to walk. Empty ⇒ nothing project-local declares the name.
+    let memberLevels (ctx: PassContext) (objArgTy: SemType) (memberName: string) : ChainLevel list =
+        // `TyNominal` matches a class too, so the chain arm must come first.
+        match resolveStep ctx.Store objArgTy with
+        | TyClass(clsKey, args) -> classChainLevels ctx clsKey args memberName
+        | TyNominal(typeKey, args) as selfTy ->
+            match TypeRegistry.tryNominalByKey ctx.Types typeKey with
+            | ValueSome decl ->
+                match decl.Members |> Array.filter (fun m -> m.Name = memberName && not m.IsStatic) with
+                | [||] -> []
+                | candidates ->
+                    [
+                        {
+                            DeclKey = decl.TypeKey
+                            DeclaringTy = selfTy
+                            TypeParams = decl.TypeParams
+                            Args = args
+                            Candidates = candidates
+                        }
+                    ]
+            | ValueNone -> []
+        | _ -> []
+
+    /// The member type at one level, instantiated for a call against that level's args.
+    let chainMemberTy (ctx: PassContext) (level: ChainLevel) (m: TypeMemberInfo) : SemType =
+        instantiateMemberCall ctx (level.TypeParams, level.Args) m.EffectiveMethodTypars m.Type
+
+    /// The first declaration of `memberName` up the chain, for a caller with no arguments to
+    /// discriminate on. An overloaded name needs the ranker instead.
     let tryClassChainMemberDecl
         (ctx: PassContext)
         (clsKey: TypeKey)
         (args: EqArray<SemType>)
         (memberName: string)
         : ChainMember voption =
-        let seen = HashSet<TypeKey>()
+        match classChainLevels ctx clsKey args memberName with
+        | [] -> ValueNone
+        | level :: _ ->
+            let m = level.Candidates.[0]
 
-        let rec walk (clsKey: TypeKey) (args: EqArray<SemType>) : ChainMember voption =
-            if not (seen.Add clsKey) then
-                ValueNone
-            else
-                match TypeRegistry.tryClassByKey ctx.Types clsKey with
-                | ValueSome info ->
-                    match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
-                    | Some m ->
-                        ValueSome
-                            {
-                                DeclaringTy = TyClass(info.TypeKey, args)
-                                MemberTy =
-                                    instantiateMemberCall ctx (info.TypeParams, args) m.EffectiveMethodTypars m.Type
-                            }
-                    | None ->
-                        match info.BaseType with
-                        | ValueSome parentTy ->
-                            match
-                                resolveStep ctx.Store (instantiateMember ctx.Store (info.TypeParams, args) parentTy)
-                            with
-                            | TyClass(parentKey, parentArgs) -> walk parentKey parentArgs
-                            | _ -> ValueNone
-                        | ValueNone -> ValueNone
-                | ValueNone -> ValueNone
-
-        walk clsKey args
+            ValueSome
+                {
+                    DeclaringTy = level.DeclaringTy
+                    MemberTy = chainMemberTy ctx level m
+                }
 
     let tryClassChainMember
         (ctx: PassContext)

@@ -420,3 +420,180 @@ module UnificationInferOverload =
             | PickResult.One m -> MemberPick.Resolved m
             | PickResult.NoneApplicable -> MemberPick.NoneApplicable
             | PickResult.Ambiguous ms -> MemberPick.Ambiguous ms
+
+    /// A parameter-shape rendering for an overload diagnostic: each named type's simple name
+    /// (`int`), and `_` for anything else.
+    let showParams (ctx: PassContext) (ps: SemType list) : string =
+        let one (t: SemType) =
+            match zonk ctx.Store t with
+            | TyConst(k, _) -> let (DisplayName n) = SymbolKeyOps.simpleName k in n
+            | TyClass(k, _)
+            | TyRecord(k, _)
+            | TyUnion(k, _) -> let (DisplayName n) = SymbolKeyOps.simpleName (SymbolKey.Type k) in n
+            | _ -> "_"
+
+        ps |> List.map one |> String.concat ", "
+
+    [<NoEquality; NoComparison>]
+    type private ChainCandidate =
+        {
+            Level: ChainLevel
+            Member: TypeMemberInfo
+        }
+
+    /// `NotFound` is not `NoneApplicable`: no level declares the name at all.
+    [<RequireQualifiedAccess>]
+    type private ChainPick =
+        | NotFound
+        | Resolved of ChainCandidate
+        | NoneApplicable
+        | Ambiguous of ChainCandidate list
+
+    /// The axes two levels must agree on to be declaring the SAME member, which is what F#'s
+    /// hiding rule compares.
+    [<Struct>]
+    type private LevelSignature =
+        {
+            ArgSig: EqArray<FrozenType>
+            MethodTyparArity: int
+            Kind: MemberKind
+        }
+
+    /// A member's signature at ONE chain level, with that level's type arguments already
+    /// applied: `Base<int>.get_Item : 'T -> _` and `Derived.get_Item : int -> _` both come
+    /// out `[int]`.
+    let private levelSignature (ctx: PassContext) (level: ChainLevel) (m: TypeMemberInfo) : LevelSignature =
+        let store = ctx.Store
+        let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
+
+        let onVar (v: SemType) : FrozenType =
+            match v with
+            | TyVar tv ->
+                match methodEnv.TryGetValue (UnionFind.find store tv).Id with
+                | true, j -> FTTypar(TyparAxis.Method, j)
+                | _ -> FTUnknown ""
+            | _ -> FTUnknown ""
+
+        let atLevel = instantiateMember store (level.TypeParams, level.Args) m.Type
+
+        {
+            ArgSig =
+                EqArray.ofList
+                    [
+                        for p in flatParamsOf store (zonk store atLevel) ->
+                            FrozenTypeBridge.toFrozenWith onVar (zonk store p)
+                    ]
+            MethodTyparArity = m.EffectiveMethodTypars.Length
+            Kind = memberKindOf m
+        }
+
+    /// Resolve over EVERY level of an `inherit` chain, not the first that declares the name:
+    /// `get_Item(string)` on the base survives `get_Item(int)` on the derived. Levels arrive
+    /// most derived first, so dropping later duplicates of a signature applies F#'s hiding rule.
+    let private resolveChainMember (ctx: PassContext) (levels: ChainLevel list) (argElems: SemType list) : ChainPick =
+        let declared =
+            [
+                for level in levels do
+                    for m in level.Candidates -> { Level = level; Member = m }
+            ]
+
+        let candidates =
+            match levels with
+            // A single level hides nothing, and the signature projection is not free.
+            | []
+            | [ _ ] -> declared
+            | _ -> declared |> List.distinctBy (fun c -> levelSignature ctx c.Level c.Member)
+
+        match candidates with
+        | [] -> ChainPick.NotFound
+        // A lone candidate short-circuits the trial machinery; its mismatch surfaces at commit.
+        | [ single ] -> ChainPick.Resolved single
+        | cands ->
+            let rcs =
+                cands
+                |> List.map (fun c ->
+                    {
+                        Params = userMemberParams ctx c.Level.TypeParams c.Level.Args c.Member
+                        MethodTyparArity = c.Member.EffectiveMethodTypars.Length
+                        Item = c
+                    }
+                )
+                |> Array.ofList
+
+            match rankCandidates ctx rcs argElems with
+            | PickResult.One c -> ChainPick.Resolved c
+            | PickResult.NoneApplicable -> ChainPick.NoneApplicable
+            | PickResult.Ambiguous tied -> ChainPick.Ambiguous tied
+
+    /// A resolved instance member at the DECLARING level's identity: `DeclKey` mints the call
+    /// key, `DeclaringTy` the object argument's upcast.
+    [<NoEquality; NoComparison>]
+    type InstanceMember =
+        {
+            DeclKey: TypeKey
+            DeclaringTy: SemType
+            TypeParams: EqArray<string * TyVarId>
+            Member: TypeMemberInfo
+            /// Instantiated for this call site.
+            MemberTy: SemType
+        }
+
+    /// A resolved instance member, or the diagnostic its verdict earns. `NotFound` earns none:
+    /// nothing declares the name, which every caller answers with its own fall-through.
+    [<RequireQualifiedAccess>]
+    type InstanceMemberPick =
+        | Resolved of InstanceMember
+        | Unresolved of Kind
+        | NotFound
+
+    /// A NON-STATIC member of the object argument's type, resolved over its `inherit` chain.
+    /// `argElems` fixes the arity and ranks the overloads. A name the chain declares ONCE
+    /// resolves whatever they say, so a caller depending on arity re-checks the returned type.
+    let pickInstanceMember
+        (ctx: PassContext)
+        (objArgTy: SemType)
+        (memberName: string)
+        (argElems: SemType list)
+        : InstanceMemberPick =
+        match resolveChainMember ctx (memberLevels ctx objArgTy memberName) argElems with
+        | ChainPick.Resolved c ->
+            InstanceMemberPick.Resolved
+                {
+                    DeclKey = c.Level.DeclKey
+                    DeclaringTy = c.Level.DeclaringTy
+                    TypeParams = c.Level.TypeParams
+                    Member = c.Member
+                    MemberTy = chainMemberTy ctx c.Level c.Member
+                }
+        | ChainPick.NotFound -> InstanceMemberPick.NotFound
+        | ChainPick.NoneApplicable ->
+            InstanceMemberPick.Unresolved(
+                Kind.Message(
+                    sprintf "No overload for '%s' takes the given arguments (%s)" memberName (showParams ctx argElems)
+                )
+            )
+        | ChainPick.Ambiguous tied ->
+            let candidates =
+                tied
+                |> List.map (fun c ->
+                    sprintf
+                        "%s(%s)"
+                        memberName
+                        (showParams ctx (userMemberParams ctx c.Level.TypeParams c.Level.Args c.Member))
+                )
+                |> String.concat "; "
+
+            InstanceMemberPick.Unresolved(
+                Kind.Message(sprintf "Ambiguous access to overloaded '%s'; candidates: %s" memberName candidates)
+            )
+
+    /// Pin the resolved member on its access node, so Elaborate reads both halves back rather
+    /// than re-deriving either from the object argument's type.
+    let stampInstanceMember (ctx: PassContext) (key: NodeKey) (m: InstanceMember) : unit =
+        ctx.Resolution.LocalMemberCall.Set(
+            key,
+            {
+                Key = frozenUserMemberKey ctx.Store m.DeclKey m.TypeParams m.Member
+                DeclaringTy = m.DeclaringTy
+            }
+        )

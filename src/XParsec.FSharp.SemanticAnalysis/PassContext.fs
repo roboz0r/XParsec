@@ -127,9 +127,10 @@ type PassContextResolution =
         /// Keyed by an external construction node (`new T(args)`, `T args`, `T<'a>(args)`):
         /// the chosen `.ctor`'s key, so a backend selects that exact overload by identity.
         ExternalCtor: SideTable<SymbolKey>
-        /// Keyed by an OVERLOADED project-local method-call node: the member key the picker chose,
-        /// which pins the overload because its argSig distinguishes `Show(int)` from `Show(string)`.
-        LocalMemberCall: SideTable<SymbolKey>
+        /// Keyed by a project-local instance method-call or accessor node: the member inference
+        /// resolved, whose `ArgSig` distinguishes `Show(int)` from `Show(string)`.
+        /// Absent ⇒ nothing project-local resolved here.
+        LocalMemberCall: SideTable<ResolvedLocalMember>
         /// Keyed by an external method call: the constant defaults of the trailing
         /// optional parameters the call OMITTED, in declaration order.
         ExternalOptionalFill: SideTable<TConstValue list>

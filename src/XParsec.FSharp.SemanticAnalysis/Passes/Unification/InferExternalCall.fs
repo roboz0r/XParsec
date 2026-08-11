@@ -328,26 +328,6 @@ module internal UnificationInferExternalCall =
                 | ValueNone -> ValueNone
             | _ -> ValueNone
 
-        // A parameter-shape rendering for the ambiguity diagnostic: the nominal's
-        // simple name (`int`), or `_` for a still-open position.
-        let describeParams (ps: SemType list) : string =
-            let one (t: SemType) =
-                let keyOpt =
-                    match zonk ctx.Store t with
-                    | TyConst(k, _) -> ValueSome k
-                    | TyClass(k, _)
-                    | TyRecord(k, _)
-                    | TyUnion(k, _) -> ValueSome(SymbolKey.Type k)
-                    | _ -> ValueNone
-
-                match keyOpt with
-                | ValueSome k ->
-                    let (DisplayName n) = SymbolKeyOps.simpleName k
-                    n
-                | ValueNone -> "_"
-
-            ps |> List.map one |> String.concat ", "
-
         let resolveOn (objArgTy: SemType) (memberName: string) : SemType voption =
             match localHost objArgTy with
             | ValueNone -> ValueNone
@@ -366,14 +346,14 @@ module internal UnificationInferExternalCall =
                                 sprintf
                                     "No overload for method '%s' takes the given arguments (%s)"
                                     memberName
-                                    (describeParams argElems)
+                                    (showParams ctx argElems)
                             ))
                     )
                 | MemberPick.Ambiguous cands ->
                     let candidates =
                         cands
                         |> List.map (fun m ->
-                            sprintf "%s(%s)" memberName (describeParams (userMemberParams ctx typeParams args m))
+                            sprintf "%s(%s)" memberName (showParams ctx (userMemberParams ctx typeParams args m))
                         )
                         |> String.concat "; "
 
@@ -394,9 +374,14 @@ module internal UnificationInferExternalCall =
                     let resultTy = TyVar(freshTyVar ctx)
                     commitAppliedCoerce ctx node.Tok (TyFun(argTy, resultTy)) memberFunTy
 
+                    // `localHost` looks at the object argument's OWN declaration, never up an
+                    // `inherit` chain, so the declaring type is the object argument's own.
                     ctx.Resolution.LocalMemberCall.Set(
                         node.Key,
-                        frozenUserMemberKey ctx.Store declKey typeParams chosen
+                        {
+                            Key = frozenUserMemberKey ctx.Store declKey typeParams chosen
+                            DeclaringTy = resolveStep ctx.Store objArgTy
+                        }
                     )
 
                     ValueSome resultTy

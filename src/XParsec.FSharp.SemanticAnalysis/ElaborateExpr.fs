@@ -303,7 +303,7 @@ module internal ElaborateExpr =
             let key = LocalSymbolKey.ofProperty declKey memberName
             TExpr.StaticPropertyGet(key, ty, tok)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            ElaborateAccess.translateDotLookup translateExpr ctx key r (ctx.NameOf li.Idents.[0]) ty tok
+            ElaborateAccess.translateDotLookup translateExpr ctx r (ctx.NameOf li.Idents.[0]) ty tok
         | Expr.DynamicLookup(expr = r; ident = idTok) ->
             ElaborateAccess.translateDynamicLookup translateExpr ctx key r idTok ty tok
         | Expr.Null _ -> TExpr.Null(ty, tok)

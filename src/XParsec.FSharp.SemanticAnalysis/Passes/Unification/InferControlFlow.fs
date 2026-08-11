@@ -732,12 +732,33 @@ module internal UnificationInferControlFlow =
         unify ctx tok finallyTy ctx.Intrinsics.Unit
         resultTy
 
-    /// The setter a WRITE-ONLY property goes through. A readable half types the LHS itself, so
-    /// a property that has one declines here and takes the read path.
-    and private tryWriteOnlySetter (ctx: PassContext) (objArgTy: SemType) (propName: string) : SemType voption =
-        match tryLocalInstanceMember ctx objArgTy propName with
-        | ValueSome _ -> ValueNone
-        | ValueNone -> tryLocalInstanceMember ctx objArgTy (AccessorNames.setterName propName)
+    /// The value type a one-argument `set_P : T -> unit` accepts, pinned on `node` so Elaborate
+    /// calls the level declaring it. The written value is inferred after the LHS, so the fresh
+    /// var discriminates by ARITY: an indexed `set_P : i -> v -> unit` takes two and loses.
+    and private trySlotSetter
+        (ctx: PassContext)
+        (node: NodeSite)
+        (objArgTy: SemType)
+        (propName: string)
+        : SemType voption =
+        let valueSlot = TyVar(freshTyVar ctx)
+
+        match pickInstanceMember ctx objArgTy (AccessorNames.setterName propName) [ valueSlot ] with
+        | InstanceMemberPick.Resolved setter ->
+            // A lone `set_P` skips the ranker, so an indexed-only property still arrives here
+            // and its second arrow is what rejects it.
+            match zonk ctx.Store setter.MemberTy with
+            | TyFun(valueTy, ret) ->
+                match zonk ctx.Store ret with
+                | TyFun _ -> ValueNone
+                | _ ->
+                    stampInstanceMember ctx node.Key setter
+                    ValueSome valueTy
+            | _ -> ValueNone
+        // A write does not report a `set_P` miss: the read path below types the slot, and
+        // reports `NoMember` when nothing declares it.
+        | InstanceMemberPick.Unresolved _
+        | InstanceMemberPick.NotFound -> ValueNone
 
     /// The object argument of an assignment LHS, inferred ONCE: both the setter path and the
     /// read fall-through read this type, so they cannot disagree about the object.
@@ -748,7 +769,13 @@ module internal UnificationInferControlFlow =
 
     /// The type an assignment LHS accepts. Unlike a read, a slot may resolve through a
     /// declared `set_` accessor, so the LHS walk lives here rather than in `infer`.
-    and private inferAssignLhs (infer: Infer) (ctx: PassContext) (lhs: AssignLhs) (left: Expr<SyntaxToken>) : SemType =
+    and private inferAssignLhs
+        (infer: Infer)
+        (ctx: PassContext)
+        (node: NodeSite)
+        (lhs: AssignLhs)
+        (left: Expr<SyntaxToken>)
+        : SemType =
         let access = lhs.Access
 
         // `infer` links every node it walks; the paths below bypass it, so the LHS node and
@@ -762,23 +789,14 @@ module internal UnificationInferControlFlow =
         | AssignTarget.Slot(objArg, slotTok) ->
             let objArgTy = inferAssignObjArg infer ctx access objArg
             let name = ctx.NameOf slotTok
+            let setterValueTy = trySlotSetter ctx node objArgTy name
 
-            let setterValueTy =
-                match tryWriteOnlySetter ctx objArgTy name with
-                // An INDEXED setter takes the index first, so it does not answer a
-                // `x.P <- v` write; only a one-argument `set_P : T -> unit` does.
-                | ValueSome setterTy ->
-                    match zonk ctx.Store setterTy with
-                    | TyFun(valueTy, ret) ->
-                        match zonk ctx.Store ret with
-                        | TyFun _ -> ValueNone
-                        | _ -> ValueSome valueTy
-                    | _ -> ValueNone
-                | ValueNone -> ValueNone
-
+            // A readable half types the LHS itself, so only a WRITE-ONLY slot takes its type
+            // from the setter. Both halves are looked up over the `inherit` chain, so an
+            // inherited getter still types a write to an inherited setter.
             match setterValueTy with
-            | ValueSome valueTy -> linkLhs valueTy
-            | ValueNone -> linkLhs (resolveFieldStep ctx access slotTok objArgTy)
+            | ValueSome valueTy when List.isEmpty (memberLevels ctx objArgTy name) -> linkLhs valueTy
+            | _ -> linkLhs (resolveFieldStep ctx access slotTok objArgTy)
         // A getter of ANY provenance types the element. Failing that the slot is write-only,
         // whatever declared it, so the fresh var is left for the write to pin: reporting the
         // miss here would blame `get_Item` for what a write needs.
@@ -803,7 +821,7 @@ module internal UnificationInferControlFlow =
         : SemType =
         let lhs = AssignTarget.ofExpr ctx left
         // Mutability of the LHS is a Validation concern; here we only typecheck.
-        let leftTy = inferAssignLhs infer ctx lhs left
+        let leftTy = inferAssignLhs infer ctx node lhs left
         let rightTy = infer ctx right
         unify ctx node.Tok leftTy rightTy
 

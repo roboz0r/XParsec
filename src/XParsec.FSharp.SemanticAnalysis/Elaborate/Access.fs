@@ -13,15 +13,26 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 module internal ElaborateAccess =
 
-    /// The project-local nominal declaring `accessorName`, the `Decl` of the method call an
-    /// accessor use lowers to.
-    let private tryAccessorDecl (ctx: PassContext) (objArg: TExpr) (accessorName: string) : TypeKey voption =
-        match Unification.zonk ctx.Store (TastWalk.exprTy objArg) with
-        | TyNominal(nominalKey, _) ->
-            match tryNominalMemberByKey ctx nominalKey accessorName with
-            | ValueSome(declKey, m) when not m.IsStatic -> ValueSome declKey
-            | _ -> ValueNone
-        | _ -> ValueNone
+    /// Where an accessor call lands: the `Decl` of the method call, and the object argument as
+    /// that declaration receives it.
+    [<NoEquality; NoComparison>]
+    type private AccessorTarget = { DeclKey: TypeKey; ObjArg: TExpr }
+
+    /// The accessor inference pinned on this node. An INHERITED accessor is called on the
+    /// ancestor that emits it, so the object argument upcasts to that level.
+    /// `ValueNone` ⇒ nothing project-local resolved.
+    let private tryAccessorTarget (ctx: PassContext) (callKey: NodeKey) (objArg: TExpr) : AccessorTarget voption =
+        match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
+        | ValueSome pinned ->
+            let declKey = SymbolKeyOps.declTypeKeyOf "Elaborate: accessor call" pinned.Key
+
+            let objArg =
+                match Unification.zonk ctx.Store (TastWalk.exprTy objArg) with
+                | TyNominal(ownKey, _) when ownKey = declKey -> objArg
+                | _ -> TExpr.Upcast(objArg, pinned.DeclaringTy, TastWalk.exprTok objArg)
+
+            ValueSome { DeclKey = declKey; ObjArg = objArg }
+        | ValueNone -> ValueNone
 
     /// A call to the EXTERNAL accessor recorded in `ExternalAccess`. A byref-returning one
     /// (`Span<char>.get_Item : T&`) hands back a managed pointer, so the call is followed by an
@@ -75,12 +86,12 @@ module internal ElaborateAccess =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr voption =
-        let setName = AccessorNames.setterName name
-
-        match tryAccessorDecl ctx objArg setName with
-        | ValueSome declKey ->
+        match tryAccessorTarget ctx key objArg with
+        | ValueSome target ->
             let args = EqArray.singleton (translateExpr ctx right)
-            ValueSome(mkMethodCall ctx key objArg declKey setName args ty tok)
+
+            mkMethodCall ctx key target.ObjArg target.DeclKey (AccessorNames.setterName name) args ty tok
+            |> ValueSome
         | ValueNone -> ValueNone
 
     /// The object argument of a folded `a.b.P <- v` chain: the anchor binding, then a field
@@ -151,10 +162,10 @@ module internal ElaborateAccess =
         | AssignTarget.Indexed(arrE, idxE) ->
             let objArg = translateExpr ctx arrE
 
-            match tryAccessorDecl ctx objArg AccessorNames.itemSetter with
-            | ValueSome declKey ->
+            match tryAccessorTarget ctx key objArg with
+            | ValueSome target ->
                 let args = EqArray.ofList [ translateExpr ctx idxE; translateExpr ctx right ]
-                mkMethodCall ctx key objArg declKey AccessorNames.itemSetter args ty tok
+                mkMethodCall ctx key target.ObjArg target.DeclKey AccessorNames.itemSetter args ty tok
             | ValueNone ->
 
                 // `arr.[i] <- v` through the EXTERNAL `set_Item` recorded in `ExternalAccess`
@@ -210,35 +221,18 @@ module internal ElaborateAccess =
         | AssignTarget.Plain -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty, tok)
 
     /// Single-segment `r.X` read on a *project-local* object argument (the
-    /// external forms peel off in the dispatcher first).
+    /// external forms peel off in the dispatcher first), lowered as a folded
+    /// `a.b.X` chain lowers each of its segments.
     let translateDotLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
-        (key: NodeKey)
         (r: Expr<SyntaxToken>)
         (memberName: string)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let rTy = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r))
-        let objArg = translateExpr ctx r
-
-        // A record exposes BOTH fields and instance-member properties by dot-access, so the
-        // decision is made here: a member name to `PropertyGet`, a field name to `FieldGet`.
-        match rTy with
-        | TyRecord(recKey, _) ->
-            match tryNominalMemberByKey ctx recKey memberName with
-            | ValueSome(declKey, _) ->
-                let key = LocalSymbolKey.ofProperty declKey memberName
-                TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
-            | ValueNone -> TExpr.FieldGet(objArg, memberName, ty, tok)
-        // A class/union object argument's `.X` is always a member, so a `PropertyGet` (a
-        // method-as-value keeps the shape; codegen eta-expands).
-        | TyNominal(nominalKey, _) ->
-            let key = LocalSymbolKey.ofProperty nominalKey memberName
-
-            TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
-        | _ -> TExpr.FieldGet(objArg, memberName, ty, tok)
+        let rTy = typeOfKey ctx (CstKeys.ofExpr r)
+        fieldStep ctx (translateExpr ctx r) rTy memberName ty tok
 
     /// `x?name` → `(?) x "name"` → the `op_Dynamic` body `$0[$1]` splices to
     /// `x["name"]`. The name is a compile-time string literal (the ident text),
@@ -280,10 +274,10 @@ module internal ElaborateAccess =
         : TExpr =
         let objArg = translateExpr ctx r
 
-        match tryAccessorDecl ctx objArg AccessorNames.itemGetter with
-        | ValueSome declKey ->
+        match tryAccessorTarget ctx key objArg with
+        | ValueSome target ->
             let args = EqArray.singleton (translateExpr ctx idx)
-            mkMethodCall ctx key objArg declKey AccessorNames.itemGetter args ty tok
+            mkMethodCall ctx key target.ObjArg target.DeclKey AccessorNames.itemGetter args ty tok
         | ValueNone ->
             match ctx.Resolution.ExternalAccess.TryGetValue key with
             | ValueSome info ->

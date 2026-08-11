@@ -87,11 +87,28 @@ module internal ElaborateObjArgs =
             | other -> [ other ]
         | ps, _ -> ps
 
-    /// Empty when the member is unresolved, but the call still emits, just unwrapped.
-    let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
-        match tryNominalMemberByKey ctx declKey memberName with
-        | ValueSome(_, m) -> flatMemberParams ctx.Store m.Type
-        | ValueNone -> []
+    /// The declared parameter types of the project-local member `key` names, selected by the
+    /// key's OWN argSig so one of two same-name overloads cannot answer for the other. Empty
+    /// for an external or unresolved member, whose call still emits, just unwrapped.
+    let memberParamTys (ctx: PassContext) (key: SymbolKey) : SemType list =
+        match key with
+        | SymbolKey.Member mk ->
+            match TypeRegistry.tryNominalByKey ctx.Types mk.Decl with
+            | ValueSome decl ->
+                let chosen =
+                    match decl.Members |> Array.filter (fun m -> m.Name = mk.Name) with
+                    | [| only |] -> Some only
+                    | overloads ->
+                        overloads
+                        |> Array.tryFind (fun m ->
+                            UnificationInferOverload.freezeUserMemberArgSig ctx.Store decl.TypeParams m = mk.ArgSig
+                        )
+
+                match chosen with
+                | Some m -> flatMemberParams ctx.Store m.Type
+                | None -> []
+            | ValueNone -> []
+        | _ -> []
 
     /// The primary ctor when `argCount` matches its parameter count, else the secondary
     /// ctor of that arity. Empty for an external ctor, which has no local param model.
