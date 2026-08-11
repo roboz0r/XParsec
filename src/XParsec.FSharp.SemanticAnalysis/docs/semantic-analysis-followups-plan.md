@@ -1308,26 +1308,15 @@ the same invalid-IL shape the record arm was added to fix. Found because
 `InferResolve.recordConstructionOf` carried a doc claiming BOTH were still `LocalRecord`-only;
 the record half of that claim is false and has been deleted.
 
-### `InferRecordAccess.fs:433` — three copies of the "resolve a core intrinsic and unify its scheme" body
+### `InferRecordAccess.fs:211` — the `ExternalAccess` payload literal is built at three sites
 
-`getArrayIndex` (`:433`), `getStringIndex` (`:453`) and the `GetIndex` arm of `tryIndexSignature`
-(`:550-562`) are the same eight lines three times: match a `ctx.CoreAccess.Value.*` accessor,
-`IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)`, mint a fresh result var, `unify` the
-`instantiateSymbol`'d scheme against `TyFun(objArgTy, TyFun(idxTy, resultTy))`, return the var.
-Only the accessor and the `IntrinsicNotInScope` string differ. A helper taking the accessor and
-its diagnostic name removes two copies; `resolveFieldStep`'s `GetArrayLength` arm (`:386`) is a
-fourth instance differing only in arity (`TyFun(rTy, resultTy)`).
-
-### `InferRecordAccess.fs:211` — the `ExternalAccess` payload literal is built at four sites
-
-The same six-field record (`Key = SymbolKey.Member m.Key`, `IsStatic`, `Storage`, `Signature`,
-`OptionalDefaults`) is written out at `commitExternalMember` (`:211`), the `IntrinsicBclMember`
-arm (`:366`), `resolveExternalIndexer` (`:482`) and `InferResolve.inferExternalStaticMember`
-(`:395`). Three of the four derive every field from the same `ExternalMember m`, differing only
-in which signature function they call (`instantiateSignature` vs `openSignature`) and in the
-node key stamped; the indexer copy hard-codes `Storage = MemberStorage.Method` and
-`OptionalDefaults = []`. A constructor taking `(m, signature)` would make the two overrides
-explicit instead of leaving a reader to diff four literals.
+The same five-field record (`Key = SymbolKey.Member m.Key`, `IsStatic`, `Storage`, `Signature`,
+`OptionalDefaults`) is written out at `commitExternalMember`, the `IntrinsicBclMember` arm and
+`InferResolve.inferExternalStaticMember`. All three derive every field from the same
+`ExternalMember m`, differing only in which signature function they call (`instantiateSignature`
+vs `openSignature`) and in the node key stamped. A constructor taking `(m, signature)` would say
+that, instead of leaving a reader to diff three literals. (The two indexer-accessor sites already
+share one, `indexerAccess`.)
 
 ### `InferRecordAccess.fs:629` — `inferLongIdentPrefix` differs from `inferLongIdentFieldChain` by one loop bound
 

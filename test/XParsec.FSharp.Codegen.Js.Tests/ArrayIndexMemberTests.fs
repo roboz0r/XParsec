@@ -5,13 +5,13 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The array `arr.[i]` READ resolves through a `get_Item` MEMBER on `'T[]`, not the free
-// `GetArray` inline. Both emit the same `arr[i]`, so a key-agreement miss would fall back
-// to `GetArray` silently; these tests are the ANTI-MASKING proof the member path is taken.
+// The array `arr.[i]` READ resolves through a `get_Item` MEMBER on `'T[]`. The member is
+// SPLICED, so the emitted `arr[i]` looks the same whether the key agreed or not; these tests
+// assert the resolution itself, on the halves and on the recorded access.
 
 /// The array's member-contract key: the same key the member-access lookup, the consumer
 /// contract and the inline-body store all pass to `TryLookupMember`.
-let private arrayMemberKey: SymbolKey = RuntimeNames.arrayMemberHostKey
+let private arrayMemberKey: SymbolKey = RuntimeNames.arrayKey 1
 
 [<Tests>]
 let tests =
@@ -41,7 +41,7 @@ let tests =
                     | ValueSome m -> m
                     | ValueNone ->
                         failtestf
-                            "TryLookupMember(%A, get_Item) MISSED — the `array-index.js.fsi` contract half is absent"
+                            "TryLookupMember(%A, get_Item) MISSED — the `prim-types-array.fsi` contract half is absent"
                             arrayMemberKey
 
                 Expect.isTrue
@@ -49,17 +49,20 @@ let tests =
                     "the `get_Item` entry carries NO inline body — the inline-body store key DISAGREES with the lookup key"
             }
 
-            // The array's own two halves: the key `array-index.js.fsi` publishes and the key
-            // the lifted `array-index.js.fs` body was collected under. Compared WHOLE, so an
+            // The array's own two halves: the key `prim-types-array.fsi` publishes and the key
+            // the lifted `prim-types-array.fs` body was collected under. Compared WHOLE, so an
             // `ArgSig` divergence names itself here.
-            test "the array `get_Item` contract-side and impl-side member keys are equal, ArgSig included" {
-                expectMemberKeyHalvesAgree jsContract.Value [ vesperCoreManifest ] arrayMemberKey [ "get_Item" ]
+            test "the array's accessor contract-side and impl-side member keys are equal, ArgSig included" {
+                expectMemberKeyHalvesAgree
+                    jsContract.Value
+                    [ vesperCoreManifest ]
+                    arrayMemberKey
+                    [ "get_Item"; "set_Item"; "Length" ]
             }
 
-            // An `arr.[i]` read must leave an `ExternalAccess` entry for `get_Item`; the
-            // `GetArray` fallback resolves through the open scope and leaves none. The
-            // entry is written before inline-splicing, so it survives the splice.
-            test "`arr.[i]` records a `get_Item` ExternalAccess (member path taken, not the `GetArray` fallback)" {
+            // The entry is written before inline-splicing, so it survives the splice — which
+            // is what makes the member path observable at all after the body is inlined away.
+            test "`arr.[i]` records a `get_Item` ExternalAccess" {
                 let input = "let read (a: int[]) (i: int) : int = a.[i]\n"
 
                 let lexed, file = parseFile input
@@ -79,13 +82,11 @@ let tests =
                                 info
                     ]
 
-                Expect.isNonEmpty
-                    getItemAccesses
-                    "`arr.[i]` did not record a `get_Item` ExternalAccess — it fell back to the free `GetArray` path"
+                Expect.isNonEmpty getItemAccesses "`arr.[i]` did not record a `get_Item` ExternalAccess"
             }
 
-            // The member body is a byte-copy of `GetArray`'s `ldelem`, so the emitted read
-            // is still the bare `arr[i]`: the member is SPLICED, never called.
+            // The member body is the bare `ldelem`, so the emitted read is the bare `arr[i]`:
+            // the member is SPLICED, never called.
             test "`arr.[i]` still emits the bare computed-member read (no `.get_Item` leak)" {
                 let js =
                     emitJs
@@ -93,5 +94,17 @@ let tests =
 
                 Expect.isFalse (js.Contains ".get_Item") (sprintf "a `.get_Item` method call leaked into emit:\n%s" js)
                 Expect.stringContains js "a[i]" (sprintf "the array index did not lower to `a[i]`:\n%s" js)
+            }
+
+            // The write and the length halves of the same claim: both are members on `'T[]`,
+            // and both splice, so neither leaves an accessor call behind.
+            test "`arr.[i] <- v` and `arr.Length` splice to the bare `a[i] = v` and `.length`" {
+                let js =
+                    emitJs
+                        "let write (a: int[]) (i: int) (v: int) : int =\n    a.[i] <- v\n    a.Length\nprintfn \"%d\" (write (# \"newarr !0\" type (int) 1 : int[] #) 0 7)"
+
+                Expect.isFalse (js.Contains ".set_Item") (sprintf "a `.set_Item` method call leaked into emit:\n%s" js)
+                Expect.stringContains js "a[i] = v" (sprintf "the array write did not lower to `a[i] = v`:\n%s" js)
+                Expect.stringContains js "a.length" (sprintf "`arr.Length` did not lower to `a.length`:\n%s" js)
             }
         ]

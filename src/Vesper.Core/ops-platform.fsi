@@ -346,38 +346,6 @@ module Operators =
         /// <returns>The converted <c>bigint</c>.</returns>
         val inline bigint: value: int32 -> bigint
 
-        /// <summary>Indexed read of a single-dimensional, zero-based array — the
-        /// lowering target the front end desugars <c>arr.[i]</c> to (mirroring F#'s
-        /// <c>IntrinsicFunctions.GetArray</c>).</summary>
-        ///
-        /// <param name="array">The array.</param>
-        /// <param name="index">The index.</param>
-        ///
-        /// <returns>The element at the given index.</returns>
-        ///
-        val inline GetArray: array: 'T[] -> index: int -> 'T
-
-        /// <summary>Indexed write of a single-dimensional, zero-based array — the
-        /// lowering target the front end desugars <c>arr.[i] &lt;- value</c> to
-        /// (mirroring F#'s <c>IntrinsicFunctions.SetArray</c>).</summary>
-        ///
-        /// <param name="array">The array.</param>
-        /// <param name="index">The index.</param>
-        /// <param name="value">The value to store.</param>
-        ///
-        /// <returns>Unit; the store has no result.</returns>
-        ///
-        val inline SetArray: array: 'T[] -> index: int -> value: 'T -> unit
-
-        /// <summary>Length of a single-dimensional, zero-based array — the lowering
-        /// target the front end desugars <c>arr.Length</c> to.</summary>
-        ///
-        /// <param name="array">The array.</param>
-        ///
-        /// <returns>The number of elements.</returns>
-        ///
-        val inline GetArrayLength: array: 'T[] -> int
-
         /// <summary>Raise the given exception.</summary>
         ///
         /// <param name="exn">The exception to raise.</param>
@@ -423,17 +391,6 @@ module Operators =
         /// </example>
         ///
         val inline invalidArg: argumentName: string -> message: string -> 'T
-
-/// The desugaring target for `s.[i]` on a `string`. The front end routes here
-/// only when the BCL `get_Chars` accessor does NOT resolve — the JS target, whose
-/// `string` carries no BCL metadata.
-[<AutoOpen>]
-module StringIntrinsics =
-
-    /// <summary>Indexed read of a UTF-16 code unit — the lowering target the front
-    /// end desugars <c>s.[i]</c> to on a <c>string</c> (the `string`
-    /// analogue of <c>GetArray</c>).</summary>
-    val inline GetString: s: string -> index: int -> char
 
 /// The desugaring target for `x.[k]` / `x.[k] <- v` on a value whose EXTERNAL type
 /// carries a TS index signature (`{ [k: K]: V }`). A JS object has no `get_Item` method —

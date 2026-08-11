@@ -362,7 +362,7 @@ module Inline =
                     go r1 r2
                 // A generic intrinsic carries its args structurally: the array `'T[]` is
                 // `TyConst("[]", ['T])`, whose element typar is reachable only by descending
-                // here. `GetArray` pins `'T` solely through its `'T[]` parameter.
+                // here. The array's `get_Item` pins `'T` solely through its object argument.
                 | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]

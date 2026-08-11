@@ -214,7 +214,7 @@ module Shim =
                 // its operator members are splice templates. Those files get no `.mjs`.
                 let emitted = pkg.Modules |> List.map (fun m -> m.Source)
 
-                for reprOnly in [ "prim-types-min.js.fs"; "prim-types-int.js.fs"; "array-index.js.fs" ] do
+                for reprOnly in [ "prim-types-min.js.fs"; "prim-types-int.js.fs"; "prim-types-array.fs" ] do
                     Expect.isFalse
                         (List.contains reprOnly emitted)
                         (sprintf "%s declares only representations; it must emit no module (got %A)" reprOnly emitted)

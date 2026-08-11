@@ -12,3 +12,6 @@ type string = extern with
 
     /// <summary>Concatenation: <c>"Hello " + "World"</c>.</summary>
     static member inline (+): x: string * y: string -> string
+
+    /// <summary>The UTF-16 code unit at <c>index</c>: <c>s.[i]</c>.</summary>
+    member inline Item: index: int -> char with get

@@ -302,11 +302,9 @@ module internal ElaborateCalls =
         | None -> ValueNone
 
     /// One `objArg.seg` access node: `PropertyGet` for a class / union member,
-    /// `FieldGet` otherwise. `chainKey` is the enclosing `LongIdent` chain's key,
-    /// under which Unification stamped the `arr.Length` intrinsic read below.
+    /// `FieldGet` otherwise.
     let fieldStep
         (ctx: PassContext)
-        (chainKey: NodeKey)
         (objArg: TExpr)
         (objArgTy: SemType)
         (segName: string)
@@ -350,10 +348,4 @@ module internal ElaborateCalls =
                 | ValueNone -> TExpr.FieldGet(objArg, segName, stepTy, tok)
         // `TyClass` matched above, so this catches only union and record.
         | TyNominal(nominalKey, _) -> flatNominalStep nominalKey
-        // `arr.Length` on a rank-1 array desugars to the core `GetArrayLength` inline
-        // function (`ldlen`). `array.Length` parses as a LongIdent field chain anchored on
-        // a local, not a `DotLookup`, so this arm is the one that fires.
-        | TyArray _ when segName = "Length" ->
-            let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue chainKey
-            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(objArgTy, stepTy), tok), objArg, stepTy, tok)
         | _ -> TExpr.FieldGet(objArg, segName, stepTy, tok)

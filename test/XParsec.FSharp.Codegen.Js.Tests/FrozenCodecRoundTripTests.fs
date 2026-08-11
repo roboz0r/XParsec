@@ -484,7 +484,7 @@ let tests =
                         Kind.CyclicInline("f", [])
                         Kind.CyclicInline("f", [ "g"; "h" ])
                         Kind.NotYetSupported "inheritance"
-                        Kind.IntrinsicNotInScope "Array indexing intrinsic 'GetArray'"
+                        Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"
                         Kind.DynamicEscape "int"
                         Kind.HeterogeneousEnum "E"
                         Kind.IncompleteAnonUnionMatch [ "a"; "b"; "c" ]

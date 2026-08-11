@@ -268,11 +268,6 @@ module RuntimeNames =
     let arrayKey (rank: int) : SymbolKey =
         primitiveKey (SymbolKeyOps.arrayName rank)
 
-    /// The array's `get_Item` host, declared in the GLOBAL namespace by `array-index.js.fsi`
-    /// so this member surface cannot displace the `Vesper` shape carrying the array's
-    /// capabilities. The same identity otherwise: `opaqueKey`, so no `Vesper` prefix.
-    let arrayMemberHostKey: SymbolKey = opaqueKey (SymbolKeyOps.arrayName 1)
-
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
     /// The IDENTITY of the base primitive a structural literal erases to, so every erasing

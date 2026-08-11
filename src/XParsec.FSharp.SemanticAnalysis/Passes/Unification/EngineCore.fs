@@ -400,9 +400,10 @@ module UnificationEngineCore =
         match resolveStep ctx.Store ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             [ struct (SymbolKey.Type clsKey, typeArgs) ]
-        // A structural constructor (`'T []` / `byref`) reprs as the IL artefact `"!0[]"`,
-        // not a nominal surface key, so it declines before the `TyConst` arm can mis-route onto it.
-        | TyStructuralCtor -> []
+        // A structural constructor (`'T []` / `byref`) reprs as the IL artefact `"!0[]"`, which
+        // is not a nominal surface. Its own contract key is the only one to look a member up
+        // on, and is where the array declares `Item` and `Length`.
+        | TyStructuralCtor & TyConst(key, typeArgs) -> [ struct (key, typeArgs) ]
         | TyConst(key, typeArgs) ->
             let name = SymbolKeyOps.intrinsicName key
             let platformQual = intrinsicPlatformName ctx key

@@ -101,13 +101,6 @@ module Operators =
     /// `BigInteger` is not a CIL primitive, so the widening is a BCL call.
     let inline bigint (value: int32) : bigint = System.Numerics.BigInteger.op_Implicit(value)
 
-    let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
-
-    let inline SetArray (array: 'T[]) (index: int) (value: 'T) : unit =
-        (# "stelem.any !0" type ('T) array index value : unit #)
-
-    let inline GetArrayLength (array: 'T[]) : int = (# "ldlen" array : int #)
-
     let inline raise (e: 'TException) : 'T = (# "throw" e : 'T #)
 
     /// The explicit `new` is required — a bare `System.Exception(msg)` is only an application.
@@ -116,12 +109,6 @@ module Operators =
     /// The BCL ctor takes `(message, paramName)` — hence the swap against this signature.
     let inline invalidArg (argumentName: string) (message: string) : 'T =
         raise (new System.ArgumentException(message, argumentName))
-
-[<AutoOpen>]
-module StringIntrinsics =
-
-    /// `s.[index]` resolves to the BCL `get_Chars`, not back into this body.
-    let inline GetString (s: string) (index: int) : char = s.[index]
 
 [<AutoOpen>]
 module IndexIntrinsics =

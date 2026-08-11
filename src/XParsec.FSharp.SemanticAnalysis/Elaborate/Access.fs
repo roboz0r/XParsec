@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 // Element and member *access* lowering for the Elaborate pass. The get/set pairs
-// (`GetArray`/`SetArray`, `GetIndex`/`SetIndex`, `op_Dynamic`/
+// (`get_Item`/`set_Item`, `GetIndex`/`SetIndex`, `op_Dynamic`/
 // `op_DynamicAssignment`) mirror each other, which is why they live together.
 
 module internal ElaborateAccess =
@@ -22,6 +22,47 @@ module internal ElaborateAccess =
             | ValueSome(declKey, m) when not m.IsStatic -> ValueSome declKey
             | _ -> ValueNone
         | _ -> ValueNone
+
+    /// A call to the EXTERNAL accessor recorded in `ExternalAccess`. A byref-returning one
+    /// (`Span<char>.get_Item : T&`) hands back a managed pointer, so the call is followed by an
+    /// `ldobj <elem>` deref; a by-value one (`string.get_Item : char`) is the plain call.
+    let private mkExternalAccessorCall
+        (ctx: PassContext)
+        (info: ResolvedExternalMember)
+        (objArg: TExpr)
+        (arg: TExpr)
+        (argTy: SemType)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
+        let retIsByref =
+            match Unification.zonk ctx.Store info.Signature with
+            | TyFun(_, TyByref _) -> true
+            | _ -> false
+
+        // The CALL's own return; `ty` is what the ACCESS yields.
+        let callTy =
+            if retIsByref then
+                TyConst(RuntimeNames.byrefKey, EqArray.singleton ty)
+            else
+                ty
+
+        let accessor =
+            TExpr.ExternalMember(
+                ValueSome objArg,
+                info.Key,
+                SymbolKeyOps.intrinsicName info.Key,
+                MemberStorage.Method,
+                TyFun(argTy, callTy),
+                tok
+            )
+
+        let call = TExpr.App(accessor, arg, callTy, tok)
+
+        if retIsByref then
+            TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton call, ty, tok)
+        else
+            call
 
     /// `x.P <- v` through a declared `set_P` accessor method.
     let private trySetterCall
@@ -53,12 +94,6 @@ module internal ElaborateAccess =
         let segments = li.Idents
         let lastIdx = segments.Length - 1
 
-        // The chain's NodeKey, required by `fieldStep` for its array-length lookup. A
-        // read-only `.Length` can never be an assigned segment, so here it is only ever
-        // passed through.
-        let liKey =
-            NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
-
         let anchorIdent = segments.[0]
         let anchorKey = NodeKey.ofToken anchorIdent NodeKind.ExprIdent
         let anchorBinding = ctx.Bindings.Binding.TryGetValue anchorKey
@@ -84,7 +119,7 @@ module internal ElaborateAccess =
                 | ValueSome t -> t
                 | ValueNone -> currTy
 
-            curr <- fieldStep ctx liKey curr currTy segName stepTy tok
+            curr <- fieldStep ctx curr currTy segName stepTy tok
             currTy <- stepTy
 
         curr
@@ -120,35 +155,37 @@ module internal ElaborateAccess =
             | ValueSome declKey ->
                 let args = EqArray.ofList [ translateExpr ctx idxE; translateExpr ctx right ]
                 mkMethodCall ctx key objArg declKey AccessorNames.itemSetter args ty tok
-            // `arr.[i] <- v` desugars to the core `SetArray` inline function (`stelem`),
-            // the write mirror of the `IndexedLookup` read path. Emit a curried `External`
-            // whose type is rebuilt from the operands; `ty` is the `unit` result.
             | ValueNone ->
-                let arrTy = typeOfKey ctx (CstKeys.ofExpr arrE)
-                let idxTy = typeOfKey ctx (CstKeys.ofExpr idxE)
-                let valTy = typeOfKey ctx (CstKeys.ofExpr right)
-                let valuePartial = TyFun(valTy, ty)
-                let idxPartial = TyFun(idxTy, valuePartial)
 
-                // An index-signature object argument writes through `SetIndex` (the `$0[$1] = $2`
-                // bracket), every other through `SetArray` (`stelem`), the same
-                // classification the read branch makes.
-                let setName =
-                    match Unification.zonk ctx.Store arrTy with
-                    | TyClass(clsKey, _) when
-                        not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)
-                        ->
-                        "SetIndex"
-                    | _ -> "SetArray"
+                // `arr.[i] <- v` through the EXTERNAL `set_Item` recorded in `ExternalAccess`
+                // under this assignment's key. Two .NET parameters, so ONE tupled argument.
+                match ctx.Resolution.ExternalAccess.TryGetValue key with
+                | ValueSome info ->
+                    let idxArg = translateExpr ctx idxE
+                    let valArg = translateExpr ctx right
 
-                // Unification (`inferAssignment`) stamped the resolved `SetArray`/
-                // `SetIndex` identity under this `Assignment` key; carry it so the
-                // `stelem` / `$0[$1] = $2` body splices by KEY.
-                let setKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-                let setExpr = TExpr.External(setName, setKey, TyFun(arrTy, idxPartial), tok)
-                let app1 = TExpr.App(setExpr, objArg, idxPartial, tok)
-                let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial, tok)
-                TExpr.App(app2, translateExpr ctx right, ty, tok)
+                    let argsTy =
+                        TyTuple(EqArray.ofList [ TastWalk.exprTy idxArg; TastWalk.exprTy valArg ])
+
+                    let args = TExpr.Tuple(EqArray.ofList [ idxArg; valArg ], argsTy, tok)
+                    mkExternalAccessorCall ctx info objArg args argsTy ty tok
+                // An index-signature object argument has no `set_Item`: the `$0[$1] = $2` bracket IS
+                // its accessor, emitted as a curried `External` whose type is rebuilt from the
+                // operands (`ty` is the `unit` result).
+                | ValueNone ->
+                    let arrTy = typeOfKey ctx (CstKeys.ofExpr arrE)
+                    let idxTy = typeOfKey ctx (CstKeys.ofExpr idxE)
+                    let valTy = typeOfKey ctx (CstKeys.ofExpr right)
+                    let valuePartial = TyFun(valTy, ty)
+                    let idxPartial = TyFun(idxTy, valuePartial)
+
+                    // Unification (`inferAssignment`) stamped the resolved `SetIndex` identity under
+                    // this `Assignment` key; carry it so the `$0[$1] = $2` body splices by KEY.
+                    let setKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+                    let setExpr = TExpr.External("SetIndex", setKey, TyFun(arrTy, idxPartial), tok)
+                    let app1 = TExpr.App(setExpr, objArg, idxPartial, tok)
+                    let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial, tok)
+                    TExpr.App(app2, translateExpr ctx right, ty, tok)
         // `x?name <- v` → `(?<-) x "name" v` → the `op_DynamicAssignment` body
         // `$0[$1] = $2` splices to `x["name"] = v`. The name is a compile-time
         // string literal (the ident text), NOT a value reference.
@@ -201,11 +238,6 @@ module internal ElaborateAccess =
             let key = LocalSymbolKey.ofProperty nominalKey memberName
 
             TExpr.PropertyGet(objArg, key, viaOfObjArg ctx objArg, ty, tok)
-        // `(expr).Length` on a rank-1 array desugars to the core `GetArrayLength`
-        // inline function (`ldlen`); the LongIdent-chain form mirrors this.
-        | TyArray _ when memberName = "Length" ->
-            let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(rTy, ty), tok), objArg, ty, tok)
         | _ -> TExpr.FieldGet(objArg, memberName, ty, tok)
 
     /// `x?name` → `(?) x "name"` → the `op_Dynamic` body `$0[$1]` splices to
@@ -235,8 +267,8 @@ module internal ElaborateAccess =
         TExpr.App(app1, nameLit, ty, tok)
 
     /// `x.[i]` through a declared `get_Item`, the object argument's own or an external one;
-    /// failing both, through the core `GetArray` inline function (`ldelem`), a curried
-    /// `External` call whose type is rebuilt from the operands.
+    /// failing both, through the `GetIndex` intrinsic, a curried `External` call whose type
+    /// is rebuilt from the operands.
     let translateIndexedLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -255,73 +287,20 @@ module internal ElaborateAccess =
         | ValueNone ->
             match ctx.Resolution.ExternalAccess.TryGetValue key with
             | ValueSome info ->
-                // `span.[i]` on an external indexer (`Span<char>.get_Item(i) : T&`),
-                // recorded in `ExternalAccess`. The BCL accessor returns a managed pointer,
-                // so call it and deref with `ldobj <elem>`: the call's type is `elem&`.
                 let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
-                let memberName = SymbolKeyOps.intrinsicName info.Key
-
-                // A byref-returning accessor (`Span<char>.get_Item : T&`) needs the
-                // `ldobj` deref; a by-value one (`string.get_Chars : char`) is a plain
-                // call. Read the declared return off the recorded signature.
-                let retIsByref =
-                    match Unification.zonk ctx.Store info.Signature with
-                    | TyFun(_, TyByref _) -> true
-                    | _ -> false
-
-                if retIsByref then
-                    let byrefTy = TyConst(RuntimeNames.byrefKey, EqArray.singleton ty)
-
-                    let memberFnTy = TyFun(idxTy, byrefTy)
-
-                    let getItem =
-                        TExpr.ExternalMember(
-                            ValueSome objArg,
-                            info.Key,
-                            memberName,
-                            MemberStorage.Method,
-                            memberFnTy,
-                            tok
-                        )
-
-                    let callExpr = TExpr.App(getItem, translateExpr ctx idx, byrefTy, tok)
-                    TExpr.ILIntrinsic("ldobj", ValueSome ty, EqArray.singleton callExpr, ty, tok)
-                else
-                    let memberFnTy = TyFun(idxTy, ty)
-
-                    let getItem =
-                        TExpr.ExternalMember(
-                            ValueSome objArg,
-                            info.Key,
-                            memberName,
-                            MemberStorage.Method,
-                            memberFnTy,
-                            tok
-                        )
-
-                    TExpr.App(getItem, translateExpr ctx idx, ty, tok)
+                mkExternalAccessorCall ctx info objArg (translateExpr ctx idx) idxTy ty tok
+            // An index-signature object argument (an external type carrying `{ [k: K]: V }`)
+            // has no `get_Item`: the `$0[$1]` bracket IS its accessor. Every other object
+            // argument reaching here failed to resolve one, which inference has reported.
             | ValueNone ->
                 let arrTy = typeOfKey ctx (CstKeys.ofExpr r)
                 let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
                 let partialTy = TyFun(idxTy, ty)
                 let getTy = TyFun(arrTy, partialTy)
 
-                // A `string` object argument lowers through `GetString`, an index-signature
-                // one (an external type carrying `{ [k: K]: V }`) through `GetIndex`,
-                // every other through `GetArray`. Only WHETHER, never WHICH entry matched.
-                let getName =
-                    match Unification.zonk ctx.Store arrTy with
-                    | TyString -> "GetString"
-                    | TyClass(clsKey, _) when
-                        not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)
-                        ->
-                        "GetIndex"
-                    | _ -> "GetArray"
-
-                // Unification (`inferIndexedLookup`) stamped the resolved
-                // `GetArray`/`GetString`/`GetIndex` identity under this `IndexedLookup`
-                // key; carry it so the `ldelem` / `$0[$1]` body splices by KEY.
+                // Unification (`inferIndexedLookup`) stamped the resolved `GetIndex` identity
+                // under this `IndexedLookup` key; carry it so the `$0[$1]` body splices by KEY.
                 let getKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-                let getExpr = TExpr.External(getName, getKey, getTy, tok)
+                let getExpr = TExpr.External("GetIndex", getKey, getTy, tok)
                 let app1 = TExpr.App(getExpr, objArg, partialTy, tok)
                 TExpr.App(app1, translateExpr ctx idx, ty, tok)

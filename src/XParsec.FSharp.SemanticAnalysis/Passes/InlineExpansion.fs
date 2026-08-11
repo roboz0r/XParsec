@@ -302,6 +302,35 @@ module InlineExpansion =
                     x.Specs
             )
 
+    /// A node that APPLIES nothing of its own, spliced against the body its key is served
+    /// under: the arguments the lifted body takes are all that vary. `ValueNone` = no served
+    /// body, so it is a real call whose arguments the walk handles by default.
+    and private tryExpandServed
+        (x: Expander)
+        (at: Descent)
+        (walk: TExpr -> TExpr)
+        (key: SymbolKey)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        (args: (TExpr * SemType * SyntaxToken) list)
+        : TExpr voption =
+        match lookupExternal x.Ctx x.Specs (ValueSome key) with
+        | ValueSome served ->
+            ValueSome(
+                expandAt
+                    x
+                    at
+                    served
+                    {
+                        Template = TemplateId.Foreign served.Key
+                        Tok = tok
+                        Ty = ty
+                        Args = args
+                        Walk = walk
+                    }
+            )
+        | ValueNone -> ValueNone
+
     /// The expansion walker, as a FUNCTION of the descent the material it is handed was WRITTEN
     /// under, because a `Mapper` has no room for a parameter of its own. Descending into a callee's
     /// body builds a mapper with that callee's frame pushed; call-site material keeps its own.
@@ -350,20 +379,20 @@ module InlineExpansion =
                     // operator surface arrives here: `1 &&& 2` dispatches to `Vesper.int`'s
                     // `(&&&)`, and a primitive has no type to hang a method on.
                     | TExpr.StaticMethodCall(key, args, ty, tok) ->
-                        match lookupExternal x.Ctx x.Specs (ValueSome key) with
-                        | ValueSome served ->
-                            let call =
-                                {
-                                    Template = TemplateId.Foreign served.Key
-                                    Tok = tok
-                                    Ty = ty
-                                    Args = [ for a in EqArray.toList args -> a, TastWalk.exprTy a, TastWalk.exprTok a ]
-                                    Walk = walk
-                                }
+                        let callArgs =
+                            [ for a in EqArray.toList args -> a, TastWalk.exprTy a, TastWalk.exprTok a ]
 
-                            ValueSome(expandAt x at served call)
-                        // No served body: a real static call, arguments walked by default.
-                        | ValueNone -> ValueNone
+                        tryExpandServed x at walk key ty tok callArgs
+                    // A PROPERTY read applies nothing, so the `App` arm never classifies it: its
+                    // object argument IS the one argument the lifted `this`-first body takes
+                    // (`arr.Length` → the `ldlen` body).
+                    | TExpr.ExternalMember(objArg, key, _, MemberStorage.Property, ty, tok) ->
+                        let callArgs =
+                            match objArg with
+                            | ValueSome r -> [ r, TastWalk.exprTy r, tok ]
+                            | ValueNone -> []
+
+                        tryExpandServed x at walk key ty tok callArgs
                     // A BARE reference to a LOCAL inline: the template used as a value. At arity
                     // 0 no type argument is derivable and the body's typars stay abstract, but it
                     // is the SAME expansion, so static-opt clauses still resolve.

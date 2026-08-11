@@ -105,9 +105,15 @@ let expectMemberKeyHalvesAgree
             | ValueSome m -> SymbolKey.Member m.Key
             | ValueNone -> failtestf "the contract of %A publishes no `%s`" declKey memberName
 
+        // Scoped to `declKey`: several intrinsics declare an `Item` accessor, so the name
+        // alone names more than one impl-side body.
         match
             implBodies
-            |> List.filter (fun mb -> SymbolKeyOps.simpleName mb.Key = DisplayName memberName)
+            |> List.filter (fun mb ->
+                match mb.Key with
+                | SymbolKey.Member mk -> SymbolKey.Type mk.Decl = declKey && mk.Name = memberName
+                | _ -> false
+            )
         with
         | [ mb ] ->
             Expect.equal

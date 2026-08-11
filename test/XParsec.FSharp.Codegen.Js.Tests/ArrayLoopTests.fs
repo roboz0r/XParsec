@@ -184,9 +184,8 @@ let tests =
 
             // ---- string indexing ---------------------------------------------
 
-            // `s.[i]` on a `string` routes to an inline intrinsic whose JS body is the
-            // native `s[i]`. JS `string` has no `get_Chars`; on CLR `get_Chars` resolves
-            // first, so CLR is untouched.
+            // `s.[i]` on a `string` routes to the `Item` accessor `string` declares, whose
+            // JS body is the native `s[i]` (the CLR body calls `System.String::get_Chars`).
 
             test "string indexing `s.[i]` emits a native computed-member read" {
                 let js =

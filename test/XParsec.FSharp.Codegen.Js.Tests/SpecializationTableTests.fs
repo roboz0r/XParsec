@@ -177,7 +177,7 @@ module Bounce =
 
         write
             "array-cycle.js.fs"
-            """namespace global
+            """namespace Vesper
 
 #nowarn "42"
 

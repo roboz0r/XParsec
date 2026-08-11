@@ -1,30 +1,139 @@
-namespace              'namespace'       KWNamespace         tok=   0  pos=   0
-                       'Vesper'          Identifier          tok=   2  pos=  10
+namespace                    'namespace'       KWNamespace         tok=   0  pos=   0
+                             'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
     PrefixTypar:
       Typar.Named:
-                       ''T'              TypeParameter       tok=  14  pos=  37
-    TypeName           '``[]``'          BacktickedIdentifier  tok=  16  pos=  40
-    =                  '='               OpEquality          tok=  18  pos=  47
+                             ''T'              TypeParameter       tok=  14  pos=  37
+    TypeName                 '``[]``'          BacktickedIdentifier  tok=  16  pos=  40
+    =                        '='               OpEquality          tok=  18  pos=  47
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  20  pos=  49
-        StringLiteral  '"'               StringOpen          tok=  22  pos=  52
+        (#                   '(#'              KWLHashParen        tok=  21  pos=  53
+        StringLiteral        '"'               StringOpen          tok=  23  pos=  56
         Parts:
-          Text         '!0[]'            StringFragment      tok=  23  pos=  53
-                       '"'               StringClose         tok=  24  pos=  57
-        #)             '#)'              KWRHashParen        tok=  26  pos=  59
+          Text               '!0[]'            StringFragment      tok=  24  pos=  57
+                             '"'               StringClose         tok=  25  pos=  61
+        #)                   '#)'              KWRHashParen        tok=  27  pos=  63
+    with                     'with'            KWWith              tok=  31  pos=  71
+      member                 'member'          KWMember            tok=  38  pos= 181
+      inline                 'inline'          KWInline            tok=  40  pos= 188
+      ident                  'Item'            Identifier          tok=  44  pos= 200
+      with                   'with'            KWWith              tok=  47  pos= 217
+      Pat.NamedSimple        'get'             Identifier          tok=  49  pos= 222
+      Pats:
+        ParenBlock           '('               KWLParen            tok=  51  pos= 226
+          Pat.Typed:
+            Pat.NamedSimple  'index'           Identifier          tok=  52  pos= 227
+            Colon            ':'               OpColon             tok=  53  pos= 232
+            NamedType:
+              Ident          'int'             Identifier          tok=  55  pos= 234
+                             ')'               KWRParen            tok=  56  pos= 237
+      ReturnColon            ':'               OpColon             tok=  58  pos= 239
+      VarType:
+        Typar.Named:
+                             ''T'              TypeParameter       tok=  60  pos= 241
+      =                      '='               OpEquality          tok=  62  pos= 244
+        ILIntrinsic:
+          (#                 '(#'              KWLHashParen        tok=  64  pos= 246
+          StringLiteral      '"'               StringOpen          tok=  66  pos= 249
+          Parts:
+            Text             'ldelem.any...'   StringFragment      tok=  67  pos= 250
+                             '"'               StringClose         tok=  68  pos= 263
+          ILTypeArg:
+            type             'type'            KWType              tok=  70  pos= 265
+            (                '('               KWLParen            tok=  72  pos= 270
+            typeToken        ''T'              TypeParameter       tok=  73  pos= 271
+            )                ')'               KWRParen            tok=  74  pos= 273
+          Arg:
+            Ident            'this'            Identifier          tok=  76  pos= 275
+          Arg:
+            Ident            'index'           Identifier          tok=  78  pos= 280
+          ILReturnType:
+            :                ':'               OpColon             tok=  80  pos= 286
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok=  82  pos= 288
+          #)                 '#)'              KWRHashParen        tok=  84  pos= 291
+      Pat.NamedSimple        'set'             Identifier          tok=  89  pos= 310
+      Pats:
+        ParenBlock           '('               KWLParen            tok=  91  pos= 314
+          Pat.Typed:
+            Pat.NamedSimple  'index'           Identifier          tok=  92  pos= 315
+            Colon            ':'               OpColon             tok=  93  pos= 320
+            NamedType:
+              Ident          'int'             Identifier          tok=  95  pos= 322
+                             ')'               KWRParen            tok=  96  pos= 325
+        ParenBlock           '('               KWLParen            tok=  98  pos= 327
+          Pat.Typed:
+            Pat.NamedSimple  'value'           Identifier          tok=  99  pos= 328
+            Colon            ':'               OpColon             tok= 100  pos= 333
+            VarType:
+              Typar.Named:
+                             ''T'              TypeParameter       tok= 102  pos= 335
+                             ')'               KWRParen            tok= 103  pos= 337
+      ReturnColon            ':'               OpColon             tok= 105  pos= 339
+      NamedType:
+        Ident                'unit'            Identifier          tok= 107  pos= 341
+      =                      '='               OpEquality          tok= 109  pos= 346
+        ILIntrinsic:
+          (#                 '(#'              KWLHashParen        tok= 111  pos= 348
+          StringLiteral      '"'               StringOpen          tok= 113  pos= 351
+          Parts:
+            Text             'stelem.any...'   StringFragment      tok= 114  pos= 352
+                             '"'               StringClose         tok= 115  pos= 365
+          ILTypeArg:
+            type             'type'            KWType              tok= 117  pos= 367
+            (                '('               KWLParen            tok= 119  pos= 372
+            typeToken        ''T'              TypeParameter       tok= 120  pos= 373
+            )                ')'               KWRParen            tok= 121  pos= 375
+          Arg:
+            Ident            'this'            Identifier          tok= 123  pos= 377
+          Arg:
+            Ident            'index'           Identifier          tok= 125  pos= 382
+          Arg:
+            Ident            'value'           Identifier          tok= 127  pos= 388
+          ILReturnType:
+            :                ':'               OpColon             tok= 129  pos= 394
+            NamedType:
+              Ident          'unit'            Identifier          tok= 131  pos= 396
+          #)                 '#)'              KWRHashParen        tok= 133  pos= 401
+      member                 'member'          KWMember            tok= 137  pos= 413
+      inline                 'inline'          KWInline            tok= 139  pos= 420
+      ident                  'Length'          Identifier          tok= 143  pos= 432
+      with                   'with'            KWWith              tok= 146  pos= 451
+      Pat.NamedSimple        'get'             Identifier          tok= 148  pos= 456
+      Pats:
+        ParenBlock           '('               KWLParen            tok= 150  pos= 460
+                             ')'               KWRParen            tok= 151  pos= 461
+      ReturnColon            ':'               OpColon             tok= 153  pos= 463
+      NamedType:
+        Ident                'int'             Identifier          tok= 155  pos= 465
+      =                      '='               OpEquality          tok= 157  pos= 469
+        ILIntrinsic:
+          (#                 '(#'              KWLHashParen        tok= 159  pos= 471
+          StringLiteral      '"'               StringOpen          tok= 161  pos= 474
+          Parts:
+            Text             'ldlen'           StringFragment      tok= 162  pos= 475
+                             '"'               StringClose         tok= 163  pos= 480
+          Arg:
+            Ident            'this'            Identifier          tok= 165  pos= 482
+          ILReturnType:
+            :                ':'               OpColon             tok= 167  pos= 487
+            NamedType:
+              Ident          'int'             Identifier          tok= 169  pos= 489
+          #)                 '#)'              KWRHashParen        tok= 171  pos= 493
+    end                      'end'             KWEnd               tok= 175  pos= 501
   TypeDefn.Abbrev:
     PrefixTypar:
       Typar.Named:
-                       ''T'              TypeParameter       tok=  30  pos=  67
-    TypeName           'array'           Identifier          tok=  32  pos=  70
-    =                  '='               OpEquality          tok=  34  pos=  76
+                             ''T'              TypeParameter       tok= 180  pos= 511
+    TypeName                 'array'           Identifier          tok= 182  pos= 514
+    =                        '='               OpEquality          tok= 184  pos= 520
       ArrayType:
         VarType:
           Typar.Named:
-                       ''T'              TypeParameter       tok=  36  pos=  78
-                       '['               KWLBracket          tok=  37  pos=  80
-                       ']'               KWRBracket          tok=  38  pos=  81
+                             ''T'              TypeParameter       tok= 186  pos= 522
+                             '['               KWLBracket          tok= 187  pos= 524
+                             ']'               KWRBracket          tok= 188  pos= 525
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

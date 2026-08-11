@@ -482,9 +482,9 @@ module internal ElaborateExpr =
         elif opCode.StartsWith "ldelem" then
             TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ctx.Store ty), tArgs, ty, tok)
         elif opCode.StartsWith "stelem" then
-            // `arr.[i] <- v` / `SetArray`. The store's result is `unit`, so the
-            // element type is recovered from the value operand (the 3rd arg:
-            // array, index, value), not the node's result type as `ldelem` does.
+            // `arr.[i] <- v`. The store's result is `unit`, so the element type is
+            // recovered from the value operand (the 3rd arg: array, index, value),
+            // not the node's result type as `ldelem` does.
             let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[2]))
             TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty, tok)
         elif opCode.StartsWith "box" then

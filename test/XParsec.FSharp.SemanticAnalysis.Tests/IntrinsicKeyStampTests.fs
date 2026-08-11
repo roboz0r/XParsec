@@ -4,9 +4,9 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// A desugared `External` node (`a + b` → `op_Addition`, `arr.[i]` → `GetArray`) carries
-// the key its cross-package inline body is spliced by. This harness resolves contracts
-// from `.fsi` alone, so no body is served and the node survives unspliced, key readable.
+// A desugared `External` node (`a + b` → `op_Addition`) carries the key its cross-package
+// inline body is spliced by. This harness resolves contracts from `.fsi` alone, so no body
+// is served and the node survives unspliced, key readable.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
@@ -56,20 +56,4 @@ let tests =
             test "infix `+` stamps op_Addition" { assertStamped "op_Addition" "let f (a: int) (b: int) : int = a + b" }
 
             test "prefix `-` stamps op_UnaryNegation" { assertStamped "op_UnaryNegation" "let f (a: int) : int = -a" }
-
-            test "array index read `arr.[i]` stamps GetArray" {
-                assertStamped "GetArray" "let f (a: int[]) (i: int) : int = a.[i]"
-            }
-
-            test "array length `arr.Length` (LongIdent chain) stamps GetArrayLength" {
-                assertStamped "GetArrayLength" "let f (a: int[]) : int = a.Length"
-            }
-
-            test "array length on a non-ident object argument (DotLookup) stamps GetArrayLength" {
-                assertStamped "GetArrayLength" "let f () : int = [| 1; 2; 3 |].Length"
-            }
-
-            test "array index write `arr.[i] <- v` stamps SetArray" {
-                assertStamped "SetArray" "let f (a: int[]) (i: int) (v: int) : unit = a.[i] <- v"
-            }
         ]

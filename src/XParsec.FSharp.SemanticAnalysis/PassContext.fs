@@ -220,15 +220,12 @@ type ListLiteral =
         Tok: SyntaxToken
     }
 
-/// The Vesper.Core inline ACCESS intrinsics: the array / string / index read+write lowering
-/// (`arr.[i]`, `arr.[i] <- v`, `arr.Length`). `ValueNone` = the name is not in scope.
+/// The Vesper.Core inline ACCESS intrinsics: the index-signature read+write lowering
+/// (`x.[k]`, `x.[k] <- v`). An index signature has no host type to hang an accessor member
+/// on, so these have no member form. `ValueNone` = the name is not in scope.
 type CoreAccessIntrinsics =
     {
-        GetArrayLength: ExternalSymbol voption
-        GetArray: ExternalSymbol voption
-        GetString: ExternalSymbol voption
         GetIndex: ExternalSymbol voption
-        SetArray: ExternalSymbol voption
         SetIndex: ExternalSymbol voption
     }
 
@@ -277,11 +274,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
                 OpenScope.tryResolve ambientOpenScope provider.TryLookup name
 
              {
-                 GetArrayLength = one "GetArrayLength"
-                 GetArray = one "GetArray"
-                 GetString = one "GetString"
                  GetIndex = one "GetIndex"
-                 SetArray = one "SetArray"
                  SetIndex = one "SetIndex"
              }) with get
 

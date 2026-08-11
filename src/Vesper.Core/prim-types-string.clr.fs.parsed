@@ -61,7 +61,34 @@ namespace                      'namespace'       KWNamespace         tok=   0  p
               Ident            'x'               Identifier          tok=  83  pos= 284
               Ident            'y'               Identifier          tok=  86  pos= 287
                                ')'               KWRParen            tok=  87  pos= 288
-    end                        'end'             KWEnd               tok=  90  pos= 294
+      member                   'member'          KWMember            tok=  97  pos= 444
+      inline                   'inline'          KWInline            tok=  99  pos= 451
+      ident                    'Item'            Identifier          tok= 103  pos= 463
+      with                     'with'            KWWith              tok= 106  pos= 480
+      Pat.NamedSimple          'get'             Identifier          tok= 108  pos= 485
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 110  pos= 489
+          Pat.Typed:
+            Pat.NamedSimple    'index'           Identifier          tok= 111  pos= 490
+            Colon              ':'               OpColon             tok= 112  pos= 495
+            NamedType:
+              Ident            'int'             Identifier          tok= 114  pos= 497
+                               ')'               KWRParen            tok= 115  pos= 500
+      ReturnColon              ':'               OpColon             tok= 117  pos= 502
+      NamedType:
+        Ident                  'char'            Identifier          tok= 119  pos= 504
+      =                        '='               OpEquality          tok= 121  pos= 509
+        HighPrecedenceApp:
+          Func:
+            LongIdentOrOp:
+              LongIdent:
+                               'this'            Identifier          tok= 123  pos= 511
+                               'get_Chars'       Identifier          tok= 125  pos= 516
+          (                    '('               KWLParen            tok= 126  pos= 525
+          Arg:
+            Ident              'index'           Identifier          tok= 127  pos= 526
+                               ')'               KWRParen            tok= 128  pos= 531
+    end                        'end'             KWEnd               tok= 131  pos= 537
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

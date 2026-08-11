@@ -277,19 +277,19 @@ let tests =
 
             test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
                 // The member half of the same claim. `a.[i]` is `'T[]`'s `get_Item`, lifted off
-                // `array-index.js.fs`, and its nodes map to the file the member was WRITTEN in,
+                // `prim-types-array.fs`, and its nodes map to the file the member was WRITTEN in,
                 // not to the line that merely INDEXES the array.
                 let input = "let read (a: int[]) (i: int) : int = a.[i]\n"
                 let m = decodeMap (compileMapped "Idx" input)
 
                 Expect.contains
                     m.Sources
-                    "Vesper.Core/array-index.js.fs"
+                    "Vesper.Core/prim-types-array.fs"
                     "the file the member was written in is published beside the caller's"
 
                 let fromMember =
                     m.Segments
-                    |> List.filter (fun s -> m.Sources.[s.SrcIndex] = "Vesper.Core/array-index.js.fs")
+                    |> List.filter (fun s -> m.Sources.[s.SrcIndex] = "Vesper.Core/prim-types-array.fs")
 
                 Expect.isNonEmpty fromMember "the emitted index expression comes from the member body"
 

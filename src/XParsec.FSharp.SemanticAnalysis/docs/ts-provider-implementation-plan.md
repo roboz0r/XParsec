@@ -291,8 +291,9 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
   (`TypeDefn.TypeExtension`) and EXTRINSIC/cross-module extensions are DEFERRED (the core is built to
   accept them later; not needed here).
 - GUARDRAIL: only an ILIntrinsic-RHS abbrev may carry members (transparent alias rejected).
-- Array STAYS a bare `TyConst("[]")` — NOT promoted to `TyClass`. `EngineCore.fs:500` /
-  `isStructuralConstructorName` stay closed. Member lookup keys DIRECTLY on the array's contract name.
+- Array STAYS a bare `TyConst("[]")` — NOT promoted to `TyClass`. Member lookup keys DIRECTLY on the
+  array's contract name: `externalSurfaceKeys` yields a structural constructor's own contract key and
+  NEVER its `"!0[]"` repr, which is the mis-routing the earlier blanket decline was guarding against.
 - **Qualifying intrinsic identities (bare `TyConst("[]")`/`("string")` → namespaced) LANDED as its
   own milestone** — intrinsics carry qualified `Vesper.*` `SymbolKey`s; the successor work
   (contract-sourced resolution, shadow-set deletion) continues in
@@ -301,28 +302,25 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
 - **Array contract-name reality (corrects §3 below):** the key-agreement string is NOT `"[]``1"`.
   The name is the bare `[]`: the escape is stripped at the token → name read, and a structural
   constructor takes arity 0 however it is minted, so both the consumer contract AND the lifted
-  store key it as `[]`. The `InferRecordAccess` array branch looks it up under
-  `RuntimeNames.arrayMemberHostKey`, which differs only in being GLOBAL-namespace: the indexer
-  is declared there so it cannot displace the `Vesper` shape carrying the array's capabilities.
+  store key it as `[]`, in the `Vesper` namespace the array's own declaration files its shape under.
 
-**REMAINING (pick up in order):**
-- **2b** — array WRITE (`arr.[i] <- v` → `set_Item`) via the new `inferIndexedSet` from
-  `inferAssignment` (`InferControlFlow.fs:811`, no write resolution exists today) + `arr.Length` via a
-  `get_Length` member (retire the three `.Length` special-cases at `InferRecordAccess.fs:440`,
-  `ElaborateExpr.fs:556`, `Resolve.fs:816`). Same escaped-name + byte-identical + white-box pattern as 2a.
-- **2c** — string `s.[i]` via a `get_Item`/`get_Chars` member (string keys CLEANLY as `"string"` — a
-  simpler path than array's escaped name; `GetString`'s `$0[$1]` body migrates). Byte-identical
-  (`ArrayLoopTests` string-index, `IndexSignatureTests`).
-- **2d** — CLR target: migrate the CLR `GetArray`/`SetArray`/`GetArrayLength`/`GetString` bodies into the
-  same members so CLR emit stays byte-identical too (2a-2c are JS-only so far; the `.fsi` contract is
-  shared, the `.fs` bodies are per-target).
+**Stage 2 is COMPLETE (2026-08-10), and took the big DELETE with it.** `2b`/`2c`/`2d` all landed
+together, because the contract halves are shared across targets and cannot be moved one target at a
+time. The array declares `Item with get, set` and `Length` on its own `Vesper` declaration
+(`prim-types-array.fsi` + the shared `prim-types-array.fs`), `string` declares `Item with get`, and
+the second global-namespace array host (`array-index.js.*`, `RuntimeNames.arrayMemberHostKey`) is
+gone. `inferIndexedSet` resolves the write from `inferAssignment`; an indexer or length MISS is now a
+diagnostic against the object argument's own type, so nothing masks a key divergence. Deleted with
+them: `GetArray`/`SetArray`/`GetArrayLength`/`GetString`, four of the six `CoreAccess` fields, their
+`IntrinsicNotInScope` diagnostics, and all three `.Length` special-cases. `externalSurfaceKeys` now
+yields a structural constructor's OWN contract key (never the `"!0[]"` repr), which is what lets the
+array reach the ordinary member path.
+
+**REMAINING:**
 - **Stage 3** — external CLR `get_Item` (real call, no inline body — proves the splice-vs-call fork on ONE
-  path) + TS index-sig (provider-synthesised `$0[$1]` member body). THEN the big DELETE (see §6): the
-  `GetArray`/`SetArray`/`GetArrayLength`/`GetString` free functions + their Freeze emit sites, the
-  `getArrayIndex`/`stringOrArrayIndex` fallbacks, `tryIndexSignature`/`TryLookupIndexSignature`, the
-  `GetIndex`/`SetIndex` intrinsics. The fallbacks are STILL PRESENT through Stage 2 (so a key mismatch
-  would emit byte-identically) — that is why every Stage-2 slice needs the WHITE-BOX assertion that
-  resolution took the member path (an `ExternalAccess` `get_Item`/`set_Item` entry), not the fallback.
+  path) + TS index-sig (provider-synthesised `$0[$1]` member body), which would then retire
+  `tryIndexSignature` / `TryLookupIndexSignature` and the `GetIndex`/`SetIndex` intrinsics — the last
+  index lowering with no host type to hang a member on.
 
 Blast-radius recon confirmed de-specializing array is LOCALIZED (~a dozen sites) as long as array stays a
 `TyConst`; the systemic part (qualified identities, array-as-real-`TyClass`, literal JS repr) is the

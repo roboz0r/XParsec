@@ -33,4 +33,18 @@ namespace               'namespace'       KWNamespace         tok=   0  pos=   0
           ->            '->'              OpArrowRight        tok=  64  pos= 440
           NamedType:
             Ident       'string'          Identifier          tok=  66  pos= 443
-      end               <virt>            KWEnd               tok=virt  pos= 450
+        Member:
+          member        'member'          KWMember            tok=  73  pos= 534
+          inline        'inline'          KWInline            tok=  75  pos= 541
+          Ident         'Item'            Identifier          tok=  77  pos= 548
+          :             ':'               OpColon             tok=  78  pos= 552
+          arg           'index'           Identifier          tok=  80  pos= 554
+          :             ':'               OpColon             tok=  81  pos= 559
+          NamedType:
+            Ident       'int'             Identifier          tok=  83  pos= 561
+          ->            '->'              OpArrowRight        tok=  85  pos= 565
+          NamedType:
+            Ident       'char'            Identifier          tok=  87  pos= 568
+          with          'with'            KWWith              tok=  89  pos= 573
+          get/set       'get'             Identifier          tok=  91  pos= 578
+      end               <virt>            KWEnd               tok=virt  pos= 582

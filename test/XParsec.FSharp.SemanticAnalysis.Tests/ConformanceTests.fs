@@ -503,7 +503,7 @@ let jsPackageConformanceTests =
                 | Some(_, types) -> Expect.isEmpty types "it declares no extern — every declaration is an abbreviation"
             }
 
-            test "js: array-index.js.fsi PAIRS with its body rather than being waved through" {
+            test "js: prim-types-array.fsi PAIRS with its body rather than being waved through" {
                 // The manifest names one pair and it conforms: `extern` ↔ `(# "!0[]" #)`.
                 // Neither half is waved through — the `.fsi` as owing no body, or the
                 // `.fs` as contract-less.
@@ -511,15 +511,15 @@ let jsPackageConformanceTests =
                     [
                         for p in (outcomeFor "js" (manifestOf "Vesper.Core")).Pairs do
                             match p with
-                            | ConformancePass.PairOutcome.Paired r when r.SigFile = "array-index.js.fsi" -> yield r
+                            | ConformancePass.PairOutcome.Paired r when r.SigFile = "prim-types-array.fsi" -> yield r
                             | _ -> ()
                     ]
 
                 match paired with
                 | [ r ] ->
-                    Expect.equal r.ImplFile "array-index.js.fs" "paired with its body"
+                    Expect.equal r.ImplFile "prim-types-array.fs" "paired with its body"
                     Expect.isEmpty r.Errors "the array's extern and its intrinsic repr conform"
-                | _ -> failtest "array-index.js.fsi must pair with array-index.js.fs"
+                | _ -> failtest "prim-types-array.fsi must pair with prim-types-array.fs"
             }
 
             test "js: a contract-less body is declared, not inferred, and raises nothing" {

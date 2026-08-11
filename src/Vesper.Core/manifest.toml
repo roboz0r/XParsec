@@ -78,9 +78,6 @@ files = [
     "prim-types-dynamic.js.fsi",
     # After `prim-types-dynamic.js.fsi` — these operators reference the `dynamic` type.
     "ops-dynamic.js.fsi",
-    # A `get_Item` indexer on the intrinsic array. Declared in the GLOBAL namespace so this
-    # member host cannot displace the `Vesper` shape carrying the array's capabilities.
-    "array-index.js.fsi",
 ]
 
 # All 9 attribute types are fully ERASED on JS — no `.mjs` residue, no decorator — but must
@@ -109,9 +106,6 @@ impl = [
     "prim-types-undefined.js.fs",
     "prim-types-dynamic.js.fs",
     "ops-dynamic.js.fs",
-    # The array `get_Item` body — lifted `this`-first and served under the member key, so
-    # `arr.[i]` splices the same `ldelem` the free `GetArray` does.
-    "array-index.js.fs",
 ]
 
 # Hand-authored runtime asset, not a parsed source: the JS backend imports

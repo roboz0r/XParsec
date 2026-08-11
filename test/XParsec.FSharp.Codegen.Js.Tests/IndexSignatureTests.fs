@@ -115,9 +115,9 @@ let tests =
             }
 
             test "writing `x.[k] <- v` type-checks and lowers to a bracket assignment" {
-                // `SetArray` needs an int index on an array, so a string-keyed write to a
-                // non-array object type-checks only through `SetIndex`; the green check
-                // plus the bracket assignment pins that path.
+                // A non-array object declares no `set_Item`, so a string-keyed write
+                // type-checks only through `SetIndex`; the green check plus the bracket
+                // assignment pins that path.
                 let errs = analyseErrors "let d = dict\nd.[\"k\"] <- 5.0\n"
                 Expect.isEmpty errs (sprintf "an index write should type-check, got: %A" errs)
 

@@ -732,18 +732,12 @@ module internal UnificationInferControlFlow =
         unify ctx tok finallyTy ctx.Intrinsics.Unit
         resultTy
 
-    /// The setter a WRITE-ONLY slot goes through. A readable half types the LHS itself, so a
-    /// slot that has one declines here and takes the read path. The two names are given
-    /// rather than derived: an indexer reads through `get_Item` but a property through `P`.
-    and private tryWriteOnlySetter
-        (ctx: PassContext)
-        (objArgTy: SemType)
-        (readName: string)
-        (setName: string)
-        : SemType voption =
-        match tryLocalInstanceMember ctx objArgTy readName with
+    /// The setter a WRITE-ONLY property goes through. A readable half types the LHS itself, so
+    /// a property that has one declines here and takes the read path.
+    and private tryWriteOnlySetter (ctx: PassContext) (objArgTy: SemType) (propName: string) : SemType voption =
+        match tryLocalInstanceMember ctx objArgTy propName with
         | ValueSome _ -> ValueNone
-        | ValueNone -> tryLocalInstanceMember ctx objArgTy setName
+        | ValueNone -> tryLocalInstanceMember ctx objArgTy (AccessorNames.setterName propName)
 
     /// The object argument of an assignment LHS, inferred ONCE: both the setter path and the
     /// read fall-through read this type, so they cannot disagree about the object.
@@ -770,7 +764,7 @@ module internal UnificationInferControlFlow =
             let name = ctx.NameOf slotTok
 
             let setterValueTy =
-                match tryWriteOnlySetter ctx objArgTy name (AccessorNames.setterName name) with
+                match tryWriteOnlySetter ctx objArgTy name with
                 // An INDEXED setter takes the index first, so it does not answer a
                 // `x.P <- v` write; only a one-argument `set_P : T -> unit` does.
                 | ValueSome setterTy ->
@@ -785,16 +779,16 @@ module internal UnificationInferControlFlow =
             match setterValueTy with
             | ValueSome valueTy -> linkLhs valueTy
             | ValueNone -> linkLhs (resolveFieldStep ctx access slotTok objArgTy)
+        // A getter of ANY provenance types the element. Failing that the slot is write-only,
+        // whatever declared it, so the fresh var is left for the write to pin: reporting the
+        // miss here would blame `get_Item` for what a write needs.
         | AssignTarget.Indexed(objArg, index) ->
             let objArgTy = infer ctx objArg
             let idxTy = infer ctx index
 
-            match tryWriteOnlySetter ctx objArgTy AccessorNames.itemGetter AccessorNames.itemSetter with
-            | ValueSome setterTy ->
-                let valueTy = TyVar(freshTyVar ctx)
-                unify ctx access.Tok setterTy (TyFun(idxTy, TyFun(valueTy, ctx.Intrinsics.Unit)))
-                linkLhs valueTy
-            | ValueNone -> linkLhs (resolveIndexedStep ctx access objArgTy idxTy)
+            match tryResolveIndexedGet ctx access objArgTy idxTy with
+            | ValueSome elemTy -> linkLhs elemTy
+            | ValueNone -> linkLhs (TyVar(freshTyVar ctx))
         // The dispatcher routes an unparenthesised `x?n <- v` to `inferDynamicSet` before
         // reaching here, so a dynamic LHS only ever arrives wrapped, as a read.
         | AssignTarget.Dynamic _
@@ -813,26 +807,14 @@ module internal UnificationInferControlFlow =
         let rightTy = infer ctx right
         unify ctx node.Tok leftTy rightTy
 
-        // Unlike the `GetArray`/`GetIndex` read intrinsics, the write intrinsic of
-        // `arr.[i] <- v` is never resolved by the plain type-check, so resolve it here and
-        // stamp it under this node's key, the key the `stelem` body is spliced by.
+        // The LHS walk types `arr.[i] <- v` off the GETTER, so the write is resolved here,
+        // under this node's key: the key the `set_Item` call and the `$0[$1] = $2` body are
+        // both emitted by.
         match lhs.Target with
-        | AssignTarget.Indexed(objArg = arrE) ->
+        | AssignTarget.Indexed(objArg = arrE; index = idxE) ->
             let arrTy = zonk ctx.Store (TyVar(tvOf ctx (CstKeys.ofExpr arrE)))
-
-            // A declared `set_Item` write is a method call, which splices no intrinsic body.
-            if (tryLocalInstanceMember ctx arrTy AccessorNames.itemSetter).IsNone then
-                let setSym =
-                    match arrTy with
-                    | TyClass(clsKey, _) when
-                        not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)
-                        ->
-                        ctx.CoreAccess.Value.SetIndex
-                    | _ -> ctx.CoreAccess.Value.SetArray
-
-                match setSym with
-                | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-                | ValueNone -> ()
+            let idxTy = zonk ctx.Store (TyVar(tvOf ctx (CstKeys.ofExpr idxE)))
+            resolveIndexedSet ctx node arrTy idxTy rightTy
         | _ -> ()
 
         ctx.Intrinsics.Unit

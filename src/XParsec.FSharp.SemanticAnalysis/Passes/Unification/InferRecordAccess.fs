@@ -36,6 +36,40 @@ module internal UnificationInferRecordAccess =
         | Some hit -> ValueSome hit
         | None -> ValueNone
 
+    /// The `ExternalAccess` an indexer accessor records. An accessor is a METHOD however its
+    /// property was spelled, and takes no omittable optionals.
+    let private indexerAccess (m: ExternalMember) (signature: SemType) : ResolvedExternalMember =
+        {
+            Key = SymbolKey.Member m.Key
+            IsStatic = false
+            Storage = MemberStorage.Method
+            Signature = signature
+            OptionalDefaults = []
+        }
+
+    let private pickSurface
+        (ctx: PassContext)
+        (objArgTy: SemType)
+        (f: SymbolKey -> SemType[] -> 'a voption)
+        : 'a voption =
+        let rec go surfaces =
+            match surfaces with
+            | [] -> ValueNone
+            | struct (declKey, clsArgs: EqArray<SemType>) :: rest ->
+                match f declKey (clsArgs.AsSpan().ToArray()) with
+                | ValueSome hit -> ValueSome hit
+                | ValueNone -> go rest
+
+        go (externalSurfaceKeys ctx objArgTy)
+
+    /// The complaint when no surface declares `accessorName`. The array and `string` declare
+    /// their own `Item`, so this is a genuine miss; an object argument still a type variable
+    /// has no type to look one up on, and wants an annotation instead.
+    let private noIndexerKind (ctx: PassContext) (objArgTy: SemType) (accessorName: string) : Kind =
+        match resolveStep ctx.Store objArgTy with
+        | TyVar _ -> Kind.Message "Indexed access on an object of indeterminate type; add a type annotation"
+        | ty -> Kind.NoMember(shown ctx.Store ty, MemberNoun.InstanceMember, accessorName)
+
     let rec inferRecord
         (infer: Infer)
         (ctx: PassContext)
@@ -380,24 +414,6 @@ module internal UnificationInferRecordAccess =
                     ctx
                     memberTok
                     (Kind.NoMember(SymbolKeyOps.qualifiedName declKey, MemberNoun.InstanceMember, memberName))
-        // The intrinsic `'T[]` carries no member metadata, so `arr.Length` resolves to the
-        // core `GetArrayLength` inline function (scheme `'T[] -> int`).
-        | TyArray _ when memberName = "Length" ->
-            match ctx.CoreAccess.Value.GetArrayLength with
-            | ValueSome sym ->
-                // Thread the resolved identity through so `InlineExpansion` can splice
-                // the `ldlen` body by KEY.
-                ctx.Resolution.IntrinsicKey.Set(access.Key, SymbolKey.Binding sym.Key)
-                let resultTy = TyVar(freshTyVar ctx)
-
-                unify
-                    ctx
-                    memberTok
-                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                    (TyFun(rTy, resultTy))
-
-                resultTy
-            | ValueNone -> errorTy ctx memberTok (Kind.IntrinsicNotInScope "Array 'Length' intrinsic 'GetArrayLength'")
         | _ ->
             errorTy
                 ctx
@@ -414,9 +430,9 @@ module internal UnificationInferRecordAccess =
         let rTy = infer ctx objArg
         resolveFieldStep ctx node fieldTok rTy
 
-    /// `arr.[i]` — a rank-1 array `'T[]` object argument, an `int` index, the element type as
-    /// result. The element stays a fresh var unified against it, so a bare `[]`
-    /// object argument is pinned from context exactly as an array literal is.
+    /// `x.[i]` — the element type, off a `get_Item` of any provenance; a miss is reported
+    /// against the object argument's own type. The element stays a fresh var unified against
+    /// the accessor's return, so a bare `[]` is pinned from context as an array literal is.
     and inferIndexedLookup
         (infer: Infer)
         (ctx: PassContext)
@@ -424,78 +440,31 @@ module internal UnificationInferRecordAccess =
         (objArg: Expr<SyntaxToken>)
         (index: Expr<SyntaxToken>)
         : SemType =
-        resolveIndexedStep ctx node (infer ctx objArg) (infer ctx index)
+        let objArgTy = infer ctx objArg
 
-    /// The element type `x.[i]` reads, from the ALREADY-INFERRED operand types. An assignment
-    /// LHS infers its operands itself, so the choice of accessor / intrinsic lives here rather
-    /// than inside the inferring wrapper.
-    and resolveIndexedStep (ctx: PassContext) (node: NodeSite) (objArgTy: SemType) (idxTy: SemType) : SemType =
-        // `arr.[i]` resolves to the core `GetArray` inline function: instantiate its scheme
-        // (`'T[] -> int -> 'T`) and unify against `arr -> idx -> result`. That pins element,
-        // index and result, and grounds them so `InlineExpansion` splices the `ldelem`.
-        let getArrayIndex () =
-            match ctx.CoreAccess.Value.GetArray with
-            | ValueSome sym ->
-                // Thread the resolved `GetArray` identity through so the `ldelem` body
-                // splices by KEY, under this same `IndexedLookup` node key.
-                ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-                let resultTy = TyVar(freshTyVar ctx)
+        match tryResolveIndexedGet ctx node objArgTy (infer ctx index) with
+        | ValueSome resultTy -> resultTy
+        | ValueNone -> errorTy ctx node.Tok (noIndexerKind ctx objArgTy AccessorNames.itemGetter)
 
-                unify
-                    ctx
-                    node.Tok
-                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                    (TyFun(objArgTy, TyFun(idxTy, resultTy)))
-
-                resultTy
-            | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Array indexing intrinsic 'GetArray'")
-
-        // String indexing (`s.[i]`) where the target has no BCL `string` metadata (JS) and
-        // `get_Chars` does not resolve: `GetString` (scheme `string -> int -> char`) unifies
-        // the object argument against `string`, not `'T[]` as the `GetArray` fallback would.
-        let getStringIndex () =
-            match ctx.CoreAccess.Value.GetString with
-            | ValueSome sym ->
-                // Thread the resolved `GetString` identity (see `getArrayIndex`).
-                ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
-                let resultTy = TyVar(freshTyVar ctx)
-
-                unify
-                    ctx
-                    node.Tok
-                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
-                    (TyFun(objArgTy, TyFun(idxTy, resultTy)))
-
-                resultTy
-            | ValueNone -> getArrayIndex ()
-
-        let stringOrArrayIndex () =
-            match resolveStep ctx.Store objArgTy with
-            | TyString -> getStringIndex ()
-            | _ -> getArrayIndex ()
-
-        // An indexer on an external object argument is its BCL `get_Item` accessor (`get_Chars`
-        // for a `string` intrinsic), never `GetArray`/`ldelem`: resolve it through the
-        // provider, record `ExternalAccess`, and return the ELEMENT type.
-        let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
-            match ctx.Provider.TryLookupMember(declKey, accessorName) with
+    /// The element type `x.[i]` reads, from ALREADY-INFERRED operands, because an assignment
+    /// LHS infers its own. SILENT on a miss: only a READ reports one, an assignment falls
+    /// through to its setter and blames the accessor a write needs.
+    and tryResolveIndexedGet
+        (ctx: PassContext)
+        (node: NodeSite)
+        (objArgTy: SemType)
+        (idxTy: SemType)
+        : SemType voption =
+        // An indexer on an external object argument is its declared `get_Item` accessor:
+        // resolve it through the provider, record `ExternalAccess`, and return the ELEMENT type.
+        let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) : SemType voption =
+            match ctx.Provider.TryLookupMember(declKey, AccessorNames.itemGetter) with
             | ValueSome m when not m.IsStatic ->
                 let memberSig = ExternalSymbols.openSignature m clsArgs
-
-                ctx.Resolution.ExternalAccess.Set(
-                    node.Key,
-                    {
-                        Key = SymbolKey.Member m.Key
-                        IsStatic = false
-                        Storage = MemberStorage.Method
-                        Signature = memberSig
-                        // An indexer's accessor takes no omittable optionals.
-                        OptionalDefaults = []
-                    }
-                )
+                ctx.Resolution.ExternalAccess.Set(node.Key, indexerAccess m memberSig)
 
                 // The accessor is `idx -> ret`, and `ret` is by-ref (`Span<char>.get_Item :
-                // T&`) or by-value (`string.get_Chars : char`), so the unify RHS must match.
+                // T&`) or by-value (`string.get_Item : char`), so the unify RHS must match.
                 let retIsByref =
                     match memberSig with
                     | TyFun(_, TyByref _) -> true
@@ -572,41 +541,65 @@ module internal UnificationInferRecordAccess =
                 | ValueNone ->
                     ValueSome(errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"))
 
-        // A declared `get_Item` read is a method call, which stamps no intrinsic key.
+        // A declared `get_Item` read is a method call, not a spliced body, so it stamps no key.
         match tryLocalInstanceMember ctx objArgTy AccessorNames.itemGetter with
         | ValueSome accessorTy ->
             let resultTy = TyVar(freshTyVar ctx)
             unify ctx node.Tok accessorTy (TyFun(idxTy, resultTy))
-            resultTy
+            ValueSome resultTy
+        // An index signature is not a member, so no `get_Item` lookup can find it and it needs
+        // its own probe. Otherwise each surface answers with its declared `get_Item`: an
+        // external class's, or an intrinsic's own contract (`arr.[i]`, `s.[i]`).
         | ValueNone ->
-            match resolveStep ctx.Store objArgTy with
-            | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-                let clsArgsArr = clsArgs.AsSpan().ToArray()
+            match pickSurface ctx objArgTy tryIndexSignature with
+            | ValueSome resultTy -> ValueSome resultTy
+            | ValueNone -> pickSurface ctx objArgTy resolveExternalIndexer
 
-                match tryIndexSignature (SymbolKey.Type clsKey) clsArgsArr with
-                | ValueSome resultTy -> resultTy
-                | ValueNone ->
-                    match resolveExternalIndexer (SymbolKey.Type clsKey) clsArgsArr AccessorNames.itemGetter with
-                    | ValueSome resultTy -> resultTy
-                    | ValueNone -> getArrayIndex ()
-            // A rank-1 array reads through the intrinsic array type's declared `get_Item`, the
-            // member form of the free `GetArray`.
-            | TyArray elem ->
-                match resolveExternalIndexer RuntimeNames.arrayMemberHostKey [| elem |] AccessorNames.itemGetter with
-                | ValueSome resultTy -> resultTy
-                | ValueNone -> getArrayIndex ()
+    /// `x.[i] <- v`: the write accessor, and the constraint that pins the element type when no
+    /// getter typed the LHS. Unlike the read it REPORTS its own miss, naming `set_Item`, so a
+    /// write with neither accessor is not blamed on the getter.
+    and resolveIndexedSet
+        (ctx: PassContext)
+        (node: NodeSite)
+        (objArgTy: SemType)
+        (idxTy: SemType)
+        (valueTy: SemType)
+        : unit =
+        // An EXTERNAL `set_Item`, recorded under the ASSIGNMENT's own key so Elaborate emits
+        // the call. Two .NET parameters, so the accessor takes ONE tupled argument.
+        let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) : unit voption =
+            match ctx.Provider.TryLookupMember(declKey, AccessorNames.itemSetter) with
+            | ValueSome m when not m.IsStatic ->
+                let memberSig = ExternalSymbols.openSignature m clsArgs
+                ctx.Resolution.ExternalAccess.Set(node.Key, indexerAccess m memberSig)
+                let args = TyTuple(EqArray.ofArray [| idxTy; valueTy |])
+                unify ctx node.Tok memberSig (TyFun(args, ctx.Intrinsics.Unit))
+                ValueSome()
+            | _ -> ValueNone
+
+        // An index-signature object argument has no `set_Item` to call: the `$0[$1] = $2`
+        // bracket IS its accessor, so the write stamps the intrinsic the body splices by. The
+        // LHS read pinned the key/value types off the same signature, so none is needed here.
+        let tryIndexSignature (declKey: SymbolKey) (_: SemType[]) : unit voption =
+            match ctx.Provider.TryLookupIndexSignature declKey with
+            | [] -> ValueNone
             | _ ->
-                // An intrinsic object argument mapped to a BCL type, namely `string` (`s.[i]`),
-                // whose indexer is `System.String.get_Chars(int) : char`. On JS no surface
-                // publishes it, since `string`'s platform repr is the bare `"string"`.
-                let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
-                    match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
-                    | ValueSome resultTy -> Some resultTy
-                    | ValueNone -> None
+                match ctx.CoreAccess.Value.SetIndex with
+                | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
+                | ValueNone -> ()
 
-                match externalSurfaceKeys ctx objArgTy |> List.tryPick charsIndexer with
-                | Some resultTy -> resultTy
-                | None -> stringOrArrayIndex ()
+                ValueSome()
+
+        // A declared `set_Item` write is a method call, not a spliced body, so it stamps no key.
+        match tryLocalInstanceMember ctx objArgTy AccessorNames.itemSetter with
+        | ValueSome setterTy -> unify ctx node.Tok setterTy (TyFun(idxTy, TyFun(valueTy, ctx.Intrinsics.Unit)))
+        | ValueNone ->
+            match pickSurface ctx objArgTy tryIndexSignature with
+            | ValueSome() -> ()
+            | ValueNone ->
+                match pickSurface ctx objArgTy resolveExternalIndexer with
+                | ValueSome() -> ()
+                | ValueNone -> ctx.Report(node.Tok, noIndexerKind ctx objArgTy AccessorNames.itemSetter)
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// anchor segment NameResolution resolved as a local binding; the remaining

@@ -332,8 +332,6 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // Without the declared accessor the object argument unifies against `'T[]`, so
-            // this same source reports `Type mismatch: [] vs C`.
             test "a declared indexer types `x.[i]` as its element type" {
                 let src =
                     "type C(v: int) =\n    member this.Item with get (i: int) = i + v\nlet c = C(1)\nlet x = c.[2]"
@@ -370,13 +368,50 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // An index on a type declaring no accessor still resolves as an array read.
+            // The array declares its own `get_Item`, so it reaches the same accessor lookup
+            // every other indexable type does.
             test "an array index is unaffected by the accessor lookup" {
                 let src = "let xs = [| 1; 2 |]\nlet x = xs.[1]"
 
                 let ctx = analyse src
                 Expect.equal (typeOf ctx (keyOfLet src "x")) BuiltinTypes.tyInt "x : int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            // The miss names the OBJECT ARGUMENT's type. Before the array carried its own
+            // accessor, an unindexable object argument was unified against `'T[]` instead and
+            // reported `Type mismatch: [] vs C` — a complaint about the wrong type.
+            test "a type declaring no indexer reports the miss against its own type" {
+                let ctx = analyse "type C() =\n    member this.M () = 1\nlet c = C()\nlet x = c.[0]"
+
+                Expect.contains
+                    (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
+                    "Type 'C' has no instance member 'get_Item'"
+                    "the diagnostic names `C`, not the array intrinsic"
+            }
+
+            // A WRITE blames the accessor a write needs. The LHS walk types the element off the
+            // getter, so it must stay silent when there is none, or the miss reads `get_Item`.
+            test "a write to a type declaring no indexer blames `set_Item`, once" {
+                let ctx =
+                    analyse "type C() =\n    member this.M () = 1\nlet c = C()\nlet u = (c.[0] <- 1)"
+
+                let messages = ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq
+
+                Expect.equal messages [ "Type 'C' has no instance member 'set_Item'" ] "one miss, naming the setter"
+            }
+
+            // `string` declares `Item` with a GETTER only, so the read half resolves and only
+            // the write is missing.
+            test "a write to a read-only external indexer blames `set_Item`" {
+                let ctx = analyse "let f (s: string) : unit = s.[0] <- 'x'"
+
+                let messages = ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq
+
+                Expect.equal
+                    messages
+                    [ "Type 'string' has no instance member 'set_Item'" ]
+                    "the getter resolved; only the setter is missing"
             }
 
             // `null` types as a fresh TyVar that the annotation links to `TyClass C`; nothing

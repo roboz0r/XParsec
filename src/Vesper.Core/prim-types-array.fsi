@@ -11,6 +11,13 @@ namespace Vesper
 type 'T ``[]`` = extern with
     interface Vesper.Collections.seq<'T>
 
+    /// <summary>The element at <c>index</c>: <c>arr.[i]</c> reads and
+    /// <c>arr.[i] &lt;- v</c> writes.</summary>
+    member inline Item: index: int -> 'T with get, set
+
+    /// <summary>The number of elements.</summary>
+    member inline Length: int with get
+
 /// <summary>Single dimensional, zero-based arrays, written <c>int array</c>, <c>string array</c> etc.</summary>
 ///
 /// <category>Basic Types</category>

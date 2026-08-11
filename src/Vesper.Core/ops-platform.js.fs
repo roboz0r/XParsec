@@ -83,14 +83,6 @@ module Operators =
     /// No JS operator mixes `number` and `bigint`, so the widening is the explicit `BigInt(…)`.
     let inline bigint (value: int32) : bigint = (# "BigInt($0)" value : bigint #)
 
-    /// The CIL mnemonic is target-neutral: JS emits the computed member read `arr[i]`.
-    let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
-
-    let inline SetArray (array: 'T[]) (index: int) (value: 'T) : unit =
-        (# "stelem.any !0" type ('T) array index value : unit #)
-
-    let inline GetArrayLength (array: 'T[]) : int = (# "ldlen" array : int #)
-
     /// An expression-position IIFE, so `raise` composes anywhere a value is expected.
     let inline raise (e: 'TException) : 'T = (# "(() => { throw $0; })()" e : 'T #)
 
@@ -101,12 +93,6 @@ module Operators =
     /// worded as the BCL's `ArgumentException` words it.
     let inline invalidArg (argumentName: string) (message: string) : 'T =
         failwith (message + " (Parameter '" + argumentName + "')")
-
-[<AutoOpen>]
-module StringIntrinsics =
-
-    /// A JS string is indexable and `char` is a length-1 string, so `s[i]` answers directly.
-    let inline GetString (s: string) (index: int) : char = (# "$0[$1]" s index : char #)
 
 [<AutoOpen>]
 module IndexIntrinsics =
