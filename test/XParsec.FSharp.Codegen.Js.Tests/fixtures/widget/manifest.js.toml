@@ -22,7 +22,6 @@ files = [
     "widget.fsi",
 ]
 
-[targets.js]
 # The bodies. Every declaration in them is `inline`, so the package emits no DLL and these
 # are purely SPLICE sources — the inline-body loader mints each `member inline` as a
 # `this`-first inline body served under that member's key. Listing them here is also what

@@ -11,10 +11,10 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // and `./Vesper.Core.mjs`. A program reaching Seq without reaching either directly must ship
 // all three, or the written output carries a specifier Node cannot resolve.
 
-/// `jsManifests` plus `Vesper.Seq`'s: the contract of a program that CONSUMES the Seq
+/// `jsPackages` plus `Vesper.Seq`'s: the contract of a program that CONSUMES the Seq
 /// package, so `Seq.*` resolves to the committed asset rather than to a compiled module.
 let private seqConsumerContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor Target.Js (jsManifests @ [ srcManifest "Vesper.Seq" ])
+    lazy JsNativeSymbols.jsNativeContract (jsPackages @ [ srcPackage "Vesper.Seq" ])
 
 /// Compile `input` against `seqConsumerContract`, writing into `tmp/<name>/` so the artifact
 /// and the assets it selects can be run under Node exactly as materialised.

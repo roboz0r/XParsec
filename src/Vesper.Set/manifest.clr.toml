@@ -4,13 +4,9 @@ description = "The immutable AVL-tree set type and the Set module (FSharp.Core v
 
 depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Array", "Vesper.Seq", "Vesper.Choice", "Vesper.Option", "Vesper.Comparison", "Vesper.Printf"]
 
-# Contract `.fsi` files shared by EVERY target: none — the package is CLR-only.
-files = []
-
-[targets.clr]
-# CLR-only CONTRACT. `set.fsi` itself — not merely the impl — names
-# `System.Collections.IEnumerable` / `IStructuralEquatable`, `ReadOnlySpan<'T>`,
-# `[<CollectionBuilder(typeof<Set>, "Create")>]` and `[<ScopedRef>]`.
+# CLR-only, so there is no `manifest.js.toml` beside this one. `set.fsi` itself — not
+# merely the impl — names `System.Collections.IEnumerable` / `IStructuralEquatable`,
+# `ReadOnlySpan<'T>`, `[<CollectionBuilder(typeof<Set>, "Create")>]` and `[<ScopedRef>]`.
 files = [
     "set.fsi",
 ]

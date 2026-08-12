@@ -67,8 +67,7 @@ let private mentionsSymbol (needle: string) (e: TastAccessor.ExprId) : bool =
 
 /// `Vesper.Core` alone. `<` lives in `Vesper.Comparison`, which this stack does NOT
 /// reference, so `2 < 3` cannot resolve.
-let private coreOnly =
-    lazy (ClrSymbolProviders.buildContract [ vesperCoreManifest ])
+let private coreOnly = lazy (ClrSymbolProviders.buildContract [ vesperCorePackage ])
 
 let private analyseCoreOnly (input: string) : TastFile =
     let lexed, file = parseFile input
@@ -226,7 +225,7 @@ let tests =
             }
 
             test "`=`/`<>` freeze from the Vesper.Core contract and are collected as cross-package inlines" {
-                let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
+                let inlines = ClrSymbolProviders.contractInlineBodies defaultPackages
 
                 Expect.isTrue
                     (Map.containsKey "op_Equality" inlines)

@@ -21,8 +21,8 @@ let tests =
                 // Inline expansion runs before freeze, so `hash 5` is already
                 // `EqualityComparer<int>.Default.GetHashCode 5` in `tast.Decls`, with
                 // `'T` pinned to `int` and the `External("hash")` node gone.
-                let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
-                let inlines = ClrSymbolProviders.contractInlineBodies [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+                let inlines = ClrSymbolProviders.contractInlineBodies [ vesperCorePackage ]
                 Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.clr.fs"
 
                 let lexed, file = parseFile "let v = hash 5"

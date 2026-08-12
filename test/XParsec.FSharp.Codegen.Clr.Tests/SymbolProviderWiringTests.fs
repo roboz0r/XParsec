@@ -32,7 +32,7 @@ let tests =
 
                 // With the Vesper.List manifest, `fold` resolves under its SOURCE-qualified
                 // name (`Vesper.Collections.List.fold`, not compiled `ListModule.fold`).
-                let contract = ClrSymbolProviders.build [ vesperListManifest; vesperCoreManifest ]
+                let contract = ClrSymbolProviders.build [ vesperListPackage; vesperCorePackage ]
 
                 match contract.TryLookup "Vesper.Collections.List.fold" with
                 | ValueSome _ -> ()
@@ -40,7 +40,7 @@ let tests =
             }
 
             test "the Vesper.Core manifest layer adds type + operator resolution from the contract" {
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 // The provider answers the QUALIFIED name; short names come from the
                 // ambient open scope. `int` is an `extern` paired with a `.fs`
@@ -75,7 +75,7 @@ let tests =
                 // One contract-backed provider across both phases, with operators and
                 // printf coming from the contract.
                 let _, artifact =
-                    compileSourceWith defaultManifests "ManifestWiring" "printfn \"%d\" (1 + 2)"
+                    compileSourceWith defaultPackages "ManifestWiring" "printfn \"%d\" (1 + 2)"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 

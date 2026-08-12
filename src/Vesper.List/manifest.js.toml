@@ -11,13 +11,13 @@ files = [
     "list.fsi",
 ]
 
-# Target-NEUTRAL: the verbatim `[]`/`::` cons-list, no inline IL and no BCL name.
-# `seq<'T>` is a capability, so `interface seq<'T>` needs no per-target impl either.
+# The verbatim `[]`/`::` cons-list, no inline IL and no BCL name, so the clr manifest names
+# the same body. `seq<'T>` is a capability, so `interface seq<'T>` needs no per-target impl
+# either.
 impl = [
     "list.fs",
 ]
 
-[targets.js]
 # JS runtime *asset*, shipped beside a consumer's output: the `List` module functions
 # plus lifted member accessors (`List__get_Length`, …). GENERATED from `list.fs` — do
 # not hand-edit; the codegen-js test suite regenerates and diffs it.

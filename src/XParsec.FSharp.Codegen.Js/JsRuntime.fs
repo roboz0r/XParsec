@@ -2,7 +2,7 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// One of the assets a package manifest's `[targets.js] runtime` key names: a committed
+/// One of the assets a package's `manifest.js.toml` `runtime` key names: a committed
 /// `.mjs` shipped beside the compiled output.
 type JsRuntimeModule =
     {

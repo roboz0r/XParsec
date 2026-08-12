@@ -1,0 +1,22 @@
+[core]
+name = "Vesper.Seq"
+description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
+# `Vesper.Array` is `toArray`'s: it returns `'T[]` and builds its buffer with
+# `Array.zeroCreate`.
+depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison", "Vesper.Array"]
+
+# Contract `.fsi` files in compile order. `struct-seq.fsi` is CLR-only: it names the
+# NON-generic `System.Collections.IEnumerable` / `IEnumerator`, which the JS capability shim
+# does not map, and every type in it is `[<Struct>]` for zero-allocation by-value chaining.
+files = [
+    "seq.fsi",
+    "struct-seq.fsi",
+]
+
+# `toArray` builds a doubling buffer over `Array.zeroCreate`; `truncate` is a hand-rolled
+# lazy cursor over the `seq` / `enumerator` capabilities — an interface on CLR. Then the
+# by-value struct chaining above.
+impl = [
+    "seq.fs",
+    "struct-seq.clr.fs",
+]

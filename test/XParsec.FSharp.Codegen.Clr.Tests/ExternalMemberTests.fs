@@ -47,7 +47,7 @@ let tests =
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
                 // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
                 // metadata leaf canonicalizes `GetHashCode`'s `System.Int32` return through.
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let ctx, tast =
                     analyseWithCtx
@@ -142,7 +142,7 @@ let tests =
             test "the frozen key matches the provider's own resolved member key" {
                 // The interned key must equal what the provider resolves directly:
                 // elaboration stamps the resolver's verdict rather than re-deriving a key.
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let expected =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
@@ -163,7 +163,7 @@ let tests =
             }
 
             test "short name under `open` type-checks + freezes carrying its key" {
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let ctx, tast =
                     analyseWithCtx
@@ -242,7 +242,7 @@ let tests =
             }
 
             test "short-name key equals the fully-qualified form's resolved key" {
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let expected =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
@@ -293,7 +293,7 @@ let tests =
             // a value of that type carries, so the two unify. An annotation that dropped
             // its type arguments would clash with the object argument's `TyClass`.
             test "a type annotation resolves an external type, so the short form unifies with the object argument" {
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let tast =
                     analyseWith
@@ -306,7 +306,7 @@ let tests =
             }
 
             test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
-                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
+                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 // An UNresolved annotation would be a fresh `TyVar`, which unifies with
                 // `5 : int` silently. So the observable is inverted: an error is required,

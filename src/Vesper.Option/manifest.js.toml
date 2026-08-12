@@ -8,12 +8,11 @@ files = [
     "option.fsi",
 ]
 
-# Target-NEUTRAL: pure data, no inline IL and no BCL name.
+# Pure data, no inline IL and no BCL name, so the clr manifest names the same body.
 impl = [
     "option.fs",
 ]
 
-[targets.js]
 # JS runtime *asset*: the `Option` module functions a consumer imports and ships beside
 # its output; the option type itself rides inline. GENERATED from `option.fs`, not
 # hand-authored; regenerable via the codegen-js test suite.

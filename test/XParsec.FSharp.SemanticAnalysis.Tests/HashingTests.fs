@@ -21,39 +21,48 @@ let private freshRoot (name: string) : string =
     Directory.CreateDirectory root |> ignore
     root
 
-/// Stand up a `<root>/<pkg>/manifest.toml` naming `contract.fsi`, plus the `.fsi` bytes, and
-/// return the manifest path. The directory name is the package identity.
-let private writePackage (root: string) (pkg: string) (contract: string) : string =
-    let dir = Path.Combine(root, pkg)
-    Directory.CreateDirectory dir |> ignore
-    File.WriteAllText(Path.Combine(dir, "contract.fsi"), contract)
-    let manifestPath = Path.Combine(dir, "manifest.toml")
-    File.WriteAllText(manifestPath, "[core]\nfiles = [\"contract.fsi\"]\n")
-    manifestPath
-
-/// `writePackage` with an explicit manifest body and `(relative path, contents)` files, for
-/// the tests that each gate a different manifest key.
-let private writePackageFiles
+/// Write `<root>/<pkg>/manifest.<target>.toml` with `manifestBody`, plus each
+/// `(relative path, contents)` file, and return the manifest path. The directory name is the
+/// package identity.
+let private writePackageFilesFor
     (root: string)
     (pkg: string)
+    (target: string)
     (manifestBody: string)
     (files: (string * string) list)
-    : string =
+    : ReferencedProject.ManifestPath =
     let dir = Path.Combine(root, pkg)
     Directory.CreateDirectory dir |> ignore
 
     for (rel, contents) in files do
         File.WriteAllText(Path.Combine(dir, rel), contents)
 
-    let manifestPath = Path.Combine(dir, "manifest.toml")
-    File.WriteAllText(manifestPath, manifestBody)
-    manifestPath
+    File.WriteAllText(Path.Combine(dir, "manifest." + target + ".toml"), manifestBody)
+
+    match ReferencedProject.resolveManifest target dir with
+    | Result.Ok mp -> mp
+    | Result.Error e -> failwithf "resolveManifest: %s" e
+
+/// `writePackageFilesFor` at the clr target, which `compilation` below names.
+let private writePackageFiles (root: string) (pkg: string) (manifestBody: string) (files: (string * string) list) =
+    writePackageFilesFor root pkg "clr" manifestBody files
+
+/// A one-contract clr package: `contract.fsi` carrying `contract`, and nothing else.
+let private writePackage (root: string) (pkg: string) (contract: string) : ReferencedProject.ManifestPath =
+    writePackageFiles root pkg "[core]\nfiles = [\"contract.fsi\"]\n" [ "contract.fsi", contract ]
+
+/// The package's signature AS OF NOW: re-parsed each call, so a test that rewrites the
+/// manifest itself is hashing what it just wrote.
+let private signatureHash (mp: ReferencedProject.ManifestPath) : InputHash =
+    match ReferencedProject.loadManifest mp with
+    | Result.Ok m -> Hashing.dependencySignatureHash m
+    | Result.Error e -> failwithf "loadManifest: %s" e
 
 /// Hash, rewrite ONE file of the package, hash again.
-let private hashAcrossWrite (manifestPath: string) (rel: string) (contents: string) =
-    let before = Hashing.dependencySignatureHash manifestPath
-    File.WriteAllText(Path.Combine(Path.GetDirectoryName manifestPath, rel), contents)
-    struct (before, Hashing.dependencySignatureHash manifestPath)
+let private hashAcrossWrite (mp: ReferencedProject.ManifestPath) (rel: string) (contents: string) =
+    let before = signatureHash mp
+    File.WriteAllText(Path.Combine(mp.PackageDir, rel), contents)
+    struct (before, signatureHash mp)
 
 /// A minimal `CompilationInputs` the tests below perturb ONE field of at a time.
 let private compilation: Hashing.CompilationInputs =
@@ -61,8 +70,8 @@ let private compilation: Hashing.CompilationInputs =
         HomeAssembly = "Consumer"
         Target = "clr"
         ReferenceAssemblies = []
-        Manifests = []
-        SelfManifest = None
+        Packages = []
+        SelfPackage = None
     }
 
 /// Held fixed wherever a test gates a COMPILATION determinant, so a moved key can only be
@@ -149,18 +158,18 @@ let tests =
                     test "a changed contract .fsi changes the signature hash" {
                         let root = freshRoot "contract-change"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
-                        let before = Hashing.dependencySignatureHash manifest
+                        let before = signatureHash manifest
                         File.WriteAllText(Path.Combine(root, "Pkg", "contract.fsi"), "type b = extern\n")
-                        let after = Hashing.dependencySignatureHash manifest
+                        let after = signatureHash manifest
                         Expect.notEqual before after "the exported contract determines the signature hash"
                     }
 
                     test "an unrelated file in the package dir does not change the signature hash" {
                         let root = freshRoot "unrelated-change"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
-                        let before = Hashing.dependencySignatureHash manifest
+                        let before = signatureHash manifest
                         File.WriteAllText(Path.Combine(root, "Pkg", "notes.txt"), "irrelevant\n")
-                        let after = Hashing.dependencySignatureHash manifest
+                        let after = signatureHash manifest
                         Expect.equal before after "only the listed contract files feed the hash"
                     }
 
@@ -168,10 +177,7 @@ let tests =
                         let root = freshRoot "determinism"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
 
-                        Expect.equal
-                            (Hashing.dependencySignatureHash manifest)
-                            (Hashing.dependencySignatureHash manifest)
-                            "same contract, same hash"
+                        Expect.equal (signatureHash manifest) (signatureHash manifest) "same contract, same hash"
                     }
 
                     test "a file's key folds its source with each dependency's signature hash" {
@@ -181,7 +187,7 @@ let tests =
                         let withDep =
                             keyUnder
                                 { compilation with
-                                    Manifests = [ manifest ]
+                                    Packages = [ manifest.PackageDir ]
                                 }
 
                         Expect.notEqual withDep (keyUnder compilation) "a referenced package is part of the key"
@@ -191,7 +197,7 @@ let tests =
                             (keyOf
                                 "let x = 2"
                                 { compilation with
-                                    Manifests = [ manifest ]
+                                    Packages = [ manifest.PackageDir ]
                                 })
                             "so is the file's own text"
                     }
@@ -239,7 +245,7 @@ let tests =
 
                         let inputs =
                             { compilation with
-                                Manifests = [ manifest ]
+                                Packages = [ manifest.PackageDir ]
                             }
 
                         Expect.equal
@@ -283,7 +289,7 @@ let tests =
 
                         let inputs =
                             { compilation with
-                                Manifests = [ rootManifest ]
+                                Packages = [ rootManifest.PackageDir ]
                             }
 
                         let before = keyUnder inputs
@@ -303,12 +309,12 @@ let tests =
 
                         let asSelf =
                             { compilation with
-                                SelfManifest = Some manifest
+                                SelfPackage = Some manifest.PackageDir
                             }
 
                         let asReference =
                             { compilation with
-                                Manifests = [ manifest ]
+                                Packages = [ manifest.PackageDir ]
                             }
 
                         Expect.notEqual (keyUnder asSelf) (keyUnder compilation) "a self package is part of the key"
@@ -325,7 +331,7 @@ let tests =
 
                         let inputs =
                             { compilation with
-                                SelfManifest = Some manifest
+                                SelfPackage = Some manifest.PackageDir
                             }
 
                         let before = keyUnder inputs
@@ -397,7 +403,8 @@ let tests =
                         let under manifests =
                             keyUnder
                                 { compilation with
-                                    Manifests = manifests
+                                    Packages =
+                                        manifests |> List.map (fun (m: ReferencedProject.ManifestPath) -> m.PackageDir)
                                 }
 
                         Expect.equal
@@ -472,42 +479,57 @@ let tests =
                         Expect.notEqual before after "an intrinsic-repr companion moves a consumer's resolution"
                     }
 
-                    test "an edited per-target extra contract changes the signature hash" {
-                        // `[targets.<t>] files` APPENDS to the contract surface.
-                        let root = freshRoot "files-target-change"
+                    test "an edited extra contract changes the signature hash" {
+                        // A second `files` entry is contract surface too, not just the first.
+                        let root = freshRoot "extra-contract-change"
 
                         let manifest =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\n\n[targets.js]\nfiles = [\"shim.js.fsi\"]\n"
-                                [ "contract.fsi", "type a = extern\n"; "shim.js.fsi", "type b = extern\n" ]
+                                "[core]\nfiles = [\"contract.fsi\", \"shim.fsi\"]\n"
+                                [ "contract.fsi", "type a = extern\n"; "shim.fsi", "type b = extern\n" ]
 
-                        let struct (before, after) =
-                            hashAcrossWrite manifest "shim.js.fsi" "type c = extern\n"
+                        let struct (before, after) = hashAcrossWrite manifest "shim.fsi" "type c = extern\n"
 
-                        Expect.notEqual before after "a per-target extra contract is contract surface"
+                        Expect.notEqual before after "every contract a manifest names is contract surface"
                     }
 
-                    test "an edited per-target body changes the signature hash" {
-                        // TARGET-BLIND: the fold has no target in hand, so a `[targets.js]` body
-                        // moves a CLR consumer's key too. Over-folding costs only a rebuild.
-                        let root = freshRoot "target-companion-change"
+                    test "a body only the js manifest names leaves the clr signature hash alone" {
+                        // The digest is PER TARGET: each manifest folds the sources IT names, so
+                        // a JS-only body edit cannot invalidate a CLR consumer's frozen cache.
+                        let root = freshRoot "per-target-digest"
 
-                        let manifest =
-                            writePackageFiles
+                        let clrManifest =
+                            writePackageFilesFor
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\n\n[targets.js]\nimpl = [\"contract.js.fs\"]\n"
+                                "clr"
+                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"contract.clr.fs\"]\n"
                                 [
                                     "contract.fsi", "type a = extern\n"
-                                    "contract.js.fs", "type a = (# \"number\" #)\n"
+                                    "contract.clr.fs", "type a = (# \"System.Int32\" #)\n"
                                 ]
 
-                        let struct (before, after) =
-                            hashAcrossWrite manifest "contract.js.fs" "type a = (# \"bigint\" #)\n"
+                        let jsManifest =
+                            writePackageFilesFor
+                                root
+                                "Pkg"
+                                "js"
+                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"contract.js.fs\"]\n"
+                                [ "contract.js.fs", "type a = (# \"number\" #)\n" ]
 
-                        Expect.notEqual before after "a target body is a source the build reads"
+                        let clrBefore = signatureHash clrManifest
+
+                        let struct (jsBefore, jsAfter) =
+                            hashAcrossWrite jsManifest "contract.js.fs" "type a = (# \"bigint\" #)\n"
+
+                        Expect.notEqual jsBefore jsAfter "the js digest moves with the body it names"
+
+                        Expect.equal
+                            clrBefore
+                            (signatureHash clrManifest)
+                            "and the clr digest, which names no js body, does not"
                     }
 
                     test "reordering the manifest's file list changes the signature hash" {
@@ -522,7 +544,7 @@ let tests =
                                 [ "a.fsi", "type a = extern\n"; "b.fsi", "type b = extern\n" ]
 
                         let struct (before, after) =
-                            hashAcrossWrite manifest "manifest.toml" "[core]\nfiles = [\"b.fsi\", \"a.fsi\"]\n"
+                            hashAcrossWrite manifest "manifest.clr.toml" "[core]\nfiles = [\"b.fsi\", \"a.fsi\"]\n"
 
                         Expect.notEqual before after "compile order is part of the signature"
                     }

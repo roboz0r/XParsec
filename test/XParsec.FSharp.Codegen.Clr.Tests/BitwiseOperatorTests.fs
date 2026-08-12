@@ -16,7 +16,7 @@ let tests =
         "BitwiseOperators"
         [
             test "bitwise operator bindings freeze from Vesper.Core and are collected as cross-package inlines" {
-                let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
+                let inlines = ClrSymbolProviders.contractInlineBodies defaultPackages
 
                 for name in
                     [

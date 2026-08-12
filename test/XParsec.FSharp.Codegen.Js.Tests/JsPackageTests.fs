@@ -180,21 +180,24 @@ module Shim =
             // which could be "the package's module".
             test "Vesper.Core compiles as one package and its modules load under Node" {
                 let manifest =
-                    match ReferencedProject.loadManifest vesperCoreManifest with
+                    match
+                        ReferencedProject.resolveManifest Target.Js vesperCorePackage
+                        |> Result.bind ReferencedProject.loadManifest
+                    with
                     | Result.Ok m -> m
                     | Result.Error e -> failtestf "Vesper.Core manifest: %s" e
 
-                let dir = IO.Path.GetDirectoryName vesperCoreManifest
+                let dir = vesperCorePackage
 
                 let files =
-                    ReferencedProject.resolveImpl Target.Js manifest
+                    manifest.Impl
                     |> List.map (fun rel -> rel, IO.File.ReadAllText(IO.Path.Combine(dir, rel)))
 
                 let pkg =
                     match
                         JsDriver.compileAssemblyWith
                             Pipeline.analyseForSelfHost
-                            (JsDriver.contractForSelf Target.Js vesperCoreManifest [])
+                            (JsDriver.contractForSelf vesperCorePackage [])
                             manifest.Name
                             files
                     with

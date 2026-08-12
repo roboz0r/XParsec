@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Clr
 // string: a mismatch surfaces only as a `failwithf` at the first site that encodes it.
 
 let private forwardRepr =
-    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicForwardRepr
+    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCorePackage ]).IntrinsicForwardRepr
 
 /// A bare `.fsi` canon name (`int`) under the qualified key (`Vesper.int`) the map uses.
 let private tryRepr (canon: string) : string option =

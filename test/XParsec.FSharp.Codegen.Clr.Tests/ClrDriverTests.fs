@@ -43,7 +43,7 @@ let tests =
                         TargetFramework = Some "net8.0"
                     }
 
-                let inputs = ClrCompilation.consumer project [ vesperCoreManifest ] bclReferences
+                let inputs = ClrCompilation.consumer project [ vesperCorePackage ] bclReferences
 
                 let artifact =
                     match ClrDriver.compileApp inputs "System.Console.WriteLine \"hello\"" with
@@ -76,7 +76,7 @@ let tests =
                 let inputs =
                     ClrCompilation.consumer
                         (ProjectInfo.defaults "ClrDriverTypeError")
-                        [ vesperCoreManifest ]
+                        [ vesperCorePackage ]
                         (match RefPack.resolve "net8.0" with
                          | Result.Ok dlls -> dlls
                          | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e)

@@ -7,9 +7,15 @@ open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-/// `src/<pkg>/manifest.toml`, relative to this test file.
-let srcManifest (pkg: string) : string =
-    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
+/// `src/<pkg>`, relative to this test file.
+let srcPackage (pkg: string) : string =
+    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg)
+
+/// `src/<pkg>`'s manifest for `target`. A package that does not build for it fails the test.
+let srcManifest (target: string) (pkg: string) : ReferencedProject.ManifestPath =
+    match ReferencedProject.resolveManifest target (srcPackage pkg) with
+    | Result.Ok mp -> mp
+    | Result.Error e -> failwithf "srcManifest: %s" e
 
 /// The default contract stack for the SA front-end tests: real SRTP operators (`(+) : ^T
 /// -> ^T -> ^T`), the ordering operators, `hash`/`failwith`, the cons-list and the printf
@@ -17,8 +23,8 @@ let srcManifest (pkg: string) : string =
 let realProvider: Lazy<IExternalSymbolProvider> =
     lazy
         [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
-        |> List.map srcManifest
-        |> ReferencedProject.composeContract ReferencedProject.noMetaTail "clr"
+        |> List.map (srcManifest "clr")
+        |> ReferencedProject.composeContract ReferencedProject.noMetaTail
 
 // Shadow the nominal `SemType` constructors so a test writes `TyUnion("X", args)` rather
 // than minting a `SymbolKey`; the active patterns below project a key back to a name.

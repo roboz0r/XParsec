@@ -76,7 +76,7 @@ let tests =
              }
 
              test "`&&` / `||` bodies are collected from ops-std.fs as cross-package inlines" {
-                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
+                 let inlines = ClrSymbolProviders.contractInlineBodies defaultPackages
                  Expect.isTrue (Map.containsKey "op_BooleanAnd" inlines) "op_BooleanAnd body sourced from ops-std.fs"
                  Expect.isTrue (Map.containsKey "op_BooleanOr" inlines) "op_BooleanOr body sourced from ops-std.fs"
 

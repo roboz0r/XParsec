@@ -486,7 +486,7 @@ let tests =
                 let lexed, file = parseFile src
                 // Resolve `int` from the real contract stack, because `MockBuiltins` carries
                 // no primitive reprs.
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
                 // The front-end assembly name must equal codegen's `project.AssemblyName`, so a
                 // local type's home-assembly key matches its `userTypes` registration.
                 let tast =

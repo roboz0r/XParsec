@@ -1,0 +1,39 @@
+[core]
+description = "printf / printfn / sprintf and the write-through format handler."
+
+# Vesper.Core alone, for the language primitives (`string`, `uint`, `char[]`, the
+# arithmetic/equality operators). No Vesper.List: the JS `%A` engine is a free function
+# over its own frames, where the CLR one uses the cons-list.
+depends-on = ["Vesper.Core"]
+
+# .fsi files in compile order: printf-format before printf, whose signatures reference
+# `PrintfFormat`.
+files = [
+    "printf-format.fsi",
+    "printf.fsi",
+]
+
+# Contracts that are DELIBERATELY impl-free — the conformance pass accepts these and turns
+# any OTHER `.fsi`-without-`.fs` into an FS0240 hard error. printf/printfn/sprintf are
+# lowered inline to `Format` nodes by the front end, so there is no `.fs` body.
+sig-only = [
+    "printf.fsi",
+    "printf-format.fsi",
+]
+
+# The standalone JS `%A` engine: a shape-keyed walker over the same Wadler `Doc` layout,
+# but with no BCL and no interface dispatch. It implements no printf `.fsi`.
+impl = [
+    "structural-printer.js.fs",
+]
+
+# Its published surface (`structuralFormat`, `float32ToString`) IS its contract. Named
+# here so the pairing rule never marries it to a `structural-printer.fsi`.
+impl-only = [
+    "structural-printer.js.fs",
+]
+
+# JS-target runtime asset: `%A` holes import `structuralFormat` from here. GENERATED
+# from `structural-printer.js.fs` by the JS backend in library mode, and checked against
+# the committed copy by `StructuralPrinterTests`.
+runtime = ["Vesper.Printf.mjs"]

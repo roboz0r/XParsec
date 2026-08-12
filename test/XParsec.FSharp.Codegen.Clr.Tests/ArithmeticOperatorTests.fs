@@ -143,7 +143,7 @@ let tests =
             }
 
             test "arithmetic + unary bindings freeze from Vesper.Core and are collected as cross-package inlines" {
-                let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
+                let inlines = ClrSymbolProviders.contractInlineBodies defaultPackages
 
                 let arithmeticOps =
                     [
@@ -183,7 +183,7 @@ let tests =
             // `string`, `decimal` and `bigint` are not CIL primitives, but they declare
             // `(+)` on the type exactly as the numeric widths do; only the body differs.
             test "every width supporting `+` declares it on the type, the non-CIL widths included" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let declares (width: string) (op: string) =
                     match provider.TryLookupMember(RuntimeNames.primitiveKey width, op) with
@@ -325,7 +325,7 @@ let tests =
             // NOT change: `int`'s use-site identity, and the emitted method rows.
 
             test "the int intrinsic publishes op_Addition through the real Vesper.Core contract" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Vesper.int" 0, "op_Addition") with
                 | ValueSome m -> Expect.isTrue m.IsStatic "the declared operator witness is static"

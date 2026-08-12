@@ -55,7 +55,7 @@ let tests =
             test "the array's accessor contract-side and impl-side member keys are equal, ArgSig included" {
                 expectMemberKeyHalvesAgree
                     jsContract.Value
-                    [ vesperCoreManifest ]
+                    [ vesperCorePackage ]
                     arrayMemberKey
                     [ "get_Item"; "set_Item"; "Length" ]
             }

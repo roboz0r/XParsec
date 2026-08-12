@@ -18,12 +18,12 @@ let tests =
         [
             // The declared operator surface IS the JS target's arithmetic-support definition;
             // the manifest states the same matrix.
-            OperatorSurfaceParity.tests "js" (JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ])
+            OperatorSurfaceParity.tests "js" (JsNativeSymbols.buildJsNativeContract [ vesperCorePackage ])
 
             // The operators are `let inline` values in the collection: bare trait calls, with
             // the per-width IL on the primitives.
             test "arithmetic operators are collected as cross-package inlines (js target)" {
-                let js = JsNativeSymbols.jsNativeInlineBodiesFor Target.Js [ vesperCoreManifest ]
+                let js = JsNativeSymbols.jsNativeInlineBodies [ vesperCorePackage ]
 
                 for name in
                     [
@@ -39,7 +39,7 @@ let tests =
 
             // The per-width JS templates, read off the primitives that declare them.
             test "the int32 / int64 / float bodies freeze with their JS templates intact" {
-                let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
+                let js = JsNativeSymbols.buildJsNativeContract [ vesperCorePackage ]
 
                 let opsOf width compiled =
                     InlineBodies.ilOpCodes (InlineBodies.operatorBody js width compiled)
@@ -65,7 +65,7 @@ let tests =
             }
 
             test "equality operators freeze with `===` primitive clauses + structural-call base" {
-                let js = JsNativeSymbols.jsNativeInlineBodiesFor Target.Js [ vesperCoreManifest ]
+                let js = JsNativeSymbols.jsNativeInlineBodies [ vesperCorePackage ]
 
                 // The aggregate base is a CALL to `structuralEquals`, not an IL template;
                 // `ilOpCodes` sees the `===` clauses but no `equals(` opcode.
@@ -88,7 +88,7 @@ let tests =
             test "JS numeric reprs: canon identities stay distinct while both platform-project to `number`" {
                 // `int` and `float` must keep distinct canon keys; a shared repr would conflate %d/%f
                 // and integer division.
-                let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
+                let js = JsNativeSymbols.buildJsNativeContract [ vesperCorePackage ]
 
                 let facesOf (name: string) =
                     match js.TryLookupType name |> ExternalSymbols.typeShapeOf with
@@ -120,7 +120,7 @@ let tests =
 
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
                 // `number` loses precision past 53 bits, so int64/uint64 must use `bigint`.
-                let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
+                let js = JsNativeSymbols.buildJsNativeContract [ vesperCorePackage ]
 
                 let facesOf (name: string) =
                     match js.TryLookupType name |> ExternalSymbols.typeShapeOf with
@@ -147,7 +147,7 @@ let tests =
             // hash of anything but the parsed text makes every later resolution a hard failure.
             test "the collection retains the producer files its bodies are anchored in" {
                 let origins =
-                    JsNativeSymbols.jsNativeInlineOriginsFor Target.Js [ vesperCoreManifest ]
+                    JsNativeSymbols.jsNativeInlineOrigins [ vesperCorePackage ]
                     |> OriginSources.toList
 
                 Expect.isNonEmpty origins "the JS `impl` files are retained, not dropped after the parse"
@@ -160,10 +160,9 @@ let tests =
                     let f = s.File
 
                     // Resolved the way the collection did, as the package directory plus the
-                    // manifest's path, because a retained file's IDENTITY says which file it
-                    // is, never where this build mounted it.
-                    let path =
-                        System.IO.Path.Combine(System.IO.Path.GetDirectoryName vesperCoreManifest, f.Path.Relative)
+                    // manifest-relative path, because a retained file's IDENTITY says which
+                    // file it is, never where this build mounted it.
+                    let path = System.IO.Path.Combine(vesperCorePackage, f.Path.Relative)
 
                     Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Path.Relative)
 

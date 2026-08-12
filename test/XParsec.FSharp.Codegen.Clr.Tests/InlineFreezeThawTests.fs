@@ -234,7 +234,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
                             | true, s -> ValueSome s
                             | _ -> ValueNone
                 }
-            ClrSymbolProviders.buildContract defaultManifests
+            ClrSymbolProviders.buildContract defaultPackages
         ]
     |> ExternalSymbolProviders.withInlineBodies (fun k ->
         match bodies.TryGetValue k with
@@ -546,7 +546,7 @@ let tests =
                 // cross-file expansion must reproduce, read the same way, through the edge.
                 let inUnitAnswer =
                     resolvedConst
-                        (ClrSymbolProviders.buildContract defaultManifests)
+                        (ClrSymbolProviders.buildContract defaultPackages)
                         (String.concat
                             "\n"
                             [

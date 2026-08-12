@@ -56,7 +56,7 @@ let private producerManifestToml =
 /// `tmp/EscapeProducer/` — the directory name IS the producer package / assembly
 /// name (so the `.fsi`-recorded home assembly matches the emitted DLL's identity).
 let private producerDir = tmpDir "EscapeProducer"
-let private producerManifestPath = Path.Combine(producerDir, "manifest.toml")
+let private producerManifestPath = Path.Combine(producerDir, "manifest.clr.toml")
 
 /// Write the producer sources, build `EscapeProducer.dll` through this backend (Vesper.Core
 /// injected for `+` / `Vesper.Fun`), load it into the Default ALC, and return its path. Built
@@ -75,7 +75,7 @@ let private producerDll: Lazy<string> =
                  References = [ vesperCoreDll.Value ]
              }
 
-         let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
          let lexed, file = parseFile producerFs
 
          let tast =
@@ -96,8 +96,7 @@ let private producerDll: Lazy<string> =
 let private runConsumer (expected: string list) (src: string) : unit =
     let dll = producerDll.Value
 
-    let provider =
-        ClrSymbolProviders.buildContract (defaultManifests @ [ producerManifestPath ])
+    let provider = ClrSymbolProviders.buildContract (defaultPackages @ [ producerDir ])
 
     let baseProject = withCore (ProjectInfo.defaults "EscapeConsumer")
 

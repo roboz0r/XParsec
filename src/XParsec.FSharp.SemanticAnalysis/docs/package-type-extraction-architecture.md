@@ -12,7 +12,7 @@ This document describes the steady-state design. For the layering it sits inside
 
 ## The problem this solves
 
-A package is a `manifest.toml` plus a set of contract `.fsi` files. A signature
+A package is a `manifest.<target>.toml` plus a set of contract `.fsi` files. A signature
 in one package routinely names a type defined in another:
 `Vesper.Result`'s `.fsi` mentions a `Vesper.Core` type, `Vesper.List.fold`'s
 signature mentions `'T list`, and so on.
@@ -30,7 +30,7 @@ package read access to its dependencies' already-built type shapes.
 ## Data flow
 
 ```txt
- manifest.toml (roots)
+ manifest.<target>.toml (roots)
         │
         ▼
 ┌───────────────────────────────────────────────────────────────────┐
@@ -93,8 +93,9 @@ manifest is a hard `Error`), and returns two things:
   depends on, directly or transitively, itself excluded), each closure itself in
   dependency-first order.
 
-`depends-on "X"` resolves to the sibling `src/X/manifest.toml` by the convention
-that **a package's directory name is its identity**. `parseManifest` rejects an
+`depends-on "X"` resolves to the sibling `src/X/manifest.<target>.toml` — the same
+target as the manifest that declared it — by the convention that **a package's
+directory name is its identity**. `parseManifest` rejects an
 explicit `[core] name` that diverges from the directory name, so the name a
 `depends-on` resolves against and the name a manifest reports can't drift apart.
 

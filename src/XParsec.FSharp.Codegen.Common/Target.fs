@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.Codegen.Common
 
-/// Backend target tag constants — the `<t>` a package manifest's `[targets.<t>]` table
-/// keys its per-target file lists under.
+/// Backend target tag constants — the `<t>` a backend resolves a package directory against to
+/// reach its `manifest.<t>.toml`.
 [<RequireQualifiedAccess>]
 module Target =
 

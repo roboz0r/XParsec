@@ -11,7 +11,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Reflection covers the pure-data surface; `fold` rides driver programs, since its
 // `folder` is a `Vesper.Fun` reflection cannot mint. `Vesper.List` is in
-// `defaultManifests` + `withCore`, so the plain `runs` helper already has it in scope.
+// `defaultPackages` + `withCore`, so the plain `runs` helper already has it in scope.
 
 /// The built `Vesper.List.dll` (cached). The package is named `Vesper.List` but
 /// contributes `List` into `Vesper.Collections`, so the type is

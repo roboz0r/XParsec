@@ -1,0 +1,14 @@
+[core]
+name = "Vesper.Result"
+description = "The result type and the Result module."
+depends-on = ["Vesper.Core"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "result.fsi",
+]
+
+# Pure data, no inline IL and no BCL name, so the js manifest names the same body.
+impl = [
+    "result.fs",
+]

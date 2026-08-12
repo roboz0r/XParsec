@@ -691,7 +691,7 @@ let staticTests =
             // `Box<'T>.Tag` parses as `DotLookup(TypeApp(Box, <'T>), .Member)`, not the
             // folded `LongIdent [Box; Member]` a bare `Box.Tag` takes.
             test "`Box<'T>.Member` lowers to Static{Method,Property} (no Elaborate TODO TypeApp)" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 // `Tag`/`Origin` are `'T`-free so the object argument's `<'T>` is the only
                 // explicit instantiation under test.
@@ -1628,7 +1628,7 @@ let interfaceImplTests =
         "ClassInterfaceImpl"
         [
             test "a class implementing System.IComparable resolves the interface + CompareTo without diagnostic" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
                     String.concat
@@ -1662,7 +1662,7 @@ let interfaceImplTests =
             }
 
             test "implementing a non-interface type is rejected with a diagnostic" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
                     String.concat
@@ -1693,7 +1693,7 @@ let interfaceImplTests =
             // (the metadata walk is `DeclaredOnly`), so one conforms to
             // `unit -> IEnumerator<int>` and the other to `unit -> IEnumerator`.
             test "implementing IEnumerable<int> and IEnumerable conforms both GetEnumerator methods" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
                     String.concat
@@ -1734,7 +1734,7 @@ let interfaceImplTests =
             // trip the "Free type parameter" diagnostic.
             test
                 "a generic struct implementing a generic local interface threads the class typar (no free-typar diagnostic)" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
                     String.concat
@@ -1773,7 +1773,7 @@ let interfaceImplTests =
 
             // `CompareTo` returning `string` where `IComparable` promises `int`.
             test "a member whose signature does not match the interface is diagnosed" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
                     String.concat
@@ -1799,7 +1799,7 @@ let interfaceImplTests =
             }
 
             test "a wrongly-named member is rejected and the required member reported missing" {
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
 
                 let src =
                     String.concat
@@ -2562,7 +2562,7 @@ let coercionTests =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
     let analyseErrs src =
-        let provider = ClrSymbolProviders.buildContract defaultManifests
+        let provider = ClrSymbolProviders.buildContract defaultPackages
         let lexed, file = parseFile src
 
         let _, tast =

@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private compileTwoFiles (asmName: string) (file1: string) (file2: string) : byte[] =
     // The external surface (operators, `printfn`, the Vesper primitives) that the front end
     // resolves against and codegen threads through.
-    let external = ClrSymbolProviders.buildContract defaultManifests
+    let external = ClrSymbolProviders.buildContract defaultPackages
     let project = withCore (ProjectInfo.defaults asmName)
 
     // Scoping is forward-only: file 2 sees file 1 through file 1's projected view. A parse or

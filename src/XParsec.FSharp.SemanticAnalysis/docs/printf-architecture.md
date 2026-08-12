@@ -618,7 +618,7 @@ mangle identically and one silently shadows the other. Its producers, `EmitJsMem
 and `EmitJsContext.fs:247` / `JsExternalMembers.fs:307`, all feed it `m.Name` alone. It is
 also **unexercised** territory: the one heavily-overloaded Vesper contract, `formatter.fsi`
 (three `new:` ctors + four `AppendFormatted`), is explicitly excluded from JS
-(`Vesper.Printf/manifest.toml`: `inline-bodies-js = []`, no `impl-js`), so no JS-compiled
+(`Vesper.Printf/manifest.js.toml` names neither the `.fsi` nor a body for it), so no JS-compiled
 Vesper type has ever had an overloaded member.)*
 
 **2. Class inheritance is NOT supported on the JS target — the sketch's shape is not

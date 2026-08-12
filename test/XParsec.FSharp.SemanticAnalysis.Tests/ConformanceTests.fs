@@ -269,24 +269,28 @@ let tests =
 
 // ---- Manifest-driven conformance over every package (CLR target) -------
 // The `.fsi`↔`.fs` pairs and the impl-free `[core] sig-only` set are both read from
-// each `Vesper.*/manifest.toml`; every discrepancy becomes a hard `Severity.Error`.
+// each `Vesper.*/manifest.clr.toml`; every discrepancy becomes a hard `Severity.Error`.
 
 let private vesperSrcDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src")
 
-/// Every `Vesper.*` package in the source tree → (dir name, manifest path).
-let private packageManifests: (string * string) list =
+/// Every `Vesper.*` package that builds for `target` → (dir name, its resolved manifest). A
+/// package that publishes no `manifest.<target>.toml` does not build for it and is absent here.
+let private packageManifests (target: string) : (string * ReferencedProject.ManifestPath) list =
     Directory.GetDirectories(vesperSrcDir, "Vesper.*")
-    |> Array.map (fun d -> Path.GetFileName d, Path.Combine(d, "manifest.toml"))
-    |> Array.filter (fun (_, m) -> File.Exists m)
+    |> Array.choose (fun d ->
+        match ReferencedProject.resolveManifest target d with
+        | Ok mp -> Some(Path.GetFileName d, mp)
+        | Error _ -> None
+    )
     |> Array.sortBy fst
     |> List.ofArray
 
 /// The manifest-driven pass's outcome; a manifest or parse error fails the test.
-let private outcomeFor (target: string) (manifestPath: string) : ConformancePass.PackageOutcome =
-    match ConformancePass.checkManifest target manifestPath with
+let private outcomeFor (mp: ReferencedProject.ManifestPath) : ConformancePass.PackageOutcome =
+    match ConformancePass.checkManifest mp with
     | Ok o -> o
     | Error e ->
-        failtestf "checkManifest failed for %s: %s" manifestPath e
+        failtestf "checkManifest failed for %s: %s" mp.Path e
         Unchecked.defaultof<_>
 
 [<Tests>]
@@ -294,9 +298,9 @@ let packageConformanceTests =
     testList
         "PackageConformance"
         [
-            for package, manifestPath in packageManifests do
+            for package, manifestPath in packageManifests "clr" do
                 test $"{package}: manifest-driven conformance is enforced (no hard errors)" {
-                    let outcome = outcomeFor "clr" manifestPath
+                    let outcome = outcomeFor manifestPath
 
                     let errors = ConformancePass.enforce outcome
 
@@ -339,13 +343,13 @@ let private runtimeServedOf (outcome: ConformancePass.PackageOutcome) : (string 
             | ConformancePass.PairOutcome.ParseFailed _ -> ()
     ]
 
-let private manifestOf (package: string) : string =
-    packageManifests
+let private manifestOf (target: string) (package: string) : ReferencedProject.ManifestPath =
+    packageManifests target
     |> List.tryFind (fun (p, _) -> p = package)
     |> Option.map snd
-    |> Option.defaultWith (fun () -> failtestf "%s manifest not found" package)
+    |> Option.defaultWith (fun () -> failtestf "%s %s manifest not found" package target)
 
-/// Materialise a throwaway package from `files` (file name → content, `manifest.toml`
+/// Materialise a throwaway package from `files` (file name → content, `manifest.js.toml`
 /// among them) and run the js pass over it.
 let private syntheticOutcome (files: (string * string) list) : ConformancePass.PackageOutcome =
     let dir =
@@ -357,7 +361,9 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
         for name, content in files do
             File.WriteAllText(Path.Combine(dir, name), content)
 
-        outcomeFor "js" (Path.Combine(dir, "manifest.toml"))
+        match ReferencedProject.resolveManifest "js" dir with
+        | Ok mp -> outcomeFor mp
+        | Error e -> failtestf "resolveManifest: %s" e
     finally
         Directory.Delete(dir, true)
 
@@ -366,7 +372,7 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
 let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
     syntheticOutcome
         [
-            "manifest.toml", "[core]\nfiles = [\"served.fsi\"]\n\n[targets.js]\nruntime = [\"Asset.mjs\"]\n"
+            "manifest.js.toml", "[core]\nfiles = [\"served.fsi\"]\nruntime = [\"Asset.mjs\"]\n"
             "served.fsi", "namespace V\n\nval served: int -> int\n"
             "Asset.mjs", sprintf "export const %s = (x) => x;\n" exportedAs
         ]
@@ -378,7 +384,7 @@ let jsPackageConformanceTests =
         [
             test "js: prim-types-nativeint.fsi is accepted as unrepresentable, naming all five types" {
                 match
-                    unrepresentableOf (outcomeFor "js" (manifestOf "Vesper.Core"))
+                    unrepresentableOf (outcomeFor (manifestOf "js" "Vesper.Core"))
                     |> List.tryFind (fun (f, _) -> f.Contains "nativeint")
                 with
                 | None -> failtest "prim-types-nativeint.fsi must be Unrepresentable on js"
@@ -396,8 +402,7 @@ let jsPackageConformanceTests =
                 let outcome =
                     syntheticOutcome
                         [
-                            "manifest.toml",
-                            "[core]\nfiles = [\"cell.fsi\"]\n\n[targets.js]\nruntime = [\"Asset.mjs\"]\n"
+                            "manifest.js.toml", "[core]\nfiles = [\"cell.fsi\"]\nruntime = [\"Asset.mjs\"]\n"
                             "cell.fsi", "namespace V\n\ntype Cell = { N: int }\n"
                             "Asset.mjs", "export const Cell = 1;\n"
                         ]
@@ -417,8 +422,8 @@ let jsPackageConformanceTests =
             }
 
             test "js: an unrepresentable contract raises no hard error, and needs no exemption to" {
-                for package, manifestPath in packageManifests do
-                    let outcome = outcomeFor "js" manifestPath
+                for package, manifestPath in packageManifests "js" do
+                    let outcome = outcomeFor manifestPath
                     let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
 
                     for sigFile, _ in unrepresentableOf outcome do
@@ -442,8 +447,8 @@ let jsPackageConformanceTests =
 
                 let actual =
                     [
-                        for _, manifestPath in packageManifests do
-                            for d in ConformancePass.enforce (outcomeFor "js" manifestPath) -> d.Message
+                        for _, manifestPath in packageManifests "js" do
+                            for d in ConformancePass.enforce (outcomeFor manifestPath) -> d.Message
                     ]
 
                 Expect.equal actual expected "the js hard-error set"
@@ -453,7 +458,7 @@ let jsPackageConformanceTests =
                 // These bodies live in the committed `.mjs`, not in a `.fs`, so no `.fs`
                 // is owed.
                 Expect.equal
-                    (runtimeServedOf (outcomeFor "js" (manifestOf "Vesper.Core")))
+                    (runtimeServedOf (outcomeFor (manifestOf "js" "Vesper.Core")))
                     [
                         "ops-platform-runtime.js.fsi",
                         "Vesper.Core.mjs",
@@ -462,7 +467,7 @@ let jsPackageConformanceTests =
                     "Vesper.Core: the equality/divisor runtime, and not int-comparison.fsi"
 
                 Expect.equal
-                    (runtimeServedOf (outcomeFor "js" (manifestOf "Vesper.Comparison")))
+                    (runtimeServedOf (outcomeFor (manifestOf "js" "Vesper.Comparison")))
                     [
                         "comparison-runtime.js.fsi", "Vesper.Comparison.mjs", [ "structuralCompare" ]
                     ]
@@ -496,7 +501,7 @@ let jsPackageConformanceTests =
                 // abbreviation, so the contract owes no body — and it says so with an EMPTY
                 // extern list, unlike the nativeint family.
                 match
-                    unrepresentableOf (outcomeFor "js" (manifestOf "Vesper.Core"))
+                    unrepresentableOf (outcomeFor (manifestOf "js" "Vesper.Core"))
                     |> List.tryFind (fun (f, _) -> f = "capabilities-compat.js.fsi")
                 with
                 | None -> failtest "capabilities-compat.js.fsi must owe no `.fs` on js"
@@ -509,7 +514,7 @@ let jsPackageConformanceTests =
                 // `.fs` as contract-less.
                 let paired =
                     [
-                        for p in (outcomeFor "js" (manifestOf "Vesper.Core")).Pairs do
+                        for p in (outcomeFor (manifestOf "js" "Vesper.Core")).Pairs do
                             match p with
                             | ConformancePass.PairOutcome.Paired r when r.SigFile = "prim-types-array.fsi" -> yield r
                             | _ -> ()
@@ -525,7 +530,7 @@ let jsPackageConformanceTests =
             test "js: a contract-less body is declared, not inferred, and raises nothing" {
                 // `structural-printer.js.fs` is a standalone `%A` engine whose published
                 // surface IS its contract, so it is declared `impl-only` rather than paired.
-                let outcome = outcomeFor "js" (manifestOf "Vesper.Printf")
+                let outcome = outcomeFor (manifestOf "js" "Vesper.Printf")
 
                 Expect.equal
                     (List.ofSeq outcome.ImplOnlyDeclarations)
@@ -535,25 +540,50 @@ let jsPackageConformanceTests =
                 Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
 
-            test "every target-specific `sig-only` entry is pinned, not an open list" {
+            test "every target-ASYMMETRIC `sig-only` entry is pinned, not an open list" {
                 // Erasure is the axis content cannot decide: `compiler-attributes.fsi`'s
-                // compile-time markers owe the CLR TypeDefs but owe JS nothing. Pinned, so a
-                // second entry is argued for here rather than accruing in a manifest.
-                let expected = [ "Vesper.Core", "js", [ "compiler-attributes.fsi" ] ]
+                // compile-time markers owe the CLR TypeDefs but owe JS nothing, and
+                // `exceptions.js.fsi` declares BCL names the CLR resolves through the metadata
+                // leaf instead. An entry every target of the package carries is a property of
+                // the contract; one only a single target carries is the claim this list exists
+                // to make argue for itself.
+                let expected =
+                    [ "Vesper.Core", "js", [ "compiler-attributes.fsi"; "exceptions.js.fsi" ] ]
+
+                // `None` is "does not build for this target", which is NOT an empty `sig-only`
+                // list: a package that builds for one target has no divergence to report.
+                let sigOnlyOf (package: string) (target: string) : string list option =
+                    match packageManifests target |> List.tryFind (fun (p, _) -> p = package) with
+                    | None -> None
+                    | Some(_, path) ->
+                        match ReferencedProject.loadManifest path with
+                        | Error e -> failtestf "%s (%s): %s" package target e
+                        | Ok m -> Some m.SigOnly
+
+                let asymmetric (own: string list) (others: string list) : string list =
+                    let elsewhere = Set.ofList others
+                    own |> List.filter (elsewhere.Contains >> not)
 
                 let actual =
                     [
-                        for package, manifestPath in packageManifests do
-                            match ReferencedProject.loadManifest manifestPath with
-                            | Error e -> failtestf "%s: %s" package e
-                            | Ok m ->
-                                for KeyValue(target, lists) in m.Targets do
-                                    match lists.SigOnly with
-                                    | [] -> ()
-                                    | entries -> yield package, target, entries
+                        for package in
+                            packageManifests "clr" @ packageManifests "js"
+                            |> List.map fst
+                            |> List.distinct
+                            |> List.sort do
+                            match sigOnlyOf package "clr", sigOnlyOf package "js" with
+                            | Some clr, Some js ->
+                                match asymmetric clr js with
+                                | [] -> ()
+                                | entries -> yield package, "clr", entries
+
+                                match asymmetric js clr with
+                                | [] -> ()
+                                | entries -> yield package, "js", entries
+                            | _ -> ()
                     ]
 
-                Expect.equal actual expected "the per-target `sig-only` entries"
+                Expect.equal actual expected "the target-asymmetric `sig-only` entries"
             }
         ]
 

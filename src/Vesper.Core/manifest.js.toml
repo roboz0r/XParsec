@@ -24,50 +24,9 @@ files = [
     "ops-platform.fsi",
     "ops-std.fsi",
     "int-comparison.fsi",
-]
-
-# The target-neutral bodies (`core-types`, `structural-format`, `ops-std`) are listed per
-# target, not shared: a shared `impl` would append BEFORE each target's list, ahead of the
-# `Fun` and `Attribute` declarations those bodies need.
-
-[targets.clr]
-# CLR-only: a CLR function value is a nominal `Fun` interface, so adapting flat<->curried
-# needs a reified object.
-files = [
-    "fun-adapters.fsi",
-]
-
-# Compiled into Vesper.Core.dll AND published as the CLR splice sources. The intrinsic-only
-# `prim-types-*` / `capabilities` files emit NO IL: they register a representation, not a
-# TypeDef, so a `(# … #)` body reaches a use site only by being spliced.
-impl = [
-    "prim-types-min.clr.fs",
-    "capabilities.clr.fs",
-    "prim-types-array.fs",
-    "prim-types-int.clr.fs",
-    "prim-types-float.clr.fs",
-    "prim-types-string.clr.fs",
-    "prim-types-object.clr.fs",
-    "prim-types-exn.clr.fs",
-    "prim-types-decimal.clr.fs",
-    "prim-types-bigint.clr.fs",
-    "prim-types-nativeint.clr.fs",
-    "prim-types-nd-array.clr.fs",
-    "prim-types-attr.clr.fs",
-    "compiler-attributes.fs",
-    "core-types.fs",
-    "fun-adapters.fs",
-    "structural-format.fs",
-    "ops-platform.clr.fs",
-    "ops-std.fs",
-    "int-comparison.clr.fs",
-]
-
-[targets.js]
-# JS-only EXTRA contracts, appended after `[core] files`. The compat shim maps the BCL
-# interface spellings to the BCL-free capabilities, so it comes after `capabilities.fsi`
-# — its RHS (`Vesper.disposable`) must already be in the registry.
-files = [
+    # The compat shim maps the BCL interface spellings to the BCL-free capabilities, so it
+    # comes after `capabilities.fsi` — its RHS (`Vesper.disposable`) must already be in the
+    # registry.
     "capabilities-compat.js.fsi",
     # `structuralEquals` / `structuralHash` — declarations only; the bodies are in
     # `Vesper.Core.mjs`. The CLR `=`/`<>`/`hash` use `EqualityComparer` instead.
@@ -78,12 +37,18 @@ files = [
     "prim-types-dynamic.js.fsi",
     # After `prim-types-dynamic.js.fsi` — these operators reference the `dynamic` type.
     "ops-dynamic.js.fsi",
+    # The BCL exception roots as `namespace System` contract types. JS-only: the CLR resolves
+    # these names through `System.Private.CoreLib`, and declaring them there would shadow the
+    # real types in a `newobj`. After `prim-types-exn.fsi` — each inherits `exn`.
+    "exceptions.js.fsi",
 ]
 
 # All 9 attribute types are fully ERASED on JS — no `.mjs` residue, no decorator — but must
 # stay RESOLVABLE: `core-types.fs` below carries `[<ReferenceEquality>]`/`[<NoComparison>]`.
 sig-only = [
     "compiler-attributes.fsi",
+    # Impl-free: the mechanism comes via `prim-types-exn`, which erases every root to `Error`.
+    "exceptions.js.fsi",
 ]
 
 # The JS bodies: platform reprs and spliced operator templates. There is no whole-package JS

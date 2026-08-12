@@ -94,8 +94,8 @@ type FrozenCodecBenchmarks() =
             HomeAssembly = "Bench"
             Target = Target.Clr
             ReferenceAssemblies = []
-            Manifests = [ manifestPath "Vesper.Set" ]
-            SelfManifest = None
+            Packages = [ packageDir "Vesper.Set" ]
+            SelfPackage = None
         }
 
     /// `keyInputs` already folded — what `FileKey` keys against, and what a driver holds for

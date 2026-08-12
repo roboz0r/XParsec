@@ -11,7 +11,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // type-checks and leaves no free `TyVar` in the frozen TAST.
 
 let private errorsOf (src: string) : Diagnostic list =
-    let provider = ClrSymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors
@@ -23,7 +23,7 @@ let private clean (label: string) (src: string) : unit =
 /// The inferred type of the program's last top-level `let`, for asserting a precise
 /// grounding: an over-generalised `int -> 'b -> int` is error-free yet wrong.
 let private lastLetTy (src: string) : SemType =
-    let provider = ClrSymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 

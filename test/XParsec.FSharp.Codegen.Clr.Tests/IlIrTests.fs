@@ -16,7 +16,7 @@ let private dummyTok: SyntaxToken =
 /// The real Vesper.Core provider, so these hand-written-IL fixtures read primitive reprs
 /// from Core's own `.fs` like every other build. `buildContract` caches.
 let private coreProvider: Lazy<IExternalSymbolProvider> =
-    lazy ClrSymbolProviders.buildContract [ vesperCoreManifest ]
+    lazy ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
 // The reified IL-buffer's own unit suite. The two demonstrators below stand in for the two
 // real producers, a dynamic TAST walker and a per-type template, each built into an

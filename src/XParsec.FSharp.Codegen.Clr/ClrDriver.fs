@@ -5,26 +5,27 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// A single CLR compilation's inputs, MSBuild-shaped. `Manifests` are the packages this
-/// compilation resolves against; `SelfManifest` is the one it DEFINES.
+/// A single CLR compilation's inputs, MSBuild-shaped. `Packages` are the package DIRECTORIES
+/// this compilation resolves against; `SelfPackage` is the one it DEFINES. The driver resolves
+/// each to `manifest.clr.toml` itself, so a caller cannot hand it another target's contracts.
 type ClrCompilation =
     {
         Project: ProjectInfo
-        Manifests: string list
+        Packages: string list
         BclReferences: string list
-        SelfManifest: string option
+        SelfPackage: string option
     }
 
 module ClrCompilation =
 
     /// References packages, defines no primitives of its own. The shape to reach for unless
     /// compiling a package that declares `extern` types.
-    let consumer (project: ProjectInfo) (manifests: string list) (bclReferences: string list) : ClrCompilation =
+    let consumer (project: ProjectInfo) (packages: string list) (bclReferences: string list) : ClrCompilation =
         {
             Project = project
-            Manifests = manifests
+            Packages = packages
             BclReferences = bclReferences
-            SelfManifest = None
+            SelfPackage = None
         }
 
 /// The production CLR driver: parse → analyse → gate → emit against an EXPLICIT reference
@@ -38,8 +39,6 @@ module ClrDriver =
     let private blockingErrors (tast: FrozenPools) : Diagnostic list =
         Diagnostic.errors tast.Residue.Diagnostics
 
-    let private clrTarget: string = Target.Clr
-
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
     /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
     let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
@@ -47,11 +46,7 @@ module ClrDriver =
         | Error diagnostics -> Error diagnostics
         | Ok parsed ->
             let provider =
-                ClrSymbolProviders.buildContractWithRefs
-                    inputs.SelfManifest
-                    inputs.BclReferences
-                    clrTarget
-                    inputs.Manifests
+                ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages
 
             let tast =
                 Pipeline.analyseFor
@@ -70,10 +65,10 @@ module ClrDriver =
         Hashing.compilationDigest
             {
                 HomeAssembly = inputs.Project.AssemblyName
-                Target = clrTarget
+                Target = Target.Clr
                 ReferenceAssemblies = inputs.BclReferences
-                Manifests = inputs.Manifests
-                SelfManifest = inputs.SelfManifest
+                Packages = inputs.Packages
+                SelfPackage = inputs.SelfPackage
             }
 
     /// `compile` through the frozen-compile cache: a HIT skips parse + analyse + freeze, and an
@@ -86,7 +81,7 @@ module ClrDriver =
         (source: string)
         : Result<ClrArtifact, Diagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences clrTarget inputs.Manifests
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages
 
         // The key covers the path the frozen tree's nodes name, so a hit cannot serve a tree
         // anchored elsewhere.
@@ -157,7 +152,7 @@ module ClrDriver =
         (files: (string * string) list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences clrTarget inputs.Manifests
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages
 
         compileAssemblyWith Pipeline.analyseFor inputs.BclReferences provider inputs.Project files
 

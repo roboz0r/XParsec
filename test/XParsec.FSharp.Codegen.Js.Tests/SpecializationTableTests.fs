@@ -102,7 +102,7 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
         // No `depends-on`: it resolves package names against sibling directories of the package
         // itself, and this one lives beside no library. The manifest list supplies Vesper.Core.
         write
-            "manifest.toml"
+            "manifest.js.toml"
             """[core]
 name = "Cycle.Probe"
 description = "Inline bodies that call themselves, for the acyclicity check."
@@ -132,9 +132,7 @@ module Probe =
     let rec inline fusedLoop (a: int) ([<CallAtMostOnce>] b: int) : int = fusedLoop a b
 """
 
-        JsNativeSymbols.buildJsNativeContractFor
-            Target.Js
-            (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
+        JsNativeSymbols.buildJsNativeContract (jsPackages @ [ dir ])
 
 /// A producer whose recursion closes on a MEMBER. `'T[]`'s `get_Item` is OVERRIDDEN rather than
 /// a fresh type declared (a later manifest's body wins), because a member inline body cannot
@@ -147,7 +145,7 @@ let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
             System.IO.File.WriteAllText(System.IO.Path.Combine(dir, name), text)
 
         write
-            "manifest.toml"
+            "manifest.js.toml"
             """[core]
 name = "Cycle.Member"
 description = "A member inline body that reaches itself, for the back edge's arity."
@@ -193,9 +191,7 @@ type 'T ``[]`` =
     end
 """
 
-        JsNativeSymbols.buildJsNativeContractFor
-            Target.Js
-            (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
+        JsNativeSymbols.buildJsNativeContract (jsPackages @ [ dir ])
 
 /// Every `InlineCall` edge in `e`, as the slot it names and the number of arguments it carries.
 let private edgeArities (e: TExpr) : (SpecializationId * int) list =

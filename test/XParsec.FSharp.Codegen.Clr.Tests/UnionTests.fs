@@ -389,7 +389,7 @@ let tests =
                 let tast =
                     Pipeline.analyseSemFor
                         project.AssemblyName
-                        (ClrSymbolProviders.buildContract defaultManifests)
+                        (ClrSymbolProviders.buildContract defaultPackages)
                         (Hashing.originSourceOfText lexed)
                         file
 

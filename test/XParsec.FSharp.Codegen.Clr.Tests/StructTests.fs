@@ -355,7 +355,7 @@ let structTests =
                 // The package directory name IS the package identity that `depends-on`
                 // resolves against, so it must equal the manifest `name` below.
                 let outDir = tmpDir "Vesper.PointPkg"
-                let manifestPath = System.IO.Path.Combine(outDir, "manifest.toml")
+                let manifestPath = System.IO.Path.Combine(outDir, "manifest.clr.toml")
                 let fsiPath = System.IO.Path.Combine(outDir, "point.fsi")
 
                 System.IO.File.WriteAllText(
@@ -368,7 +368,7 @@ let structTests =
                     "namespace Vesper\n\ntype Point =\n    struct\n        val X: int\n        val Y: int\n    end\n"
                 )
 
-                let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest; manifestPath ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage; outDir ]
 
                 // Identity function forces `Point` into the emitted signature (return + param).
                 let src =

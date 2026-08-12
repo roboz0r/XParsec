@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Clr
 // `{ platform → [canon] }` reverse map. Seed it from the real Vesper.Core contract, not
 // a static table, so `String.Length` presents `int`.
 let private reverseCanon =
-    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicReverseCanon
+    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCorePackage ]).IntrinsicReverseCanon
 
 let private provider =
     MetadataSymbols.createWith reverseCanon (MetadataSymbols.runtimeAssemblyPaths ())
@@ -280,14 +280,10 @@ let tests =
                 Expect.isTrue (List.length withoutLinq < List.length full) "host TPA carries System.Linq.dll"
 
                 let fullProvider =
-                    ClrSymbolProviders.buildContractWithRefs None full Target.Clr [ TestHelpers.vesperCoreManifest ]
+                    ClrSymbolProviders.buildContractWithRefs None full [ TestHelpers.vesperCorePackage ]
 
                 let limited =
-                    ClrSymbolProviders.buildContractWithRefs
-                        None
-                        withoutLinq
-                        Target.Clr
-                        [ TestHelpers.vesperCoreManifest ]
+                    ClrSymbolProviders.buildContractWithRefs None withoutLinq [ TestHelpers.vesperCorePackage ]
 
                 Expect.isTrue
                     (fullProvider.TryLookupType "System.Linq.Enumerable" |> ValueOption.isSome)

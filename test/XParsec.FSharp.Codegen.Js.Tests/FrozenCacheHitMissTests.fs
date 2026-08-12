@@ -30,8 +30,8 @@ let private conformanceDigest =
             HomeAssembly = "Conformance"
             Target = Target.Js
             ReferenceAssemblies = []
-            Manifests = []
-            SelfManifest = None
+            Packages = []
+            SelfPackage = None
         }
 
 /// The cache key a driver would assemble for a source file with no dependencies: the query

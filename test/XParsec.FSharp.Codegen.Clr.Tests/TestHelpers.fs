@@ -130,7 +130,12 @@ let vesperListSource (fileName: string) : string =
 let vesperPrintfSource (fileName: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Printf", fileName)
 
-let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
+/// `src/<pkg>` — the package DIRECTORY. The CLR backend resolves it to `manifest.clr.toml`;
+/// a test that wants another target's collection asks for it by target, not by path.
+let srcPackage (pkg: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg)
+
+let vesperCorePackage: string = srcPackage "Vesper.Core"
 
 /// A multi-file driver's anchored diagnostics as `path: message`, one per line.
 let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
@@ -155,9 +160,12 @@ let vesperCoreDll: Lazy<string> =
          // composed prior-file views, so a primitive repr (`string`, …) resolves from
          // Core's own `.fs`.
          let implFiles =
-             match ReferencedProject.loadManifest vesperCoreManifest with
-             | Ok m -> ReferencedProject.resolveImpl Target.Clr m
-             | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
+             match ReferencedProject.resolveManifest Target.Clr vesperCorePackage with
+             | Error e -> failwithf "vesperCoreDll: %s" e
+             | Ok mp ->
+                 match ReferencedProject.loadManifest mp with
+                 | Ok m -> m.Impl
+                 | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
 
          let files =
              implFiles
@@ -166,8 +174,7 @@ let vesperCoreDll: Lazy<string> =
          // Core defines its own primitives, so it references nothing and names ITSELF as
          // the self manifest. That seeds the metadata leaf with its own `{ platform -> canon }`
          // axis, so a BCL signature presents `System.String` as `Vesper.string` here too.
-         let provider =
-             ClrSymbolProviders.buildContractForSelf (Some vesperCoreManifest) Target.Clr []
+         let provider = ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) []
 
          let artifact =
              match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] provider project files with
@@ -197,7 +204,7 @@ let vesperListDll: Lazy<string> =
          // A `[1; 2; 3]` consumer literal binds to this list by ARITY (nullary terminator
          // + binary cons), not by case name. `list.fs` calls `failwith`, an inline operator
          // in the Vesper.Core contract, so that contract must be in the stack to inline it.
-         let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
+         let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
          let lexed, file = parseFile src
 
          let tast =
@@ -208,32 +215,29 @@ let vesperListDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
 
-let vesperListManifest: string = vesperListSource "manifest.toml"
+let vesperListPackage: string = srcPackage "Vesper.List"
 
-let private srcManifest (pkg: string) : string =
-    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
+let vesperComparisonPackage: string = srcPackage "Vesper.Comparison"
 
-let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
-
-/// `src/Vesper.Printf/manifest.toml` — `printf` / `printfn` / `sprintf` as an
+/// `src/Vesper.Printf` — `printf` / `printfn` / `sprintf` as an
 /// `[<AutoOpen>] module Printf` contract.
-let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
+let vesperPrintfPackage: string = srcPackage "Vesper.Printf"
 
 /// The default contract stack. An operator emits from its `.fs` contract body, spliced
 /// whether applied (`1 + 2`) or used as a value (`List.fold (+) 0 xs`, eta-reified first).
-let defaultManifests: string list =
+let defaultPackages: string list =
     [
-        vesperCoreManifest
-        vesperListManifest
-        vesperComparisonManifest
-        vesperPrintfManifest
+        vesperCorePackage
+        vesperListPackage
+        vesperComparisonPackage
+        vesperPrintfPackage
     ]
 
 /// Front-end a program to a (SemType) `TastFile` through the default contract stack.
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultManifests) (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultPackages) (Hashing.originSourceOfText lexed) file
 
 /// `analyse`, keeping the `PassContext`. `Freeze.run` reads `ctx.Bindings.Scheme` for the
 /// bound variable a residual typar root belongs to; the TAST alone does not carry it.
@@ -241,7 +245,7 @@ let analyseWithCtx (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
 
     Pipeline.analyseSemWithContext
-        (ClrSymbolProviders.buildContract defaultManifests)
+        (ClrSymbolProviders.buildContract defaultPackages)
         (Hashing.originSourceOfText lexed)
         file
 
@@ -274,7 +278,10 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
         package,
         fun pkg ->
             lazy
-                (let manifestPath = srcManifest pkg
+                (let manifestPath =
+                    match ReferencedProject.resolveManifest Target.Clr (srcPackage pkg) with
+                    | Result.Ok mp -> mp
+                    | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
 
                  let manifest =
                      match ReferencedProject.loadManifest manifestPath with
@@ -283,7 +290,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  // `.fsi`↔`.fs` conformance gates the build: a contract binding with no
                  // implementation and no manifest `sig-only` declaration is an error.
-                 match ConformancePass.checkManifest Target.Clr manifestPath with
+                 match ConformancePass.checkManifest manifestPath with
                  | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
                  | Result.Ok outcome ->
                      match ConformancePass.enforce outcome with
@@ -302,16 +309,16 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      manifest.DependsOn |> List.map (fun d -> (buildPackage d).Value |> snd)
 
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
-                 let depManifests = manifest.DependsOn |> List.map srcManifest
+                 let depManifests = manifest.DependsOn |> List.map srcPackage
 
                  // The package names ITSELF as self, so a BCL signature presents the primitives
                  // this compilation declares: `prim-types-string.clr.fs`'s `String.Concat(x, y)`
                  // takes two `Vesper.string`s and must still find the `(String, String)` overload.
                  let provider =
-                     ClrSymbolProviders.buildContractForSelf (Some manifestPath) Target.Clr depManifests
+                     ClrSymbolProviders.buildContractForSelf (Some(srcPackage pkg)) depManifests
 
-                 let dir = IO.Path.GetDirectoryName manifestPath
-                 let implRels = ReferencedProject.resolveImpl Target.Clr manifest
+                 let dir = manifestPath.PackageDir
+                 let implRels = manifest.Impl
 
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
@@ -416,7 +423,7 @@ let private compileContract
 /// The default compile path: `int` / `hash` / the operators all resolve from the
 /// `Vesper.Core` `.fsi` contract.
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
+    compileContract defaultPackages (ProjectInfo.defaults assemblyName) input
 
 /// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT codegen.
 /// All three share one parse → analyse → freeze prefix and differ only by the round-trip.
@@ -435,7 +442,7 @@ type ConformanceRoundTripArtifacts =
 /// and one project, so an artifact differs from `Direct` only by its round-trip.
 let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ConformanceRoundTripArtifacts =
     let project = ProjectInfo.defaults assemblyName
-    let provider = ClrSymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile input
 
     let ctx, tast =
@@ -461,7 +468,7 @@ let conformanceAssemblyName (program: string) : string =
 /// cons-list. Needed when a probe mixes `'T list`-annotated state (Vesper, via the `list`
 /// abbreviation) with bare `::` construction, which the default pipeline resolves to F#'s.
 let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
-    let provider = ClrSymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultPackages
     let project = ProjectInfo.defaults assemblyName
     let lexed, file = parseFile input
 
@@ -473,15 +480,15 @@ let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
 /// `compileSource` against a caller-supplied `ProjectInfo` (e.g. an on-disk app build via
 /// `ProjectInfo.app`).
 let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
-    compileContract defaultManifests project input |> snd
+    compileContract defaultPackages project input |> snd
 
-/// `compileSource` against an explicit manifest stack instead of `defaultManifests`.
+/// `compileSource` against an explicit manifest stack instead of `defaultPackages`.
 let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract manifestPaths (ProjectInfo.defaults assemblyName) input
 
 /// Contract-backed compile against the real `Vesper.Core` manifest.
 let compileSourceContract (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileContract [ vesperCoreManifest ] (ProjectInfo.defaults assemblyName) input
+    compileContract [ vesperCorePackage ] (ProjectInfo.defaults assemblyName) input
 
 /// Run a materialised app out-of-process via the `dotnet` host. On a non-zero exit stderr
 /// is appended, so a host failure (missing runtimeconfig, unresolved reference) is visible.
@@ -679,7 +686,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let depDlls =
         deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
 
-    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcManifest)
+    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcPackage)
 
     let outDir = tmpDir (sprintf "engine-%s" asmName)
     let outPath = IO.Path.Combine(outDir, asmName + ".dll")
@@ -734,7 +741,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let depDlls =
         deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
 
-    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcManifest)
+    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcPackage)
 
     let outDir = tmpDir (sprintf "fixture-%s" asmName)
     let outPath = IO.Path.Combine(outDir, asmName + ".dll")
@@ -878,7 +885,7 @@ let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
 // Name the Vesper packages a snippet links against; the contract stack, the reference
 // DLLs and the whole `depends-on` graph are derived, with the default stack unioned in.
 
-/// `defaultManifests` by package name: what every driver implicitly links.
+/// `defaultPackages` by package name: what every driver implicitly links.
 let private defaultPackageNames =
     [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
 
@@ -889,7 +896,10 @@ let private transitivePackages (roots: string list) : string list =
 
     let rec go (pkg: string) =
         if not (acc.Contains pkg) then
-            match ReferencedProject.loadManifest (srcManifest pkg) with
+            match
+                ReferencedProject.resolveManifest Target.Clr (srcPackage pkg)
+                |> Result.bind ReferencedProject.loadManifest
+            with
             | Result.Ok m ->
                 m.DependsOn |> List.iter go
 
@@ -913,8 +923,7 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let depDlls =
         allPackages |> List.choose (fun p -> ((buildPackage p).Value |> snd).OutputPath)
 
-    let provider =
-        ClrSymbolProviders.buildContract (allPackages |> List.map srcManifest)
+    let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
 
     let n = System.Threading.Interlocked.Increment driverCounter
 
@@ -988,8 +997,7 @@ let runsPackagesLines (packages: string list) (expected: string list) (src: stri
 let private analysePackagesErrors (packages: string list) (src: string) : Diagnostic list =
     let allPackages = transitivePackages (defaultPackageNames @ packages)
 
-    let provider =
-        ClrSymbolProviders.buildContract (allPackages |> List.map srcManifest)
+    let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
 
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
@@ -1029,7 +1037,7 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 /// Analyse `src` through the default contract stack (no codegen) and return the
 /// error-severity diagnostics, because analysis collects them rather than throwing.
 let private analyseErrors (src: string) : Diagnostic list =
-    let provider = ClrSymbolProviders.buildContract defaultManifests
+    let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors

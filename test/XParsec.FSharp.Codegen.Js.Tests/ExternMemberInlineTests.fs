@@ -139,15 +139,15 @@ let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftIn
 // `.fsi` contract AND its `.js.fs` bodies, so a lookup of `widget.Poke` closes on an inline
 // body from real elaboration; the `(# "object" #)` binding also makes the hosts intrinsic.
 
-/// `fixtures/widget/manifest.toml`.
-let private widgetManifest: string =
-    System.IO.Path.Combine(__SOURCE_DIRECTORY__, "fixtures", "widget", "manifest.toml")
+/// The `fixtures/widget` package directory.
+let private widgetPackage: string =
+    System.IO.Path.Combine(__SOURCE_DIRECTORY__, "fixtures", "widget")
 
 /// The JS-native contract with the `widget` fixture layered ahead. The WHOLE contract, not
 /// just its provider: a spliced body's positions read only against this set's retained
 /// producer files, and `widget.js.fs` is in this retention and in no other.
 let private widgetFixtureContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor Target.Js (widgetManifest :: TestHelpers.jsManifests)
+    lazy JsNativeSymbols.jsNativeContract (widgetPackage :: TestHelpers.jsPackages)
 
 /// Emit a consumer snippet through the widget-inclusive contract. No runtime module is
 /// injected: `widget`'s member is fully spliced, so the emitted code imports nothing.
@@ -429,7 +429,7 @@ let tests =
             test "an indexer's contract-side and impl-side member keys are equal, ArgSig included" {
                 TestHelpers.expectMemberKeyHalvesAgree
                     widgetFixtureContract.Value
-                    [ widgetManifest ]
+                    [ widgetPackage ]
                     (SymbolKeyOps.qualifiedTypeKey "Widgets.slot" 1)
                     [ "get_Item"; "set_Item" ]
             }
@@ -440,7 +440,7 @@ let tests =
             test "a CURRIED contract signature keys as its argument groups, matching the impl half" {
                 TestHelpers.expectMemberKeyHalvesAgree
                     widgetFixtureContract.Value
-                    [ widgetManifest ]
+                    [ widgetPackage ]
                     (SymbolKeyOps.qualifiedTypeKey "Widgets.widget" 0)
                     [ "Poke3" ]
             }

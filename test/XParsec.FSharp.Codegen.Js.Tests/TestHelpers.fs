@@ -19,19 +19,19 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
-/// `src/<pkg>/manifest.toml`.
-let srcManifest (pkg: string) : string =
-    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg, "manifest.toml")
+/// `src/<pkg>` — the package DIRECTORY. The JS backend resolves it to `manifest.js.toml`;
+/// this suite never names a manifest file, so it cannot name another target's.
+let srcPackage (pkg: string) : string =
+    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg)
 
-/// `src/Vesper.Core/manifest.toml`.
-let vesperCoreManifest: string = srcManifest "Vesper.Core"
+/// `src/Vesper.Core`.
+let vesperCorePackage: string = srcPackage "Vesper.Core"
 
-/// A file beside a package's `manifest.toml` (e.g. `srcFile "Vesper.List" "list.fs"`).
-let srcFile (pkg: string) (file: string) : string =
-    IO.Path.Combine(IO.Path.GetDirectoryName(srcManifest pkg), file)
+/// A file inside a package directory (e.g. `srcFile "Vesper.List" "list.fs"`).
+let srcFile (pkg: string) (file: string) : string = IO.Path.Combine(srcPackage pkg, file)
 
-/// `src/Vesper.Printf/manifest.toml`.
-let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
+/// `src/Vesper.Printf`.
+let vesperPrintfPackage: string = srcPackage "Vesper.Printf"
 
 /// `<repo-root>/tmp/<name>`, created on demand.
 let tmpDir (name: string) : string =
@@ -64,24 +64,22 @@ let runNode (jsPath: string) : (int * string) option =
     with :? System.ComponentModel.Win32Exception ->
         None
 
-/// The manifests the JS-target program resolves against.
-let jsManifests: string list =
+/// The packages the JS-target program resolves against.
+let jsPackages: string list =
     [
-        vesperCoreManifest
-        srcManifest "Vesper.Comparison"
-        vesperPrintfManifest
-        // BCL exceptions as Vesper contracts (inherit exn → Error); must precede Vesper.Option.
-        srcManifest "Vesper.Exceptions"
-        srcManifest "Vesper.Option"
-        srcManifest "Vesper.List"
-        srcManifest "Vesper.Array"
+        vesperCorePackage
+        srcPackage "Vesper.Comparison"
+        vesperPrintfPackage
+        srcPackage "Vesper.Option"
+        srcPackage "Vesper.List"
+        srcPackage "Vesper.Array"
     ]
 
-/// The JS-target contract for `jsManifests`, BCL-free: the provider a program is analysed
+/// The JS-target contract for `jsPackages`, BCL-free: the provider a program is analysed
 /// against, the producer files its served inline bodies are anchored in, and the manifest set
 /// backing its runtime imports.
 let jsContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor Target.Js jsManifests
+    lazy JsNativeSymbols.jsNativeContract jsPackages
 
 /// `jsContract`'s provider, for the front-end helpers: analysis resolves symbols and reads no
 /// position.
@@ -92,12 +90,21 @@ let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 /// `members`, so an `ArgSig` divergence is named here instead of surfacing as an absent body.
 let expectMemberKeyHalvesAgree
     (contract: SymbolProviders.Contract)
-    (implManifests: string list)
+    (implPackages: string list)
     (declKey: SymbolKey)
     (members: string list)
     : unit =
-    let implBodies =
-        (SymbolProviders.inlineBodies Target.Js contract.Provider implManifests).Members
+    // The named packages alone, NOT their `depends-on` closure: the assertion is about the
+    // halves one package's own `impl` publishes.
+    let manifests =
+        ReferencedProject.resolveAll Target.Js implPackages
+        |> List.map (fun mp ->
+            match ReferencedProject.loadManifest mp with
+            | Result.Ok m -> m
+            | Result.Error e -> failtestf "loadManifest: %s" e
+        )
+
+    let implBodies = (SymbolProviders.inlineBodies contract.Provider manifests).Members
 
     for memberName in members do
         let contractKey =
@@ -219,33 +226,18 @@ let emitJsLibrary (input: string) : string =
 /// because `compileLibrary` carries no home assembly, so its declarations would be a second
 /// claimant of the types the impl declares; `compileOwnLibrary` carries one and takes them both.
 let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor Target.Js [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
+    lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage ]
 
 /// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest, because `array.fs` splices
 /// `NewArray` out of the per-target `array-prelude.js.fs`. Safe only because `Vesper.Array`
 /// declares no in-file types; one that does (`Vesper.List`) takes the deps-only contract above.
 let arrayDepsJsContract: Lazy<SymbolProviders.Contract> =
-    lazy
-        JsNativeSymbols.jsNativeContractFor
-            Target.Js
-            [
-                vesperCoreManifest
-                srcManifest "Vesper.Exceptions"
-                srcManifest "Vesper.Array"
-            ]
+    lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage; srcPackage "Vesper.Array" ]
 
 /// Contract for `Vesper.Seq`'s impl: `Vesper.Array` for `toArray`'s buffer, and the
 /// package's own manifest for the `SeqPrelude.truncate` its `seq.fs` forwards to.
 let seqDepsJsContract: Lazy<SymbolProviders.Contract> =
-    lazy
-        JsNativeSymbols.jsNativeContractFor
-            Target.Js
-            [
-                vesperCoreManifest
-                srcManifest "Vesper.Exceptions"
-                srcManifest "Vesper.Array"
-                srcManifest "Vesper.Seq"
-            ]
+    lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage; srcPackage "Vesper.Array"; srcPackage "Vesper.Seq" ]
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
 /// dependencies, so the impl's own in-file types are the resolution authority.

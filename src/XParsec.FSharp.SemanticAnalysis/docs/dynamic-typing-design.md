@@ -1,11 +1,11 @@
 # Dynamic typing (`dynamic`) — a disciplined F# `any`
 
-**Status (2026-07-03).** IMPLEMENTED (core cut — the implicit-escape warning is a
-staged follow-on, not yet built). Superseded the `TyDynamic`
-front-end DU-case approach spiked under "Wall 2" of
-[`ts-provider-implementation-plan.md`](ts-provider-implementation-plan.md) (that spike
-is to be **reverted** — see *What reverts* below). Premises confirmed with the user and
-a scout of the inferencer; open micro-decisions flagged inline with **[OPEN]**.
+**Status (2026-08-11).** IMPLEMENTED, the implicit-escape warning included
+(`DynamicEscape.fs`, `DynamicTypeTests`). Superseded the `TyDynamic` front-end
+DU-case approach spiked under "Wall 2" of
+[`ts-provider-implementation-plan.md`](ts-provider-implementation-plan.md); that spike
+was unwound, and `TyDynamic` survives only as a `TyConst` recognizer in
+`RuntimeNames.fs`. One deferral remains, flagged **[DEFERRED]** at the foot.
 
 ## Motivation
 
@@ -19,15 +19,16 @@ an explicit cast — never silent flow.
 ## The type: `dynamic` is a plain opaque JS intrinsic
 
 ```fsharp
-// prim-types-dynamic.js.fsi   (files-js, JS-only — no CLR analog)
+// prim-types-dynamic.js.fsi   (JS-only — no CLR analog)
 type dynamic = extern
 // prim-types-dynamic.js.fs
 type dynamic = (# "any" #)
 ```
 
-Modelled exactly like Wall 1's `undefined`: a JS-only intrinsic scoped to the
-manifest's `files-js` list, extracted (via the `files-<t>` companion extraction added in
-Wall 1) as both marker and platform name. Canon identity `dynamic`; JS platform tag
+Modelled exactly like `undefined`: a JS-only intrinsic, so the pair is named by
+`Vesper.Core/manifest.js.toml` (`files` + `impl`) and by no other manifest — which is the
+whole statement that the CLR has no `dynamic`. The `.fs` is extracted for both marker and
+platform name, ahead of the `.fsi`. Canon identity `dynamic`; JS platform tag
 `"any"`. It carries **no special unifier behaviour** — it unifies with itself by name,
 like `int` or `string`, and with nothing else. There is deliberately **no `TyDynamic`
 SemType/`FTDynamic` FrozenType DU case**: `dynamic` is `TyConst("dynamic")` /
@@ -39,8 +40,8 @@ skeletons and mints no new absorb/subtype rules.
 - `let d : dynamic = someInt` — **rejected** (an `int` is not a `dynamic`). You enter
   `dynamic` from a TS-`any`-typed value, or explicitly via the `dynamic` conversion
   function (below).
-- `let n : int = d` — **rejected**. You leave `dynamic` through `?` (target-typed);
-  whole-value exit **[OPEN]**.
+- `let n : int = d` — **rejected**. You leave `dynamic` through `?` (target-typed), or
+  whole-value through `Unsafe.retype`.
 - `d.foo` (dotted) — **rejected**. `.` is for statically-known members; `dynamic` has
   none. This is the load-bearing F#-fidelity point.
 
@@ -49,11 +50,11 @@ is in the `?` operator and the `dynamic`/`?` intrinsics.
 
 ### `retype`, and entering/leaving `dynamic`
 
-The underlying primitive is FSharp.Core's general erasing reinterpret — added to
-Vesper.Core as an intrinsic:
+The underlying primitive is FSharp.Core's general erasing reinterpret, declared in
+`Vesper.Core/ops-dynamic.js.fsi`'s non-`[<AutoOpen>]` `module Unsafe`:
 
 ```fsharp
-let inline retype<'T,'U> (x:'T) : 'U = (# "" x : 'U #)
+val inline retype: x: ^T -> ^U          // body: (# "" x : ^U #)
 ```
 
 The empty-string intrinsic `(# "" x : 'U #)` is the identity cast: it emits the value
@@ -65,8 +66,8 @@ common path.
 
 ```fsharp
 // ops-dynamic.js.fsi — entry convenience, shares the type's name like int/string/box
-val inline dynamic : value: ^T -> dynamic
-let inline dynamic (value: ^T) : dynamic = retype value   // (# "" value : dynamic #)
+val inline dynamic: value: ^T -> dynamic
+let inline dynamic (value: ^T) : dynamic = Unsafe.retype value
 ```
 
 - **Enter:** `dynamic x` — same JS value, retyped to `dynamic`. `x` alone never flows in
@@ -75,26 +76,28 @@ let inline dynamic (value: ^T) : dynamic = retype value   // (# "" value : dynam
 - **Whole-value exit:** `retype d : int` — the explicit, unchecked escape (resolves the
   earlier open question; `retype` is the general cast, so no bespoke `undynamic` needed).
 
-**[VERIFY at impl: the `(# "" x : 'U #)` identity-intrinsic lowering is honoured on the
-JS backend — it should emit the operand verbatim.]** **[DECIDED (G3, landed
-2026-07-04): `retype` is PUBLIC but in a NON-`[<AutoOpen>]` `module Vesper.Unsafe` —
-reachable via an explicit `open Vesper.Unsafe`, never ambient. Keeps the FFI escape
-hatch without an unchecked cast in every program's default scope.]**
+The `(# "" x : ^U #)` identity lowering emits the operand verbatim on JS, which is what
+makes `dynamic someInt` a no-op at run time. `retype` is PUBLIC but never ambient:
+`module Vesper.Unsafe` carries no `[<AutoOpen>]`, so an explicit `open Vesper.Unsafe` is
+the marker that a cast here is unchecked, and the FFI escape hatch stays out of every
+program's default scope.
 
 ## The operators: `?` and `?<-`, SRTP with a `dynamic` default
 
 ```fsharp
-// ops-dynamic.js.fsi   (files-js)
+// ops-dynamic.js.fsi   ([<AutoOpen>] module DynamicOperators)
 val inline (?)   : target: dynamic -> name: string -> ^TResult
                        when default ^TResult : dynamic
 val inline (?<-) : target: dynamic -> name: string -> value: ^TValue -> unit
 ```
 
-`x ? ident` desugars (F# spec 6.4.5, already what Vesper's parser does) to
-`(?) x "ident"` — the member name is a compile-time **string** literal. Then ordinary
+`x ? ident` means `(?) x "ident"` (F# spec 6.4.5) — the member name is a compile-time
+**string** literal, never a value reference. The parser keeps it as one
+`Expr.DynamicLookup` node; the operator call is minted downstream (below), so the CST
+carries the surface form and the elaborated tree carries the application. Then ordinary
 inference + the existing SRTP `default`-constraint machinery
-(`InferGeneralize.applyDefaults`, a real fixpoint defaulting pass — confirmed general,
-not int-hardcoded) does the rest:
+(`InferGeneralize.applyDefaults`, a real fixpoint defaulting pass — general, not
+int-hardcoded) does the rest:
 
 - **Unconstrained** context → `^TResult` defaults to `dynamic`. So `x?a?b` chains stay
   dynamic — "infectious", but *only through `?`*, never through assignability.
@@ -102,55 +105,30 @@ not int-hardcoded) does the rest:
   → `^TResult` unifies to the pinned type *before* generalisation, the default never
   fires, and `?` is the **principled escape back to static**.
 
-`?<-` is the setter (`x?foo <- v`), in scope for the first cut.
+`?<-` is the setter (`x?foo <- v`).
 
-### Implicit escape warns; explicit escape is silent **[LANDED 2026-07-04 — see `DynamicEscape.fs`]**
-
-**As built** (the durable record is `DynamicEscape.fs`'s header + `DynamicTypeTests`): the
-**syntactic** fork shipped — only an ascription directly on the `?` expression (`(d?foo : int)`)
-suppresses; a binding-level `let n : int = d?foo` still warns. Detection is a post-settle sweep of
-`?`-result vars recorded by `inferDynamicLookup` (`ctx.DynamicEscapes`), NOT an `applyDefaults` hook:
-a var that `zonk`s to a concrete non-`dynamic` shape had its `default : dynamic` skipped → warn.
-`#nowarn`-number suppression was **descoped** (no warning-number plumbing reaches semantic
-diagnostics yet). The original design sketch below is retained for context.
-
+### Implicit escape warns; explicit escape is silent
 
 Target-typing lets `dynamic` escape to a concrete type through *context* — `d?foo + 1`
 forces `^TResult = int` via the arithmetic. That is an **unchecked assertion** (the
-compiler cannot verify `d.foo` is really an `int`), so it is a candidate for an
-**implicit-conversion warning** (mirroring F#'s posture on `op_Implicit`), suppressible
-two ways:
+compiler cannot verify `d.foo` is really an `int`), so it warns, mirroring F#'s posture
+on `op_Implicit`.
 
-- **`#nowarn`** on the relevant warning number — blanket opt-out.
-- **An explicit type annotation on the `?` expression** — `(d?foo : int) + 1`. You are
-  *saying* the type, so no warning.
+What suppresses is **syntactic**: an ascription directly on the `?` expression,
+`(d?foo : int) + 1`. An annotation on the *binding*, `let n : int = d?foo`, still warns,
+nudging `let n = (d?foo : int)`. One teachable rule — name the type at the escape point.
+The looser alternative (any expected type reaching the expression suppresses, so only
+inference-derived escapes warn) was rejected: it needs provenance tracking on the
+expected type, which is much harder to get right for a permissiveness nobody asked for.
 
-Mechanically the warn case is precisely "a `?`-originated `^TResult` that
-`applyDefaults` found already solved to a non-`dynamic` concrete type" — i.e. the
-default did NOT fire. Implementation needs (a) tagging a `?`-result tyvar with its
-origin so the concretisation is detectable, and (b) a suppression signal from a direct
-`(… : T)` ascription wrapping the `DynamicLookup`.
+Detection is a post-settle sweep over the `?`-result vars `inferDynamicLookup` recorded,
+NOT an `applyDefaults` hook: a var that `zonk`s to a concrete non-`dynamic` shape is one
+whose `default : dynamic` was skipped, which is exactly the warn case.
 
-**The definitional fork — what suppresses:**
-- *Recommended (syntactic, simple):* only a type annotation **directly on the `?`
-  expression** — `(d?foo : int)` — suppresses. `let n : int = d?foo` (annotation on the
-  binding, not the expression) still **warns**, nudging `let n = (d?foo : int)`. One
-  teachable rule: "name the type at the escape point." Matches your `(d?foo : int)`
-  example exactly.
-- *Alternative (looser):* any expected-type annotation reaching the expression —
-  including `let n : int = …` and an `int` parameter position — suppresses; only
-  genuinely inference-derived escapes (`d?foo + 1`) warn. More permissive, but needs
-  provenance tracking on the expected type (harder to get right).
-
-**Recommendation:** treat the warning as a **staged follow-on**, not part of the first
-cut. Ship infectious-default + target-typing first (it works with zero new machinery);
-add the warning once the core is proven, since it is the only part that needs new
-tyvar-origin tagging + suppression plumbing. Decide the syntactic-vs-loose fork then.
-
-### The `?` operand is `dynamic`, not `obj` **[DECIDED — strict `dynamic` operand]**
+### The `?` operand is `dynamic`, not `obj`
 
 FSharp.Interop.Dynamic types `(?)` as `obj -> string -> 'TResult` (permissive: `?`
-works on anything). We recommend the **stricter** `dynamic -> …`: `?` is valid only on a
+works on anything). Vesper takes the **stricter** `dynamic -> …`: `?` is valid only on a
 `dynamic` operand, so you cannot `?`-probe a statically-typed value by accident — you
 must first *be* in `dynamic`. This matches "you must go through `d?foo` / a cast."
 
@@ -167,70 +145,55 @@ FSharp.Interop.Dynamic inspects `typeof<'TResult>` at runtime to choose property
 method-invoke via the DLR. On JS we need none of that: `x?foo` is a property get
 (`x["foo"]`), and `x?foo(args)` is just `App` over that get (`x["foo"](args)`) — the JS
 runtime *is* the dynamic dispatch. **FID-style reflection is the CLR story and is
-deferred** (a CLR `dynamic` would need a `Dynamitey`-like runtime boundVar); our first and
-only target here is JS.
+deferred** (a CLR `dynamic` would need a `Dynamitey`-like runtime call-site dispatch
+layer); our first and only target here is JS.
 
 ## Extractor / provider
 
 The extractor already maps TS `any → Schema.TypeRef.Dynamic` (serialised
-`{"k":"dynamic"}`, committed golden) — unchanged. Only the F#-side deserialize changes:
-`Schema.TypeRef.Dynamic` → **`FTConst("dynamic")`** (was the `FTUnknown "any"` TODO,
-briefly `FTDynamic` in the reverted spike). So a TS-`any`-typed member/param/return
+`{"k":"dynamic"}`, committed golden). The F#-side deserialize lands it as
+**`FTConst("dynamic")`** (it was the `FTUnknown "any"` TODO, and briefly `FTDynamic` in
+the reverted spike). So a TS-`any`-typed member/param/return
 arrives as the opaque `dynamic` intrinsic, and the only thing you can do with it is `?`.
 
-## What reverts (from the Wall 2 spike)
+## Where it lives
 
-All uncommitted. Keep as reference, then unwind:
-- `SemanticInfo.fs`: remove `TyDynamic`/`FTDynamic` cases + every skeleton/fold/bridge
-  arm they forced.
-- `Engine.fs` (`unify` absorb, `checkConstraint → Satisfied`), `Subsume.fs`
-  (`TyDynamic` subtype arms) — remove; `dynamic` has no special unify/subsume behaviour.
-- `InferRecordAccess.fs` — the `TyDynamic -> TyDynamic` field arm is already reverted;
-  keep it reverted (`.foo` on `dynamic` errors).
-- `Infer.fs` / `ElaborateExpr.fs` — the native `DynamicLookup → FieldGet` arms get replaced
-  by the `DynamicLookup → (?)`-call desugaring.
-- `ClrEncoder.fs` / `EmitResolve.fs` / `ExternalSymbols.argTypeName` / `Regions.fs`
-  forced arms — drop (no DU case to match).
-- `CstKeys.firstTokenOfExpr` `DynamicLookup` arm — **keep** (node-keying is needed
-  regardless of how the node is later elaborated).
+- **The type** — `Vesper.Core/prim-types-dynamic.js.{fsi,fs}`, named by
+  `manifest.js.toml` and by no other manifest.
+- **`retype` + `dynamic` + `(?)` / `(?<-)`** — `Vesper.Core/ops-dynamic.js.{fsi,fs}`,
+  likewise JS-only. The bodies are `$0[$1]` and `$0[$1] = $2`; `dynamic value` is
+  `retype value`.
+- **`x?name`** — the parser keeps `Expr.DynamicLookup`. NameResolution stamps the node
+  with `OperatorData.OpDynamic`, `inferDynamicLookup` unifies the resolved operator's
+  scheme against `objArg -> string -> ^TResult` and records the result var for the
+  escape sweep, and `ElaborateAccess.translateDynamicLookup` mints the curried
+  `External` application whose second argument is the ident as a string constant.
+  `x?name <- v` runs the `(?<-)` counterpart off `Assignment(DynamicLookup …)`.
+  This is an infer/elaborate route rather than a Desugar rewrite, but it is still the
+  *operator* — which is what unlocks SRTP target-typing; a bespoke arm returning
+  `dynamic` would not.
+- **The escape warning** — `DynamicEscape.fs`, a post-settle sweep of
+  `ctx.DynamicEscapes` skipping `ctx.DynamicEscapeSuppressed`.
+- **TS ingress** — `TsManifestTypes.fs` maps `Schema.TypeRef.Dynamic` to
+  `FTConst(RuntimeNames.dynamicKey)`.
 
-## What builds
+`DynamicTypeTests` (in the JS codegen suite) holds the behaviour: the default firing and
+not firing, `d?a?b` staying dynamic, dotted `.foo` and `let n : int = d` erroring, the
+`?`-setter round-tripping under Node, each warning case, and `retype` being reachable
+only through `open Vesper.Unsafe`.
 
-1. `dynamic` intrinsic — `prim-types-dynamic.js.fsi` + `.js.fs`, `files-js` entry.
-2. `retype` (general reinterpret, `(# "" x : 'U #)`) + `(?)` / `(?<-)` + the `dynamic`
-   conversion — `ops-dynamic.js.fsi` + a JS inline body (`ops-dynamic.js.fs`,
-   `inline-bodies-js`): `?`/`?<-` emit `$0[$1]` / `$0[$1] = $2`; `dynamic value` =
-   `retype value`. (`retype` may live in a more general ops file if made public — see
-   surface [OPEN].)
-3. Desugar `Expr.DynamicLookup(objArg, ?, ident)` → `(?) objArg "ident"`, and
-   `Assignment(DynamicLookup(...), v)` → `(?<-) objArg "ident" v`. **[OPEN: desugar site —
-   a Desugar pass vs an `Infer`/`Freeze` arm that emits the operator App. The operator
-   route is what unlocks SRTP target-typing; a bespoke arm returning `dynamic` would
-   NOT.]**
-4. `TsManifestTypes.fs`: `Schema.Dynamic → FTConst("dynamic")`.
+## Settled forks
 
-## Verification / test plan
-
-- `let d = getAny(); let y = d?foo` — `y : dynamic` (default fired).
-- `let d = getAny(); let n : int = d?foo` — type-checks, `n : int` (default did NOT
-  fire; the first non-int `default` target exercised anywhere — the scout flagged this
-  as previously untested).
-- `d?a?b` chains stay `dynamic`; emits `d["a"]["b"]`.
-- `d.foo` (dotted) — ERROR.
-- `let n : int = d` — ERROR (no assignability edge).
-- `d?foo <- v` — emits `d["foo"] = v`; observable under Node.
-- End-to-end: a `dynlib` manifest with an `any` member/param, emit + Node round-trip.
-
-## Open questions (decide before/while implementing)
-
-1. **[DECIDED]** `(?)` operand — **`dynamic` (strict)**. You cannot `?`-probe a
-   statically-typed value; you must first *be* in `dynamic`.
-2. **[DECIDED — G3, landed 2026-07-04]** `retype` surface — PUBLIC but in a
-   NON-`[<AutoOpen>]` `module Vesper.Unsafe`, reached via an explicit `open Vesper.Unsafe`
-   (the middle ground between ambient `[<AutoOpen>]` and FSharp.Core's internal-only).
+1. `(?)` operand — **`dynamic` (strict)**, not FSharp.Interop.Dynamic's permissive
+   `obj`. You cannot `?`-probe a statically-typed value; you must first *be* in
+   `dynamic`.
+2. `retype` surface — PUBLIC but in a NON-`[<AutoOpen>]` `module Vesper.Unsafe`, the
+   middle ground between ambient `[<AutoOpen>]` and FSharp.Core's internal-only.
    Whole-value `dynamic -> 'T` exit is `Unsafe.retype d : 'T`.
-3. **[OPEN]** Does the inline machinery accept a statically-resolved `^TResult` whose
-   *only* constraint is `default` (every existing SRTP typar also carries a member
-   trait)? And does a 3-arg assignment template `$0[$1] = $2` lower correctly? Both are
-   implementation-time verifications, not design forks.
-4. **[DEFERRED]** CLR `dynamic` (FID-style runtime boundVar). Out of scope; JS-only now.
+3. Escape suppression — the **syntactic** fork: an ascription directly on the `?`
+   expression suppresses, an annotation on the binding does not.
+
+**[DEFERRED]** CLR `dynamic`, which would need a `Dynamitey`-like runtime call-site
+dispatch layer. Out of scope; JS-only. `#nowarn`-number suppression of the escape
+warning is also still descoped — no warning-number plumbing reaches semantic
+diagnostics.

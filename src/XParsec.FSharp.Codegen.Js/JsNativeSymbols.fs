@@ -91,17 +91,18 @@ module JsNativeSymbols =
 
     /// The JS-native contract for a manifest set, whole. A compile takes this; the
     /// projections below are for callers that only resolve or introspect.
-    let jsNativeContractFor (target: string) (manifestPaths: string list) : SymbolProviders.Contract =
-        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
+    /// The one place this backend states its target: it RESOLVES each package directory to
+    /// `manifest.js.toml`, so a set for another target is not something a caller can hand it.
+    let jsNativeContract (packageDirs: string list) : SymbolProviders.Contract =
+        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail Target.Js packageDirs
 
     /// The JS-native contract provider, for a caller that only RESOLVES symbols.
-    let buildJsNativeContractFor (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
-        (jsNativeContractFor target manifestPaths).Provider
+    let buildJsNativeContract (packageDirs: string list) : IExternalSymbolProvider =
+        (jsNativeContract packageDirs).Provider
 
     /// The contract's inline bodies alone, for a caller that only introspects them.
-    let jsNativeInlineBodiesFor (target: string) (manifestPaths: string list) : Map<string, InlineBody> =
-        (jsNativeContractFor target manifestPaths).BodiesByName
+    let jsNativeInlineBodies (packageDirs: string list) : Map<string, InlineBody> =
+        (jsNativeContract packageDirs).BodiesByName
 
     /// The producer files the contract's inline bodies were unpooled from, alone.
-    let jsNativeInlineOriginsFor (target: string) (manifestPaths: string list) : OriginSources =
-        (jsNativeContractFor target manifestPaths).Origins
+    let jsNativeInlineOrigins (packageDirs: string list) : OriginSources = (jsNativeContract packageDirs).Origins

@@ -201,12 +201,8 @@ module TsManifestProvider =
             Error(sprintf "Failed to read TS manifest '%s': %s" path ex.Message)
 
     /// The TS-manifest providers as the JS layer-2 metadata tail, behind referenced-package
-    /// contracts. `manifestPaths` are `.fsi` package manifests, `tsManifestPaths` extractor JSON.
-    let buildContractFor
-        (target: string)
-        (manifestPaths: string list)
-        (tsManifestPaths: string list)
-        : IExternalSymbolProvider =
+    /// contracts. `packageDirs` are `.fsi` package directories, `tsManifestPaths` extractor JSON.
+    let buildContract (packageDirs: string list) (tsManifestPaths: string list) : IExternalSymbolProvider =
         let tsProviders =
             tsManifestPaths
             |> List.map (fun p ->
@@ -215,7 +211,7 @@ module TsManifestProvider =
                 | Error msg -> failwith msg
             )
 
-        SymbolProviders.buildContractWithMetadata "tsmanifest" tsProviders target manifestPaths
+        SymbolProviders.buildContractWithMetadata "tsmanifest" tsProviders Target.Js packageDirs
         // Wraps the COMPOSED stack: its `float` must-repr-to-`number` check reads the merged axis.
         |> NumberCovariance.wrap
         |> ExternalSymbolProviders.memoize

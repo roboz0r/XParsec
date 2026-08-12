@@ -19,13 +19,15 @@ open XParsec.FSharp.Codegen.Clr
 let private srcDir =
     Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src"))
 
-let manifestPath (pkg: string) =
-    Path.Combine(srcDir, pkg, "manifest.toml")
+let packageDir (pkg: string) = Path.Combine(srcDir, pkg)
 
 let private loadManifest (pkg: string) =
-    match ReferencedProject.loadManifest (manifestPath pkg) with
-    | Ok m -> m
-    | Error e -> failwithf "SemanticAnalysisFixtures: cannot load '%s' manifest: %s" pkg e
+    match ReferencedProject.resolveManifest Target.Clr (packageDir pkg) with
+    | Error e -> failwithf "SemanticAnalysisFixtures: cannot resolve '%s' manifest: %s" pkg e
+    | Ok mp ->
+        match ReferencedProject.loadManifest mp with
+        | Ok m -> m
+        | Error e -> failwithf "SemanticAnalysisFixtures: cannot load '%s' manifest: %s" pkg e
 
 /// One assembly's worth of analysable input: its home name, the external provider its
 /// files resolve against, and its ordered `(path, source)` impl files.
@@ -47,16 +49,16 @@ type Stage =
 /// the empty contract — Core's case). This is faithful because these are the CLR self-host
 /// sources; the JS backend would inject its own leaf.
 let composeProvider (pkgs: string list) : IExternalSymbolProvider =
-    pkgs |> List.map manifestPath |> ClrSymbolProviders.buildContract
+    pkgs |> List.map packageDir |> ClrSymbolProviders.buildContract
 
 /// A package analysed as its own assembly: provider = its `depends-on` closure (self
 /// EXCLUDED), files = its `impl` `.fs` in manifest order, read relative to the manifest dir.
 let packageStage (pkg: string) : Stage =
     let m = loadManifest pkg
-    let dir = Path.GetDirectoryName(manifestPath pkg)
+    let dir = packageDir pkg
 
     let files =
-        ReferencedProject.resolveImpl Target.Clr m
+        m.Impl
         |> List.map (fun rel ->
             let abs = Path.Combine(dir, rel)
             abs, File.ReadAllText abs

@@ -45,24 +45,25 @@ module ClrSymbolProviders =
         + (dllPaths |> List.map System.IO.Path.GetFullPath |> String.concat ";")
 
     /// Layer-1 contract stack over the BCL metadata leaf. Uncached.
-    let build (manifestPaths: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildWith bclMetaTail Target.Clr manifestPaths
+    let build (packageDirs: string list) : IExternalSymbolProvider =
+        SymbolProviders.buildWith bclMetaTail Target.Clr packageDirs
 
-    /// Provider stack for a manifest set (BCL leaf), including cross-package inline bodies.
-    let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr manifestPaths).Provider
+    /// Provider stack for a package set (BCL leaf), including cross-package inline bodies.
+    let buildContract (packageDirs: string list) : IExternalSymbolProvider =
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr packageDirs).Provider
 
-    /// `buildContract` for a specific target: `Target.Js` selects the `[targets.js]`
-    /// lists. `Target.Clr` is identical to `buildContract`.
-    let buildContractFor (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).Provider
+    /// `buildContract` for another backend's collection of the same packages: an INTROSPECTION
+    /// seam, how a CLR-side test reads what the JS contract makes of a package. A compilation
+    /// never calls this; its target is the one its own backend resolves under.
+    let buildContractFor (target: string) (packageDirs: string list) : IExternalSymbolProvider =
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail target packageDirs).Provider
 
     /// The `{ platform-repr -> [canon] }` axis of the package being compiled, as a consumer
     /// of it would see it, because it is read off that package's own composed contract sources.
-    let selfReverseCanon (target: string) (selfManifest: string option) : Map<string, SymbolKey list> =
-        match selfManifest with
+    let selfReverseCanon (selfPackage: string option) : Map<string, SymbolKey list> =
+        match selfPackage with
         | None -> Map.empty
-        | Some manifestPath -> (buildContractFor target [ manifestPath ]).IntrinsicReverseCanon
+        | Some dir -> (buildContract [ dir ]).IntrinsicReverseCanon
 
     let private seeded
         (seed: Map<string, SymbolKey list>)
@@ -94,65 +95,53 @@ module ClrSymbolProviders =
                )
                |> String.concat ";")
 
-    /// `buildContractFor` for a compilation that IS a package, over the host TPA rather than
-    /// an explicit reference set. `selfManifest` seeds the leaf AND joins the resolution stack.
-    let buildContractForSelf
-        (selfManifest: string option)
-        (target: string)
-        (manifestPaths: string list)
-        : IExternalSymbolProvider =
-        let seed = selfReverseCanon target selfManifest
+    /// `buildContract` for a compilation that IS a package, over the host TPA rather than
+    /// an explicit reference set. `selfPackage` seeds the leaf AND joins the resolution stack.
+    let buildContractForSelf (selfPackage: string option) (packageDirs: string list) : IExternalSymbolProvider =
+        let seed = selfReverseCanon selfPackage
 
         (SymbolProviders.buildContractWith
             ("bcl" + seedTag seed)
             (seeded seed bclMetaTail)
-            target
-            (SymbolProviders.selfStack selfManifest manifestPaths))
+            Target.Clr
+            (SymbolProviders.selfStack selfPackage packageDirs))
             .Provider
 
     /// An introspection seam for tests: raw cross-package inline bodies by source name. A
     /// simple name is not a resolution channel; production reads a body off its resolved entry.
-    let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr manifestPaths).BodiesByName
-
-    /// `contractInlineBodies` for a specific target. An introspection seam for target tests.
-    let contractInlineBodiesFor (target: string) (manifestPaths: string list) : Map<string, InlineBody> =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).BodiesByName
+    let contractInlineBodies (packageDirs: string list) : Map<string, InlineBody> =
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr packageDirs).BodiesByName
 
     /// The cached contract for one compilation: an explicit reference set, seeded with the
-    /// compiling package's own reverse axis. Both halves are in the cache tag, the seed
-    /// included, because two packages compiling THEMSELVES with empty manifest lists
-    /// would otherwise alias.
+    /// compiling package's own reverse axis. Both halves are in the cache tag, the seed included,
+    /// because two packages compiling THEMSELVES with empty package lists would otherwise alias.
     let private compilationContract
-        (selfManifest: string option)
+        (selfPackage: string option)
         (dllPaths: string list)
-        (target: string)
-        (manifestPaths: string list)
+        (packageDirs: string list)
         : SymbolProviders.Contract =
-        let seed = selfReverseCanon target selfManifest
+        let seed = selfReverseCanon selfPackage
 
         SymbolProviders.buildContractWith
             (refsCacheTag dllPaths + seedTag seed)
             (seeded seed (bclMetaTailWith dllPaths))
-            target
-            (SymbolProviders.selfStack selfManifest manifestPaths)
+            Target.Clr
+            (SymbolProviders.selfStack selfPackage packageDirs)
 
-    /// `buildContractFor` over a compilation's own reference set and self package.
-    /// `selfManifest` is `None` for a compilation that declares no primitives of its own.
+    /// `buildContract` over a compilation's own reference set and self package.
+    /// `selfPackage` is `None` for a compilation that declares no primitives of its own.
     let buildContractWithRefs
-        (selfManifest: string option)
+        (selfPackage: string option)
         (dllPaths: string list)
-        (target: string)
-        (manifestPaths: string list)
+        (packageDirs: string list)
         : IExternalSymbolProvider =
-        (compilationContract selfManifest dllPaths target manifestPaths).Provider
+        (compilationContract selfPackage dllPaths packageDirs).Provider
 
     /// The inline-body half of the same cached contract `buildContractWithRefs` takes the
     /// provider of, so a driver needing both makes two calls and one build.
     let contractInlineBodiesWithRefs
-        (selfManifest: string option)
+        (selfPackage: string option)
         (dllPaths: string list)
-        (target: string)
-        (manifestPaths: string list)
+        (packageDirs: string list)
         : Map<string, InlineBody> =
-        (compilationContract selfManifest dllPaths target manifestPaths).BodiesByName
+        (compilationContract selfPackage dllPaths packageDirs).BodiesByName

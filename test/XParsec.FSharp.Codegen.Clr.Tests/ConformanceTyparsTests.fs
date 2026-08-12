@@ -21,7 +21,7 @@ let tests =
                 // Analysis sees the DEPENDENCY contract only (Core): the package is here
                 // defining the types its own manifest publishes.
                 let src = File.ReadAllText(vesperListSource "list.fs")
-                let analysisProvider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
+                let analysisProvider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
                 let lexed, file = parseFile src
 
                 let tast =
@@ -32,7 +32,7 @@ let tests =
                 // The conformance contract DOES include `list.fsi`, so each module function
                 // resolves to the declared scheme its inferred one is checked against.
                 let contract =
-                    ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest ]
+                    ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage ]
 
                 let mismatches = ConformanceTypars.checkFile contract tast
 
@@ -50,7 +50,7 @@ let tests =
                     |> String.concat "\n\n"
 
                 let analysisProvider =
-                    ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest ]
+                    ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage ]
 
                 let lexed, file = parseFile src
 
@@ -62,7 +62,7 @@ let tests =
                 Expect.isEmpty analysisErrors (sprintf "Vesper.Printf impl analyses cleanly; got %A" analysisErrors)
 
                 let contract =
-                    ClrSymbolProviders.buildContract [ vesperCoreManifest; vesperListManifest; vesperPrintfManifest ]
+                    ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage; vesperPrintfPackage ]
 
                 let appendFormatted =
                     contract.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Vesper.Formatter" 0, "AppendFormatted")

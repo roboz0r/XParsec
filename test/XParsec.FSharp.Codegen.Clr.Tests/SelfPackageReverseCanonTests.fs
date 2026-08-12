@@ -22,8 +22,11 @@ module ConcatProbe =
 
     let private coreFilesPlusProbe () =
         let implFiles =
-            match ReferencedProject.loadManifest vesperCoreManifest with
-            | Ok m -> ReferencedProject.resolveImpl Target.Clr m
+            match
+                ReferencedProject.resolveManifest Target.Clr vesperCorePackage
+                |> Result.bind ReferencedProject.loadManifest
+            with
+            | Ok m -> m.Impl
             | Error e -> failwithf "cannot load Vesper.Core manifest: %s" e
 
         (implFiles
@@ -36,7 +39,7 @@ module ConcatProbe =
         ClrDriver.compileAssemblyWith
             Pipeline.analyseFor
             []
-            (ClrSymbolProviders.buildContractForSelf selfManifest Target.Clr [])
+            (ClrSymbolProviders.buildContractForSelf selfManifest [])
             (ProjectInfo.library "Vesper.Core")
             (coreFilesPlusProbe ())
 
@@ -58,7 +61,7 @@ module ConcatProbe =
                 }
 
                 test "with the self manifest it resolves, as it does for a consumer" {
-                    match compileProbeAsCore (Some vesperCoreManifest) with
+                    match compileProbeAsCore (Some vesperCorePackage) with
                     | Ok _ -> ()
                     | Error diags ->
                         let text = diags |> List.map (fun d -> d.Diagnostic.Message) |> String.concat "\n"
@@ -68,11 +71,10 @@ module ConcatProbe =
                 // `string` motivated the seed; `int`/`obj`/`exn` ride the same map and are
                 // asserted here so a partial seed cannot pass.
                 test "the self axis is the axis a consumer of the package sees" {
-                    let selfAxis =
-                        ClrSymbolProviders.selfReverseCanon Target.Clr (Some vesperCoreManifest)
+                    let selfAxis = ClrSymbolProviders.selfReverseCanon (Some vesperCorePackage)
 
                     let consumerAxis =
-                        (ClrSymbolProviders.buildContract [ vesperCoreManifest ]).IntrinsicReverseCanon
+                        (ClrSymbolProviders.buildContract [ vesperCorePackage ]).IntrinsicReverseCanon
 
                     Expect.equal selfAxis consumerAxis "self and consumer resolve BCL names through one map"
 

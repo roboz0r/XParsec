@@ -1,0 +1,22 @@
+[core]
+name = "Vesper.Seq"
+description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
+# `Vesper.Array` is `toArray`'s: it returns `'T[]` and builds its buffer with
+# `Array.zeroCreate`.
+depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison", "Vesper.Array"]
+
+# Contract `.fsi` files in compile order (one, today).
+files = [
+    "seq.fsi",
+]
+
+# `toArray` builds a doubling buffer over `Array.zeroCreate`; `truncate` is a hand-rolled
+# lazy cursor over the `seq` / `enumerator` capabilities — `Symbol.iterator` on JS.
+impl = [
+    "seq.fs",
+]
+
+# JS runtime *asset*: the `Seq` module functions plus the truncate cursor, imported by a
+# consumer and shipped beside its output. GENERATED from `seq.fs`, not hand-authored;
+# regenerable via the codegen-js test suite.
+runtime = ["Vesper.Seq.mjs"]

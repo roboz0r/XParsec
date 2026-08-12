@@ -74,7 +74,7 @@ module Codegen =
     /// no retained source and emission throws rather than reporting a plausible wrong position.
     let compileWith (contract: SymbolProviders.Contract) (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
         let runtimeAssets =
-            ReferencedProject.runtimeModules Target.Js contract.ManifestPaths
+            contract.RuntimeAssets
             |> Map.map (fun _ (fileName, source) -> JsRuntimeModule.ofSource fileName source)
 
         // A node's anchor is an index into the token table, so a position needs `src.Lexed`, the

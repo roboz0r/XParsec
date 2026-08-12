@@ -1,0 +1,16 @@
+[core]
+name = "Vesper.Array"
+description = "The Array module over the intrinsic 'T[] type (zeroCreate, get/set, map/iter/fold, ...)."
+depends-on = ["Vesper.Core"]
+
+# Contract `.fsi` files in compile order. `array-prelude.fsi` first: `array.fs`'s
+# `zeroCreate` splices its `NewArray`.
+files = [
+    "array-prelude.fsi",
+    "array.fsi",
+]
+
+impl = [
+    "array-prelude.clr.fs",
+    "array.fs",
+]

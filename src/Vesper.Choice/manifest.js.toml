@@ -8,7 +8,7 @@ files = [
     "choice.fsi",
 ]
 
-# Target-NEUTRAL: pure data, no inline IL and no BCL name.
+# Pure data, no inline IL and no BCL name, so the clr manifest names the same body.
 impl = [
     "choice.fs",
 ]

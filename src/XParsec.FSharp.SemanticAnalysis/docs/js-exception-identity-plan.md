@@ -7,8 +7,9 @@ from being a red test rather than an argument. Delete when it lands (`feedback_p
 
 ## The gap
 
-Every type in the `Vesper.Exceptions` roster erases to the `exn` root (`Error`) on JS — the package
-header says so outright. So a type-based catch cannot tell `InvalidOperationException` from any
+Every type in the `Vesper.Core/exceptions.js.fsi` roster erases to the `exn` root (`Error`) on JS —
+its `sig-only` entry says so outright. So a type-based catch cannot tell `InvalidOperationException`
+from any
 other error there, while on the CLR it can. Two backends, two different answers to the same
 program: exactly what the conformance corpus exists to make visible.
 
@@ -52,9 +53,12 @@ translates host errors — which is probably not worth doing.
 ## The structural point: the roster is one package too far downstream
 
 `prim-types-exn` defines `exn` inside `Vesper.Core`, and it is *core operations* — integer division,
-array indexing, invalid casts — that need to throw BCL-named exceptions. Yet `Vesper.Exceptions`
-declares `depends-on = ["Vesper.Core"]`, so **core is structurally forbidden from naming the very
-exceptions it must raise.**
+array indexing, invalid casts — that need to throw BCL-named exceptions. This used to be a hard
+blocker: the roster was its own package declaring `depends-on = ["Vesper.Core"]`, so **core was
+structurally forbidden from naming the very exceptions it must raise.**
+
+**RESOLVED.** The roster is now `Vesper.Core/exceptions.js.fsi`, so core names its own exception
+roots and the cycle is gone. What remains below is the identity question alone.
 
 This already bit: the integer division-by-zero guard (`checkedDivisor`, in `Vesper.Core.mjs`) throws
 a bare `exn` carrying the BCL's message ("Attempted to divide by zero.") rather than a

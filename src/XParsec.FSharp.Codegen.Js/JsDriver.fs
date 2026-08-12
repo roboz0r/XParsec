@@ -40,8 +40,8 @@ module JsDriver =
     let BarrelFileName = "index.mjs"
 
     /// The resolution contract for a compilation that IS a package, over the JS-native leaf.
-    let contractForSelf (target: string) (selfManifest: string) (references: string list) : SymbolProviders.Contract =
-        JsNativeSymbols.jsNativeContractFor target (SymbolProviders.selfStack (Some selfManifest) references)
+    let contractForSelf (selfPackage: string) (references: string list) : SymbolProviders.Contract =
+        JsNativeSymbols.jsNativeContract (SymbolProviders.selfStack (Some selfPackage) references)
 
     /// The sources that claim one `.mjs`, blamed individually. A module path is a base name,
     /// so `a/one.fs` and `b/one.fs` both claim `one.mjs`; the second write would win silently.

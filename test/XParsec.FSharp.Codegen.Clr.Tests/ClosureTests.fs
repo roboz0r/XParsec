@@ -224,7 +224,7 @@ let tests =
                             ]
 
                     let provider =
-                        XParsec.FSharp.Codegen.Clr.ClrSymbolProviders.buildContract defaultManifests
+                        XParsec.FSharp.Codegen.Clr.ClrSymbolProviders.buildContract defaultPackages
 
                     let lexed, file = parseFile src
                     let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file

@@ -567,7 +567,7 @@ let interfaceImplTests =
                     ]
 
             let capabilityCollisionErrors (src: string) =
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
 
                 let _, tast =

@@ -19,7 +19,7 @@ let private vesperPath (package: string) (fileName: string) =
 
 let private vesperCorePath (fileName: string) = vesperPath "Vesper.Core" fileName
 
-/// Contract `.fsi` files, in `manifest.toml` compile order.
+/// Contract `.fsi` files, in `manifest.clr.toml` compile order.
 let private contractFiles =
     [
         "prim-types-min.fsi"

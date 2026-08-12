@@ -56,7 +56,7 @@ let tests =
         [
             test "recompiling unchanged source hits and re-emits identically" {
                 let store = CountingStore() :> ICacheStore
-                let inputs = inputsWith [ vesperCoreManifest ] "IncMissHit"
+                let inputs = inputsWith [ vesperCorePackage ] "IncMissHit"
                 let src = printProgram "hello"
 
                 let first = okArtifact "miss" (ClrDriver.compileCached store inputs src)
@@ -77,7 +77,7 @@ let tests =
 
             test "editing the source misses and emits the edited assembly" {
                 let store = CountingStore() :> ICacheStore
-                let inputs = inputsWith [ vesperCoreManifest ] "IncEdit"
+                let inputs = inputsWith [ vesperCorePackage ] "IncEdit"
 
                 // An INTEGER-literal edit, not a string one: the digest folds `ldstr`'s `#US`
                 // heap index, so two lone string literals share a token and would not perturb
@@ -106,7 +106,7 @@ let tests =
                 let pkgDir = Path.Combine(root, "Extra")
                 Directory.CreateDirectory pkgDir |> ignore
                 let fsiPath = Path.Combine(pkgDir, "extra.fsi")
-                let manifestPath = Path.Combine(pkgDir, "manifest.toml")
+                let manifestPath = Path.Combine(pkgDir, "manifest.clr.toml")
 
                 File.WriteAllText(manifestPath, "[core]\nname = \"Extra\"\nfiles = [\"extra.fsi\"]\n")
 
@@ -116,7 +116,7 @@ let tests =
                 File.WriteAllText(fsiPath, contract "marker v1")
 
                 let store = CountingStore() :> ICacheStore
-                let inputs = inputsWith [ vesperCoreManifest; manifestPath ] "IncDep"
+                let inputs = inputsWith [ vesperCorePackage; pkgDir ] "IncDep"
                 let src = printProgram "hello"
 
                 // The key the driver computes, before the dependency changes.
@@ -157,7 +157,7 @@ let tests =
                 let pkgDir = Path.Combine(root, "Inl")
                 Directory.CreateDirectory pkgDir |> ignore
                 let fsPath = Path.Combine(pkgDir, "ops.fs")
-                let manifestPath = Path.Combine(pkgDir, "manifest.toml")
+                let manifestPath = Path.Combine(pkgDir, "manifest.clr.toml")
 
                 File.WriteAllText(manifestPath, "[core]\nname = \"Inl\"\nfiles = [\"inl.fsi\"]\nimpl = [\"ops.fs\"]\n")
 
@@ -172,7 +172,7 @@ let tests =
                 File.WriteAllText(fsPath, body 1)
 
                 let store = CountingStore() :> ICacheStore
-                let inputs = inputsWith [ vesperCoreManifest; manifestPath ] "IncInline"
+                let inputs = inputsWith [ vesperCorePackage; pkgDir ] "IncInline"
                 let src = printProgram "hello"
 
                 let keyBefore = keyOf inputs src

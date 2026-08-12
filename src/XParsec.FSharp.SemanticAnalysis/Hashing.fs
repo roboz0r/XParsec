@@ -71,31 +71,27 @@ module Hashing =
     /// One referenced package's signature: the manifest's bytes plus the CONTENTS of every
     /// source it names, `.fs` impls included, whose inline templates splice into a consumer's
     /// tree. Reads all of them. `depends-on` is not followed from here.
-    let dependencySignatureHash (manifestPath: string) : InputHash =
-        match ReferencedProject.loadManifest manifestPath with
-        | Error _ -> hashString manifestPath
-        | Ok manifest ->
-            let dir = Path.GetDirectoryName manifestPath
-            let hasher = XxHash128()
+    let dependencySignatureHash (manifest: ReferencedProject.Manifest) : InputHash =
+        let hasher = XxHash128()
 
-            // NOT redundant with the manifest bytes below: `Name` falls back to the manifest's
-            // DIRECTORY name when the file declares none.
-            appendLengthPrefixed hasher (Encoding.UTF8.GetBytes manifest.Name)
+        // NOT redundant with the manifest bytes below: `Name` falls back to the manifest's
+        // DIRECTORY name when the file declares none.
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes manifest.Name)
 
-            // The manifest's OWN bytes: which files it names, under which key, in which order,
-            // plus `depends-on` and `sig-only`, none of which is visible in the contents below.
-            appendLengthPrefixed hasher (File.ReadAllBytes manifestPath)
+        // The manifest's OWN bytes: which files it names, under which key, in which order,
+        // plus `depends-on` and `sig-only`, none of which is visible in the contents below.
+        appendLengthPrefixed hasher (File.ReadAllBytes manifest.Path.Path)
 
-            for rel in ReferencedProject.sourceInputs manifest |> List.sort do
-                let abs = Path.Combine(dir, rel)
-                let exists = File.Exists abs
-                appendLengthPrefixed hasher (Encoding.UTF8.GetBytes rel)
-                appendPresence hasher exists
+        for rel in ReferencedProject.sourceInputs manifest |> List.sort do
+            let abs = Path.Combine(manifest.Dir, rel)
+            let exists = File.Exists abs
+            appendLengthPrefixed hasher (Encoding.UTF8.GetBytes rel)
+            appendPresence hasher exists
 
-                if exists then
-                    appendLengthPrefixed hasher (File.ReadAllBytes abs)
+            if exists then
+                appendLengthPrefixed hasher (File.ReadAllBytes abs)
 
-            InputHash.ofBytes (hasher.GetCurrentHash())
+        InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// Every input a file's frozen tree is a function of EXCEPT the file's own text. This set
     /// must be COMPLETE: a determinant the front end reads and this omits is a silent stale hit.
@@ -104,18 +100,20 @@ module Hashing =
             /// The assembly name the front end roots minted keys at: a blob frozen under one
             /// home assembly names its own symbols differently from one frozen under another.
             HomeAssembly: string
-            /// The backend target selecting the `[targets.<t>]` manifest lists.
+            /// The backend target. It SELECTS which `manifest.<t>.toml` each package below
+            /// resolves to, and is folded in its own right besides: backend-supplied facts reach
+            /// type-checking verdicts even where two targets' manifests agree byte for byte.
             Target: string
             /// The compilation's own reference assemblies: they decide what a BCL name such as
             /// `System.String` resolves to.
             ReferenceAssemblies: string list
-            /// The ROOT package manifests, closed over `depends-on` when the digest is folded
-            /// rather than by the caller.
-            Manifests: string list
-            /// The manifest of the package this compilation IS, when it is one: inside its own
-            /// compile a BCL signature presents that package's own primitives (`System.String`
-            /// -> `Vesper.string`). `None` for a compilation that declares no primitives.
-            SelfManifest: string option
+            /// The ROOT package DIRECTORIES, resolved against `Target` and closed over
+            /// `depends-on` when the digest is folded rather than by the caller.
+            Packages: string list
+            /// The package this compilation IS, when it is one: inside its own compile a BCL
+            /// signature presents that package's own primitives (`System.String` ->
+            /// `Vesper.string`). `None` for a compilation that declares no primitives.
+            SelfPackage: string option
         }
 
     /// A folded `CompilationInputs`, the per-compilation half of every file's cache key, paid
@@ -131,10 +129,10 @@ module Hashing =
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes inputs.HomeAssembly)
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes inputs.Target)
 
-        // The self manifest's ROLE, its contents being folded elsewhere: that fold is
+        // The self package's ROLE, its contents being folded elsewhere: that fold is
         // deduplicated, so a package named BOTH as self and as a reference would collapse.
-        appendPresence hasher inputs.SelfManifest.IsSome
-        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes(defaultArg inputs.SelfManifest ""))
+        appendPresence hasher inputs.SelfPackage.IsSome
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes(defaultArg inputs.SelfPackage ""))
 
         for path in inputs.ReferenceAssemblies do
             let info = FileInfo path
@@ -151,21 +149,19 @@ module Hashing =
     /// `depends-on` closure is taken HERE, because inline bodies splice out of
     /// transitively-reached packages too.
     let compilationDigest (inputs: CompilationInputs) : CompilationDigest =
-        let manifests =
-            match ReferencedProject.buildClosure inputs.Manifests with
-            | Ok ordered -> ordered
-            | Error _ -> inputs.Manifests
-
         // A determinant on the SAME footing as a reference: its `.fs` companions carry the
         // `(# … #)` reprs, so editing one moves a BCL signature without touching any `.fsi`.
-        let selfManifests = Option.toList inputs.SelfManifest
+        let roots =
+            ReferencedProject.resolveAll inputs.Target (inputs.Packages @ Option.toList inputs.SelfPackage)
 
-        CompilationDigest(
-            inputHash
-                ""
-                (environmentHash inputs
-                 :: (manifests @ selfManifests |> List.map dependencySignatureHash))
-        )
+        // A package the closure cannot read is a determinant this fold would omit, and the
+        // omission would be served as a HIT. Refuse rather than key on a partial set.
+        let manifests =
+            match ReferencedProject.buildClosure roots with
+            | Ok ordered -> ordered
+            | Error e -> failwithf "compilationDigest: %s" e
+
+        CompilationDigest(inputHash "" (environmentHash inputs :: List.map dependencySignatureHash manifests))
 
     /// A file's identity as ONE digest: handed to the SET-valued fold separately, the two
     /// fields would dedupe when they agree.

@@ -3,82 +3,96 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.IO
 open XParsec.Toml
 
-/// Layer 1 of the symbol-resolution stack: a *referenced project*, declared by its
-/// `manifest.toml`. Parses the `[core]` contract `.fsi` files, in compile order, into one
-/// `ExtractCtx` exposed as a provider. A symbol's namespace is its FILE's `namespace` header.
+/// Layer 1 of the symbol-resolution stack: a *referenced project*, a package DIRECTORY resolved
+/// against a target to `manifest.<target>.toml`. Parses its `[core]` `.fsi` files, in order, into
+/// one `ExtractCtx` provider. A symbol's namespace is its FILE's `namespace` header.
 module ReferencedProject =
 
-    /// The `[core]` lists, what a package declares once for EVERY target. No `Runtime`
-    /// field: a runtime asset is a per-target artifact.
-    type SharedLists =
-        {
-            /// Target-neutral contract `.fsi` files in compile order (`[core] files`).
-            Files: string list
-            /// Target-neutral `.fs` bodies compiled into the package DLL, and the splice
-            /// sources those same bodies publish (`[core] impl`).
-            Impl: string list
-            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`)
-            /// because each is a front-end intrinsic lowered inline (`printf.fsi`) or a
-            /// BCL-resolved contract (`exceptions.fsi`). An impl-free `.fsi` NOT listed is
-            /// a hard error.
-            SigOnly: string list
-            /// `.fs` bodies that implement NO contract (`[core] impl-only`), publishing their
-            /// whole public surface. Naming one here keeps the pairing rule from marrying it
-            /// to a `.fsi` of the same key.
-            ImplOnly: string list
-        }
-
-    module SharedLists =
-        let empty: SharedLists =
+    /// A package's manifest FOR one target: the resolved file, and the target it was resolved
+    /// under. Minted only by `resolveManifest`, so a file and a target that disagree is not a
+    /// value that exists.
+    [<Struct>]
+    type ManifestPath =
+        private
             {
-                Files = []
-                Impl = []
-                SigOnly = []
-                ImplOnly = []
+                FullPath: string
+                TargetTag: string
             }
 
-    /// One `[targets.<t>]` table. Every list here is APPENDED to its `SharedLists` peer.
-    type TargetLists =
-        {
-            /// Target-only EXTRA contracts, after the shared ones (the JS capability
-            /// compat shim, the JS-only `undefined`/`dynamic` intrinsics).
-            Files: string list
-            /// Target-only `.fs` bodies, after the shared ones.
-            Impl: string list
-            /// Target-only impl-free contract exemptions, after the shared ones.
-            SigOnly: string list
-            /// Target-only contract-less bodies, after the shared ones.
-            ImplOnly: string list
-            /// Hand-authored runtime *asset* modules: not sources the front end parses, but
-            /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
-            Runtime: string list
-        }
+        /// The absolute `manifest.<target>.toml` path.
+        member this.Path = this.FullPath
+        /// The target this manifest was resolved for.
+        member this.Target = this.TargetTag
+        /// The package directory the manifest sits in; its name is the package identity.
+        member this.PackageDir = Path.GetDirectoryName this.FullPath
 
-    module TargetLists =
-        let empty: TargetLists =
-            {
-                Files = []
-                Impl = []
-                SigOnly = []
-                ImplOnly = []
-                Runtime = []
-            }
+    /// The manifest `packageDir` publishes for `target`, absent when the package does not build
+    /// for it. `src/Vesper.Core` + `"js"` ⇒ `src/Vesper.Core/manifest.js.toml`.
+    let resolveManifest (target: string) (packageDir: string) : Result<ManifestPath, string> =
+        let path = Path.Combine(packageDir, "manifest." + target + ".toml")
 
-    /// A parsed package `manifest.toml`: the `[core]` table's target-neutral lists plus
-    /// one `[targets.<t>]` table per target the package participates in.
+        if File.Exists path then
+            Ok
+                {
+                    FullPath = Path.GetFullPath path
+                    TargetTag = target
+                }
+        else
+            Error(
+                sprintf
+                    "Package '%s' does not build for target `%s`: no %s"
+                    (Path.GetFileName(Path.TrimEndingDirectorySeparator packageDir))
+                    target
+                    (Path.GetFileName path)
+            )
+
+    /// Every package directory resolved against `target`. A package that does not build for it
+    /// is a hard error: dropping one silently would resolve, and CACHE, against a smaller
+    /// package set than the caller named.
+    let resolveAll (target: string) (packageDirs: string list) : ManifestPath list =
+        packageDirs
+        |> List.map (fun dir ->
+            match resolveManifest target dir with
+            | Ok mp -> mp
+            | Error e -> failwith e
+        )
+
+    /// A parsed package `manifest.<target>.toml`: one flat `[core]` table, each list already
+    /// in compile order for this manifest's target. A package that builds for two targets
+    /// writes two files.
     type Manifest =
         {
+            /// The file this was parsed from, and the target it was resolved under.
+            Path: ManifestPath
             /// Package / assembly simple name: `[core] name` when present, else
             /// the manifest's directory name (`src/Vesper.Core` ⇒ `"Vesper.Core"`).
             Name: string
             /// Other packages this one depends on (`[core] depends-on`): the
             /// package names whose DLLs/contracts must be built/referenced first.
             DependsOn: string list
-            Shared: SharedLists
-            /// `[targets.<t>]` by target name. The keys ARE the target set this package
-            /// participates in.
-            Targets: Map<string, TargetLists>
+            /// Contract `.fsi` files in compile order (`[core] files`).
+            Files: string list
+            /// The `.fs` bodies compiled into the package DLL, and the splice sources those
+            /// same bodies publish (`[core] impl`).
+            Impl: string list
+            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`): a
+            /// front-end intrinsic lowered inline (`printf.fsi`), or a BCL-resolved contract
+            /// (`exceptions.fsi`). An impl-free `.fsi` NOT listed is a hard error.
+            SigOnly: string list
+            /// `.fs` bodies that implement NO contract (`[core] impl-only`), publishing their
+            /// whole public surface. Naming one here keeps the pairing rule from marrying it
+            /// to a `.fsi` of the same key.
+            ImplOnly: string list
+            /// Hand-authored runtime *asset* modules: not sources the front end parses, but
+            /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
+            Runtime: string list
         }
+
+        /// The target this manifest is the package's contract for, read off the file name
+        /// (`manifest.js.toml` ⇒ `"js"`).
+        member this.Target = this.Path.Target
+        /// The directory the manifest sits in, which every list entry is relative to.
+        member this.Dir = this.Path.PackageDir
 
     let private asString (v: TomlValue) : string option =
         match v with
@@ -99,66 +113,23 @@ module ReferencedProject =
         | Some(TomlValue.Array xs) -> xs |> List.choose asString |> Some
         | _ -> None
 
-    /// The `[targets.<t>]` table for `target`, or an all-empty one. A target a manifest
-    /// says nothing about contributes nothing, so it resolves to exactly the shared lists.
-    let private listsFor (target: string) (m: Manifest) : TargetLists =
-        m.Targets |> Map.tryFind target |> Option.defaultValue TargetLists.empty
-
-    /// The contract `.fsi` files for `target`: shared first (so a target extra may name a
-    /// type the shared contract declares), then the target's own.
-    let resolveFiles (target: string) (m: Manifest) : string list =
-        m.Shared.Files @ (listsFor target m).Files
-
-    /// The `.fs` bodies for `target`: what the package DLL compiles AND what it publishes
-    /// as splice sources. Shared, then the target's own.
-    let resolveImpl (target: string) (m: Manifest) : string list =
-        m.Shared.Impl @ (listsFor target m).Impl
-
-    let resolveSigOnly (target: string) (m: Manifest) : string list =
-        m.Shared.SigOnly @ (listsFor target m).SigOnly
-
-    let resolveImplOnly (target: string) (m: Manifest) : string list =
-        m.Shared.ImplOnly @ (listsFor target m).ImplOnly
-
-    /// The runtime *asset* modules for `target`. No shared peer: a runtime asset is
-    /// inherently target-specific (the CLR builds a DLL rather than committing one).
-    let resolveRuntime (target: string) (m: Manifest) : string list = (listsFor target m).Runtime
-
     /// The pairing key of a manifest-listed source: its name minus the extension, minus a
-    /// trailing `.<t>` segment for a target this manifest declares. `prim-types-int.js.fs`,
-    /// `prim-types-int.clr.fs` and `prim-types-int.fsi` all key on `prim-types-int`.
+    /// trailing `.<target>` segment. In `manifest.js.toml`, `prim-types-int.js.fs` and
+    /// `prim-types-int.fsi` both key on `prim-types-int`.
     let pairingKey (m: Manifest) (rel: string) : string =
         let noExt = Path.ChangeExtension(rel, null)
+        let suffix = "." + m.Target
 
-        m.Targets
-        |> Map.toSeq
-        |> Seq.tryPick (fun (t, _) ->
-            let suffix = "." + t
-
-            if noExt.EndsWith(suffix, System.StringComparison.Ordinal) then
-                Some(noExt.Substring(0, noExt.Length - suffix.Length))
-            else
-                None
-        )
-        |> Option.defaultValue noExt
+        if noExt.EndsWith(suffix, System.StringComparison.Ordinal) then
+            noExt.Substring(0, noExt.Length - suffix.Length)
+        else
+            noExt
 
     /// Every path the provider build may READ for this manifest, relative to the manifest's
-    /// own directory; a path named here need not exist. TARGET-BLIND: every target's lists
-    /// UNIONED. `Runtime` is omitted: an asset is never parsed, so determines no frozen tree.
+    /// own directory; a path named here need not exist. `Runtime` is omitted: an asset is
+    /// never parsed, so determines no frozen tree.
     let sourceInputs (m: Manifest) : string list =
-        [
-            yield! m.Shared.Files
-            yield! m.Shared.Impl
-            yield! m.Shared.SigOnly
-            yield! m.Shared.ImplOnly
-
-            for KeyValue(_, t) in m.Targets do
-                yield! t.Files
-                yield! t.Impl
-                yield! t.SigOnly
-                yield! t.ImplOnly
-        ]
-        |> List.distinct
+        m.Files @ m.Impl @ m.SigOnly @ m.ImplOnly |> List.distinct
 
     /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: read as
     /// silence, it would resolve a stale manifest to a plausible wrong file set.
@@ -172,154 +143,123 @@ module ReferencedProject =
                 "impl"
                 "sig-only"
                 "impl-only"
+                "runtime"
             ]
 
-    /// The keys a `[targets.<t>]` table may carry. Same rule, same reason.
-    let private targetKeys = set [ "files"; "impl"; "sig-only"; "impl-only"; "runtime" ]
-
-    let private unknownKey (tableName: string) (allowed: Set<string>) (t: TomlTable) : string option =
+    let private unknownKey (path: string) (t: TomlTable) : string option =
         t
         |> Map.toSeq
         |> Seq.map fst
-        |> Seq.tryFind (allowed.Contains >> not)
+        |> Seq.tryFind (coreKeys.Contains >> not)
         |> Option.map (fun key ->
             sprintf
-                "manifest.toml: [%s] unknown key `%s` (expected one of: %s)"
-                tableName
+                "%s: [core] unknown key `%s` (expected one of: %s)"
+                path
                 key
-                (allowed |> Set.toList |> String.concat ", ")
+                (coreKeys |> Set.toList |> String.concat ", ")
         )
 
-    let private parseTargets (targets: TomlTable) : Result<Map<string, TargetLists>, string> =
-        (Ok Map.empty, targets |> Map.toList)
-        ||> List.fold (fun acc (name, value) ->
-            match acc with
-            | Error e -> Error e
-            | Ok map ->
-                match asTable value with
-                | None -> Error(sprintf "manifest.toml: [targets.%s] must be a table" name)
-                | Some t ->
-                    match unknownKey ("targets." + name) targetKeys t with
-                    | Some e -> Error e
-                    | None ->
-                        let list key =
-                            findStringList t key |> Option.defaultValue []
+    /// Parse the manifest document read from `mp`, which carries both halves of a manifest's
+    /// identity: its DIRECTORY name is the assembly name when `[core]` declares no `name`, and
+    /// the target it was resolved under is the one its lists are read for.
+    let parseManifest (mp: ManifestPath) (doc: TomlDocument) : Result<Manifest, string> =
+        let path = mp.Path
+        let dirName = Path.GetFileName(Path.TrimEndingDirectorySeparator mp.PackageDir)
 
-                        Ok(
-                            Map.add
-                                name
+        // A manifest is `[core]` and nothing else. A second table read as silence would resolve
+        // a stale manifest to a file set missing everything that table held.
+        match doc |> Map.toSeq |> Seq.map fst |> Seq.tryFind ((<>) "core") with
+        | Some other -> Error(sprintf "%s: unknown table [%s] (a manifest carries [core] alone)" path other)
+        | None ->
+
+            match Map.tryFind "core" doc |> Option.bind asTable with
+            | None -> Error(sprintf "%s: missing [core] table" path)
+            | Some core ->
+                match unknownKey path core with
+                | Some e -> Error e
+                | None ->
+                    match findStringList core "files" with
+                    | None -> Error(sprintf "%s: [core] missing `files = [...]`" path)
+                    | Some files ->
+                        // An omitted `name` trivially matches via the directory-name fallback.
+                        match findString core "name" with
+                        | Some explicit when explicit <> dirName ->
+                            Error(
+                                sprintf
+                                    "%s: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against"
+                                    path
+                                    explicit
+                                    dirName
+                            )
+                        | nameOpt ->
+                            let list key =
+                                findStringList core key |> Option.defaultValue []
+
+                            Ok
                                 {
-                                    Files = list "files"
+                                    Path = mp
+                                    Name = nameOpt |> Option.defaultValue dirName
+                                    DependsOn = list "depends-on"
+                                    Files = files
                                     Impl = list "impl"
                                     SigOnly = list "sig-only"
                                     ImplOnly = list "impl-only"
                                     Runtime = list "runtime"
                                 }
-                                map
-                        )
-        )
 
-    /// Parse a package `manifest.toml` document. `dirName` is the manifest's
-    /// directory name, used as the assembly name when `[core]` carries no `name`.
-    let parseManifest (dirName: string) (doc: TomlDocument) : Result<Manifest, string> =
-        let targetsTable =
-            Map.tryFind "targets" doc
-            |> Option.bind asTable
-            |> Option.defaultValue Map.empty
+    /// Read + parse a resolved manifest.
+    let loadManifest (mp: ManifestPath) : Result<Manifest, string> =
+        match Toml.parse (File.ReadAllText mp.Path) with
+        | Error e -> Error(sprintf "Manifest parse error (%s): %s" mp.Path e)
+        | Ok doc -> parseManifest mp doc
 
-        match Map.tryFind "core" doc |> Option.bind asTable with
-        | None -> Error "manifest.toml: missing [core] table"
-        | Some core ->
-            match unknownKey "core" coreKeys core with
-            | Some e -> Error e
-            | None ->
-                match findStringList core "files" with
-                | None -> Error "manifest.toml: [core] missing `files = [...]`"
-                | Some files ->
-                    // An omitted `name` trivially matches via the directory-name fallback.
-                    match findString core "name" with
-                    | Some explicit when explicit <> dirName ->
-                        Error(
-                            sprintf
-                                "manifest.toml: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against"
-                                explicit
-                                dirName
-                        )
-                    | nameOpt ->
-                        parseTargets targetsTable
-                        |> Result.map (fun targets ->
-                            {
-                                Name = nameOpt |> Option.defaultValue dirName
-                                DependsOn = findStringList core "depends-on" |> Option.defaultValue []
-                                Shared =
-                                    {
-                                        Files = files
-                                        Impl = findStringList core "impl" |> Option.defaultValue []
-                                        SigOnly = findStringList core "sig-only" |> Option.defaultValue []
-                                        ImplOnly = findStringList core "impl-only" |> Option.defaultValue []
-                                    }
-                                Targets = targets
-                            }
-                        )
+    /// Resolve a `depends-on` package name against the dependent's own target. A package's
+    /// directory name *is* its identity, so `"Vesper.Core"` named by a manifest in
+    /// `src/Vesper.List` resolves in `src/Vesper.Core`, at the same target.
+    let private dependencyManifest (dependent: ManifestPath) (dependencyName: string) : Result<ManifestPath, string> =
+        let srcDir = Path.GetDirectoryName dependent.PackageDir
+        resolveManifest dependent.Target (Path.Combine(srcDir, dependencyName))
 
-    /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).
-    let loadManifest (manifestPath: string) : Result<Manifest, string> =
-        if not (File.Exists manifestPath) then
-            Error(sprintf "Manifest not found: %s" manifestPath)
-        else
-            let dirName =
-                Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetDirectoryName manifestPath))
-
-            match Toml.parse (File.ReadAllText manifestPath) with
-            | Error e -> Error(sprintf "Manifest parse error (%s): %s" manifestPath e)
-            | Ok doc -> parseManifest dirName doc
-
-    /// Resolve a `depends-on` package name to its `manifest.toml` path. A package's
-    /// directory name *is* its identity, so a dependency `"Vesper.Core"` of the manifest
-    /// at `src/Vesper.List/manifest.toml` lives at `src/Vesper.Core/manifest.toml`.
-    let private dependencyManifestPath (dependentManifestPath: string) (dependencyName: string) : string =
-        let packageDir = Path.GetDirectoryName dependentManifestPath
-        let srcDir = Path.GetDirectoryName packageDir
-        Path.Combine(srcDir, dependencyName, "manifest.toml")
-
-    /// Close `rootManifests` over `[core] depends-on`: every reachable manifest path in
-    /// **dependency order** (normalised, de-duplicated, stable over discovery order), plus
-    /// each path's DIRECT dependency paths. A cycle or an absent manifest is a hard error.
+    /// Close `rootManifests` over `[core] depends-on`: every reachable manifest PARSED, in
+    /// **dependency order** (de-duplicated, stable over discovery order), plus each one's DIRECT
+    /// dependencies. A cycle or an absent manifest is a hard error.
     let private closeAndOrder
-        (rootManifests: string list)
-        : Result<string list * System.Collections.Generic.Dictionary<string, string list>, string> =
-        let norm (p: string) = Path.GetFullPath p
-
+        (rootManifests: ManifestPath list)
+        : Result<Manifest list * System.Collections.Generic.Dictionary<ManifestPath, ManifestPath list>, string> =
         // `discovered` is the order nodes were first reached (roots, then their deps);
         // the topo sort below walks it, so an already-ordered input comes back unchanged.
         let dependencies =
-            System.Collections.Generic.Dictionary<string, string list>(System.StringComparer.Ordinal)
+            System.Collections.Generic.Dictionary<ManifestPath, ManifestPath list>(HashIdentity.Structural)
 
-        let names =
-            System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
+        // Every consumer below needs the parsed manifest, so the closure hands its own back.
+        let loaded =
+            System.Collections.Generic.Dictionary<ManifestPath, Manifest>(HashIdentity.Structural)
 
-        let discovered = ResizeArray<string>()
+        let discovered = ResizeArray<ManifestPath>()
         let mutable error = None
 
-        let rec load (path: string) =
-            if error.IsSome then
+        let rec load (mp: ManifestPath) =
+            if error.IsSome || dependencies.ContainsKey mp then
                 ()
             else
-                let key = norm path
+                match loadManifest mp with
+                | Error e -> error <- Some(sprintf "buildClosure: %s" e)
+                | Ok manifest ->
+                    let rec resolveDeps acc names =
+                        match names with
+                        | [] -> Ok(List.rev acc)
+                        | name :: rest ->
+                            match dependencyManifest mp name with
+                            | Error e -> Error e
+                            | Ok dep -> resolveDeps (dep :: acc) rest
 
-                if dependencies.ContainsKey key then
-                    ()
-                else
-                    match loadManifest key with
+                    match resolveDeps [] manifest.DependsOn with
                     | Error e -> error <- Some(sprintf "buildClosure: %s" e)
-                    | Ok manifest ->
-                        let depPaths =
-                            manifest.DependsOn
-                            |> List.map (fun dep -> norm (dependencyManifestPath key dep))
+                    | Ok depPaths ->
 
-                        dependencies.[key] <- depPaths
-                        names.[key] <- manifest.Name
-                        discovered.Add key
+                        dependencies.[mp] <- depPaths
+                        loaded.[mp] <- manifest
+                        discovered.Add mp
 
                         for depPath in depPaths do
                             load depPath
@@ -332,21 +272,21 @@ module ReferencedProject =
         | None ->
             // Post-order DFS over the discovery order, so dependencies are emitted first.
             // The gray/black colouring (1 = on the stack, 2 = emitted) rejects a cycle.
-            let ordered = ResizeArray<string>()
+            let ordered = ResizeArray<Manifest>()
 
             let state =
-                System.Collections.Generic.Dictionary<string, int>(System.StringComparer.Ordinal)
+                System.Collections.Generic.Dictionary<ManifestPath, int>(HashIdentity.Structural)
 
             let mutable cycle = None
 
-            let rec visit (node: string) =
+            let rec visit (node: ManifestPath) =
                 if cycle.IsSome then
                     ()
                 else
                     match state.TryGetValue node with
                     | true, 2 -> ()
                     | true, _ ->
-                        cycle <- Some(sprintf "buildClosure: dependency cycle through package '%s'" names.[node])
+                        cycle <- Some(sprintf "buildClosure: dependency cycle through package '%s'" loaded.[node].Name)
                     | _ ->
                         state.[node] <- 1
 
@@ -354,7 +294,7 @@ module ReferencedProject =
                             visit dep
 
                         state.[node] <- 2
-                        ordered.Add node
+                        ordered.Add loaded.[node]
 
             for node in discovered do
                 visit node
@@ -363,14 +303,16 @@ module ReferencedProject =
             | Some e -> Error e
             | None -> Ok(List.ofSeq ordered, dependencies)
 
-    /// Every manifest reachable over `[core] depends-on`, in dependency order.
-    let buildClosure (rootManifests: string list) : Result<string list, string> =
+    /// Every manifest reachable over `[core] depends-on`, parsed, in dependency order.
+    let buildClosure (rootManifests: ManifestPath list) : Result<Manifest list, string> =
         closeAndOrder rootManifests |> Result.map fst
 
     /// Like `buildClosure`, but also returns each package's **transitive** `depends-on`
-    /// closure: normalised manifest path → the normalised paths it depends on, directly or
-    /// transitively (excluding itself). An unknown path maps to the empty list.
-    let buildClosureWithDeps (rootManifests: string list) : Result<string list * (string -> string list), string> =
+    /// closure: manifest → the manifests it depends on, directly or transitively (excluding
+    /// itself). An unknown manifest maps to the empty list.
+    let buildClosureWithDeps
+        (rootManifests: ManifestPath list)
+        : Result<Manifest list * (ManifestPath -> ManifestPath list), string> =
         match closeAndOrder rootManifests with
         | Error e -> Error e
         | Ok(ordered, adjacency) ->
@@ -378,11 +320,13 @@ module ReferencedProject =
             // computed closures, emitted dep-closure-before-dep so each closure is itself
             // topologically ordered.
             let transitive =
-                System.Collections.Generic.Dictionary<string, string list>(System.StringComparer.Ordinal)
+                System.Collections.Generic.Dictionary<ManifestPath, ManifestPath list>(HashIdentity.Structural)
 
-            for key in ordered do
-                let acc = ResizeArray<string>()
-                let seen = System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            for manifest in ordered do
+                let key = manifest.Path
+                let acc = ResizeArray<ManifestPath>()
+
+                let seen = System.Collections.Generic.HashSet<ManifestPath>(HashIdentity.Structural)
 
                 let add p =
                     if seen.Add p then
@@ -400,35 +344,29 @@ module ReferencedProject =
 
                 transitive.[key] <- List.ofSeq acc
 
-            let lookup (key: string) =
+            let lookup (key: ManifestPath) =
                 match transitive.TryGetValue key with
                 | true, v -> v
                 | _ -> []
 
             Ok(ordered, lookup)
 
-    /// The per-target runtime *asset* modules (`[targets.<t>] runtime`) for a manifest set
-    /// closed over `depends-on`, read off disk: package name → `(fileName, source)`, the
-    /// `.mjs` the backend imports by `./<fileName>`. One per package: the first listed.
-    let runtimeModules (target: string) (rootManifests: string list) : Map<string, string * string> =
-        match buildClosure rootManifests with
-        | Error _ -> Map.empty
-        | Ok ordered ->
-            let mutable acc = Map.empty
+    /// The `[core] runtime` assets of an already-closed manifest set, read off disk: package
+    /// name → `(fileName, source)`, the `.mjs` the backend imports by `./<fileName>`. One per
+    /// package: the first listed.
+    let runtimeModules (manifests: Manifest list) : Map<string, string * string> =
+        let mutable acc = Map.empty
 
-            for manifestPath in ordered do
-                match loadManifest manifestPath with
-                | Error _ -> ()
-                | Ok manifest ->
-                    match resolveRuntime target manifest with
-                    | rel :: _ ->
-                        let abs = Path.Combine(Path.GetDirectoryName manifestPath, rel)
+        for manifest in manifests do
+            match manifest.Runtime with
+            | rel :: _ ->
+                let abs = Path.Combine(manifest.Dir, rel)
 
-                        if File.Exists abs then
-                            acc <- Map.add manifest.Name (Path.GetFileName rel, File.ReadAllText abs) acc
-                    | [] -> ()
+                if File.Exists abs then
+                    acc <- Map.add manifest.Name (Path.GetFileName rel, File.ReadAllText abs) acc
+            | [] -> ()
 
-            acc
+        acc
 
     /// Wrap the extractor's provider so every resolved descriptor carries the package's home
     /// assembly (the extractor records `SymbolOrigin.Empty`) and `ambient` is published as
@@ -450,106 +388,101 @@ module ReferencedProject =
     /// with `ambientShapes` (its dependencies' already-built type shapes), then expose it as
     /// a provider. A file that fails to parse yields a diagnostic, not an aborted build.
     let buildProviderWith
-        (target: string)
         (ambientShapes: string -> ExternalTypeShape voption)
         (dependencyAmbientPrefixes: string list)
-        (manifestPath: string)
-        : Result<BuiltPackage, string> =
-        match loadManifest manifestPath with
-        | Error e -> Error e
-        | Ok manifest ->
-            let dir = Path.GetDirectoryName manifestPath
-            let ctx = VesperLib.ExtractCtx.empty target
-            ctx.AmbientShapes <- ambientShapes
-            // Ambient open prefixes (`Vesper`, …) so this package's extraction resolves a
-            // dependency's type by bare name (`Fun`2` / `Fun`3`).
-            ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
+        (manifest: Manifest)
+        : BuiltPackage =
+        let dir = manifest.Dir
+        let ctx = VesperLib.ExtractCtx.empty manifest.Target
+        ctx.AmbientShapes <- ambientShapes
+        // Ambient open prefixes (`Vesper`, …) so this package's extraction resolves a
+        // dependency's type by bare name (`Fun`2` / `Fun`3`).
+        ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
 
-            // Extract intrinsic reprs from THIS target's `.fs` bodies FIRST, so the `extern`
-            // arm of the `.fsi` extraction below can pick `IntrinsicPlatform.Repr` over
-            // `Unsupported`. The `.fsi` commits `type exn = extern`, no repr.
-            for rel in resolveImpl target manifest do
-                let abs = Path.Combine(dir, rel)
+        // Extract intrinsic reprs from the `.fs` bodies FIRST, so the `extern` arm of the
+        // `.fsi` extraction below can pick `IntrinsicPlatform.Repr` over `Unsupported`.
+        // The `.fsi` commits `type exn = extern`, no repr.
+        for rel in manifest.Impl do
+            let abs = Path.Combine(dir, rel)
 
-                if File.Exists abs then
-                    let fsFile: VesperLib.LibFile =
-                        {
-                            Path =
-                                {
-                                    BucketName = manifest.Name
-                                    Relative = rel
-                                }
-                            Absolute = abs
-                        }
-
-                    match VesperLib.parseFileFull fsFile with
-                    | Error _ -> ()
-                    | Ok parsed ->
-                        let reprs =
-                            System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
-
-                        VesperLib.extractIntrinsicReprsInto reprs parsed
-
-                        for KeyValue(k, v) in reprs do
-                            ctx.IntrinsicReprs.[k] <- v
-
-            // Shared contracts, then this target's APPENDED extras, so an extra's RHS
-            // (`Vesper.disposable`) is already in the registry.
-            for rel in resolveFiles target manifest do
-                let file: VesperLib.LibFile =
+            if File.Exists abs then
+                let fsFile: VesperLib.LibFile =
                     {
                         Path =
                             {
                                 BucketName = manifest.Name
                                 Relative = rel
                             }
-                        Absolute = Path.Combine(dir, rel)
+                        Absolute = abs
                     }
 
-                match VesperLib.parseFileFull file with
-                | Error e -> ctx.Diagnostics.Add(file, e)
-                | Ok parsed -> VesperLib.extractSymbols ctx parsed
+                match VesperLib.parseFileFull fsFile with
+                | Error _ -> ()
+                | Ok parsed ->
+                    let reprs =
+                        System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
-            let home = Origin.InAssembly(AssemblyName manifest.Name)
+                    VesperLib.extractIntrinsicReprsInto reprs parsed
 
-            // The contract's implicit prelude: its `[<AutoOpen>]` modules (most specific,
-            // e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude (`Vesper`,
-            // so `int` finds `Vesper.int`). The prelude is fixed, not manifest-declared.
-            let ambient = List.ofSeq ctx.AutoOpenPrefixes @ RuntimeNames.preludeNamespaces
+                    for KeyValue(k, v) in reprs do
+                        ctx.IntrinsicReprs.[k] <- v
 
-            // The nominal types this package declares, for the composition-time duplicate
-            // sweep. Every package's `int` is THE `int`, so intrinsics and capability
-            // interfaces repeat legitimately and are excluded.
-            let declaredTypeNames =
-                [
-                    for kv in ctx.TypeShapes do
-                        match kv.Value with
-                        | ExternalTypeShape.Class _
-                        | ExternalTypeShape.Record _
-                        | ExternalTypeShape.Union _
-                        | ExternalTypeShape.Enum _
-                        | ExternalTypeShape.Abbrev _
-                        | ExternalTypeShape.Unmodelled _ -> yield kv.Key
-                        | ExternalTypeShape.Intrinsic _
-                        | ExternalTypeShape.IntrinsicInterface _ -> ()
-                ]
-
-            Ok
+        // In declared order, so a later contract's RHS (`Vesper.disposable`) is already
+        // in the registry.
+        for rel in manifest.Files do
+            let file: VesperLib.LibFile =
                 {
-                    Provider = wrap home ambient (VesperLib.ExtractCtx.toProvider ctx)
-                    Diagnostics = List.ofSeq ctx.Diagnostics
-                    HomeAssembly = manifest.Name
-                    DeclaredTypeNames = declaredTypeNames
+                    Path =
+                        {
+                            BucketName = manifest.Name
+                            Relative = rel
+                        }
+                    Absolute = Path.Combine(dir, rel)
                 }
+
+            match VesperLib.parseFileFull file with
+            | Error e -> ctx.Diagnostics.Add(file, e)
+            | Ok parsed -> VesperLib.extractSymbols ctx parsed
+
+        let home = Origin.InAssembly(AssemblyName manifest.Name)
+
+        // The contract's implicit prelude: its `[<AutoOpen>]` modules (most specific,
+        // e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude (`Vesper`,
+        // so `int` finds `Vesper.int`). The prelude is fixed, not manifest-declared.
+        let ambient = List.ofSeq ctx.AutoOpenPrefixes @ RuntimeNames.preludeNamespaces
+
+        // The nominal types this package declares, for the composition-time duplicate
+        // sweep. Every package's `int` is THE `int`, so intrinsics and capability
+        // interfaces repeat legitimately and are excluded.
+        let declaredTypeNames =
+            [
+                for kv in ctx.TypeShapes do
+                    match kv.Value with
+                    | ExternalTypeShape.Class _
+                    | ExternalTypeShape.Record _
+                    | ExternalTypeShape.Union _
+                    | ExternalTypeShape.Enum _
+                    | ExternalTypeShape.Abbrev _
+                    | ExternalTypeShape.Unmodelled _ -> yield kv.Key
+                    | ExternalTypeShape.Intrinsic _
+                    | ExternalTypeShape.IntrinsicInterface _ -> ()
+            ]
+
+        {
+            Provider = wrap home ambient (VesperLib.ExtractCtx.toProvider ctx)
+            Diagnostics = List.ofSeq ctx.Diagnostics
+            HomeAssembly = manifest.Name
+            DeclaredTypeNames = declaredTypeNames
+        }
 
     /// Stand up a referenced project in isolation: no dependency shapes in scope, so
     /// `ambientShapes` resolves nothing. For a package with no `depends-on`.
-    let buildProvider
-        (target: string)
-        (manifestPath: string)
-        : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
-        buildProviderWith target (fun _ -> ValueNone) [] manifestPath
-        |> Result.map (fun bp -> bp.Provider, bp.Diagnostics)
+    let buildProvider (mp: ManifestPath) : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
+        loadManifest mp
+        |> Result.map (fun manifest ->
+            let bp = buildProviderWith (fun _ -> ValueNone) [] manifest
+            bp.Provider, bp.Diagnostics
+        )
 
     /// A layer-2 metadata-tail factory: given the extracted `{ platform-repr → [canon] }`
     /// reverse map of the layer-1 providers composed so far, produce the trailing leaf
@@ -565,16 +498,15 @@ module ReferencedProject =
     /// closure's shapes, so a cross-package nominal type constructor kinds at bake time.
     let composeOrdered
         (metaTail: MetaTailFactory)
-        (target: string)
-        (orderedManifestPaths: string list)
-        (transitiveDeps: string -> string list)
+        (orderedManifests: Manifest list)
+        (transitiveDeps: ManifestPath -> ManifestPath list)
         : IExternalSymbolProvider =
-        // `byPath` indexes each built provider by its normalised manifest path, so a
-        // package's dependency providers resolve in O(closure).
+        // `byPath` indexes each built provider by its manifest, so a package's dependency
+        // providers resolve in O(closure).
         let built = ResizeArray<IExternalSymbolProvider>()
 
         let byPath =
-            System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
+            System.Collections.Generic.Dictionary<ManifestPath, IExternalSymbolProvider>(HashIdentity.Structural)
 
         // A qualified type key declared twice in the referenced set resolves as a silent
         // first-hit shadow, so the loser is unreachable by lookup; refuse it here, a
@@ -582,11 +514,9 @@ module ReferencedProject =
         let seenTypeHomes =
             System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
-        for path in orderedManifestPaths do
-            let key = Path.GetFullPath path
-
+        for manifest in orderedManifests do
             let depProviders =
-                transitiveDeps key
+                transitiveDeps manifest.Path
                 |> List.choose (fun dep ->
                     match byPath.TryGetValue dep with
                     | true, p -> Some p
@@ -608,26 +538,25 @@ module ReferencedProject =
             let depAmbientPrefixes =
                 depProviders |> List.collect (fun p -> p.AmbientOpenPrefixes) |> List.distinct
 
-            match buildProviderWith target ambientShapes depAmbientPrefixes path with
-            | Ok bp ->
-                for typeName in bp.DeclaredTypeNames do
-                    match seenTypeHomes.TryGetValue typeName with
-                    | true, otherHome when otherHome <> bp.HomeAssembly ->
-                        failwithf
-                            "The type '%s' exists in both '%s' and '%s'. A referenced package set must declare each type once; reference only one of the two packages."
-                            typeName
-                            otherHome
-                            bp.HomeAssembly
-                    | true, _ ->
-                        failwithf
-                            "The type '%s' is declared twice by package '%s' — the referenced set contains two copies (or versions) of it. Reference the package once."
-                            typeName
-                            bp.HomeAssembly
-                    | false, _ -> seenTypeHomes.[typeName] <- bp.HomeAssembly
+            let bp = buildProviderWith ambientShapes depAmbientPrefixes manifest
 
-                built.Add bp.Provider
-                byPath.[key] <- bp.Provider
-            | Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
+            for typeName in bp.DeclaredTypeNames do
+                match seenTypeHomes.TryGetValue typeName with
+                | true, otherHome when otherHome <> bp.HomeAssembly ->
+                    failwithf
+                        "The type '%s' exists in both '%s' and '%s'. A referenced package set must declare each type once; reference only one of the two packages."
+                        typeName
+                        otherHome
+                        bp.HomeAssembly
+                | true, _ ->
+                    failwithf
+                        "The type '%s' is declared twice by package '%s' — the referenced set contains two copies (or versions) of it. Reference the package once."
+                        typeName
+                        bp.HomeAssembly
+                | false, _ -> seenTypeHomes.[typeName] <- bp.HomeAssembly
+
+            built.Add bp.Provider
+            byPath.[manifest.Path] <- bp.Provider
 
         // The final composite's leaf IS seeded with the full extracted reverse map, so a
         // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
@@ -636,29 +565,7 @@ module ReferencedProject =
 
     /// `composeOrdered` over a raw, unordered manifest set. A cycle or missing dependency is
     /// a hard error. A caller that also needs the ordered list should order it itself.
-    let composeContract
-        (metaTail: MetaTailFactory)
-        (target: string)
-        (manifestPaths: string list)
-        : IExternalSymbolProvider =
-        match buildClosureWithDeps manifestPaths with
-        | Ok(ordered, transitiveDeps) -> composeOrdered metaTail target ordered transitiveDeps
+    let composeContract (metaTail: MetaTailFactory) (manifests: ManifestPath list) : IExternalSymbolProvider =
+        match buildClosureWithDeps manifests with
+        | Ok(ordered, transitiveDeps) -> composeOrdered metaTail ordered transitiveDeps
         | Error e -> failwithf "Failed to order referenced project manifests: %s" e
-
-    /// Lazy cache keyed by target + (normalised) manifest path, so repeated callers parse
-    /// a package's `.fsi` set at most once.
-    let private cached =
-        System.Collections.Concurrent.ConcurrentDictionary<
-            string * string,
-            Lazy<Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string>>
-         >(
-            HashIdentity.Structural
-        )
-
-    /// Production-path entry point: caches `buildProvider` per target + manifest path.
-    /// Tests that need a fresh provider should call `buildProvider`.
-    let provider
-        (target: string)
-        (manifestPath: string)
-        : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
-        cached.GetOrAdd((target, Path.GetFullPath manifestPath), (fun (t, p) -> lazy (buildProvider t p))).Value

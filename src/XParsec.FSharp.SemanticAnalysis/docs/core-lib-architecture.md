@@ -5,55 +5,68 @@ the dependency graph is declared and resolved, and the *why* behind choices the
 code cannot state for itself.
 
 The core library is **eleven standalone packages** under `src/Vesper.*`, each a
-directory holding a `manifest.toml`, its `.fsi` contract files, and (usually) the
-`.fs` implementation the backend compiles into that package's DLL. There is no
-rollup manifest and no umbrella package: a consumer names the root manifests it
-wants and the resolver pulls in the transitive `depends-on` closure. À la carte is
-the only mode.
+directory holding one `manifest.<target>.toml` per target it builds for, its `.fsi`
+contract files, and (usually) the `.fs` implementation the backend compiles into
+that package's DLL. There is no rollup manifest and no umbrella package: a consumer
+names the root manifests it wants and the resolver pulls in the transitive
+`depends-on` closure. À la carte is the only mode.
 
 Two neighbouring docs own the parts this one deliberately does not: how a
 contract's signatures become fully-kinded `SemType`s is
 [package-type-extraction-architecture](package-type-extraction-architecture.md);
 `Vesper.Printf`'s internals are [printf-architecture](printf-architecture.md).
 
-## A package is a directory with a manifest
+## A package is a directory with one manifest per target
 
-Everything a package declares lives in one `[core]` table
-(`ReferencedProject.parseManifest`, `ReferencedProject.fs:172-220`):
+Everything a package declares for a target lives in one flat `[core]` table, in
+`manifest.<target>.toml`. Each list is that target's compile order, written once and
+read once; the file name is the only place a manifest states which target it is for.
 
 | key | meaning |
 |---|---|
-| `namespace` | the namespace the package's symbols live in, and its implicit auto-open prefix |
 | `files` | contract `.fsi` files **in compile order** — the front-end symbol contract |
-| `impl` | the `.fs` files compiled into the package DLL |
-| `inline-bodies` | the `.fs` files whose `let inline` bodies are spliced across the package boundary; defaults to `impl` |
+| `impl` | the `.fs` files compiled into the package DLL, and the splice sources they publish |
 | `sig-only` | `.fsi` files deliberately impl-free — an accepted conformance exemption |
-| `depends-on` | the other packages this one needs |
+| `impl-only` | `.fs` bodies that implement no contract, publishing their whole public surface |
+| `runtime` | hand-authored runtime *assets* (the JS `.mjs`) the backend ships beside its output |
+| `depends-on` | the other packages this one needs, **for this target** |
 | `name` | **optional** — see below |
-| `<key>-<target>` | per-target overrides (`impl-js`, `files-js`, `runtime-js`, …) |
+
+A package that builds for both targets writes both files, and the shared entries are
+duplicated between them. That is deliberate: the alternative — a shared tier the
+per-target lists inherit — has to pick an append order, and the only order it can
+pick puts a target-neutral body *before* the target-specific declarations it needs.
+
+`depends-on` is per target for the same reason a file list is. `Vesper.Printf`
+depends on `Vesper.List` on the CLR, whose `%A` engine uses the cons-list as its
+`Doc` child lists and frame stack, and on Core alone on JS, whose `%A` engine is a
+free function.
 
 **The directory name is the package identity.** `[core] name` is optional —
-`Vesper.Core`, `Vesper.Exceptions` and `Vesper.Printf` omit it entirely — and when
-present it is only *validated* to match the directory, never used as an
-independent identity (`ReferencedProject.fs:188-195`). This matters because
-`depends-on "Vesper.Core"` resolves by *path*, to the sibling
-`src/Vesper.Core/manifest.toml` (`dependencyManifestPath`, `ReferencedProject.fs:234-244`).
-Had an explicit `name` been allowed to diverge, a dependency would be resolved by
-directory but reported by `Name`, and a `depends-on` written against `Name` would
-silently miss. Parse-time rejection keeps the two identities from drifting.
+`Vesper.Core` and `Vesper.Printf` omit it entirely — and when
+present it is only *validated* to match the directory, never used as an independent
+identity. This matters because `depends-on "Vesper.Core"` resolves by *path*, to the
+sibling package's manifest **for the same target**: `src/Vesper.List/manifest.js.toml`
+reaches `src/Vesper.Core/manifest.js.toml`. Had an explicit `name` been allowed to
+diverge, a dependency would be resolved by directory but reported by `Name`, and a
+`depends-on` written against `Name` would silently miss. Parse-time rejection keeps
+the two identities from drifting.
+
+A package that ships no `manifest.<target>.toml` does not build for that target, and
+naming it from a closure for that target is a hard error rather than an empty
+contribution. `Vesper.Set` is CLR-only.
 
 **No package has a `.fsproj`.** None of this tree is built by `dotnet`/`fsc`. The
 operators alone force it: a `let inline (+)` body needs inline IL /
 `--compiling-fslib` (`Vesper.Core/ops-platform.clr.fs`), so the contract is
-signature-only from `fsc`'s point of view — which is why those bodies sit in
-`inline-bodies`, not `impl` (`Vesper.Core/manifest.toml`). The `.fsi` are parsed by
+signature-only from `fsc`'s point of view. The `.fsi` are parsed by
 `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the `.fs` are
 compiled by this repo's own backend. Parser coverage is held by golden `.parsed`
 snapshots committed next to each source (`test/Vesper.Tests/VesperCoreContractTests.fs`).
 
 ## The dependency graph
 
-Read from each package's `[core] depends-on`:
+Read from each package's `[core] depends-on`. `clr` unless a `js` column differs:
 
 | Package | Namespace | `depends-on` | Holds |
 |---|---|---|---|
@@ -61,13 +74,12 @@ Read from each package's `[core] depends-on`:
 | `Vesper.Array` | `Vesper.Collections` | Core | the `Array` module over the intrinsic `'T[]` |
 | `Vesper.Choice` | `Vesper` | Core | `Choice<'T1,'T2>` |
 | `Vesper.Comparison` | `Vesper` | Core | the ordering operators (`< > <= >=`) |
-| `Vesper.Exceptions` | **`System`** | Core | the common BCL exception roots as contract types inheriting `exn` |
 | `Vesper.List` | `Vesper.Collections` | Core | the cons-list type + the `List` module |
 | `Vesper.Option` | `Vesper` | Core | the option type + the `Option` module |
 | `Vesper.Result` | `Vesper` | Core | the result type + the `Result` module |
-| `Vesper.Printf` | `Vesper` | Core, List | `printf`/`printfn`/`sprintf`, the format handler, the `%A` engine |
-| `Vesper.Seq` | `Vesper.Collections` | Core, List, Comparison | the `Seq` module over `seq<'T>` |
-| `Vesper.Set` | `Vesper.Collections` | Core, List, Array, Seq, Choice, Option, Comparison, Printf | the AVL-tree set type + the `Set` module |
+| `Vesper.Printf` | `Vesper` | Core, List — **js: Core** | `printf`/`printfn`/`sprintf`, the format handler, the `%A` engine |
+| `Vesper.Seq` | `Vesper.Collections` | Core, List, Comparison, Array | the `Seq` module over `seq<'T>` |
+| `Vesper.Set` | `Vesper.Collections` | Core, List, Array, Seq, Choice, Option, Comparison, Printf — **clr only** | the AVL-tree set type + the `Set` module |
 
 Four depth tiers. Every package depends on `Vesper.Core`; only the non-Core edges
 are interesting:
@@ -91,11 +103,15 @@ body reaches for `sprintf` in its invariant-violation messages (⇒ Printf) and
 package written for this tree rather than transliterated into it would not need
 most of them.
 
-`Vesper.Exceptions` is in the graph but not in every consumer's root set: it is
-referenced by the **JS provider only**. A CLR build resolves the same names
-through `System.Private.CoreLib`, so the contract never shadows the BCL type in a
-`newobj` (which would mint a TypeRef into the wrong assembly). The shared seam
-stays the `.fsi`; the per-target binding is `prim-types-exn`'s `(# … #)` repr —
+The BCL exception roots are **not a package**: they are `Vesper.Core`'s
+`exceptions.js.fsi`, named in the JS manifest's `files` and `sig-only` and in no
+CLR manifest at all. A CLR build resolves those names through
+`System.Private.CoreLib`, so the contract never shadows the BCL type in a `newobj`
+(which would mint a TypeRef into the wrong assembly); being reachable from no CLR
+manifest is what makes that unreachable rather than merely unexercised. They ride
+in with Core rather than through a `depends-on` edge a consumer must remember. The
+shared seam stays the `.fsi`; the per-target binding is `prim-types-exn`'s
+`(# … #)` repr —
 `System.Exception` on CLR (`Vesper.Core/prim-types-exn.clr.fs`), `Error` on JS
 (`Vesper.Core/prim-types-exn.js.fs`).
 
@@ -120,8 +136,9 @@ refs). "Pay for what you use" reaches the shipped bundle.
 Not every package emits a DLL. `Vesper.Comparison` declares `impl = []`
 explicitly: its four operators are signature-only (`let inline` over
 static-optimized inline IL, spliced at each use site), so it is an inline-body
-source and nothing else. `Vesper.Exceptions` is `sig-only` for the same
-structural reason from the other direction — its mechanism is BCL-resolved.
+source and nothing else. `Vesper.Core`'s `exceptions.js.fsi` is `sig-only` for the
+same structural reason from the other direction — its mechanism is `prim-types-exn`,
+which erases every root to `Error`.
 
 **Merging is a later publishing concern, and nothing depends on it.** There is no
 root manifest in the tree. A consumer hands `composeContract` the roots it wants
@@ -170,8 +187,9 @@ Namespaces **cross-cut** packages, and no namespace is owned by one package:
 
 - `Vesper.Collections` spans **four** packages — Array, List, Seq, Set.
 - `Vesper` spans Core, Choice, Comparison, Option, Result, Printf.
-- `Vesper.Exceptions` publishes into **`System`**, matching the BCL names a
-  consumer reaches via `open System`.
+- `Vesper.Core` publishes into **`System`** as well as `Vesper`: its
+  `exceptions.js.fsi` carries the BCL exception roots a consumer reaches via
+  `open System`.
 
 A namespace spanning several DLLs is legal in .NET, and the extractor accumulates
 symbols across files regardless of namespace — but it means any "one package owns
@@ -213,35 +231,34 @@ The `.fsi` is the **target-agnostic contract** (`type int = extern`); the matchi
 Resolution needs only the `.fsi` — an absent `.fs` is a codegen-side concern, not a
 resolution failure (`ReferencedProject.fs:6-16`).
 
-Per-target divergence is expressed by suffixed manifest keys, resolved by the
-*backend* asking for its own suffix. SemanticAnalysis stores them inertly and never
-enumerates target names (`collectOverrides`, `ReferencedProject.fs:112-125`):
+Per-target divergence is expressed by the manifest a build reads, not by a key
+inside one: `manifest.clr.toml` and `manifest.js.toml` each name the whole ordered
+list their target compiles, so nothing has to be replaced or appended and
+SemanticAnalysis never enumerates target names. A `.fsi` a target does not build —
+the JS capability compat shim, the CLR `formatter.fsi` — is simply absent from the
+other target's `files`.
 
-| resolver | key | semantics |
-|---|---|---|
-| `resolveImpl` (`:130`) | `impl-<t>` | **replaces** the base list |
-| `resolveInlineBodies` (`:138`) | `inline-bodies-<t>` | replaces |
-| `resolveSigOnly` (`:165`) | `sig-only-<t>` | replaces |
-| `resolveExtraFiles` (`:147`) | `files-<t>` | **appends** after the base contract |
-| `resolveRuntime` (`:156`) | `runtime-<t>` | **no base key** — a runtime asset is inherently target-specific |
+The `.<target>.fs` **filename** suffixes remain, because two targets' bodies coexist
+in one package directory. They are what `pairingKey` strips to marry a `.fs` to its
+`.fsi`, and it strips only the suffix of the manifest's own target: reading
+`manifest.js.toml`, `prim-types-int.js.fs` keys on `prim-types-int` and
+`prim-types-int.clr.fs` would key on `prim-types-int.clr`.
 
-`files-<t>` appends rather than replaces so a shim may name a base-declared type
-(the JS capability compat shim's RHS is `Vesper.disposable`, from the base
-`capabilities.fsi`). `runtime-<t>` has no base because a `.mjs` is not a parsed
-source at all — it is a hand-authored or backend-generated platform-support asset
-the backend ships beside its output (`runtimeModules`, `:409`).
+`runtime` is the one key with no `.fs` counterpart, because a `.mjs` is not a parsed
+source at all — it is a hand-authored or backend-generated platform-support asset the
+backend ships beside its output.
 
 Three distinct companion patterns coexist, and the distinction is load-bearing:
 
-- **`prim-types-int.clr.fs`** — a base `.fs` binding a contract `extern` to its
-  intrinsic repr, with `prim-types-int.js.fs` as the per-target override.
-- **`ops-platform.clr.fs`** — an inline-body source that is *not* a DLL compile target:
-  its `let inline` bodies are read across the package boundary by the codegen
-  inline-body loader and spliced at each use site. `Vesper.Core`'s DLL is the
-  prim-types/`Ref` bodies; its operator semantics live here and nowhere else —
-  codegen holds no op→opcode table.
-- **`comparison.js.fs`** — a whole-file per-target re-authoring, selected by
-  `inline-bodies-js`.
+- **`prim-types-int.clr.fs`** — a `.fs` binding a contract `extern` to its intrinsic
+  repr, with `prim-types-int.js.fs` as the JS manifest's counterpart.
+- **`ops-platform.clr.fs`** — a splice source that is *not* a DLL compile target: its
+  `let inline` bodies are read across the package boundary by the codegen inline-body
+  loader and spliced at each use site. `Vesper.Core`'s DLL is the prim-types/`Ref`
+  bodies; its operator semantics live here and nowhere else — codegen holds no
+  op→opcode table.
+- **`comparison.js.fs`** — a whole-file per-target re-authoring, the only `impl`
+  entry `Vesper.Comparison`'s JS manifest names.
 
 **Intrinsic reprs are extracted from the `.fs` before the `.fsi` is walked**
 (`buildProviderWith`, `ReferencedProject.fs:531-580`), because the `.fs` is the

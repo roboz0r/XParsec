@@ -10,16 +10,6 @@ files = [
     "array.fsi",
 ]
 
-# `array.fs` is target-neutral but repeated per target, not shared: inherited lists append
-# AFTER shared ones, which would put it BEFORE the prelude it splices.
-
-[targets.clr]
-impl = [
-    "array-prelude.clr.fs",
-    "array.fs",
-]
-
-[targets.js]
 impl = [
     "array-prelude.js.fs",
     "array.fs",

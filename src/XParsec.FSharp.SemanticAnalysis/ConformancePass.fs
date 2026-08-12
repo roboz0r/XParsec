@@ -5,8 +5,9 @@ open System.IO
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// Manifest-driven `.fsi`↔`.fs` conformance: the pairs come from a package `manifest.toml`
-// on its own pairing key, so `prim-types-int.js.fs` pairs with `prim-types-int.fsi`.
+// Manifest-driven `.fsi`↔`.fs` conformance: the pairs come from a package's manifest for one
+// target, on its own pairing key, so the js manifest's `prim-types-int.js.fs` pairs with
+// `prim-types-int.fsi`.
 
 module ConformancePass =
 
@@ -101,7 +102,7 @@ module ConformancePass =
             | ImplementationFile.AnonymousModule _ -> ""
         | _ -> ""
 
-    // A `[targets.<t>] runtime` asset is a committed ESM module read as JS TEXT, never
+    // A `[core] runtime` asset is a committed ESM module read as JS TEXT, never
     // parsed as F#. Only the presence of an exported NAME is read, never the body behind it.
     let private esmDeclaredExport =
         System.Text.RegularExpressions.Regex(
@@ -136,24 +137,24 @@ module ConformancePass =
                 Absolute = Path.Combine(dir, rel)
             }
 
-    /// Conform every `.fsi` in a package manifest against its `.fs` companion for `target`.
+    /// Conform every `.fsi` a package manifest names against its `.fs` companion.
     /// `Error` ONLY when the package is wholly un-checkable, meaning a malformed/absent manifest;
     /// a per-file parse failure becomes a `ParseFailed` verdict instead.
-    let checkManifest (target: string) (manifestPath: string) : Result<PackageOutcome, string> =
-        match ReferencedProject.loadManifest manifestPath with
+    let checkManifest (mp: ReferencedProject.ManifestPath) : Result<PackageOutcome, string> =
+        match ReferencedProject.loadManifest mp with
         | Error e -> Error e
         | Ok m ->
-            let dir = Path.GetDirectoryName manifestPath
+            let dir = m.Dir
 
-            // The impl candidate set: every `.fs` the manifest names for this target. A
-            // `.fsi` pairs only with a `.fs` that is in it.
-            let implFiles = ReferencedProject.resolveImpl target m |> List.distinct
+            // The impl candidate set: every `.fs` the manifest names. A `.fsi` pairs only
+            // with a `.fs` that is in it.
+            let implFiles = m.Impl |> List.distinct
 
-            let sigFiles = ReferencedProject.resolveFiles target m
+            let sigFiles = m.Files
 
             let pairingKey = ReferencedProject.pairingKey m
 
-            let declaredImplOnly = ReferencedProject.resolveImplOnly target m |> Set.ofList
+            let declaredImplOnly = m.ImplOnly |> Set.ofList
 
             // A body declared contract-less publishes its own surface, so it is no pairing
             // candidate: it must not be married to a `.fsi` of the same key it does not implement.
@@ -165,12 +166,12 @@ module ConformancePass =
             let companionOf (fsiRel: string) : string option =
                 Map.tryFind (pairingKey fsiRel) implByKey
 
-            let declaredSigOnly = ReferencedProject.resolveSigOnly target m |> Set.ofList
+            let declaredSigOnly = m.SigOnly |> Set.ofList
 
-            // The target's committed runtime asset and the names it publishes, needed because a
+            // The committed runtime asset and the names it publishes, needed because a
             // contract may ship no `.fs` when its bodies live here. Only the FIRST asset counts.
             let runtimeAsset =
-                match ReferencedProject.resolveRuntime target m with
+                match m.Runtime with
                 | rel :: _ ->
                     let abs = Path.Combine(dir, rel)
 
@@ -181,9 +182,8 @@ module ConformancePass =
                 | [] -> None
 
             // A companion-less `.fsi`, split on its own CONTENT: it owes a `.fs` unless EVERY
-            // declaration is satisfied without one, which an `extern` or transparent
-            // abbreviation always is, and a `val` is exactly when the committed runtime
-            // asset exports it.
+            // declaration is satisfied without one — an `extern` or transparent abbreviation
+            // always is, a `val` exactly when the committed runtime asset exports it.
             let unpaired (fsiRel: string) : PairOutcome =
                 if declaredSigOnly.Contains fsiRel then
                     // A manifest `sig-only` declaration outranks the content split.

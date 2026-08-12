@@ -12,24 +12,32 @@ module SymbolProviders =
     /// `type int = (# "System.Int32" #)`. A factory, not a fixed list, so the leaf is seeded.
     type MetaTailFactory = ReferencedProject.MetaTailFactory
 
-    /// Dependency-ordered manifests, and each package's transitive `depends-on` closure.
-    let private orderedManifestsWithDeps (manifestPaths: string list) : string list * (string -> string list) =
-        match ReferencedProject.buildClosureWithDeps manifestPaths with
+    /// A package's manifest for the compiling target, as resolved from its directory.
+    type ManifestPath = ReferencedProject.ManifestPath
+
+    /// A parsed package manifest.
+    type Manifest = ReferencedProject.Manifest
+
+    /// Dependency-ordered manifests, PARSED, and each package's transitive `depends-on` closure.
+    let private orderedManifestsWithDeps
+        (manifests: ManifestPath list)
+        : Manifest list * (ManifestPath -> ManifestPath list) =
+        match ReferencedProject.buildClosureWithDeps manifests with
         | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
-    /// The manifest stack for a compilation that IS a package: its declared references, then
-    /// the package's OWN manifest last. That `.fsi` route is the only channel a prior file's
-    /// `type int32 = int` reaches a later one through — freezing carries no abbreviation.
-    let selfStack (selfManifest: string option) (manifestPaths: string list) : string list =
-        match selfManifest with
-        | Some p -> manifestPaths @ [ p ]
-        | None -> manifestPaths
+    /// The package stack for a compilation that IS a package: its declared references, then the
+    /// package's OWN directory last. That `.fsi` route is the only channel a prior file's
+    /// `type int32 = int` reaches a later one through: freezing carries no abbreviation.
+    let selfStack (selfPackage: string option) (packageDirs: string list) : string list =
+        match selfPackage with
+        | Some p -> packageDirs @ [ p ]
+        | None -> packageDirs
 
     /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf FACTORY.
-    /// Common supplies no concrete leaf — the CLR backend injects its BCL reflection tail. Uncached.
-    let buildWith (metaTail: MetaTailFactory) (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
-        ReferencedProject.composeContract metaTail target manifestPaths
+    /// Common supplies no concrete leaf; the CLR backend injects its BCL reflection tail. Uncached.
+    let buildWith (metaTail: MetaTailFactory) (target: string) (packageDirs: string list) : IExternalSymbolProvider =
+        ReferencedProject.composeContract metaTail (ReferencedProject.resolveAll target packageDirs)
 
     /// Mint the `this`-first inline `TDecl.Let` for a `member inline`: an accessor
     /// `member inline _.M p0 p1 = body` IS the inline function `M this p0 p1 = body`, `this`
@@ -147,59 +155,49 @@ module SymbolProviders =
 
     /// Load cross-package inline bodies from manifests' `impl` files, type-checked and
     /// frozen once against `provider`. Manifest/decl order, so a later body wins a clash.
-    let inlineBodies
-        (target: string)
-        (provider: IExternalSymbolProvider)
-        (manifestPaths: string list)
-        : CollectedInlineBodies =
+    let inlineBodies (provider: IExternalSymbolProvider) (manifests: Manifest list) : CollectedInlineBodies =
         let acc = ResizeArray<KeyedInlineBody>()
         let memberAcc = ResizeArray<KeyedInlineBody>()
         let mutable origins = OriginSources.empty
 
-        for manifestPath in manifestPaths do
-            match ReferencedProject.loadManifest manifestPath with
-            // `orderedManifestsWithDeps` already failed on a malformed manifest.
-            | Result.Error _ -> ()
-            | Result.Ok manifest ->
-                let dir = Path.GetDirectoryName manifestPath
+        for manifest in manifests do
+            for rel in manifest.Impl do
+                let file: VesperLib.LibFile =
+                    {
+                        Path =
+                            {
+                                BucketName = manifest.Name
+                                Relative = rel
+                            }
+                        Absolute = Path.Combine(manifest.Dir, rel)
+                    }
 
-                for rel in ReferencedProject.resolveImpl target manifest do
-                    let file: VesperLib.LibFile =
-                        {
-                            Path =
-                                {
-                                    BucketName = manifest.Name
-                                    Relative = rel
-                                }
-                            Absolute = Path.Combine(dir, rel)
-                        }
+                match VesperLib.parseFileFull file with
+                | Result.Error _ -> ()
+                | Result.Ok parsed ->
+                    let origin = Hashing.originSource parsed.File.Path parsed.Lexed
 
-                    match VesperLib.parseFileFull file with
-                    | Result.Error _ -> ()
-                    | Result.Ok parsed ->
-                        let origin = Hashing.originSource parsed.File.Path parsed.Lexed
+                    origins <- OriginSources.add origin origins
 
-                        origins <- OriginSources.add origin origins
+                    let implFile =
+                        match parsed.Ast with
+                        | FSharpAst.ImplementationFile f -> Some f
+                        | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
+                            Some(ImplementationFile.AnonymousModule elems)
+                        | _ -> None
 
-                        let implFile =
-                            match parsed.Ast with
-                            | FSharpAst.ImplementationFile f -> Some f
-                            | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
-                                Some(ImplementationFile.AnonymousModule elems)
-                            | _ -> None
+                    match implFile with
+                    | None -> ()
+                    | Some f ->
+                        // `manifest.Name` is the home assembly the published keys are rooted
+                        // at, the same one the package's own symbols are stamped with, so a
+                        // served key and a resolved one agree.
+                        let _, tast = Pipeline.analyseWithContextFor manifest.Name provider origin f
 
-                        match implFile with
-                        | None -> ()
-                        | Some f ->
-                            // `manifest.Name` is the home assembly the published keys are
-                            // rooted at — the same one the package's own symbols are
-                            // stamped with, so a served key and a resolved one agree.
-                            let _, tast = Pipeline.analyseWithContextFor manifest.Name provider origin f
+                        let values, members = collectInlineBodies origin tast
 
-                            let values, members = collectInlineBodies origin tast
-
-                            acc.AddRange values
-                            memberAcc.AddRange members
+                        acc.AddRange values
+                        memberAcc.AddRange members
 
         {
             Values = List.ofSeq acc
@@ -213,9 +211,9 @@ module SymbolProviders =
     /// against a file that was never retained, and the wrong answer is in range.
     type Contract =
         {
-            /// The normalised manifest paths this contract was built from — the set whose
-            /// per-target runtime ASSETS (`runtimeModules`) back a compiled program's imports.
-            ManifestPaths: string list
+            /// The `[core] runtime` assets of the whole `depends-on` closure, which back a
+            /// compiled program's imports: package name → `(fileName, source)`.
+            RuntimeAssets: Map<string, string * string>
             Provider: IExternalSymbolProvider
             /// Simple name → body. NOT a resolution channel (the provider folds a body onto
             /// the entry that owns its key); the introspection seam tests assert against.
@@ -232,27 +230,35 @@ module SymbolProviders =
         /// "there is no contract" arm.
         let empty: Contract =
             {
-                ManifestPaths = []
+                RuntimeAssets = Map.empty
                 Provider = ExternalSymbolProviders.nullProvider
                 BodiesByName = Map.empty
                 Origins = OriginSources.empty
             }
 
-    /// Cache keyed by normalised manifest set + target + metadata tag.
+    /// Cache keyed by resolved manifest set + target + metadata tag.
     let private contractCache =
         System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Contract>>(System.StringComparer.Ordinal)
 
-    /// Build and cache the provider stack, inline bodies and producer sources for a manifest set.
-    let private buildContractCached
+    /// Cached contract for a package set, over a caller-supplied layer-2 leaf FACTORY: the
+    /// seam each backend wraps with its concrete leaf.
+    let buildContractWith
         (cacheTag: string)
         (metaTail: MetaTailFactory)
         (target: string)
-        (manifestPaths: string list)
+        (packageDirs: string list)
         : Contract =
-        let normalised = manifestPaths |> List.map Path.GetFullPath
-        // Target AND metadata tag are part of the cache identity: the JS and CLR collections
-        // of one manifest set freeze different `impl` bodies over different layer-2 leaves.
-        let key = cacheTag + "|" + target + "|" + String.concat ";" normalised
+        let normalised = ReferencedProject.resolveAll target packageDirs
+
+        // The metadata tag distinguishes each backend's collection of one package set: they
+        // freeze different bodies over different layer-2 leaves. The target is in the key in
+        // its own right because an EMPTY set resolves to no path that could carry it.
+        let key =
+            cacheTag
+            + "|"
+            + target
+            + "|"
+            + (normalised |> List.map (fun m -> m.Path) |> String.concat ";")
 
         contractCache
             .GetOrAdd(
@@ -261,10 +267,9 @@ module SymbolProviders =
                     lazy
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
 
-                         let provider =
-                             ReferencedProject.composeOrdered metaTail target ordered transitiveDeps
+                         let provider = ReferencedProject.composeOrdered metaTail ordered transitiveDeps
 
-                         let collected = inlineBodies target provider ordered
+                         let collected = inlineBodies provider ordered
 
                          // A later body wins a clash (the list is in manifest/decl order).
                          let byName =
@@ -289,7 +294,7 @@ module SymbolProviders =
                              )
 
                          {
-                             ManifestPaths = normalised
+                             RuntimeAssets = ReferencedProject.runtimeModules ordered
                              Provider = served
                              BodiesByName = byName
                              Origins = collected.Origins
@@ -297,23 +302,12 @@ module SymbolProviders =
             )
             .Value
 
-    /// Cached contract for a manifest set, over a caller-supplied layer-2 leaf FACTORY — the
-    /// seam each backend wraps with its concrete leaf. `cacheTag` keeps each backend's
-    /// collection of the same manifest set distinct.
-    let buildContractWith
-        (cacheTag: string)
-        (metaTail: MetaTailFactory)
-        (target: string)
-        (manifestPaths: string list)
-        : Contract =
-        buildContractCached cacheTag metaTail target manifestPaths
-
-    /// `buildContractWith` over a FIXED layer-2 leaf, wrapped as a constant factory — for a
+    /// `buildContractWith` over a FIXED layer-2 leaf, wrapped as a constant factory: for a
     /// backend whose tail reads nothing from the reverse-canon map.
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)
         (target: string)
-        (manifestPaths: string list)
+        (packageDirs: string list)
         : IExternalSymbolProvider =
-        (buildContractCached cacheTag (fun _ -> metaTail) target manifestPaths).Provider
+        (buildContractWith cacheTag (fun _ -> metaTail) target packageDirs).Provider

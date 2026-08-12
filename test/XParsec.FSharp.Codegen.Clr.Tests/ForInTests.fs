@@ -94,7 +94,7 @@ let forInTests =
                             "        ()"
                         ]
 
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 
@@ -201,7 +201,7 @@ let forInTests =
                             "        printfn \"%d\" x"
                         ]
 
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 
@@ -430,7 +430,7 @@ let forInTests =
                             "        printfn \"%d\" x"
                         ]
 
-                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 
