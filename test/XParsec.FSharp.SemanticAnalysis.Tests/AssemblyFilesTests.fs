@@ -134,8 +134,9 @@ module B =
                 Expect.isEmpty (unresolvedErrors f2) "file 2 (which sees file 1) is clean"
             }
 
-            test "NEAREST file wins a name clash (compose ordering)" {
-                // The composite's FIRST provider is the nearest file.
+            test "composite resolves first-provider-wins (ordering, not identity)" {
+                // Composes the two views BY HAND, so it pins `composite` alone. What the
+                // assembly front end actually hands a third file is the test below.
                 let earlier =
                     "\
 namespace Test
@@ -190,6 +191,63 @@ module Shared =
                 | ValueSome s ->
                     Expect.equal s.Scheme symEarlier.Scheme "nearest (earlier) file's dup wins when it is first"
                 | ValueNone -> failtest "composed provider did not resolve dup"
+            }
+
+            test "a THIRD file sees the NEARER of two re-declarations" {
+                // The rule end-to-end, through `analyseAssembly` rather than a hand-composed
+                // list: file 2 re-declares file 1's `dup` at a DIFFERENT type, and file 3 must
+                // resolve the one file 2 declared.
+                let file1 =
+                    "\
+namespace Test
+
+module Shared =
+    let dup = 1
+"
+
+                let file2 =
+                    "\
+namespace Test
+
+module Shared =
+    let dup = \"hello\"
+"
+
+                // Annotating `string` is itself the assertion: it type-checks only if the
+                // NEARER declaration won.
+                let file3 =
+                    "\
+namespace Test.C
+
+module C =
+    let useIt: string = Test.Shared.dup
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2; "file3.fs", file3 ]
+                    |> files
+
+                let name = "Test.Shared.dup"
+
+                let schemeOf (f: FrozenFile) =
+                    match (f.View :> IExternalSymbolResolver).TryLookup name with
+                    | ValueSome s -> s.Scheme
+                    | ValueNone -> failtestf "file did not export %s" name
+
+                let schemeEarlier = schemeOf all.[0]
+                let schemeLater = schemeOf all.[1]
+
+                Expect.notEqual schemeEarlier schemeLater "the two files' dup schemes differ (int vs string)"
+
+                let errors = all.[2].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError
+
+                Expect.isEmpty errors "file 3 binding the nearer (string) dup to a string is clean"
+
+                // `Scoped` is the composed provider file 3 was analysed against.
+                match (all.[2].Scoped :> IExternalSymbolResolver).TryLookup name with
+                | ValueSome s ->
+                    Expect.equal s.Scheme schemeLater "file 3 resolves dup to the NEARER file's declaration"
+                | ValueNone -> failtest "file 3's scoped provider did not resolve dup"
             }
 
             test "diagnostics anchor to their OWN file's path + (line, col)" {

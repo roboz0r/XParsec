@@ -137,9 +137,12 @@ module ClrDriver =
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         AssemblyFiles.analyseGated analyse project.AssemblyName external files
         |> Result.map (fun analysed ->
-            // Each file's projected view (nearest-first) ahead of the external stack.
+            // The visibility stack analysis composed, rebuilt: `external` is the floor and
+            // `Files` is in file order, so each view pushes on top of the ones it may shadow.
             let symbols =
-                ExternalSymbolProviders.composite ([ for f in analysed.Files -> f.View ] @ [ external ])
+                ExternalSymbolProviders.composite (
+                    analysed.Files |> List.fold (fun stack f -> f.View :: stack) [ external ]
+                )
 
             let tasts = [ for f in analysed.Files -> f.Frozen ]
             Codegen.compileFilesWithBclReferences bclReferences symbols project tasts

@@ -96,17 +96,15 @@ module AssemblyFiles =
         (external: IExternalSymbolProvider)
         (files: (string * string) list)
         : Result<FrozenFile, UnparsedFile> list =
-        // Prior file views in FILE ORDER (oldest first); the newest is at the head after
-        // each push, so `List.rev` before composing puts the NEAREST file first.
-        let mutable priorViews: IExternalSymbolProvider list = []
+        // The visibility STACK, nearest first, with the external surface as its floor.
+        let mutable visible: IExternalSymbolProvider list = [ external ]
         let results = ResizeArray<Result<FrozenFile, UnparsedFile>>()
 
         for (path, source) in files do
             match Pipeline.parse source with
             | Error f -> results.Add(Error { Path = path; Failure = f })
             | Ok parsed ->
-                let composed =
-                    ExternalSymbolProviders.composite ((List.rev priorViews) @ [ external ])
+                let composed = ExternalSymbolProviders.composite visible
 
                 // This file's own `namespace N` ahead of whatever prelude the external
                 // surface carries, so a bare `bool` finds the `N.bool` an earlier file of
@@ -124,8 +122,8 @@ module AssemblyFiles =
                 let frozen = analyse assemblyName scoped origin parsed.File
                 let view = FrozenSignature.toProvider origin frozen
 
-                // Later files resolve this file's exports through its view.
-                priorViews <- view :: priorViews
+                // Pushed on top of the files it may shadow; later files resolve through it.
+                visible <- view :: visible
 
                 results.Add(
                     Ok

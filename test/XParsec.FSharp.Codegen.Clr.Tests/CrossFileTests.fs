@@ -10,21 +10,22 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // compiled together and RUN. A cross-file reference that failed to re-home to a LOCAL
 // definition would emit a self-`AssemblyRef`, so the loader faults and `peAssemblyRefs` sees it.
 
-/// Compile a two-file assembly through the production driver seam: each file analysed against
+/// Compile a multi-file assembly through the production driver seam: each file analysed against
 /// the composed prior views, `views ++ external` composed, ONE PE emitted. Returns its bytes.
-let private compileTwoFiles (asmName: string) (file1: string) (file2: string) : byte[] =
+let private compileFiles (asmName: string) (sources: (string * string) list) : byte[] =
     // The external surface (operators, `printfn`, the Vesper primitives) that the front end
     // resolves against and codegen threads through.
     let external = ClrSymbolProviders.buildContract defaultPackages
     let project = withCore (ProjectInfo.defaults asmName)
 
-    // Scoping is forward-only: file 2 sees file 1 through file 1's projected view. A parse or
-    // analysis error surfaces here, anchored to its own file.
-    match
-        ClrDriver.compileAssemblyWith Pipeline.analyseFor [] external project [ "file1.fs", file1; "file2.fs", file2 ]
-    with
+    // Scoping is forward-only: each file sees the earlier ones through their projected views.
+    // A parse or analysis error surfaces here, anchored to its own file.
+    match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] external project sources with
     | Ok artifact -> Codegen.toBytes artifact
     | Error diags -> failtestf "cross-file compile failed: %A" diags
+
+let private compileTwoFiles (asmName: string) (file1: string) (file2: string) : byte[] =
+    compileFiles asmName [ "file1.fs", file1; "file2.fs", file2 ]
 
 [<Tests>]
 let tests =
@@ -304,5 +305,54 @@ printfn \"%d\" (callIt g)
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "13" "cross-file typar-bound interface dispatch returns the value"
+            }
+
+            // Codegen composes the per-file views nearest-first, matching analysis. That
+            // agreement is NOT observable by running a re-declaration: layout rejects the
+            // second contribution to a module first, so the shadowed definition is
+            // unreachable rather than merely unpreferred. Analysis pins the ordering itself
+            // (`AssemblyFilesTests`); this pins the rejection that keeps it unobservable here.
+            test "a module contributed by two files is REJECTED before emission" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Shared =
+    let dup () : int = 1
+"
+
+                let file2 =
+                    "\
+namespace CrossFile
+
+module Shared =
+    let dup () : int = 2
+"
+
+                let file3 =
+                    "\
+open CrossFile
+
+printfn \"%d\" (Shared.dup ())
+"
+
+                let compile () =
+                    compileFiles "CrossFileRedeclare" [ "file1.fs", file1; "file2.fs", file2; "file3.fs", file3 ]
+                    |> ignore
+
+                let failure =
+                    try
+                        compile ()
+                        None
+                    with e ->
+                        Some e.Message
+
+                match failure with
+                | None -> failtest "a module split across two files must not reach emission"
+                | Some m ->
+                    Expect.stringContains
+                        m
+                        "contributed by more than one file"
+                        (sprintf "layout rejects the split module; got %A" m)
             }
         ]
