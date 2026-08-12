@@ -160,9 +160,28 @@ emitter's inheritance wall fires on a source `inherit` clause, and nothing write
 `obj`. So this is decoupled from §4.2 entirely, and it is not a per-target contract split.
 
 What it does NOT settle is the `top` / `obj` conflation — JS `obj` becomes the class root
-where some sites mean the value ⊤ (`unknown`). That is deferred, with the reasoning and the
-naming direction recorded in `contract-sourced-intrinsic-identity-plan.md`. It has no
-observable consequence until `.d.ts` emission (§4.3), which is what will force it.
+where some sites mean the value ⊤ (`unknown`). That stays DEFERRED; the reasoning and naming
+direction moved here (2026-08-12) from the contract-sourced intrinsic identity work, which
+landed and was deleted.
+
+`obj` conflates the value ⊤ (JS `unknown`) with the heritable class root (JS `Object`); CLR
+collapses both to `System.Object`. Binding `type obj = (# class "Object" #)`, above, removes
+the heritability disagreement without a per-target contract split, and it is inert at runtime
+— JS emission is type-erased, so no `obj`-typed body observes the repr text.
+
+If the split lands, **`top` takes the ⊤ meaning** (JS `unknown`, CLR non-heritable
+`System.Object`) and `obj` stays the class root. That is the REVERSE of the direction first
+recorded, which held that the high-frequency ⊤ meaning should keep the default name. Reasons:
+the contract already declares `type obj = extern class with new: unit -> obj`, `obj` is the
+name that appears in upcast and `inherit` positions, and only the ⊤ sites need renaming, which
+is the bounded edit.
+
+The forcing function is `.d.ts` emission (§4.3), not runtime behaviour: `Object` is the wrong
+TS spelling for a ⊤ parameter, since it excludes `null` / `undefined` and admits primitives
+only boxed. The ⊤ sites are countable today — `IFormatSink.Child`, the
+`structural-printer.js.fs` helper signatures, and `structuralEquals` / `structuralHash` /
+`structuralCompare`. Until declarations are emitted the distinction has no observable
+consequence. (`feedback_prototype_correct_semantics_over_fsharp_parity`.)
 
 ### 4.2 Are the compiler attributes CLR-only? — DECIDED: erased on JS *(C3)*
 

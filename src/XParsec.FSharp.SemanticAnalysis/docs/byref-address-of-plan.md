@@ -2,10 +2,10 @@
 
 **Status (2026-07-09): DEFERRED, design-only. No consumer yet** (user, confirmed 2026-07-09 —
 no pressing consumer; the goal is eventual full F# feature coverage with more sophisticated
-analysis to facilitate future native lowering). Spun out of
-`contract-sourced-intrinsic-identity-plan.md` §5 once scouting showed "byref migration"
-decomposes into three pieces at different risk. **Piece 1 (type identity `"&"`→`Vesper.byref`)
-LANDED there**; this doc holds the two deferred pieces. Delete when they land
+analysis to facilitate future native lowering). Spun out of the contract-sourced intrinsic
+identity work once scouting showed "byref migration" decomposes into three pieces at different
+risk. **Piece 1 (type identity `"&"`→`Vesper.byref`) LANDED there**; this doc holds the two
+deferred pieces. Delete when they land
 (`feedback_plan_docs_ephemeral`). This is a *producer*-side feature — Vesper source cannot yet
 *declare or construct* an arbitrary byref; the *consume* side (`&local` into a BCL `out`/byref
 param) already works and is NOT in scope to change except where the operator generalisation

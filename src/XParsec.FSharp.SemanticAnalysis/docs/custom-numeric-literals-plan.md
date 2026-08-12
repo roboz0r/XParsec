@@ -1,9 +1,9 @@
 # Custom numeric literals (`52I` / `52Q` / …)
 
-**Status (2026-07-08): live plan.** Spun out of `contract-sourced-intrinsic-identity-plan.md` —
-Stage 5a surfaced it: a bigint LITERAL is a custom numeric literal, not a primitive constant.
-`bigint` the TYPE already landed there as a `prim-types` intrinsic (Stage 5a, user-confirmed model
-1a); THIS plan is the LITERAL mechanism only. Delete when it lands (`feedback_plan_docs_ephemeral`).
+**Status (2026-07-08): live plan.** Spun out of the contract-sourced intrinsic identity work,
+which surfaced it: a bigint LITERAL is a custom numeric literal, not a primitive constant.
+`bigint` the TYPE already landed there as a `prim-types` intrinsic (user-confirmed model 1a);
+THIS plan is the LITERAL mechanism only. Delete when it lands (`feedback_plan_docs_ephemeral`).
 
 ## What the feature is (F# language spec)
 

@@ -1,13 +1,13 @@
 # Flow-sensitive nullability analysis — guard narrowing on `T | null`
 
-**Status (2026-07-08): deferred, not started.** Spun out of Stage 5c (Tier C) of
-`contract-sourced-intrinsic-identity-plan.md`. Tiers A + B of 5c LANDED (`objnull` is the
+**Status (2026-07-08): deferred, not started.** Spun out of the contract-sourced intrinsic
+identity work, whose nullability stage landed in two tiers before this one (`objnull` is the
 ordinary `obj | null` union end to end; `null` has one cross-backend identity
 `RuntimeNames.nullKey`; CLR reference-null erasure applies at the three ABI seams). Those
 tiers make `T | null` a faithful, representable, codegen-safe union — but nothing yet
 *removes* the `null` member along a branch that has proven the value non-null. This plan is
-that analysis. It is a standalone feature: Tiers A/B do not need it, and it needs nothing
-from the parent plan beyond the representation they landed. Delete this doc once it lands
+that analysis. It is a standalone feature: those tiers do not need it, and it needs nothing
+from them beyond the representation they landed. Delete this doc once it lands
 (or is abandoned) per `feedback_plan_docs_ephemeral`.
 
 ## The gap

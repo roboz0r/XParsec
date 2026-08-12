@@ -121,8 +121,8 @@ to survive a recompile of its callers — a version skew is exactly the F# story
    nativeint  unativeint
    ```
 
-   The set is **closed** — the qualified-intrinsic-identities milestone (landed; successor:
-   `contract-sourced-intrinsic-identity-plan.md`) gave the intrinsic *identities* a namespace
+   The set is **closed** — the qualified-intrinsic-identities milestone (landed, along with the
+   contract-sourced identity work that succeeded it) gave the intrinsic *identities* a namespace
    (`FTConst("string")` → the qualified `Vesper.string` identity) but did **not** expand the
    set. So this list is stable across that milestone; only the *identity representation* the
    hash reads changed, not the membership. The readable token stays the **simple** name

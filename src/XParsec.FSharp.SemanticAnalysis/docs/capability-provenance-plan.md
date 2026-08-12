@@ -2,8 +2,13 @@
 
 Working document. Ephemeral: delete it when the work lands.
 
-Two changes, one defect. Neither is coded yet; the semantic premises marked **CONFIRM** have
-to be settled before any of it is.
+Two changes, one defect. Neither is coded yet.
+
+**Change B is the one that removes the defect, and it is the decided direction** (user,
+confirmed 2026-08-12): the provider answers the capability query. Change A is a separate,
+larger rule about `.fsi` hiding that stands on its own merits. An earlier revision had these
+the other way round — Change B marked "SUPERSEDED, do not implement" and Change A named as the
+fix — which is why the section below is written as a rebuttal of its own former status.
 
 ## The defect
 
@@ -18,7 +23,8 @@ nothing else: there is no interface list to carry, so the shape comes back with
 step earlier: a bool squeezed through the repr table because the parent nominal could not be.
 
 So the answer to "is `'T[]` a `seq<'T>`?" depends on which provider the question reaches.
-That is the defect. Two independent changes remove it.
+That is the defect, and it is a defect of asking a FROZEN FIELD a question the PLATFORM owns
+the answer to. Change B removes it at that root.
 
 ## Change A — a file is published as SIGNATURES + BODIES, and a `.fsi` hides
 
@@ -100,83 +106,236 @@ an array where a `seq` is asked for. The first one to do so fails with no diagno
 here. So this defect is a LIVE LATENT HOLE that Change B closes; Change A is the general
 rule, and stands on its own merits whether or not it is what closes this.
 
-## Change B — SUPERSEDED: this is `intrinsic-capability-representation-plan.md`
+## Change B — THE END GOAL (relitigated and reinstated 2026-08-12)
 
-**Do not implement this section. It is the same work as an existing plan, which already
-decided it — and decided it differently from the sketch below.** Kept only so the reasoning
-that led here is not repeated by the next reader.
+**Status: this is the direction (user, confirmed 2026-08-12). Do not add features that move
+away from it.** This section carried a "SUPERSEDED — do not implement" marker for two days,
+deferring to `intrinsic-capability-representation-plan.md`. That deference was never earned:
+the doc it deferred to was three weeks OLDER, and when its premises were checked (2026-08-12)
+three of them were stale — it has since been absorbed into `platform-facts-plan.md`. The
+sketch below is reinstated as the target design.
 
-`intrinsic-capability-representation-plan.md` splits constraint sourcing on two axes and puts
-`seq` explicitly on the first:
+**The provider answers the capability query** — given an intrinsic identity and a capability
+identity, is the capability satisfied and at what instantiation. `subtypeInterfacesOf` and
+`tryForInEnumerator` ask that question instead of reading a frozen field, so the answer stops
+depending on which route published the shape.
 
-- **Capability axis** — `Equality`, `Comparison`, and the interface capabilities `disposable`
-  / `seq`. Behavioural and TARGET-AGNOSTIC: `int` is comparable on CLR, JS and a GPU alike.
-  Declared on the type in the shared `.fsi`, resolved through `FrozenInterfaces`.
-- **Representation axis** — value-ness, the null model. Genuinely per-target, and the subject
-  of `platform-facts-plan.md`.
+**The contract PRESCRIBES the answer** (user, 2026-08-12). This is the correction to an earlier
+revision of this section, which had the CLR provider deriving an intrinsic's capabilities from
+reflection and the JS provider from hardcoded dialect knowledge. That is wrong, and the reason
+is portability, not layering.
 
-So "is `'T[]` a `seq<'T>`?" is a CONTRACT fact under the decided design, not a backend query.
-`prim-types-array.fsi`'s `interface seq<'T>` is the answer, and the fix for the hole above is
-to make the contract route reach every consumer — which is Change A — not to add a second
-source of truth. The JS backend already works this way: `JsNativeSymbols`'s fabricated
-`IEnumerable`/`IEnumerator` stubs are gone, and JS "keys iteration by the `seq` capability
-alone".
+### The contract is a LOWER BOUND, and the platform may widen it
 
-Two further points from those plans that the sketch below got wrong:
+`int` is equatable and comparable because **the language prescribes it**, not because
+`System.Int32` happens to implement `IEquatable<Int32>`. Those facts belong in the shared
+`Vesper.Core` `.fsi`. Likewise `prim-types-array.fsi` declares `interface seq<'T>` and is
+silent on the rest.
 
-- **The query DOES go on `IExternalSymbolProvider`.** `platform-facts-plan.md` originally
-  ruled the other way; that bullet is reversed there, with the reasoning. In short: the
-  provider being the sole outside-world view of a file under analysis is worth keeping, the
-  test-double cost it was traded for does not exist (one double on the whole tree, and
-  `KeyIndexedLeaf` is already the shared data-driven one), and the interface already carries
-  platform facts in `IntrinsicForwardRepr`.
+**That silence is a floor, not a ceiling** (user, 2026-08-12). `Int32[].GetInterfaces()`
+returns ten interfaces — `IList\`1`, `ICollection\`1`, `IReadOnlyList\`1`,
+`IStructuralComparable`, `ICloneable`, … — and on a CLR build a Vesper array SHOULD be passable
+to a BCL method expecting `IList<'T>`. Refusing that to protect portability would be a bad
+trade: it makes the common case inconvenient to buy a guarantee the build system already
+provides. **Target incompatibility is discovered by building against the target**, exactly as
+it is for `when 'T : struct` — legal to write, diagnosed on the target that cannot honour it.
+
+So the two sources are ADDITIVE:
+
+- **contract** — the portable floor every target must supply (`seq<'T>` on arrays; equatable /
+  comparable on `int`). Prescribed, target-agnostic, visible in the `.fsi`.
+- **platform** — whatever this target actually provides on top. Genuinely reflection-derived on
+  CLR, and correctly so.
+
+### So what is the backend for? Widening, and witnessing the floor
+
+The platform leaf has two jobs, and only the first is new capability CONTENT:
+
+1. **Widen.** Surface the target's own capabilities for an intrinsic, so CLR code can use a
+   Vesper array as an `IList<'T>`. This is the reflection answer, and it is legitimate.
+2. **Witness the floor.** `contract ⊆ platform` — a target that cannot deliver a PRESCRIBED
+   capability is a broken target, which is a diagnostic worth having. Checkable on CLR;
+   on JS there is nothing to check against, which is fine.
+
+This keeps `feedback_freeze_no_backend_knowledge` satisfied: freezing knows no backend, the
+backend owns its own dialect, and the language owns the floor.
+
+### The mechanism — a dedicated member so the lossy leaf ABSTAINS
+
+If the contract prescribes the answer, why does the defect exist at all? Because of HOW the
+question is currently asked, and this is the whole of the fix.
+
+`TryLookupType` is **first-hit at whole-shape granularity** — `stack`'s `firstHit` scans leaves
+from index 0 and stops at the first `ValueSome`, returning that leaf's `ExternalTypeShape`
+entire (`ExternalSymbolProviders.fs:239-253`, `:330-331`). Composition puts per-file `.fs`
+views at the HEAD and the contract + metaTail at the TAIL (`AssemblyFiles.fs:108-109`,
+`ClrDriver.fs:141-142`, `ReferencedProject.fs:563-564`). So for `'T[]` the array's own
+`prim-types-array.fs` view wins, and its `Interfaces = EqArray.empty` is read as **"no
+interfaces"** when the truth is **"this leaf does not know"**. The contract's populated shape,
+sitting further down, is never consulted.
+
+**A dedicated ADDITIVE member fixes this, because abstention becomes the default.**
+`FrozenSignature.toProvider` builds its leaf as a record update over `KeyIndexedLeaf.empty`
+(`FrozenSignature.fs:496-522`). A new field defaulting to "no opinion" in `KeyIndexedLeaf.empty`
+is inherited there **without editing that call site** — F#'s `with`-syntax makes silence the
+default. The per-file view then says nothing rather than lying, and the contract leaf's answer
+survives to the caller.
+
+**The lower-bound semantics and the abstention fix are the SAME requirement.** Contract-floor
+plus platform-widening means the query must UNION across leaves rather than stop at the first —
+the contract leaf contributes `seq<'T>`, the CLR leaf contributes `IList<'T>` and the rest, and
+a caller asking "is this assignable to `IList<int>`?" needs both to have been consulted. An
+additive merge delivers that AND makes an abstaining leaf contribute the identity element. One
+mechanism, both problems; there is no version of this design where first-hit is right.
+
+**Precedent, already load-bearing in this tree: `AmbientOpenPrefixes`.** The per-file view
+abstains explicitly — `AmbientOpenPrefixes = []` at `FrozenSignature.fs:517-519`, with a sited
+comment saying a frozen impl file publishes no `[<AutoOpen>]` surface — and `collectAmbient`
+(`ExternalSymbolProviders.fs:375-380`) concatenates over ALL sources rather than taking the
+first, so the contract's prelude prefixes reach the front of a self-host compile through N
+abstaining views. That is exactly the shape to copy. `TryRecordsWithField` is the second
+precedent, and its sited comment states the principle outright: *"UNION, not first-hit-wins …
+so a later source's records add rather than being shadowed"* (`:317-319`).
+
+**Consequence: this needs neither Change A nor a new frozen fact channel.** The route-dependence
+was never inherent to contract-sourcing; it was an artefact of asking a whole-shape first-hit
+question.
+
+#### Two traps to avoid when building it
+
+1. **Plumb the member THROUGH the leaf record; do not derive it in `ofKeyedLeaf`.** That
+   function already derives channels from others — `TryLookupMemberByKey` from
+   `TypeMembersByKey` (`ExternalSymbolProviders.fs:178-180`), `TryLookupIndexSignature` /
+   `TryLookupByKey` by re-rendering keys onto the name index (`:182-189`). Implementing the
+   capability query there as "look up `ShapesByKey`, read `Intrinsic.Class.Interfaces`, answer"
+   would force the per-file view to answer, and it would answer empty — reproducing the exact
+   defect through a new door. This is the live trap; the interface's current shape invites it.
+2. **A single `voption` cannot carry a union.** Under additive merge the natural return is the
+   set of satisfied capabilities with their instantiations, not one hit. Note also that
+   `voption` conflates "absent" with "no opinion": decide whether a leaf ever needs to refute a
+   capability (a target contradicting a stale contract claim) before fixing the shape. Fold or
+   first-hit, `voption` has that conflation.
+
+### Feasibility of the platform half
+
+None of this gates the prescribed floor, which the contract supplies:
+
+- **CLR widening and witnessing.** `MetadataLoadContext` gives `Int32[].GetInterfaces()` the
+  full set, and does so for an OPEN element (`T.MakeArrayType()`), so the surface can be built
+  over a typar — no concrete element needed. But `TryLookupType` projects a key to a name
+  (`MetadataSymbols.fs:681-683`) and `Vesper.[]` resolves to null, so `buildClassInterfaces`
+  never runs for an array today; this is a net-new entry point. `computeType` also reports
+  arity 0 for `Int32[]` (`IsGenericType` is false for arrays), so it cannot serve as-is. For
+  primitives the repr→metadata bridge already exists and is production-proven for MEMBERS
+  (`EngineCore.fs:450-456`, `:469-478` → `InferRecordAccess.fs:35,64`, how `"hello".TryCopyTo`
+  reaches `System.String`).
+- **Reconciling names.** Metadata returns `FTClass(System.Collections.Generic.IEnumerable\`1,
+  …)` while the capability anchor is `Vesper.Collections.seq`, so the CLR contribution goes
+  through `sameNominalKey` / `capabilityCanonKey` (`EngineCore.fs:403-428`) — otherwise the
+  platform would double-report the floor under a different name instead of widening past it.
+- **JS needs nothing for the floor.** `JsNativeSymbols.fs:63` is one `Error` class with no
+  interfaces, and that is fine: JS gets `seq` from the shared contract plus
+  `capabilities-compat.js.fsi:11`, as it does today. JS-side widening can stay empty until
+  there is a JS capability worth surfacing.
+
+### Do NOT build these — they move away from the goal
+
+- **A stamped capability verdict frozen onto the intrinsic identity.** Tempting, because
+  nominals already work this way (`IInterfaceImplHost.EqualitySupport`, stamped at
+  registration, `TypeRegistration.fs:531-553`) and `IntrinsicAbbrevInfo` already has the slot
+  as a hardcoded constant (`TypeInfos.fs:253-254`). It is rejected: it is a NEW frozen fact
+  channel, which entrenches exactly the field-reading path the provider query removes. It does
+  not even dodge Change A — the producer (`TypeRegistration.fs:812-820`) fires on the `.fs`,
+  which declares no interfaces, so it would need Change A anyway or a second declaration.
+- **Widening `subtypeInterfacesOf` to read more frozen fields.** Same reason.
+
+### Known cost — `subtypeInterfacesOf` is the hard half
+
+`tryForInEnumerator`'s `TyConst` arm (`InferControlFlow.fs:592-600`) is an exact fit: it
+already reduces the interface list to "is Enumerable satisfied, at what instantiation" via
+`pickEnumerableElem`. ~8 lines, `ctx.Provider` already in hand.
+
+`subtypeInterfacesOf` (`EngineCore.fs:532-561`) is not. It returns the whole outgoing edge
+set, and both callers need that: `tryUpcastWitness` (`:590`) recurses through each surfaced
+interface to reach transitive bases, and `tryExternalInheritedMember` (`:615`) searches
+members across all supertypes. A capability-keyed yes/no cannot serve either. So the provider
+needs an ENUMERATE-interfaces-of-an-intrinsic query as well as the capability query — still
+provider-answered, but it is a second member, and rerouting `tryUpcastWitness` is a rewrite of
+the walk rather than a swap.
+
+### Prerequisite — the zero-leaf case, and where those tests go
+
+`noMetaTail` returns `[]` (`ReferencedProject.fs:490-494`) and
+`SemanticAnalysis.Tests/TestHelpers.fs:27` uses it, so the entire SA front-end suite runs with
+NO platform provider. Once capabilities are provider-answered, "nobody had an opinion" is the
+answer for every SA test at once.
+
+**Decided (user, 2026-08-12): SA having no platform is CORRECT, and stays.** Do not give SA a
+synthetic platform leaf to keep those tests running — a test-only stand-in for the real
+provider is the shape of thing this tree keeps deleting
+(`feedback_mockbuiltins_is_a_trap`). As the hardcoded types move out of SA, some tests become
+difficult or impossible to construct there. Each one goes one of two ways:
+
+1. **Restated** so it does not require platform types at all — most SA tests are about
+   resolution, scoping, inference structure, and can be written over project-local types.
+2. **Moved to `XParsec.FSharp.Codegen.Common.Tests`**, where BOTH backends run it against
+   their REAL providers.
+
+The second is a fit rather than a workaround. That project's `Conformance` harness is already
+parameterised over the one thing that differs between targets — a `Backend` record of
+`{ Name; CompileAndRun; Diagnostics }` (`Conformance.fs:37-49`) — with `clrBackend` and
+`jsBackend` supplying real compilations
+(`Codegen.Clr.Tests/ConformanceTests.fs:13`, `Codegen.Js.Tests/ConformanceTests.fs:10`).
+A constraint verdict that differs by target is exactly `Obligation.Diagnose` (`:60`), a
+compile-time rejection matched on a diagnostic fragment, and the per-backend `Obligations` map
+lets one program say CLR runs it and JS rejects it. So `when 'T : struct` — legal to declare,
+erroring at the use site on JS — is expressible as one corpus program with two obligations,
+judged against goldens no backend can influence.
+
+That also means the capability work should not try to keep SA green by weakening what it
+asserts. If an SA test can only pass with a platform, it was never an SA test.
+
+### Settled points carried forward
+
+- **The query goes ON `IExternalSymbolProvider`**, not a second interface. The provider being
+  the sole outside-world view of a file under analysis is worth keeping; the test-double cost
+  it was traded for does not exist (one double on the whole tree — `MemoizeTests.fs:53` — and
+  `KeyIndexedLeaf` is the shared data-driven one); and the interface already carries platform
+  facts in `IntrinsicForwardRepr`. Cost is 7 forwarding arms, mechanical and compiler-checked.
 - **`TypeKey` is the primary key, the repr is secondary.** `IntrinsicIdentity.Platform` is
   many-to-one (JS maps `float` and `float32` both to `number`), so a repr-keyed map — the
   tempting implementation — conflates them.
+- **What identity is a backend asked about?** The array reaches this code as
+  `TyConst(arrayKey 1, [elem])`, now its only spelling, so a provider member may key on it
+  directly. Reconciling the CLR answer needs `sameNominalKey` / `capabilityCanonKey`
+  (`EngineCore.fs:403-428`), since metadata returns
+  `FTClass(System.Collections.Generic.IEnumerable\`1, …)` while the capability anchor is
+  `Vesper.Collections.seq`.
 
-The work this plan contributes to that one is already done: `IntrinsicClassSurface` now
-carries `Interfaces`, and the republish fills it from `FrozenInterfaces`. That is the
-down-payment the capability axis needs.
-
-### The superseded sketch
-
-Change A makes the `.fsi` signatures the published surface. It does NOT state the fact that
-matters here, which is not a Vesper declaration at all: **the target supplies
-`IEnumerable<T>` for `T[]`.** No Vesper code implements it. The `.fsi`'s `interface seq<'T>` is a CLAIM about the platform, and the
-component that can substantiate it is the backend.
-
-So `IExternalSymbolProvider` gains the question directly: given an intrinsic identity and a
-capability identity, is the capability satisfied, and at what instantiation? The CLR provider
-answers from metadata — `T[]` really does implement `IEnumerable<T>`, and reflection says so
-without any contract file. The JS provider answers from its own knowledge that an array
-carries `Symbol.iterator`. `subtypeInterfacesOf` and `tryForInEnumerator` then ask the
-provider rather than reading a frozen field, and the answer no longer depends on which route
-published the shape.
-
-This is the direction `feedback_freeze_no_backend_knowledge` already points: freezing must
-not know a backend, so the target dialect stays in the backend and the front end asks.
-
-### CONFIRM before coding
-
-- **Does the `.fsi` declaration stay?** Two readings. Either it stays as the TYPE-CHECKED
-  claim and the provider is the witness — a mismatch between them being a diagnostic worth
-  having — or the provider becomes the only source and the declaration goes, at the cost of
-  the capability no longer being visible in the source at all. The first is better: a
-  capability a reader cannot see in `prim-types-array.fsi` is a capability nobody knows about.
-- **What is the identity a backend is asked about?** The array reaches this code as
-  `TyConst(arrayKey 1, [elem])`. That is now its only spelling — the declaration files its
-  shape under the same key — so a new provider member may be keyed on it directly.
+*(The two CONFIRM questions this section once carried are settled and folded in above: the
+declaration stays as the claim with the provider as witness, and the array is keyed on
+`arrayKey 1` directly.)*
 
 ## Order, against the other plans in flight
 
-1. `per-target-manifest-plan.md` — **before Change A, not after.** It shrinks `pairingKey`
-   from "strip a suffix for any target this manifest declares" to "strip `.<myTarget>`", and
-   the `.fsi`↔`.fs` pairing is precisely what Change A needs the manifest to hand it. It also
-   threads `target` out of `SymbolProviders.inlineBodies`, the function Change A generalises
-   to the assembly route. Change A first would mean writing that plumbing against a rule that
-   is about to be deleted, then writing it again.
-2. `intrinsic-capability-representation-plan.md` (which absorbs Change B) and
-   `platform-facts-plan.md` — independent of the manifest split.
-3. **Change A**, last. Biggest, newest, and the one that benefits from every step above:
-   simpler pairing, a target already threaded out, and the capability axis already sourced
-   from the contract so the signatures object has something correct to carry.
+The manifest split has since landed, so its step is struck. The rest stands as written —
+Change A last.
+
+*(A 2026-08-12 revision briefly moved Change A FIRST, on the grounds that the frozen route
+drops `Interfaces` and so gates the capability axis. That gate is an artefact of reading the
+verdict off a frozen field, and it disappears under the provider query Change B reinstates:
+the platform leaf is injected per target, not derived from the file under analysis. The
+reversal is withdrawn.)*
+
+0. **Relocate the SA tests that need a platform.** The zero-leaf question is SETTLED (above):
+   SA keeps no platform provider, and the affected tests are restated or moved to
+   `Codegen.Common.Tests`. This is not a blocker to design around but a body of test work that
+   runs alongside step 1 — expect it to be the larger half of that step, and do it as the
+   verdicts move, not after.
+1. `platform-facts-plan.md` step 1 (which absorbs Change B) — the capability query on the
+   provider, then eq/cmp routed to it. Independent of Change A.
+2. `platform-facts-plan.md` steps 2–4 — the representation axis and `Regions`. Step 4 is
+   independent of everything and is the reasonable place to prototype the query shape.
+3. **Change A**, last. Biggest, newest, and it no longer has anything waiting on it: with the
+   capability verdict provider-answered, Change A is about `.fsi` HIDING and the
+   signatures/bodies split on their own merits, not about plugging the capability hole.

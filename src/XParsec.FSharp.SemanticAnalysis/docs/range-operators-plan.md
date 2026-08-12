@@ -1,7 +1,7 @@
 # Range operators — `(..)` / `(.. ..)` as real seq operators
 
-**Status (2026-07-08): deferred, not started.** Spun out of Stage 5b of
-`contract-sourced-intrinsic-identity-plan.md`. Stage 5b took **Route 2** (the small,
+**Status (2026-07-08): deferred, not started.** Spun out of the contract-sourced intrinsic
+identity work, which took **Route 2** (the small,
 honest move): it deleted the `tySeqInt` placeholder and made a range legal ONLY as the
 source of a `for … in` loop that lowers to a counted `ForTo`; every other range use
 (bound to a value, passed as an argument, stepped `a..s..b`) is rejected with a
