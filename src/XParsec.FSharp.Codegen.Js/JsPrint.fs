@@ -232,9 +232,7 @@ module JsPrint =
                     Some(
                         sprintf
                             "{ %s }"
-                            (named
-                             |> List.map (fun (name, alias) -> name + " as " + alias)
-                             |> String.concat ", ")
+                            (named |> List.map (fun n -> n.Export + " as " + n.Local) |> String.concat ", ")
                     )
 
             let clause = [ defaultBinding; namedClause ] |> List.choose id |> String.concat ", "

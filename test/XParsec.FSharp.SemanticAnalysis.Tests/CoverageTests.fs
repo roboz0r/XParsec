@@ -1328,13 +1328,12 @@ let tests =
                     extCtx
                         { ExternalSymbolProviders.NamedLeaf.empty with
                             TryLookupMembers =
-                                (fun (t, n) ->
-                                    if t = "Vec2" && n = "M" then
+                                (fun q ->
+                                    if q.DeclaringType = "Vec2" && q.Name = "M" then
                                         EqArray.ofSeq [ mII; mIS ]
                                     else
                                         EqArray.empty
                                 )
-                            TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "M" then ValueSome mII else ValueNone)
                         }
 
                 // No ground operands ⇒ keep the best-by-arity singular pick, `M(int, int)`.
@@ -1369,13 +1368,12 @@ let tests =
                     extCtx
                         { ExternalSymbolProviders.NamedLeaf.empty with
                             TryLookupMembers =
-                                (fun (t, n) ->
-                                    if t = "Vec2" && n = "N" then
+                                (fun q ->
+                                    if q.DeclaringType = "Vec2" && q.Name = "N" then
                                         EqArray.singleton m1
                                     else
                                         EqArray.empty
                                 )
-                            TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "N" then ValueSome m1 else ValueNone)
                         }
 
                 let expected = ValueSome(SymbolKey.Member m1.Key)

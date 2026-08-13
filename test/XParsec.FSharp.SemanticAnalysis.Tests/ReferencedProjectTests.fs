@@ -704,8 +704,12 @@ let tests =
                         Expect.equal
                             (ReferencedProject.runtimeModules [ loadOrFail jsPath ]
                              |> Map.tryFind "RuntimeAsset")
-                            (Some("asset.mjs", "export const k = 1;\n"))
-                            "package RuntimeAsset → (fileName, source) read from disk"
+                            (Some
+                                {
+                                    FileName = "asset.mjs"
+                                    Source = "export const k = 1;\n"
+                                })
+                            "package RuntimeAsset → its asset read from disk"
 
                         let clrPath = writeManifestFor "clr" "RuntimeAsset" "[core]\nfiles = []\n"
 

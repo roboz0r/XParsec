@@ -73,10 +73,6 @@ type IExternalSymbolStore =
     /// shape the provider doesn't model.
     abstract TryLookupType: key: SymbolKey -> ExternalTypeShape voption
 
-    /// A static/instance member by the declaring type's key and the member name. When
-    /// several overloads share a name this collapses to a single best-by-arity pick.
-    abstract TryLookupMember: key: SymbolKey * memberName: string -> ExternalMember voption
-
     /// ALL overloads of a member by name: the candidate set the application-site overload
     /// resolver picks from. Empty from providers that don't model members.
     abstract TryLookupMembers: key: SymbolKey * memberName: string -> EqArray<ExternalMember>
@@ -108,6 +104,18 @@ type IExternalSymbolStore =
 type IExternalSymbolProvider =
     inherit IExternalSymbolResolver
     inherit IExternalSymbolStore
+
+[<AutoOpen>]
+module IExternalSymbolStoreExtensions =
+
+    type IExternalSymbolStore with
+
+        /// The HEAD of the name's overload set, so the store's own ordering decides which:
+        /// most-params first from IL metadata, declaration order elsewhere.
+        member this.TryLookupMember(key: SymbolKey, memberName: string) : ExternalMember voption =
+            match this.TryLookupMembers(key, memberName) with
+            | EqEmpty -> ValueNone
+            | ms -> ValueSome ms.[0]
 
 /// An external module-level function as the codegen boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as

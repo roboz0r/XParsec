@@ -865,12 +865,7 @@ let private mkMember
 let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedLeaf
         { ExternalSymbolProviders.NamedLeaf.empty with
-            TryLookupMember =
-                fun (_, name) ->
-                    match overloads |> List.tryFind (fun m -> m.Name = name) with
-                    | Some m -> ValueSome m
-                    | None -> ValueNone
-            TryLookupMembers = fun (_, name) -> overloads |> List.filter (fun m -> m.Name = name) |> EqArray.ofList
+            TryLookupMembers = fun q -> overloads |> List.filter (fun m -> m.Name = q.Name) |> EqArray.ofList
         }
 
 [<Tests>]

@@ -240,11 +240,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     let typeCache =
         ConcurrentDictionary<string, ExternalTypeShape voption>(StringComparer.Ordinal)
 
-    let memberCache =
-        ConcurrentDictionary<struct (string * string), ExternalMember voption>()
-
     let membersCache =
-        ConcurrentDictionary<struct (string * string), EqArray<ExternalMember>>()
+        ConcurrentDictionary<ExternalMemberName, EqArray<ExternalMember>>()
 
     let declaredFlags =
         BindingFlags.Public
@@ -626,12 +623,6 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         resolve [||] 0
             )
 
-    /// Single best member (most-params wins). Call sites use `computeMembers` for overloads.
-    let computeMember (typeName: string) (memberName: string) : ExternalMember voption =
-        match computeMembers typeName memberName with
-        | [||] -> ValueNone
-        | arr -> ValueSome arr.[0]
-
     // The metadata provider is string-keyed internally (its caches address the BCL
     // compiled name); the store view projects the resolved key to that name.
     member private _.LookupTypeByName(name: string) =
@@ -642,23 +633,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             typeCache.[name] <- v
             v
 
-    member private _.LookupMemberByName(typeName: string, memberName: string) =
-        let key = struct (typeName, memberName)
-
-        match memberCache.TryGetValue key with
-        | true, v -> v
-        | _ ->
-            let v = computeMember typeName memberName
-            memberCache.[key] <- v
-            v
-
-    member private _.LookupMembersByName(typeName: string, memberName: string) =
-        let key = struct (typeName, memberName)
-
+    member private _.LookupMembersByName(key: ExternalMemberName) =
         match membersCache.TryGetValue key with
         | true, v -> v
         | _ ->
-            let v = EqArray.ofArray (computeMembers typeName memberName)
+            let v = EqArray.ofArray (computeMembers key.DeclaringType key.Name)
             membersCache.[key] <- v
             v
 
@@ -682,17 +661,26 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         member this.TryLookupType(key: SymbolKey) =
             this.LookupTypeByName(SymbolKeyOps.qualifiedName key)
 
-        member this.TryLookupMember(key, memberName) =
-            this.LookupMemberByName(SymbolKeyOps.qualifiedName key, memberName)
-
         member this.TryLookupMembers(key, memberName) =
-            this.LookupMembersByName(SymbolKeyOps.qualifiedName key, memberName)
+            this.LookupMembersByName(
+                ExternalMemberName.ofKeyed
+                    {
+                        DeclaringType = key
+                        Name = memberName
+                    }
+            )
 
-        // The caches are keyed by (declaring name, member NAME), so a key is answered by
+        // The cache is keyed by (declaring name, member NAME), so a key is answered by
         // exact-identity selection out of that name's overload set; a best-by-arity
         // collapse would answer it with a SIBLING overload's entry.
         member this.TryLookupMemberByKey(key: MemberKey) =
-            this.LookupMembersByName(SymbolKeyOps.qualifiedName (SymbolKey.Type key.Decl), key.Name)
+            this.LookupMembersByName(
+                ExternalMemberName.ofKeyed
+                    {
+                        DeclaringType = SymbolKey.Type key.Decl
+                        Name = key.Name
+                    }
+            )
             |> ExternalSymbols.memberByKey key
 
         // .NET metadata has no TS index-signature concept, so an indexer is a `get_Item`

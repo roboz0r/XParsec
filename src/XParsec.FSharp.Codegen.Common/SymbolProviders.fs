@@ -204,8 +204,8 @@ module SymbolProviders =
     type Contract =
         {
             /// The `[core] runtime` assets of the whole `depends-on` closure, which back a
-            /// compiled program's imports: package name → `(fileName, source)`.
-            RuntimeAssets: Map<string, string * string>
+            /// compiled program's imports, keyed by package name.
+            RuntimeAssets: Map<string, RuntimeAsset>
             Provider: IExternalSymbolProvider
             /// Simple name → body. NOT a resolution channel (the provider folds a body onto
             /// the entry that owns its key); the introspection seam tests assert against.

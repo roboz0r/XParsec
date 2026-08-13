@@ -54,7 +54,6 @@ type private CountingProvider(name: string) =
         member this.TryLookupType(key: SymbolKey) =
             this.TypeByName(SymbolKeyOps.qualifiedName key)
 
-        member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = EqArray.empty
 
         // A miss, but a counted one: at-most-once is observable on this channel too.

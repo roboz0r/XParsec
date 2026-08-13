@@ -3,6 +3,31 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Concurrent
 open System.Collections.Generic
 
+/// Addresses a member by NAME, so it reaches the whole overload set; `MemberKey` addresses
+/// one overload by identity.
+type KeyedMemberName =
+    {
+        DeclaringType: SymbolKey
+        Name: string
+    }
+
+/// `KeyedMemberName` with the declaring type RENDERED: the address a leaf's own by-name
+/// member index is keyed on.
+type ExternalMemberName =
+    {
+        /// The declaring type's qualified compiled name.
+        DeclaringType: string
+        Name: string
+    }
+
+module ExternalMemberName =
+
+    let ofKeyed (key: KeyedMemberName) : ExternalMemberName =
+        {
+            DeclaringType = SymbolKeyOps.qualifiedName key.DeclaringType
+            Name = key.Name
+        }
+
 module ExternalSymbolProviders =
 
 
@@ -16,9 +41,7 @@ module ExternalSymbolProviders =
             TryLookupUnionCase: string -> ExternalUnionCase voption
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
-            /// `(declaring type's qualified compiled name, member name)`.
-            TryLookupMember: string * string -> ExternalMember voption
-            TryLookupMembers: string * string -> EqArray<ExternalMember>
+            TryLookupMembers: ExternalMemberName -> EqArray<ExternalMember>
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
             IntrinsicReverseCanon: Map<string, SymbolKey list>
             IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
@@ -34,7 +57,6 @@ module ExternalSymbolProviders =
                 TryLookupUnionCase = fun _ -> ValueNone
                 TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
-                TryLookupMember = fun _ -> ValueNone
                 TryLookupMembers = fun _ -> EqArray.empty
                 TryLookupIndexSignature = fun _ -> []
                 IntrinsicReverseCanon = Map.empty
@@ -82,8 +104,7 @@ module ExternalSymbolProviders =
             /// Identity + shape from one read. Derived by both builders, never supplied.
             TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
             TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
-            TypeMemberByKey: SymbolKey * string -> ExternalMember voption
-            TypeMembersByKey: SymbolKey * string -> EqArray<ExternalMember>
+            TypeMembersByKey: KeyedMemberName -> EqArray<ExternalMember>
         }
 
     module KeyedLeaf =
@@ -96,8 +117,7 @@ module ExternalSymbolProviders =
                         leaf.TryLookupType name
                         |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
                 TypeShapeByKey = fun key -> leaf.TryLookupType(SymbolKeyOps.qualifiedName key)
-                TypeMemberByKey = fun (key, m) -> leaf.TryLookupMember(SymbolKeyOps.qualifiedName key, m)
-                TypeMembersByKey = fun (key, m) -> leaf.TryLookupMembers(SymbolKeyOps.qualifiedName key, m)
+                TypeMembersByKey = ExternalMemberName.ofKeyed >> leaf.TryLookupMembers
             }
 
         let ofKeyIndexes (leaf: KeyIndexedLeaf) : KeyedLeaf =
@@ -106,31 +126,16 @@ module ExternalSymbolProviders =
                 | true, shape -> ValueSome shape
                 | _ -> ValueNone
 
-            let membersNamed (key: SymbolKey) (memberName: string) : EqArray<ExternalMember> =
-                match leaf.MembersByKey.TryGetValue key with
+            let membersNamed (key: KeyedMemberName) : EqArray<ExternalMember> =
+                match leaf.MembersByKey.TryGetValue key.DeclaringType with
                 | true, ms ->
                     EqArray.ofSeq
                         [
                             for m in ms do
-                                if m.Name = memberName then
+                                if m.Name = key.Name then
                                     m
                         ]
                 | _ -> EqArray.empty
-
-            let firstMemberNamed (key: SymbolKey) (memberName: string) : ExternalMember voption =
-                match leaf.MembersByKey.TryGetValue key with
-                | true, ms ->
-                    let mutable found = ValueNone
-                    let mutable i = 0
-
-                    while found.IsNone && i < ms.Count do
-                        if ms.[i].Name = memberName then
-                            found <- ValueSome ms.[i]
-
-                        i <- i + 1
-
-                    found
-                | _ -> ValueNone
 
             {
                 Named =
@@ -150,8 +155,7 @@ module ExternalSymbolProviders =
                             |> ValueOption.map (fun shape -> struct (key, shape))
                         | ValueNone -> ValueNone
                 TypeShapeByKey = shapeByKey
-                TypeMemberByKey = fun (key, memberName) -> firstMemberNamed key memberName
-                TypeMembersByKey = fun (key, memberName) -> membersNamed key memberName
+                TypeMembersByKey = membersNamed
             }
 
     let ofKeyedLeaf (leaf: KeyedLeaf) : IExternalSymbolProvider =
@@ -168,15 +172,22 @@ module ExternalSymbolProviders =
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) = leaf.TypeShapeByKey key
 
-              member _.TryLookupMember(key, memberName) = leaf.TypeMemberByKey(key, memberName)
-
-              member _.TryLookupMembers(key, memberName) = leaf.TypeMembersByKey(key, memberName)
+              member _.TryLookupMembers(key, memberName) =
+                  leaf.TypeMembersByKey
+                      {
+                          DeclaringType = key
+                          Name = memberName
+                      }
 
               // A leaf indexes members by (declaring type, member NAME), so a key is the
               // exact-identity selection out of that name's overload set. A
               // first-in-declaration-order pick would answer with a SIBLING overload.
               member _.TryLookupMemberByKey(key: MemberKey) =
-                  leaf.TypeMembersByKey(SymbolKey.Type key.Decl, key.Name)
+                  leaf.TypeMembersByKey
+                      {
+                          DeclaringType = SymbolKey.Type key.Decl
+                          Name = key.Name
+                      }
                   |> ExternalSymbols.memberByKey key
 
               member _.TryLookupIndexSignature key =
@@ -347,10 +358,6 @@ module ExternalSymbolProviders =
                   firstHit (fun s -> s.TryLookupType key)
                   |> ValueOption.map (foldIntrinsicSurface key >> stampType)
 
-              member _.TryLookupMember(key, memberName) =
-                  firstHit (fun s -> s.TryLookupMember(key, memberName))
-                  |> ValueOption.map stampMember
-
               // A type's members live in one assembly, so a later source never *adds*
               // overloads and the first source that knows the type wins the whole set.
               member _.TryLookupMembers(key, memberName) =
@@ -506,9 +513,6 @@ module ExternalSymbolProviders =
               member _.TryLookupType(key: SymbolKey) =
                   inner.TryLookupType key |> ValueOption.map mapShape
 
-              member _.TryLookupMember(key, memberName) =
-                  inner.TryLookupMember(key, memberName) |> ValueOption.map mapMember
-
               member _.TryLookupMembers(key, memberName) =
                   inner.TryLookupMembers(key, memberName) |> EqArray.map mapMember
 
@@ -557,9 +561,6 @@ module ExternalSymbolProviders =
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
 
-              member _.TryLookupMember(key, memberName) =
-                  inner.TryLookupMember(key, memberName) |> ValueOption.map stampMember
-
               member _.TryLookupMembers(key, memberName) =
                   inner.TryLookupMembers(key, memberName) |> EqArray.map stampMember
 
@@ -585,9 +586,6 @@ module ExternalSymbolProviders =
             ConcurrentDictionary<string, struct (TypeKey * ExternalTypeShape) voption>()
 
         let typesByKey = ConcurrentDictionary<SymbolKey, ExternalTypeShape voption>()
-
-        let members =
-            ConcurrentDictionary<struct (SymbolKey * string), ExternalMember voption>()
 
         let memberSets =
             ConcurrentDictionary<struct (SymbolKey * string), EqArray<ExternalMember>>()
@@ -621,9 +619,6 @@ module ExternalSymbolProviders =
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) =
                   typesByKey.GetOrAdd(key, (fun k -> inner.TryLookupType k))
-
-              member _.TryLookupMember(key, memberName) =
-                  members.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMember(k, m)))
 
               member _.TryLookupMembers(key, memberName) =
                   memberSets.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMembers(k, m)))

@@ -10,6 +10,10 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module PlatformTypes =
 
+    /// One nominal a decl mentions that the target has no representation for. Field-ordered
+    /// comparison, so sorting the accumulated set IS the report order.
+    type private Unsupported = { TypeName: string; Target: string }
+
     /// The target that binds no representation for `key`, or `ValueNone` when the compiling
     /// target represents it. A capability interface (`disposable` …) is never an `Intrinsic`
     /// and has no value representation, so matching only `Intrinsic` is right, not a gap.
@@ -23,15 +27,20 @@ module PlatformTypes =
                                                 }) -> ValueSome target
         | _ -> ValueNone
 
-    /// Add every nominal name in `t` with no target representation to `acc`, paired with the
-    /// target that lacks it. Zonks first, so a `TyVar` already linked to a concrete shape is
-    /// judged by that shape.
-    let private addUnsupported (ctx: PassContext) (acc: HashSet<string * string>) (t: SemType) : unit =
+    /// Accumulate every nominal in `t` the target has no representation for. Zonks first, so
+    /// a `TyVar` already linked to a concrete shape is judged by that shape.
+    let private addUnsupported (ctx: PassContext) (acc: HashSet<Unsupported>) (t: SemType) : unit =
         let rec go ty =
             match ty with
             | TyConst(key, args) ->
                 match unsupportedOn ctx key with
-                | ValueSome target -> acc.Add(SymbolKeyOps.intrinsicName key, target) |> ignore
+                | ValueSome target ->
+                    acc.Add
+                        {
+                            TypeName = SymbolKeyOps.intrinsicName key
+                            Target = target
+                        }
+                    |> ignore
                 | ValueNone -> ()
 
                 for a in args do
@@ -42,7 +51,7 @@ module PlatformTypes =
 
     /// Visit every expression / pattern type, plus a `Format` hole's side type, which the
     /// default walker doesn't surface.
-    let private buildIter (ctx: PassContext) (acc: HashSet<string * string>) : TastWalk.Iter =
+    let private buildIter (ctx: PassContext) (acc: HashSet<Unsupported>) : TastWalk.Iter =
         { TastWalk.identityIter with
             VisitExpr =
                 fun it e ->
@@ -83,7 +92,7 @@ module PlatformTypes =
     /// The DECLARED type surface: field / case-payload / ctor-parameter / base / interface
     /// / abstract-method types. None of these reaches an expression or pattern, so only the
     /// any-mention rule catches them.
-    let private addDeclSurface (ctx: PassContext) (acc: HashSet<string * string>) (kind: TTypeKind) : unit =
+    let private addDeclSurface (ctx: PassContext) (acc: HashSet<Unsupported>) (kind: TTypeKind) : unit =
         let add = addUnsupported ctx acc
 
         let addField (f: TRecordFieldG<SemType>) = add f.Type
@@ -120,7 +129,7 @@ module PlatformTypes =
         | TTypeKindG.Enum _ -> ()
 
     let private walkDecl (ctx: PassContext) (d: TDecl) : unit =
-        let acc = HashSet<string * string>()
+        let acc = HashSet<Unsupported>()
         let iter = buildIter ctx acc
 
         match d with
@@ -148,9 +157,9 @@ module PlatformTypes =
                         TastWalk.iterExpr iter m.Body
             | _ -> ()
 
-        // One diagnostic per distinct type named; sorted for a stable report order.
-        for (name, target) in acc |> Seq.sort do
-            ctx.Report(ResolvedTypes.declSite d, Kind.UnsupportedOnTarget(name, target))
+        // One diagnostic per distinct type named.
+        for u in acc |> Seq.sort do
+            ctx.Report(ResolvedTypes.declSite d, Kind.UnsupportedOnTarget(u.TypeName, u.Target))
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         for d in tast.Decls do

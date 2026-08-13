@@ -135,9 +135,9 @@ module TsManifestProvider =
             @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol ctx nsPath ex))
             |> Map.ofList
 
-        let membersOf (typeName: string) (memberName: string) : EqArray<ExternalMember> =
-            match Map.tryFind typeName types with
-            | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = memberName)
+        let membersOf (key: ExternalMemberName) : EqArray<ExternalMember> =
+            match Map.tryFind key.DeclaringType types with
+            | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = key.Name)
             | _ -> EqArray.empty
 
         // The TS `{ [k: K]: V }` signatures a type carries, under the SAME qualified name its
@@ -176,12 +176,7 @@ module TsManifestProvider =
                     match Map.tryFind name types with
                     | Some s -> ValueSome s
                     | None -> ValueNone
-            TryLookupMember =
-                fun (typeName, memberName) ->
-                    match membersOf typeName memberName with
-                    | EqEmpty -> ValueNone
-                    | arr -> ValueSome arr.[0]
-            TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
+            TryLookupMembers = membersOf
             TryLookupIndexSignature =
                 fun typeName ->
                     match Map.tryFind typeName indexSigs with

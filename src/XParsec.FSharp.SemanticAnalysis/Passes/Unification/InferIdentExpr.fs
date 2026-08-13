@@ -166,8 +166,11 @@ module internal UnificationInferIdentExpr =
                             // qualifier names a known external union/record, the tail is a
                             // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
                             match tryQualifiedExternalMemberMiss ctx e with
-                            | ValueSome(qual, memberName) ->
-                                errorTy ctx node.Tok (Kind.NoMember(qual, MemberNoun.ValueOrMember, memberName))
+                            | ValueSome miss ->
+                                errorTy
+                                    ctx
+                                    node.Tok
+                                    (Kind.NoMember(miss.Qualifier, MemberNoun.ValueOrMember, miss.MemberName))
                             | ValueNone -> TyVar(freshTyVar ctx)
 
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =

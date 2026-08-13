@@ -71,10 +71,18 @@ module TEnumCases =
 
         n
 
+    /// The first case whose explicit width disagrees with an earlier one's.
+    type WidthConflict<'tok> =
+        {
+            Tok: 'tok
+            /// The width the earlier explicitly-suffixed case established.
+            Established: string
+            /// The width the offending case carries instead.
+            Offending: string
+        }
+
     /// A `System.Enum` has exactly ONE underlying type, so `| A = 1uy | B = 2L` is illegal.
-    /// Returns the first offending case's token with the two width names (first-seen, then
-    /// the mismatch). Unsuffixed `int` cases never conflict.
-    let firstWidthConflict (cases: EqArray<TEnumCaseG<'tok>>) : ('tok * string * string) voption =
+    let firstWidthConflict (cases: EqArray<TEnumCaseG<'tok>>) : WidthConflict<'tok> voption =
         let mutable seen = ValueNone
         let mutable result = ValueNone
 
@@ -87,7 +95,13 @@ module TEnumCases =
                 | ValueNone -> seen <- ValueSome w
                 | ValueSome w0 ->
                     if w0 <> w then
-                        result <- ValueSome(c.Tok, w0, w)
+                        result <-
+                            ValueSome
+                                {
+                                    Tok = c.Tok
+                                    Established = w0
+                                    Offending = w
+                                }
             | _ -> ()
 
         result

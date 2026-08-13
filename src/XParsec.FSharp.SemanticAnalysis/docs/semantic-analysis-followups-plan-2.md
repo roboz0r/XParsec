@@ -460,8 +460,6 @@ which site owns it and deleting the other.
   `Elaborate/Members.elaborateHostMembers`, over the same `impl.Resolved` / `ValueNone -> ()`.
 - `tryInterfaceMethods` and `tryClassType` open with the same `tryClassByKey` /
   `DeclaredTypeKey` lookup under the same three-line justification.
-- "A `System.Enum` has exactly one underlying integral type, so `| A = 1uy | B = 2L` is
-  illegal" — `Elaborate/TypeDecls.fs` and `TEnumCases.fs`.
 - `InferOverload.fs` — "`M<'T>('T,'T)` opens to the same index at every position", on the
   `TrialBindings` type doc and again on `matchTypes`' method-typar arm.
 - The monomorphic-siblings ⇒ no-polymorphic-recursion rule — `InferGeneralize.instantiateBinding`

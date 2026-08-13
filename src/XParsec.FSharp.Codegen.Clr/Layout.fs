@@ -61,10 +61,10 @@ module internal Layout =
         let programClass =
             SymbolKeyOps.moduleKeyOf (ModuleContainer.InNamespace NamespaceKey.Global) project.ModuleName
 
-        // `(ns, name)` of every `[<Struct; IsByRefLike>]` type, because a top-level value
-        // of such a type can't be a static field; computed from the pool's own decl roots
-        // since `Emit.lower` strips the type decls `lowered` would carry.
-        let refStructNsNames =
+        // Every `[<Struct; IsByRefLike>]` type, because a top-level value of such a type
+        // can't be a static field; computed from the pool's own decl roots since
+        // `Emit.lower` strips the type decls `lowered` would carry.
+        let refStructKeys =
             [
                 for d in decls do
                     match TastAccessor.declKind d with
@@ -72,8 +72,7 @@ module internal Layout =
                         let td = TastAccessor.declType d
 
                         match td.Kind with
-                        | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct ->
-                            Emit.typeKeyNsName td.TypeKey
+                        | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct -> td.TypeKey
                         | _ -> ()
                     | _ -> ()
             ]
@@ -83,7 +82,7 @@ module internal Layout =
         // function, keeping the flat static method and adding a wrapper closure. Closure
         // discovery must walk the rewritten decls it republishes.
         let plan =
-            ModuleClassPlan.create moduleMembers genericFnSchemes programClass refStructNsNames lowered0
+            ModuleClassPlan.create moduleMembers genericFnSchemes programClass refStructKeys lowered0
 
         let lowered = plan.Lowered
 

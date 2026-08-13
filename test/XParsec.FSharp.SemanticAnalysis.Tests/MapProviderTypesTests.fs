@@ -115,10 +115,9 @@ let private fake: IExternalSymbolProvider =
                     else
                         ValueNone
             AmbientOpenPrefixes = [ "Amb" ]
-            TryLookupMember = fun (t, m) -> memberByName t m
             TryLookupMembers =
-                fun (t, m) ->
-                    match memberByName t m with
+                fun q ->
+                    match memberByName q.DeclaringType q.Name with
                     | ValueSome mem -> EqArray.singleton mem
                     | ValueNone -> EqArray.empty
         }

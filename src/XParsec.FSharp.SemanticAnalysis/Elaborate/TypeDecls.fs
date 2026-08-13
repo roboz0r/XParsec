@@ -268,19 +268,16 @@ module internal ElaborateTypeDecls =
             ctx.Report(firstId, Kind.HeterogeneousEnum name)
         | _ -> ()
 
-        // A `System.Enum` has exactly one underlying integral type, so explicitly-suffixed
-        // cases of differing width (`| A = 1uy | B = 2L`) are a hard error. Unsuffixed cases
-        // adopt the one explicit width present, so they never conflict.
         match TEnumCases.firstWidthConflict tcases with
-        | ValueSome(tok, w0, w1) ->
+        | ValueSome conflict ->
             ctx.Report(
-                tok,
+                conflict.Tok,
                 Kind.Message(
                     sprintf
                         "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
                         name
-                        w0
-                        w1
+                        conflict.Established
+                        conflict.Offending
                 )
             )
         | ValueNone -> ()

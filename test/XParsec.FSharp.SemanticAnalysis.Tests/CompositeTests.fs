@@ -58,10 +58,9 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                         ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
                     else
                         ValueNone
-            TryLookupMember = fun (t, m) -> taggedMember t m
             TryLookupMembers =
-                fun (t, m) ->
-                    match taggedMember t m with
+                fun q ->
+                    match taggedMember q.DeclaringType q.Name with
                     | ValueSome mem -> EqArray.singleton mem
                     | ValueNone -> EqArray.empty
         }

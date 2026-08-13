@@ -352,18 +352,28 @@ module internal UnificationInferResolve =
         | Pat.Tuple(patterns = pats) -> List.ofSeq pats
         | _ -> [ p ]
 
-    /// For a 2+-segment `Q.member` whose qualifier names a known external union/record but whose
-    /// last segment resolved to no value, case or static member, returns `(qualifier, member)`
-    /// to diagnose. The qualifier is the stamp's RESOLVED identity (`Vesper.Option`).
-    let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : (string * string) voption =
+    /// The two names a `NoMember` diagnostic reads. Both are for DISPLAY: the qualifier is
+    /// the resolved identity with its arity suffix already dropped, not a lookup key.
+    type QualifiedMemberMiss =
+        {
+            Qualifier: string
+            MemberName: string
+        }
+
+    /// For a 2+-segment `Q.member` whose qualifier names a known external union/record but
+    /// whose last segment resolved to no value, case or static member, the names to diagnose.
+    let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : QualifiedMemberMiss voption =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
             match ctx.Resolution.ExternalUnionRecordQualifier.TryGetValue(CstKeys.ofExpr e) with
             | ValueSome qualifierKey ->
-                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
                 // `bareName` drops the arity suffix a generic union's key carries
                 // (`Vesper.Option`1` reads as `Vesper.Option` in a user diagnostic).
-                ValueSome(SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName qualifierKey), memberName)
+                ValueSome
+                    {
+                        Qualifier = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName qualifierKey)
+                        MemberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                    }
             | ValueNone -> ValueNone
         | _ -> ValueNone
 

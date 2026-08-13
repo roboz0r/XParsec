@@ -39,7 +39,6 @@ module Emit =
     let collectModuleValues = EmitClosures.collectModuleValues
     let collectGenericModuleValues = EmitClosures.collectGenericModuleValues
     let collectProgramValues = EmitClosures.collectProgramValues
-    let typeKeyNsName = EmitClosures.typeKeyNsName
     let validateModuleValueInits = EmitClosures.validateModuleValueInits
     let staticEligible = EmitClosures.staticEligible
     let bridgeStaticFnEscapes = EmitClosures.bridgeStaticFnEscapes

@@ -3,6 +3,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.IO
 open XParsec.Toml
 
+/// A committed file a package's `[core] runtime` key names, read off disk.
+type RuntimeAsset = { FileName: string; Source: string }
+
 /// Layer 1 of the symbol-resolution stack: a *referenced project*, a package DIRECTORY resolved
 /// against a target to `manifest.<target>.toml`. Parses its `[core]` `.fsi` files, in order, into
 /// one `ExtractCtx` provider. A symbol's namespace is its FILE's `namespace` header.
@@ -351,10 +354,9 @@ module ReferencedProject =
 
             Ok(ordered, lookup)
 
-    /// The `[core] runtime` assets of an already-closed manifest set, read off disk: package
-    /// name → `(fileName, source)`, the `.mjs` the backend imports by `./<fileName>`. One per
-    /// package: the first listed.
-    let runtimeModules (manifests: Manifest list) : Map<string, string * string> =
+    /// The `[core] runtime` assets of an already-closed manifest set, read off disk, keyed by
+    /// package name. One per package: the first listed.
+    let runtimeModules (manifests: Manifest list) : Map<string, RuntimeAsset> =
         let mutable acc = Map.empty
 
         for manifest in manifests do
@@ -363,7 +365,13 @@ module ReferencedProject =
                 let abs = Path.Combine(manifest.Dir, rel)
 
                 if File.Exists abs then
-                    acc <- Map.add manifest.Name (Path.GetFileName rel, File.ReadAllText abs) acc
+                    let asset =
+                        {
+                            FileName = Path.GetFileName rel
+                            Source = File.ReadAllText abs
+                        }
+
+                    acc <- Map.add manifest.Name asset acc
             | [] -> ()
 
         acc

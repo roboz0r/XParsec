@@ -283,11 +283,6 @@ module EmitClosures =
         | FTLocalTypar _ -> false
         | t -> FrozenType.forallChildren ftNoUnknown t
 
-    /// `(ns, name)` of a `TypeKey`. The ref-struct set is keyed on `(ns, name)` because
-    /// the use-site `FTClass` key and the decl key can carry different `asm` qualification.
-    let typeKeyNsName (t: TypeKey) : string * string =
-        t.Namespace.Dotted, SymbolKeyOps.typeNestedName t
-
     /// The GENERIC module-level values (`let empty : SetTree<'T> = …`). A module class has no
     /// type parameter to type a `SetTree<'T>` field, so each lowers to a zero-arg generic
     /// static method, an ordinary 0-param `StaticFn`. A reference `call`s its `MethodSpec`.
@@ -335,16 +330,16 @@ module EmitClosures =
     let collectProgramValues
         (emissions: Dictionary<BoundVarId, Emission>)
         (programClass: ModuleClassKey)
-        // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this assembly.
-        // Lowering strips type decls, so the caller computes this from the unlowered decls.
-        (refStructNsNames: HashSet<string * string>)
+        // Every `[<Struct; IsByRefLike>]` type declared in this assembly. Lowering strips
+        // type decls, so the caller computes this from the unlowered decls.
+        (refStructKeys: HashSet<TypeKey>)
         (decls: TastAccessor.DeclId list)
         : ModuleValue list =
         // The CLR confines a byref-like type to the stack, so a `[<Struct; IsByRefLike>]`
         // value, or a byref, stays a `Main` local rather than becoming a static field.
         let isFieldEmittable (ty: FrozenType) =
             match ty with
-            | FTClass(key, _) -> not (refStructNsNames.Contains(typeKeyNsName key))
+            | FTClass(key, _) -> not (refStructKeys.Contains key)
             | FTByref _ -> false
             | _ -> true
 

@@ -41,16 +41,18 @@ module JsRuntimeModule =
                 ]
         }
 
-/// The accumulating import for one MODULE: `(exportName, alias)` named bindings plus at
-/// most one default and one namespace binding. A TS default export cannot be imported by
-/// name, so it rides its own slot; the two print as `import D, { a as $x } from "<spec>"`.
+    let ofAsset (asset: RuntimeAsset) : JsRuntimeModule = ofSource asset.FileName asset.Source
+
+/// The accumulating import for one MODULE: its named bindings plus at most one default and
+/// one namespace binding. A TS default export cannot be imported by name, so it rides its own
+/// slot; the two print as `import D, { a as $x } from "<spec>"`.
 type private ImportEntry =
     {
         Path: JsModulePath
         /// The committed asset to materialise beside the output. `ValueNone` for a module
         /// this build EMITS, because that compilation writes the sibling file itself.
         Asset: JsRuntimeModule voption
-        Named: System.Collections.Generic.HashSet<string * string>
+        Named: System.Collections.Generic.HashSet<JsNamedImport>
         mutable Default: string option
         /// The `import * as <binding>` local. Its own statement: a namespace clause cannot
         /// ride the `{ named }` braces, so it is emitted beside the module's other import.
@@ -114,7 +116,7 @@ module JsImports =
                 {
                     Path = path
                     Asset = asset
-                    Named = System.Collections.Generic.HashSet<string * string>()
+                    Named = System.Collections.Generic.HashSet<JsNamedImport>()
                     Default = None
                     Namespace = None
                 }
@@ -169,7 +171,7 @@ module JsImports =
                 bindOnce entry.Default (fun v -> entry.Default <- Some v) "default export" alias
                 alias
             | ImportForm.Named ->
-                entry.Named.Add((name, alias)) |> ignore
+                entry.Named.Add { Export = name; Local = alias } |> ignore
                 alias
             | ImportForm.Namespace ->
                 // The local derives from the MODULE, not the export, so every `Namespace`
@@ -183,7 +185,7 @@ module JsImports =
     let addTypeRef (imports: JsImports) (home: JsHome) (className: string) : string =
         let entry = entryFor imports home (sprintf "external type '%s'" className)
         let alias = "$" + home.Assembly.Replace('.', '_') + "_" + className
-        entry.Named.Add((className, alias)) |> ignore
+        entry.Named.Add { Export = className; Local = alias } |> ignore
         alias
 
     /// The local identifier for an external member, importing the export from `home`'s
@@ -191,7 +193,7 @@ module JsImports =
     let addMemberRef (imports: JsImports) (home: JsHome) (exportName: string) : string =
         let entry = entryFor imports home (sprintf "external member '%s'" exportName)
         let alias = "$" + exportName
-        entry.Named.Add((exportName, alias)) |> ignore
+        entry.Named.Add { Export = exportName; Local = alias } |> ignore
         alias
 
     /// The leading `import … from "<spec>"` block: one statement per imported module,

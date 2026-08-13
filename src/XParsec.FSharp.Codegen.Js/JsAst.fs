@@ -9,6 +9,10 @@ type JsLoc = { Source: int; Line: int; Column: int }
 /// debugger is given for a file, and the text embedded for it.
 type JsMapSource = { Path: string; Content: string }
 
+/// One binding of an `import { … }` clause: `<Export> as <Local>`. Field-ordered comparison,
+/// so sorting a module's bindings orders them by the name the module EXPORTS.
+type JsNamedImport = { Export: string; Local: string }
+
 /// One case of an emitted union:
 /// `class <ClassName> extends <Union> { constructor(<Fields>) { super(<Tag>); … } }`.
 type JsUnionCaseDecl =
@@ -95,9 +99,9 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `reassignable` selects `export let` for a bound variable the module later mutates.
     | Export of name: string * init: JsExpr * reassignable: bool
     /// `import <default>, { <name> as <alias>, … } from "<source>";`. `defaultBinding` is the
-    /// local name a TS DEFAULT export binds to; each `named` entry is an `(exportName, alias)`
-    /// pair. Both empty prints the invalid `import  from "…";`, so one must be non-empty.
-    | Import of defaultBinding: string option * named: (string * string) list * source: string
+    /// local name a TS DEFAULT export binds to. Both it and `named` empty prints the invalid
+    /// `import  from "…";`, so one must be non-empty.
+    | Import of defaultBinding: string option * named: JsNamedImport list * source: string
     /// `import * as <binding> from "<source>";` — its own statement, since a namespace clause
     /// cannot ride the braces of a `{ named }` import for the same source.
     | ImportNamespace of binding: string * source: string

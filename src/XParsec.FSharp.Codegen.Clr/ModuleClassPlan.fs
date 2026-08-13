@@ -74,7 +74,7 @@ module ModuleClassPlan =
         // phantom-typar solve; the emitted arity is re-derived independently below.
         (genericFnSchemes: Map<BoundVarId, FrozenConstraint list>)
         (programClass: Emit.ModuleClassKey)
-        (refStructNsNames: HashSet<string * string>)
+        (refStructKeys: HashSet<TypeKey>)
         (lowered0: TastAccessor.DeclId list)
         : ModuleClassPlan =
         // How every top-level decl of this file emits (name, module class, handle key), decided
@@ -91,7 +91,7 @@ module ModuleClassPlan =
             for mv in Emit.collectModuleValues emissions lowered0 do
                 s.Add mv.Key |> ignore
 
-            for mv in Emit.collectProgramValues emissions programClass refStructNsNames lowered0 do
+            for mv in Emit.collectProgramValues emissions programClass refStructKeys lowered0 do
                 s.Add mv.Key |> ignore
 
             for fn in Emit.collectGenericModuleValues emissions lowered0 do
@@ -119,7 +119,7 @@ module ModuleClassPlan =
         // exe's last file, collected unclassified; the leading/trailing partition runs
         // below, once `staticFnKeys` is known. Their keys are real storage, never captures.
         let programValues =
-            Emit.collectProgramValues emissions programClass refStructNsNames lowered
+            Emit.collectProgramValues emissions programClass refStructKeys lowered
 
         let programValueKeys =
             HashSet<BoundVarId>(programValues |> List.map (fun mv -> mv.Key))

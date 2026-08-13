@@ -62,9 +62,9 @@ module JsNativeSymbols =
     /// namespace to qualify it.
     let private types: Map<string, ExternalTypeShape> = Map [ "Error", errorShape ]
 
-    let private membersOf (typeName: string) (memberName: string) : EqArray<ExternalMember> =
-        match Map.tryFind typeName types with
-        | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = memberName)
+    let private membersOf (key: ExternalMemberName) : EqArray<ExternalMember> =
+        match Map.tryFind key.DeclaringType types with
+        | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = key.Name)
         | _ -> EqArray.empty
 
     /// The stub table as a provider.
@@ -76,12 +76,7 @@ module JsNativeSymbols =
                         match Map.tryFind name types with
                         | Some s -> ValueSome s
                         | None -> ValueNone
-                TryLookupMember =
-                    fun (typeName, memberName) ->
-                        match membersOf typeName memberName with
-                        | EqEmpty -> ValueNone
-                        | arr -> ValueSome arr.[0]
-                TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
+                TryLookupMembers = membersOf
             }
 
     /// The metadata tail a JS compile ends in: these stubs stand where a CLR compile puts
