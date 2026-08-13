@@ -599,6 +599,7 @@ module UnificationEngineCore =
     /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `objArgTy`, paired
     /// with the supertype's args as reached from it (`[int]` for a `Child :
     /// Base<int>`). SUPERTYPES ONLY, because the caller resolves its own members first.
+    /// The walk is breadth-first, so a NEARER ancestor's member wins.
     let tryExternalInheritedMember
         (ctx: PassContext)
         (objArgTy: SemType)
@@ -620,10 +621,10 @@ module UnificationEngineCore =
 
         let seen = HashSet<SymbolKey>()
 
-        let rec walk (nodes: SemType list) : struct (ExternalMember * EqArray<SemType>) voption =
-            match nodes with
-            | [] -> ValueNone
-            | node :: rest ->
+        let rec walk (frontier: Fifo<SemType>) : struct (ExternalMember * EqArray<SemType>) voption =
+            match Fifo.tryDequeue frontier with
+            | ValueNone -> ValueNone
+            | ValueSome(struct (node, rest)) ->
                 match subtypeNominalOf ctx node with
                 | ValueNone -> walk rest
                 | ValueSome(struct (s, sa)) ->
@@ -632,11 +633,9 @@ module UnificationEngineCore =
                     else
                         match ctx.Provider.TryLookupMember(s, memberName) with
                         | ValueSome m when not m.IsStatic -> ValueSome(struct (m, sa))
-                        // Breadth-first: this node's supertypes are appended AFTER the
-                        // remaining siblings, so a nearer ancestor's member wins.
-                        | _ -> walk (rest @ supertypesOf node)
+                        | _ -> walk (Fifo.enqueueAll (supertypesOf node) rest)
 
-        walk (supertypesOf objArgTy)
+        walk (Fifo.ofList (supertypesOf objArgTy))
 
     /// How a `SemType` is NAMED to a user in a diagnostic. An unpinned typar prints as the
     /// anonymous `'a`. Zonks first, so no caller has to remember to.
