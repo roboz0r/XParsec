@@ -125,7 +125,7 @@ module ClrDriver =
         : Result<ClrArtifact, Diagnostic list> =
         compileCachedWith store (compilationDigest inputs) inputs source
 
-    /// An ordered `(path, source)` list analysed as one assembly and emitted as ONE PE, so a
+    /// An ordered source-file list analysed as one assembly and emitted as ONE PE, so a
     /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back
     /// anchored to their own file rather than thrown.
     let compileAssemblyWith
@@ -133,7 +133,7 @@ module ClrDriver =
         (bclReferences: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (files: (string * string) list)
+        (files: AssemblyFiles.SourceFile list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         AssemblyFiles.analyseGated analyse project.AssemblyName external files
         |> Result.map (fun analysed ->
@@ -152,7 +152,7 @@ module ClrDriver =
     /// `BclReferences` threaded into both the contract provider and `AssemblyRef` identity.
     let compileAssembly
         (inputs: ClrCompilation)
-        (files: (string * string) list)
+        (files: AssemblyFiles.SourceFile list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let provider =
             ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages

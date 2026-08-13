@@ -97,7 +97,7 @@ module JsImports =
     /// file's module in its package directory; an assembly-only home, the committed asset.
     let private moduleOf (imports: JsImports) (home: JsHome) (what: string) : JsModulePath * JsRuntimeModule voption =
         match home.DeclaringFile with
-        | ValueSome f -> JsModulePath.ofSource f.BucketName f.Relative, ValueNone
+        | ValueSome f -> JsModulePath.ofSource f.BucketName f.Relative.Name, ValueNone
         | ValueNone ->
             match imports.Runtime |> Map.tryFind home.Assembly with
             | Some rt -> JsModulePath.asset rt.FileName, ValueSome rt

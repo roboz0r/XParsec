@@ -15,14 +15,14 @@ let private packageName = "Test.Pkg"
 
 /// Compile `files` as one JS package through the production driver, failing the test on
 /// any front-end diagnostic (anchored to its own file, as the driver reports it).
-let private compilePackage (files: (string * string) list) : JsPackage =
+let private compilePackage (files: AssemblyFiles.SourceFile list) : JsPackage =
     match JsDriver.compileAssemblyWith Pipeline.analyseForSelfHost jsContract.Value packageName files with
     | Ok pkg -> pkg
     | Error diags ->
         failtestf
             "package compile failed:\n%s"
             (diags
-             |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path d.Line d.Col d.Diagnostic.Message)
+             |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
              |> String.concat "\n")
 
 let private sourceOf (pkg: JsPackage) (fileName: string) : string =
@@ -73,7 +73,12 @@ let tests =
         "Codegen.Js package build"
         [
             test "a cross-file reference imports the DECLARING FILE's module, not the package's" {
-                let pkg = compilePackage [ "shapes.fs", declaringFile; "use.fs", consumingFile ]
+                let pkg =
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "shapes.fs" declaringFile
+                            AssemblyFiles.SourceFile.ofText "use.fs" consumingFile
+                        ]
 
                 let js = sourceOf pkg "use.mjs"
 
@@ -88,7 +93,12 @@ let tests =
             }
 
             test "each emitting file becomes its own module, and the barrel re-exports them" {
-                let pkg = compilePackage [ "shapes.fs", declaringFile; "use.fs", consumingFile ]
+                let pkg =
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "shapes.fs" declaringFile
+                            AssemblyFiles.SourceFile.ofText "use.fs" consumingFile
+                        ]
 
                 Expect.equal
                     (pkg.Modules |> List.map (fun m -> m.Path.FileName))
@@ -113,7 +123,11 @@ type IShape =
 "
 
                 let pkg =
-                    compilePackage [ "interfaces.fs", interfacesOnly; "shapes.fs", declaringFile ]
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "interfaces.fs" interfacesOnly
+                            AssemblyFiles.SourceFile.ofText "shapes.fs" declaringFile
+                        ]
 
                 Expect.equal
                     (pkg.Modules |> List.map (fun m -> m.Path.FileName))
@@ -127,13 +141,17 @@ type IShape =
                 let moduleNamed (name: string) =
                     sprintf "namespace Test.Pkg\n\nmodule %s =\n    let v () : int = 1\n" name
 
-                let files = [ "a/one.fs", moduleNamed "Alpha"; "b/one.fs", moduleNamed "Beta" ]
+                let files =
+                    [
+                        AssemblyFiles.SourceFile.ofText "a/one.fs" (moduleNamed "Alpha")
+                        AssemblyFiles.SourceFile.ofText "b/one.fs" (moduleNamed "Beta")
+                    ]
 
                 match JsDriver.compileAssemblyWith Pipeline.analyseForSelfHost jsContract.Value packageName files with
                 | Ok _ -> failtest "the collision must be refused"
                 | Error diags ->
                     Expect.equal
-                        (diags |> List.map (fun d -> d.Path))
+                        (diags |> List.map (fun d -> d.Path.Name))
                         [ "a/one.fs"; "b/one.fs" ]
                         "each claimant is blamed, so neither is silently the loser"
 
@@ -162,7 +180,12 @@ module Shim =
     let passthrough (s: IShape) : IShape = s
 "
 
-                let pkg = compilePackage [ "contracts.fs", contracts; "user.fs", user ]
+                let pkg =
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "contracts.fs" contracts
+                            AssemblyFiles.SourceFile.ofText "user.fs" user
+                        ]
 
                 Expect.equal
                     (pkg.Modules |> List.map (fun m -> m.Path.FileName))
@@ -189,9 +212,7 @@ module Shim =
 
                 let dir = vesperCorePackage
 
-                let files =
-                    manifest.Impl
-                    |> List.map (fun rel -> rel, IO.File.ReadAllText(IO.Path.Combine(dir, rel)))
+                let files = manifest.Impl |> List.map (AssemblyFiles.SourceFile.read dir)
 
                 let pkg =
                     match
@@ -206,7 +227,9 @@ module Shim =
                         failtestf
                             "Vesper.Core JS package compile failed:\n%s"
                             (diags
-                             |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path d.Line d.Col d.Diagnostic.Message)
+                             |> List.map (fun d ->
+                                 sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message
+                             )
                              |> String.concat "\n")
 
                 let root = tmpDir "js-package-core"
@@ -215,7 +238,7 @@ module Shim =
                 // Most of Core is intrinsic-repr-only and lowers to no JS: `type int =
                 // (# "number" #)` declares a representation the target already has, and
                 // its operator members are splice templates. Those files get no `.mjs`.
-                let emitted = pkg.Modules |> List.map (fun m -> m.Source)
+                let emitted = pkg.Modules |> List.map (fun m -> m.Source.Name)
 
                 for reprOnly in [ "prim-types-min.js.fs"; "prim-types-int.js.fs"; "prim-types-array.fs" ] do
                     Expect.isFalse
@@ -269,7 +292,12 @@ module Reader =
     let here () : string = globalThis
 "
 
-                let pkg = compilePackage [ "ambient.fs", declaring; "reader.fs", consuming ]
+                let pkg =
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "ambient.fs" declaring
+                            AssemblyFiles.SourceFile.ofText "reader.fs" consuming
+                        ]
 
                 Expect.equal
                     (pkg.Modules |> List.map (fun m -> m.Path.FileName))
@@ -283,7 +311,12 @@ module Reader =
             }
 
             test "the emitted package runs under Node through its barrel" {
-                let pkg = compilePackage [ "shapes.fs", declaringFile; "use.fs", consumingFile ]
+                let pkg =
+                    compilePackage
+                        [
+                            AssemblyFiles.SourceFile.ofText "shapes.fs" declaringFile
+                            AssemblyFiles.SourceFile.ofText "use.fs" consumingFile
+                        ]
 
                 let root = tmpDir "js-package"
                 JsDriver.materialise root pkg

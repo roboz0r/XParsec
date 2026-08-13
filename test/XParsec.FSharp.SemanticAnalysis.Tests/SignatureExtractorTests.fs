@@ -28,7 +28,7 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
                 Path =
                     {
                         BucketName = "App"
-                        Relative = relative
+                        Relative = AssemblyFileId.ofRelative relative
                     }
                 Absolute = relative
             }

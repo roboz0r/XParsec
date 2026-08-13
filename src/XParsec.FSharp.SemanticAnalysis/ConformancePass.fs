@@ -131,11 +131,7 @@ module ConformancePass =
         |> Set.remove ""
 
     let private parseRel (name: string) (dir: string) (rel: string) : Result<VesperLib.ParsedFile, string> =
-        VesperLib.parseFileFull
-            {
-                Path = { BucketName = name; Relative = rel }
-                Absolute = Path.Combine(dir, rel)
-            }
+        VesperLib.parseFileFull (VesperLib.libFile name dir rel)
 
     /// Conform every `.fsi` a package manifest names against its `.fs` companion.
     /// `Error` ONLY when the package is wholly un-checkable, meaning a malformed/absent manifest;

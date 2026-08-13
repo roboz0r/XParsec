@@ -70,7 +70,7 @@ let private withSpecialization () : FrozenPools =
             Path =
                 {
                     BucketName = "App"
-                    Relative = "m.fs"
+                    Relative = AssemblyFileId.ofRelative "m.fs"
                 }
             Content = Hashing.hashString "module M\n"
         }
@@ -103,7 +103,7 @@ let private withSpecialization () : FrozenPools =
                             Path =
                                 {
                                     BucketName = "Lib"
-                                    Relative = "n.fs"
+                                    Relative = AssemblyFileId.ofRelative "n.fs"
                                 }
                             Content = Hashing.hashString "module N\n\nlet inline f x = x + 1\n"
                         }

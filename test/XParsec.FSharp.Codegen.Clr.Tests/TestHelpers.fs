@@ -140,7 +140,7 @@ let vesperCorePackage: string = srcPackage "Vesper.Core"
 /// A multi-file driver's anchored diagnostics as `path: message`, one per line.
 let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
     diags
-    |> List.map (fun d -> sprintf "%s: %s" d.Path d.Diagnostic.Message)
+    |> List.map (fun d -> sprintf "%s: %s" d.Path.Name d.Diagnostic.Message)
     |> String.concat "\n"
 
 /// Compile `Vesper.Core.dll` from its manifest's `impl` files, load it into the *Default*
@@ -167,9 +167,7 @@ let vesperCoreDll: Lazy<string> =
                  | Ok m -> m.Impl
                  | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
 
-         let files =
-             implFiles
-             |> List.map (fun rel -> vesperCoreSource rel, IO.File.ReadAllText(vesperCoreSource rel))
+         let files = implFiles |> List.map (AssemblyFiles.SourceFile.read vesperCorePackage)
 
          // Core defines its own primitives, so it references nothing and names ITSELF as
          // the self manifest. That seeds the metadata leaf with its own `{ platform -> canon }`
@@ -323,12 +321,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
                  // on any error-severity diagnostic instead of emitting a degraded DLL.
-                 let files =
-                     implRels
-                     |> List.map (fun rel ->
-                         let p = IO.Path.Combine(dir, rel)
-                         p, IO.File.ReadAllText p
-                     )
+                 let files = implRels |> List.map (AssemblyFiles.SourceFile.read dir)
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")

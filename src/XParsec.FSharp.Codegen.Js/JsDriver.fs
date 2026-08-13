@@ -7,8 +7,8 @@ open XParsec.FSharp.Codegen.Common
 /// One EMITTING source file of a package build, compiled to its own `.mjs`.
 type JsPackageModule =
     {
-        /// The path this was compiled from (`a/one.fs`), and the path a diagnostic is blamed on.
-        Source: string
+        /// The file this was compiled from (`a/one.fs`), and the file a diagnostic is blamed on.
+        Source: AssemblyFileId
         Path: JsModulePath
         Artifact: JsArtifact
     }
@@ -57,7 +57,9 @@ module JsDriver =
                         sprintf
                             "JS package '%s': sources %s all emit '%s'; a module path is the source's base name, so they cannot share a package directory"
                             packageName
-                            (claimants |> List.map (fun m -> sprintf "'%s'" m.Source) |> String.concat ", ")
+                            (claimants
+                             |> List.map (fun m -> sprintf "'%s'" m.Source.Name)
+                             |> String.concat ", ")
                             path.FileName
 
                     for m in claimants do
@@ -96,12 +98,12 @@ module JsDriver =
             for target in a.Imports do
                 check ValueNone a.FileName target
 
-    /// Compile an ordered `(path, source)` list as ONE assembly named `packageName`.
+    /// Compile an ordered source-file list as ONE assembly named `packageName`.
     let compileAssemblyWith
         (analyse: AssemblyFiles.AnalyseFile)
         (contract: SymbolProviders.Contract)
         (packageName: string)
-        (files: (string * string) list)
+        (files: AssemblyFiles.SourceFile list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         AssemblyFiles.analyseGated analyse packageName contract.Provider files
         |> Result.bind (fun analysed ->
@@ -112,7 +114,8 @@ module JsDriver =
             let emitted =
                 [
                     for file in analysed.Files do
-                        let relative = file.Source.File.Path.Relative
+                        let fileId = file.Source.File.Path.Relative
+                        let relative = fileId.Name
 
                         let project =
                             { JsProjectInfo.defaults (JsModulePath.baseName relative) with
@@ -139,7 +142,7 @@ module JsDriver =
 
                         if not artifact.IsEmpty then
                             {
-                                Source = relative
+                                Source = fileId
                                 Path = JsModulePath.ofSource packageName relative
                                 Artifact = artifact
                             }

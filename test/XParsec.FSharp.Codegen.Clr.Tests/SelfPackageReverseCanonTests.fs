@@ -29,9 +29,8 @@ module ConcatProbe =
             | Ok m -> m.Impl
             | Error e -> failwithf "cannot load Vesper.Core manifest: %s" e
 
-        (implFiles
-         |> List.map (fun rel -> vesperCoreSource rel, System.IO.File.ReadAllText(vesperCoreSource rel)))
-        @ [ "concat-probe.fs", probeSource ]
+        (implFiles |> List.map (AssemblyFiles.SourceFile.read vesperCorePackage))
+        @ [ AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource ]
 
     /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's
     /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.

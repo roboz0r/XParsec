@@ -66,7 +66,7 @@ let private retainedSource (input: string) : OriginSource =
     Hashing.originSource
         {
             BucketName = "Producer"
-            Relative = "sq.fs"
+            Relative = AssemblyFileId.ofRelative "sq.fs"
         }
         lexed
 

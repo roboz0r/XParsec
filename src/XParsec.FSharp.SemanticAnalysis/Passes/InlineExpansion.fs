@@ -62,7 +62,7 @@ module InlineExpansion =
                 | true, info -> info.Key
                 | _ ->
                     failwithf
-                        "InlineExpansion: the local inline bound at %A has no module-binding identity, so its specialization entry could name no template"
+                        "InlineExpansion: the local inline bound at %A has no module-binding identity, so its specialization entry could not name a template"
                         (TastWalk.patTok pattern)
             | ValueNone -> failwithf "InlineExpansion: a local inline's pattern binds no single name; got %A" pattern
 

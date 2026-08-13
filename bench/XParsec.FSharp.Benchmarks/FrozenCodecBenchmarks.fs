@@ -134,7 +134,7 @@ type FrozenCodecBenchmarks() =
         sources <-
             [
                 for s in stagesFor this.Depth do
-                    for (_, text) in s.Files -> text
+                    for f in s.Files -> f.Text
             ]
 
     /// The store side, encode half: pools → bytes. Interns every payload type into the

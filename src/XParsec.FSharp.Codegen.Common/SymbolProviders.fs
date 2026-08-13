@@ -162,15 +162,7 @@ module SymbolProviders =
 
         for manifest in manifests do
             for rel in manifest.Impl do
-                let file: VesperLib.LibFile =
-                    {
-                        Path =
-                            {
-                                BucketName = manifest.Name
-                                Relative = rel
-                            }
-                        Absolute = Path.Combine(manifest.Dir, rel)
-                    }
+                let file = VesperLib.libFile manifest.Name manifest.Dir rel
 
                 match VesperLib.parseFileFull file with
                 | Result.Error _ -> ()
@@ -252,7 +244,7 @@ module SymbolProviders =
 
         // The metadata tag distinguishes each backend's collection of one package set: they
         // freeze different bodies over different layer-2 leaves. The target is in the key in
-        // its own right because an EMPTY set resolves to no path that could carry it.
+        // its own right because an EMPTY set contributes no path that could carry it.
         let key =
             cacheTag
             + "|"

@@ -461,7 +461,7 @@ let tests =
                 let bounceSlot = slotOf "bounce"
 
                 Expect.equal
-                    table.[memberSlot].Origin.Path.Relative
+                    table.[memberSlot].Origin.Path.Relative.Name
                     "array-cycle.js.fs"
                     "the member entry is anchored in the file the member was WRITTEN in, not the consuming one"
 

@@ -12,14 +12,37 @@ module AssemblyFiles =
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
     /// The identity every anchor and diagnostic of one file resolves against: the assembly
-    /// it is bucketed under, and the path it is named by.
-    let fileSource (assemblyName: string) (path: string) (lexed: Lexed) : OriginSource =
+    /// it is bucketed under, and the name it is known by within it.
+    let fileSource (assemblyName: string) (id: AssemblyFileId) (lexed: Lexed) : OriginSource =
         Hashing.originSource
             {
                 BucketName = assemblyName
-                Relative = path
+                Relative = id
             }
             lexed
+
+    /// One INPUT file of an assembly: its source text, and the name it is known by within that
+    /// assembly, which anchors its diagnostics and keys the frozen cache. Nothing reopens `Id`.
+    type SourceFile = { Id: AssemblyFileId; Text: string }
+
+    [<RequireQualifiedAccess>]
+    module SourceFile =
+
+        /// Read `relative` from beneath `root`, named as the filesystem has it: `root` locates
+        /// the bytes and is then discarded.
+        let read (root: string) (relative: string) : SourceFile =
+            {
+                Id = AssemblyFileId.ofPathUnder root relative
+                Text = System.IO.File.ReadAllText(System.IO.Path.Combine(root, relative))
+            }
+
+        /// A source handed over as TEXT, named by `id` alone: a driver given a string, a test.
+        /// `id` is spelled like the relative path it stands in for, `math/z.fs`.
+        let ofText (id: string) (text: string) : SourceFile =
+            {
+                Id = AssemblyFileId.ofRelative id
+                Text = text
+            }
 
     /// One successfully analysed file of a multi-file assembly, carrying the provider view
     /// later files resolve its exports through.
@@ -42,7 +65,7 @@ module AssemblyFiles =
     /// the ones that did parse.
     type UnparsedFile =
         {
-            Path: string
+            Id: AssemblyFileId
             Failure: Pipeline.ParseFailure
         }
 
@@ -51,7 +74,7 @@ module AssemblyFiles =
     /// diagnostic is only ever resolved inside the file it was produced in.
     type AnchoredDiagnostic =
         {
-            Path: string
+            Path: AssemblyFileId
             Diagnostic: Diagnostic
             Line: int
             Col: int
@@ -94,15 +117,15 @@ module AssemblyFiles =
         (analyse: AnalyseFile)
         (assemblyName: string)
         (external: IExternalSymbolProvider)
-        (files: (string * string) list)
+        (files: SourceFile list)
         : Result<FrozenFile, UnparsedFile> list =
         // The visibility STACK, nearest first, with the external surface as its floor.
         let mutable visible: IExternalSymbolProvider list = [ external ]
         let results = ResizeArray<Result<FrozenFile, UnparsedFile>>()
 
-        for (path, source) in files do
-            match Pipeline.parse source with
-            | Error f -> results.Add(Error { Path = path; Failure = f })
+        for file in files do
+            match Pipeline.parse file.Text with
+            | Error f -> results.Add(Error { Id = file.Id; Failure = f })
             | Ok parsed ->
                 let composed = ExternalSymbolProviders.composite visible
 
@@ -118,7 +141,7 @@ module AssemblyFiles =
                             (ns @ composed.AmbientOpenPrefixes |> List.distinct)
                             [ composed ]
 
-                let origin = fileSource assemblyName path parsed.Lexed
+                let origin = fileSource assemblyName file.Id parsed.Lexed
                 let frozen = analyse assemblyName scoped origin parsed.File
                 let view = FrozenSignature.toProvider origin frozen
 
@@ -143,14 +166,14 @@ module AssemblyFiles =
     let analyseAssembly
         (assemblyName: string)
         (external: IExternalSymbolProvider)
-        (files: (string * string) list)
+        (files: SourceFile list)
         : Result<FrozenFile, UnparsedFile> list =
         analyseAssemblyWith Pipeline.analyseFor assemblyName external files
 
     /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so nothing
     /// resolves a token index against it and they render at line 1, col 1. A POSITIONED
     /// diagnostic here is unverifiable, so it faults rather than printing a plausible line.
-    let unpositionedDiagnostics (path: string) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+    let unpositionedDiagnostics (path: AssemblyFileId) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         [
             for d in diagnostics do
                 match d.Site with
@@ -164,7 +187,7 @@ module AssemblyFiles =
                 | positioned ->
                     failwithf
                         "AssemblyFiles.unpositionedDiagnostics: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
-                        path
+                        path.Name
                         positioned
                         d.Message
         ]
@@ -210,8 +233,8 @@ module AssemblyFiles =
         match e.Failure.Lexed with
         // The `""` bucket: no file was analysed, so no assembly claims this one. The
         // source exists only to resolve the positions the parser's diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path lexed) e.Failure.Diagnostics
-        | ValueNone -> unpositionedDiagnostics e.Path e.Failure.Diagnostics
+        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Id lexed) e.Failure.Diagnostics
+        | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
 
     /// Every analysed file's diagnostics, each anchored to ITS OWN file. Recovery's findings
     /// come first: they are what the tree the analysis ran on was patched up from.
@@ -237,7 +260,7 @@ module AssemblyFiles =
         (analyse: AnalyseFile)
         (assemblyName: string)
         (external: IExternalSymbolProvider)
-        (files: (string * string) list)
+        (files: SourceFile list)
         : Result<AnalysedAssembly, AnchoredDiagnostic list> =
         let results = analyseAssemblyWith analyse assemblyName external files
 

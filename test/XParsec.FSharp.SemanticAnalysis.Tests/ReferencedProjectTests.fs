@@ -626,8 +626,8 @@ let tests =
                     }
 
                     // A package participates in a target by publishing `manifest.<target>.toml`
-                    // and in no other way, so a bare `manifest.toml` names no target and is not
-                    // resolved for any. `Vesper.Set` is the real instance: clr only.
+                    // and in no other way, so a bare `manifest.toml` does not name a target and is
+                    // not resolved for any. `Vesper.Set` is the real instance: clr only.
                     test "a package that publishes no manifest for the target does not resolve" {
                         let dir = Path.Combine(tmpSrc, "ClrOnlyPkg")
                         Directory.CreateDirectory dir |> ignore
@@ -711,7 +711,7 @@ let tests =
 
                         Expect.isEmpty
                             (ReferencedProject.runtimeModules [ loadOrFail clrPath ])
-                            "the same package's clr manifest names no asset, so it resolves to an empty map"
+                            "the same package's clr manifest lists no asset, so it resolves to an empty map"
                     }
 
                     // `depends-on` is taken for THIS manifest's target, so a package may depend on
@@ -726,8 +726,8 @@ let tests =
                                 "NeedsJsDep"
                                 "[core]\nname = \"NeedsJsDep\"\ndepends-on = [\"DepOnlyJs\"]\nfiles = []\n"
 
-                        // The clr collection of the same package names no such dependency, and the
-                        // dependency ships no clr manifest — so a clr closure over it must fail.
+                        // The clr collection of the same package declares the SAME dependency, but
+                        // the dependency ships no clr manifest, so a clr closure over it must fail.
                         let clrDependent =
                             writeManifestFor
                                 "clr"

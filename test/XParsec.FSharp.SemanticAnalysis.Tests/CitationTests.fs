@@ -145,7 +145,7 @@ let private validMembers (t: Type) : Set<string> =
     Set.ofArray (Array.concat [ recordFields; unionCases; selfMembers; companionMembers ])
 
 /// Only BACKTICKED citations: an unquoted `T.` is real code the compiler already checks. Two
-/// look-aheads exclude the shapes that name no member — a file (`TastPools.fs`) and a column
+/// look-aheads exclude the shapes that do not cite a member: a file (`TastPools.fs`) and a column
 /// family (`FrozenPools.Expr*`, the parallel columns rather than one of them).
 let private citationRegex (guards: (string * Type) list) =
     guards

@@ -284,7 +284,11 @@ module M =
                     {
                         File =
                             {
-                                Path = { BucketName = "P"; Relative = "p.fsi" }
+                                Path =
+                                    {
+                                        BucketName = "P"
+                                        Relative = AssemblyFileId.ofRelative "p.fsi"
+                                    }
                                 Absolute = "p.fsi"
                             }
                         Lexed = sigLexed

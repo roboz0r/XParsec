@@ -14,6 +14,7 @@ module VesperLib =
     type LibFile = VesperLibManifest.LibFile
     type ParsedFile = VesperLibManifest.ParsedFile
 
+    let libFile = VesperLibManifest.libFile
     let parseFileFull = VesperLibManifest.parseFileFull
 
     type ExtractCtx = VesperLibTyparCapture.ExtractCtx

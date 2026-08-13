@@ -54,7 +54,7 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
                     Path =
                         {
                             BucketName = "Widgets"
-                            Relative = "widget.fsi"
+                            Relative = AssemblyFileId.ofRelative "widget.fsi"
                         }
                     Absolute = "widget.fsi"
                 }

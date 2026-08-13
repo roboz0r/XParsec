@@ -237,7 +237,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         origins.Intern
             {
                 BucketName = str f.Path.BucketName
-                Relative = str f.Path.Relative
+                Relative = str f.Path.Relative.Name
                 ContentHex = str f.Content.Hex
             }
 
@@ -402,7 +402,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                     Path =
                         {
                             BucketName = str row.BucketName
-                            Relative = str row.Relative
+                            Relative = AssemblyFileId.ofStored (str row.Relative)
                         }
                     Content = InputHash.ofHex (str row.ContentHex)
                 }

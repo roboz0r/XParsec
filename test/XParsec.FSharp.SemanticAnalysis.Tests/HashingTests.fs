@@ -211,12 +211,15 @@ let tests =
                         let a =
                             {
                                 BucketName = "Pkg"
-                                Relative = "a.fs"
+                                Relative = AssemblyFileId.ofRelative "a.fs"
                             }
 
                         Expect.notEqual
                             (under a)
-                            (under { a with Relative = "b.fs" })
+                            (under
+                                { a with
+                                    Relative = AssemblyFileId.ofRelative "b.fs"
+                                })
                             "the relative path is a key input"
 
                         Expect.notEqual (under a) (under { a with BucketName = "Other" }) "…and so is the bucket"
@@ -227,12 +230,12 @@ let tests =
                             (under
                                 { a with
                                     BucketName = "x"
-                                    Relative = "y"
+                                    Relative = AssemblyFileId.ofRelative "y"
                                 })
                             (under
                                 { a with
                                     BucketName = "y"
-                                    Relative = "x"
+                                    Relative = AssemblyFileId.ofRelative "x"
                                 })
                             "transposing two fields is a different file, not the same one"
                     }
@@ -529,7 +532,7 @@ let tests =
                         Expect.equal
                             clrBefore
                             (signatureHash clrManifest)
-                            "and the clr digest, which names no js body, does not"
+                            "and the clr digest, which does not name that body, does not"
                     }
 
                     test "reordering the manifest's file list changes the signature hash" {

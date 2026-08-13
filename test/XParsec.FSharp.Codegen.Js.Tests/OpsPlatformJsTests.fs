@@ -153,7 +153,8 @@ let tests =
                 Expect.isNonEmpty origins "the JS `impl` files are retained, not dropped after the parse"
 
                 Expect.isTrue
-                    (origins |> List.exists (fun s -> s.File.Path.Relative.Contains "ops-platform"))
+                    (origins
+                     |> List.exists (fun s -> s.File.Path.Relative.Name.Contains "ops-platform"))
                     "…including the one the arithmetic bodies above come from"
 
                 for s in origins do
@@ -162,19 +163,19 @@ let tests =
                     // Resolved the way the collection did, as the package directory plus the
                     // manifest-relative path, because a retained file's IDENTITY says which
                     // file it is, never where this build mounted it.
-                    let path = System.IO.Path.Combine(vesperCorePackage, f.Path.Relative)
+                    let path = System.IO.Path.Combine(vesperCorePackage, f.Path.Relative.Name)
 
-                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Path.Relative)
+                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Path.Relative.Name)
 
                     // Verbatim on both sides: the retained text is the file's bytes as read,
                     // which is what the token offsets index and what a source map publishes.
                     let onDisk = System.IO.File.ReadAllText path
 
-                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Path.Relative)
+                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Path.Relative.Name)
 
                     Expect.equal
                         f.Content
                         (Hashing.hashString onDisk)
-                        (sprintf "%s's retained hash is the hash of the text that was parsed" f.Path.Relative)
+                        (sprintf "%s's retained hash is the hash of the text that was parsed" f.Path.Relative.Name)
             }
         ]

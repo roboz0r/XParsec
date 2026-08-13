@@ -15,6 +15,17 @@ module VesperLibManifest =
             Absolute: string
         }
 
+    /// The file a manifest of `bucketName` names as `relative`, mounted at `dir`.
+    let libFile (bucketName: string) (dir: string) (relative: string) : LibFile =
+        {
+            Path =
+                {
+                    BucketName = bucketName
+                    Relative = AssemblyFileId.ofPathUnder dir relative
+                }
+            Absolute = Path.Combine(dir, relative)
+        }
+
     /// The lexer's token table and source text are retained so subsequent
     /// passes can extract identifier text off a `SyntaxToken`.
     type ParsedFile =
@@ -32,12 +43,12 @@ module VesperLibManifest =
         let input = File.ReadAllText file.Absolute
 
         match Lexing.lexString input with
-        | Error _ -> Error(sprintf "Lex error in %s" file.Path.Relative)
+        | Error _ -> Error(sprintf "Lex error in %s" file.Path.Relative.Name)
         | Ok lexed ->
             let reader = Reader.ofLexed lexed Set.empty
 
             let result =
-                if file.Path.Relative.EndsWith ".fsi" then
+                if file.Path.Relative.Name.EndsWith ".fsi" then
                     FSharpAst.parseSignature reader
                 else
                     FSharpAst.parse reader

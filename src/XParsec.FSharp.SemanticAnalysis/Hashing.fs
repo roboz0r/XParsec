@@ -33,7 +33,7 @@ module Hashing =
     let textOriginPath (input: string) : OriginPath =
         {
             BucketName = ""
-            Relative = sprintf "<text:%s>" (hashString input).Hex
+            Relative = AssemblyFileId.ofRelative (sprintf "<text:%s>" (hashString input).Hex)
         }
 
     let originSourceOfText (lexed: Lexed) : OriginSource =
@@ -168,7 +168,7 @@ module Hashing =
     let private originPathHash (p: OriginPath) : InputHash =
         let hasher = XxHash128()
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.BucketName)
-        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.Relative)
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.Relative.Name)
         InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// This file's text and IDENTITY folded with its compilation's digest. Touches no disk.

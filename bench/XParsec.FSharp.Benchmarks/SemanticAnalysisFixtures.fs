@@ -30,12 +30,12 @@ let private loadManifest (pkg: string) =
         | Error e -> failwithf "SemanticAnalysisFixtures: cannot load '%s' manifest: %s" pkg e
 
 /// One assembly's worth of analysable input: its home name, the external provider its
-/// files resolve against, and its ordered `(path, source)` impl files.
+/// files resolve against, and its ordered impl files.
 type Stage =
     {
         Name: string
         Provider: IExternalSymbolProvider
-        Files: (string * string) list
+        Files: AssemblyFiles.SourceFile list
     }
 
 /// Compose a contract provider from a set of package names — the SAME provider the CLR
@@ -57,12 +57,7 @@ let packageStage (pkg: string) : Stage =
     let m = loadManifest pkg
     let dir = packageDir pkg
 
-    let files =
-        m.Impl
-        |> List.map (fun rel ->
-            let abs = Path.Combine(dir, rel)
-            abs, File.ReadAllText abs
-        )
+    let files = m.Impl |> List.map (AssemblyFiles.SourceFile.read dir)
 
     {
         Name = m.Name
@@ -99,7 +94,7 @@ let syntheticStage () : Stage =
     {
         Name = "Bench.Synthetic"
         Provider = composeProvider [ "Vesper.Set" ]
-        Files = [ "synthetic.fs", syntheticSource ]
+        Files = [ AssemblyFiles.SourceFile.ofText "synthetic.fs" syntheticSource ]
     }
 
 /// The chain-prefix size axis: how many packages of the chain to analyse in one run.

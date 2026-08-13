@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// Compile a multi-file assembly through the production driver seam: each file analysed against
 /// the composed prior views, `views ++ external` composed, ONE PE emitted. Returns its bytes.
-let private compileFiles (asmName: string) (sources: (string * string) list) : byte[] =
+let private compileFiles (asmName: string) (sources: AssemblyFiles.SourceFile list) : byte[] =
     // The external surface (operators, `printfn`, the Vesper primitives) that the front end
     // resolves against and codegen threads through.
     let external = ClrSymbolProviders.buildContract defaultPackages
@@ -25,7 +25,7 @@ let private compileFiles (asmName: string) (sources: (string * string) list) : b
     | Error diags -> failtestf "cross-file compile failed: %A" diags
 
 let private compileTwoFiles (asmName: string) (file1: string) (file2: string) : byte[] =
-    compileFiles asmName [ "file1.fs", file1; "file2.fs", file2 ]
+    compileFiles asmName [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
 
 [<Tests>]
 let tests =
@@ -337,7 +337,13 @@ printfn \"%d\" (Shared.dup ())
 "
 
                 let compile () =
-                    compileFiles "CrossFileRedeclare" [ "file1.fs", file1; "file2.fs", file2; "file3.fs", file3 ]
+                    compileFiles
+                        "CrossFileRedeclare"
+                        [
+                            SourceFile.ofText "file1.fs" file1
+                            SourceFile.ofText "file2.fs" file2
+                            SourceFile.ofText "file3.fs" file3
+                        ]
                     |> ignore
 
                 let failure =

@@ -406,17 +406,7 @@ module ReferencedProject =
             let abs = Path.Combine(dir, rel)
 
             if File.Exists abs then
-                let fsFile: VesperLib.LibFile =
-                    {
-                        Path =
-                            {
-                                BucketName = manifest.Name
-                                Relative = rel
-                            }
-                        Absolute = abs
-                    }
-
-                match VesperLib.parseFileFull fsFile with
+                match VesperLib.parseFileFull (VesperLib.libFile manifest.Name dir rel) with
                 | Error _ -> ()
                 | Ok parsed ->
                     let reprs =
@@ -430,15 +420,7 @@ module ReferencedProject =
         // In declared order, so a later contract's RHS (`Vesper.disposable`) is already
         // in the registry.
         for rel in manifest.Files do
-            let file: VesperLib.LibFile =
-                {
-                    Path =
-                        {
-                            BucketName = manifest.Name
-                            Relative = rel
-                        }
-                    Absolute = Path.Combine(dir, rel)
-                }
+            let file = VesperLib.libFile manifest.Name dir rel
 
             match VesperLib.parseFileFull file with
             | Error e -> ctx.Diagnostics.Add(file, e)

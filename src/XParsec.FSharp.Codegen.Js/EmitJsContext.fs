@@ -122,7 +122,7 @@ module EmitJsContext =
                 | ValueNone ->
                     failwithf
                         "EmitJs: the node's origin file %s (package %s) was reached but never published to the map, so its position is readable only against the consuming file — the provider that served the body and the retained anchor domain are not the same contract"
-                        origin.File.Path.Relative
+                        origin.File.Path.Relative.Name
                         origin.File.Path.BucketName
                 | ValueSome producer ->
                     // Faults on a producer file edited since the tree was anchored against it:

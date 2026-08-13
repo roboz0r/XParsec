@@ -20,7 +20,7 @@ let private files (results: Result<FrozenFile, UnparsedFile> list) : FrozenFile 
     |> List.map (
         function
         | Ok f -> f
-        | Error e -> failtestf "file %s failed to parse: %A" e.Path e.Failure.Diagnostics
+        | Error e -> failtestf "file %s failed to parse: %A" e.Id.Name e.Failure.Diagnostics
     )
 
 /// A file's unresolved-symbol errors — both the bare and the qualified miss say "Unresolved".
@@ -67,7 +67,13 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceFile.ofText "file1.fs" file1Qualified
+                            SourceFile.ofText "file2.fs" file2
+                        ]
                     |> files
 
                 Expect.hasLength all 2 "both files analysed"
@@ -94,7 +100,13 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceFile.ofText "file1.fs" file1Qualified
+                            SourceFile.ofText "file2.fs" file2
+                        ]
                     |> files
 
                 let f2 = all.[1]
@@ -124,7 +136,10 @@ module B =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f1 = all.[0]
@@ -154,7 +169,10 @@ module Shared =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "earlier.fs", earlier; "later.fs", later ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "earlier.fs" earlier; SourceFile.ofText "later.fs" later ]
                     |> files
 
                 let viewEarlier = all.[0].View
@@ -224,7 +242,14 @@ module C =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2; "file3.fs", file3 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceFile.ofText "file1.fs" file1
+                            SourceFile.ofText "file2.fs" file2
+                            SourceFile.ofText "file3.fs" file3
+                        ]
                     |> files
 
                 let name = "Test.Shared.dup"
@@ -250,6 +275,75 @@ module C =
                 | ValueNone -> failtest "file 3's scoped provider did not resolve dup"
             }
 
+            // A name is hashed into the frozen-cache key and never reopened, so one that varies
+            // with the checkout or the host OS freezes the same sources to different trees.
+            test "a ROOTED name is refused, on every OS rather than the host one" {
+                for rooted in [ "/z.fs"; "\\z.fs"; "C:/work/z.fs"; "D:\\work\\z.fs" ] do
+                    match AssemblyFileId.tryOfRelative rooted with
+                    | Ok id -> failtestf "%s names a checkout, not a file within an assembly (got %s)" rooted id.Name
+                    | Error why -> Expect.stringContains why "rooted" (sprintf "refused for being rooted; got %s" why)
+            }
+
+            test "one file has ONE name, however it was spelled" {
+                let canonical = AssemblyFileId.ofRelative "math/z.fs"
+
+                for spelling in [ "math\\z.fs"; "./math/z.fs"; "math/./z.fs"; "sub/../math/z.fs" ] do
+                    Expect.equal (AssemblyFileId.ofRelative spelling) canonical (sprintf "%s names math/z.fs" spelling)
+            }
+
+            test "a name that climbs out of its assembly, or does not name a file, is refused" {
+                for bad in [ "../z.fs"; "a/../../z.fs"; ""; "   "; "."; "a/.." ] do
+                    match AssemblyFileId.tryOfRelative bad with
+                    | Ok id -> failtestf "'%s' does not name a file within an assembly (got '%s')" bad id.Name
+                    | Error _ -> ()
+            }
+
+            // Whether two spellings are two files is the FILESYSTEM's answer, not the
+            // platform's: Windows can mount a case-sensitive directory.
+            test "a file is named as the DISK has it, not as the caller spelled it" {
+                let dir =
+                    System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(),
+                        "vesper-case-" + System.Guid.NewGuid().ToString("N")
+                    )
+
+                System.IO.Directory.CreateDirectory dir |> ignore
+
+                try
+                    let source = "namespace Test.A\n\nmodule M =\n    let f () : int = 1\n"
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "MixedCase.fs"), source)
+
+                    if System.IO.File.Exists(System.IO.Path.Combine(dir, "mixedcase.fs")) then
+                        // Case-insensitive: both spellings open ONE file, so both must give the
+                        // one name it has, or its cache key forks on how it was asked for.
+                        Expect.equal
+                            (SourceFile.read dir "mixedcase.fs").Id
+                            (AssemblyFileId.ofRelative "MixedCase.fs")
+                            "the disk's own casing is the file's identity"
+                    else
+                        // Case-sensitive: two genuinely different files, and `mixedcase.fs` is
+                        // absent.
+                        Expect.throws
+                            (fun () -> SourceFile.read dir "mixedcase.fs" |> ignore)
+                            "a name the disk does not have reads nothing"
+                finally
+                    System.IO.Directory.Delete(dir, true)
+            }
+
+            test "a `\\`-spelled file freezes to the same tree as its `/` twin" {
+                let source = "namespace Test.A\n\nmodule M =\n    let f () : int = 1\n"
+
+                let frozenAs (spelling: string) =
+                    match analyseAssembly asm realProvider.Value [ SourceFile.ofText spelling source ] with
+                    | [ Ok f ] -> f.Source.File
+                    | other -> failtestf "expected one analysed file, got %A" other
+
+                Expect.equal
+                    (frozenAs "math\\z.fs")
+                    (frozenAs "math/z.fs")
+                    "the separator is the host OS's business, not the assembly's"
+            }
+
             test "diagnostics anchor to their OWN file's path + (line, col)" {
                 let file1 =
                     "\
@@ -268,7 +362,10 @@ module B =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "one.fs", file1; "two.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "one.fs" file1; SourceFile.ofText "two.fs" file2 ]
                     |> files
 
                 let anchored = consolidatedDiagnostics all
@@ -280,13 +377,13 @@ module B =
                 match hit with
                 | None -> failtestf "no diagnostic mentioned undefinedThing; got %A" anchored
                 | Some a ->
-                    Expect.equal a.Path "two.fs" "anchored to file 2's path"
+                    Expect.equal a.Path.Name "two.fs" "anchored to file 2's path"
                     // `    let b = undefinedThing`: 4-space indent + "let b = " ⇒ col 13, 1-based.
                     Expect.equal a.Line 4 "line resolved against file 2's own text"
                     Expect.equal a.Col 13 "column resolved against file 2's own text"
 
                 Expect.isEmpty
-                    (anchored |> List.filter (fun a -> a.Path = "one.fs"))
+                    (anchored |> List.filter (fun a -> a.Path.Name = "one.fs"))
                     "file 1 contributes no diagnostics"
             }
 
@@ -314,7 +411,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -362,7 +462,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -429,7 +532,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -479,7 +585,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -522,7 +631,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -553,7 +665,13 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceFile.ofText "file1.fs" file1Qualified
+                            SourceFile.ofText "file2.fs" file2
+                        ]
                     |> files
 
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
@@ -582,7 +700,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -617,7 +738,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -652,7 +776,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -701,7 +828,10 @@ module N =
 "
 
                 let errorsOf (caller: string) =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", caller ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" caller ]
                     |> files
                     |> fun all -> all.[1].Frozen.Residue.Diagnostics
                     |> Diagnostic.errors
@@ -738,7 +868,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let consumer = all.[1]
@@ -789,7 +922,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -826,7 +962,10 @@ type IdInt() =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -861,7 +1000,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -893,7 +1035,10 @@ module N =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -923,7 +1068,10 @@ module B =
 "
 
                 let all =
-                    analyseAssembly asm realProvider.Value [ "clean.fs", clean; "broken.fs", broken ]
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ SourceFile.ofText "clean.fs" clean; SourceFile.ofText "broken.fs" broken ]
                     |> files
 
                 let anchored = consolidatedDiagnostics all
@@ -937,12 +1085,12 @@ module B =
 
                 match anchored |> List.filter isUnclosed with
                 | [ a ] ->
-                    Expect.equal a.Path "broken.fs" "anchored to the file that needed recovery"
+                    Expect.equal a.Path.Name "broken.fs" "anchored to the file that needed recovery"
                     Expect.isNonEmpty a.Diagnostic.Related "the opening delimiter is labelled"
                 | other -> failtestf "expected one unclosed-delimiter diagnostic, got %A" other
 
                 Expect.isEmpty
-                    (anchored |> List.filter (fun a -> a.Path = "clean.fs"))
+                    (anchored |> List.filter (fun a -> a.Path.Name = "clean.fs"))
                     "the clean file contributed none"
             }
         ]
