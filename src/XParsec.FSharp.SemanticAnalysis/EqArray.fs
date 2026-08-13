@@ -312,6 +312,22 @@ module EqArray =
         Array.Sort(out, Comparer<'T>.Default)
         EqArray<'T>(System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray out)
 
+    let append (xs: EqArray<'T>) (ys: EqArray<'T>) : EqArray<'T> =
+        if xs.IsEmpty then
+            ys
+        elif ys.IsEmpty then
+            xs
+        else
+            let mutable b = SmallArrayBuilder<'T>()
+
+            for x in xs.Underlying do
+                b.Add x
+
+            for y in ys.Underlying do
+                b.Add y
+
+            EqArray<'T>(b.ToImmutable())
+
     /// First occurrence of each element wins, so the surviving order is the input's. Uses
     /// `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
     let distinct (xs: EqArray<'T>) : EqArray<'T> =

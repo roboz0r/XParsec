@@ -252,6 +252,20 @@ module ExternalSymbolProviders =
 
             result
 
+        let foldIntrinsicSurface (key: SymbolKey) (hit: ExternalTypeShape) : ExternalTypeShape =
+            match hit with
+            | ExternalTypeShape.Intrinsic shape ->
+                let mutable surface = shape.Class
+
+                for s in sources do
+                    match s.TryLookupType key with
+                    | ValueSome(ExternalTypeShape.Intrinsic other) ->
+                        surface <- IntrinsicClassSurface.merge surface other.Class
+                    | _ -> ()
+
+                ExternalTypeShape.Intrinsic { shape with Class = surface }
+            | _ -> hit
+
         let inline home (origin: SymbolOrigin) (h: Origin) = { origin with Home = h }
 
         let stampSymbol =
@@ -308,7 +322,9 @@ module ExternalSymbolProviders =
 
               member _.TryLookupType(name: string) =
                   firstHit (fun s -> s.TryLookupType name)
-                  |> ValueOption.map (fun (struct (key, shape)) -> struct (key, stampType shape))
+                  |> ValueOption.map (fun (struct (key, shape)) ->
+                      struct (key, stampType (foldIntrinsicSurface (SymbolKey.Type key) shape))
+                  )
 
               member _.TryLookupUnionCase caseName =
                   firstHit (fun s -> s.TryLookupUnionCase caseName)
@@ -328,7 +344,8 @@ module ExternalSymbolProviders =
               member _.AmbientOpenPrefixes = ambient
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) =
-                  firstHit (fun s -> s.TryLookupType key) |> ValueOption.map stampType
+                  firstHit (fun s -> s.TryLookupType key)
+                  |> ValueOption.map (foldIntrinsicSurface key >> stampType)
 
               member _.TryLookupMember(key, memberName) =
                   firstHit (fun s -> s.TryLookupMember(key, memberName))
@@ -438,8 +455,7 @@ module ExternalSymbolProviders =
                 )
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
                 ExternalTypeShape.Union(arity, cases |> EqArray.map mapCase, mapInterfaces ifaces, origin)
-            // A heritable primitive's class surface maps identically to `Class`; a scalar
-            // intrinsic has no members or fields to map.
+            // A primitive's class surface maps identically to `Class`, interfaces included.
             | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
                 ExternalTypeShape.Intrinsic
                     { s with
@@ -447,6 +463,7 @@ module ExternalSymbolProviders =
                             ValueSome
                                 { surface with
                                     BaseType = surface.BaseType |> ValueOption.map inv
+                                    Interfaces = mapInterfaces surface.Interfaces
                                     Members = surface.Members |> EqArray.map mapMember
                                 }
                     }

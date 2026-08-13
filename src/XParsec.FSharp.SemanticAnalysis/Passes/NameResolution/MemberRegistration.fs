@@ -744,17 +744,11 @@ module NameResolutionMemberRegistration =
                     // `inherit X` is a name WRITTEN AT A SITE, so it resolves through the same
                     // opens-aware engine as any written type name. WITH contract ctors (`exn`)
                     // ⇒ the intrinsic canon; WITHOUT (`Attribute`) ⇒ the platform type.
-                    let heritableIntrinsic (shape: ExternalTypeShape) =
-                        match shape with
-                        | ExternalTypeShape.Intrinsic { Id = id; Class = ValueSome surface } ->
-                            ValueSome(struct (id, surface))
-                        | _ -> ValueNone
-
                     match
                         tryPickExternalType
                             ctx
                             (arityProbes targs.Length)
-                            (fun hit -> heritableIntrinsic hit.Shape)
+                            (fun hit -> ExternalSymbols.intrinsicClassOf hit.Shape)
                             name
                     with
                     | ValueSome(struct (id, surface)) when surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->

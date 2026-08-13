@@ -277,6 +277,19 @@ module VesperLib =
                             FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
                             FrozenInterfaces = freezeInterfaces ctx dc ifaces
                         }
+                // A SCALAR primitive's declared `interface`s, frozen onto its intrinsic surface.
+                | ExternalTypeShape.Intrinsic ishape, DeferredBody.Class(dc, _, ifaces, _) ->
+                    ExternalTypeShape.Intrinsic
+                        { ishape with
+                            Class =
+                                ValueSome
+                                    {
+                                        Heritable = false
+                                        BaseType = ValueNone
+                                        Interfaces = freezeInterfaces ctx dc ifaces
+                                        Members = EqArray.empty
+                                    }
+                        }
                 | _ -> shape
 
             ctx.TypeShapes.[k] <- finalized
@@ -404,6 +417,7 @@ module VesperLib =
                             Class =
                                 ValueSome
                                     {
+                                        Heritable = true
                                         BaseType = shape.FrozenBaseType
                                         Interfaces = shape.FrozenInterfaces
                                         Members = ctors
@@ -1216,11 +1230,6 @@ module VesperLib =
                     // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound member
                     // surface. Re-registers the `Intrinsic` shape the bodied-class extraction
                     // overwrote; the members ride their own table, not the shape.
-                    //
-                    // A declared `interface` is the exception, because it rides the SHAPE and
-                    // is not frozen until finalize (`'T[]` is a `seq<'T>`). Being a supertype
-                    // is not being inheritable: the repr stays untagged, so `Heritable` is
-                    // false and no `inherit` may name it.
                     | ValueNone ->
                         let declaresInterface =
                             elems
@@ -1231,24 +1240,22 @@ module VesperLib =
                             )
 
                         match declaresInterface, ctx.IntrinsicReprs.TryGetValue short with
-                        | true, (true, platform) ->
-                            ctx.PendingIntrinsicClasses.[compiled] <-
-                                struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
-                        | true, _ ->
+                        | true, (false, _) ->
                             ctx.Diagnostics.Add(file, IntrinsicHost.interfaceNeedsRepr short ctx.Target)
                             registerIntrinsic ()
-                        | false, _ -> registerIntrinsic ()
+                        | _ -> registerIntrinsic ()
                     | ValueSome tag ->
                         match ctx.IntrinsicReprs.TryGetValue short with
                         | true, platform ->
-                            let canon = struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
+                            let canon = SymbolKeyOps.intrinsicCanonKey compiled
 
                             match tag with
                             // `extern class with …` (obj/exn): a heritable PRIMITIVE.
-                            | ExternKind.Class _ -> ctx.PendingIntrinsicClasses.[compiled] <- canon
+                            | ExternKind.Class _ -> ctx.PendingIntrinsicClasses.[compiled] <- struct (canon, platform)
                             // `extern interface with …` (`disposable`/`equatable`/`comparable`):
                             // republishes to an `IntrinsicInterface`.
-                            | ExternKind.Interface _ -> ctx.PendingCapabilityInterfaces.[compiled] <- canon
+                            | ExternKind.Interface _ ->
+                                ctx.PendingCapabilityInterfaces.[compiled] <- struct (canon, platform)
                         | _ -> ()
                 | _ -> registerIntrinsic ()
 

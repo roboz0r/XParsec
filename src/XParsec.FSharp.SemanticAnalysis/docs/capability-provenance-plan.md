@@ -103,10 +103,22 @@ which is populated.
 
 Nothing trips it today, because no file in any Vesper package writes `for x in arr` or passes
 an array where a `seq` is asked for. The first one to do so fails with no diagnostic pointing
-here. So this defect is a LIVE LATENT HOLE that Change B closes; Change A is the general
-rule, and stands on its own merits whether or not it is what closes this.
+here.
+
+**CLOSED (2026-08-12), independently of Change B.** `ExternalSymbolProviders.stack` now FOLDS
+`IntrinsicClassSurface` across sources rather than taking the nearest: an impl `.fs` view
+publishes an empty surface because it binds a representation and knows nothing else, which is
+abstention, not an answer. Every reader of the surface — `subtypeInterfacesOf`,
+`tryForInEnumerator`, `tryUpcastWitness`, the constraint solver — gets the contract's answer
+through the ordinary shape lookup, so `'T[]` is a `seq<'T>` whatever the route. Change B is
+still the end goal for provenance generally; it no longer has this hole to close.
 
 ## Change B — THE END GOAL (relitigated and reinstated 2026-08-12)
+
+**The route-dependence this section was going to fix is already gone** — see "Verified, so not
+a question" above: the composite folds intrinsic surfaces, so no reader of
+`IntrinsicClassSurface.Interfaces` depends on which leaf answers first. What remains here is
+provenance proper: which FILE a declaration came from, and hiding.
 
 **Status: this is the direction (user, confirmed 2026-08-12). Do not add features that move
 away from it.** This section carried a "SUPERSEDED — do not implement" marker for two days,

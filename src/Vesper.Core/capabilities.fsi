@@ -1,26 +1,3 @@
-namespace Vesper
-
-/// <summary>The disposal capability — anchors `use` (and `for … in` finally). On
-/// the CLI it is <see cref="T:System.IDisposable"/>.</summary>
-///
-/// <category>Language Capabilities</category>
-type disposable = extern interface with
-    abstract member Dispose: unit -> unit
-
-/// <summary>The equality capability — anchors `[<CustomEquality>]` conformance.
-/// On the CLI it is <see cref="T:System.IEquatable`1"/>.</summary>
-///
-/// <category>Language Capabilities</category>
-type equatable<'T> = extern interface with
-    abstract member Equals: 'T -> bool
-
-/// <summary>The comparison capability — anchors `[<CustomComparison>]`
-/// conformance. On the CLI it is <see cref="T:System.IComparable`1"/>.</summary>
-///
-/// <category>Language Capabilities</category>
-type comparable<'T> = extern interface with
-    abstract member CompareTo: 'T -> int
-
 namespace Vesper.Collections
 
 // `for … in` resolves through these. An implementor writes only `MoveNext`/`Current`;

@@ -5,6 +5,9 @@ namespace Vesper
 /// <category>Basic Types</category>
 type int = extern with
 
+    interface equatable<int>
+    interface comparable<int>
+
     /// <summary>Each operator's body is the target's own, in the paired <c>.fs</c>:
     /// spliced at the use site, never emitted.</summary>
     static member inline (+): x: int * y: int -> int
@@ -40,12 +43,42 @@ type int = extern with
 /// <summary>An intrinsic boolean provided by the target.</summary>
 ///
 /// <category>Basic Types</category>
-type bool = extern
+and bool = extern with
+
+    interface equatable<bool>
+    interface comparable<bool>
 
 /// <summary>The type 'unit', which has only one value "()".</summary>
 ///
+/// <remarks>Comparable as well as equatable: a one-element set is totally ordered, so
+/// <c>compare () ()</c> is <c>0</c> and <c>Set&lt;unit&gt;</c> is legal if degenerate.</remarks>
+///
 /// <category>Basic Types</category>
-type unit = extern
+and unit = extern with
+
+    interface equatable<unit>
+    interface comparable<unit>
+
+/// <summary>The equality capability — anchors `[<CustomEquality>]` conformance.
+/// On the CLI it is <see cref="T:System.IEquatable`1"/>.</summary>
+///
+/// <category>Language Capabilities</category>
+and equatable<'T> = extern interface with
+    abstract member Equals: 'T -> bool
+
+/// <summary>The comparison capability — anchors `[<CustomComparison>]`
+/// conformance. On the CLI it is <see cref="T:System.IComparable`1"/>.</summary>
+///
+/// <category>Language Capabilities</category>
+and comparable<'T> = extern interface with
+    abstract member CompareTo: 'T -> int
+
+/// <summary>The disposal capability — anchors `use` (and `for … in` finally). On
+/// the CLI it is <see cref="T:System.IDisposable"/>.</summary>
+///
+/// <category>Language Capabilities</category>
+type disposable = extern interface with
+    abstract member Dispose: unit -> unit
 
 /// <summary>The function type: a value with a single abstract <c>Invoke</c> method.</summary>
 ///

@@ -171,6 +171,13 @@ module RuntimeNames =
     let matchesKey (cap: CapabilityIdentity voption) (k: TypeKey) : bool =
         cap |> ValueOption.exists (fun c -> c.Matches k)
 
+    /// Whether a DECLARED interface set carries `cap`: `int`'s surface lists `equatable<int>`
+    /// because `prim-types-min.fsi` says so.
+    let declaresCapability (cap: CapabilityIdentity voption) (interfaces: EqArray<FrozenInterface>) : bool =
+        match cap with
+        | ValueNone -> false
+        | ValueSome c -> interfaces |> EqArray.exists (fun iface -> c.Matches iface.Key)
+
     /// The identity + type args a REALISED interface denotes. A `TyConst` counts: that is how
     /// an intrinsic interface (`seq<'T>` on JS) realises.
     let interfaceNominal (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =

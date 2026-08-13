@@ -20,6 +20,9 @@ module Conformance =
         /// `type X = extern class` — a heritable external base, paired with the impl's
         /// `(# class "repr" #)`.
         | ExternClass
+        /// `type X = extern interface with …` — a capability anchor. Its repr is a nominal
+        /// INTERFACE name, which only a target that has interfaces can bind.
+        | ExternInterface
         /// `type X = Y` — a transparent abbreviation. F# resolves it transitively to its
         /// target, so a sig-only abbreviation (`ref = Ref<'T>`) is conformant with no
         /// `.fs` companion of its own.
@@ -30,6 +33,31 @@ module Conformance =
         /// Any other signature type (union, record, interface, …) — a concrete type that
         /// does require an implementation. The label is for diagnostics.
         | Other of label: string
+
+        /// The `extern` family: the `.fs` must answer with a `(# … #)` repr, and the two
+        /// sides' heritability must agree.
+        member this.DemandsIntrinsic =
+            match this with
+            | SigShape.Extern
+            | SigShape.ExternInterface
+            | SigShape.ExternClass -> true
+            | SigShape.Abbrev
+            | SigShape.Enum
+            | SigShape.Other _ -> false
+
+        /// A downstream file may `inherit` it, so the `.fs` must bind `(# class … #)`.
+        member this.IsHeritable = this = SigShape.ExternClass
+
+        /// The `.fs` may leave it out altogether: an abbreviation is transparent, and a
+        /// target that binds no capability-anchor repr is answering, not omitting.
+        member this.ImplOptional =
+            match this with
+            | SigShape.Abbrev
+            | SigShape.ExternInterface -> true
+            | SigShape.Extern
+            | SigShape.ExternClass
+            | SigShape.Enum
+            | SigShape.Other _ -> false
 
     /// A type declaration as seen in the `.fs` implementation.
     [<RequireQualifiedAccess>]
@@ -43,6 +71,16 @@ module Conformance =
         | Enum
         /// Any other implementation type (abbrev, union, record, …).
         | Other of label: string
+
+        /// `ValueSome heritable` when the `.fs` supplies a `(# … #)` repr; `ValueNone`
+        /// when it declares an ordinary type, which supplies none.
+        member this.SuppliesIntrinsic =
+            match this with
+            | ImplShape.Intrinsic _ -> ValueSome false
+            | ImplShape.IntrinsicClass _ -> ValueSome true
+            // `Enum` neither demands nor supplies an intrinsic, so it groups with `Other`.
+            | ImplShape.Enum
+            | ImplShape.Other _ -> ValueNone
 
     [<Struct; NoEquality; NoComparison>]
     type SigDecl = { Name: string; Shape: SigShape }
@@ -141,6 +179,7 @@ module Conformance =
         | TypeSignature.Extern(kindTag = ValueSome(ExternKind.Class _)) -> SigShape.ExternClass
         // `extern interface with …` pairs with the UNTAGGED `(# "System.IDisposable" #)`:
         // a platform interface identity is an opaque value repr, not a heritable base.
+        | TypeSignature.Extern(kindTag = ValueSome(ExternKind.Interface _)) -> SigShape.ExternInterface
         | TypeSignature.Extern _ -> SigShape.Extern
         | TypeSignature.Abbrev _ -> SigShape.Abbrev
         | TypeSignature.Record _ -> SigShape.Other "record"
@@ -261,26 +300,17 @@ module Conformance =
             if seenSig.Add d.Name then
                 match implMap.TryGetValue d.Name with
                 | false, _ ->
-                    match d.Shape with
-                    | SigShape.Abbrev -> ()
-                    | _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
+                    if not d.Shape.ImplOptional then
+                        errors.Add(ConformanceError.MissingInImpl d.Name)
                 | true, iShape ->
-                    // `Enum` neither demands nor supplies an intrinsic, so it groups
-                    // with `Other` on both sides.
-                    match d.Shape, iShape with
-                    | SigShape.Extern, ImplShape.Intrinsic _
-                    | SigShape.ExternClass, ImplShape.IntrinsicClass _ -> ()
-                    | SigShape.Extern, ImplShape.IntrinsicClass _
-                    | SigShape.ExternClass, ImplShape.Intrinsic _ ->
-                        errors.Add(ConformanceError.HeritabilityMismatch d.Name)
-                    | (SigShape.Extern | SigShape.ExternClass), (ImplShape.Other _ | ImplShape.Enum) ->
-                        errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
+                    match d.Shape.DemandsIntrinsic, iShape.SuppliesIntrinsic with
+                    | true, ValueNone -> errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)
                     // The sig understates a repr the contract should have declared
                     // `extern`: `type foo = int` in the `.fsi`, `(# … #)` in the `.fs`.
-                    | (SigShape.Other _ | SigShape.Abbrev | SigShape.Enum),
-                      (ImplShape.Intrinsic _ | ImplShape.IntrinsicClass _) ->
-                        errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
-                    | (SigShape.Other _ | SigShape.Abbrev | SigShape.Enum), (ImplShape.Other _ | ImplShape.Enum) -> ()
+                    | false, ValueSome _ -> errors.Add(ConformanceError.IntrinsicWithoutExtern d.Name)
+                    | true, ValueSome implHeritable when implHeritable <> d.Shape.IsHeritable ->
+                        errors.Add(ConformanceError.HeritabilityMismatch d.Name)
+                    | _ -> ()
 
         let seenImpl = HashSet<string>()
 

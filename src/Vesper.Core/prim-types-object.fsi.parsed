@@ -1,29 +1,38 @@
-namespace          'namespace'       KWNamespace         tok=   0  pos=   0
-                   'Vesper'          Identifier          tok=   2  pos=  10
+namespace              'namespace'       KWNamespace         tok=   0  pos=   0
+                       'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type           'type'            KWType              tok=  11  pos= 146
+    type               'type'            KWType              tok=  11  pos= 146
     TypeSig.Extern:
-      TypeName     'obj'             Identifier          tok=  13  pos= 151
-      =            '='               OpEquality          tok=  15  pos= 155
-      extern       'extern'          KWExtern            tok=  17  pos= 157
-      class        'class'           KWClass             tok=  19  pos= 164
-      with         'with'            KWWith              tok=  21  pos= 170
+      TypeName         'obj'             Identifier          tok=  13  pos= 151
+      =                '='               OpEquality          tok=  15  pos= 155
+      extern           'extern'          KWExtern            tok=  17  pos= 157
+      class            'class'           KWClass             tok=  19  pos= 164
+      with             'with'            KWWith              tok=  21  pos= 170
+        InterfaceSpec:
+          interface    'interface'       KWInterface         tok=  30  pos= 302
+          GenericType:
+            Ident      'equatable'       Identifier          tok=  32  pos= 312
+            <          '<'               op_LessThan         tok=  33  pos= 321
+            TypeArg.Type:
+              NamedType:
+                Ident  'obj'             Identifier          tok=  34  pos= 322
+            >          '>'               op_GreaterThan      tok=  35  pos= 325
         Constructor:
-          new      'new'             KWNew               tok=  27  pos= 234
-          :        ':'               OpColon             tok=  28  pos= 237
+          new          'new'             KWNew               tok=  42  pos= 387
+          :            ':'               OpColon             tok=  43  pos= 390
           NamedType:
-            Ident  'unit'            Identifier          tok=  30  pos= 239
-          ->       '->'              OpArrowRight        tok=  32  pos= 244
+            Ident      'unit'            Identifier          tok=  45  pos= 392
+          ->           '->'              OpArrowRight        tok=  47  pos= 397
           NamedType:
-            Ident  'obj'             Identifier          tok=  34  pos= 247
-      end          <virt>            KWEnd               tok=virt  pos= 471
+            Ident      'obj'             Identifier          tok=  49  pos= 400
+      end              <virt>            KWEnd               tok=virt  pos= 624
   Type:
-    type           'type'            KWType              tok=  45  pos= 471
+    type               'type'            KWType              tok=  60  pos= 624
     TypeSig.Abbrev:
-      TypeName     'objnull'         Identifier          tok=  47  pos= 476
-      =            '='               OpEquality          tok=  49  pos= 484
+      TypeName         'objnull'         Identifier          tok=  62  pos= 629
+      =                '='               OpEquality          tok=  64  pos= 637
         UnionType:
           NamedType:
-            Ident  'obj'             Identifier          tok=  51  pos= 486
-          |        '|'               OpBar               tok=  53  pos= 490
-          null     'null'            KWNull              tok=  55  pos= 492
+            Ident      'obj'             Identifier          tok=  66  pos= 639
+          |            '|'               OpBar               tok=  68  pos= 643
+          null         'null'            KWNull              tok=  70  pos= 645

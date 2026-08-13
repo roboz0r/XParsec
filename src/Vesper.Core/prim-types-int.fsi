@@ -10,6 +10,9 @@ namespace Vesper
 type sbyte =
     extern with
 
+    interface equatable<sbyte>
+    interface comparable<sbyte>
+
     static member inline (+): x: sbyte * y: sbyte -> sbyte
 
     static member inline (-): x: sbyte * y: sbyte -> sbyte
@@ -41,6 +44,9 @@ type sbyte =
 /// <category>Basic Types</category>
 type byte =
     extern with
+
+    interface equatable<byte>
+    interface comparable<byte>
 
     static member inline (+): x: byte * y: byte -> byte
 
@@ -82,6 +88,9 @@ type uint8 = byte
 type int16 =
     extern with
 
+    interface equatable<int16>
+    interface comparable<int16>
+
     static member inline (+): x: int16 * y: int16 -> int16
 
     static member inline (-): x: int16 * y: int16 -> int16
@@ -113,6 +122,9 @@ type int16 =
 /// <category>Basic Types</category>
 type uint16 =
     extern with
+
+    interface equatable<uint16>
+    interface comparable<uint16>
 
     static member inline (+): x: uint16 * y: uint16 -> uint16
 
@@ -149,6 +161,9 @@ type int32 = int
 type uint32 =
     extern with
 
+    interface equatable<uint32>
+    interface comparable<uint32>
+
     static member inline (+): x: uint32 * y: uint32 -> uint32
 
     static member inline (-): x: uint32 * y: uint32 -> uint32
@@ -178,6 +193,9 @@ type uint32 =
 /// <category>Basic Types</category>
 type int64 =
     extern with
+
+    interface equatable<int64>
+    interface comparable<int64>
 
     static member inline (+): x: int64 * y: int64 -> int64
 
@@ -210,6 +228,9 @@ type int64 =
 /// <category>Basic Types</category>
 type uint64 =
     extern with
+
+    interface equatable<uint64>
+    interface comparable<uint64>
 
     static member inline (+): x: uint64 * y: uint64 -> uint64
 

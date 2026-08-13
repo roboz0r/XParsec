@@ -1,11 +1,8 @@
 [core]
 description = "Minimal language fundamentals: the primitive types, Fun, Ref, capabilities, and the operators."
 
-# Declaration order, top-down as F# resolves: `prim-types-min` first (int/bool/unit/`Fun`),
-# then `capabilities`, then `prim-types-array` — the array declares the `seq` capability, so
-# both must already be in scope. `core-types` before the operator files. `fun-adapters.fsi`
-# is CLR-only: a CLR function value is a nominal `Fun` interface, so adapting flat<->curried
-# needs a reified object.
+# `fun-adapters.fsi` is CLR-only: a CLR function value is a nominal `Fun` interface, so
+# adapting flat<->curried needs a reified object.
 files = [
     "prim-types-min.fsi",
     "capabilities.fsi",

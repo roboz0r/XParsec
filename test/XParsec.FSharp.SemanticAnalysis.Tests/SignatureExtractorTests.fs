@@ -57,6 +57,13 @@ let membersOf (ctx: VesperLib.ExtractCtx) (compiledSuffix: string) : ExternalMem
     | ValueNone ->
         failtestf "no members published for '%s'. Member tables: %A" compiledSuffix (Seq.toList ctx.TypeMembers.Keys)
 
+/// The `interface <ty>` impls a PRIMITIVE declares. Empty for a leaf that binds only a
+/// representation, which is indistinguishable here from a primitive that declares none.
+let declaredInterfaces (p: IExternalSymbolStore) (key: SymbolKey) : EqArray<FrozenInterface> =
+    match p.TryLookupType key with
+    | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface.Interfaces
+    | _ -> EqArray.empty
+
 [<Tests>]
 let tests =
     testList
@@ -1263,5 +1270,53 @@ let tests =
                 Expect.isTrue
                     carriesSeqOfInt
                     (sprintf "`int[]`'s declared interfaces do not include `seq<int>`; they are %A" instantiated)
+            }
+
+            test "the contract declares equatable and comparable on `int`" {
+                let declared = declaredInterfaces realProvider.Value RuntimeNames.intKey
+
+                for anchor in [ RuntimeNames.equatableKey; RuntimeNames.comparableKey ] do
+                    Expect.isTrue
+                        (declared |> EqArray.exists (fun iface -> iface.Key = SymbolKey.Type anchor))
+                        (sprintf
+                            "`int` does not declare `%s`; it declares %A"
+                            (SymbolKeyOps.typeMetaName anchor)
+                            declared)
+            }
+
+            // A frozen impl view of `prim-types-min.clr.fs` sits AHEAD of the contract in a
+            // package's own build and publishes `int` as a bare `Scalar`: it binds a
+            // representation and knows no surface. First-hit alone would read that silence as
+            // "declares nothing", so the composite folds the surfaces instead.
+            test "a repr-only leaf ahead of the contract does not shadow `int`'s declared interfaces" {
+                let intKey = RuntimeNames.intKey
+
+                let reprOnly =
+                    let shapes = System.Collections.Generic.Dictionary<SymbolKey, ExternalTypeShape>()
+
+                    let canon = SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.qualifiedName intKey) 0
+
+                    shapes.[intKey] <-
+                        ExternalTypeShape.Intrinsic(
+                            IntrinsicShape.Scalar(canon, 0, IntrinsicPlatform.Repr "System.Int32")
+                        )
+
+                    ExternalSymbolProviders.ofKeyedLeaf (
+                        ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes
+                            { ExternalSymbolProviders.KeyIndexedLeaf.empty with
+                                ShapesByKey = shapes
+                            }
+                    )
+
+                Expect.isTrue
+                    (declaredInterfaces reprOnly intKey).IsEmpty
+                    "the repr-only leaf alone declares nothing, which is what makes the fold necessary"
+
+                let composed = ExternalSymbolProviders.composite [ reprOnly; realProvider.Value ]
+
+                Expect.isTrue
+                    (declaredInterfaces composed intKey
+                     |> EqArray.exists (fun iface -> iface.Key = SymbolKey.Type RuntimeNames.equatableKey))
+                    "the contract's `equatable<int>` survives a leaf that binds only a repr"
             }
         ]

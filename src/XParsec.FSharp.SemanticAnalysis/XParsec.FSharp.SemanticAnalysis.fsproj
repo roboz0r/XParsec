@@ -76,6 +76,10 @@
     <Compile Include="FrozenCodecDecls.fs" />
     <Compile Include="FrozenCodec.fs" />
     <Compile Include="TastLower.fs" />
+    <!-- The PARTS an external declaration is made of (a symbol, a member, a signature, a
+         class or intrinsic surface), then the declaration SHAPE they compose into and the
+         lookup contract that serves it. -->
+    <Compile Include="ExternalDeclarations.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="ExternalSymbolProviders.fs" />
     <!-- After the symbol data model it projects, and independent of everything below: an

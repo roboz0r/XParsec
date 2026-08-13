@@ -8,6 +8,9 @@ namespace Vesper
 type exn = extern class with
     inherit obj
 
+    /// <summary>Equatable but NOT comparable, as <c>obj</c> is.</summary>
+    interface equatable<exn>
+
     /// <summary>Creates an exception carrying a message.</summary>
     new: message: string -> exn
 

@@ -117,6 +117,17 @@ module UnificationEngine =
                 RuntimeNames.unitKey
             ]
 
+    /// `int` is equatable because `prim-types-min.fsi` declares `interface equatable<int>`.
+    let private primitiveDeclares
+        (ctx: PassContext)
+        (cap: RuntimeNames.CapabilityIdentity voption)
+        (key: SymbolKey)
+        : bool =
+        match ctx.Provider.TryLookupType key with
+        | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
+            RuntimeNames.declaresCapability cap surface.Interfaces
+        | _ -> false
+
     let private constraintKindName (k: SemanticConstraintKind) : string =
         match k with
         | SemanticConstraintKind.Equality -> "equality"
@@ -430,18 +441,23 @@ module UnificationEngine =
                         )
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
-    /// `ValueNone` = not in the table, fall through to structural / deferred
-    /// handling.
-    and private primitiveSupports (kind: SemanticConstraintKind) (key: SymbolKey) : bool voption =
+    /// `ValueNone` = no answer, fall through to structural / deferred handling.
+    and private primitiveSupports (ctx: PassContext) (kind: SemanticConstraintKind) (key: SymbolKey) : bool voption =
         // By KEY, not by name: this is a type-checking VERDICT, so a user type merely
         // spelled `int` in its own namespace must not satisfy `when ^T : struct`.
         let isValueType = isPrimitiveValueType key
         let isString = key = RuntimeNames.stringKey
 
         match kind with
-        | SemanticConstraintKind.Equality
+        // An undeclared capability defers rather than refusing: `decimal` on JS has no
+        // contract to reach, so it has said nothing, not "no".
+        | SemanticConstraintKind.Equality ->
+            if primitiveDeclares ctx ctx.CapabilityIds.Equatable key then
+                ValueSome true
+            else
+                ValueNone
         | SemanticConstraintKind.Comparison ->
-            if isValueType || isString then
+            if primitiveDeclares ctx ctx.CapabilityIds.Comparable key then
                 ValueSome true
             else
                 ValueNone
@@ -519,7 +535,7 @@ module UnificationEngine =
             | SubsumeOutcome.Subtype -> Satisfied
             | SubsumeOutcome.Unrelated -> Violated
         | k, TyConst(nameKey, _) ->
-            match primitiveSupports k nameKey with
+            match primitiveSupports ctx k nameKey with
             | ValueSome true -> Satisfied
             | ValueSome false -> Violated
             | ValueNone -> Defer

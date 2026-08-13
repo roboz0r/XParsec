@@ -4,6 +4,10 @@ namespace Vesper
 ///
 /// <category>Basic Types</category>
 type obj = extern class with
+    /// <summary>Equatable but NOT comparable: every value has reference identity, none
+    /// has an ordering.</summary>
+    interface equatable<obj>
+
     /// <summary>Creates an object instance.</summary>
     new: unit -> obj
 

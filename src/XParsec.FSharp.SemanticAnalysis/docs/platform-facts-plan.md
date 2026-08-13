@@ -5,6 +5,12 @@ the note on `CompilationInputs.Target` below still refers to it. The steps here 
 step 1 is a hard prerequisite for step 2, and taking them out of order silently breaks
 `when 'T : equality` on JS with no diagnostic.*
 
+***Step 1 has LANDED (2026-08-12).** `IExternalSymbolStore.IntrinsicCapabilities` is the query,
+folded across sources; the contract authors the floor; `primitiveSupports` answers
+`Equality`/`Comparison` from it and no longer consults `isPrimitiveValueType` for them. Steps 2–4
+are unstarted. See the step 1 section for the three things it turned out to need that this doc
+did not predict.*
+
 *This doc ABSORBED `intrinsic-capability-representation-plan.md` (2026-08-12), which split the
 same six constraint kinds across the same two axes but was written a month earlier and had gone
 stale in three places: its "feasibility crux" was resolved in-tree (see step 1), the
@@ -74,7 +80,54 @@ weigh in the design.
 
 ## Ordering (the risk is entirely in step 1)
 
-### 1. `Equality` / `Comparison` → the provider's capability query
+### 1. `Equality` / `Comparison` → the provider's capability query — **DONE (2026-08-12)**
+
+**What shipped.** A primitive's declared `interface`s ride its `IntrinsicClassSurface`, and
+`ExternalSymbolProviders.stack` FOLDS that surface across sources instead of taking the nearest
+one: an impl `.fs` view binds a representation and publishes no surface, so its silence is not an
+answer. `primitiveSupports` reads `Equality` / `Comparison` off the folded surface and consults no
+list of its own. `SignatureExtractorTests` pins both the contract's answer for `int` and that a
+repr-only leaf ahead of the contract does not shadow it.
+
+*(A first cut instead added a parallel `IExternalSymbolStore.IntrinsicCapabilities` channel that
+routed around the first-hit shape lookup. That fixed the constraint solver only and left
+`subtypeInterfacesOf` / `tryForInEnumerator` / `tryUpcastWitness` reading the shadowed surface —
+the same fact answered two ways. Folding in `stack` subsumes it, and the channel is gone.)*
+
+**Three things this doc did not predict, each now in the code:**
+
+1. **The floor is MUTUALLY RECURSIVE with the primitives.** `equatable<'T>.Equals` returns `bool`
+   and `comparable<'T>.CompareTo` returns `int`, so those two anchors cannot be declared in a file
+   ordered after the primitives that declare them: they moved into `prim-types-min.fsi` as one
+   `type … and …` group with `int` / `bool` / `unit` (the extractor finalizes a whole group before
+   freezing it, which is what makes the cycle legal). `disposable` moved with them for grouping
+   only — no primitive is `disposable`, so nothing forces its position. `capabilities.fsi` keeps
+   the `Vesper.Collections` iteration anchors. The CLR reprs moved with them.
+2. **A capability anchor is `SigShape.ExternInterface` in conformance, and a target may bind no
+   repr for it.** JS has no nominal interfaces, so an anchor absent from the paired `.fs` is a
+   statement, not `MissingInImpl`. Previously that was expressible only at FILE granularity
+   (`capabilities.fsi` was unpaired on JS); the group above made the file paired. `SigShape` now
+   answers `DemandsIntrinsic` / `IsHeritable` / `ImplOptional` rather than being re-matched at
+   each consumer, so this cost one DU case and one member arm.
+3. **`IntrinsicClassSurface.Heritable`.** A scalar declaring an `interface` now carries a class
+   surface, which three readers were treating as "heritable"; all three now go through
+   `ExternalSymbols.intrinsicClassOf`, the one place the flag is tested. A scalar's surface is
+   attached by `finalizeDeferred` ON the `Intrinsic` shape registered at extraction, so its
+   identity is the canon throughout and its own member signatures (`bigint`'s
+   `(+): bigint * bigint -> bigint`) freeze against it. Registering it as a `Class` and
+   republishing later would make the frozen identity depend on when it was asked.
+
+**The floor as authored:** equatable + comparable on `int`, `bool`, `unit`, `char`, `string`,
+`sbyte`, `byte`, `int16`, `uint16`, `uint32`, `int64`, `uint64`, `float32`, `float`, `bigint`;
+equatable only on `obj` and `exn`. **NOT on `decimal`, `nativeint`, `unativeint`** — JS binds no
+repr for them, and `IntrinsicHost.interfaceNeedsRepr` (`VesperLib.fs`) makes an interface
+declaration on a repr-less primitive an error. That is a gap, not a regression: those three were
+absent from `isPrimitiveValueType` too, so they deferred before and defer now. Closing it means
+deciding whether that diagnostic should fire for a type the target marks `Unsupported` at all.
+
+---
+
+*Original statement of the problem, kept because steps 2–3 still turn on it:*
 
 `isPrimitiveValueType` is the SOLE path to `Satisfied` for these on a primitive:
 
@@ -319,7 +372,8 @@ after `per-target-manifest-plan.md` makes the manifest path target-specific.
 - Static-optimization (clause-selection) path, out of scope: `ExpressionParsing.fs:162,169` →
   `InferTypeOps.fs:97-98` → `Inline.fs:116`.
 - JS's own statement of the fact: `EmitJsTypes.fs:283`.
-- Capability keys for step 1: `RuntimeNames.fs:56-70`; contract in `src/Vesper.Core/capabilities.fsi`.
+- Capability keys for step 1: `RuntimeNames.fs:56-70`; the eq/cmp/disposal anchors are in
+  `src/Vesper.Core/prim-types-min.fsi`, the iteration ones in `capabilities.fsi`.
   `CapabilityIdentity` / `.Matches` at `RuntimeNames.fs:131-150`; `CapabilityIds` populated by
   `ExternalSymbols.resolveCapabilities` (`ExternalSymbols.fs:758-780`).
 - Capability declaration template: `SignatureParsing.fs:382-413`, `prim-types-array.fsi:11-12`,

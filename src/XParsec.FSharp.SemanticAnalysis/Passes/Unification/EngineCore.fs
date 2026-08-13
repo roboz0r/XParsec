@@ -520,8 +520,8 @@ module UnificationEngineCore =
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
-            // A heritable primitive (`exn`)'s declared `inherit` parent (`obj`), so the
-            // subtype walk continues `exn → obj → ⊥` off the contract chain.
+            // A primitive's declared `inherit` parent, so the subtype walk continues
+            // `exn → obj → ⊥` off the contract chain. Only a heritable primitive declares one.
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
                 ExternalSymbols.instantiateBaseTypeFrozen surface.BaseType (args.AsSpan().ToArray())
             | _ -> ValueNone

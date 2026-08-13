@@ -587,7 +587,7 @@ module internal UnificationInferControlFlow =
                 | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                 | None -> ValueNone
             | _ -> ValueNone
-        // A PRIMITIVE source (`for x in arr`): an `extern class` declares its interfaces on
+        // A PRIMITIVE source (`for x in arr`): an `extern` type declares its interfaces on
         // the intrinsic's class surface, matched against the capability as in the union arm.
         | TyConst(key, args) ->
             match ctx.Provider.TryLookupType key with

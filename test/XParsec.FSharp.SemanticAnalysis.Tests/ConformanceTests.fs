@@ -26,9 +26,12 @@ let private conform (sigSrc: string) (implSrc: string) : Conformance.Conformance
 let private externNames (decls: Conformance.SigDecl list) =
     decls
     |> List.choose (fun d ->
-        match d.Shape with
-        | Conformance.SigShape.Extern -> Some d.Name
-        | _ -> None
+        // Not `DemandsIntrinsic`: an `extern class` pairs with the TAGGED
+        // `(# class … #)`, which `intrinsicNames` counts separately.
+        if d.Shape.DemandsIntrinsic && not d.Shape.IsHeritable then
+            Some d.Name
+        else
+            None
     )
     |> Set.ofList
 
@@ -55,7 +58,7 @@ let tests =
                 Expect.isEmpty errors "prim-types-min should conform with no errors"
             }
 
-            test "prim-types-min: extern capability set equals the intrinsic set" {
+            test "prim-types-min: extern set equals the intrinsic set, primitives and anchors alike" {
                 let sigSrc = readNormalised (vesperCorePath "prim-types-min.fsi")
                 let implSrc = readNormalised (vesperCorePath "prim-types-min.clr.fs")
 
@@ -67,10 +70,13 @@ let tests =
                 let intrinsics = intrinsicNames (Conformance.summariseImpl implLexed implFile)
 
                 Expect.equal externs intrinsics "extern set == intrinsic set"
-                Expect.equal (Set.count externs) 3 "three primitives are extern"
+                Expect.equal (Set.count externs) 6 "three primitives and three capability anchors are extern"
                 Expect.isTrue (externs.Contains "int") "int is extern"
                 Expect.isTrue (externs.Contains "bool") "bool is extern"
                 Expect.isTrue (externs.Contains "unit") "unit is extern"
+                Expect.isTrue (externs.Contains "equatable") "equatable is extern"
+                Expect.isTrue (externs.Contains "comparable") "comparable is extern"
+                Expect.isTrue (externs.Contains "disposable") "disposable is extern"
             }
 
             test "prim-types-array.fsi conforms to prim-types-array.fs (no drift)" {

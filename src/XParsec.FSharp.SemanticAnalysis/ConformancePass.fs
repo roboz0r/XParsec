@@ -200,23 +200,11 @@ module ConformancePass =
 
                         let externs =
                             decls
-                            |> List.choose (fun d ->
-                                match d.Shape with
-                                | Conformance.SigShape.Extern
-                                | Conformance.SigShape.ExternClass -> Some d.Name
-                                | _ -> None
-                            )
+                            |> List.choose (fun d -> if d.Shape.DemandsIntrinsic then Some d.Name else None)
 
                         let bodiless =
                             decls
-                            |> List.forall (fun d ->
-                                match d.Shape with
-                                | Conformance.SigShape.Extern
-                                | Conformance.SigShape.ExternClass
-                                | Conformance.SigShape.Abbrev -> true
-                                | Conformance.SigShape.Enum
-                                | Conformance.SigShape.Other _ -> false
-                            )
+                            |> List.forall (fun d -> d.Shape.DemandsIntrinsic || d.Shape = Conformance.SigShape.Abbrev)
 
                         if not bodiless then
                             PairOutcome.SigOnly fsiRel

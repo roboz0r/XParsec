@@ -7,6 +7,9 @@ namespace Vesper
 type bigint =
     extern with
 
+    interface equatable<bigint>
+    interface comparable<bigint>
+
     static member inline (+): x: bigint * y: bigint -> bigint
 
     static member inline (-): x: bigint * y: bigint -> bigint

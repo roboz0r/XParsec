@@ -7,418 +7,541 @@ namespace               'namespace'       KWNamespace         tok=   0  pos=   0
       =                 '='               OpEquality          tok=  15  pos= 150
       extern            'extern'          KWExtern            tok=  17  pos= 152
       with              'with'            KWWith              tok=  19  pos= 159
+        InterfaceSpec:
+          interface     'interface'       KWInterface         tok=  23  pos= 169
+          GenericType:
+            Ident       'equatable'       Identifier          tok=  25  pos= 179
+            <           '<'               op_LessThan         tok=  26  pos= 188
+            TypeArg.Type:
+              NamedType:
+                Ident   'int'             Identifier          tok=  27  pos= 189
+            >           '>'               op_GreaterThan      tok=  28  pos= 192
+        InterfaceSpec:
+          interface     'interface'       KWInterface         tok=  31  pos= 198
+          GenericType:
+            Ident       'comparable'      Identifier          tok=  33  pos= 208
+            <           '<'               op_LessThan         tok=  34  pos= 218
+            TypeArg.Type:
+              NamedType:
+                Ident   'int'             Identifier          tok=  35  pos= 219
+            >           '>'               op_GreaterThan      tok=  36  pos= 222
         StaticMember:
-          static        'static'          KWStatic            tok=  29  pos= 312
-          member        'member'          KWMember            tok=  31  pos= 319
-          inline        'inline'          KWInline            tok=  33  pos= 326
+          static        'static'          KWStatic            tok=  46  pos= 372
+          member        'member'          KWMember            tok=  48  pos= 379
+          inline        'inline'          KWInline            tok=  50  pos= 386
           ParenOp:
-                        '('               KWLParen            tok=  35  pos= 333
-            SymbolicOp  '+'               op_Addition         tok=  36  pos= 334
-                        ')'               KWRParen            tok=  37  pos= 335
-          :             ':'               OpColon             tok=  38  pos= 336
-          arg           'x'               Identifier          tok=  40  pos= 338
-          :             ':'               OpColon             tok=  41  pos= 339
+                        '('               KWLParen            tok=  52  pos= 393
+            SymbolicOp  '+'               op_Addition         tok=  53  pos= 394
+                        ')'               KWRParen            tok=  54  pos= 395
+          :             ':'               OpColon             tok=  55  pos= 396
+          arg           'x'               Identifier          tok=  57  pos= 398
+          :             ':'               OpColon             tok=  58  pos= 399
           NamedType:
-            Ident       'int'             Identifier          tok=  43  pos= 341
-          arg           'y'               Identifier          tok=  47  pos= 347
-          :             ':'               OpColon             tok=  48  pos= 348
+            Ident       'int'             Identifier          tok=  60  pos= 401
+          arg           'y'               Identifier          tok=  64  pos= 407
+          :             ':'               OpColon             tok=  65  pos= 408
           NamedType:
-            Ident       'int'             Identifier          tok=  50  pos= 350
-          ->            '->'              OpArrowRight        tok=  52  pos= 354
+            Ident       'int'             Identifier          tok=  67  pos= 410
+          ->            '->'              OpArrowRight        tok=  69  pos= 414
           NamedType:
-            Ident       'int'             Identifier          tok=  54  pos= 357
+            Ident       'int'             Identifier          tok=  71  pos= 417
         StaticMember:
-          static        'static'          KWStatic            tok=  58  pos= 366
-          member        'member'          KWMember            tok=  60  pos= 373
-          inline        'inline'          KWInline            tok=  62  pos= 380
+          static        'static'          KWStatic            tok=  75  pos= 426
+          member        'member'          KWMember            tok=  77  pos= 433
+          inline        'inline'          KWInline            tok=  79  pos= 440
           ParenOp:
-                        '('               KWLParen            tok=  64  pos= 387
-            SymbolicOp  '-'               op_Subtraction      tok=  65  pos= 388
-                        ')'               KWRParen            tok=  66  pos= 389
-          :             ':'               OpColon             tok=  67  pos= 390
-          arg           'x'               Identifier          tok=  69  pos= 392
-          :             ':'               OpColon             tok=  70  pos= 393
+                        '('               KWLParen            tok=  81  pos= 447
+            SymbolicOp  '-'               op_Subtraction      tok=  82  pos= 448
+                        ')'               KWRParen            tok=  83  pos= 449
+          :             ':'               OpColon             tok=  84  pos= 450
+          arg           'x'               Identifier          tok=  86  pos= 452
+          :             ':'               OpColon             tok=  87  pos= 453
           NamedType:
-            Ident       'int'             Identifier          tok=  72  pos= 395
-          arg           'y'               Identifier          tok=  76  pos= 401
-          :             ':'               OpColon             tok=  77  pos= 402
+            Ident       'int'             Identifier          tok=  89  pos= 455
+          arg           'y'               Identifier          tok=  93  pos= 461
+          :             ':'               OpColon             tok=  94  pos= 462
           NamedType:
-            Ident       'int'             Identifier          tok=  79  pos= 404
-          ->            '->'              OpArrowRight        tok=  81  pos= 408
+            Ident       'int'             Identifier          tok=  96  pos= 464
+          ->            '->'              OpArrowRight        tok=  98  pos= 468
           NamedType:
-            Ident       'int'             Identifier          tok=  83  pos= 411
+            Ident       'int'             Identifier          tok= 100  pos= 471
         StaticMember:
-          static        'static'          KWStatic            tok=  87  pos= 420
-          member        'member'          KWMember            tok=  89  pos= 427
-          inline        'inline'          KWInline            tok=  91  pos= 434
+          static        'static'          KWStatic            tok= 104  pos= 480
+          member        'member'          KWMember            tok= 106  pos= 487
+          inline        'inline'          KWInline            tok= 108  pos= 494
           ParenOp:
-                        '('               KWLParen            tok=  93  pos= 441
-            SymbolicOp  '*'               OpMultiply          tok=  95  pos= 443
-                        ')'               KWRParen            tok=  97  pos= 445
-          :             ':'               OpColon             tok=  98  pos= 446
-          arg           'x'               Identifier          tok= 100  pos= 448
-          :             ':'               OpColon             tok= 101  pos= 449
+                        '('               KWLParen            tok= 110  pos= 501
+            SymbolicOp  '*'               OpMultiply          tok= 112  pos= 503
+                        ')'               KWRParen            tok= 114  pos= 505
+          :             ':'               OpColon             tok= 115  pos= 506
+          arg           'x'               Identifier          tok= 117  pos= 508
+          :             ':'               OpColon             tok= 118  pos= 509
           NamedType:
-            Ident       'int'             Identifier          tok= 103  pos= 451
-          arg           'y'               Identifier          tok= 107  pos= 457
-          :             ':'               OpColon             tok= 108  pos= 458
+            Ident       'int'             Identifier          tok= 120  pos= 511
+          arg           'y'               Identifier          tok= 124  pos= 517
+          :             ':'               OpColon             tok= 125  pos= 518
           NamedType:
-            Ident       'int'             Identifier          tok= 110  pos= 460
-          ->            '->'              OpArrowRight        tok= 112  pos= 464
+            Ident       'int'             Identifier          tok= 127  pos= 520
+          ->            '->'              OpArrowRight        tok= 129  pos= 524
           NamedType:
-            Ident       'int'             Identifier          tok= 114  pos= 467
+            Ident       'int'             Identifier          tok= 131  pos= 527
         StaticMember:
-          static        'static'          KWStatic            tok= 118  pos= 476
-          member        'member'          KWMember            tok= 120  pos= 483
-          inline        'inline'          KWInline            tok= 122  pos= 490
+          static        'static'          KWStatic            tok= 135  pos= 536
+          member        'member'          KWMember            tok= 137  pos= 543
+          inline        'inline'          KWInline            tok= 139  pos= 550
           ParenOp:
-                        '('               KWLParen            tok= 124  pos= 497
-            SymbolicOp  '/'               OpDivision          tok= 125  pos= 498
-                        ')'               KWRParen            tok= 126  pos= 499
-          :             ':'               OpColon             tok= 127  pos= 500
-          arg           'x'               Identifier          tok= 129  pos= 502
-          :             ':'               OpColon             tok= 130  pos= 503
+                        '('               KWLParen            tok= 141  pos= 557
+            SymbolicOp  '/'               OpDivision          tok= 142  pos= 558
+                        ')'               KWRParen            tok= 143  pos= 559
+          :             ':'               OpColon             tok= 144  pos= 560
+          arg           'x'               Identifier          tok= 146  pos= 562
+          :             ':'               OpColon             tok= 147  pos= 563
           NamedType:
-            Ident       'int'             Identifier          tok= 132  pos= 505
-          arg           'y'               Identifier          tok= 136  pos= 511
-          :             ':'               OpColon             tok= 137  pos= 512
+            Ident       'int'             Identifier          tok= 149  pos= 565
+          arg           'y'               Identifier          tok= 153  pos= 571
+          :             ':'               OpColon             tok= 154  pos= 572
           NamedType:
-            Ident       'int'             Identifier          tok= 139  pos= 514
-          ->            '->'              OpArrowRight        tok= 141  pos= 518
+            Ident       'int'             Identifier          tok= 156  pos= 574
+          ->            '->'              OpArrowRight        tok= 158  pos= 578
           NamedType:
-            Ident       'int'             Identifier          tok= 143  pos= 521
+            Ident       'int'             Identifier          tok= 160  pos= 581
         StaticMember:
-          static        'static'          KWStatic            tok= 147  pos= 530
-          member        'member'          KWMember            tok= 149  pos= 537
-          inline        'inline'          KWInline            tok= 151  pos= 544
+          static        'static'          KWStatic            tok= 164  pos= 590
+          member        'member'          KWMember            tok= 166  pos= 597
+          inline        'inline'          KWInline            tok= 168  pos= 604
           ParenOp:
-                        '('               KWLParen            tok= 153  pos= 551
-            SymbolicOp  '%'               op_Modulus          tok= 154  pos= 552
-                        ')'               KWRParen            tok= 155  pos= 553
-          :             ':'               OpColon             tok= 156  pos= 554
-          arg           'x'               Identifier          tok= 158  pos= 556
-          :             ':'               OpColon             tok= 159  pos= 557
+                        '('               KWLParen            tok= 170  pos= 611
+            SymbolicOp  '%'               op_Modulus          tok= 171  pos= 612
+                        ')'               KWRParen            tok= 172  pos= 613
+          :             ':'               OpColon             tok= 173  pos= 614
+          arg           'x'               Identifier          tok= 175  pos= 616
+          :             ':'               OpColon             tok= 176  pos= 617
           NamedType:
-            Ident       'int'             Identifier          tok= 161  pos= 559
-          arg           'y'               Identifier          tok= 165  pos= 565
-          :             ':'               OpColon             tok= 166  pos= 566
+            Ident       'int'             Identifier          tok= 178  pos= 619
+          arg           'y'               Identifier          tok= 182  pos= 625
+          :             ':'               OpColon             tok= 183  pos= 626
           NamedType:
-            Ident       'int'             Identifier          tok= 168  pos= 568
-          ->            '->'              OpArrowRight        tok= 170  pos= 572
+            Ident       'int'             Identifier          tok= 185  pos= 628
+          ->            '->'              OpArrowRight        tok= 187  pos= 632
           NamedType:
-            Ident       'int'             Identifier          tok= 172  pos= 575
+            Ident       'int'             Identifier          tok= 189  pos= 635
         StaticMember:
-          static        'static'          KWStatic            tok= 179  pos= 672
-          member        'member'          KWMember            tok= 181  pos= 679
-          inline        'inline'          KWInline            tok= 183  pos= 686
+          static        'static'          KWStatic            tok= 196  pos= 732
+          member        'member'          KWMember            tok= 198  pos= 739
+          inline        'inline'          KWInline            tok= 200  pos= 746
           ParenOp:
-                        '('               KWLParen            tok= 185  pos= 693
-            SymbolicOp  '~+'              op_UnaryPlus        tok= 186  pos= 694
-                        ')'               KWRParen            tok= 187  pos= 696
-          :             ':'               OpColon             tok= 188  pos= 697
-          arg           'value'           Identifier          tok= 190  pos= 699
-          :             ':'               OpColon             tok= 191  pos= 704
+                        '('               KWLParen            tok= 202  pos= 753
+            SymbolicOp  '~+'              op_UnaryPlus        tok= 203  pos= 754
+                        ')'               KWRParen            tok= 204  pos= 756
+          :             ':'               OpColon             tok= 205  pos= 757
+          arg           'value'           Identifier          tok= 207  pos= 759
+          :             ':'               OpColon             tok= 208  pos= 764
           NamedType:
-            Ident       'int'             Identifier          tok= 193  pos= 706
-          ->            '->'              OpArrowRight        tok= 195  pos= 710
+            Ident       'int'             Identifier          tok= 210  pos= 766
+          ->            '->'              OpArrowRight        tok= 212  pos= 770
           NamedType:
-            Ident       'int'             Identifier          tok= 197  pos= 713
+            Ident       'int'             Identifier          tok= 214  pos= 773
         StaticMember:
-          static        'static'          KWStatic            tok= 207  pos= 872
-          member        'member'          KWMember            tok= 209  pos= 879
-          inline        'inline'          KWInline            tok= 211  pos= 886
+          static        'static'          KWStatic            tok= 224  pos= 932
+          member        'member'          KWMember            tok= 226  pos= 939
+          inline        'inline'          KWInline            tok= 228  pos= 946
           ParenOp:
-                        '('               KWLParen            tok= 213  pos= 893
-            SymbolicOp  '~-'              op_UnaryNegation    tok= 214  pos= 894
-                        ')'               KWRParen            tok= 215  pos= 896
-          :             ':'               OpColon             tok= 216  pos= 897
-          arg           'n'               Identifier          tok= 218  pos= 899
-          :             ':'               OpColon             tok= 219  pos= 900
+                        '('               KWLParen            tok= 230  pos= 953
+            SymbolicOp  '~-'              op_UnaryNegation    tok= 231  pos= 954
+                        ')'               KWRParen            tok= 232  pos= 956
+          :             ':'               OpColon             tok= 233  pos= 957
+          arg           'n'               Identifier          tok= 235  pos= 959
+          :             ':'               OpColon             tok= 236  pos= 960
           NamedType:
-            Ident       'int'             Identifier          tok= 221  pos= 902
-          ->            '->'              OpArrowRight        tok= 223  pos= 906
+            Ident       'int'             Identifier          tok= 238  pos= 962
+          ->            '->'              OpArrowRight        tok= 240  pos= 966
           NamedType:
-            Ident       'int'             Identifier          tok= 225  pos= 909
+            Ident       'int'             Identifier          tok= 242  pos= 969
         StaticMember:
-          static        'static'          KWStatic            tok= 229  pos= 918
-          member        'member'          KWMember            tok= 231  pos= 925
-          inline        'inline'          KWInline            tok= 233  pos= 932
+          static        'static'          KWStatic            tok= 246  pos= 978
+          member        'member'          KWMember            tok= 248  pos= 985
+          inline        'inline'          KWInline            tok= 250  pos= 992
           ParenOp:
-                        '('               KWLParen            tok= 235  pos= 939
-            SymbolicOp  '&&&'             op_BitwiseAnd       tok= 236  pos= 940
-                        ')'               KWRParen            tok= 237  pos= 943
-          :             ':'               OpColon             tok= 238  pos= 944
-          arg           'x'               Identifier          tok= 240  pos= 946
-          :             ':'               OpColon             tok= 241  pos= 947
+                        '('               KWLParen            tok= 252  pos= 999
+            SymbolicOp  '&&&'             op_BitwiseAnd       tok= 253  pos=1000
+                        ')'               KWRParen            tok= 254  pos=1003
+          :             ':'               OpColon             tok= 255  pos=1004
+          arg           'x'               Identifier          tok= 257  pos=1006
+          :             ':'               OpColon             tok= 258  pos=1007
           NamedType:
-            Ident       'int'             Identifier          tok= 243  pos= 949
-          arg           'y'               Identifier          tok= 247  pos= 955
-          :             ':'               OpColon             tok= 248  pos= 956
+            Ident       'int'             Identifier          tok= 260  pos=1009
+          arg           'y'               Identifier          tok= 264  pos=1015
+          :             ':'               OpColon             tok= 265  pos=1016
           NamedType:
-            Ident       'int'             Identifier          tok= 250  pos= 958
-          ->            '->'              OpArrowRight        tok= 252  pos= 962
+            Ident       'int'             Identifier          tok= 267  pos=1018
+          ->            '->'              OpArrowRight        tok= 269  pos=1022
           NamedType:
-            Ident       'int'             Identifier          tok= 254  pos= 965
+            Ident       'int'             Identifier          tok= 271  pos=1025
         StaticMember:
-          static        'static'          KWStatic            tok= 258  pos= 974
-          member        'member'          KWMember            tok= 260  pos= 981
-          inline        'inline'          KWInline            tok= 262  pos= 988
+          static        'static'          KWStatic            tok= 275  pos=1034
+          member        'member'          KWMember            tok= 277  pos=1041
+          inline        'inline'          KWInline            tok= 279  pos=1048
           ParenOp:
-                        '('               KWLParen            tok= 264  pos= 995
-            SymbolicOp  '|||'             op_BitwiseOr        tok= 265  pos= 996
-                        ')'               KWRParen            tok= 266  pos= 999
-          :             ':'               OpColon             tok= 267  pos=1000
-          arg           'x'               Identifier          tok= 269  pos=1002
-          :             ':'               OpColon             tok= 270  pos=1003
+                        '('               KWLParen            tok= 281  pos=1055
+            SymbolicOp  '|||'             op_BitwiseOr        tok= 282  pos=1056
+                        ')'               KWRParen            tok= 283  pos=1059
+          :             ':'               OpColon             tok= 284  pos=1060
+          arg           'x'               Identifier          tok= 286  pos=1062
+          :             ':'               OpColon             tok= 287  pos=1063
           NamedType:
-            Ident       'int'             Identifier          tok= 272  pos=1005
-          arg           'y'               Identifier          tok= 276  pos=1011
-          :             ':'               OpColon             tok= 277  pos=1012
+            Ident       'int'             Identifier          tok= 289  pos=1065
+          arg           'y'               Identifier          tok= 293  pos=1071
+          :             ':'               OpColon             tok= 294  pos=1072
           NamedType:
-            Ident       'int'             Identifier          tok= 279  pos=1014
-          ->            '->'              OpArrowRight        tok= 281  pos=1018
+            Ident       'int'             Identifier          tok= 296  pos=1074
+          ->            '->'              OpArrowRight        tok= 298  pos=1078
           NamedType:
-            Ident       'int'             Identifier          tok= 283  pos=1021
+            Ident       'int'             Identifier          tok= 300  pos=1081
         StaticMember:
-          static        'static'          KWStatic            tok= 287  pos=1030
-          member        'member'          KWMember            tok= 289  pos=1037
-          inline        'inline'          KWInline            tok= 291  pos=1044
+          static        'static'          KWStatic            tok= 304  pos=1090
+          member        'member'          KWMember            tok= 306  pos=1097
+          inline        'inline'          KWInline            tok= 308  pos=1104
           ParenOp:
-                        '('               KWLParen            tok= 293  pos=1051
-            SymbolicOp  '^^^'             op_ExclusiveOr      tok= 294  pos=1052
-                        ')'               KWRParen            tok= 295  pos=1055
-          :             ':'               OpColon             tok= 296  pos=1056
-          arg           'x'               Identifier          tok= 298  pos=1058
-          :             ':'               OpColon             tok= 299  pos=1059
+                        '('               KWLParen            tok= 310  pos=1111
+            SymbolicOp  '^^^'             op_ExclusiveOr      tok= 311  pos=1112
+                        ')'               KWRParen            tok= 312  pos=1115
+          :             ':'               OpColon             tok= 313  pos=1116
+          arg           'x'               Identifier          tok= 315  pos=1118
+          :             ':'               OpColon             tok= 316  pos=1119
           NamedType:
-            Ident       'int'             Identifier          tok= 301  pos=1061
-          arg           'y'               Identifier          tok= 305  pos=1067
-          :             ':'               OpColon             tok= 306  pos=1068
+            Ident       'int'             Identifier          tok= 318  pos=1121
+          arg           'y'               Identifier          tok= 322  pos=1127
+          :             ':'               OpColon             tok= 323  pos=1128
           NamedType:
-            Ident       'int'             Identifier          tok= 308  pos=1070
-          ->            '->'              OpArrowRight        tok= 310  pos=1074
+            Ident       'int'             Identifier          tok= 325  pos=1130
+          ->            '->'              OpArrowRight        tok= 327  pos=1134
           NamedType:
-            Ident       'int'             Identifier          tok= 312  pos=1077
+            Ident       'int'             Identifier          tok= 329  pos=1137
         StaticMember:
-          static        'static'          KWStatic            tok= 316  pos=1086
-          member        'member'          KWMember            tok= 318  pos=1093
-          inline        'inline'          KWInline            tok= 320  pos=1100
+          static        'static'          KWStatic            tok= 333  pos=1146
+          member        'member'          KWMember            tok= 335  pos=1153
+          inline        'inline'          KWInline            tok= 337  pos=1160
           ParenOp:
-                        '('               KWLParen            tok= 322  pos=1107
-            SymbolicOp  '~~~'             op_LogicalNot       tok= 323  pos=1108
-                        ')'               KWRParen            tok= 324  pos=1111
-          :             ':'               OpColon             tok= 325  pos=1112
-          arg           'value'           Identifier          tok= 327  pos=1114
-          :             ':'               OpColon             tok= 328  pos=1119
+                        '('               KWLParen            tok= 339  pos=1167
+            SymbolicOp  '~~~'             op_LogicalNot       tok= 340  pos=1168
+                        ')'               KWRParen            tok= 341  pos=1171
+          :             ':'               OpColon             tok= 342  pos=1172
+          arg           'value'           Identifier          tok= 344  pos=1174
+          :             ':'               OpColon             tok= 345  pos=1179
           NamedType:
-            Ident       'int'             Identifier          tok= 330  pos=1121
-          ->            '->'              OpArrowRight        tok= 332  pos=1125
+            Ident       'int'             Identifier          tok= 347  pos=1181
+          ->            '->'              OpArrowRight        tok= 349  pos=1185
           NamedType:
-            Ident       'int'             Identifier          tok= 334  pos=1128
+            Ident       'int'             Identifier          tok= 351  pos=1188
         StaticMember:
-          static        'static'          KWStatic            tok= 341  pos=1237
-          member        'member'          KWMember            tok= 343  pos=1244
-          inline        'inline'          KWInline            tok= 345  pos=1251
+          static        'static'          KWStatic            tok= 358  pos=1297
+          member        'member'          KWMember            tok= 360  pos=1304
+          inline        'inline'          KWInline            tok= 362  pos=1311
           ParenOp:
-                        '('               KWLParen            tok= 347  pos=1258
-            SymbolicOp  '<<<'             op_LeftShift        tok= 348  pos=1259
-                        ')'               KWRParen            tok= 349  pos=1262
-          :             ':'               OpColon             tok= 350  pos=1263
-          arg           'value'           Identifier          tok= 352  pos=1265
-          :             ':'               OpColon             tok= 353  pos=1270
+                        '('               KWLParen            tok= 364  pos=1318
+            SymbolicOp  '<<<'             op_LeftShift        tok= 365  pos=1319
+                        ')'               KWRParen            tok= 366  pos=1322
+          :             ':'               OpColon             tok= 367  pos=1323
+          arg           'value'           Identifier          tok= 369  pos=1325
+          :             ':'               OpColon             tok= 370  pos=1330
           NamedType:
-            Ident       'int'             Identifier          tok= 355  pos=1272
-          arg           'shift'           Identifier          tok= 359  pos=1278
-          :             ':'               OpColon             tok= 360  pos=1283
+            Ident       'int'             Identifier          tok= 372  pos=1332
+          arg           'shift'           Identifier          tok= 376  pos=1338
+          :             ':'               OpColon             tok= 377  pos=1343
           NamedType:
-            Ident       'int'             Identifier          tok= 362  pos=1285
-          ->            '->'              OpArrowRight        tok= 364  pos=1289
+            Ident       'int'             Identifier          tok= 379  pos=1345
+          ->            '->'              OpArrowRight        tok= 381  pos=1349
           NamedType:
-            Ident       'int'             Identifier          tok= 366  pos=1292
+            Ident       'int'             Identifier          tok= 383  pos=1352
         StaticMember:
-          static        'static'          KWStatic            tok= 370  pos=1301
-          member        'member'          KWMember            tok= 372  pos=1308
-          inline        'inline'          KWInline            tok= 374  pos=1315
+          static        'static'          KWStatic            tok= 387  pos=1361
+          member        'member'          KWMember            tok= 389  pos=1368
+          inline        'inline'          KWInline            tok= 391  pos=1375
           ParenOp:
-                        '('               KWLParen            tok= 376  pos=1322
-            SymbolicOp  '>>>'             op_RightShift       tok= 377  pos=1323
-                        ')'               KWRParen            tok= 378  pos=1326
-          :             ':'               OpColon             tok= 379  pos=1327
-          arg           'value'           Identifier          tok= 381  pos=1329
-          :             ':'               OpColon             tok= 382  pos=1334
+                        '('               KWLParen            tok= 393  pos=1382
+            SymbolicOp  '>>>'             op_RightShift       tok= 394  pos=1383
+                        ')'               KWRParen            tok= 395  pos=1386
+          :             ':'               OpColon             tok= 396  pos=1387
+          arg           'value'           Identifier          tok= 398  pos=1389
+          :             ':'               OpColon             tok= 399  pos=1394
           NamedType:
-            Ident       'int'             Identifier          tok= 384  pos=1336
-          arg           'shift'           Identifier          tok= 388  pos=1342
-          :             ':'               OpColon             tok= 389  pos=1347
+            Ident       'int'             Identifier          tok= 401  pos=1396
+          arg           'shift'           Identifier          tok= 405  pos=1402
+          :             ':'               OpColon             tok= 406  pos=1407
           NamedType:
-            Ident       'int'             Identifier          tok= 391  pos=1349
-          ->            '->'              OpArrowRight        tok= 393  pos=1353
+            Ident       'int'             Identifier          tok= 408  pos=1409
+          ->            '->'              OpArrowRight        tok= 410  pos=1413
           NamedType:
-            Ident       'int'             Identifier          tok= 395  pos=1356
-      end               <virt>            KWEnd               tok=virt  pos=1470
-  Type:
-    type                'type'            KWType              tok= 404  pos=1470
+            Ident       'int'             Identifier          tok= 412  pos=1416
+      end               <virt>            KWEnd               tok=virt  pos=1530
+    and                 'and'             KWAnd               tok= 421  pos=1530
     TypeSig.Extern:
-      TypeName          'bool'            Identifier          tok= 406  pos=1475
-      =                 '='               OpEquality          tok= 408  pos=1480
-      extern            'extern'          KWExtern            tok= 410  pos=1482
-  Type:
-    type                'type'            KWType              tok= 419  pos=1602
+      TypeName          'bool'            Identifier          tok= 423  pos=1534
+      =                 '='               OpEquality          tok= 425  pos=1539
+      extern            'extern'          KWExtern            tok= 427  pos=1541
+      with              'with'            KWWith              tok= 429  pos=1548
+        InterfaceSpec:
+          interface     'interface'       KWInterface         tok= 433  pos=1558
+          GenericType:
+            Ident       'equatable'       Identifier          tok= 435  pos=1568
+            <           '<'               op_LessThan         tok= 436  pos=1577
+            TypeArg.Type:
+              NamedType:
+                Ident   'bool'            Identifier          tok= 437  pos=1578
+            >           '>'               op_GreaterThan      tok= 438  pos=1582
+        InterfaceSpec:
+          interface     'interface'       KWInterface         tok= 441  pos=1588
+          GenericType:
+            Ident       'comparable'      Identifier          tok= 443  pos=1598
+            <           '<'               op_LessThan         tok= 444  pos=1608
+            TypeArg.Type:
+              NamedType:
+                Ident   'bool'            Identifier          tok= 445  pos=1609
+            >           '>'               op_GreaterThan      tok= 446  pos=1613
+      end               <virt>            KWEnd               tok=virt  pos=1917
+    and                 'and'             KWAnd               tok= 461  pos=1917
     TypeSig.Extern:
-      TypeName          'unit'            Identifier          tok= 421  pos=1607
-      =                 '='               OpEquality          tok= 423  pos=1612
-      extern            'extern'          KWExtern            tok= 425  pos=1614
-  Type:
-    type                'type'            KWType              tok= 434  pos=1758
-    TypeSig.Anon:
-      TypeName          'Fun'             Identifier          tok= 436  pos=1763
+      TypeName          'unit'            Identifier          tok= 463  pos=1921
+      =                 '='               OpEquality          tok= 465  pos=1926
+      extern            'extern'          KWExtern            tok= 467  pos=1928
+      with              'with'            KWWith              tok= 469  pos=1935
+        InterfaceSpec:
+          interface     'interface'       KWInterface         tok= 473  pos=1945
+          GenericType:
+            Ident       'equatable'       Identifier          tok= 475  pos=1955
+            <           '<'               op_LessThan         tok= 476  pos=1964
+            TypeArg.Type:
+              NamedType:
+                Ident   'unit'            Identifier          tok= 477  pos=1965
+            >           '>'               op_GreaterThan      tok= 478  pos=1969
+        InterfaceSpec:
+          interface     'interface'       KWInterface         tok= 481  pos=1975
+          GenericType:
+            Ident       'comparable'      Identifier          tok= 483  pos=1985
+            <           '<'               op_LessThan         tok= 484  pos=1995
+            TypeArg.Type:
+              NamedType:
+                Ident   'unit'            Identifier          tok= 485  pos=1996
+            >           '>'               op_GreaterThan      tok= 486  pos=2000
+      end               <virt>            KWEnd               tok=virt  pos=2203
+    and                 'and'             KWAnd               tok= 497  pos=2203
+    TypeSig.Extern:
+      TypeName          'equatable'       Identifier          tok= 499  pos=2207
       TyparDefns:
-        <               '<'               op_LessThan         tok= 437  pos=1766
+        <               '<'               op_LessThan         tok= 500  pos=2216
         Typar.Named:
-                        ''A'              TypeParameter       tok= 438  pos=1767
-        Typar.Named:
-                        ''B'              TypeParameter       tok= 441  pos=1771
-        >               '>'               op_GreaterThan      tok= 442  pos=1773
-      =                 '='               OpEquality          tok= 444  pos=1775
-      begin             <virt>            KWBegin             tok=virt  pos=1781
+                        ''T'              TypeParameter       tok= 501  pos=2217
+        >               '>'               op_GreaterThan      tok= 502  pos=2219
+      =                 '='               OpEquality          tok= 504  pos=2221
+      extern            'extern'          KWExtern            tok= 506  pos=2223
+      interface         'interface'       KWInterface         tok= 508  pos=2230
+      with              'with'            KWWith              tok= 510  pos=2240
         Abstract:
-          abstract      'abstract'        KWAbstract          tok= 447  pos=1781
-          member        'member'          KWMember            tok= 449  pos=1790
-          Ident         'Invoke'          Identifier          tok= 451  pos=1797
-          :             ':'               OpColon             tok= 452  pos=1803
-          arg           'arg'             Identifier          tok= 454  pos=1805
-          :             ':'               OpColon             tok= 455  pos=1808
+          abstract      'abstract'        KWAbstract          tok= 513  pos=2249
+          member        'member'          KWMember            tok= 515  pos=2258
+          Ident         'Equals'          Identifier          tok= 517  pos=2265
+          :             ':'               OpColon             tok= 518  pos=2271
           VarType:
             Typar.Named:
-                        ''A'              TypeParameter       tok= 457  pos=1810
-          ->            '->'              OpArrowRight        tok= 459  pos=1813
-          VarType:
-            Typar.Named:
-                        ''B'              TypeParameter       tok= 461  pos=1816
-      end               <virt>            KWEnd               tok=virt  pos=2144
-  Type:
-    type                'type'            KWType              tok= 474  pos=2144
-    TypeSig.Anon:
-      TypeName          'Fun'             Identifier          tok= 476  pos=2149
+                        ''T'              TypeParameter       tok= 520  pos=2273
+          ->            '->'              OpArrowRight        tok= 522  pos=2276
+          NamedType:
+            Ident       'bool'            Identifier          tok= 524  pos=2279
+      end               <virt>            KWEnd               tok=virt  pos=2490
+    and                 'and'             KWAnd               tok= 535  pos=2490
+    TypeSig.Extern:
+      TypeName          'comparable'      Identifier          tok= 537  pos=2494
       TyparDefns:
-        <               '<'               op_LessThan         tok= 477  pos=2152
+        <               '<'               op_LessThan         tok= 538  pos=2504
         Typar.Named:
-                        ''A'              TypeParameter       tok= 478  pos=2153
-        Typar.Named:
-                        ''B'              TypeParameter       tok= 481  pos=2157
-        Typar.Named:
-                        ''C'              TypeParameter       tok= 484  pos=2161
-        >               '>'               op_GreaterThan      tok= 485  pos=2163
-      =                 '='               OpEquality          tok= 487  pos=2165
-      begin             <virt>            KWBegin             tok=virt  pos=2171
+                        ''T'              TypeParameter       tok= 539  pos=2505
+        >               '>'               op_GreaterThan      tok= 540  pos=2507
+      =                 '='               OpEquality          tok= 542  pos=2509
+      extern            'extern'          KWExtern            tok= 544  pos=2511
+      interface         'interface'       KWInterface         tok= 546  pos=2518
+      with              'with'            KWWith              tok= 548  pos=2528
         Abstract:
-          abstract      'abstract'        KWAbstract          tok= 490  pos=2171
-          member        'member'          KWMember            tok= 492  pos=2180
-          Ident         'Invoke'          Identifier          tok= 494  pos=2187
-          :             ':'               OpColon             tok= 495  pos=2193
-          arg           'a'               Identifier          tok= 497  pos=2195
-          :             ':'               OpColon             tok= 498  pos=2196
+          abstract      'abstract'        KWAbstract          tok= 551  pos=2537
+          member        'member'          KWMember            tok= 553  pos=2546
+          Ident         'CompareTo'       Identifier          tok= 555  pos=2553
+          :             ':'               OpColon             tok= 556  pos=2562
           VarType:
             Typar.Named:
-                        ''A'              TypeParameter       tok= 500  pos=2198
-          arg           'b'               Identifier          tok= 504  pos=2203
-          :             ':'               OpColon             tok= 505  pos=2204
-          VarType:
-            Typar.Named:
-                        ''B'              TypeParameter       tok= 507  pos=2206
-          ->            '->'              OpArrowRight        tok= 509  pos=2209
-          VarType:
-            Typar.Named:
-                        ''C'              TypeParameter       tok= 511  pos=2212
-      end               <virt>            KWEnd               tok=virt  pos=2381
+                        ''T'              TypeParameter       tok= 558  pos=2564
+          ->            '->'              OpArrowRight        tok= 560  pos=2567
+          NamedType:
+            Ident       'int'             Identifier          tok= 562  pos=2570
+      end               <virt>            KWEnd               tok=virt  pos=2772
   Type:
-    type                'type'            KWType              tok= 522  pos=2381
-    TypeSig.Anon:
-      TypeName          'Fun'             Identifier          tok= 524  pos=2386
-      TyparDefns:
-        <               '<'               op_LessThan         tok= 525  pos=2389
-        Typar.Named:
-                        ''A'              TypeParameter       tok= 526  pos=2390
-        Typar.Named:
-                        ''B'              TypeParameter       tok= 529  pos=2394
-        Typar.Named:
-                        ''C'              TypeParameter       tok= 532  pos=2398
-        Typar.Named:
-                        ''D'              TypeParameter       tok= 535  pos=2402
-        >               '>'               op_GreaterThan      tok= 536  pos=2404
-      =                 '='               OpEquality          tok= 538  pos=2406
-      begin             <virt>            KWBegin             tok=virt  pos=2412
+    type                'type'            KWType              tok= 573  pos=2772
+    TypeSig.Extern:
+      TypeName          'disposable'      Identifier          tok= 575  pos=2777
+      =                 '='               OpEquality          tok= 577  pos=2788
+      extern            'extern'          KWExtern            tok= 579  pos=2790
+      interface         'interface'       KWInterface         tok= 581  pos=2797
+      with              'with'            KWWith              tok= 583  pos=2807
         Abstract:
-          abstract      'abstract'        KWAbstract          tok= 541  pos=2412
-          member        'member'          KWMember            tok= 543  pos=2421
-          Ident         'Invoke'          Identifier          tok= 545  pos=2428
-          :             ':'               OpColon             tok= 546  pos=2434
-          arg           'a'               Identifier          tok= 548  pos=2436
-          :             ':'               OpColon             tok= 549  pos=2437
-          VarType:
-            Typar.Named:
-                        ''A'              TypeParameter       tok= 551  pos=2439
-          arg           'b'               Identifier          tok= 555  pos=2444
-          :             ':'               OpColon             tok= 556  pos=2445
-          VarType:
-            Typar.Named:
-                        ''B'              TypeParameter       tok= 558  pos=2447
-          arg           'c'               Identifier          tok= 562  pos=2452
-          :             ':'               OpColon             tok= 563  pos=2453
-          VarType:
-            Typar.Named:
-                        ''C'              TypeParameter       tok= 565  pos=2455
-          ->            '->'              OpArrowRight        tok= 567  pos=2458
-          VarType:
-            Typar.Named:
-                        ''D'              TypeParameter       tok= 569  pos=2461
-      end               <virt>            KWEnd               tok=virt  pos=2633
+          abstract      'abstract'        KWAbstract          tok= 586  pos=2816
+          member        'member'          KWMember            tok= 588  pos=2825
+          Ident         'Dispose'         Identifier          tok= 590  pos=2832
+          :             ':'               OpColon             tok= 591  pos=2839
+          NamedType:
+            Ident       'unit'            Identifier          tok= 593  pos=2841
+          ->            '->'              OpArrowRight        tok= 595  pos=2846
+          NamedType:
+            Ident       'unit'            Identifier          tok= 597  pos=2849
+      end               <virt>            KWEnd               tok=virt  pos=2991
   Type:
-    type                'type'            KWType              tok= 580  pos=2633
+    type                'type'            KWType              tok= 606  pos=2991
     TypeSig.Anon:
-      TypeName          'Fun'             Identifier          tok= 582  pos=2638
+      TypeName          'Fun'             Identifier          tok= 608  pos=2996
       TyparDefns:
-        <               '<'               op_LessThan         tok= 583  pos=2641
+        <               '<'               op_LessThan         tok= 609  pos=2999
         Typar.Named:
-                        ''A'              TypeParameter       tok= 584  pos=2642
+                        ''A'              TypeParameter       tok= 610  pos=3000
         Typar.Named:
-                        ''B'              TypeParameter       tok= 587  pos=2646
-        Typar.Named:
-                        ''C'              TypeParameter       tok= 590  pos=2650
-        Typar.Named:
-                        ''D'              TypeParameter       tok= 593  pos=2654
-        Typar.Named:
-                        ''E'              TypeParameter       tok= 596  pos=2658
-        >               '>'               op_GreaterThan      tok= 597  pos=2660
-      =                 '='               OpEquality          tok= 599  pos=2662
-      begin             <virt>            KWBegin             tok=virt  pos=2668
+                        ''B'              TypeParameter       tok= 613  pos=3004
+        >               '>'               op_GreaterThan      tok= 614  pos=3006
+      =                 '='               OpEquality          tok= 616  pos=3008
+      begin             <virt>            KWBegin             tok=virt  pos=3014
         Abstract:
-          abstract      'abstract'        KWAbstract          tok= 602  pos=2668
-          member        'member'          KWMember            tok= 604  pos=2677
-          Ident         'Invoke'          Identifier          tok= 606  pos=2684
-          :             ':'               OpColon             tok= 607  pos=2690
-          arg           'a'               Identifier          tok= 609  pos=2692
-          :             ':'               OpColon             tok= 610  pos=2693
+          abstract      'abstract'        KWAbstract          tok= 619  pos=3014
+          member        'member'          KWMember            tok= 621  pos=3023
+          Ident         'Invoke'          Identifier          tok= 623  pos=3030
+          :             ':'               OpColon             tok= 624  pos=3036
+          arg           'arg'             Identifier          tok= 626  pos=3038
+          :             ':'               OpColon             tok= 627  pos=3041
           VarType:
             Typar.Named:
-                        ''A'              TypeParameter       tok= 612  pos=2695
-          arg           'b'               Identifier          tok= 616  pos=2700
-          :             ':'               OpColon             tok= 617  pos=2701
+                        ''A'              TypeParameter       tok= 629  pos=3043
+          ->            '->'              OpArrowRight        tok= 631  pos=3046
           VarType:
             Typar.Named:
-                        ''B'              TypeParameter       tok= 619  pos=2703
-          arg           'c'               Identifier          tok= 623  pos=2708
-          :             ':'               OpColon             tok= 624  pos=2709
+                        ''B'              TypeParameter       tok= 633  pos=3049
+      end               <virt>            KWEnd               tok=virt  pos=3377
+  Type:
+    type                'type'            KWType              tok= 646  pos=3377
+    TypeSig.Anon:
+      TypeName          'Fun'             Identifier          tok= 648  pos=3382
+      TyparDefns:
+        <               '<'               op_LessThan         tok= 649  pos=3385
+        Typar.Named:
+                        ''A'              TypeParameter       tok= 650  pos=3386
+        Typar.Named:
+                        ''B'              TypeParameter       tok= 653  pos=3390
+        Typar.Named:
+                        ''C'              TypeParameter       tok= 656  pos=3394
+        >               '>'               op_GreaterThan      tok= 657  pos=3396
+      =                 '='               OpEquality          tok= 659  pos=3398
+      begin             <virt>            KWBegin             tok=virt  pos=3404
+        Abstract:
+          abstract      'abstract'        KWAbstract          tok= 662  pos=3404
+          member        'member'          KWMember            tok= 664  pos=3413
+          Ident         'Invoke'          Identifier          tok= 666  pos=3420
+          :             ':'               OpColon             tok= 667  pos=3426
+          arg           'a'               Identifier          tok= 669  pos=3428
+          :             ':'               OpColon             tok= 670  pos=3429
           VarType:
             Typar.Named:
-                        ''C'              TypeParameter       tok= 626  pos=2711
-          arg           'd'               Identifier          tok= 630  pos=2716
-          :             ':'               OpColon             tok= 631  pos=2717
+                        ''A'              TypeParameter       tok= 672  pos=3431
+          arg           'b'               Identifier          tok= 676  pos=3436
+          :             ':'               OpColon             tok= 677  pos=3437
           VarType:
             Typar.Named:
-                        ''D'              TypeParameter       tok= 633  pos=2719
-          ->            '->'              OpArrowRight        tok= 635  pos=2722
+                        ''B'              TypeParameter       tok= 679  pos=3439
+          ->            '->'              OpArrowRight        tok= 681  pos=3442
           VarType:
             Typar.Named:
-                        ''E'              TypeParameter       tok= 637  pos=2725
-      end               <virt>            KWEnd               tok=virt  pos=2728
+                        ''C'              TypeParameter       tok= 683  pos=3445
+      end               <virt>            KWEnd               tok=virt  pos=3614
+  Type:
+    type                'type'            KWType              tok= 694  pos=3614
+    TypeSig.Anon:
+      TypeName          'Fun'             Identifier          tok= 696  pos=3619
+      TyparDefns:
+        <               '<'               op_LessThan         tok= 697  pos=3622
+        Typar.Named:
+                        ''A'              TypeParameter       tok= 698  pos=3623
+        Typar.Named:
+                        ''B'              TypeParameter       tok= 701  pos=3627
+        Typar.Named:
+                        ''C'              TypeParameter       tok= 704  pos=3631
+        Typar.Named:
+                        ''D'              TypeParameter       tok= 707  pos=3635
+        >               '>'               op_GreaterThan      tok= 708  pos=3637
+      =                 '='               OpEquality          tok= 710  pos=3639
+      begin             <virt>            KWBegin             tok=virt  pos=3645
+        Abstract:
+          abstract      'abstract'        KWAbstract          tok= 713  pos=3645
+          member        'member'          KWMember            tok= 715  pos=3654
+          Ident         'Invoke'          Identifier          tok= 717  pos=3661
+          :             ':'               OpColon             tok= 718  pos=3667
+          arg           'a'               Identifier          tok= 720  pos=3669
+          :             ':'               OpColon             tok= 721  pos=3670
+          VarType:
+            Typar.Named:
+                        ''A'              TypeParameter       tok= 723  pos=3672
+          arg           'b'               Identifier          tok= 727  pos=3677
+          :             ':'               OpColon             tok= 728  pos=3678
+          VarType:
+            Typar.Named:
+                        ''B'              TypeParameter       tok= 730  pos=3680
+          arg           'c'               Identifier          tok= 734  pos=3685
+          :             ':'               OpColon             tok= 735  pos=3686
+          VarType:
+            Typar.Named:
+                        ''C'              TypeParameter       tok= 737  pos=3688
+          ->            '->'              OpArrowRight        tok= 739  pos=3691
+          VarType:
+            Typar.Named:
+                        ''D'              TypeParameter       tok= 741  pos=3694
+      end               <virt>            KWEnd               tok=virt  pos=3866
+  Type:
+    type                'type'            KWType              tok= 752  pos=3866
+    TypeSig.Anon:
+      TypeName          'Fun'             Identifier          tok= 754  pos=3871
+      TyparDefns:
+        <               '<'               op_LessThan         tok= 755  pos=3874
+        Typar.Named:
+                        ''A'              TypeParameter       tok= 756  pos=3875
+        Typar.Named:
+                        ''B'              TypeParameter       tok= 759  pos=3879
+        Typar.Named:
+                        ''C'              TypeParameter       tok= 762  pos=3883
+        Typar.Named:
+                        ''D'              TypeParameter       tok= 765  pos=3887
+        Typar.Named:
+                        ''E'              TypeParameter       tok= 768  pos=3891
+        >               '>'               op_GreaterThan      tok= 769  pos=3893
+      =                 '='               OpEquality          tok= 771  pos=3895
+      begin             <virt>            KWBegin             tok=virt  pos=3901
+        Abstract:
+          abstract      'abstract'        KWAbstract          tok= 774  pos=3901
+          member        'member'          KWMember            tok= 776  pos=3910
+          Ident         'Invoke'          Identifier          tok= 778  pos=3917
+          :             ':'               OpColon             tok= 779  pos=3923
+          arg           'a'               Identifier          tok= 781  pos=3925
+          :             ':'               OpColon             tok= 782  pos=3926
+          VarType:
+            Typar.Named:
+                        ''A'              TypeParameter       tok= 784  pos=3928
+          arg           'b'               Identifier          tok= 788  pos=3933
+          :             ':'               OpColon             tok= 789  pos=3934
+          VarType:
+            Typar.Named:
+                        ''B'              TypeParameter       tok= 791  pos=3936
+          arg           'c'               Identifier          tok= 795  pos=3941
+          :             ':'               OpColon             tok= 796  pos=3942
+          VarType:
+            Typar.Named:
+                        ''C'              TypeParameter       tok= 798  pos=3944
+          arg           'd'               Identifier          tok= 802  pos=3949
+          :             ':'               OpColon             tok= 803  pos=3950
+          VarType:
+            Typar.Named:
+                        ''D'              TypeParameter       tok= 805  pos=3952
+          ->            '->'              OpArrowRight        tok= 807  pos=3955
+          VarType:
+            Typar.Named:
+                        ''E'              TypeParameter       tok= 809  pos=3958
+      end               <virt>            KWEnd               tok=virt  pos=3961

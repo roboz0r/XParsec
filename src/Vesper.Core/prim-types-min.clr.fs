@@ -22,6 +22,10 @@ type int =
 type bool = (# "System.Boolean" #)
 type unit = (# "System.ValueTuple" #)
 
+type equatable<'T> = (# "System.IEquatable`1" #)
+type comparable<'T> = (# "System.IComparable`1" #)
+type disposable = (# "System.IDisposable" #)
+
 type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B
 

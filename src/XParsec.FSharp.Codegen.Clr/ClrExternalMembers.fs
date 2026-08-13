@@ -454,15 +454,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// An intrinsic-CLASS `inherit` parent (`exn`) → its platform key (`System.Exception`)
     /// plus the raw `TypeRef` the derived type's `extends` names. Only a `(# class "…" #)`
-    /// primitive carries a class surface, so a value-repr intrinsic (`int`) never matches.
+    /// primitive is heritable, so a value-repr intrinsic (`int`) never matches, even though
+    /// it carries a surface of its own once it declares an `interface`.
     member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
-        match env.LookupTypeByKey canon with
-        | ValueSome(ExternalTypeShape.Intrinsic {
-                                                    Id = {
-                                                             Platform = IntrinsicPlatform.Repr repr
-                                                         }
-                                                    Class = ValueSome _
-                                                }) ->
+        match env.LookupTypeByKey canon |> ValueOption.bind ExternalSymbols.intrinsicClassOf with
+        | ValueSome(struct ({
+                                Platform = IntrinsicPlatform.Repr repr
+                            }, _)) ->
             let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
 
             match externalClassRef platformKey with

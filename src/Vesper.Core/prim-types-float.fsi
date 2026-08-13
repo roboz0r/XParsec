@@ -9,6 +9,9 @@ namespace Vesper
 type float32 =
     extern with
 
+    interface equatable<float32>
+    interface comparable<float32>
+
     static member inline (+): x: float32 * y: float32 -> float32
 
     static member inline (-): x: float32 * y: float32 -> float32
@@ -28,6 +31,9 @@ type float32 =
 /// <category>Basic Types</category>
 type float =
     extern with
+
+    interface equatable<float>
+    interface comparable<float>
 
     static member inline (+): x: float * y: float -> float
 
