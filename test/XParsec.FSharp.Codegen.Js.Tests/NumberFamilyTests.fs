@@ -72,4 +72,14 @@ let tests =
                 let errs = analyseErrors "let b = makeBox()\nlet s = b.size + 1.0\n"
                 Expect.isEmpty errs (sprintf "a number return should be float-arithmetic-usable, got: %A" errs)
             }
+
+            // A user file may bind any repr string it likes, `number` included; nothing
+            // reserves the platform spelling. Shadowing is per DECLARATION, so `meters` hides
+            // the provider's `meters` (there is none) and says nothing about its `int`.
+            test "a user intrinsic on the `number` repr leaves the family visible" {
+                let errs =
+                    analyseErrors "type meters = (# \"number\" #)\nconfigure 5\nconfigure 5.0f\n"
+
+                Expect.isEmpty errs (sprintf "a colliding local repr must not narrow the family, got: %A" errs)
+            }
         ]

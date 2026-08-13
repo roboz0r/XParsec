@@ -216,15 +216,15 @@ let tests =
                 | ValueNone -> failtest "internal 'shared' MUST be exported"
             }
 
-            test "IntrinsicForwardRepr passes this file's IntrinsicReprKeys through verbatim" {
+            test "IntrinsicTypeMap passes this file's IntrinsicReprKeys through verbatim" {
                 let origin, frozen = freezeWithOrigin projectionSrc
                 let store = FrozenSignature.toProvider origin frozen :> IExternalSymbolStore
                 // A plain impl file declares no intrinsics, so both sides are empty and the
                 // wiring is all that is asserted.
                 Expect.equal
-                    (Seq.length store.IntrinsicForwardRepr)
-                    (Seq.length frozen.Residue.IntrinsicReprKeys)
-                    "forward repr count matches source"
+                    (IntrinsicTypeMap.entries store.IntrinsicTypeMap).Length
+                    frozen.Residue.IntrinsicReprKeys.Count
+                    "declaration count matches source"
             }
 
             // --- parity oracle: projected ExternalSymbol ≡ the .fsi-extracted one -------

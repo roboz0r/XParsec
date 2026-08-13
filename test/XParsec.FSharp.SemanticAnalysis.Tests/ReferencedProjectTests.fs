@@ -198,13 +198,13 @@ let tests =
                             platformExpected
                             (sprintf "%s platform name is its `.fs` CLR repr" lookup)
 
-                        // A capability interface is ABSENT from the reverse-canon map:
-                        // reconciliation rides the platform name above, not this map.
-                        match Map.tryFind platformExpected provider.IntrinsicReverseCanon with
-                        | None -> ()
-                        | Some canons ->
+                        // A capability interface is ABSENT from the intrinsic axis:
+                        // reconciliation rides the platform name above, not the axis.
+                        match IntrinsicTypeMap.canonsOf platformExpected provider.IntrinsicTypeMap with
+                        | EqEmpty -> ()
+                        | canons ->
                             failtestf
-                                "capability interface %s must NOT enter the reverse-canon map; found %A"
+                                "capability interface %s must NOT enter the intrinsic axis; found %A"
                                 lookup
                                 canons
                     | other -> failtestf "expected %s as an IntrinsicInterface shape, got %A" lookup other

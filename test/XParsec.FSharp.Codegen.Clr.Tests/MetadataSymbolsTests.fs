@@ -5,14 +5,14 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 
-// The metadata leaf canonicalizes BCL primitives (`System.Int32` → `int`) through a
-// `{ platform → [canon] }` reverse map. Seed it from the real Vesper.Core contract, not
-// a static table, so `String.Length` presents `int`.
-let private reverseCanon =
-    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCorePackage ]).IntrinsicReverseCanon
+// The metadata leaf canonicalizes BCL primitives (`System.Int32` → `int`) through the
+// intrinsic axis. Seed it from the real Vesper.Core contract, not a static table, so
+// `String.Length` presents `int`.
+let private intrinsics =
+    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCorePackage ]).IntrinsicTypeMap
 
 let private provider =
-    MetadataSymbols.createWith reverseCanon (MetadataSymbols.runtimeAssemblyPaths ())
+    MetadataSymbols.createWith intrinsics (MetadataSymbols.runtimeAssemblyPaths ())
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
@@ -257,7 +257,7 @@ let tests =
                 // Sourced from the SAME host TPA the singleton reflects, so the
                 // path-taking leaf must resolve a known BCL type identically.
                 let leaf =
-                    ClrSymbolProviders.bclMetaTailWith (MetadataSymbols.runtimeAssemblyPaths ()) reverseCanon
+                    ClrSymbolProviders.bclMetaTailWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
                     |> List.exactlyOne
 
                 match leaf.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
@@ -310,8 +310,7 @@ let tests =
                 match RefPack.resolve "net8.0" with
                 | Error e -> failtestf "net8.0 ref pack did not resolve: %s" e
                 | Ok refPaths ->
-                    let leaf =
-                        ClrSymbolProviders.bclMetaTailWith refPaths reverseCanon |> List.exactlyOne
+                    let leaf = ClrSymbolProviders.bclMetaTailWith refPaths intrinsics |> List.exactlyOne
 
                     match leaf.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class info) ->

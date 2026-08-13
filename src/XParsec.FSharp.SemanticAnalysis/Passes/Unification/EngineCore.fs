@@ -448,12 +448,9 @@ module UnificationEngineCore =
     /// (`"string"` ⇒ `"System.String"` on CLR). Falls back to the key's own identity name for
     /// a non-intrinsic, or an intrinsic with no repr on the compiling target (`decimal` on JS).
     let intrinsicPlatformName (ctx: PassContext) (key: SymbolKey) : string =
-        match ctx.Types.IntrinsicReprKeys.TryGetValue key with
-        | true, repr -> repr.Platform
-        | _ ->
-            match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
-            | true, platform -> platform
-            | _ -> SymbolKeyOps.intrinsicName key
+        match IntrinsicTypeMap.tryPlatformRepr key ctx.IntrinsicTypeMap.Value with
+        | ValueSome platform -> platform
+        | ValueNone -> SymbolKeyOps.intrinsicName key
 
     /// The external `(SymbolKey, typeArgs)` surfaces a provider member lookup keys on, MOST
     /// SPECIFIC FIRST: an intrinsic `TyConst` publishes its own contract surface, then the

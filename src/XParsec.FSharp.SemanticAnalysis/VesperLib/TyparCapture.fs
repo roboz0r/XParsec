@@ -217,41 +217,21 @@ module VesperLibTyparCapture =
 
                 d
 
-            // Reverse intrinsic axis `{ platform repr -> canon }`: `System.Exception` -> `exn`.
-            // The `platform <> canon.Name` guard keeps self-named JS `char`/`string` apart.
-            let intrinsicReverse =
+            // The intrinsic axis, off the `Intrinsic` shapes alone: a CAPABILITY interface
+            // carries its platform name on its own identity and is deliberately absent here.
+            let intrinsics =
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
                     match kv.Value with
-                    | ExternalTypeShape.Intrinsic {
-                                                      Id = {
-                                                               Canon = canon
-                                                               Platform = IntrinsicPlatform.Repr platform
-                                                           }
-                                                  } when platform <> canon.Name -> Some(platform, SymbolKey.Type canon)
+                    | ExternalTypeShape.Intrinsic { Id = id } ->
+                        Some
+                            {
+                                Canon = SymbolKey.Type id.Canon
+                                Platform = id.Platform
+                            }
                     | _ -> None
                 )
-                // A platform repr is one-to-many over canons: JS `number` <- int/float/float32.
-                |> Seq.groupBy fst
-                |> Seq.map (fun (platform, xs) -> platform, xs |> Seq.map snd |> Seq.distinct |> List.ofSeq)
-                |> Map.ofSeq
-
-            // Forward intrinsic axis `{ canon -> platform repr }`: codegen resolves `int` to
-            // `System.Int32`. Unguarded: a canon spelling its own repr (JS `string`) still counts.
-            let intrinsicForward =
-                let d = System.Collections.Generic.Dictionary<SymbolKey, string>()
-
-                for kv in ctx.TypeShapes do
-                    match kv.Value with
-                    | ExternalTypeShape.Intrinsic {
-                                                      Id = {
-                                                               Canon = canon
-                                                               Platform = IntrinsicPlatform.Repr platform
-                                                           }
-                                                  } -> d.[SymbolKey.Type canon] <- platform
-                    | _ -> ()
-
-                d :> System.Collections.Generic.IReadOnlyDictionary<_, _>
+                |> IntrinsicTypeMap.ofSeq
 
             // The type channels, addressed by identity rather than by a rendering of one,
             // because that is what answers a module-held type's key, which no written name spells.
@@ -290,7 +270,6 @@ module VesperLibTyparCapture =
                                 | true, hit -> ValueSome hit
                                 | _ -> ValueNone
                         AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
-                        IntrinsicReverseCanon = intrinsicReverse
-                        IntrinsicForwardRepr = intrinsicForward
+                        IntrinsicTypeMap = intrinsics
                     }
             )

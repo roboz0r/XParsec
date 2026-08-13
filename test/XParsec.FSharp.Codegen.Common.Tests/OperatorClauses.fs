@@ -121,14 +121,17 @@ module OperatorSurfaceParity =
 
     /// The primitives that DECLARE `compiled` as a static member on this contract. The
     /// declaration is target-neutral (written once in the `.fsi`); what differs per target is
-    /// `IntrinsicForwardRepr`, which omits primitives it has no repr for (`nativeint` on JS).
+    /// which primitives it BINDS A REPR for (`nativeint` is unsupported on JS).
     let private widthsDeclaring (provider: IExternalSymbolProvider) (compiled: string) : Set<string> =
         set
             [
-                for kv in provider.IntrinsicForwardRepr do
-                    match provider.TryLookupMember(kv.Key, compiled) with
-                    | ValueSome m when m.IsStatic -> yield SymbolKeyOps.intrinsicName kv.Key
-                    | _ -> ()
+                for entry in IntrinsicTypeMap.entries provider.IntrinsicTypeMap do
+                    match entry.Platform with
+                    | IntrinsicPlatform.Repr _ ->
+                        match provider.TryLookupMember(entry.Canon, compiled) with
+                        | ValueSome m when m.IsStatic -> yield SymbolKeyOps.intrinsicName entry.Canon
+                        | _ -> ()
+                    | IntrinsicPlatform.Unsupported _ -> ()
             ]
 
     /// One backend's operator surface against the matrix. `provider` is that backend's

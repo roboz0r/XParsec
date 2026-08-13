@@ -451,28 +451,7 @@ module FrozenSignature =
                     typesByName.[name] <- typeKey
             | _ -> ()
 
-        // --- intrinsic axes -----------------------------------------------------------
-        // FORWARD is `{ canon -> platform-repr }`; REVERSE is its inversion, skipping a
-        // degenerate self-map (a primitive with no distinct `.fs` repr).
-        let intrinsicForward =
-            let d = Dictionary<SymbolKey, string>(frozen.Residue.IntrinsicReprKeys.Count)
-
-            for KeyValue(key, repr) in frozen.Residue.IntrinsicReprKeys do
-                d.[key] <- repr.Platform
-
-            d :> IReadOnlyDictionary<_, _>
-
-        let intrinsicReverse =
-            frozen.Residue.IntrinsicReprKeys
-            |> Seq.choose (fun kv ->
-                if kv.Value.Platform <> SymbolKeyOps.intrinsicName kv.Key then
-                    Some(kv.Value.Platform, kv.Key)
-                else
-                    None
-            )
-            |> Seq.groupBy fst
-            |> Seq.map (fun (platform, xs) -> platform, xs |> Seq.map snd |> Seq.distinct |> List.ofSeq)
-            |> Map.ofSeq
+        let intrinsics = IntrinsicTypeMap.ofReprKeys frozen.Residue.IntrinsicReprKeys
 
         // --- provider assembly --------------------------------------------------------
 
@@ -516,7 +495,6 @@ module FrozenSignature =
                     // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in
                     // the SAME namespace reaches these types through its own header, not here.
                     AmbientOpenPrefixes = []
-                    IntrinsicReverseCanon = intrinsicReverse
-                    IntrinsicForwardRepr = intrinsicForward
+                    IntrinsicTypeMap = intrinsics
                 }
         )

@@ -164,21 +164,18 @@ module UnificationEngine =
         // The axis is keyed by platform repr, so only a type whose identity IS a platform
         // name can hit it: a Vesper-qualified `number` is refused.
         | TyConst(PlatformName platform, args) when args.Length = 0 ->
-            match ctx.IntrinsicReverseCanon.Value.TryGetValue platform with
-            | true, (_ :: _ :: _ as canons) ->
+            match IntrinsicTypeMap.canonsOf platform ctx.IntrinsicTypeMap.Value with
+            | canons when canons.Length > 1 ->
                 ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
             | _ -> ValueNone
         | _ -> ValueNone
 
     /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr names BOTH: on JS
-    /// the numeric family (`"number"` -> int/float/float32); on CLR, never. NOT a
-    /// forward-repr comparison: `char` and `string` both repr `"string"` on JS.
+    /// the numeric family (`"number"` -> int/float/float32); on CLR, never.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep ctx.Store a, resolveStep ctx.Store b with
         | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
-            // Keyed by platform repr, so a canon does not appear as a key.
-            ctx.IntrinsicReverseCanon.Value.Values
-            |> Seq.exists (fun canons -> List.contains k1 canons && List.contains k2 canons)
+            IntrinsicTypeMap.familyOf k1 ctx.IntrinsicTypeMap.Value |> EqArray.contains k2
         | _ -> false
 
     /// A Vesper RECORD satisfies an EXTERNAL interface parameter by WIDTH: every required

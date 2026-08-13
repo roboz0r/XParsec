@@ -523,16 +523,16 @@ type internal ClrEnv
     member _.References = references
     member _.Symbols: ICodegenSymbols = symbols
 
-    /// A Vesper primitive's canon `SymbolKey` → its IL representation string, single-sourced from
-    /// the `.fs` `(# … #)`: this file's OWN intrinsics first, then the dependency closure's
-    /// extracted `{ canon -> platform }` map. Keyed by the canon KEY, never by short name.
+    /// A Vesper primitive's canon `SymbolKey` → its IL representation string, single-sourced
+    /// from the `.fs` `(# … #)`: this file's OWN intrinsics first, then the dependency
+    /// closure's. Keyed by the canon KEY, never by short name.
     member _.TryPrimitiveRepr(key: SymbolKey) : string option =
         match reprs.TryGetValue key with
         | true, repr -> Some repr
         | _ ->
-            match symbols.IntrinsicForwardRepr.TryGetValue key with
-            | true, repr -> Some repr
-            | _ -> None
+            match symbols.TryPlatformRepr key with
+            | ValueSome repr -> Some repr
+            | ValueNone -> None
 
     member _.FsCoreRef = fsCoreRef
     member _.CoreRef = coreRef

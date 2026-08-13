@@ -299,23 +299,12 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// provider is round-tripped per node. A non-intrinsic key caches its own identity.
     member val IntrinsicCanonCache = Dictionary<SymbolKey, SymbolKey>() with get
 
-    /// A platform runtime name (`"number"`) → the `.fsi` canon identities sharing that repr.
-    /// `lazy`: the first read must come AFTER name resolution filled `IntrinsicReprKeys`.
-    member val IntrinsicReverseCanon: Lazy<Dictionary<string, SymbolKey list>> =
-        lazy
-            (let d = Dictionary<string, SymbolKey list>()
-
-             for KeyValue(platform, canons) in provider.IntrinsicReverseCanon do
-                 d.[platform] <- canons
-             // Local intrinsics are stored canon key -> platform repr; invert so a raw platform
-             // name reconciles inside a `--compiling-fslib` file, REPLACING the provider's canons.
-             // A repr whose platform spelling IS the intrinsic's own name carries no
-             // reconciliation, so it is skipped.
-             for KeyValue(canon, repr) in types.IntrinsicReprKeys do
-                 if repr.Platform <> SymbolKeyOps.intrinsicName canon then
-                     d.[repr.Platform] <- [ canon ]
-
-             d) with get
+    /// The intrinsic axis this file analyses under: its OWN `(# … #)` declarations shadowing
+    /// the provider's, per canon, so a local `int` hides the provider's `int` and leaves its
+    /// `float` alone. `lazy`: the first read must come AFTER name resolution filled
+    /// `IntrinsicReprKeys`.
+    member val IntrinsicTypeMap: Lazy<IntrinsicTypeMap> =
+        lazy (IntrinsicTypeMap.shadow (IntrinsicTypeMap.ofReprKeys types.IntrinsicReprKeys) provider.IntrinsicTypeMap) with get
 
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get

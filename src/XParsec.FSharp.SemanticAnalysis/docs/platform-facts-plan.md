@@ -307,7 +307,7 @@ and a reasonable place to prototype the query shape.
 - **Return facts, not a type.** Every call site wants a predicate. A small record with "no
   opinion ⇒ defer" preserves the existing `ValueNone` fall-through in `primitiveSupports`.
 - **`TypeKey` is the primary key; the repr is secondary.** `IntrinsicIdentity.Platform` is
-  explicitly many-to-one (`ExternalSymbols.fs:381`: "Many-to-one, so it must never drive
+  explicitly many-to-one (`ExternalDeclarations.fs:471-472`: "Many-to-one, so it must never drive
   unification") — JS maps `float` and `float32` both to `number` (`RuntimeNames.fs:277-278`). A
   map keyed on the repr string, which is the tempting implementation, conflates them. The repr
   earns its place only for types reached through metadata rather than a contract (the CLR's

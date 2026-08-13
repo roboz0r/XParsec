@@ -96,5 +96,6 @@ module CodegenSymbols =
                                 Constraints = os.Constraints
                             }
 
-            member _.IntrinsicForwardRepr = provider.IntrinsicForwardRepr
+            member _.TryPlatformRepr canon =
+                IntrinsicTypeMap.tryPlatformRepr canon provider.IntrinsicTypeMap
         }

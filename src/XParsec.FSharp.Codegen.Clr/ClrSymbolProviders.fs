@@ -8,34 +8,34 @@ open XParsec.FSharp.Codegen.Common
 module ClrSymbolProviders =
 
     /// BCL reflection over the host runtime. A seeded leaf is a pure function of
-    /// `(reverseCanon, paths)` and the paths are constant here, so memoising on the reverse
-    /// map gives one `MetadataLoadContext` per distinct map rather than one per firing.
+    /// `(intrinsics, paths)` and the paths are constant here, so memoising on the axis gives
+    /// one `MetadataLoadContext` per distinct axis rather than one per firing.
     let bclMetaTail: SymbolProviders.MetaTailFactory =
         let seeded =
-            System.Collections.Concurrent.ConcurrentDictionary<Map<string, SymbolKey list>, IExternalSymbolProvider list>(
+            System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
                 HashIdentity.Structural
             )
 
-        fun reverseCanon ->
-            if reverseCanon.IsEmpty then
+        fun intrinsics ->
+            if IntrinsicTypeMap.isEmpty intrinsics then
                 [ MetadataSymbols.provider ]
             else
                 seeded.GetOrAdd(
-                    reverseCanon,
-                    fun rc -> [ MetadataSymbols.createWith rc (MetadataSymbols.runtimeAssemblyPaths ()) ]
+                    intrinsics,
+                    fun m -> [ MetadataSymbols.createWith m (MetadataSymbols.runtimeAssemblyPaths ()) ]
                 )
 
     /// `bclMetaTail` over an EXPLICIT reference set (a TFM ref pack + `<Reference>`s) instead
     /// of the host TPA. Each call returns a FRESH factory with its own memo, because
-    /// `bclMetaTail`'s process-wide one keys on the reverse map alone and so assumes the paths.
+    /// `bclMetaTail`'s process-wide one keys on the axis alone and so assumes the paths.
     let bclMetaTailWith (dllPaths: string list) : SymbolProviders.MetaTailFactory =
         let seeded =
-            System.Collections.Concurrent.ConcurrentDictionary<Map<string, SymbolKey list>, IExternalSymbolProvider list>(
+            System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
                 HashIdentity.Structural
             )
 
-        // `createWith Map.empty` IS `create`, so the empty-reverse case needs no branch.
-        fun reverseCanon -> seeded.GetOrAdd(reverseCanon, fun rc -> [ MetadataSymbols.createWith rc dllPaths ])
+        // `createWith` over an empty axis IS `create`, so the empty case needs no branch.
+        fun intrinsics -> seeded.GetOrAdd(intrinsics, fun m -> [ MetadataSymbols.createWith m dllPaths ])
 
     /// Content-derived cache tag for an explicit reference set: without it two compilations
     /// with different ref sets but identical manifests would share a contract entry.
@@ -58,47 +58,34 @@ module ClrSymbolProviders =
     let buildContractFor (target: string) (packageDirs: string list) : IExternalSymbolProvider =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target packageDirs).Provider
 
-    /// The `{ platform-repr -> [canon] }` axis of the package being compiled, as a consumer
-    /// of it would see it, because it is read off that package's own composed contract sources.
-    let selfReverseCanon (selfPackage: string option) : Map<string, SymbolKey list> =
+    /// The intrinsic axis of the package being compiled, as a consumer of it would see it,
+    /// because it is read off that package's own composed contract sources.
+    let selfIntrinsics (selfPackage: string option) : IntrinsicTypeMap =
         match selfPackage with
-        | None -> Map.empty
-        | Some dir -> (buildContract [ dir ]).IntrinsicReverseCanon
+        | None -> IntrinsicTypeMap.empty
+        | Some dir -> (buildContract [ dir ]).IntrinsicTypeMap
 
+    /// The compiling package's own declarations SHADOW the referenced ones the leaf is
+    /// otherwise seeded with: a package declaring `string` is served its own, not a dependency's.
     let private seeded
-        (seed: Map<string, SymbolKey list>)
+        (seed: IntrinsicTypeMap)
         (tail: SymbolProviders.MetaTailFactory)
         : SymbolProviders.MetaTailFactory =
-        if seed.IsEmpty then
+        if IntrinsicTypeMap.isEmpty seed then
             tail
         else
-            fun referenced ->
-                (referenced, seed)
-                ||> Map.fold (fun acc platform canons ->
-                    match Map.tryFind platform acc with
-                    | Some existing -> Map.add platform (canons @ existing |> List.distinct) acc
-                    | None -> Map.add platform canons acc
-                )
-                |> tail
+            fun referenced -> tail (IntrinsicTypeMap.shadow seed referenced)
 
-    let private seedTag (seed: Map<string, SymbolKey list>) : string =
-        if seed.IsEmpty then
+    let private seedTag (seed: IntrinsicTypeMap) : string =
+        if IntrinsicTypeMap.isEmpty seed then
             ""
         else
-            "|self:"
-            + (seed
-               |> Map.toList
-               |> List.map (fun (platform, canons) ->
-                   platform
-                   + "="
-                   + (canons |> List.map SymbolKeyOps.qualifiedName |> String.concat ",")
-               )
-               |> String.concat ";")
+            "|self:" + IntrinsicTypeMap.cacheTag seed
 
     /// `buildContract` for a compilation that IS a package, over the host TPA rather than
     /// an explicit reference set. `selfPackage` seeds the leaf AND joins the resolution stack.
     let buildContractForSelf (selfPackage: string option) (packageDirs: string list) : IExternalSymbolProvider =
-        let seed = selfReverseCanon selfPackage
+        let seed = selfIntrinsics selfPackage
 
         (SymbolProviders.buildContractWith
             ("bcl" + seedTag seed)
@@ -113,14 +100,14 @@ module ClrSymbolProviders =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr packageDirs).BodiesByName
 
     /// The cached contract for one compilation: an explicit reference set, seeded with the
-    /// compiling package's own reverse axis. Both halves are in the cache tag, the seed included,
+    /// compiling package's own intrinsic axis. Both halves are in the cache tag, the seed included,
     /// because two packages compiling THEMSELVES with empty package lists would otherwise alias.
     let private compilationContract
         (selfPackage: string option)
         (dllPaths: string list)
         (packageDirs: string list)
         : SymbolProviders.Contract =
-        let seed = selfReverseCanon selfPackage
+        let seed = selfIntrinsics selfPackage
 
         SymbolProviders.buildContractWith
             (refsCacheTag dllPaths + seedTag seed)

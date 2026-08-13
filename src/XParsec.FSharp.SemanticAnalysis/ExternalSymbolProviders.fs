@@ -43,8 +43,7 @@ module ExternalSymbolProviders =
             AmbientOpenPrefixes: string list
             TryLookupMembers: ExternalMemberName -> EqArray<ExternalMember>
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
-            IntrinsicReverseCanon: Map<string, SymbolKey list>
-            IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
+            IntrinsicTypeMap: IntrinsicTypeMap
         }
 
     module NamedLeaf =
@@ -59,8 +58,7 @@ module ExternalSymbolProviders =
                 AmbientOpenPrefixes = []
                 TryLookupMembers = fun _ -> EqArray.empty
                 TryLookupIndexSignature = fun _ -> []
-                IntrinsicReverseCanon = Map.empty
-                IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+                IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
     /// A leaf that HOLDS its types' identities. Needed when a type is
@@ -77,8 +75,7 @@ module ExternalSymbolProviders =
             TryLookupUnionCase: string -> ExternalUnionCase voption
             TryRecordsWithField: string -> EqArray<ExternalRecordCandidate>
             AmbientOpenPrefixes: string list
-            IntrinsicReverseCanon: Map<string, SymbolKey list>
-            IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
+            IntrinsicTypeMap: IntrinsicTypeMap
         }
 
     module KeyIndexedLeaf =
@@ -92,8 +89,7 @@ module ExternalSymbolProviders =
                 TryLookupUnionCase = fun _ -> ValueNone
                 TryRecordsWithField = fun _ -> EqArray.empty
                 AmbientOpenPrefixes = []
-                IntrinsicReverseCanon = Map.empty
-                IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+                IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
     /// A leaf's type channels answered BY KEY, whichever way the leaf came by them:
@@ -144,8 +140,7 @@ module ExternalSymbolProviders =
                         TryLookupUnionCase = leaf.TryLookupUnionCase
                         TryRecordsWithField = leaf.TryRecordsWithField
                         AmbientOpenPrefixes = leaf.AmbientOpenPrefixes
-                        IntrinsicReverseCanon = leaf.IntrinsicReverseCanon
-                        IntrinsicForwardRepr = leaf.IntrinsicForwardRepr
+                        IntrinsicTypeMap = leaf.IntrinsicTypeMap
                     }
                 TypeByName =
                     fun name ->
@@ -199,8 +194,7 @@ module ExternalSymbolProviders =
               member _.TryLookupByKey key =
                   named.TryLookup(SymbolKeyOps.qualifiedName key)
 
-              member _.IntrinsicReverseCanon = named.IntrinsicReverseCanon
-              member _.IntrinsicForwardRepr = named.IntrinsicForwardRepr
+              member _.IntrinsicTypeMap = named.IntrinsicTypeMap
         }
 
     let ofNamedLeaf (leaf: NamedLeaf) : IExternalSymbolProvider = ofKeyedLeaf (KeyedLeaf.ofNamed leaf)
@@ -208,34 +202,12 @@ module ExternalSymbolProviders =
     /// Every channel a miss.
     let nullProvider: IExternalSymbolProvider = ofNamedLeaf NamedLeaf.empty
 
-    /// Merge sources' reverse `{ platform-repr -> [canon] }` maps by UNIONING the canon
-    /// lists per platform key (deduped). `Array.rev` folds the earliest source LAST so its
-    /// canons lead each list.
-    let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, SymbolKey list> =
-        let arr = Seq.toArray sources
-
-        (Map.empty, Array.rev arr)
-        ||> Array.fold (fun acc s ->
-            (acc, s.IntrinsicReverseCanon)
-            ||> Map.fold (fun m platform canons ->
-                match Map.tryFind platform m with
-                | Some existing -> Map.add platform (canons @ existing |> List.distinct) m
-                | None -> Map.add platform (canons |> List.distinct) m
-            )
-        )
-
-    /// Merge sources' forward `{ canon -> platform-repr }` maps, first-source-wins:
-    /// `Array.rev` folds the earliest source LAST so its entries overwrite later ones.
-    /// `SymbolKey` is equatable-but-not-comparable, hence a `Dictionary`, not a `Map`.
-    let mergeForwardRepr (sources: IExternalSymbolProvider seq) : IReadOnlyDictionary<SymbolKey, string> =
-        let arr = Seq.toArray sources
-        let d = Dictionary<SymbolKey, string>()
-
-        for s in Array.rev arr do
-            for kv in s.IntrinsicForwardRepr do
-                d.[kv.Key] <- kv.Value
-
-        d :> IReadOnlyDictionary<_, _>
+    /// The composed intrinsic axis of `sources`, EARLIEST source nearest: what `stack`
+    /// publishes, exposed for a caller that must seed a leaf with it before composing.
+    let mergeIntrinsics (sources: IExternalSymbolProvider seq) : IntrinsicTypeMap =
+        sources
+        |> Seq.collect (fun s -> IntrinsicTypeMap.entries s.IntrinsicTypeMap)
+        |> IntrinsicTypeMap.ofSeq
 
     /// First-hit-wins composition over `sources`, surfacing `ambient` and stamping
     /// `stampHome` onto each resolved entry's `SymbolOrigin.Home`. The origin's NAMESPACE
@@ -249,8 +221,7 @@ module ExternalSymbolProviders =
         // traversal, on a provider hit from many parallel PassContexts.
         let sources = List.toArray sources
 
-        let reverseCanon = mergeReverseCanon sources
-        let forwardRepr = mergeForwardRepr sources
+        let intrinsics = mergeIntrinsics sources
 
         // The array-valued lookups keep their own loop: their empty sentinel is `[||]`.
         let inline firstHit (f: IExternalSymbolProvider -> 'a voption) : 'a voption =
@@ -390,8 +361,7 @@ module ExternalSymbolProviders =
               member _.TryLookupByKey key =
                   firstHit (fun s -> s.TryLookupByKey key) |> ValueOption.map stampSymbol
 
-              member _.IntrinsicReverseCanon = reverseCanon
-              member _.IntrinsicForwardRepr = forwardRepr
+              member _.IntrinsicTypeMap = intrinsics
         }
 
     /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
@@ -528,8 +498,7 @@ module ExternalSymbolProviders =
                   inner.TryLookupByKey key
                   |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
 
-              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+              member _.IntrinsicTypeMap = inner.IntrinsicTypeMap
         }
 
     /// Fold each symbol's / member's published INLINE BODY onto the entry that carries its
@@ -572,8 +541,7 @@ module ExternalSymbolProviders =
               member _.TryLookupByKey key =
                   inner.TryLookupByKey key |> ValueOption.map stampSymbol
 
-              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+              member _.IntrinsicTypeMap = inner.IntrinsicTypeMap
         }
 
     /// Cache every lookup channel on first hit, MISSES included: the contract is immutable
@@ -632,8 +600,7 @@ module ExternalSymbolProviders =
               member _.TryLookupByKey key =
                   symbolsByKey.GetOrAdd(key, (fun k -> inner.TryLookupByKey k))
 
-              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+              member _.IntrinsicTypeMap = inner.IntrinsicTypeMap
         }
 
     /// The two body-bearing key kinds route to different ENTRY types: a `Binding` rides

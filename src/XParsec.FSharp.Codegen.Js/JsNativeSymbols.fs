@@ -80,7 +80,7 @@ module JsNativeSymbols =
             }
 
     /// The metadata tail a JS compile ends in: these stubs stand where a CLR compile puts
-    /// BCL reflection. It reads nothing from the reverse-canon map its argument carries.
+    /// BCL reflection. It reads nothing from the intrinsic axis its argument carries.
     let private jsNativeMetaTail: SymbolProviders.MetaTailFactory =
         fun _ -> [ provider ]
 

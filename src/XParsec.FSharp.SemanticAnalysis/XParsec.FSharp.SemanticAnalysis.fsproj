@@ -81,6 +81,9 @@
          class or intrinsic surface), then the declaration SHAPE they compose into and the
          lookup contract that serves it. -->
     <Compile Include="ExternalDeclarations.fs" />
+    <!-- Between the `IntrinsicPlatform` it is an axis of and the store contract that
+         publishes it: the canon ↔ repr relation is a function of the declarations alone. -->
+    <Compile Include="IntrinsicTypeMap.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="ExternalSymbolProviders.fs" />
     <!-- After the symbol data model it projects, and independent of everything below: an

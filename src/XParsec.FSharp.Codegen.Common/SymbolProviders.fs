@@ -7,9 +7,9 @@ open XParsec.FSharp.SemanticAnalysis
 /// Builds the symbol-resolution provider stack.
 module SymbolProviders =
 
-    /// Layer-2 tail FACTORY over the `{ platform-repr → [canon] }` map folded from the
-    /// layer-1 providers' `IntrinsicReverseCanon` — the reverse direction of
-    /// `type int = (# "System.Int32" #)`. A factory, not a fixed list, so the leaf is seeded.
+    /// Layer-2 tail FACTORY over the intrinsic axis composed from the layer-1 providers —
+    /// what `type int = (# "System.Int32" #)` declares, both directions. A factory, not a
+    /// fixed list, so the leaf is seeded.
     type MetaTailFactory = ReferencedProject.MetaTailFactory
 
     /// A package's manifest for the compiling target, as resolved from its directory.
@@ -295,7 +295,7 @@ module SymbolProviders =
             .Value
 
     /// `buildContractWith` over a FIXED layer-2 leaf, wrapped as a constant factory: for a
-    /// backend whose tail reads nothing from the reverse-canon map.
+    /// backend whose tail reads nothing from the intrinsic axis.
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)

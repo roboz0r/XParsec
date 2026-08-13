@@ -9,14 +9,14 @@ open XParsec.FSharp.Codegen.Clr
 // (`type int = (# "System.Int32" #)`), and nothing forces the IL encoder to know that
 // string: a mismatch surfaces only as a `failwithf` at the first site that encodes it.
 
-let private forwardRepr =
-    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCorePackage ]).IntrinsicForwardRepr
+let private intrinsics =
+    (ClrSymbolProviders.buildContract [ TestHelpers.vesperCorePackage ]).IntrinsicTypeMap
 
-/// A bare `.fsi` canon name (`int`) under the qualified key (`Vesper.int`) the map uses.
+/// A bare `.fsi` canon name (`int`) under the qualified key (`Vesper.int`) the axis uses.
 let private tryRepr (canon: string) : string option =
-    match forwardRepr.TryGetValue(RuntimeNames.primitiveKey canon) with
-    | true, repr -> Some repr
-    | _ -> None
+    match IntrinsicTypeMap.tryPlatformRepr (RuntimeNames.primitiveKey canon) intrinsics with
+    | ValueSome repr -> Some repr
+    | ValueNone -> None
 
 /// The scalar primitives the IL encoder writes DIRECTLY, by their `.fsi` canon name.
 /// Aliases (`int32`, `uint`) are abbreviations that dealias to these, so carry no repr.

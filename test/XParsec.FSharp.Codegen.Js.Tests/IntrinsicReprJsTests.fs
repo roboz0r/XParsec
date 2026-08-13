@@ -1,26 +1,26 @@
-module XParsec.FSharp.Codegen.Js.Tests.IntrinsicForwardReprJsTests
+module XParsec.FSharp.Codegen.Js.Tests.IntrinsicReprJsTests
 
 open Expecto
 
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The forward intrinsic axis `{ canon -> platform-repr }`, extracted from the same
-// `<base>.js.fs` `(# "<repr>" #)` bindings that yield the reverse axis. A JS `number`
-// read as a value is `float` only because `float` reprs to `number`, so pin the mapping.
+// The `canon -> platform-repr` direction, extracted from the `<base>.js.fs` `(# "<repr>" #)`
+// bindings. A JS `number` read as a value is `float` only because `float` reprs to
+// `number`, so pin the mapping.
 
-let private forwardRepr = jsProvider.Value.IntrinsicForwardRepr
+let private intrinsics = jsProvider.Value.IntrinsicTypeMap
 
 /// Bridge a bare `.fsi` canon name to the axis's qualified intrinsic key (`Vesper.int`).
 let private tryRepr (canon: string) : string option =
-    match forwardRepr.TryGetValue(RuntimeNames.primitiveKey canon) with
-    | true, repr -> Some repr
-    | _ -> None
+    match IntrinsicTypeMap.tryPlatformRepr (RuntimeNames.primitiveKey canon) intrinsics with
+    | ValueSome repr -> Some repr
+    | ValueNone -> None
 
 [<Tests>]
 let tests =
     testList
-        "IntrinsicForwardReprJs"
+        "IntrinsicReprJs"
         [
             test "the JS number family all repr to `number`" {
                 for canon in [ "int"; "float"; "float32" ] do

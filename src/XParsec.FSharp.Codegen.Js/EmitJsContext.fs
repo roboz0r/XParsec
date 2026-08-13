@@ -398,8 +398,8 @@ module EmitJsContext =
         match ty with
         | FTConst(key, _) when key = RuntimeNames.float32Key -> PlainRender.Single
         | FTConst(key, _) ->
-            match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
-            | true, repr when repr = BigIntRepr -> PlainRender.BigInt
+            match IntrinsicTypeMap.tryPlatformRepr key ctx.Provider.IntrinsicTypeMap with
+            | ValueSome BigIntRepr -> PlainRender.BigInt
             | _ -> PlainRender.Native
         | _ -> PlainRender.Native
 

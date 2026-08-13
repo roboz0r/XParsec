@@ -799,7 +799,7 @@ let tests =
             }
 
             test
-                "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT a reverse-canon entry" {
+                "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT an intrinsic-axis entry" {
                 // A `.fsi` interface member surface plus a `.fs` `(# "System.IDisposable" #)`
                 // repr extract to ONE `IntrinsicInterface` carrying the members and
                 // `{ Canon; Platform }`, so the type reconciles to its BCL spelling.
@@ -845,12 +845,12 @@ let tests =
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
-                // The reverse map's reader turns a hit into an `FTConst` leaf, so an interface
-                // entry would mis-present `System.IDisposable` as a scalar canon.
-                // Reconciliation rides the `IntrinsicInterface` identity above instead.
-                match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
-                | None -> ()
-                | Some canons -> failtestf "capability interface must NOT enter the reverse-canon map; found %A" canons
+                // A `canonsOf` reader turns a hit into an `FTConst` leaf, so an interface entry
+                // would mis-present `System.IDisposable` as a scalar canon. Reconciliation
+                // rides the `IntrinsicInterface` identity above instead.
+                match IntrinsicTypeMap.canonsOf "System.IDisposable" provider.IntrinsicTypeMap with
+                | EqEmpty -> ()
+                | canons -> failtestf "capability interface must NOT enter the intrinsic axis; found %A" canons
             }
 
             test "CONCRETE member surface on an intrinsic primitive keeps the Intrinsic shape" {

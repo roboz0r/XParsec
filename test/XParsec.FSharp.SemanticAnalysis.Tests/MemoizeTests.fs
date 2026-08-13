@@ -63,8 +63,7 @@ type private CountingProvider(name: string) =
 
         member _.TryLookupIndexSignature _ = []
         member _.TryLookupByKey _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+        member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
 
 [<Tests>]
 let tests =

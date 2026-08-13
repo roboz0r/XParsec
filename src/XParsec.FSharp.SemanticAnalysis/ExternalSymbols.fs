@@ -90,14 +90,10 @@ type IExternalSymbolStore =
     /// reaches an `InlineBody` through.
     abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
 
-    /// `{ platform-repr -> [canon] }`: an incoming BCL/native runtime name
-    /// (`"System.Exception"`) back to the `.fsi` identity (`"exn"`). ONE-TO-MANY, because on
-    /// JS `int`, `float` and `float32` all repr to `"number"`.
-    abstract IntrinsicReverseCanon: Map<string, SymbolKey list>
-
-    /// `{ canon -> platform-repr }`: the `.fsi` short name to its `.fs` `(# … #)` repr for
-    /// the compiling target. Empty from providers carrying no intrinsics.
-    abstract IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
+    /// The `(canon, platform-repr)` declarations this provider carries, readable both ways:
+    /// `int` → `"System.Int32"` and `"System.Exception"` → `exn`. Empty from providers
+    /// carrying no intrinsics.
+    abstract IntrinsicTypeMap: IntrinsicTypeMap
 
 /// Both views on ONE object: raw facts only, with NO capability predicates ("is this type
 /// disposable?" is a language judgment the passes make). Every lookup must be thread-safe.
@@ -150,15 +146,11 @@ type ICodegenSymbols =
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key.
     abstract TryLookupOpenSignature: key: SymbolKey -> CodegenOpenSignature voption
-    /// `{ canon -> platform-repr }`: a primitive canon name (`"int"`) to its `.fs`-declared
-    /// repr (`"System.Int32"`).
-    abstract IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
+    /// The platform spelling emission mints a primitive reference through: `int` →
+    /// `"System.Int32"`. `ValueNone` for a canon with no repr on the compiling target.
+    abstract TryPlatformRepr: canon: SymbolKey -> string voption
 
 module ExternalSymbols =
-
-    /// `SymbolKey` is equatable-but-not-comparable, so the axis is a `Dictionary`, not a `Map`.
-    let emptyForwardRepr: IReadOnlyDictionary<SymbolKey, string> =
-        Dictionary<SymbolKey, string>() :> IReadOnlyDictionary<_, _>
 
     /// Invert a NAME-INDEXED leaf's qualified name back to a key. Sound only when the
     /// leaf's type keys are `InNamespace`. Arity comes from the SHAPE, never from the arity
@@ -291,7 +283,7 @@ module ExternalSymbols =
         (declaringArgs: SemType[])
         (level: int)
         : SemType =
-        let cache = System.Collections.Generic.Dictionary<int, SemType>()
+        let cache = Dictionary<int, SemType>()
 
         for (j, ty) in seed do
             cache.[j] <- ty

@@ -474,10 +474,10 @@ module ReferencedProject =
             bp.Provider, bp.Diagnostics
         )
 
-    /// A layer-2 metadata-tail factory: given the extracted `{ platform-repr → [canon] }`
-    /// reverse map of the layer-1 providers composed so far, produce the trailing leaf
-    /// providers. A backend injects its BCL metadata / JS-native tail here.
-    type MetaTailFactory = Map<string, SymbolKey list> -> IExternalSymbolProvider list
+    /// A layer-2 metadata-tail factory: given the intrinsic axis of the layer-1 providers
+    /// composed so far, produce the trailing leaf providers. A backend injects its BCL
+    /// metadata / JS-native tail here.
+    type MetaTailFactory = IntrinsicTypeMap -> IExternalSymbolProvider list
 
     /// The empty layer-2 tail: the layer-1 `.fsi` contracts alone, for an in-assembly
     /// caller that resolves no BCL/native metadata.
@@ -513,11 +513,11 @@ module ReferencedProject =
                     | _ -> None
                 )
 
-            // Seeded with the reverse map of the deps built so far, so a dependency's BCL
-            // member sigs canonicalize during extraction.
+            // Seeded with the axis of the deps built so far, so a dependency's BCL member
+            // sigs canonicalize during extraction.
             let depComposite =
                 ExternalSymbolProviders.composite (
-                    depProviders @ metaTail (ExternalSymbolProviders.mergeReverseCanon depProviders)
+                    depProviders @ metaTail (ExternalSymbolProviders.mergeIntrinsics depProviders)
                 )
 
             let ambientShapes =
@@ -548,10 +548,10 @@ module ReferencedProject =
             built.Add bp.Provider
             byPath.[manifest.Path] <- bp.Provider
 
-        // The final composite's leaf IS seeded with the full extracted reverse map, so a
-        // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
+        // The final composite's leaf IS seeded with the full extracted axis, so a consumer's
+        // BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
-        ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeReverseCanon builtList))
+        ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeIntrinsics builtList))
 
     /// `composeOrdered` over a raw, unordered manifest set. A cycle or missing dependency is
     /// a hard error. A caller that also needs the ordered list should order it itself.

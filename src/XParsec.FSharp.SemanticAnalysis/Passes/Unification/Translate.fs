@@ -106,16 +106,16 @@ module internal UnificationTranslate =
     let isNumericCarrier (name: string) : bool =
         RuntimeNames.numericTypeNames.Contains name
 
-    /// A resolved `Class` whose metadata name has a reverse-canon hit is an intrinsic's
+    /// A resolved `Class` whose metadata name a canon is declared on is an intrinsic's
     /// platform spelling (`System.Exception` → `exn`) and resolves to the canon `TyConst`,
-    /// so no raw BCL nominal enters the unifier. Interfaces are absent from that map.
+    /// so no raw BCL nominal enters the unifier. Capability interfaces declare no canon.
     let externalClassTy (ctx: PassContext) (key: TypeKey) (args: EqArray<SemType>) : SemType =
         // Built on the resolved `key` directly: re-minting an identity from the flattened
         // metadata name loses the container and gives an unequal key. The probe keys on that
         // NAME, which is sound because its entries are all bare-IL, where name and key agree.
-        match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.typeMetaName key) with
-        | true, (canon :: _) -> TyConst(canon, args)
-        | _ -> TyClass(key, args)
+        match IntrinsicTypeMap.tryCanon (SymbolKeyOps.typeMetaName key) ctx.IntrinsicTypeMap.Value with
+        | ValueSome canon -> TyConst(canon, args)
+        | ValueNone -> TyClass(key, args)
 
     /// DEBUG-only, for a DOTTED name neither the store view nor a local claim answered: every
     /// written reference carries a verdict, so NO verdict is a stamping walk that missed this
@@ -473,8 +473,8 @@ module internal UnificationTranslate =
         // carries, which is what keeps `exn.Message` routing to the platform type's members.
         | ExternalTypeShape.Intrinsic s -> Some(TyConst(SymbolKey.Type s.Id.Canon, translatedArgs))
         | ExternalTypeShape.Class _ -> Some(externalClassTy ctx symKey translatedArgs)
-        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT; the reverse map
-        // holds no interface canons, so its identity is the resolved key directly.
+        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT; the axis holds no
+        // interface canons, so its identity is the resolved key directly.
         | ExternalTypeShape.IntrinsicInterface _ -> Some(TyClass(symKey, translatedArgs))
         | ExternalTypeShape.Record _ -> Some(TyRecord(symKey, translatedArgs))
         | ExternalTypeShape.Union _ -> Some(TyUnion(symKey, translatedArgs))

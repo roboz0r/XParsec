@@ -15,8 +15,8 @@ module NumberCovariance =
     let private floatCanonName = SymbolKeyOps.intrinsicName RuntimeNames.floatKey
 
     let wrap (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
-        match inner.IntrinsicForwardRepr.TryGetValue(RuntimeNames.floatKey) with
-        | true, r when r = NumberToken -> ()
+        match IntrinsicTypeMap.tryRepr RuntimeNames.floatKey inner.IntrinsicTypeMap with
+        | ValueSome(IntrinsicPlatform.Repr NumberToken) -> ()
         | other ->
             failwithf
                 "NumberCovariance: `%s` must repr to `%s` for the covariant `%s → %s` identity, but its repr is %A"
@@ -31,9 +31,9 @@ module NumberCovariance =
         let numberKey = RuntimeNames.opaqueKey NumberToken
 
         let familyUnion =
-            match Map.tryFind NumberToken inner.IntrinsicReverseCanon with
-            | Some(_ :: _ as canons) -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, EqArray.empty) })
-            | _ -> FTConst(numberKey, EqArray.empty)
+            match IntrinsicTypeMap.canonsOf NumberToken inner.IntrinsicTypeMap with
+            | EqEmpty -> FTConst(numberKey, EqArray.empty)
+            | canons -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, EqArray.empty) })
 
         let resolveNumber (v: Variance) (t: FrozenType) : FrozenType voption =
             match t with

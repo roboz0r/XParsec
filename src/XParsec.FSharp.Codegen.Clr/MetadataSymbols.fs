@@ -16,11 +16,11 @@ open XParsec.FSharp.SemanticAnalysis
 /// A shape that doesn't map yields `None`.
 module private MetadataMapping =
 
-    /// `reverseCanon` maps a platform repr to the canons it stands for (`"System.Int32"` →
-    /// `[int]`), so a BCL member's `System.Int32` parameter presents as `int` and is
-    /// callable. On the CLR the list is a singleton; a name absent from it is a real class.
-    let rec tryBuildType (reverseCanon: Map<string, SymbolKey list>) (t: Type) : FrozenType option =
-        let go = tryBuildType reverseCanon
+    /// `intrinsics` reconciles a platform repr to its canon (`"System.Int32"` → `int`), so a
+    /// BCL member's `System.Int32` parameter presents as `int` and is callable. A name it
+    /// does not reconcile is a real class.
+    let rec tryBuildType (intrinsics: IntrinsicTypeMap) (t: Type) : FrozenType option =
+        let go = tryBuildType intrinsics
 
         if t.IsByRef then
             // `in`/`out`/`ref` all collapse to `T&`. A C# `in` param's
@@ -61,22 +61,20 @@ module private MetadataMapping =
             // A BCL name with a canon surfaces AS the canon: scalar leaves
             // (`System.Int32` → `int`) and subtype roots (`System.Object` → `obj`,
             // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.
-            | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
-                Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
-            | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
+            | fullName ->
+                match IntrinsicTypeMap.tryCanon fullName intrinsics with
+                | ValueSome canon -> Some(FTConst(canon, EqArray.empty))
+                | ValueNone -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
 
     /// `(per-parameter templates, return)` for a method; `None` if any type doesn't map.
     /// UNCOLLAPSED: one entry per value parameter, so `.Length` is the value arity and the
     /// array serves as a member key's structural `ArgSig` directly.
-    let tryMethodSignature
-        (reverseCanon: Map<string, SymbolKey list>)
-        (m: MethodInfo)
-        : (FrozenType[] * FrozenType) option =
+    let tryMethodSignature (intrinsics: IntrinsicTypeMap) (m: MethodInfo) : (FrozenType[] * FrozenType) option =
         let paramTys =
             m.GetParameters()
-            |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)
+            |> Array.map (fun p -> tryBuildType intrinsics p.ParameterType)
 
-        let retTy = tryBuildType reverseCanon m.ReturnType
+        let retTy = tryBuildType intrinsics m.ReturnType
 
         if retTy.IsNone || Array.exists Option.isNone paramTys then
             None
@@ -174,20 +172,17 @@ module private MetadataMapping =
         acc
 
     /// Property signature: value type only (no `->`). `Storage = Property` on the member.
-    let tryPropertySignature (reverseCanon: Map<string, SymbolKey list>) (p: PropertyInfo) : FrozenType option =
-        tryBuildType reverseCanon p.PropertyType
+    let tryPropertySignature (intrinsics: IntrinsicTypeMap) (p: PropertyInfo) : FrozenType option =
+        tryBuildType intrinsics p.PropertyType
 
     /// Constructor as `(params) → declType`. Zero-param ctor reads as `unit → declType`.
     /// `None` if any type doesn't map. Surfaced as member `".ctor"`.
-    let tryCtorSignature
-        (reverseCanon: Map<string, SymbolKey list>)
-        (c: ConstructorInfo)
-        : (FrozenType[] * FrozenType) option =
+    let tryCtorSignature (intrinsics: IntrinsicTypeMap) (c: ConstructorInfo) : (FrozenType[] * FrozenType) option =
         let paramTys =
             c.GetParameters()
-            |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)
+            |> Array.map (fun p -> tryBuildType intrinsics p.ParameterType)
 
-        let retTy = tryBuildType reverseCanon c.DeclaringType
+        let retTy = tryBuildType intrinsics c.DeclaringType
 
         if retTy.IsNone || Array.exists Option.isNone paramTys then
             None
@@ -226,9 +221,9 @@ module private MetadataMapping =
         SymbolKeyOps.typeKeyOfSegment container t.Name
 
 /// `IExternalSymbolProvider` over reference-assembly paths, sharing one
-/// `MetadataLoadContext`. `reverseCanon` is `Map.empty` for a leaf with no Vesper.Core in
-/// scope, so BCL primitives stay nominal classes.
-type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyPaths: string seq) =
+/// `MetadataLoadContext`. `intrinsics` is empty for a leaf with no Vesper.Core in scope, so
+/// BCL primitives stay nominal classes.
+type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
 
@@ -315,7 +310,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         if f.IsLiteral || f.IsSpecialName then
             None
         else
-            match MetadataMapping.tryBuildType reverseCanon f.FieldType with
+            match MetadataMapping.tryBuildType intrinsics f.FieldType with
             | Some valueTy ->
                 Some
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name EqArray.empty 0 MemberKind.Property) with
@@ -328,7 +323,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
     /// A mapped method as an `ExternalMember`; `None` if its signature doesn't map.
     let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
-        MetadataMapping.tryMethodSignature reverseCanon m
+        MetadataMapping.tryMethodSignature intrinsics m
         |> Option.map (fun (ps, ret) ->
             let argSig = EqArray.ofArray ps
             let methodTyparArity = MetadataMapping.methodTyparArityOf m
@@ -350,7 +345,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         (arity: int)
         (p: PropertyInfo)
         : ExternalMember option =
-        MetadataMapping.tryPropertySignature reverseCanon p
+        MetadataMapping.tryPropertySignature intrinsics p
         |> Option.map (fun valueTy ->
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name EqArray.empty 0 MemberKind.Property) with
                 IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
@@ -392,7 +387,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             |> Array.choose (fun p ->
                 let getter = p.GetMethod
 
-                MetadataMapping.tryMethodSignature reverseCanon getter
+                MetadataMapping.tryMethodSignature intrinsics getter
                 |> Option.map (fun (ps, ret) ->
                     let argSig = EqArray.ofArray ps
 
@@ -413,7 +408,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         let ctors =
             t.GetConstructors declaredFlags
             |> Array.choose (fun c ->
-                MetadataMapping.tryCtorSignature reverseCanon c
+                MetadataMapping.tryCtorSignature intrinsics c
                 |> Option.map (fun (ps, ret) ->
                     let argSig = EqArray.ofArray ps
 
@@ -432,7 +427,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     let buildClassInterfaces (t: Type) : EqArray<FrozenInterface> =
         t.GetInterfaces()
         |> Array.choose (fun i ->
-            match MetadataMapping.tryBuildType reverseCanon i with
+            match MetadataMapping.tryBuildType intrinsics i with
             | Some frozen ->
                 match FrozenInterface.TryOfFrozen frozen with
                 | ValueSome iface -> Some iface
@@ -447,7 +442,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         if t.IsInterface || isNull t.BaseType then
             ValueNone
         else
-            match MetadataMapping.tryBuildType reverseCanon t.BaseType with
+            match MetadataMapping.tryBuildType intrinsics t.BaseType with
             | Some frozen -> ValueSome frozen
             | None -> ValueNone
 
@@ -527,7 +522,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         st.GetConstructors declaredFlags
                         |> Array.sortByDescending (fun c -> c.GetParameters().Length)
                         |> Array.choose (fun c ->
-                            MetadataMapping.tryCtorSignature reverseCanon c
+                            MetadataMapping.tryCtorSignature intrinsics c
                             |> Option.map (fun (ps, ret) ->
                                 let argSig = EqArray.ofArray ps
 
@@ -692,8 +687,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         // The metadata layer models no free-function symbols at all (`TryLookup` is a
         // constant miss), so its key-addressed twin is one too.
         member _.TryLookupByKey _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+        // The metadata leaf CONSUMES the axis to canonicalize BCL names; it declares none.
+        member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
 
 module MetadataSymbols =
 
@@ -709,13 +704,13 @@ module MetadataSymbols =
             |> Array.toList
 
     /// Provider over an explicit reference-assembly path set, canonicalizing BCL
-    /// primitives through the extracted `{ platform-repr → canon }` map.
-    let createWith (reverseCanon: Map<string, SymbolKey list>) (paths: string seq) : IExternalSymbolProvider =
-        MetadataSymbolProvider(reverseCanon, paths) :> IExternalSymbolProvider
+    /// primitives through the extracted intrinsic axis.
+    let createWith (intrinsics: IntrinsicTypeMap) (paths: string seq) : IExternalSymbolProvider =
+        MetadataSymbolProvider(intrinsics, paths) :> IExternalSymbolProvider
 
-    /// `createWith` with no reverse map, so BCL primitives stay nominal classes.
-    let create (paths: string seq) : IExternalSymbolProvider = createWith Map.empty paths
+    /// `createWith` with no axis, so BCL primitives stay nominal classes.
+    let create (paths: string seq) : IExternalSymbolProvider = createWith IntrinsicTypeMap.empty paths
 
     /// Process-wide provider over the host runtime's assemblies, a test convenience;
-    /// production composes a per-compilation leaf seeded with the extracted reverse map.
+    /// production composes a per-compilation leaf seeded with the extracted intrinsic axis.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())
