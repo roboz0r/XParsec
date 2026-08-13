@@ -147,6 +147,74 @@ let tests =
                 Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
             }
 
+            // A NOMINAL's declaration decides where no platform overrides it, so both
+            // polarities are answered here even though a primitive's are not.
+            test "struct constraint satisfied by a [<Struct>] record" {
+                let ctx =
+                    analyseUnif
+                        "[<Struct>]\ntype P = { X: int }\nlet us<'a when 'a : struct> (x: 'a) = x\nlet _ = us { X = 1 }"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+            }
+
+            test "struct constraint violated by a plain record" {
+                let ctx =
+                    analyseUnif "type P = { X: int }\nlet us<'a when 'a : struct> (x: 'a) = x\nlet _ = us { X = 1 }"
+
+                Expect.isTrue (hasMessage ctx "'struct' constraint") "struct-violation diagnostic on a reference record"
+            }
+
+            test "reference-type constraint violated by a [<Struct>] record" {
+                let ctx =
+                    analyseUnif
+                        "[<Struct>]\ntype P = { X: int }\nlet ur<'a when 'a : not struct> (x: 'a) = x\nlet _ = ur { X = 1 }"
+
+                Expect.isTrue (hasMessage ctx "'not struct' constraint") "not-struct-violation diagnostic"
+            }
+
+            test "reference-type constraint satisfied by a plain record" {
+                let ctx =
+                    analyseUnif "type P = { X: int }\nlet ur<'a when 'a : not struct> (x: 'a) = x\nlet _ = ur { X = 1 }"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+            }
+
+            // A `[<Struct>]` CLASS travels the same declaration path as a record.
+            test "struct constraint satisfied by a [<Struct>] class" {
+                let ctx =
+                    analyseUnif
+                        "[<Struct>]\ntype P(x: int) =\n    member _.X = x\nlet us<'a when 'a : struct> (v: 'a) = v\nlet _ = us (P 1)"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+            }
+
+            test "struct constraint violated by a plain class" {
+                let ctx =
+                    analyseUnif
+                        "type P(x: int) =\n    member _.X = x\nlet us<'a when 'a : struct> (v: 'a) = v\nlet _ = us (P 1)"
+
+                Expect.isTrue (hasMessage ctx "'struct' constraint") "struct-violation diagnostic on a reference class"
+            }
+
+            // An enum asks for a value type wherever the target lays one out, and this suite
+            // composes no platform to erase the request. Both polarities, because a DEFERRED
+            // constraint is never swept into a diagnostic and would pass the satisfied half alone.
+            test "struct constraint satisfied by an enum" {
+                let ctx =
+                    analyseUnif
+                        "type Colour =\n    | Red = 0\n    | Green = 1\nlet us<'a when 'a : struct> (x: 'a) = x\nlet _ = us Colour.Red"
+
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+            }
+
+            test "reference-type constraint violated by an enum" {
+                let ctx =
+                    analyseUnif
+                        "type Colour =\n    | Red = 0\n    | Green = 1\nlet ur<'a when 'a : not struct> (x: 'a) = x\nlet _ = ur Colour.Red"
+
+                Expect.isTrue (hasMessage ctx "'not struct' constraint") "not-struct-violation diagnostic on an enum"
+            }
+
             test "generic record use site that satisfies the constraint" {
                 let ctx =
                     analyseUnif "type Set<'a when 'a : comparison> = { Items: 'a }\nlet s : Set<int> = { Items = 1 }"

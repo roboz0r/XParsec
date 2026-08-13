@@ -158,7 +158,7 @@ let tests =
                     // A module-nested type's compiled key joins with `+`, not `.`.
                     if found.IsNone && kv.Key.EndsWith("+" + typeName) then
                         match kv.Value with
-                        | ExternalTypeShape.Record(_, fields, _) when fields.Length = 1 ->
+                        | ExternalTypeShape.Record(fields = fields) when fields.Length = 1 ->
                             found <- ValueSome fields.[0].Frozen
                         | other -> failtestf "expected a one-field Record for '%s'; got %A" typeName other
 

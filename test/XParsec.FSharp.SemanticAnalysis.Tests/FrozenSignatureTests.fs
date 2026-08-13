@@ -96,6 +96,9 @@ module M =
         { size: int }
         member this.Doubled = this.size
 
+    [<Struct>]
+    type Point = { x: int; y: int }
+
     let answer = 42
     let ident (x: 'a) : 'a = x
     let inline twice (x: int) = x + x
@@ -114,10 +117,18 @@ let tests =
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Box")) with
-                | ValueSome(ExternalTypeShape.Record(1, fields, origin)) ->
+                | ValueSome(ExternalTypeShape.Record(1, fields, origin, isValueType)) ->
                     Expect.equal (fields |> EqArray.map (fun f -> f.Name)) (EqArray.ofSeq [ "value" ]) "Box field names"
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
+                    Expect.isFalse isValueType "a plain record projects as a reference layout"
                 | other -> failtestf "Box did not project as a generic Record: %A" other
+
+                // Value-ness decides `when 'a : struct` in a CONSUMING unit, which reads only
+                // this shape, so the `[<Struct>]` has to survive the freeze.
+                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Point")) with
+                | ValueSome(ExternalTypeShape.Record(isValueType = isValueType)) ->
+                    Expect.isTrue isValueType "a [<Struct>] record projects as a value layout"
+                | other -> failtestf "Point did not project as a Record: %A" other
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Opt")) with
                 | ValueSome(ExternalTypeShape.Union(1, cases, _, origin)) ->

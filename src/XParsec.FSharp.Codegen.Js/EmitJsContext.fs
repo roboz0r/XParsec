@@ -157,7 +157,7 @@ module EmitJsContext =
         | true, info -> ValueSome info
         | _ ->
             match ctx.Provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Record(_, fields, origin)) ->
+            | ValueSome(ExternalTypeShape.Record(_, fields, origin, _)) ->
                 // The class identifier a record is imported under is its name: JS names
                 // carry no generic arity.
                 let (DisplayName name) = SymbolKeyOps.simpleName key

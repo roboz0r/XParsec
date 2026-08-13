@@ -9,10 +9,7 @@ module CodegenSymbols =
     /// A provider may key a generic type BARE (`Vesper.Option`, contract layer) or
     /// arity-suffixed (`Vesper.Option`1`, metadata layer): probe the key as-is, then a
     /// name-equal arity-0 key, which renders bare.
-    let private reconciledLookup
-        (probe: SymbolKey -> ExternalTypeShape voption)
-        (key: SymbolKey)
-        : ExternalTypeShape voption =
+    let private reconciledLookup (probe: SymbolKey -> 'a voption) (key: SymbolKey) : 'a voption =
         match probe key with
         | ValueSome _ as hit -> hit
         | ValueNone ->
@@ -27,6 +24,16 @@ module CodegenSymbols =
     /// The shape a resolved `SymbolKey` names, over either registration convention.
     let lookupTypeByKey (symbols: ICodegenSymbols) (key: SymbolKey) : ExternalTypeShape voption =
         reconciledLookup symbols.TryLookupType key
+
+    /// The settled value-ness, over either registration convention. `false` is the floor: a
+    /// `VALUETYPE`/`CLASS` tag is emitted for a non-type key and for an unanswered type alike.
+    let isValueType (symbols: ICodegenSymbols) (key: SymbolKey) : bool =
+        let settled (k: SymbolKey) =
+            match k with
+            | SymbolKey.Type t -> symbols.IsValueType t
+            | _ -> ValueNone
+
+        reconciledLookup settled key |> ValueOption.defaultValue false
 
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
         let storeShape (k: SymbolKey) : ExternalTypeShape voption = provider.TryLookupType k
@@ -98,4 +105,12 @@ module CodegenSymbols =
 
             member _.TryPlatformRepr canon =
                 IntrinsicTypeMap.tryPlatformRepr canon provider.IntrinsicTypeMap
+
+            // The target's layout overrides the declaration's request, so it leads.
+            member _.IsValueType key =
+                match provider.IsValueType key with
+                | ValueSome _ as settled -> settled
+                | ValueNone ->
+                    provider.TryLookupType(SymbolKey.Type key)
+                    |> ValueOption.bind ExternalSymbols.declaredValueType
         }

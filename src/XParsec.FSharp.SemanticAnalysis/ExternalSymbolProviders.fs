@@ -44,6 +44,7 @@ module ExternalSymbolProviders =
             TryLookupMembers: ExternalMemberName -> EqArray<ExternalMember>
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
             IntrinsicTypeMap: IntrinsicTypeMap
+            IsValueType: TypeKey -> bool voption
         }
 
     module NamedLeaf =
@@ -59,6 +60,7 @@ module ExternalSymbolProviders =
                 TryLookupMembers = fun _ -> EqArray.empty
                 TryLookupIndexSignature = fun _ -> []
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
+                IsValueType = fun _ -> ValueNone
             }
 
     /// A leaf that HOLDS its types' identities. Needed when a type is
@@ -195,12 +197,73 @@ module ExternalSymbolProviders =
                   named.TryLookup(SymbolKeyOps.qualifiedName key)
 
               member _.IntrinsicTypeMap = named.IntrinsicTypeMap
+              member _.IsValueType key = named.IsValueType key
         }
 
     let ofNamedLeaf (leaf: NamedLeaf) : IExternalSymbolProvider = ofKeyedLeaf (KeyedLeaf.ofNamed leaf)
 
     /// Every channel a miss.
     let nullProvider: IExternalSymbolProvider = ofNamedLeaf NamedLeaf.empty
+
+    /// Every channel defaults to forwarding `inner`, so a subclass overrides only what it
+    /// changes. The two `TryLookupType` overloads are named apart because an override's
+    /// argument type is otherwise all that tells them apart.
+    [<AbstractClass>]
+    type ProviderDecorator(inner: IExternalSymbolProvider) =
+
+        abstract TryLookup: name: string -> ExternalSymbol voption
+        default _.TryLookup name = inner.TryLookup name
+
+        abstract TryLookupTypeByName: name: string -> struct (TypeKey * ExternalTypeShape) voption
+        default _.TryLookupTypeByName name = inner.TryLookupType name
+
+        abstract TryLookupUnionCase: caseName: string -> ExternalUnionCase voption
+        default _.TryLookupUnionCase caseName = inner.TryLookupUnionCase caseName
+
+        abstract TryRecordsWithField: fieldName: string -> EqArray<ExternalRecordCandidate>
+        default _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
+
+        abstract AmbientOpenPrefixes: string list
+        default _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+
+        abstract TryLookupTypeByKey: key: SymbolKey -> ExternalTypeShape voption
+        default _.TryLookupTypeByKey key = inner.TryLookupType key
+
+        abstract TryLookupMembers: key: SymbolKey * memberName: string -> EqArray<ExternalMember>
+        default _.TryLookupMembers(key, memberName) = inner.TryLookupMembers(key, memberName)
+
+        abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
+        default _.TryLookupMemberByKey key = inner.TryLookupMemberByKey key
+
+        abstract TryLookupIndexSignature: key: SymbolKey -> (FrozenType * FrozenType) list
+        default _.TryLookupIndexSignature key = inner.TryLookupIndexSignature key
+
+        abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
+        default _.TryLookupByKey key = inner.TryLookupByKey key
+
+        abstract IntrinsicTypeMap: IntrinsicTypeMap
+        default _.IntrinsicTypeMap = inner.IntrinsicTypeMap
+
+        abstract IsValueType: key: TypeKey -> bool voption
+        default _.IsValueType key = inner.IsValueType key
+
+        interface IExternalSymbolProvider
+
+        interface IExternalSymbolResolver with
+            member this.TryLookup name = this.TryLookup name
+            member this.TryLookupType(name: string) = this.TryLookupTypeByName name
+            member this.TryLookupUnionCase caseName = this.TryLookupUnionCase caseName
+            member this.TryRecordsWithField fieldName = this.TryRecordsWithField fieldName
+            member this.AmbientOpenPrefixes = this.AmbientOpenPrefixes
+
+        interface IExternalSymbolStore with
+            member this.TryLookupType(key: SymbolKey) = this.TryLookupTypeByKey key
+            member this.TryLookupMembers(key, memberName) = this.TryLookupMembers(key, memberName)
+            member this.TryLookupMemberByKey(key: MemberKey) = this.TryLookupMemberByKey key
+            member this.TryLookupIndexSignature(key: SymbolKey) = this.TryLookupIndexSignature key
+            member this.TryLookupByKey key = this.TryLookupByKey key
+            member this.IntrinsicTypeMap = this.IntrinsicTypeMap
+            member this.IsValueType key = this.IsValueType key
 
     /// The composed intrinsic axis of `sources`, EARLIEST source nearest: what `stack`
     /// publishes, exposed for a caller that must seed a leaf with it before composing.
@@ -271,7 +334,8 @@ module ExternalSymbolProviders =
                         { info with
                             Origin = home info.Origin h
                         }
-                | ExternalTypeShape.Record(arity, fields, o) -> ExternalTypeShape.Record(arity, fields, home o h)
+                | ExternalTypeShape.Record(arity, fields, o, isValueType) ->
+                    ExternalTypeShape.Record(arity, fields, home o h, isValueType)
                 | ExternalTypeShape.Union(arity, cases, ifaces, o) ->
                     ExternalTypeShape.Union(arity, cases, ifaces, home o h)
                 | ExternalTypeShape.Enum(cases, o) -> ExternalTypeShape.Enum(cases, home o h)
@@ -362,6 +426,10 @@ module ExternalSymbolProviders =
                   firstHit (fun s -> s.TryLookupByKey key) |> ValueOption.map stampSymbol
 
               member _.IntrinsicTypeMap = intrinsics
+
+              // Per FACT, not per shape: a source with no opinion abstains, so the platform
+              // leaf at the tail is reached past every contract source above it.
+              member _.IsValueType key = firstHit (fun s -> s.IsValueType key)
         }
 
     /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
@@ -423,12 +491,13 @@ module ExternalSymbolProviders =
                         FrozenInterfaces = mapInterfaces info.FrozenInterfaces
                         FrozenBaseType = info.FrozenBaseType |> ValueOption.map inv
                     }
-            | ExternalTypeShape.Record(arity, fields, origin) ->
+            | ExternalTypeShape.Record(arity, fields, origin, isValueType) ->
                 // A record field is a covariant value read.
                 ExternalTypeShape.Record(
                     arity,
                     fields |> EqArray.map (fun f -> { f with Frozen = co f.Frozen }),
-                    origin
+                    origin,
+                    isValueType
                 )
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
                 ExternalTypeShape.Union(arity, cases |> EqArray.map mapCase, mapInterfaces ifaces, origin)
@@ -459,47 +528,40 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.Unmodelled _ -> shape
 
-        { new IExternalSymbolProvider
+        // An `ExternalRecordCandidate` carries identity + field NAMES only, and value-ness is
+        // a layout not a type: neither channel carries a position to map.
+        { new ProviderDecorator(inner) with
+            override _.TryLookup name =
+                inner.TryLookup name
+                |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
 
-          interface IExternalSymbolResolver with
-              member _.TryLookup name =
-                  inner.TryLookup name
-                  |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
+            override _.TryLookupTypeByName name =
+                inner.TryLookupType name
+                |> ValueOption.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
 
-              member _.TryLookupType(name: string) =
-                  inner.TryLookupType name
-                  |> ValueOption.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
+            override _.TryLookupUnionCase caseName =
+                inner.TryLookupUnionCase caseName
+                |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
 
-              member _.TryLookupUnionCase caseName =
-                  inner.TryLookupUnionCase caseName
-                  |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
+            override _.TryLookupTypeByKey key =
+                inner.TryLookupType key |> ValueOption.map mapShape
 
-              // An `ExternalRecordCandidate` carries identity + field NAMES only; the field
-              // types ride the by-key shape path.
-              member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
+            override _.TryLookupMembers(key, memberName) =
+                inner.TryLookupMembers(key, memberName) |> EqArray.map mapMember
 
-              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
-          interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) =
-                  inner.TryLookupType key |> ValueOption.map mapShape
+            override _.TryLookupMemberByKey(key: MemberKey) =
+                inner.TryLookupMemberByKey key |> ValueOption.map mapMember
 
-              member _.TryLookupMembers(key, memberName) =
-                  inner.TryLookupMembers(key, memberName) |> EqArray.map mapMember
+            // An index KEY is a contravariant position (the supplied index), the VALUE a
+            // covariant read.
+            override _.TryLookupIndexSignature(key: SymbolKey) =
+                inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
 
-              member _.TryLookupMemberByKey(key: MemberKey) =
-                  inner.TryLookupMemberByKey key |> ValueOption.map mapMember
-
-              // An index KEY is a contravariant position (the supplied index), the VALUE a
-              // covariant read.
-              member _.TryLookupIndexSignature(key: SymbolKey) =
-                  inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
-
-              member _.TryLookupByKey key =
-                  inner.TryLookupByKey key
-                  |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
-
-              member _.IntrinsicTypeMap = inner.IntrinsicTypeMap
+            override _.TryLookupByKey key =
+                inner.TryLookupByKey key
+                |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
         }
+        :> IExternalSymbolProvider
 
     /// Fold each symbol's / member's published INLINE BODY onto the entry that carries its
     /// identity: the entry comes from `inner`, and its own `Key` is what `bodies` is asked for.
@@ -517,32 +579,20 @@ module ExternalSymbolProviders =
                 InlineBody = bodies (SymbolKey.Member m.Key)
             }
 
-        { new IExternalSymbolProvider
+        { new ProviderDecorator(inner) with
+            override _.TryLookup name =
+                inner.TryLookup name |> ValueOption.map stampSymbol
 
-          interface IExternalSymbolResolver with
-              member _.TryLookup name =
-                  inner.TryLookup name |> ValueOption.map stampSymbol
+            override _.TryLookupMembers(key, memberName) =
+                inner.TryLookupMembers(key, memberName) |> EqArray.map stampMember
 
-              member _.TryLookupType(name: string) = inner.TryLookupType name
-              member _.TryLookupUnionCase caseName = inner.TryLookupUnionCase caseName
-              member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
-              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
-          interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
+            override _.TryLookupMemberByKey(key: MemberKey) =
+                inner.TryLookupMemberByKey key |> ValueOption.map stampMember
 
-              member _.TryLookupMembers(key, memberName) =
-                  inner.TryLookupMembers(key, memberName) |> EqArray.map stampMember
-
-              member _.TryLookupMemberByKey(key: MemberKey) =
-                  inner.TryLookupMemberByKey key |> ValueOption.map stampMember
-
-              member _.TryLookupIndexSignature(key: SymbolKey) = inner.TryLookupIndexSignature key
-
-              member _.TryLookupByKey key =
-                  inner.TryLookupByKey key |> ValueOption.map stampSymbol
-
-              member _.IntrinsicTypeMap = inner.IntrinsicTypeMap
+            override _.TryLookupByKey key =
+                inner.TryLookupByKey key |> ValueOption.map stampSymbol
         }
+        :> IExternalSymbolProvider
 
     /// Cache every lookup channel on first hit, MISSES included: the contract is immutable
     /// for a compile, so a `ValueNone` / empty result is as stable as a hit. Apply ONCE, atop a
@@ -567,41 +617,40 @@ module ExternalSymbolProviders =
             ConcurrentDictionary<string, EqArray<ExternalRecordCandidate>>()
 
         let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
+        let valueTypes = ConcurrentDictionary<TypeKey, bool voption>()
 
-        { new IExternalSymbolProvider
+        { new ProviderDecorator(inner) with
+            override _.TryLookup name =
+                symbols.GetOrAdd(name, (fun n -> inner.TryLookup n))
 
-          interface IExternalSymbolResolver with
-              member _.TryLookup name =
-                  symbols.GetOrAdd(name, (fun n -> inner.TryLookup n))
+            override _.TryLookupTypeByName name =
+                typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
 
-              member _.TryLookupType(name: string) =
-                  typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
+            override _.TryLookupUnionCase caseName =
+                unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))
 
-              member _.TryLookupUnionCase caseName =
-                  unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))
+            override _.TryRecordsWithField fieldName =
+                recordsByField.GetOrAdd(fieldName, (fun n -> inner.TryRecordsWithField n))
 
-              member _.TryRecordsWithField fieldName =
-                  recordsByField.GetOrAdd(fieldName, (fun n -> inner.TryRecordsWithField n))
+            override _.TryLookupTypeByKey key =
+                typesByKey.GetOrAdd(key, (fun k -> inner.TryLookupType k))
 
-              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
-          interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) =
-                  typesByKey.GetOrAdd(key, (fun k -> inner.TryLookupType k))
+            override _.TryLookupMembers(key, memberName) =
+                memberSets.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMembers(k, m)))
 
-              member _.TryLookupMembers(key, memberName) =
-                  memberSets.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMembers(k, m)))
+            override _.TryLookupMemberByKey(key: MemberKey) =
+                membersByKey.GetOrAdd(key, (fun k -> inner.TryLookupMemberByKey k))
 
-              member _.TryLookupMemberByKey(key: MemberKey) =
-                  membersByKey.GetOrAdd(key, (fun k -> inner.TryLookupMemberByKey k))
+            override _.TryLookupIndexSignature(key: SymbolKey) =
+                indexSigs.GetOrAdd(key, (fun k -> inner.TryLookupIndexSignature k))
 
-              member _.TryLookupIndexSignature(key: SymbolKey) =
-                  indexSigs.GetOrAdd(key, (fun k -> inner.TryLookupIndexSignature k))
+            override _.TryLookupByKey key =
+                symbolsByKey.GetOrAdd(key, (fun k -> inner.TryLookupByKey k))
 
-              member _.TryLookupByKey key =
-                  symbolsByKey.GetOrAdd(key, (fun k -> inner.TryLookupByKey k))
-
-              member _.IntrinsicTypeMap = inner.IntrinsicTypeMap
+            override _.IsValueType key =
+                valueTypes.GetOrAdd(key, (fun k -> inner.IsValueType k))
         }
+        :> IExternalSymbolProvider
 
     /// The two body-bearing key kinds route to different ENTRY types: a `Binding` rides
     /// `ExternalSymbol`, a `(# … #)`-bodied `Member` rides `ExternalMember`.

@@ -690,6 +690,20 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // The metadata leaf CONSUMES the axis to canonicalize BCL names; it declares none.
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
 
+        // `Vesper.int` is a value type here because the repr its `.clr.fs` binds,
+        // `System.Int32`, is one. A canon declared UNSUPPORTED on this target has no repr to
+        // reflect; any other key answers under its plain metadata name.
+        member this.IsValueType(key: TypeKey) =
+            let reflected (name: string) =
+                match this.LookupTypeByName name with
+                | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags.IsValueType
+                | _ -> ValueNone
+
+            match IntrinsicTypeMap.tryRepr (SymbolKey.Type key) intrinsics with
+            | ValueSome(IntrinsicPlatform.Repr repr) -> reflected repr
+            | ValueSome(IntrinsicPlatform.Unsupported _) -> ValueNone
+            | ValueNone -> reflected (SymbolKeyOps.typeMetaName key)
+
 module MetadataSymbols =
 
     /// Host runtime TPA, so a stamped `Origin` resolves to `System.Private.CoreLib`

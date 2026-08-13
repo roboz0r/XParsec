@@ -57,7 +57,7 @@ module JsExternalMembers =
     let homeOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : JsHome =
         match provider.TryLookupType key with
         | ValueSome(ExternalTypeShape.Union(_, _, _, o))
-        | ValueSome(ExternalTypeShape.Record(_, _, o))
+        | ValueSome(ExternalTypeShape.Record(origin = o))
         | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
         | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
         | _ -> Origin.Unstamped

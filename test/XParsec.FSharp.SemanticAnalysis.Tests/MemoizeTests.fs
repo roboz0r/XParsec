@@ -15,9 +15,11 @@ type private CountingProvider(name: string) =
     let mutable lookupHits = 0
     let mutable typeHits = 0
     let mutable memberKeyHits = 0
+    let mutable valueTypeHits = 0
     member _.LookupHits = lookupHits
     member _.TypeHits = typeHits
     member _.MemberKeyHits = memberKeyHits
+    member _.ValueTypeHits = valueTypeHits
 
     member private _.TypeByName(n: string) =
         typeHits <- typeHits + 1
@@ -64,6 +66,11 @@ type private CountingProvider(name: string) =
         member _.TryLookupIndexSignature _ = []
         member _.TryLookupByKey _ = ValueNone
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
+
+        // A miss, but a counted one: a provider with no opinion is asked at most once too.
+        member _.IsValueType _ =
+            valueTypeHits <- valueTypeHits + 1
+            ValueNone
 
 [<Tests>]
 let tests =
@@ -136,5 +143,16 @@ let tests =
                 cached.TryLookupMemberByKey key |> ignore
 
                 Expect.equal inner.MemberKeyHits 1 "member-by-key channel hit once"
+            }
+
+            test "the VALUE-TYPE channel caches like its siblings" {
+                let inner = CountingProvider "known"
+                let cached = ExternalSymbolProviders.memoize inner
+                let key = SymbolKeyOps.typeKeyOf "Tests" "Widget"
+
+                cached.IsValueType key |> ignore
+                cached.IsValueType key |> ignore
+
+                Expect.equal inner.ValueTypeHits 1 "value-type channel hit once"
             }
         ]

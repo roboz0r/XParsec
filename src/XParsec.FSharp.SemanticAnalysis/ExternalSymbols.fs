@@ -10,8 +10,9 @@ open System.Collections.Generic
 type ExternalTypeShape =
     /// `frozen` is the abbreviation body as a template, which a use site expands.
     | Abbrev of arity: int * frozen: FrozenType
-    /// Field order matches source.
-    | Record of arity: int * fields: EqArray<ExternalFieldShape> * origin: SymbolOrigin
+    /// Field order matches source. `isValueType` is the `[<Struct>]` the declaration asked
+    /// for, carried so a consuming unit reads the same layout the declaring one did.
+    | Record of arity: int * fields: EqArray<ExternalFieldShape> * origin: SymbolOrigin * isValueType: bool
     /// Case order matches source. `interfaces` are the union's directly-declared
     /// `interface <ty>` impls.
     | Union of
@@ -95,6 +96,11 @@ type IExternalSymbolStore =
     /// carrying no intrinsics.
     abstract IntrinsicTypeMap: IntrinsicTypeMap
 
+    /// Does the compiling target lay this type out as a VALUE? `int` is one on the CLR and
+    /// nothing is on JS, so no shared `.fsi` states it and only the platform leaf answers.
+    /// `ValueNone` is no opinion: every contract source, and a compile with no platform leaf.
+    abstract IsValueType: key: TypeKey -> bool voption
+
 /// Both views on ONE object: raw facts only, with NO capability predicates ("is this type
 /// disposable?" is a language judgment the passes make). Every lookup must be thread-safe.
 type IExternalSymbolProvider =
@@ -149,6 +155,9 @@ type ICodegenSymbols =
     /// The platform spelling emission mints a primitive reference through: `int` →
     /// `"System.Int32"`. `ValueNone` for a canon with no repr on the compiling target.
     abstract TryPlatformRepr: canon: SymbolKey -> string voption
+    /// Does the compiling target lay this type out as a VALUE? Already SETTLED: the target's
+    /// layout, else what the declaration asked for. `ValueNone` when neither states one.
+    abstract IsValueType: key: TypeKey -> bool voption
 
 module ExternalSymbols =
 
@@ -184,6 +193,15 @@ module ExternalSymbols =
                                       Members = members
                                   } -> ValueSome members
         | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
+        | _ -> ValueNone
+
+    /// The `[<Struct>]` a CLASS or RECORD declaration asked for. Every other shape is
+    /// `ValueNone`: an intrinsic's layout is the target's alone, and no other shape carries the
+    /// request. A caller asks the platform first, because the target may erase the request.
+    let declaredValueType (shape: ExternalTypeShape) : bool voption =
+        match shape with
+        | ExternalTypeShape.Class s -> ValueSome s.Flags.IsValueType
+        | ExternalTypeShape.Record(isValueType = isValueType) -> ValueSome isValueType
         | _ -> ValueNone
 
     /// A capability is an interface on BOTH targets, and only the carried shape differs.

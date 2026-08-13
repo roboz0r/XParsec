@@ -103,20 +103,6 @@ module UnificationEngine =
         | Violated
         | Defer
 
-    /// `string` is excluded and handled separately since it's a reference type.
-    let private isPrimitiveValueType =
-        RuntimeNames.isKeyIn
-            [
-                RuntimeNames.intKey
-                RuntimeNames.int64Key
-                RuntimeNames.byteKey
-                RuntimeNames.boolKey
-                RuntimeNames.floatKey
-                RuntimeNames.float32Key
-                RuntimeNames.charKey
-                RuntimeNames.unitKey
-            ]
-
     /// `int` is equatable because `prim-types-min.fsi` declares `interface equatable<int>`.
     let private primitiveDeclares
         (ctx: PassContext)
@@ -440,11 +426,8 @@ module UnificationEngine =
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = no answer, fall through to structural / deferred handling.
     and private primitiveSupports (ctx: PassContext) (kind: SemanticConstraintKind) (key: SymbolKey) : bool voption =
-        // By KEY, not by name: this is a type-checking VERDICT, so a user type merely
-        // spelled `int` in its own namespace must not satisfy `when ^T : struct`.
-        let isValueType = isPrimitiveValueType key
-        let isString = key = RuntimeNames.stringKey
-
+        // By KEY, not by name: a user type merely spelled `int` in its own namespace reaches
+        // no contract shape, so it declares no capability.
         match kind with
         // An undeclared capability defers rather than refusing: `decimal` on JS has no
         // contract to reach, so it has said nothing, not "no".
@@ -458,16 +441,10 @@ module UnificationEngine =
                 ValueSome true
             else
                 ValueNone
-        | SemanticConstraintKind.Struct ->
-            if isValueType then ValueSome true
-            elif isString then ValueSome false
-            else ValueNone
-        | SemanticConstraintKind.ReferenceType ->
-            if isString then ValueSome true
-            elif isValueType then ValueSome false
-            else ValueNone
-        // Nullness is answered structurally, for primitives as much as for anything else,
-        // so it never reaches this table.
+        // Nullness is answered structurally and value-ness by the target, for primitives as
+        // much as for anything else, so neither reaches this table.
+        | SemanticConstraintKind.Struct
+        | SemanticConstraintKind.ReferenceType
         | SemanticConstraintKind.Nullness
         | SemanticConstraintKind.NotNull
         | SemanticConstraintKind.Coercion _ -> ValueNone
@@ -546,6 +523,46 @@ module UnificationEngine =
         // carries no `null` member.
         | _ -> Violated
 
+    /// Is this laid out as a VALUE? `[<Struct>]` is what a type asks for and the target is
+    /// what it gets: JS erases the request and answers `false` for every key.
+    and private valueLayout (ctx: PassContext) (t: SemType) : ConstraintOutcome =
+        // What a NOMINAL's declaration asked for, from this compilation or from the unit that
+        // published it.
+        let declaredNominal (key: TypeKey) : bool voption =
+            TypeRegistry.tryRecordByKey ctx.Types key
+            |> ValueOption.map (fun info -> info.IsValueType)
+            |> ValueOption.orElseWith (fun () ->
+                TypeRegistry.tryClassByKey ctx.Types key
+                |> ValueOption.map (fun info -> info.IsValueType)
+            )
+            |> ValueOption.orElseWith (fun () ->
+                ctx.Provider.TryLookupType(SymbolKey.Type key)
+                |> ValueOption.bind ExternalSymbols.declaredValueType
+            )
+
+        // The target overrides a declaration, so it leads. No answer from either is a `Defer`,
+        // never a refusal: a compile composing no platform states nothing about either polarity.
+        let settled (key: TypeKey) (declared: unit -> bool voption) : ConstraintOutcome =
+            ctx.Provider.IsValueType key
+            |> ValueOption.orElseWith declared
+            |> ValueOption.map (fun isValueType -> if isValueType then Satisfied else Violated)
+            |> ValueOption.defaultValue Defer
+
+        match t with
+        // An anonymous union erases to the backend's universal reference primitive, and a
+        // tuple, a function and a union are laid out by reference on every target.
+        | TyTuple _
+        | TyFun _
+        | TyUnion _
+        | TyOr _ -> Violated
+        | TyConst(SymbolKey.Type key, _) -> settled key (fun () -> ValueNone)
+        // An enum declaration asks for a value type wherever the target lays one out.
+        | TyEnum key -> settled key (fun () -> ValueSome true)
+        | TyRecord(key, _)
+        | TyClass(key, _) -> settled key (fun () -> declaredNominal key)
+        // Not ground (or not key-addressed), so it states nothing either way.
+        | _ -> Defer
+
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested
     /// compounds recurse compositionally.
     and checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
@@ -574,6 +591,14 @@ module UnificationEngine =
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
         | SemanticConstraintKind.Nullness, ty -> admitsNull ctx ty
         | SemanticConstraintKind.NotNull, ty -> negate (admitsNull ctx ty)
+        // One query and its negation, over every shape a layout is decided for. A LITERAL is
+        // excluded so it widens to its base primitive first.
+        | SemanticConstraintKind.Struct,
+          ((TyConst _ | TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _ | TyEnum _) as ty) ->
+            valueLayout ctx ty
+        | SemanticConstraintKind.ReferenceType,
+          ((TyConst _ | TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _ | TyEnum _) as ty) ->
+            negate (valueLayout ctx ty)
         // Equality on an enum is universal and comparison on one is out of scope, so
         // neither is ever proved or refused here.
         | _, TyEnum _ -> Defer
@@ -645,12 +670,6 @@ module UnificationEngine =
             // COMPARISON does NOT reduce member-wise: `(1).CompareTo("a")` throws, so a
             // heterogeneous union is non-comparable even when each member is comparable.
             if members.Members.IsEmpty then Satisfied else Violated
-        | SemanticConstraintKind.Struct, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
-            // An anonymous union erases to the backend's universal reference primitive, so
-            // it is a reference type like the rest of these shapes.
-            Violated
-        | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
-            Satisfied
 
     /// On-unified callback for type-parameter constraints. Satisfied constraints are
     /// dropped; deferred ones remain on the root, and a compound `Defer` also copies the

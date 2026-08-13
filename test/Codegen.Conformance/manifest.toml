@@ -342,9 +342,13 @@ run = ["clr", "js"]
 #
 # The two polarities pin different amounts. A refusal is a compile error, so `diagnose`
 # states it exactly; satisfaction has no printable result, so it is `accept`.
+#
+# JS lays out no value type at all, so wherever the answer is about a value the two targets
+# take opposite rows. `string` is a reference on both, and is what they agree on.
 [[program]]
 path = "constraints/typar-struct.fs"
-accept = ["clr", "js"]
+accept = ["clr"]
+diagnose = { js = "does not support the 'struct' constraint" }
 
 [[program]]
 path = "constraints/typar-struct-violated.fs"
@@ -356,7 +360,21 @@ accept = ["clr", "js"]
 
 [[program]]
 path = "constraints/typar-not-struct-violated.fs"
-diagnose = { clr = "does not support the 'not struct' constraint", js = "does not support the 'not struct' constraint" }
+accept = ["js"]
+diagnose = { clr = "does not support the 'not struct' constraint" }
+
+# A `[<Struct>]` record is what the TYPE asks for and the target is what it gets, so a user
+# type and a primitive answer alike on each target rather than splitting. Both polarities,
+# because the two are one query and its negation.
+[[program]]
+path = "constraints/typar-struct-record.fs"
+accept = ["clr"]
+diagnose = { js = "does not support the 'struct' constraint" }
+
+[[program]]
+path = "constraints/typar-not-struct-record.fs"
+accept = ["js"]
+diagnose = { clr = "does not support the 'not struct' constraint" }
 
 # ---------------------------------------------------------------------------------------
 # TYPAR CONSTRAINTS over NULLABILITY — `when 'a : null` and `when 'a : not null`.

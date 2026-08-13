@@ -23,15 +23,20 @@ let private witness (v: Variance) : FrozenType =
 /// A surviving marker in the output ⇒ that position was left unmapped.
 let private resolveMarker (v: Variance) (t: FrozenType) : FrozenType = if t = marker then witness v else t
 
+let private clsKey = SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls"
+
+/// Carries identity + field NAMES only, so nothing in it is a position to map.
+let private candidate: ExternalRecordCandidate =
+    {
+        TypeKey = clsKey
+        TyparArity = 0
+        Origin = origin
+        FieldNames = EqArray.singleton "f"
+        IsRequireQualifiedAccess = false
+    }
+
 let private markerMember: ExternalMember =
-    { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf
-              (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls")
-              "m"
-              EqArray.empty
-              0
-              MemberKind.Method
-      ) with
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf clsKey "m" EqArray.empty 0 MemberKind.Method) with
         Signature = TestHelpers.mkSignature 0 0 marker marker
         Origin = origin
     }
@@ -68,7 +73,8 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                         IsMutable = false
                         Frozen = marker
                     },
-                origin
+                origin,
+                false
             )
         )
     | "Uni" ->
@@ -120,6 +126,13 @@ let private fake: IExternalSymbolProvider =
                     match memberByName q.DeclaringType q.Name with
                     | ValueSome mem -> EqArray.singleton mem
                     | ValueNone -> EqArray.empty
+            TryRecordsWithField =
+                fun fieldName ->
+                    if fieldName = "f" then
+                        EqArray.singleton candidate
+                    else
+                        EqArray.empty
+            IsValueType = fun _ -> ValueSome true
         }
 
 let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake
@@ -173,7 +186,7 @@ let tests =
 
             test "a record field is covariant" {
                 match wrapped.TryLookupType "Rec" |> ExternalSymbols.typeShapeOf with
-                | ValueSome(ExternalTypeShape.Record(_, fields, _)) ->
+                | ValueSome(ExternalTypeShape.Record(fields = fields)) ->
                     Expect.equal fields.[0].Frozen (witness Variance.Co) "record field root is co"
                 | other -> failtestf "expected a Record shape, got %A" other
             }
@@ -237,8 +250,12 @@ let tests =
                 | other -> failtestf "expected an Abbrev shape, got %A" other
             }
 
+            // Value-ness is a LAYOUT, not a type, and a record candidate carries identity +
+            // field names only: both ride the wrapper's forward, so both are pinned here.
             test "non-type channels delegate unchanged" {
                 Expect.equal wrapped.AmbientOpenPrefixes [ "Amb" ] "ambient delegated"
+                Expect.equal (wrapped.IsValueType clsKey) (ValueSome true) "value-ness delegated"
+                Expect.equal (wrapped.TryRecordsWithField "f") (EqArray.singleton candidate) "candidates delegated"
                 Expect.isTrue (wrapped.TryLookupType "unknown" |> ValueOption.isNone) "unknown type misses"
                 Expect.isTrue (wrapped.TryLookup "unknown" |> ValueOption.isNone) "unknown symbol misses"
             }

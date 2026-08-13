@@ -5,11 +5,10 @@ the note on `CompilationInputs.Target` below still refers to it. The steps here 
 step 1 is a hard prerequisite for step 2, and taking them out of order silently breaks
 `when 'T : equality` on JS with no diagnostic.*
 
-***Step 1 has LANDED (2026-08-12).** `IExternalSymbolStore.IntrinsicCapabilities` is the query,
-folded across sources; the contract authors the floor; `primitiveSupports` answers
-`Equality`/`Comparison` from it and no longer consults `isPrimitiveValueType` for them. Steps 2–4
-are unstarted. See the step 1 section for the three things it turned out to need that this doc
-did not predict.*
+***Steps 1–3 have LANDED (2026-08-12, 2026-08-13).** `primitiveSupports` now consults a
+provider query for every kind it answers and holds no key list of its own; step 4 is
+unstarted. Each step's section records what it turned out to need that this doc did not
+predict.*
 
 *This doc ABSORBED `intrinsic-capability-representation-plan.md` (2026-08-12), which split the
 same six constraint kinds across the same two axes but was written a month earlier and had gone
@@ -31,9 +30,9 @@ not declare it. **No work here.** This plan is entirely about the other directio
 ## The defect
 
 CLR-shaped facts about primitives are hardcoded as three hand-maintained key lists that do not
-agree with each other:
+agree with each other (the `Engine` column is GONE as of step 3):
 
-| | `Engine.isPrimitiveValueType` (`:107`) | `Inline.isStructPrimitive` (`:70`) | `Regions.isNonAllocatingPrimitive` (`:122`) |
+| | `Engine.isPrimitiveValueType` | `Inline.isStructPrimitive` (`:70`) | `Regions.isNonAllocatingPrimitive` (`:122`) |
 |---|---|---|---|
 | `decimal` | absent | present | present |
 | `unit` | present | absent | present |
@@ -271,28 +270,57 @@ Keep them separate, as `nullability-analysis-plan.md` already requires of the gu
 Four corpus programs pin the verdicts in `test/Codegen.Conformance/constraints/`, both targets
 on every row, since the sameness is the claim.
 
-### 3. `isPrimitiveValueType` → a backend fact
+### 3. `isPrimitiveValueType` → a backend fact — **DONE (2026-08-13)**
 
-Once 1 and 2 no longer route through it, the flip is small: the predicate becomes backend-
-answered and returns false for every key on JS. `Struct` rejects per-type, `ReferenceType`
-accepts, both via the existing table at `Engine.fs:437-462`. The structural arms
-(`Engine.fs:576-581`) need review — they hardcode `Struct ⇒ Violated` / `ReferenceType ⇒
-Satisfied` for `TyTuple`/`TyFun`/`TyRecord`/`TyUnion`/`TyClass`/`TyOr`, which is right on both
-targets today but is the same class of assumption.
+**What shipped.** `IExternalSymbolStore.IsValueType : TypeKey -> bool voption`, folded per FACT
+in `stack`: a source with no opinion abstains, so the platform leaf at the tail is reached past
+every contract source above it. The CLR's metadata leaf answers a canon through the repr its
+`.clr.fs` binds (`Vesper.int` → `System.Int32` → `Type.IsValueType`) and any other key as a
+plain metadata name, so a BCL `System.Guid` answers too and a type the reference set does not
+carry abstains; it rides the leaf's SHAPE cache, so its answer and the `Class` shape's own flag
+cannot disagree. The JS leaf answers `ValueSome false` for EVERY key — that is the whole of "JS
+has no value types".
 
-Also settle user types at this point: `MemberRegistration.fs:530` computes `isValueType` from
-`[<Struct>]` / struct shape. Under "nothing is a struct on JS", a user's `[<Struct>]` record must
-fail the constraint too — otherwise a user type satisfies `struct` while `int` does not.
+`Engine.valueLayout` is the single consumer: ONE query, and `negate` for the other polarity.
+`primitiveSupports` no longer answers either polarity and is now purely about what a contract
+DECLARES; the key list is gone. Its ladder is *platform, then declaration*, and that order is
+the design — a `[<Struct>]` is a request the target may erase.
 
-**There is no per-type `isValueType` on any provider to re-route** — this is net-new surface, not
-a replacement. `ClrEnv.externalIsValueType` (`ClrEnv.fs:470-473`, exposed at `:599`) is
-backend-local, drives only the `VALUETYPE`/`CLASS` signature tag in `ClrEncoder` (`:19`, `:56`,
-`:109`), and reads `ExternalClassFlags.IsValueType` off a CLASS shape. An
-`ExternalTypeShape.Intrinsic` has no `Flags`, so it answers `false` for every intrinsic and
-cannot be the CLR source for this axis as it stands. (`codegen-clr-followups-plan.md:192` already
-logs the sibling symptom: it answers `false` for tuples and enums.)
+**Four things this doc did not predict, each now in the code:**
 
-Consider adding `IsValueType` as a flag on TAST types.
+1. **The `string` special case dissolved with the list.** It existed only to correct a hardcoded
+   set that could name no reference primitive. The CLR says `System.String` is not a value type
+   and JS says nothing is, so both polarities now fall out of the one query.
+2. **User nominals go through the SAME per-key query, and no target-level "has value types"
+   fact was needed.** JS answers for every key, so a `[<Struct>]` record is refused there; the
+   CLR's leaf abstains for a compilation-local type and the declaration decides — which makes a
+   `[<Struct>]` record satisfy `when 'a : struct` on the CLR, where the old arm refused it
+   whatever it declared. An ENUM asks for a value type wherever the target lays one out, so it
+   takes the same ladder with `true` as its declaration. `TyTuple`/`TyFun`/`TyUnion`/`TyOr` stay
+   hardcoded because they are reference shapes on every target; `UnionTypeInfo` carries no
+   `IsValueType`, so struct unions are out until it does.
+3. **Value-ness had to be added to `ExternalTypeShape.Record` to survive the freeze.** `Class`
+   already carried `Flags.IsValueType`; `Record` carried arity/fields/origin only, so a
+   `[<Struct>]` record answered "reference" in every CONSUMING unit — the one place the answer
+   is not recoverable from the local registry. `ExternalSymbols.declaredValueType` is the one
+   reader of that declaration, shared by the front end and the CLR encoder.
+4. **The zero-leaf case is REACHABLE and stays silent AT A PRIMITIVE.** SA composes no platform,
+   so both polarities `Defer` there — and a deferred constraint is re-queued on its root and
+   never swept into a diagnostic, so a test wanting that verdict must be a corpus program. A
+   NOMINAL is different: the declaration answers under a zero-leaf compile, so `ConstraintsTests`
+   pins both polarities at a record, a class and an enum.
+
+Six corpus programs pin the primitive matrix in `test/Codegen.Conformance/constraints/`, and
+each polarity takes OPPOSITE rows on the two targets except at `string`, which is a reference on
+both.
+
+**`ClrEnv.externalIsValueType` is FOLDED onto the query** (`CodegenSymbols.isValueType`, reached
+through `ICodegenSymbols.IsValueType`), so the element tag an encoder emits and the verdict the
+front end reaches come from one fact. It keeps the bare/arity-suffixed key reconciliation the
+rest of that layer needs, and it keeps `false` as its floor because a `VALUETYPE`/`CLASS` tag is
+emitted either way. The reason it could not simply BE the CLR source for this axis stands: an
+`ExternalTypeShape.Intrinsic` has no `Flags` (`codegen-clr-followups-plan.md:192` logs the
+sibling symptom), which is why the platform half of the ladder answers a canon through its repr.
 
 ### 4. `Regions.isNonAllocatingPrimitive` → a backend fact
 
@@ -301,6 +329,12 @@ tracking and no program's meaning depends on it (`Regions.fs:122-146`). Lowest r
 and a reasonable place to prototype the query shape.
 
 ## Query shape
+
+*Built in step 3 as `IsValueType: TypeKey -> bool voption`. Two constraints below were met by
+construction rather than by design: the key is the narrow `TypeKey` — nothing else can HAVE a
+layout — and the platform repr is looked up FROM it by the leaf that needs one, so no caller
+holds an `IntrinsicPlatform` and the many-to-one repr never keys anything. It carries ONE fact
+rather than a record, because step 4's fact is codegen-local and reaches no provider.*
 
 `TypeKey * IntrinsicPlatform -> facts`, with these constraints:
 
@@ -389,9 +423,9 @@ after `per-target-manifest-plan.md` makes the manifest path target-specific.
 
 ## Anchors (verify before editing)
 
-- The three key lists: `Engine.fs:107-118`, `Inline.fs:70-89`, `Regions.fs:122-131`.
-- Constraint verdict table: `Engine.fs:437-462` (`primitiveSupports`); `TyConst` dispatch at
-  `:520-524`; structural arms at `:565-586`; report at `:654`.
+- The key lists step 4 still has to remove: `Inline.fs:70-89`, `Regions.fs:122-131`.
+- Constraint verdict table: `primitiveSupports`, `valueLayout`, their dispatch arms and
+  `reportConstraintViolation`, in that order down `Engine.fs`.
 - Diagnostic (already correct): `Diagnostics.fs:231`, `:406-407`.
 - Constraint (callability) path: `Constraint.Struct` → `Translate.fs:569` →
   `SemanticConstraintKind.Struct`; contract-sourced at `VesperLib/TypeTranslate.fs:287`.
@@ -412,5 +446,10 @@ after `per-target-manifest-plan.md` makes the manifest path target-specific.
 - The repr→metadata bridge the CLR answer rides: `EngineCore.fs:450-456`, `:469-478` →
   `InferRecordAccess.fs:35,64`.
 - The JS leaf that must gain capability knowledge: `JsNativeSymbols.fs:63`, `:87-90`.
-- User-type value-ness for step 3: `MemberRegistration.fs:530`, `TypeRegistration.fs:234-238`.
-- Backend value-ness for step 3: `ClrEnv.fs:470-473`, `:599`; `ExternalSymbols.fs:402`.
+- The value-ness query step 3 shipped: `IExternalSymbolStore.IsValueType`, folded in
+  `ExternalSymbolProviders.stack`, answered by `MetadataSymbolProvider` and `JsNativeSymbols`,
+  consumed by `Engine.valueLayout` and `CodegenSymbols.isValueType`.
+- The declaration half of the ladder: `ExternalSymbols.declaredValueType`, over
+  `ExternalTypeShape.Class` / `.Record`.
+- User-type value-ness, which the query now gates: `MemberRegistration.fs:530`,
+  `TypeRegistration.fs:234-238`.

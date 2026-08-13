@@ -464,18 +464,10 @@ type internal ClrEnv
                 ValueSome(typeRefOf t)
             | _ -> ValueNone
 
-    /// Whether a referenced-assembly type is a .NET value type. A name the provider can't
-    /// resolve as a class also gives `false`. Drives the `VALUETYPE` vs `CLASS` element tag, and the
-    /// value object-arg dispatch for the duck-typed struct enumerator (`List`1+Enumerator`).
-    let externalIsValueType (key: SymbolKey) : bool =
-        match lookupClassShape key with
-        | ValueSome info -> info.Flags.IsValueType
-        | _ -> false
-
     /// Referenced-assembly record shape by `SymbolKey` + arity.
     let externalRecordShape (key: SymbolKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
+        | ValueSome(ExternalTypeShape.Record(a, fields, origin, _)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(fields, origin)
         | _ -> ValueNone
 
@@ -596,7 +588,8 @@ type internal ClrEnv
     member _.ExternalModuleRef(origin: SymbolOrigin, m: ModuleKey) = externalModuleRef origin m
     member _.ExternalClassRef key = externalClassRef key
     member _.LookupTypeByKey key = lookupTypeByKey key
-    member _.ExternalIsValueType key = externalIsValueType key
+    /// Drives the `VALUETYPE` vs `CLASS` element tag an encoded type spec carries.
+    member _.ExternalIsValueType key = CodegenSymbols.isValueType symbols key
     member _.ExternalRecordShape(key, arity) = externalRecordShape key arity
     member _.ExternalRecordRef(key, arity) = externalRecordRef key arity
     member _.ExternalUnionShape(key, arity) = externalUnionShape key arity

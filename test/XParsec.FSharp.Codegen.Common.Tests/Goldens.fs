@@ -39,3 +39,14 @@ let check (path: string) (label: string) (actual: string) : unit =
             (normalise actual)
             (normalise (File.ReadAllText path))
             (sprintf "byte-identity golden holds: %s" label)
+
+/// Fail on a committed golden matching `pattern` that `pinned` no longer names: a program the
+/// manifest stops compiling leaves its golden behind, and the per-program gate only ever reads
+/// the ones it still covers.
+let checkNoOrphans (dir: string) (pattern: string) (pinned: string seq) : unit =
+    let pinned = Set.ofSeq pinned
+
+    let committed =
+        set [ for f in Directory.GetFiles(dir, pattern) -> Path.GetFileName f ]
+
+    Expect.isEmpty (Set.difference committed pinned) "goldens with no program left to pin"

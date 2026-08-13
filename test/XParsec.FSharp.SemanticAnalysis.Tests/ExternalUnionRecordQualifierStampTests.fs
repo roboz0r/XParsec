@@ -20,7 +20,7 @@ let private provider: IExternalSymbolProvider =
                         ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty))
                     | "Other.Palette" ->
                         ValueSome(ExternalTypeShape.Union(0, EqArray.empty, EqArray.empty, SymbolOrigin.Empty))
-                    | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, EqArray.empty, SymbolOrigin.Empty))
+                    | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, EqArray.empty, SymbolOrigin.Empty, false))
                     | "Tests.Gadget" ->
                         ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))
                     | _ -> ValueNone

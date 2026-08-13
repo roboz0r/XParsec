@@ -325,7 +325,7 @@ module internal UnificationInferResolve =
 
             let fieldShapes =
                 match ctx.Provider.TryLookupType(SymbolKey.Type key) with
-                | ValueSome(ExternalTypeShape.Record(_, fs, _)) -> fs
+                | ValueSome(ExternalTypeShape.Record(fields = fs)) -> fs
                 | _ -> EqArray.empty
 
             // Precompute the args array once (not per field): one fresh TyVar per declared

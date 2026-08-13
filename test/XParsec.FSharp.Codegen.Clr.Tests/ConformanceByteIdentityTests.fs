@@ -29,6 +29,10 @@ let tests =
                     Goldens.check (Path.Combine(goldensDir, p.Name + ".clr.txt")) (p.Name + ".clr.txt") digest
                 }
 
+            test "no golden outlives the program it pins" {
+                Goldens.checkNoOrphans goldensDir "*.clr.txt" [ for p in gated -> p.Name + ".clr.txt" ]
+            }
+
             match gated with
             | p :: _ ->
                 test "structural digest is MVID-invariant" {

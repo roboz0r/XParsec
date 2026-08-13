@@ -77,6 +77,9 @@ module JsNativeSymbols =
                         | Some s -> ValueSome s
                         | None -> ValueNone
                 TryLookupMembers = membersOf
+                // JS has no value types, of any key: `int` is a `number` like every other
+                // numeric, and a `[<Struct>]` record erases to the same object a plain one is.
+                IsValueType = fun _ -> ValueSome false
             }
 
     /// The metadata tail a JS compile ends in: these stubs stand where a CLR compile puts

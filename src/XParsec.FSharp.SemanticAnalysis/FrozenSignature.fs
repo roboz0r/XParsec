@@ -219,7 +219,7 @@ module FrozenSignature =
                                 }
 
                 match td.Kind with
-                | TTypeKindG.Record(fields, members, _, _) ->
+                | TTypeKindG.Record(fields, members, _, valueKind) ->
                     let fieldShapes =
                         EqArray.ofSeq
                             [
@@ -233,7 +233,7 @@ module FrozenSignature =
                             ]
 
                     register
-                        (ExternalTypeShape.Record(arity, fieldShapes, origin))
+                        (ExternalTypeShape.Record(arity, fieldShapes, origin, valueKind <> ClassValueKind.RefType))
                         (ValueSome(membersOf typeKey arity members))
 
                     // One candidate per record, appended to EVERY field's bucket, so a shared

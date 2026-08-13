@@ -272,7 +272,7 @@ module internal UnificationInferRecordAccess =
                 let recQual = SymbolKeyOps.typeMetaName recKey
 
                 match ctx.Provider.TryLookupType(SymbolKey.Type recKey) with
-                | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
+                | ValueSome(ExternalTypeShape.Record(fields = fieldShapes)) ->
                     match fieldShapes |> EqArray.tryFind (fun f -> f.Name = memberName) with
                     | ValueSome fieldShape ->
                         // A field read must NOT stamp `ExternalAccess`: Elaborate tries the

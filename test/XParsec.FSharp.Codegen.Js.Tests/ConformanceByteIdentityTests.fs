@@ -33,6 +33,10 @@ let tests =
                     Goldens.check (Path.Combine(goldensDir, p.Name + ".js")) (p.Name + ".js") js
                 }
 
+            test "no golden outlives the program it pins" {
+                Goldens.checkNoOrphans goldensDir "*.js" [ for p in gated -> p.Name + ".js" ]
+            }
+
             // Identical input yields identical source text.
             match gated with
             | p :: _ ->

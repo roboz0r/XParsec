@@ -255,7 +255,7 @@ module VesperLib =
 
             let finalized =
                 match shape, ctx.DeferredBodies.[k] with
-                | ExternalTypeShape.Record(arity, fields, origin), DeferredBody.Record(dc, csts) ->
+                | ExternalTypeShape.Record(arity, fields, origin, isValueType), DeferredBody.Record(dc, csts) ->
                     let fields' =
                         fields
                         |> EqArray.mapi (fun i f ->
@@ -264,7 +264,7 @@ module VesperLib =
                             }
                         )
 
-                    ExternalTypeShape.Record(arity, fields', origin)
+                    ExternalTypeShape.Record(arity, fields', origin, isValueType)
                 | ExternalTypeShape.Union(arity, cases, _, origin), DeferredBody.Union(dc, caseCsts, ifaceCsts) ->
                     let cases' =
                         cases
@@ -694,7 +694,13 @@ module VesperLib =
             csts.Add fieldTy
 
         // `Origin` is stamped later by the resolving source; the extractor records `Empty`.
-        ctx.TypeShapes.[compiled] <- ExternalTypeShape.Record(arity, EqArray.ofResizeArray shapes, SymbolOrigin.Empty)
+        ctx.TypeShapes.[compiled] <-
+            ExternalTypeShape.Record(
+                arity,
+                EqArray.ofResizeArray shapes,
+                SymbolOrigin.Empty,
+                (classFlagsOfTypeName lexed typeName).IsValueType
+            )
 
         ctx.DeferredBodies.[compiled] <-
             DeferredBody.Record(
