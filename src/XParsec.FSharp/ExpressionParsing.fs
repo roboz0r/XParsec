@@ -202,7 +202,7 @@ module Binding =
     // `many` always succeeds and rewinds the reader on a failed attempt, so a peek failure
     // (EndOfInput / offside) after the body cleanly yields no clauses. Without that, every
     // binding body would need to guarantee a following token, which is not true at
-    // end-of-file or at the tail of a member list inside a type definition.
+    // end-of-file or at the END of a member list inside a type definition.
     let private pChainStaticOptimizations (baseExpr: Expr<SyntaxToken>) =
         parser {
             let! clauses = many pStaticOptimizationClause
@@ -1796,7 +1796,7 @@ module Expr =
                             // operator like `>>`, `>>>`, `>=`, `>.`, `>>=`, the original
                             // token is still unconsumed with CharsConsumedAfterTypeParams > 0.
                             // Any `>`-starting operator token here needs to be re-lexed
-                            // past the consumed chars so the tail (`>`, `=`, `.`, etc.)
+                            // past the consumed chars so the remainder (`>`, `=`, `.`, etc.)
                             // advances the stream correctly.
                             state.CharsConsumedAfterTypeParams > 0 && TokenInfo.isOperator token.Token
                             ->

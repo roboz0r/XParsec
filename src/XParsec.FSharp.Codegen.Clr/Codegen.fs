@@ -5,12 +5,12 @@ open XParsec.FSharp.SemanticAnalysis
 module Codegen =
 
     let private assemble
-        (bclReferences: string list)
+        (referenceAssemblies: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : ClrArtifact =
-        let asm = Assembler(symbols, project, tasts, bclReferences)
+        let asm = Assembler(symbols, project, tasts, referenceAssemblies)
 
         // Bind, per file: pre-fill the registries with layout-derived handles, so a prepared
         // body can reference any type / member / factory / closure ctor whatever the emission
@@ -71,15 +71,15 @@ module Codegen =
     let compileFiles (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: FrozenPools list) : ClrArtifact =
         assemble [] symbols project tasts
 
-    /// `compileFiles` with the compilation's own BCL surface threaded into the emitted
+    /// `compileFiles` with the compilation's own reference set threaded into the emitted
     /// `AssemblyRef` identity map. `compileFiles` is this with `[]`.
-    let compileFilesWithBclReferences
-        (bclReferences: string list)
+    let compileFilesWithReferences
+        (referenceAssemblies: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : ClrArtifact =
-        assemble bclReferences symbols project tasts
+        assemble referenceAssemblies symbols project tasts
 
     /// TAST + symbol context → in-memory PE artifact; the single-file case of `compileFiles`.
     /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
@@ -87,16 +87,16 @@ module Codegen =
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: FrozenPools) : ClrArtifact =
         compileFiles symbols project [ tast ]
 
-    /// `compile` with the compilation's own BCL surface (a TFM ref pack + `<Reference>`s) in
+    /// `compile` with the compilation's own reference set (a TFM ref pack + `<Reference>`s) in
     /// the emitted-`AssemblyRef` identity map, so `System.Runtime` / `System.Console` bind the
     /// reference set, not the host's `System.Private.CoreLib`. Identity only, never shipped.
-    let compileWithBclReferences
-        (bclReferences: string list)
+    let compileWithReferences
+        (referenceAssemblies: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tast: FrozenPools)
         : ClrArtifact =
-        compileFilesWithBclReferences bclReferences symbols project [ tast ]
+        compileFilesWithReferences referenceAssemblies symbols project [ tast ]
 
     /// The test seam for a body written with no TAST: assembles a hand-written `Main` that
     /// drives the untyped `Il` surface directly.

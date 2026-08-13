@@ -58,8 +58,8 @@ let tests =
                 Expect.isTrue refs.Rest.IsSome "arity-8 carries a TRest nesting"
                 let rest = refs.Rest.Value
                 Expect.isFalse rest.RestField.IsNil "Rest field handle is nil"
-                Expect.equal rest.Nested.ItemFields.Length 1 "the nested tail holds the 8th element"
-                Expect.isTrue rest.Nested.Rest.IsNone "a 1-element tail does not nest further"
+                Expect.equal rest.Nested.ItemFields.Length 1 "the nested Rest holds the 8th element"
+                Expect.isTrue rest.Nested.Rest.IsNone "a 1-element Rest does not nest further"
             }
 
             test "arity 15 double-nests (Rest of Rest): 7 + 7 + 1" {
@@ -70,7 +70,7 @@ let tests =
                 Expect.equal lvl2.ItemFields.Length 7 "level 2 (first Rest) stores the next 7"
                 Expect.isTrue lvl2.Rest.IsSome "15 elements need a second Rest"
                 let lvl3 = lvl2.Rest.Value.Nested
-                Expect.equal lvl3.ItemFields.Length 1 "the 15th element lands in the double-nested tail"
+                Expect.equal lvl3.ItemFields.Length 1 "the 15th element lands in the double-nested Rest"
                 Expect.isTrue lvl3.Rest.IsNone "no third level"
             }
         ]

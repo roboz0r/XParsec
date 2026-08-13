@@ -188,15 +188,15 @@ and JsCtor =
 module JsCtor =
 
     /// Each declaration-order field becomes a like-named parameter stored into `this.<field>`;
-    /// `tail` runs after the stores (a class's instance preamble).
-    let positional (fields: string list) (tail: JsStatement list) : JsCtor =
+    /// `preamble` runs after the stores.
+    let positional (fields: string list) (preamble: JsStatement list) : JsCtor =
         {
             Params = fields
             Body =
                 [
                     for f in fields -> JsStatement.FieldStore(f, JsExpr.Identifier(f, ValueNone))
                 ]
-                @ tail
+                @ preamble
         }
 
 /// `Program` with `sourceType: "module"` (ESM output).

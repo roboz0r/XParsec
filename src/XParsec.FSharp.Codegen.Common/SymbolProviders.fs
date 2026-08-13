@@ -7,10 +7,10 @@ open XParsec.FSharp.SemanticAnalysis
 /// Builds the symbol-resolution provider stack.
 module SymbolProviders =
 
-    /// Layer-2 tail FACTORY over the intrinsic axis composed from the layer-1 providers —
+    /// Layer-2 FACTORY over the intrinsic axis composed from the layer-1 providers, which is
     /// what `type int = (# "System.Int32" #)` declares, both directions. A factory, not a
-    /// fixed list, so the tail is seeded.
-    type MetaTailFactory = ReferencedProject.MetaTailFactory
+    /// fixed list, so that axis can seed it.
+    type PlatformMetadataFactory = ReferencedProject.PlatformMetadataFactory
 
     /// A package's manifest for the compiling target, as resolved from its directory.
     type ManifestPath = ReferencedProject.ManifestPath
@@ -34,10 +34,14 @@ module SymbolProviders =
         | Some p -> packageDirs @ [ p ]
         | None -> packageDirs
 
-    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 tail FACTORY.
-    /// Common supplies no concrete tail; the CLR backend injects its BCL reflection one. Uncached.
-    let buildWith (metaTail: MetaTailFactory) (target: string) (packageDirs: string list) : IExternalSymbolProvider =
-        ReferencedProject.composeContract metaTail (ReferencedProject.resolveAll target packageDirs)
+    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 FACTORY. Common
+    /// names no platform; each backend injects its own reader. Uncached.
+    let buildWith
+        (platformMetadata: PlatformMetadataFactory)
+        (target: string)
+        (packageDirs: string list)
+        : IExternalSymbolProvider =
+        ReferencedProject.composeContract platformMetadata (ReferencedProject.resolveAll target packageDirs)
 
     /// Mint the `this`-first inline `TDecl.Let` for a `member inline`: an accessor
     /// `member inline _.M p0 p1 = body` IS the inline function `M this p0 p1 = body`, `this`
@@ -232,18 +236,18 @@ module SymbolProviders =
     let private contractCache =
         System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Contract>>(System.StringComparer.Ordinal)
 
-    /// Cached contract for a package set, over a caller-supplied layer-2 tail FACTORY: the
-    /// seam each backend wraps with its concrete tail.
+    /// Cached contract for a package set, over a caller-supplied layer-2 FACTORY: the seam
+    /// each backend wraps with its own platform reader.
     let buildContractWith
         (cacheTag: string)
-        (metaTail: MetaTailFactory)
+        (platformMetadata: PlatformMetadataFactory)
         (target: string)
         (packageDirs: string list)
         : Contract =
         let normalised = ReferencedProject.resolveAll target packageDirs
 
-        // The metadata tag distinguishes each backend's collection of one package set: they
-        // freeze different bodies over different layer-2 leaves. The target is in the key in
+        // The tag distinguishes each backend's collection of one package set: they freeze
+        // different bodies over different platform metadata. The target is in the key in
         // its own right because an EMPTY set contributes no path that could carry it.
         let key =
             cacheTag
@@ -259,7 +263,8 @@ module SymbolProviders =
                     lazy
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
 
-                         let provider = ReferencedProject.composeOrdered metaTail ordered transitiveDeps
+                         let provider =
+                             ReferencedProject.composeOrdered platformMetadata ordered transitiveDeps
 
                          let collected = inlineBodies provider ordered
 
@@ -294,12 +299,12 @@ module SymbolProviders =
             )
             .Value
 
-    /// `buildContractWith` over a FIXED layer-2 tail, wrapped as a constant factory: for a
-    /// backend whose tail reads nothing from the intrinsic axis.
+    /// `buildContractWith` over a FIXED provider list, wrapped as a constant factory: for a
+    /// backend whose platform metadata reads nothing from the intrinsic axis.
     let buildContractWithMetadata
         (cacheTag: string)
-        (metaTail: IExternalSymbolProvider list)
+        (platformMetadata: IExternalSymbolProvider list)
         (target: string)
         (packageDirs: string list)
         : IExternalSymbolProvider =
-        (buildContractWith cacheTag (fun _ -> metaTail) target packageDirs).Provider
+        (buildContractWith cacheTag (fun _ -> platformMetadata) target packageDirs).Provider

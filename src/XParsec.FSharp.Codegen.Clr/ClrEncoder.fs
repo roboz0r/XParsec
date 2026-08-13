@@ -219,7 +219,7 @@ type internal ClrEncoder(env: ClrEnv) =
             | ValueNone -> te.GenericMethodTypeParameter i
         // A tuple is the arity-N member of the `System.ValueTuple` struct family, a `VALUETYPE`
         // generic instantiation. Arity ≤ 7 is the flat `ValueTuple`n`; arity ≥ 8 packs slots 0–6
-        // then nests the tail in `ValueTuple`8`'s 8th arg (`TRest`), the standard .NET scheme.
+        // then nests the rest in `ValueTuple`8`'s 8th arg (`TRest`), the standard .NET scheme.
         | FTTuple items ->
             let rec encodeFrom (out: SignatureTypeEncoder) (start: int) =
                 let remaining = items.Length - start
@@ -394,7 +394,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// element-type-independent and only the parent `TypeSpec` carries the instantiation.
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles =
         // A user-level tuple is arity ≥ 2 (`unit` and `(x)` are not tuples); `ValueTuple`1` is
-        // reachable only as a `TRest` tail in the recursion below.
+        // reachable only as a `TRest` in the recursion below.
         if List.length elemTys < 2 then
             failwithf
                 "ClrProvider: ValueTupleRefs needs arity ≥ 2, got %d (unit / 1-tuples are not tuple values)."
@@ -437,7 +437,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 // `public !i Item{i+1}` — `ValueTuple` exposes public FIELDS, not properties, so
                 // element access is `ldfld`, not `call get_ItemN`. For arity ≥ 8 only the 7
-                // directly-stored slots get `Item` fields; the tail rides the `Rest` field below.
+                // directly-stored slots get `Item` fields; the rest ride the `Rest` field below.
                 let directCount = if n <= 7 then n else 7
 
                 let itemFields =

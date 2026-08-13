@@ -143,7 +143,7 @@ module NameResolution =
             declareField f.Name f.DeclSite.Tok
 
         // The enclosing module's value bindings are visible unqualified to every member
-        // body of a type nested in that module (F# spec §8.7). Lowest-priority tail layer, so
+        // body of a type nested in that module (F# spec §8.7). The lowest-priority layer, so
         // `this` / ctor params / preamble bound variables shadow on a name clash.
         let moduleMemberScope: Scope = w.EnclosingModuleScope
 

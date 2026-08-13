@@ -27,7 +27,7 @@ most of the deletable bulk.
 | H15 | Known-limitation hedge | a parenthetical pre-empting an objection: "(Not collision-proof against a source param literally named `_tc0` …)" | delete; the honest form is a failing test name |
 | H16 | Jargon without an instance | states a what AND a why, but only in vocabulary defined in other files | replace with the concrete emitted shape, or delete |
 | H17 | Collapsed verdict | one negation phrase standing for several distinct verdicts: "`name` names no type" covers *structurally has none*, *lookup found nothing*, and *found the wrong kind* | rephrase — pick the verdict, then negate the VERB (`does not resolve to a type`), never the object |
-| H18 | Overloaded term | one noun or verb naming several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest`, `flow` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
+| H18 | Overloaded term | one noun or verb naming several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest`, `flow`, `leaf`, `tail` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
 | H19 | Causal hedge | an em-dash standing in for a connective the code DETERMINES: "constructs by its BARE export name with NO import — the JS runtime provides it intrinsically" (*because*), "produces NO symbol — only its members do" (*but*), "are LEAVES — never expanded" (*namely*) | rephrase — name the relation; keep the dash only as `literal — gloss`, literal LEFT |
 
 ## Grep signatures — the part that becomes a lint
@@ -223,6 +223,10 @@ Ten words, each naming several independent things. The replacement count is the 
   flow` and for dataflow analysis — 23 files
 - `leaf` → `…Channels` (a record oflookup functions), `tryReplace` (a callback fired at every node), `bound variable` (what a pattern introduces), `argument`/`slot` (a type argument at a position), `namingPat`,
   `TyparKey`, `atom`; kept for a childless tree node and a call-stack frame — 45 files
+- `tail` → `PlatformMetadata…` (the layer-2 provider), `last segment` (of a long ident),
+  `END` (of a ctor, a scope, a member list), `the rest` (of a fused operator token),
+  `Codomain` (a function type's result), `Rest` (a `ValueTuple`8` nesting), `the implicit
+  ones` (inferred typars), `fallback`, `Trampoline…`; kept for cons and for tail CALLS — 44 files
 
 Every replacement is a word the codebase ALREADY used for that concept. None is a coinage,
 and that is the acceptance test: **when a rename cannot find an existing word, the concept is

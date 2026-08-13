@@ -7,8 +7,8 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The JS-native contract (`JsNativeSymbols`) is the tail a real JS build uses, with no
-// dependency on the CLR backend. The CROSS-target contrasts need the BCL metadata tail and
+// The JS-native contract (`JsNativeSymbols`) is the platform metadata a real JS build uses,
+// with no CLR-backend dependency. The CROSS-target contrasts need the .NET metadata reader and
 // live in `Codegen.Clr.Tests.OpsPlatformClrTests`, which inspects bodies the same way.
 
 [<Tests>]

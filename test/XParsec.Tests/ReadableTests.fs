@@ -69,10 +69,13 @@ let assertReadableSemantics (name: string) (readable: #IReadable<'T, 'Slice>) (e
 
     if len > 0 then
         let mid = len / 2
-        let tail = (readable :> IReadable<'T, 'Slice>).AsSpan(mid)
-        let expectedTail = expected.[mid..]
+        let trailing = (readable :> IReadable<'T, 'Slice>).AsSpan(mid)
+        let expectedTrailing = expected.[mid..]
 
-        Expect.sequenceEqual (tail.ToArray()) expectedTail $"{name}: AsSpan({mid}) should return the trailing slice."
+        Expect.sequenceEqual
+            (trailing.ToArray())
+            expectedTrailing
+            $"{name}: AsSpan({mid}) should return the trailing slice."
 
     Expect.throws
         (fun () -> let _ = (readable :> IReadable<'T, 'Slice>).AsSpan(-1, 1) in ())

@@ -36,16 +36,17 @@ type internal FileEmit =
 /// as data (handle = position), so the *Prepare* phase can build every signature and body
 /// against resolved handles, in any order, and the writers then walk the layout in order.
 type internal Assembler
-    (symbols: IExternalSymbolProvider, project: ProjectInfo, tasts: FrozenPools list, bclReferences: string list) =
+    (symbols: IExternalSymbolProvider, project: ProjectInfo, tasts: FrozenPools list, referenceAssemblies: string list)
+    =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
 
     // Identities read off the reference files, so an emitted `AssemblyRef` names the exact
-    // artifact rather than whatever the host loaded. `bclReferences` is separate from
+    // artifact rather than whatever the host loaded. `referenceAssemblies` is separate from
     // `project.References` (which ships beside the output); the latter wins a name tie.
     let references =
-        bclReferences @ project.References
+        referenceAssemblies @ project.References
         |> List.map (fun path ->
             let an = System.Reflection.AssemblyName.GetAssemblyName path
             an.Name, an

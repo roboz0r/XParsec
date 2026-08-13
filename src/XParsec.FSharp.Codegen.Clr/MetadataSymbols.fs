@@ -58,7 +58,7 @@ module private MetadataMapping =
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
             | "System.Void" -> Some(FTConst(RuntimeNames.unitKey, EqArray.empty))
-            // A BCL name with a canon surfaces AS the canon: scalar leaves
+            // A BCL name with a canon surfaces AS the canon: scalars
             // (`System.Int32` → `int`) and subtype roots (`System.Object` → `obj`,
             // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.
             | fullName ->
@@ -726,5 +726,5 @@ module MetadataSymbols =
     let create (paths: string seq) : IExternalSymbolProvider = createWith IntrinsicTypeMap.empty paths
 
     /// Process-wide provider over the host runtime's assemblies, a test convenience;
-    /// production composes a per-compilation tail seeded with the extracted intrinsic axis.
+    /// production composes a per-compilation reader seeded with the extracted intrinsic axis.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())

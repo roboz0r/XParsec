@@ -474,20 +474,20 @@ module ReferencedProject =
             bp.Provider, bp.Diagnostics
         )
 
-    /// A layer-2 metadata-tail factory: given the intrinsic axis of the layer-1 providers
-    /// composed so far, produce the tail providers. A backend injects its BCL
-    /// metadata / JS-native tail here.
-    type MetaTailFactory = IntrinsicTypeMap -> IExternalSymbolProvider list
+    /// Layer-2: given the intrinsic axis of the layer-1 providers composed so far, produce the
+    /// target platform's metadata providers. A backend injects its .NET reflection reader or
+    /// its JS-native stubs here.
+    type PlatformMetadataFactory = IntrinsicTypeMap -> IExternalSymbolProvider list
 
-    /// The empty layer-2 tail: the layer-1 `.fsi` contracts alone, for an in-assembly
-    /// caller that resolves no BCL/native metadata.
-    let noMetaTail: MetaTailFactory = fun _ -> []
+    /// No layer-2: the layer-1 `.fsi` contracts alone, for an in-assembly caller that
+    /// resolves no platform metadata.
+    let noPlatformMetadata: PlatformMetadataFactory = fun _ -> []
 
-    /// Compose layer-1 providers in dependency (topological) order ahead of the `metaTail`.
+    /// Compose layer-1 providers in dependency (topological) order ahead of `platformMetadata`.
     /// Each package is extracted with read access to its transitive `depends-on`
     /// closure's shapes, so a cross-package nominal type constructor kinds at bake time.
     let composeOrdered
-        (metaTail: MetaTailFactory)
+        (platformMetadata: PlatformMetadataFactory)
         (orderedManifests: Manifest list)
         (transitiveDeps: ManifestPath -> ManifestPath list)
         : IExternalSymbolProvider =
@@ -500,7 +500,7 @@ module ReferencedProject =
 
         // A qualified type key declared twice in the referenced set resolves as a silent
         // first-hit shadow, so the loser is unreachable by lookup; refuse it here, a
-        // CS0433-equivalent. The overlap with the metadata tail is diagnosed downstream.
+        // CS0433-equivalent. The overlap with the platform metadata is diagnosed downstream.
         let seenTypeHomes =
             System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
@@ -517,7 +517,8 @@ module ReferencedProject =
             // sigs canonicalize during extraction.
             let depComposite =
                 ExternalSymbolProviders.composite (
-                    depProviders @ metaTail (ExternalSymbolProviders.mergeIntrinsics depProviders)
+                    depProviders
+                    @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics depProviders)
                 )
 
             let ambientShapes =
@@ -548,14 +549,20 @@ module ReferencedProject =
             built.Add bp.Provider
             byPath.[manifest.Path] <- bp.Provider
 
-        // The final composite's tail IS seeded with the full extracted axis, so a consumer's
-        // BCL member sigs canonicalize (`System.Int32 → int`).
+        // The final composite's platform metadata IS seeded with the full extracted axis, so a
+        // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
-        ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeIntrinsics builtList))
+
+        ExternalSymbolProviders.composite (
+            builtList @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics builtList)
+        )
 
     /// `composeOrdered` over a raw, unordered manifest set. A cycle or missing dependency is
     /// a hard error. A caller that also needs the ordered list should order it itself.
-    let composeContract (metaTail: MetaTailFactory) (manifests: ManifestPath list) : IExternalSymbolProvider =
+    let composeContract
+        (platformMetadata: PlatformMetadataFactory)
+        (manifests: ManifestPath list)
+        : IExternalSymbolProvider =
         match buildClosureWithDeps manifests with
-        | Ok(ordered, transitiveDeps) -> composeOrdered metaTail ordered transitiveDeps
+        | Ok(ordered, transitiveDeps) -> composeOrdered platformMetadata ordered transitiveDeps
         | Error e -> failwithf "Failed to order referenced project manifests: %s" e

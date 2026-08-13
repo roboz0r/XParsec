@@ -537,7 +537,7 @@ module Type =
     // operator (e.g. `>.` in `Foo<int>.Bar`), the reader is still positioned at the fused
     // token with CharsConsumedAfterTypeParams > 0. `pPostfixDottedCont`'s inner `pPostfixDot`
     // knows how to reprocess such a token into `.`, but it can also legitimately fail (e.g.
-    // if the tail is `>>` not `>.`), in which case the postfix chain must terminate cleanly.
+    // if the fused token is `>>` not `>.`), in which case the postfix chain must terminate cleanly.
     // For that case we use `opt pPostfixDottedCont` so a non-dot reprocessed operator rolls
     // back instead of propagating as a parse error.
     let private pPostfixType: FSParser<Type<SyntaxToken>> =

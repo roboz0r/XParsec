@@ -23,7 +23,7 @@ module internal ElaboratePrintf =
         )
 
     /// Whether `%A` of an argument of this (zonked) type may lower to the structural engine.
-    /// The runtime `%A` dispatcher ends in a `value.ToString()` tail, so every concrete nominal
+    /// The runtime `%A` dispatcher ends in a `value.ToString()` fallback, so every concrete nominal
     /// qualifies; only a type the backend can't author an `AppendStructured<T>` argument for stays cold.
     let rec private structuredArgFaithful (t: SemType) : bool =
         match t with
@@ -304,7 +304,7 @@ module internal ElaboratePrintf =
 
     /// Lower a call marked with a `PrintfPartial` sink (a fully-unapplied printf partial)
     /// to a synthesised closure `fun h1 … hn -> Format(sink, …)`. `ty` is the curried printer
-    /// `h1 -> … -> hn -> tail`: its domains are the parameter types in specifier order.
+    /// `h1 -> … -> hn -> codomain`: its domains are the parameter types in specifier order.
     let translatePrintfPartial
         (ctx: PassContext)
         (key: NodeKey)
@@ -333,7 +333,7 @@ module internal ElaboratePrintf =
                 litRun.Clear() |> ignore
 
         // Peel one printer domain per hole, in specifier order. The codomain left
-        // after the last hole is the tail (the `Format` result).
+        // after the last hole is what the `Format` node returns.
         let mutable runningTy = Unification.zonk ctx.Store ty
 
         for part in parts do
@@ -401,7 +401,7 @@ module internal ElaboratePrintf =
                 failwith
                     "Elaborate.translatePrintfPartial: writer/builder sink is not a partial-lowering shape (marker invariant broken)"
 
-        // `runningTy` is now the tail; the `Format` node returns it.
+        // `runningTy` is now the codomain; the `Format` node returns it.
         let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)
         let mutable resultTy = runningTy
 

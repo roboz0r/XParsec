@@ -2714,7 +2714,7 @@ let coercionTests =
 
 [<Tests>]
 let classPreambleTests =
-    // Instance `let`/`do` are the tail of the primary `.ctor`; `static do` runs in the
+    // Instance `let`/`do` are the END of the primary `.ctor`; `static do` runs in the
     // `.cctor`. Runtime semantics live in Codegen.Conformance/classes/preamble-*.fs.
     // Keep an OPERATOR in every initialiser here, because a literal-only one probes nothing.
     let declaredInstance =

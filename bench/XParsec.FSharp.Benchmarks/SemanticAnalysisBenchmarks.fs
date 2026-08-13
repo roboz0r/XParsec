@@ -33,7 +33,7 @@ type SemanticAnalysisBenchmarks() =
         // Green-workload guard: a bench on an erroring workload measures the error path.
         // Any error-severity diagnostic in the active prefix is a setup crash. (Because the
         // guard scopes to the current `Depth`, iterating on the not-yet-proven synthetic
-        // tail never blocks the Core/List/Set baselines — just omit that param.)
+        // last stage never blocks the Core/List/Set baselines: just omit that param.)
         for s in stages do
             let errs = analyseStage Pipeline.analyseForSelfHost s |> stageErrorCount
 

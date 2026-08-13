@@ -360,7 +360,7 @@ let tests =
                 Expect.equal
                     (prefixes |> List.skip (prefixes.Length - RuntimeNames.preludeNamespaces.Length))
                     RuntimeNames.preludeNamespaces
-                    "the prelude is the tail (probed after the AutoOpen modules)"
+                    "the prelude comes LAST (probed after the AutoOpen modules)"
             }
 
             test "an unknown type misses" {
@@ -581,7 +581,7 @@ let tests =
 
                         let caught =
                             try
-                                ReferencedProject.composeContract ReferencedProject.noMetaTail [ a; b ]
+                                ReferencedProject.composeContract ReferencedProject.noPlatformMetadata [ a; b ]
                                 |> ignore
 
                                 None
@@ -602,7 +602,8 @@ let tests =
                         let a =
                             writeSyntheticPackageWithType "SoloPkg" "Solo" "type Thing =\n    | A\n    | B"
 
-                        ReferencedProject.composeContract ReferencedProject.noMetaTail [ a ] |> ignore
+                        ReferencedProject.composeContract ReferencedProject.noPlatformMetadata [ a ]
+                        |> ignore
                     }
 
                     // The directory name IS the package identity — `depends-on` resolves against

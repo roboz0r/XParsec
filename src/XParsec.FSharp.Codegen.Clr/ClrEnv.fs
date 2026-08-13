@@ -131,7 +131,7 @@ type internal ClrEnv
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))
 
     // The open generic tuple structs `System.ValueTuple`1..`8`, cached by arity as bare
-    // `TypeRef`s. `1` is in the family because `ValueTuple`1` arises as the `TRest` tail of
+    // `TypeRef`s. `1` is in the family because `ValueTuple`1` arises as the `TRest` of
     // a ≥ 8 nesting, never as a user-level 1-tuple.
     let valueTupleEntities = Dictionary<int, EntityHandle>()
 

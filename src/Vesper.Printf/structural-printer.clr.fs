@@ -409,7 +409,7 @@ type RuntimeFormatState =
                     this.Add(DocLine " ")
 
                 // Truncate at the per-collection cap (PrintLength = 100) or an exhausted
-                // node budget. The `;` is already emitted, so the tail reads `2; ...]`.
+                // node budget. The `;` is already emitted, so the output ends `2; ...]`.
                 if i >= 100 || this.Size <= 0 then
                     this.Add(DocText "...")
                     truncated <- true

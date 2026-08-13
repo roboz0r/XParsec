@@ -195,7 +195,7 @@ module TsManifestProvider =
         with ex ->
             Error(sprintf "Failed to read TS manifest '%s': %s" path ex.Message)
 
-    /// The TS-manifest providers as the JS layer-2 metadata tail, behind referenced-package
+    /// The TS-manifest providers as the JS layer-2 platform metadata, behind referenced-package
     /// contracts. `packageDirs` are `.fsi` package directories, `tsManifestPaths` extractor JSON.
     let buildContract (packageDirs: string list) (tsManifestPaths: string list) : IExternalSymbolProvider =
         let tsProviders =

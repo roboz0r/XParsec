@@ -50,7 +50,7 @@ module ValSig =
             let! colon = pColon
             let! sig' = CurriedSig.parse
 
-            // Optional `= literalExpr` tail for `[<Literal>] val FOO: string = "..."`.
+            // Optional trailing `= literalExpr` for `[<Literal>] val FOO: string = "..."`.
             let! literalValue =
                 opt (
                     parser {

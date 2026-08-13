@@ -101,7 +101,7 @@ type internal ClassDecl =
         /// `static let` / `static do` in declaration order: the body of the synthesised
         /// `.cctor`. A `let` also takes a static backing field.
         StaticPreamble: TastAccessor.PreambleEntry list
-        /// Instance `let` / `do` in declaration order: the tail of the primary `.ctor`,
+        /// Instance `let` / `do` in declaration order: the END of the primary `.ctor`,
         /// after the base-ctor call and the ctor-param field stores (so an initialiser
         /// reads a ctor param through its already-stored field).
         InstancePreamble: TastAccessor.PreambleEntry list

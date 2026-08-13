@@ -20,7 +20,7 @@ module ExprPatterns =
     let (|DowncastExpr|_|) (e: Expr<SyntaxToken>) = kwPrefix Token.KWDowncast e
 
     // OpSplice / OpSpliceUntyped both share OpFamily.OpGeneric, so the enum
-    // match alone catches the long-tail generic-operator slot. Disambiguate via
+    // match alone catches the shared generic-operator slot. Disambiguate via
     // the token's string span — these are the only legal lex of `%` / `%%` as
     // a prefix operator.
     let (|ExpressionSplice|_|) (e: Expr<SyntaxToken>) =

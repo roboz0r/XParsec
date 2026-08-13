@@ -308,7 +308,7 @@ let tests =
 
             test "unknown case in a pattern (| E.NotACase) is a resolution error" {
                 // Mirrors the expression-side `E.NotACase` miss: the pattern's name
-                // names a registered enum but the tail is not one of its cases.
+                // names a registered enum but the last segment is not one of its cases.
                 let tast =
                     analyse "type E = | A = 0 | B = 1\nlet f (x: E) = match x with | E.NotACase -> 1 | _ -> 0"
 

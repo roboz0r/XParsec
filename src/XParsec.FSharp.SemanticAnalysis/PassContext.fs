@@ -166,7 +166,7 @@ type PassContextResolution =
         /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` target.
         ExternalStaticQualifier: SideTable<SymbolKey>
         /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
-        /// RECORD: such a type bears no static fields, so an unresolved tail is a real miss.
+        /// RECORD: such a type bears no static fields, so an unresolved last segment is a real miss.
         ExternalUnionRecordQualifier: SideTable<SymbolKey>
         /// A local module's short name (`SetTree`) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
@@ -238,7 +238,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     // Shadows the ctor arg, so every member below sees the memoised view.
     let provider = ExternalSymbolProviders.memoize provider
 
-    // The ambient prefixes sit at the TAIL, so explicit `open`s the walk prepends win.
+    // The ambient prefixes sit LAST, so explicit `open`s the walk prepends win.
     let ambientOpenScope =
         { OpenScope.empty with
             Prefixes = provider.AmbientOpenPrefixes

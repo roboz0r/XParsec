@@ -523,14 +523,17 @@ module EmitJs =
     and private trampolineOrExpr
         (ctx: WalkCtx)
         (selfKey: BoundVarId voption)
-        (ps: TailParams)
+        (ps: TrampolineParams)
         (body: TastAccessor.ExprId)
         : JsFnBody =
         match selfKey with
         | ValueSome k when hasTailSelfCall k ps body ->
             JsFnBody.Block
                 [
-                    JsStatement.While(JsExpr.Literal(JsLiteral.Boolean true, ValueNone), buildTailBody ctx k ps body)
+                    JsStatement.While(
+                        JsExpr.Literal(JsLiteral.Boolean true, ValueNone),
+                        buildTrampolineBody ctx k ps body
+                    )
                 ]
         | _ -> JsFnBody.Expr(buildExpr ctx body)
 
@@ -540,18 +543,18 @@ module EmitJs =
     and emitFunction (ctx: WalkCtx) (selfKey: BoundVarId voption) (lam: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx lam
         let names, body = peelLambdas ctx.Pool lam
-        nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (TailParams.Unary names) body)
+        nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (TrampolineParams.Unary names) body)
 
     /// Build the statements of a self-tail-call trampoline's loop body, walking tail
     /// position. A saturated tail self-call writes its arguments back to the parameter
     /// variables and `continue`s; every other tail expression `return`s its value.
-    and buildTailBody
+    and buildTrampolineBody
         (ctx: WalkCtx)
         (selfKey: BoundVarId)
-        (ps: TailParams)
+        (ps: TrampolineParams)
         (e: TastAccessor.ExprId)
         : JsStatement list =
-        let recur = buildTailBody ctx selfKey ps
+        let recur = buildTrampolineBody ctx selfKey ps
 
         match e with
         | InlinableLet ctx reduced -> recur reduced
@@ -560,8 +563,8 @@ module EmitJs =
             // params (an impure tuple spilling to `_tg`), a lone unit group onto none.
             let flatArgs, spills =
                 match ps with
-                | TailParams.Unary _ -> [ for a in args -> buildExpr ctx a ], []
-                | TailParams.Flat(groups, _) -> JsFlatFns.flattenGroupArgs ctx.Pool (buildExpr ctx) groups args
+                | TrampolineParams.Unary _ -> [ for a in args -> buildExpr ctx a ], []
+                | TrampolineParams.Flat(groups, _) -> JsFlatFns.flattenGroupArgs ctx.Pool (buildExpr ctx) groups args
 
             // `_tc<i>` temporaries: evaluate every new argument before any write-back, so a
             // self-call arg mentioning a parameter reads its pre-iteration value.
@@ -625,7 +628,7 @@ module EmitJs =
         (loc: JsLoc voption)
         : JsExpr =
         let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Pool p ]
-        let ps = TailParams.Flat(cf.Groups, names)
+        let ps = TrampolineParams.Flat(cf.Groups, names)
         JsExpr.Arrow(names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
 
     /// `objArg.<member>` for a call dispatched through a local interface slot. The member
@@ -785,7 +788,7 @@ module EmitJs =
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
-    /// A class's instance preamble is the TAIL of its primary constructor: declaration order
+    /// A class's instance preamble is the END of its primary constructor: declaration order
     /// is load-bearing, hence ctor statements rather than class-field initialisers. Every `let`
     /// is an instance FIELD `this.<name> = <init>`, `let mutable` too: one storage, no ref cell.
     let private emitInstancePreamble (ctx: WalkCtx) (p: EmitJsTypes.ClassPreamble) : JsStatement list =

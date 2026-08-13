@@ -90,7 +90,7 @@ module Unification =
 
         let seed = EqArray.toList mInfo.SeedTypars
 
-        // Only the leading `DeclaredTyparCount` are declared-first; the implicit tail orders
+        // Only the leading `DeclaredTyparCount` are declared-first; the implicit ones order
         // by appearance in the signature.
         let declared =
             seed

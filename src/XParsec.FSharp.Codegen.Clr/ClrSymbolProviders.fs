@@ -3,14 +3,14 @@ namespace XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// `Codegen.Common.SymbolProviders` composes a contract stack over an injected tail
-/// FACTORY and holds no concrete tail; this module supplies the .NET reflection one.
+/// The .NET reflection reader that fills `Codegen.Common.SymbolProviders`'s injected
+/// layer-2 seam.
 module ClrSymbolProviders =
 
-    /// BCL reflection over the host runtime. A seeded tail is a pure function of
+    /// Reflection over the host runtime's assemblies. A seeded reader is a pure function of
     /// `(intrinsics, paths)` and the paths are constant here, so memoising on the axis gives
     /// one `MetadataLoadContext` per distinct axis rather than one per firing.
-    let bclMetaTail: SymbolProviders.MetaTailFactory =
+    let dotnetMetadata: SymbolProviders.PlatformMetadataFactory =
         let seeded =
             System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
                 HashIdentity.Structural
@@ -25,10 +25,10 @@ module ClrSymbolProviders =
                     fun m -> [ MetadataSymbols.createWith m (MetadataSymbols.runtimeAssemblyPaths ()) ]
                 )
 
-    /// `bclMetaTail` over an EXPLICIT reference set (a TFM ref pack + `<Reference>`s) instead
-    /// of the host TPA. Each call returns a FRESH factory with its own memo, because
-    /// `bclMetaTail`'s process-wide one keys on the axis alone and so assumes the paths.
-    let bclMetaTailWith (dllPaths: string list) : SymbolProviders.MetaTailFactory =
+    /// `dotnetMetadata` over an EXPLICIT reference set (a TFM ref pack + `<Reference>`s)
+    /// instead of the host TPA. Each call returns a FRESH factory with its own memo, because
+    /// `dotnetMetadata`'s process-wide one keys on the axis alone and so assumes the paths.
+    let dotnetMetadataWith (dllPaths: string list) : SymbolProviders.PlatformMetadataFactory =
         let seeded =
             System.Collections.Concurrent.ConcurrentDictionary<IntrinsicTypeMap, IExternalSymbolProvider list>(
                 HashIdentity.Structural
@@ -41,22 +41,22 @@ module ClrSymbolProviders =
     /// with different ref sets but identical manifests would share a contract entry.
     /// ORDER-PRESERVING because resolution scans paths in order, so do not sort.
     let private refsCacheTag (dllPaths: string list) : string =
-        "bcl-refs:"
+        "dotnet-refs:"
         + (dllPaths |> List.map System.IO.Path.GetFullPath |> String.concat ";")
 
-    /// Layer-1 contract stack over the BCL metadata tail. Uncached.
+    /// Layer-1 contract stack over the .NET metadata reader. Uncached.
     let build (packageDirs: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildWith bclMetaTail Target.Clr packageDirs
+        SymbolProviders.buildWith dotnetMetadata Target.Clr packageDirs
 
-    /// Provider stack for a package set (BCL tail), including cross-package inline bodies.
+    /// Provider stack for a package set, including cross-package inline bodies.
     let buildContract (packageDirs: string list) : IExternalSymbolProvider =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr packageDirs).Provider
+        (SymbolProviders.buildContractWith "dotnet" dotnetMetadata Target.Clr packageDirs).Provider
 
     /// `buildContract` for another backend's collection of the same packages: an INTROSPECTION
     /// seam, how a CLR-side test reads what the JS contract makes of a package. A compilation
     /// never calls this; its target is the one its own backend resolves under.
     let buildContractFor (target: string) (packageDirs: string list) : IExternalSymbolProvider =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail target packageDirs).Provider
+        (SymbolProviders.buildContractWith "dotnet" dotnetMetadata target packageDirs).Provider
 
     /// The intrinsic axis of the package being compiled, as a consumer of it would see it,
     /// because it is read off that package's own composed contract sources.
@@ -65,16 +65,16 @@ module ClrSymbolProviders =
         | None -> IntrinsicTypeMap.empty
         | Some dir -> (buildContract [ dir ]).IntrinsicTypeMap
 
-    /// The compiling package's own declarations SHADOW the referenced ones the tail is
+    /// The compiling package's own declarations SHADOW the referenced ones the reader is
     /// otherwise seeded with: a package declaring `string` is served its own, not a dependency's.
     let private seeded
         (seed: IntrinsicTypeMap)
-        (tail: SymbolProviders.MetaTailFactory)
-        : SymbolProviders.MetaTailFactory =
+        (platformMetadata: SymbolProviders.PlatformMetadataFactory)
+        : SymbolProviders.PlatformMetadataFactory =
         if IntrinsicTypeMap.isEmpty seed then
-            tail
+            platformMetadata
         else
-            fun referenced -> tail (IntrinsicTypeMap.shadow seed referenced)
+            fun referenced -> platformMetadata (IntrinsicTypeMap.shadow seed referenced)
 
     let private seedTag (seed: IntrinsicTypeMap) : string =
         if IntrinsicTypeMap.isEmpty seed then
@@ -83,13 +83,13 @@ module ClrSymbolProviders =
             "|self:" + IntrinsicTypeMap.cacheTag seed
 
     /// `buildContract` for a compilation that IS a package, over the host TPA rather than
-    /// an explicit reference set. `selfPackage` seeds the tail AND joins the resolution stack.
+    /// an explicit reference set. `selfPackage` seeds the reader AND joins the resolution stack.
     let buildContractForSelf (selfPackage: string option) (packageDirs: string list) : IExternalSymbolProvider =
         let seed = selfIntrinsics selfPackage
 
         (SymbolProviders.buildContractWith
-            ("bcl" + seedTag seed)
-            (seeded seed bclMetaTail)
+            ("dotnet" + seedTag seed)
+            (seeded seed dotnetMetadata)
             Target.Clr
             (SymbolProviders.selfStack selfPackage packageDirs))
             .Provider
@@ -97,7 +97,7 @@ module ClrSymbolProviders =
     /// An introspection seam for tests: raw cross-package inline bodies by source name. A
     /// simple name is not a resolution channel; production reads a body off its resolved entry.
     let contractInlineBodies (packageDirs: string list) : Map<string, InlineBody> =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr packageDirs).BodiesByName
+        (SymbolProviders.buildContractWith "dotnet" dotnetMetadata Target.Clr packageDirs).BodiesByName
 
     /// The cached contract for one compilation: an explicit reference set, seeded with the
     /// compiling package's own intrinsic axis. Both halves are in the cache tag, the seed included,
@@ -111,7 +111,7 @@ module ClrSymbolProviders =
 
         SymbolProviders.buildContractWith
             (refsCacheTag dllPaths + seedTag seed)
-            (seeded seed (bclMetaTailWith dllPaths))
+            (seeded seed (dotnetMetadataWith dllPaths))
             Target.Clr
             (SymbolProviders.selfStack selfPackage packageDirs)
 

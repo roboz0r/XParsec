@@ -46,7 +46,7 @@ let tests =
         [
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
                 // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
-                // metadata tail canonicalizes `GetHashCode`'s `System.Int32` return through.
+                // metadata reader canonicalizes `GetHashCode`'s `System.Int32` return through.
                 let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let ctx, tast =
@@ -482,8 +482,8 @@ let tests =
             }
 
             // `System.Math.PI` is a const field, which is not modelled. The F# is valid, so
-            // the unmatched tail must fall through without a "no accessible member" error.
-            test "a non-member tail on a resolved external type does not error" {
+            // the unmatched name must fall through without a "no accessible member" error.
+            test "a non-member name on a resolved external type does not error" {
                 let provider = ClrSymbolProviders.build []
                 let tast = analyseWith provider "let p = System.Math.PI"
                 Expect.isEmpty (errors tast) "System.Math.PI (a field) falls through silently, no false error"

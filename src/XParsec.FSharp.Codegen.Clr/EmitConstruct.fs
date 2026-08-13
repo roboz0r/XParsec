@@ -228,7 +228,7 @@ module EmitConstruct =
         let ty = TastAccessor.exprTy e
 
         // A standalone tuple VALUE; an argument list is flattened at the call site instead.
-        // Arity ≥ 8 nests: push slots 0–6, build the tail as a nested `TRest` value, then
+        // Arity ≥ 8 nests: push slots 0–6, build the REST as a nested `TRest` value, then
         // `newobj` the 8-arg `ValueTuple\`8` ctor.
         let refs = env.Provider.ValueTupleRefs(tupleElemTys ty)
 

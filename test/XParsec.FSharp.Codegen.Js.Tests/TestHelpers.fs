@@ -371,8 +371,8 @@ let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvid
         ]
 
 /// The EMIT contract of a `stackTsMany` stack: that stack as the provider, re-seated in
-/// `jsContract`, so it carries the JS-native tail's retention as its anchor domain. A TS
-/// manifest serves no inline body, so the tail is the only layer a served body comes from.
+/// `jsContract`, so it carries the JS-native stubs' retention as its anchor domain. A TS
+/// manifest serves no inline body, so those stubs are the only layer a served body comes from.
 let contractTsMany (manifests: Schema.PackageManifest list) : SymbolProviders.Contract =
     { jsContract.Value with
         Provider = stackTsMany manifests

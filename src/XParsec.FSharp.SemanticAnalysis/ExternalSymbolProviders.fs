@@ -267,7 +267,7 @@ module ExternalSymbolProviders =
             member this.IsValueType key = this.IsValueType key
 
     /// The composed intrinsic axis of `sources`, EARLIEST source nearest: what `stack`
-    /// publishes, exposed for a caller that must seed a tail source with it before composing.
+    /// publishes, exposed for a caller that must seed a later source with it before composing.
     let mergeIntrinsics (sources: IExternalSymbolProvider seq) : IntrinsicTypeMap =
         sources
         |> Seq.collect (fun s -> IntrinsicTypeMap.entries s.IntrinsicTypeMap)
@@ -429,12 +429,12 @@ module ExternalSymbolProviders =
               member _.IntrinsicTypeMap = intrinsics
 
               // Per FACT, not per shape: a source with no opinion abstains, so the platform
-              // tail is reached past every contract source above it.
+              // metadata is reached past every contract source above it.
               member _.IsValueType key = firstHit (fun s -> s.IsValueType key)
         }
 
     /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
-    /// deduplicated keeping the FIRST sighting: packages share a prelude tail.
+    /// deduplicated keeping the FIRST sighting: packages share prelude prefixes.
     let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
         [
             for s in sources do

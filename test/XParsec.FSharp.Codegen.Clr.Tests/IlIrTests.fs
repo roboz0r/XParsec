@@ -61,9 +61,9 @@ let private mainOf (e: TExpr) : ILBody =
     b.Add ILInstr.Ret
     b.Body
 
-/// The template shape: N guards each branching to one shared `false` tail, then two
+/// The template shape: N guards each branching to one shared `false` block, then two
 /// `ret`s. Over constants so it runs standalone, returning 1 when every pair is equal and
-/// 0 otherwise, which exercises the false-tail / dual-`ret` depth bookkeeping.
+/// 0 otherwise, which exercises the shared-block / dual-`ret` depth bookkeeping.
 let private guardChainEquality (pairs: (int * int) list) : ILBody =
     let b = IlBuilder()
     let falseL = b.Label()

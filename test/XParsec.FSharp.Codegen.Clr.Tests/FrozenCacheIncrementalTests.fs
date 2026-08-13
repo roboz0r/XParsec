@@ -22,13 +22,13 @@ type private CountingStore() =
             stores <- stores + 1
             inner.Store key bytes
 
-let private bclReferences () : string list =
+let private referenceAssemblies () : string list =
     match RefPack.resolve "net8.0" with
     | Result.Ok dlls -> dlls
     | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e
 
 let private inputsWith (manifests: string list) (name: string) : ClrCompilation =
-    ClrCompilation.consumer (ProjectInfo.defaults name) manifests (bclReferences ())
+    ClrCompilation.consumer (ProjectInfo.defaults name) manifests (referenceAssemblies ())
 
 /// Structural, not raw bytes: a fresh MVID per compile makes identical source emit different
 /// PE bytes run-to-run.

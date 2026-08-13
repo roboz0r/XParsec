@@ -314,7 +314,7 @@ type Kind =
     /// A diagnostic the PARSER raised, forwarded whole in the parser's own vocabulary.
     | Parse of DiagnosticCode
 
-    /// The un-migrated tail: a message built at the call site rather than named as a verdict.
+    /// The un-migrated remainder: a message built at the call site rather than named as a verdict.
     | Message of text: string
 
 [<RequireQualifiedAccess>]

@@ -155,12 +155,12 @@ module PrintfSpec =
         && p.Precision <> FormatDim.Star
 
     /// `FormatArgIndex` is the format string's positional slot: 0 for `printf`/`sprintf`,
-    /// 1 for `fprintf`. `Tail` is the curried printer's final result: `unit` when
-    /// writing, `string` for `sprintf`.
+    /// 1 for `fprintf`. `Codomain` is what the curried printer returns once every hole is
+    /// applied: `unit` when writing, `string` for `sprintf`.
     type Family =
         {
             FormatArgIndex: int
-            Tail: SemType
+            Codomain: SemType
             State: SemType
             Residue: SemType
             Result: SemType
@@ -175,7 +175,7 @@ module PrintfSpec =
     let private writerFamily (formatArgIndex: int) (leading: SemType list) : Family =
         {
             FormatArgIndex = formatArgIndex
-            Tail = tyUnit
+            Codomain = tyUnit
             State = tyTextWriter
             Residue = tyUnit
             Result = tyUnit
@@ -186,7 +186,7 @@ module PrintfSpec =
     let private builderFamily (formatArgIndex: int) (leading: SemType list) : Family =
         {
             FormatArgIndex = formatArgIndex
-            Tail = tyUnit
+            Codomain = tyUnit
             State = tyStringBuilder
             Residue = tyUnit
             Result = tyUnit
@@ -197,7 +197,7 @@ module PrintfSpec =
     let private stringFamily: Family =
         {
             FormatArgIndex = 0
-            Tail = tyString
+            Codomain = tyString
             State = tyUnit
             Residue = tyString
             Result = tyString
@@ -285,7 +285,7 @@ module PrintfSpec =
         TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
 
     let printerType (argTypes: SemType list) (fam: Family) : SemType =
-        List.foldBack (fun a r -> TyFun(a, r)) argTypes fam.Tail
+        List.foldBack (fun a r -> TyFun(a, r)) argTypes fam.Codomain
 
     /// Curried arguments the placeholders consume: the sum of per-hole `argTypes` lengths,
     /// NOT the hole count, since a star hole consumes 2–3. Only the count is read, so the dummy
@@ -338,7 +338,7 @@ module PrintfSpec =
         let fam =
             {
                 FormatArgIndex = 0
-                Tail = result
+                Codomain = result
                 State = state
                 Residue = residue
                 Result = result

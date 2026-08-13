@@ -82,9 +82,9 @@ module JsNativeSymbols =
                 IsValueType = fun _ -> ValueSome false
             }
 
-    /// The metadata tail a JS compile ends in: these stubs stand where a CLR compile puts
-    /// BCL reflection. It reads nothing from the intrinsic axis its argument carries.
-    let private jsNativeMetaTail: SymbolProviders.MetaTailFactory =
+    /// The platform metadata a JS compile ends in: these stubs stand where a CLR compile puts
+    /// .NET reflection. It reads nothing from the intrinsic axis its argument carries.
+    let private jsNativeMetadata: SymbolProviders.PlatformMetadataFactory =
         fun _ -> [ provider ]
 
     /// The JS-native contract for a manifest set, whole. A compile takes this; the
@@ -92,7 +92,7 @@ module JsNativeSymbols =
     /// The one place this backend states its target: it RESOLVES each package directory to
     /// `manifest.js.toml`, so a set for another target is not something a caller can hand it.
     let jsNativeContract (packageDirs: string list) : SymbolProviders.Contract =
-        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail Target.Js packageDirs
+        SymbolProviders.buildContractWith "jsnative" jsNativeMetadata Target.Js packageDirs
 
     /// The JS-native contract provider, for a caller that only RESOLVES symbols.
     let buildJsNativeContract (packageDirs: string list) : IExternalSymbolProvider =

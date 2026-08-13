@@ -1504,7 +1504,7 @@ module VesperLib =
 
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
         // The dependency providers' ambient prefixes (`Vesper`, …) seed the file's open
-        // scope at lowest priority by appending to the TAIL of each descended scope, so an
+        // scope at lowest priority by appending to the END of each descended scope, so an
         // explicit `open` / the enclosing namespace still wins.
         let fileOpens = ctx.DependencyAmbientPrefixes
 

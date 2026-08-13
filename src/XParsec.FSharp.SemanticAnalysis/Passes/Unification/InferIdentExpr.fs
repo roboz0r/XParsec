@@ -73,7 +73,7 @@ module internal UnificationInferIdentExpr =
             li.Idents.Length = 2 && not (ctx.Bindings.Binding.ContainsKey node.Key)
             ->
             let anchorName = ctx.NameOf li.Idents.[0]
-            let tailName = ctx.NameOf li.Idents.[1]
+            let memberName = ctx.NameOf li.Idents.[1]
             // The qualifier resolves AS SEEN FROM this node: a class / union / record declared
             // below it does not answer for the name, so `Foo.Bar` above `type Foo` falls
             // through to the external cascade and lands unresolved.
@@ -83,25 +83,25 @@ module internal UnificationInferIdentExpr =
             // the read itself the error; a write never arrives here, because the assignment
             // path types its LHS off that setter without inferring a read.
             let orWriteOnly (fallback: unit -> SemType) : SemType =
-                let setterName = AccessorNames.setterName tailName
+                let setterName = AccessorNames.setterName memberName
 
                 match TypeRegistry.tryStaticMember ctx.Types useSite anchorName setterName with
                 | ValueSome _ ->
-                    errorTy ctx node.Tok (Kind.Message(sprintf "Property '%s.%s' is write-only" anchorName tailName))
+                    errorTy ctx node.Tok (Kind.Message(sprintf "Property '%s.%s' is write-only" anchorName memberName))
                 | ValueNone -> fallback ()
 
-            match TypeRegistry.tryStaticMember ctx.Types useSite anchorName tailName with
+            match TypeRegistry.tryStaticMember ctx.Types useSite anchorName memberName with
             | ValueSome hit -> freshMemberInstance ctx hit
             | ValueNone ->
                 match TypeRegistry.tryUnionBare ctx.Types useSite anchorName with
                 | ValueSome _ ->
                     // Qualified ctor reference, resolved through the union registry
                     // and so bypassing the `CtorIndex` ambiguity check.
-                    match resolveQualifiedCtor ctx useSite anchorName tailName with
+                    match resolveQualifiedCtor ctx useSite anchorName memberName with
                     | ValueSome info -> ctorType ctx info
                     | ValueNone ->
                         orWriteOnly (fun () ->
-                            errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, anchorName, tailName))
+                            errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, anchorName, memberName))
                         )
                 | ValueNone ->
                     // Qualified external union case (`Option.Some`); NameResolution
@@ -163,7 +163,7 @@ module internal UnificationInferIdentExpr =
                         | ValueSome ty -> ty
                         | ValueNone ->
                             // A multi-segment qualified name that resolved to nothing. If its
-                            // qualifier names a known external union/record, the tail is a
+                            // qualifier names a known external union/record, the last segment is a
                             // missing member (`Option.Nope`), so diagnose rather than mint a TyVar.
                             match tryQualifiedExternalMemberMiss ctx e with
                             | ValueSome miss ->

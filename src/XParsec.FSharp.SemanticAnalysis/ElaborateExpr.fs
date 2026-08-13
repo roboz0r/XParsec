@@ -63,7 +63,9 @@ module internal ElaborateExpr =
         // `LongIdent [p; M]`, because the parser folds the dot into the long ident
         // rather than emitting `DotLookup` when the anchor is a regular identifier.
         | Expr.App(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite, objArgTy, memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassAnchorMethod ctx (bindingSite,
+                                                                                         objArgTy,
+                                                                                         memberName)))
             argExprs = args) ->
             let objArg = TExpr.Var(bindingSite, objArgTy, tok)
 
@@ -77,7 +79,9 @@ module internal ElaborateExpr =
                 ty
                 tok
         | Expr.HighPrecedenceApp(
-            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite, objArgTy, memberName)))
+            funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassAnchorMethod ctx (bindingSite,
+                                                                                         objArgTy,
+                                                                                         memberName)))
             argExpr = arg) ->
             let objArg = TExpr.Var(bindingSite, objArgTy, tok)
 
@@ -90,9 +94,9 @@ module internal ElaborateExpr =
                 (peelOneArg (translateExpr ctx) arg)
                 ty
                 tok
-        // `r.f.…M(args)` — method call on a *multi-segment* object argument (e.g.
-        // `this.Source.MoveNext()`), which `ClassTailMethod` (2-segment) misses. The
-        // prefix LongIdent rebuilds the field-chain; the tail is the method.
+        // `r.f.…M(args)`: a method call on a *multi-segment* object argument (e.g.
+        // `this.Source.MoveNext()`), which `ClassAnchorMethod` (2-segment) misses. The
+        // prefix LongIdent rebuilds the field chain; the last segment is the method.
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassChainMethod ctx (prefixLi, objArgTy, memberName)))
             argExprs = args) ->
@@ -158,7 +162,7 @@ module internal ElaborateExpr =
             mkInterfaceMethodCall ctx objArg ifaceKey ifaceArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
         // the anchor is a regular identifier.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, objArgTy, memberName))) ->
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassAnchorProperty ctx (bindingSite, objArgTy, memberName))) ->
             let objArg = TExpr.Var(bindingSite, objArgTy, tok)
 
             let key = LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store objArgTy) memberName

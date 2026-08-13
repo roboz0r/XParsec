@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// Union `Tests.Colour`, record `Tests.Widget` and class `Tests.Gadget` sit in the
 /// ambient namespace `Tests`; union `Other.Palette` needs an explicit `open Other`.
-/// No union case resolves at all, so every `.Nope` tail below is an unresolved member.
+/// No union case resolves at all, so every `.Nope` below is an unresolved member.
 let private provider: IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedChannels
         { ExternalSymbolProviders.NamedChannels.empty with
@@ -40,7 +40,7 @@ let tests =
     testList
         "ExternalUnionRecordQualifier"
         [
-            test "union qualifier with unresolved tail is stamped" {
+            test "union qualifier with an unresolved member name is stamped" {
                 let ctx, file = analyse "let x = Colour.Nope"
                 let e = firstBindingExpr file
 
@@ -49,7 +49,7 @@ let tests =
                     "Colour.Nope — union qualifier stamped"
             }
 
-            test "record qualifier with unresolved tail is stamped" {
+            test "record qualifier with an unresolved member name is stamped" {
                 let ctx, file = analyse "let x = Widget.Nope"
                 let e = firstBindingExpr file
 
@@ -58,7 +58,7 @@ let tests =
                     "Widget.Nope — record qualifier stamped"
             }
 
-            // A class may carry unmodelled static fields, so an unresolved tail on one
+            // A class may carry unmodelled static fields, so an unresolved member name on one
             // stays a fresh TyVar rather than becoming a miss.
             test "class qualifier is not stamped" {
                 let ctx, file = analyse "let x = Gadget.Nope"
@@ -96,7 +96,7 @@ let tests =
                     "Palette.Nope — stamped under open Other"
             }
 
-            test "unresolved tail on a union qualifier raises the member-miss diagnostic" {
+            test "an unresolved member name on a union qualifier raises the member-miss diagnostic" {
                 let ctx = diagnose "let x = Colour.Nope"
 
                 Expect.isTrue
@@ -105,7 +105,7 @@ let tests =
                     "Colour.Nope diagnosed as a missing member"
             }
 
-            test "unresolved tail on a class qualifier raises no member-miss diagnostic" {
+            test "an unresolved member name on a class qualifier raises no member-miss diagnostic" {
                 let ctx = diagnose "let x = Gadget.Nope"
 
                 Expect.isFalse

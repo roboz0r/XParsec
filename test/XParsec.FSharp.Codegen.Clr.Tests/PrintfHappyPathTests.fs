@@ -587,7 +587,7 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            // An `FSharpOption` renders via the runtime dispatcher's `ToString` tail, so
+            // An `FSharpOption` renders via the runtime dispatcher's `ToString` fallback, so
             // the hole is a `Structured` node like any other nominal (bytes may diverge
             // from F#'s reflective `%A`, which is accepted).
             test "`%A` of an FSharpOption lowers to a Structured hole (ToString-degrade)" {

@@ -6,7 +6,7 @@ open XParsec.FSharp
 //
 // `ident` is IdentOrOp so val sigs can use operator names (`val (?>=): T -> T -> bool`) or
 // active-pattern names (`val (|Foo|_|): T -> T option`).
-// `literalValue` captures the `= expr` tail for `[<Literal>] val Foo: string = "..."` forms.
+// `literalValue` captures the trailing `= expr` for `[<Literal>] val Foo: string = "..."` forms.
 type ValSig<'T> =
     | ValSig of
         attributes: Attributes<'T> voption *

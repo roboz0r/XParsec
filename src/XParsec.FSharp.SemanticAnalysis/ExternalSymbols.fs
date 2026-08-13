@@ -97,8 +97,8 @@ type IExternalSymbolStore =
     abstract IntrinsicTypeMap: IntrinsicTypeMap
 
     /// Does the compiling target lay this type out as a VALUE? `int` is one on the CLR and
-    /// nothing is on JS, so no shared `.fsi` states it and only the platform tail answers.
-    /// `ValueNone` is no opinion: every contract source, and a compile with no platform tail.
+    /// nothing is on JS, so no shared `.fsi` states it and only the platform metadata answers.
+    /// `ValueNone` is no opinion: every contract source, and a compile with no platform.
     abstract IsValueType: key: TypeKey -> bool voption
 
 /// Both views on ONE object: raw facts only, with NO capability predicates ("is this type

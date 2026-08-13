@@ -400,7 +400,7 @@ module NameResolutionScope =
                             TypeRegistry.isWrittenTypeNameInScope ctx.Types useSite (ctx.WrittenTypeNameOf li)
 
                         // `E.C1` — the anchor names a project-local enum. Suppress, so a bad
-                        // tail gets the precise "Enum 'E' has no case 'C'" instead of a
+                        // last segment gets the precise "Enum 'E' has no case 'C'" instead of a
                         // redundant unresolved-qualified-name on top of it.
                         let isEnumCase =
                             li.Idents.Length = 2
@@ -482,7 +482,7 @@ module NameResolutionScope =
                                 | _ -> ()
 
                         // An external UNION or RECORD qualifier has no static fields, so an
-                        // unresolved tail is a genuine member miss, so stamp its key to be
+                        // unresolved last segment is a genuine member miss, so stamp its key to be
                         // diagnosed. A class qualifier is not: it stays a fresh TyVar.
                         match prefixHit with
                         | ValueSome {

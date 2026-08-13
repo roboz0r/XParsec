@@ -59,8 +59,8 @@ module internal ElaborateTypars =
 
         let zonked = Unification.zonk store declTy
 
-        // Free-fn inferred typars have no source names, so an empty `knownNames` leaves the
-        // appearance tail to be synthesised as `M0`, `M1`, ….
+        // Free-fn inferred typars have no source names, so an empty `knownNames` leaves every
+        // appearance-ordered typar to be synthesised as `M0`, `M1`, ….
         let knownNames =
             System.Collections.Generic.Dictionary<TyVarId, string>()
             :> System.Collections.Generic.IReadOnlyDictionary<_, _>

@@ -44,7 +44,7 @@ module internal ElaborateResolve =
     /// Resolve `r.M` when the anchor `r` is a local binding of a `TyClass`/`TyUnion`
     /// with a known member `M`. The parser folds the dot into the long ident
     /// rather than emitting `DotLookup` when the anchor is a regular identifier.
-    let private tryLongIdentClassTail
+    let private tryLongIdentClassAnchor
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
         : (NodeKey * SemType * TypeMemberInfo) voption =
@@ -138,15 +138,18 @@ module internal ElaborateResolve =
     let (|CtorRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryCtorRef ctx e
 
     [<return: Struct>]
-    let (|ClassTailMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (NodeKey * SemType * string) voption =
-        match tryLongIdentClassTail ctx li with
+    let (|ClassAnchorMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (NodeKey * SemType * string) voption =
+        match tryLongIdentClassAnchor ctx li with
         | ValueSome(bs, ty, m) when m.Kind = ClassMemberKind.Method ->
             ValueSome(bs, ty, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | _ -> ValueNone
 
     [<return: Struct>]
-    let (|ClassTailProperty|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (NodeKey * SemType * string) voption =
-        match tryLongIdentClassTail ctx li with
+    let (|ClassAnchorProperty|_|)
+        (ctx: PassContext)
+        (li: LongIdent<SyntaxToken>)
+        : (NodeKey * SemType * string) voption =
+        match tryLongIdentClassAnchor ctx li with
         | ValueSome(bs, ty, m) when m.Kind = ClassMemberKind.Property ->
             ValueSome(bs, ty, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | _ -> ValueNone
@@ -244,7 +247,7 @@ module internal ElaborateResolve =
         let n = li.Idents.Length
 
         if n < 3 then
-            // 2-segment `var.M(args)` is `ClassTailMethod`; this is the 3+ case.
+            // 2-segment `var.M(args)` is `ClassAnchorMethod`; this is the 3+ case.
             ValueNone
         else
             match tryChainObjArgTy ctx li with

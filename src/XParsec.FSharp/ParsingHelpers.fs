@@ -594,8 +594,8 @@ module Parsing =
                             token
                     elif state.CharsConsumedAfterTypeParams > 0 then
                         // After type-parameter close consumed `n` leading chars of a fused
-                        // operator token (e.g. `>` from `>:`, `>` from `>.`), present the remaining
-                        // tail as the appropriate non-operator token so syntactic parsers (`:`, `.`,
+                        // operator token (e.g. `>` from `>:`, `>` from `>.`), present what remains
+                        // as the appropriate non-operator token so syntactic parsers (`:`, `.`,
                         // `;`, `)`) work after a generic instantiation.
                         // `reprocessedOperatorAfterTypeParams` handles the operator case
                         // (`>>`, `>=`, etc.) before this code path is reached.
@@ -603,11 +603,11 @@ module Parsing =
                         let charsConsumed = state.CharsConsumedAfterTypeParams
 
                         if span.Length > charsConsumed then
-                            let tailChar = span.[charsConsumed]
-                            // `.` is excluded — `reprocessedOperatorAfterTypeParams` handles
+                            let nextChar = span.[charsConsumed]
+                            // `.` is excluded because `reprocessedOperatorAfterTypeParams` handles
                             // `Foo<T>.Bar` (member access) by reclassifying the operator span.
-                            let tailTok =
-                                match tailChar with
+                            let nextTok =
+                                match nextChar with
                                 | ':' -> ValueSome Token.OpColon
                                 | ';' -> ValueSome Token.OpSemicolon
                                 | ')' -> ValueSome Token.KWRParen
@@ -616,7 +616,7 @@ module Parsing =
                                 | ',' -> ValueSome Token.OpComma
                                 | _ -> ValueNone
 
-                            match tailTok with
+                            match nextTok with
                             | ValueSome t -> PositionedToken.Create(t, token.StartIndex + charsConsumed)
                             | ValueNone -> token
                         else
@@ -675,8 +675,8 @@ module Parsing =
                         // when any are set. Original code issued two separate updates which
                         // allocated twice when both flags were true; one copy produces the same
                         // final state. `CharsConsumedAfterTypeParams` is reset here because the
-                        // fused `>:`/`>.`/etc. token's tail has now been consumed as a synthesised
-                        // colon/dot/etc.
+                        // fused `>:`/`>.`/etc. token's remaining chars have now been consumed as a
+                        // synthesised colon/dot/etc.
                         if
                             state.SplitRAttrBracket
                             || state.SplitPowerMinus
@@ -1368,7 +1368,7 @@ module Parsing =
         // Closes a type application with a `>` that may be fused inside a larger
         // operator like `>>`, `>>>`, `>=`, `>>=`, `>=.`, etc. When fused, we emit
         // a virtual `>` at the current char offset and advance CharsConsumedAfterTypeParams
-        // so reprocessedOperatorAfterTypeParams can re-lex the tail.
+        // so reprocessedOperatorAfterTypeParams can re-lex the remaining chars.
         //
         // The well-known `>`-starting operator tokens (OpGreaterThan, OpComposeRight,
         // OpRightShift, OpGreaterThanOrEqual) each dispatch on their enum value. Other
@@ -1432,7 +1432,7 @@ module Parsing =
                 else return! fail errExpectedGtCloseTypeApp
 
             | Token.OpGreaterThanOrEqual when charsConsumed = 0 ->
-                // `>=` — first char is `>`, tail is `=`.
+                // `>=`: first char is `>`, the rest is `=`.
                 return! emitVirtualGt t
 
             | _ when TokenInfo.isOperator token ->

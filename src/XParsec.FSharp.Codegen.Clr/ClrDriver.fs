@@ -12,7 +12,7 @@ type ClrCompilation =
     {
         Project: ProjectInfo
         Packages: string list
-        BclReferences: string list
+        ReferenceAssemblies: string list
         SelfPackage: string option
     }
 
@@ -20,11 +20,11 @@ module ClrCompilation =
 
     /// References packages, defines no primitives of its own. The shape to reach for unless
     /// compiling a package that declares `extern` types.
-    let consumer (project: ProjectInfo) (packages: string list) (bclReferences: string list) : ClrCompilation =
+    let consumer (project: ProjectInfo) (packages: string list) (referenceAssemblies: string list) : ClrCompilation =
         {
             Project = project
             Packages = packages
-            BclReferences = bclReferences
+            ReferenceAssemblies = referenceAssemblies
             SelfPackage = None
         }
 
@@ -46,7 +46,7 @@ module ClrDriver =
         | Error diagnostics -> Error diagnostics
         | Ok parsed ->
             let provider =
-                ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages
+                ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
 
             let tast =
                 Pipeline.analyseFor
@@ -56,7 +56,7 @@ module ClrDriver =
                     parsed.File
 
             match blockingErrors tast with
-            | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
+            | [] -> Ok(Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast)
             | errors -> Error errors
 
     /// Everything a cached front end depends on EXCEPT one file's text. Fold it once per
@@ -66,7 +66,7 @@ module ClrDriver =
             {
                 HomeAssembly = inputs.Project.AssemblyName
                 Target = Target.Clr
-                ReferenceAssemblies = inputs.BclReferences
+                ReferenceAssemblies = inputs.ReferenceAssemblies
                 Packages = inputs.Packages
                 SelfPackage = inputs.SelfPackage
             }
@@ -81,7 +81,7 @@ module ClrDriver =
         (source: string)
         : Result<ClrArtifact, Diagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
 
         // The key covers the path the frozen tree's nodes name, so a hit cannot serve a tree
         // anchored elsewhere.
@@ -113,7 +113,7 @@ module ClrDriver =
                     | errors -> Error errors
             )
         |> Result.map (fun frozen ->
-            Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project frozen
+            Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project frozen
         )
 
     /// `compileCachedWith` for a ONE-FILE compilation, folding the digest inline. Several
@@ -130,7 +130,7 @@ module ClrDriver =
     /// anchored to their own file rather than thrown.
     let compileAssemblyWith
         (analyse: AssemblyFiles.AnalyseFile)
-        (bclReferences: string list)
+        (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
         (files: AssemblyFiles.SourceFile list)
@@ -145,19 +145,19 @@ module ClrDriver =
                 )
 
             let tasts = [ for f in analysed.Files -> f.Frozen ]
-            Codegen.compileFilesWithBclReferences bclReferences symbols project tasts
+            Codegen.compileFilesWithReferences referenceAssemblies symbols project tasts
         )
 
     /// The multi-file counterpart of `compile`, MSBuild-shaped: the default front end, with
-    /// `BclReferences` threaded into both the contract provider and `AssemblyRef` identity.
+    /// `ReferenceAssemblies` threaded into both the contract provider and `AssemblyRef` identity.
     let compileAssembly
         (inputs: ClrCompilation)
         (files: AssemblyFiles.SourceFile list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.BclReferences inputs.Packages
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
 
-        compileAssemblyWith Pipeline.analyseFor inputs.BclReferences provider inputs.Project files
+        compileAssemblyWith Pipeline.analyseFor inputs.ReferenceAssemblies provider inputs.Project files
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
     /// set. An in-memory compilation returns the artifact unwritten.
@@ -171,8 +171,8 @@ module ClrDriver =
             artifact
         )
 
-    /// `compile` with `BclReferences` resolved from `Project.TargetFramework` — the
-    /// no-MSBuild CONVENIENCE. Explicit `BclReferences` remains the PRIMARY mechanism.
+    /// `compile` with `ReferenceAssemblies` resolved from `Project.TargetFramework`, the
+    /// no-MSBuild CONVENIENCE. Passing them explicitly remains the PRIMARY mechanism.
     let compileForTfm (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
         match inputs.Project.TargetFramework with
         | None ->
@@ -183,4 +183,9 @@ module ClrDriver =
         | Some tfm ->
             match RefPack.resolve tfm with
             | Result.Error msg -> Error [ driverDiagnostic msg ]
-            | Result.Ok dlls -> compile { inputs with BclReferences = dlls } source
+            | Result.Ok dlls ->
+                compile
+                    { inputs with
+                        ReferenceAssemblies = dlls
+                    }
+                    source

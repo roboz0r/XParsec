@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The `ClrDriver` acceptance gate: unlike the rest of this suite, which reads the BCL off
-// the compiler HOST's runtime assemblies, the driver builds its metadata tail from an
+// the compiler HOST's runtime assemblies, the driver builds its metadata reader from an
 // EXPLICIT reference set, in this case the pinned `net8.0` ref pack.
 
 /// The simple names the PE at `path` declares an `AssemblyRef` to.
@@ -31,7 +31,7 @@ let tests =
             // No function value, list or printf, so the program has no Vesper runtime
             // dependency: a BCL-only static call, run on disk with its refs inspected.
             test "compiles + runs a program against the net8.0 ref pack, binding ref-pack AssemblyRefs" {
-                let bclReferences =
+                let referenceAssemblies =
                     match RefPack.resolve "net8.0" with
                     | Result.Ok dlls -> dlls
                     | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e
@@ -43,7 +43,8 @@ let tests =
                         TargetFramework = Some "net8.0"
                     }
 
-                let inputs = ClrCompilation.consumer project [ vesperCorePackage ] bclReferences
+                let inputs =
+                    ClrCompilation.consumer project [ vesperCorePackage ] referenceAssemblies
 
                 let artifact =
                     match ClrDriver.compileApp inputs "System.Console.WriteLine \"hello\"" with

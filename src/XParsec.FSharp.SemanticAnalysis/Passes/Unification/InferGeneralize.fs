@@ -159,7 +159,7 @@ module internal UnificationInferGeneralize =
             let defaults = store.Defaults.Items root
             // A target resolving only to a still-free TyVar is *deferrable*: `default ^T2 :
             // ^T3` can't fire until ^T3 itself defaults on a later pass. Discarding it loses
-            // the chain's tail: `let g a b = a + b` grounds `a` but leaks `b` as a typar.
+            // the rest of the chain: `let g a b = a + b` grounds `a` but leaks `b` as a typar.
             let mutable anyDeferrable = false
 
             for target in defaults do

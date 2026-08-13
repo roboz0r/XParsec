@@ -237,7 +237,7 @@ module JsEmitHelpers =
     /// a saturated tail self-call consumes and `Names` the parameters it assigns; the two are
     /// carried together because a tuple group makes `Names` the longer of them.
     [<RequireQualifiedAccess>]
-    type TailParams =
+    type TrampolineParams =
         /// Nested unary arrows: one parameter per application.
         | Unary of names: string list
         /// One flat arrow: `groups` flattened, so a tuple group spans several of `names` and
@@ -256,7 +256,7 @@ module JsEmitHelpers =
 
     let (|TailSelfCall|_|)
         (selfKey: BoundVarId)
-        (ps: TailParams)
+        (ps: TrampolineParams)
         (e: TastAccessor.ExprId)
         : TastAccessor.ExprId list option =
         match TastAccessor.exprKind e with
@@ -271,7 +271,7 @@ module JsEmitHelpers =
             | _ -> None
         | _ -> None
 
-    let rec hasTailSelfCall (selfKey: BoundVarId) (ps: TailParams) (e: TastAccessor.ExprId) : bool =
+    let rec hasTailSelfCall (selfKey: BoundVarId) (ps: TrampolineParams) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.IfThenElse ->
             let i = TastAccessor.exprIfThenElse e

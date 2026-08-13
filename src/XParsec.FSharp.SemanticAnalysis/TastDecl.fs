@@ -126,7 +126,7 @@ and TClassG<'ty, 'id, 'body> =
         Declared: DeclaredClassFlags
         /// `static let` / `static do`, in declaration order: the body of the synthesised `.cctor`.
         StaticPreamble: EqArray<TPreambleEntryG<'ty, 'body>>
-        /// Instance `let` / `do`, in declaration order: the tail of the primary ctor,
+        /// Instance `let` / `do`, in declaration order: the END of the primary ctor,
         /// running after the base-ctor call and the ctor-param field stores.
         InstancePreamble: EqArray<TPreambleEntryG<'ty, 'body>>
         /// The `this` bound variable, on the class and not only on each member because the INSTANCE

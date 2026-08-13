@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 
-// The metadata tail canonicalizes BCL primitives (`System.Int32` → `int`) through the
+// The metadata reader canonicalizes BCL primitives (`System.Int32` → `int`) through the
 // intrinsic axis. Seed it from the real Vesper.Core contract, not a static table, so
 // `String.Length` presents `int`.
 let private intrinsics =
@@ -188,7 +188,7 @@ let tests =
             }
 
             test "metadata templates instantiate to the expected use-site types" {
-                // The tail freezes its templates at construction; check they realise
+                // The reader freezes its templates at construction; check they realise
                 // through the `instantiate*` helpers: declaring typars substituted, and
                 // every member's signature instantiating without throwing.
                 match typeShape "System.Collections.Generic.List`1" with
@@ -215,7 +215,7 @@ let tests =
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 
                     // Base type: `List<'T> : Object` surfaces as the canon `obj` identity
-                    // (`TyConst`), not a BCL-nominal `TyClass`, because the tail
+                    // (`TyConst`), not a BCL-nominal `TyClass`, because the reader
                     // canonicalizes the subtype roots.
                     match ExternalSymbols.instantiateBaseType info intArg with
                     | ValueSome(TyConst(k, _)) ->
@@ -253,19 +253,19 @@ let tests =
                 Expect.isTrue (provider.TryLookup "op_Addition" |> ValueOption.isNone) "no value surface"
             }
 
-            test "the path-taking tail resolves identically to the host-TPA tail" {
+            test "the path-taking reader resolves identically to the host-TPA one" {
                 // Sourced from the SAME host TPA the singleton reflects, so the
-                // path-taking tail must resolve a known BCL type identically.
-                let tail =
-                    ClrSymbolProviders.bclMetaTailWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
+                // path-taking reader must resolve a known BCL type identically.
+                let reader =
+                    ClrSymbolProviders.dotnetMetadataWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
                     |> List.exactlyOne
 
-                match tail.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
+                match reader.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
                     Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
                     Expect.equal a.Origin.Home.AssemblyOption b.Origin.Home.AssemblyOption "same origin assembly"
-                | other -> failtestf "expected both leaves to resolve %s as a Class, got %A" eqComparer other
+                | other -> failtestf "expected both to resolve %s as a Class, got %A" eqComparer other
             }
 
             test "buildContractWithRefs does not alias distinct ref sets under one manifest" {
@@ -306,13 +306,14 @@ let tests =
                 | Error e -> failtestf "expected net8.0 ref pack to resolve: %s" e
             }
 
-            test "a ref-pack-backed tail binds the REF assembly identity" {
+            test "a ref-pack-backed reader binds the REF assembly identity" {
                 match RefPack.resolve "net8.0" with
                 | Error e -> failtestf "net8.0 ref pack did not resolve: %s" e
                 | Ok refPaths ->
-                    let tail = ClrSymbolProviders.bclMetaTailWith refPaths intrinsics |> List.exactlyOne
+                    let reader =
+                        ClrSymbolProviders.dotnetMetadataWith refPaths intrinsics |> List.exactlyOne
 
-                    match tail.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
+                    match reader.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class info) ->
                         // In the ref pack `StringBuilder` lives in System.Runtime (the
                         // facade), not System.Private.CoreLib, which also proves the load

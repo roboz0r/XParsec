@@ -65,6 +65,24 @@ module EmitJsFormat =
             else
                 invoke e "padStart" [ id "w" ]
 
+        // `"-3.14".padStart(8, "0")` would give `"000-3.14"`, so a negative body pads its
+        // digits and re-prefixes the sign: `%08.2f` -3.14 ⇒ `"-0003.14"`.
+        let zeroPadAfterSign (width: int) (s: JsExpr) : JsExpr =
+            let signed =
+                JsExpr.Binary(
+                    "+",
+                    str "-",
+                    invoke (invoke s "slice" [ num 1 ]) "padStart" [ num (width - 1); str "0" ],
+                    ValueNone
+                )
+
+            JsExpr.Conditional(
+                invoke s "startsWith" [ str "-" ],
+                signed,
+                invoke s "padStart" [ num width; str "0" ],
+                ValueNone
+            )
+
         // A float form's precision: a static literal, or `%.*f`'s runtime `p`, bound outside.
         let precJs (p: Prec) : JsExpr =
             match p with
@@ -154,24 +172,7 @@ module EmitJsFormat =
             // `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
             | FieldFormat.FixedZeroPad(precision, width) ->
                 wrapped (
-                    strBind
-                        (direct (fun v -> invoke (objArg v) "toFixed" [ num precision ]))
-                        (fun s ->
-                            let padTail =
-                                JsExpr.Binary(
-                                    "+",
-                                    str "-",
-                                    invoke (invoke s "slice" [ num 1 ]) "padStart" [ num (width - 1); str "0" ],
-                                    ValueNone
-                                )
-
-                            JsExpr.Conditional(
-                                invoke s "startsWith" [ str "-" ],
-                                padTail,
-                                invoke s "padStart" [ num width; str "0" ],
-                                ValueNone
-                            )
-                        )
+                    strBind (direct (fun v -> invoke (objArg v) "toFixed" [ num precision ])) (zeroPadAfterSign width)
                 )
             // `%-0w.Nf`: fixed-point, then zeros on the RIGHT to a total field of `width`
             // (`%-05.2f` 3.14159 ⇒ `"3.140"`). `padEnd` never truncates, so an already-wider
@@ -265,22 +266,7 @@ module EmitJsFormat =
                                 let g = invoke (objArg v) "toPrecision" [ num (max 1 precision) ]
                                 if typeChar = 'G' then invoke g "toUpperCase" [] else g
                         ))
-                        (fun s ->
-                            let padTail =
-                                JsExpr.Binary(
-                                    "+",
-                                    str "-",
-                                    invoke (invoke s "slice" [ num 1 ]) "padStart" [ num (width - 1); str "0" ],
-                                    ValueNone
-                                )
-
-                            JsExpr.Conditional(
-                                invoke s "startsWith" [ str "-" ],
-                                padTail,
-                                invoke s "padStart" [ num width; str "0" ],
-                                ValueNone
-                            )
-                        )
+                        (zeroPadAfterSign width)
                 )
 
         let structuralFmtRef () =

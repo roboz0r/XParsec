@@ -234,7 +234,7 @@ module StructuralPrinter =
 
     // `[a; b; …]` flat; broken puts the brackets on their own lines with the elements
     // nested (indent 2), `;`-separated. Capped at 100 elements or budget exhaustion:
-    // the `;` is already emitted, so the tail reads `2; ...]`.
+    // the `;` is already emitted, so the output ends `2; ...]`.
     and fmtList (v: obj) (budget: int[]) : Doc =
         let mutable elems = emptyDocs
         elems <- append elems (Line "")

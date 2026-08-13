@@ -41,7 +41,7 @@ module internal UnificationTranslate =
         ctx.Report(tok, kind)
         TyVar(freshTyVar ctx)
 
-    /// The tail of a WRITTEN reference no claim of this file holds and no external shape built.
+    /// The last resort for a WRITTEN reference no claim of this file holds and no external shape built.
     /// The spelling either names an external type the contract registered without a body, which
     /// is a gap to name, or resolved to nothing at all.
     let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) : SemType =
@@ -346,7 +346,7 @@ module internal UnificationTranslate =
         | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
 
     /// Resolve a bare (single-segment, arity-0) type NAME. `resolveExternal` is the pluggable
-    /// external tail: a WRITTEN annotation passes its stamped store-view read, while the
+    /// external resolver: a WRITTEN annotation passes its stamped store-view read, while the
     /// SYNTHESIZED `float<m>` carrier, which nothing stamped, passes a by-name resolver.
     and private resolveBareTypeName
         (ctx: PassContext)

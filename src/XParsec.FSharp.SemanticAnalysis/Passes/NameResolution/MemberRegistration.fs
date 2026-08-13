@@ -235,7 +235,7 @@ module NameResolutionMemberRegistration =
                 | _ -> []
 
             // The count marks the leading `explicit` prefix of the seed: only those are
-            // "declared-first", the implicit tail orders by appearance per the F# rule.
+            // "declared-first"; the implicit ones order by appearance per the F# rule.
             let seed = mkTypeParams ctx.Store (explicit @ implicit)
 
             addMember mName kind isStatic isOverride mSite seed (List.length explicit)
@@ -397,7 +397,7 @@ module NameResolutionMemberRegistration =
 
     /// `ClassPreambleEntry` placeholders for a class body's `[static] let` / `[static] do`
     /// preamble, split into the STATIC sequence (the `.cctor`'s body) and the INSTANCE one
-    /// (the primary ctor's tail). Each stays ONE ordered sequence: a `do` may observe a `let`.
+    /// (the primary ctor's END). Each stays ONE ordered sequence: a `do` may observe a `let`.
     let private extractPreamble
         (ctx: PassContext)
         (declTok: SyntaxToken)

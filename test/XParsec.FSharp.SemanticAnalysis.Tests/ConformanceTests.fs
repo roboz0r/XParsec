@@ -550,7 +550,7 @@ let jsPackageConformanceTests =
                 // Erasure is the axis content cannot decide: `compiler-attributes.fsi`'s
                 // compile-time markers owe the CLR TypeDefs but owe JS nothing, and
                 // `exceptions.js.fsi` declares BCL names the CLR resolves through the metadata
-                // tail instead. An entry every target of the package carries is a property of
+                // reader instead. An entry every target of the package carries is a property of
                 // the contract; one only a single target carries is the claim this list exists
                 // to make argue for itself.
                 let expected =

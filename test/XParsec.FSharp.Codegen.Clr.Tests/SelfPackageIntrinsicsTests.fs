@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// A package that DECLARES a primitive must resolve BCL members over it exactly as a consumer
-/// of that package does. A package's extraction tail is seeded from its DEPENDENCIES, so
+/// of that package does. A package's extraction reader is seeded from its DEPENDENCIES, so
 /// without a self manifest `System.String -> Vesper.string` holds for everyone EXCEPT Core.
 module SelfPackageIntrinsicsTests =
 

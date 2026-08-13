@@ -39,7 +39,7 @@ module JsDriver =
     [<Literal>]
     let BarrelFileName = "index.mjs"
 
-    /// The resolution contract for a compilation that IS a package, over the JS-native tail.
+    /// The resolution contract for a compilation that IS a package, over the JS-native stubs.
     let contractForSelf (selfPackage: string) (references: string list) : SymbolProviders.Contract =
         JsNativeSymbols.jsNativeContract (SymbolProviders.selfStack (Some selfPackage) references)
 

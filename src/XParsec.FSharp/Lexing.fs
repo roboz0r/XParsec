@@ -2971,7 +2971,7 @@ module Lexing =
     //
     // Order is by expected first-char frequency in idiomatic F# source: the top 16
     // chars land in the first SIMD chunk (single vector comparison); rarer chars in
-    // the tail pay one extra chunk scan. `:` moved to the first chunk (index 7) —
+    // later chunks pay one extra chunk scan. `:` moved to the first chunk (index 7) —
     // it's extremely common in type annotations (Small/Medium fixtures) and was the
     // index-21 regression after hoisting `pColonToken`.
     let private exprCtxDispatchChars, (exprCtxDispatchers: Parser<unit, char, LexBuilder, ReadableString> array) =
@@ -2993,7 +2993,7 @@ module Lexing =
             '}', pCloseBraceExpressionContext
             '>', pGreaterThanToken
             '/', pSlashToken
-            // Tail (indices 16..21) — rarer chars, one extra SIMD chunk
+            // Indices 16..21: rarer chars, one extra SIMD chunk
             ''', pSingleQuoteToken
             '@', pAtToken
             '\t', pTabToken

@@ -1228,7 +1228,7 @@ module TokenRepresentation =
     /// declared precedence does not match the family of its leading char (e.g.
     /// the `OpPipeRight` variants end up at ComparisonAndBitwise precedence today),
     /// collision-free pattern matching still requires unique IDs. ID 0 is the
-    /// "generic custom op at this precedence" slot — the long tail collapses here.
+    /// "generic custom op at this precedence" slot: every rarer operator collapses here.
     ///
     /// Constants are already shifted (<<< 6) so they can be OR'd directly into
     /// the Token value alongside Precedence.

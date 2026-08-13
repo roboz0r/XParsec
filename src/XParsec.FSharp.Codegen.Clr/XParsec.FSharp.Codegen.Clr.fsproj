@@ -4,8 +4,8 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Layer-2 BCL metadata reader (System.Reflection.MetadataLoadContext) and the
-         CLR-side BCL-defaulting provider conveniences over the target-generic
+    <!-- Layer-2 .NET metadata reader (System.Reflection.MetadataLoadContext) and the
+         CLR-side provider conveniences over the target-generic
          `Codegen.Common.SymbolProviders`. .NET-specific, so they live here, not in Common. -->
     <!-- TFM → reference-pack resolver: the no-MSBuild convenience over an explicit
          `dllPaths` set. Depends on nothing else in Codegen.Clr, so it sorts first. -->
@@ -62,8 +62,8 @@
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr` and the
-         target-generic `SymbolProviders` (the BCL metadata tail `MetadataSymbols`
-         is .NET-specific and lives here in Codegen.Clr). -->
+         target-generic `SymbolProviders` (the .NET metadata reader `MetadataSymbols`
+         is platform-specific and lives here in Codegen.Clr). -->
     <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
   </ItemGroup>
   <ItemGroup>

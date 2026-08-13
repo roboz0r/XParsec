@@ -55,7 +55,7 @@ type TypeMemberInfo
     member _.SeedTypars: EqArray<string * TyVarId> = seedTypars
 
     /// How many LEADING entries of `SeedTypars` are the member's explicitly-declared
-    /// `<'C, …>` typars, in source order. The implicit tail behind them is not declared.
+    /// `<'C, …>` typars, in source order. The implicit ones behind them are not declared.
     member _.DeclaredTyparCount: int = declaredTyparCount
 
     member val private canonical: GeneralizedTypars voption = ValueNone with get, set
@@ -390,7 +390,7 @@ type ClassTypeInfo
     member val Declared: DeclaredClassFlags = DeclaredClassFlags.Default with get, set
     /// `static let` / `static do` in declaration order — the `.cctor` body.
     member val StaticPreamble: ClassPreambleEntry[] = [||] with get, set
-    /// Instance `let` / `do` in declaration order — the tail of the primary ctor, run after
+    /// Instance `let` / `do` in declaration order: the END of the primary ctor, run after
     /// the base-ctor call. A class with no primary ctor cannot have one.
     member val InstancePreamble: ClassPreambleEntry[] = [||] with get, set
     member val SecondaryCtors: ClassSecondaryCtorInfo[] = [||] with get, set

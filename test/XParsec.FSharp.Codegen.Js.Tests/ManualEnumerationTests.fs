@@ -31,8 +31,8 @@ let private counterPrelude =
         ]
 
 /// `counterPrelude` + a `sum` over the manual protocol, whose enumerator bound variable is `boundVar`
-/// (`let` / `use`) and which runs `tail` after the loop. `sum (Counter 4)` = 0+1+2+3 = 6.
-let private manualSumSrc (boundVar: string) (tail: string list) =
+/// (`let` / `use`) and which runs `afterLoop` once the loop ends. `sum (Counter 4)` = 0+1+2+3 = 6.
+let private manualSumSrc (boundVar: string) (afterLoop: string list) =
     String.concat
         "\n"
         [
@@ -42,7 +42,7 @@ let private manualSumSrc (boundVar: string) (tail: string list) =
             sprintf "    %s e = s.GetEnumerator()" boundVar
             "    while e.MoveNext() do"
             "        acc <- acc + e.Current"
-            yield! tail
+            yield! afterLoop
             "    acc"
             "printfn \"%d\" (sum (Counter(4) :> seq<int>))"
         ]
