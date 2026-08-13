@@ -10,9 +10,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // The JS byte-identity gate: for every conformance program the JS backend actually COMPILES,
 // pin the emitted JS source text as a golden and assert equality on every later run.
 
-// Gated set = programs with a `Run` or `Fault` obligation for "js" (a `Fault` program still
-// compiles; it faults at RUNTIME). `Diagnose` programs are rejected at compile time and emit
-// nothing, so they are skipped.
+// That includes an `accept` program: the manifest declines to assert its OUTPUT, not its
+// emission.
 
 /// Committed goldens, one `.js` per program, beside this test.
 let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
@@ -21,15 +20,7 @@ let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 /// name `conformance-<program>`, with the trailing `//# sourceMappingURL` line stripped.
 let private emitConformanceJs (name: string) (src: string) : string = emitFrozenJs name src (frozenOfJs src)
 
-/// Programs the JS backend compiles (see the header).
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "js" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+let private gated = compiledBy "js"
 
 [<Tests>]
 let tests =

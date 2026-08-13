@@ -11,18 +11,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // tree and from `thaw (flatten direct)` must yield byte-identical JS. Structural equality does
 // not guarantee identical text, so a divergence here is a defect, not a golden to update.
 
-// Gated set = programs the JS backend actually COMPILES (`Run`/`Fault` for "js"), so
-// `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
-
-/// Programs the JS backend compiles (see the header).
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "js" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+/// Filtered, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
+let private gated = compiledBy "js"
 
 [<Tests>]
 let tests =

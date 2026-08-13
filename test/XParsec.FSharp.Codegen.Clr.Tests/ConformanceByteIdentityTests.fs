@@ -10,18 +10,12 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Pins a structural digest of every conformance assembly the CLR compiles as a golden.
 // Structural rather than a byte hash: each compile mints a fresh MVID, so identical
-// source yields different bytes. A `Fault` program compiles too; a `Diagnose` one does not.
+// source yields different bytes. A `Fault` or `accept` program compiles too; a `Diagnose`
+// one does not.
 
 let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "clr" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+let private gated = compiledBy "clr"
 
 [<Tests>]
 let tests =

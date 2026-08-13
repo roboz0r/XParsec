@@ -11,16 +11,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // and stores the blob; a subsequent HIT does NOT run `produce` and returns a tree that emits
 // byte-identical JS, judged against real programs.
 
-/// Programs the JS backend compiles, so `frozenOfJs` never trips on a `Diagnose` program's
-/// error diagnostics.
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "js" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+/// Filtered, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
+let private gated = compiledBy "js"
 
 /// The compilation every corpus program is keyed under. The programs stand alone, so the
 /// digest is the same for all of them and only the source varies.

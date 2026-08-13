@@ -9,16 +9,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // conformance program's whole `Frozen.TastFile`. That also gates the pool interconversion:
 // the columns must re-author every node, and the bound-variable/lambda id remap must invert.
 
-/// Corpus programs the JS backend actually compiles, so `frozenOfJs` never trips on a
-/// `Diagnose` program's error diagnostics.
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "js" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+/// Filtered, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
+let private gated = compiledBy "js"
 
 /// Freeze each gated program's source ONCE, because the front-end pass is the expensive part.
 let private frozenFiles: (string * FrozenPools) list =

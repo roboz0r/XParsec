@@ -10,14 +10,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // by itself guarantee identical IL, so the emitted assembly is the judge. Compared by
 // structural digest rather than raw bytes, since each compile mints a fresh MVID.
 
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "clr" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+let private gated = compiledBy "clr"
 
 let private digest (artifact: ClrArtifact) =
     ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)

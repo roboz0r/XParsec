@@ -15,16 +15,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // Data: the frozen conformance corpus for breadth, plus hand-built edge cases pinning EVERY
 // case shape it may not exercise (an `FTOr` of several members, each `MemberKind`, …).
 
-/// Corpus programs the JS backend actually compiles, so `frozenOfJs` never trips on a
-/// `Diagnose` program's error diagnostics.
-let private gated =
-    programs
-    |> List.filter (fun p ->
-        match Map.tryFind "js" p.Obligations with
-        | Some Obligation.Run
-        | Some(Obligation.Fault _) -> true
-        | _ -> false
-    )
+/// Filtered, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
+let private gated = compiledBy "js"
 
 /// The deduped leaf values collected from the corpus plus the hand-built edge cases.
 type private Collected =

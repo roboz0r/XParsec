@@ -263,12 +263,11 @@ needs an ENUMERATE-interfaces-of-an-intrinsic query as well as the capability qu
 provider-answered, but it is a second member, and rerouting `tryUpcastWitness` is a rewrite of
 the walk rather than a swap.
 
-### Prerequisite — the zero-leaf case, and where those tests go
+### Prerequisite — the zero-leaf case, and where those tests go — **DONE (2026-08-12)**
 
 `noMetaTail` returns `[]` (`ReferencedProject.fs:490-494`) and
 `SemanticAnalysis.Tests/TestHelpers.fs:27` uses it, so the entire SA front-end suite runs with
-NO platform provider. Once capabilities are provider-answered, "nobody had an opinion" is the
-answer for every SA test at once.
+NO platform provider.
 
 **Decided (user, 2026-08-12): SA having no platform is CORRECT, and stays.** Do not give SA a
 synthetic platform leaf to keep those tests running — a test-only stand-in for the real
@@ -294,6 +293,63 @@ judged against goldens no backend can influence.
 
 That also means the capability work should not try to keep SA green by weakening what it
 asserts. If an SA test can only pass with a platform, it was never an SA test.
+
+#### What the sweep actually found — the set is ONE axis, not the whole constraint table
+
+The relocation is done, and it is much smaller than "every SA test at once" above. That
+sentence was written when the platform was to DERIVE the capability verdicts; the "contract
+PRESCRIBES the floor" correction retired it, and the two claims were never reconciled. SA
+composes the real `src/Vesper.*` contract (`TestHelpers.fs:23-27`), so SA HAS the floor. What
+it lacks is only what no contract can state.
+
+- **Equality / comparison — NOT relocated.** Contract-prescribed, so SA answers them the moment
+  step 1 authors `interface equatable<int>` and friends. Nine `ConstraintsTests` sites and
+  `UnificationUnionsTests`'s `equality on (int | string) is Satisfied` currently reach the
+  verdict through the primitive table and would go silent without it, but they come back
+  through the contract rather than moving. Do not touch them in step 1 beyond watching them
+  stay green.
+
+  The sweep did add `ops/equality-primitives.fs` and `ops/comparison-primitives.fs`, which is
+  NET-NEW coverage and not part of the relocation: nothing in the corpus ran `=` or `<` at a
+  primitive before, and the two backends do not lower them alike (JS emits `===` at int but a
+  `structuralEquals` call at string). That is operator behaviour, so it lives in `ops/` with
+  the other operator programs, and carries no `width` — the support matrix is about
+  `+ - * / %`.
+- **The array's `seq<'T>` — NOT relocated**, for the same reason.
+  `SignatureExtractorTests`'s intrinsic-surface assertion and `UnificationClassesTests`'s
+  `an int[] argument subsumes to a seq<int> parameter` read a declaration the contract
+  carries, which SA composes.
+- **`struct` / `not struct` — RELOCATED.** This is the whole of it. Value-ness is the one axis
+  a shared `.fsi` cannot state, because the decided semantics are that the two targets
+  DISAGREE about it. Four `ConstraintsTests` cases over `int` / `string` became four programs
+  in `test/Codegen.Conformance/constraints/`, and SA kept the target-invariant pair over a
+  function shape.
+- **Nullness / not-null — nothing to relocate.** Those arms of the primitive table have zero
+  test coverage anywhere, so step 2 writes new corpus programs rather than moving old ones.
+
+The corpus rows record TODAY's verdicts, so steps 2–3 must flip them in the open:
+`typar-struct.fs` goes `accept = ["clr", "js"]` → `accept = ["clr"]` + a `js` rejection, and
+`typar-not-struct-violated.fs` flips the other way. That prediction lives HERE and nowhere
+else — a manifest row or a program header that forecast its own next edit would have to be
+found and rewritten alongside the row itself.
+
+**A polarity asymmetry the corpus cannot fix, and step 1 should not pretend otherwise.** A
+REFUSAL is a compile error, so `Obligation.Diagnose` pins it exactly. SATISFACTION is not
+pinnable that way: nothing reports a leftover deferred constraint, so a front end that simply
+stopped answering compiles as clean as one that answered yes. Exercising the capability is the
+usual escape — print a result the verdict is a precondition for — and it is available for
+equality and comparison but NOT for value-ness, which no program can observe. So the two
+`struct` / `not struct` rows pin only "the front end did not refuse this", and are worth keeping
+for that alone: they are what forces steps 2–3 to change a recorded verdict rather than land
+silently. That is what `Obligation.Accept` is — the corpus obligation for exactly this state,
+carrying no `.expected`, so the row does not have to borrow `run` and invent an output contract
+to say it. The same gap is why the nine equality/comparison SA sites listed above are weak
+assertions TODAY, not only after step 1.
+
+**Still outstanding, and NOT part of this: `Regions.isNonAllocatingPrimitive` (step 4).**
+`RegionsTests`'s `pure arithmetic has no escape entry` reads that predicate, and when step 4
+makes it backend-answered SA will have no answer. It cannot go to this corpus — a region is
+not observable in a program's stdout — so it goes to the per-backend suites instead.
 
 ### Settled points carried forward
 
@@ -327,11 +383,9 @@ verdict off a frozen field, and it disappears under the provider query Change B 
 the platform leaf is injected per target, not derived from the file under analysis. The
 reversal is withdrawn.)*
 
-0. **Relocate the SA tests that need a platform.** The zero-leaf question is SETTLED (above):
-   SA keeps no platform provider, and the affected tests are restated or moved to
-   `Codegen.Common.Tests`. This is not a blocker to design around but a body of test work that
-   runs alongside step 1 — expect it to be the larger half of that step, and do it as the
-   verdicts move, not after.
+0. ~~**Relocate the SA tests that need a platform.**~~ **DONE (2026-08-12)** — and it was the
+   `struct` / `not struct` axis alone, not "the larger half of step 1" this entry predicted.
+   See the sub-section above for why the equality/comparison and array-`seq` tests stay in SA.
 1. `platform-facts-plan.md` step 1 (which absorbs Change B) — the capability query on the
    provider, then eq/cmp routed to it. Independent of Change A.
 2. `platform-facts-plan.md` steps 2–4 — the representation axis and `Regions`. Step 4 is

@@ -271,12 +271,16 @@ and a reasonable place to prototype the query shape.
   list`, so "exactly one leaf" is an intent the type does not enforce. Whether the fold can be
   optimised on the strength of that intent is a later question; do not build it in.
 
-  **The zero-leaf case is the real hazard, and it is live.** `noMetaTail` returns `[]`, and
+  **The zero-leaf case.** `noMetaTail` returns `[]`, and
   `SemanticAnalysis.Tests/TestHelpers.realProvider` uses it — so the entire SA front-end
-  suite runs today with NO platform provider. Once step 1 routes `Equality` / `Comparison`
-  through facts, "nobody had an opinion" folds to no opinion, which is `Defer`, which is
-  exactly the silent non-resolution this plan opens by warning about — landing on every SA
-  test at once rather than on JS.
+  suite runs today with NO platform provider. An empty contribution set folds to "no
+  opinion", which is `Defer`.
+
+  **That is NOT a hazard for step 1**, though an earlier revision of this bullet said it was,
+  and the paragraph below still carries the retraction. Step 1's verdicts are
+  contract-PRESCRIBED, and SA composes the real `src/Vesper.*` contract, so SA answers them
+  without a platform. The zero-leaf case bites only on axes no contract can state — value-ness
+  (step 3) and the null model (step 2).
 
   **DECIDED (user, 2026-08-12) — and NOT by either option this bullet originally offered.**
   Neither "a compilation asserts it has a platform-facts source" nor "`noMetaTail` is replaced
@@ -292,8 +296,11 @@ and a reasonable place to prototype the query shape.
   `Obligation.Diagnose` (`:60`) expresses a target-specific compile-time rejection. See
   `capability-provenance-plan.md` for the full statement of this.
 
-  This lands squarely on step 1: `when 'T : equality` over `int` is the constraint SA tests
-  most, and it is precisely what SA can no longer answer alone.
+  **The relocation is DONE (2026-08-12), and it did not land on step 1.** `capability-
+  provenance-plan.md` holds the sweep. `when 'T : equality` over `int` — the constraint SA
+  tests most — stays in SA, answered by the contract; the four `struct` / `not struct` cases
+  over primitives are the ones that moved, to `test/Codegen.Conformance/constraints/`. Step 3
+  is where this bullet's warning actually applies.
 
 ## Frozen cache
 

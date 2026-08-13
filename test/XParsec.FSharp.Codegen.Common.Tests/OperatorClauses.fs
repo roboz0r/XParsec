@@ -1,31 +1,14 @@
-/// The STRUCTURAL half of backend conformance: which primitives the operator contract
-/// says support each arithmetic operator, checked against the conformance manifest
-/// without compiling or running anything.
-///
-/// Each primitive DECLARES its own operator surface — `static member (+)` on
-/// `prim-types-min.fsi`'s `int`, and so on across the widths. That declaration set IS the
-/// definition of which types support arithmetic: a width that declares nothing falls to
-/// the SRTP trait call, resolves no member, and becomes a compile error ("does not support
-/// the operator"). The declarations are target-neutral; what makes the two backends
-/// differ is representability, which is why this guard enumerates from the target's own
-/// repr extraction.
-///
-/// The conformance corpus pins the BEHAVIOUR. What it cannot cheaply catch is a
-/// declaration ADDED for a width the manifest says must be rejected — the false-precision
-/// failure: a declaration that reads as coverage and computes a wrong answer. The corpus
-/// would only notice if someone also thought to write a program for it. Reading the
-/// declared set off the contract and diffing it against the manifest catches that
-/// mechanically, and costs neither Node nor CIL.
+/// The STRUCTURAL half of backend conformance: which primitives the operator contract says
+/// support each arithmetic operator, diffed against the manifest without compiling anything.
+/// It catches a declaration added for a width the manifest says must be REJECTED.
 namespace XParsec.FSharp.Codegen.Common.Tests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-/// Reading facts back off a spliced body. Shared because BOTH backend suites read the
-/// same contract through their own symbol leaf — `Codegen.Clr.Tests` via
-/// `ClrSymbolProviders` (the BCL metadata leaf), `Codegen.Js.Tests` via `JsNativeSymbols`
-/// (the JS-native leaf, with no dependency on the CLR backend). The leaf differs; what is
-/// read off the body does not.
+/// Reading facts back off a spliced body. Shared because both backend suites read the same
+/// contract through their own symbol leaf, and the leaf differs where what is read off the
+/// body does not.
 module InlineBodies =
 
     /// Every `ILIntrinsic` opCode string reachable in the body — a CIL mnemonic (`add`)
@@ -54,10 +37,7 @@ module InlineBodies =
 
         List.ofSeq acc
 
-    /// The spliced body of ONE primitive's operator member, as this contract serves it —
-    /// the per-width template that used to be a clause on the operator. A member on an
-    /// intrinsic is never emitted, so this body is the only artifact the width's
-    /// arithmetic has.
+    /// The spliced body of ONE primitive's operator member, as this contract serves it.
     let operatorBody (provider: IExternalSymbolProvider) (width: string) (compiled: string) : InlineBody =
         match provider.TryLookupMember(RuntimeNames.primitiveKey width, compiled) with
         | ValueSome m ->
@@ -101,15 +81,8 @@ module OperatorSurfaceParity =
         }
 
     /// The (width × operator) → backend arithmetic-support matrix, read off the manifest.
-    /// This is the answer to "which types support which arithmetic, where" — stated in one
-    /// place, by the same file that pins the behaviour, rather than inferred from two
-    /// hand-written lists.
-    ///
-    /// The PAIR is the key, not the width: `byte` must run `+` on both backends and must
-    /// be rejected for `~-` on both, and a width-keyed matrix could hold only one of those
-    /// two facts. (It held the wrong one: `~-` defaulted to supported at every width that
-    /// supported `+`, so the guard demanded the very unsigned negations that answered 56
-    /// on JS and -200 on the CLR.)
+    /// The PAIR is the key, not the width: `byte` must run `+` on both backends and be
+    /// rejected for `~-` on both, and a width-keyed matrix holds only one of those.
     let private matrix: Map<string * string, Support> =
         (Map.empty, programs)
         ||> List.fold (fun m p ->
@@ -118,10 +91,12 @@ module OperatorSurfaceParity =
             | Some covers ->
                 let ofObligation (run, diagnose) (backend, ob) =
                     match ob with
-                    // A program that must FAULT still RUNS (integer `/` by zero throws):
-                    // its pair needs a declaration exactly as a completing one does.
-                    | Obligation.Run
-                    | Obligation.Fault _ -> Set.add backend run, diagnose
+                    // A program that must FAULT still RUNS (integer `/` by zero throws), and
+                    // an `accept` one still COMPILES: each needs the operator declared at
+                    // that width exactly as a completing program does.
+                    | Obligation.Run _
+                    | Obligation.Fault _
+                    | Obligation.Accept -> Set.add backend run, diagnose
                     | Obligation.Diagnose _ -> run, Set.add backend diagnose
 
                 let run, diagnose =
@@ -144,15 +119,9 @@ module OperatorSurfaceParity =
                 )
         )
 
-    /// The primitives that DECLARE `compiled` as a static member on this contract.
-    ///
-    /// Two axes meet here and only one is per-target. The DECLARATION is target-neutral —
-    /// `static member (+)` is written once, in the `.fsi`. What varies is
-    /// REPRESENTABILITY: `IntrinsicForwardRepr` is extracted from the target's own
-    /// `(# … #)` bindings, so a primitive the target has no repr for (`nativeint` on JS)
-    /// is not in it at all and its declarations are unreachable rather than separately
-    /// gated. Enumerating from that map is therefore what makes the two backends' answers
-    /// differ, and it is the ONE mechanism by which target-dependence enters.
+    /// The primitives that DECLARE `compiled` as a static member on this contract. The
+    /// declaration is target-neutral (written once in the `.fsi`); what differs per target is
+    /// `IntrinsicForwardRepr`, which omits primitives it has no repr for (`nativeint` on JS).
     let private widthsDeclaring (provider: IExternalSymbolProvider) (compiled: string) : Set<string> =
         set
             [
@@ -164,7 +133,7 @@ module OperatorSurfaceParity =
 
     /// One backend's operator surface against the matrix. `provider` is that backend's
     /// contract as its own symbol leaf resolves it: a width is supported iff it DECLARES
-    /// the member. There is no second term — no operator carries a clause list any more.
+    /// the member.
     let tests (backendName: string) (provider: IExternalSymbolProvider) : Test =
         testList
             (sprintf "Operator surface parity (%s)" backendName)
@@ -207,25 +176,20 @@ module OperatorSurfaceParity =
                         let extra = Set.difference actual expected
                         let missing = Set.difference expected actual
 
-                        // The widths ARE the content of a failure here, so every message
-                        // names them: which declaration to write, or which to delete.
                         let says (verdict: string) (widths: Set<string>) =
                             sprintf "the %s `%s` surface %s: %A" backendName symbol verdict (Set.toList widths)
 
-                        // A width the backend must RUN this operator at, declaring nothing,
-                        // is a program that is a COMPILE ERROR on that backend — the corpus
-                        // would go red, but only for the pairs someone wrote a program for.
+                        // A width the backend must RUN this operator at, declaring nothing, is
+                        // a COMPILE ERROR in any program that uses the pair.
                         Expect.isEmpty
                             missing
                             (says
                                 "is MISSING widths the manifest says it must run — they fall to the SRTP trait call and resolve no member"
                                 missing)
 
-                        // THE FALSE-PRECISION REGRESSION, mechanically. A pair the manifest
-                        // says this backend must REJECT, given a declaration: it now compiles
-                        // and emits whatever the body says, and no corpus program is looking
-                        // (`diagnose` rows assert on the compile error, which just
-                        // disappeared).
+                        // A pair the manifest says this backend must REJECT, given a
+                        // declaration: it compiles and emits whatever the body says, and the
+                        // `diagnose` row now asserts on a compile error that never arrives.
                         let mustReject =
                             extra
                             |> Set.filter (fun w ->
@@ -240,13 +204,9 @@ module OperatorSurfaceParity =
                                 "declares widths the manifest says it must REJECT at this operator — the declaration makes them compile, and emit"
                                 mustReject)
 
-                        // An UNPINNED declaration: emitted code that no conformance program
-                        // exercises and no golden judges. Failing rather than reporting is
-                        // the same doctrine as the rest of this corpus — a body whose answer
-                        // nothing checks is exactly the state that let ~8 wrong JS widths read
-                        // as coverage, and then let unsigned `~-` do it again one axis over —
-                        // and the fix is cheap either way: add the program, or delete the
-                        // declaration.
+                        // An UNPINNED declaration: emitted code no conformance program
+                        // exercises and no golden judges. The fix is to add the program or
+                        // delete the declaration.
                         let unpinned = extra |> Set.filter (fun w -> not (Map.containsKey w column))
 
                         Expect.isEmpty
@@ -255,9 +215,8 @@ module OperatorSurfaceParity =
                                 "declares widths the manifest never pairs with this operator — it emits code no conformance program judges"
                                 unpinned)
 
-                        // What is left over: a pair in the matrix that this backend is named
-                        // in neither half of — it owes the operator nothing at that width,
-                        // yet declares it.
+                        // What is left over: a pair in the matrix this backend is named in
+                        // neither half of, so it owes nothing there yet declares it.
                         let unsupported = extra - mustReject - unpinned
 
                         Expect.isEmpty

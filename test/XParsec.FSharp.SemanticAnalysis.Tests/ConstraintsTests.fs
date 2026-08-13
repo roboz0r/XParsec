@@ -115,29 +115,21 @@ let tests =
                 Expect.isTrue (hasMessage ctx "comparison") "comparison-violation diagnostic on tuple"
             }
 
-            test "struct constraint satisfied by int" {
-                let ctx = analyseUnif "let us<'a when 'a : struct> (x: 'a) = x\nlet _ = us 1"
-
-                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
-            }
-
-            test "struct constraint violated by string" {
-                let ctx = analyseUnif "let us<'a when 'a : struct> (x: 'a) = x\nlet _ = us \"x\""
-
-                Expect.isTrue (hasMessage ctx "struct") "struct-violation diagnostic"
-            }
-
-            test "reference-type constraint satisfied by string" {
+            // A function is a reference shape on every target. Value-ness of a PRIMITIVE is
+            // the target's answer and this suite composes no platform, so the codegen
+            // conformance corpus pins those. `"struct"` also matches the `not struct` message.
+            test "struct constraint violated by a function type" {
                 let ctx =
-                    analyseUnif "let ur<'a when 'a : not struct> (x: 'a) = x\nlet _ = ur \"x\""
+                    analyseUnif "let us<'a when 'a : struct> (x: 'a) = x\nlet _ = us (fun i -> i)"
 
-                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
+                Expect.isTrue (hasMessage ctx "'struct' constraint") "struct-violation diagnostic"
             }
 
-            test "reference-type constraint violated by int" {
-                let ctx = analyseUnif "let ur<'a when 'a : not struct> (x: 'a) = x\nlet _ = ur 1"
+            test "reference-type constraint satisfied by a function type" {
+                let ctx =
+                    analyseUnif "let ur<'a when 'a : not struct> (x: 'a) = x\nlet _ = ur (fun i -> i)"
 
-                Expect.isTrue (hasMessage ctx "not struct") "not-struct-violation diagnostic"
+                Expect.isFalse (hasMessage ctx "does not support") "no constraint diagnostic"
             }
 
             test "generic record use site that satisfies the constraint" {

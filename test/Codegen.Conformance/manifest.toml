@@ -6,7 +6,8 @@
 # It PRINTS computed values and nothing else: the judgement lives in the `.expected`
 # golden beside it, which carries F# semantics rather than any backend's current
 # opinion. A program that judged itself (`if x = y then 1 else 0`) would be trusting
-# `=`, one of the very things a backend can get wrong.
+# `=`, one of the very things a backend can get wrong. (The exception is an `accept`
+# program, below, whose subject has no printable result at all.)
 #
 # This file states, per program, what each backend OWES. These are the only legal
 # obligations, and there is no state in which a clause exists but quietly computes the
@@ -22,10 +23,15 @@
 #               substring. A width the target cannot represent must have no clause at
 #               all; emitting garbage for it is the failure this corpus exists to
 #               forbid.
+#   accept    — compile it clean, and assert nothing further. `diagnose`'s exact
+#               negation, for a subject the target ACCEPTS but no stdout can observe:
+#               `when 'a : struct` holding at `int` admits the call and yields no value
+#               to print. Carries NO golden.
 #
-# `run` / `faults` are program-wide (every backend listed in `run` owes the same
-# outcome); `diagnose` is per backend, because rejection is exactly where two targets
-# legitimately differ. A backend named nowhere owes nothing for that program.
+# `run` / `faults` / `accept` are lists of backends, each owing the same outcome;
+# `diagnose` carries a per-backend message, because rejection is exactly where two
+# targets legitimately differ — and a program may `accept` on one and `diagnose` on
+# another. A backend named nowhere owes nothing for that program.
 #
 # THE SUPPORT KEYS. `run` / `faults` / `diagnose` pin BEHAVIOUR — what a backend does
 # with a program. Two further keys pin STRUCTURE, and together they make this file the
@@ -220,6 +226,16 @@ run = ["clr"]
 diagnose = { js = "decimal is not supported on the js target" }
 width = "decimal"
 
+# `=` and `<` at the primitives. Neither is in the (width × operator) matrix — that matrix
+# is about `+ - * / %` — so these carry no `width`, exactly as the bitwise programs do.
+[[program]]
+path = "ops/equality-primitives.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/comparison-primitives.fs"
+run = ["clr", "js"]
+
 # `bigint` is the other non-CIL-primitive width, and the one both backends represent — the
 # BCL `BigInteger` and the JS `BigInt` primitive. It is the only width in this matrix with
 # no bound to wrap to, so its golden is the one that goes past 2^64 and stays exact.
@@ -307,3 +323,29 @@ run = ["clr", "js"]
 [[program]]
 path = "inline/inline-module.fs"
 run = ["clr", "js"]
+
+# ---------------------------------------------------------------------------------------
+# TYPAR CONSTRAINTS over PRIMITIVES — `when 'a : struct` and `when 'a : not struct`.
+#
+# Value-ness of a primitive is the TARGET's own answer, which two targets need not share, so
+# no shared contract states it and only a harness compiling through both real platform
+# providers pins it. Equality and comparison ARE contract-prescribed and stay in the
+# semantic-analysis suite; what the corpus adds for them is the operator behaviour above.
+#
+# The two polarities pin different amounts. A refusal is a compile error, so `diagnose`
+# states it exactly; satisfaction has no printable result, so it is `accept`.
+[[program]]
+path = "constraints/typar-struct.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-struct-violated.fs"
+diagnose = { clr = "does not support the 'struct' constraint", js = "does not support the 'struct' constraint" }
+
+[[program]]
+path = "constraints/typar-not-struct.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-not-struct-violated.fs"
+diagnose = { clr = "does not support the 'not struct' constraint", js = "does not support the 'not struct' constraint" }
