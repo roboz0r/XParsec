@@ -54,7 +54,7 @@ module EmitBindings =
             recur env b view.Body
         | ValueNone ->
             // A destructuring `let a, b = (1, 2) in body`: park the scrutinee in a temp,
-            // then `bindPattern` pulls each leaf boundVar out of it before the body runs.
+            // then `bindPattern` pulls each bound variable out of it before the body runs.
             let slot = b.Local(typeOfExpr view.Value)
             recur env b view.Value
             b.Add(ILInstr.Stloc slot)

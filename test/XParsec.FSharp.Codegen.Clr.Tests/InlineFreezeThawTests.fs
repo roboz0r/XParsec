@@ -226,8 +226,8 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 
     ExternalSymbolProviders.composite
         [
-            ExternalSymbolProviders.ofNamedLeaf
-                { ExternalSymbolProviders.NamedLeaf.empty with
+            ExternalSymbolProviders.ofNamedChannels
+                { ExternalSymbolProviders.NamedChannels.empty with
                     TryLookup =
                         fun name ->
                             match symbols.TryGetValue name with

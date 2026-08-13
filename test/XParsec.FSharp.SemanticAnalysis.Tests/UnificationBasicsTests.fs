@@ -137,11 +137,11 @@ let tests =
 
             test "Using a TyUnknown-typed external value emits a use-site diagnostic" {
                 // A contract val whose signature named an out-of-scope type bakes an
-                // `FTUnknown` leaf into the symbol itself. Referencing it must diagnose once
-                // that leaf reaches unification, not silently succeed.
+                // `FTUnknown` into the symbol itself. Referencing it must diagnose once
+                // that `FTUnknown` reaches unification, not silently succeed.
                 let brokenProvider =
-                    ExternalSymbolProviders.ofNamedLeaf
-                        { ExternalSymbolProviders.NamedLeaf.empty with
+                    ExternalSymbolProviders.ofNamedChannels
+                        { ExternalSymbolProviders.NamedChannels.empty with
                             TryLookup =
                                 fun name ->
                                     if name = "broken" then

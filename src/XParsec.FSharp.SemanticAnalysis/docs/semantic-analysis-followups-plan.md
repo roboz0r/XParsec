@@ -393,7 +393,7 @@ writes `not a.IsDefault` and is consistent with the code.)
 the `TyVar` payload deletes the arm; the `failwithf` is honest, so the fix is the signature, not
 the message.
 
-### `SemanticInfo.fs` — `FTLocalTypar` and `FTUnknown` share a leaf space
+### `SemanticInfo.fs` — `FTLocalTypar` and `FTUnknown` share a name space
 
 "Bound by a local scheme" and "unexplained metavar" are distinguished only by a string. The
 63-line essay in `Freeze.fs` was almost entirely about keeping those two apart by convention.
@@ -882,13 +882,13 @@ That forces `PassContext` onto callers that otherwise need only the store.
 `IntrinsicReverseCanon` / `IntrinsicForwardRepr`. The narrower sink is the intrinsic axes
 themselves.
 
-### `ExternalSymbolProviders.fs` — `KeyIndexedLeaf` cannot publish index signatures
+### `ExternalSymbolProviders.fs` — `KeyIndexedChannels` cannot publish index signatures
 
 The record has no index-signature channel, so `ofKeyIndexes` builds its `Named` from
-`NamedLeaf.empty` without overriding `TryLookupIndexSignature`, and `ofKeyedLeaf`'s store view
+`NamedChannels.empty` without overriding `TryLookupIndexSignature`, and `ofKeyedChannels`'s store view
 then answers every index-signature query from that constant `fun _ -> []`. A producer that
 acquires index signatures and holds `InModule` keys has no way to publish them and gets no
-compile error. The fix is a channel on `KeyIndexedLeaf`, not a comment.
+compile error. The fix is a channel on `KeyIndexedChannels`, not a comment.
 
 ### `CstWalk.fs:988` — `walkModuleTreeWith`'s `onScope` is unused at 4 of 5 call sites
 
@@ -1478,7 +1478,7 @@ The doc's own justification was that the two are "kept auditably parallel so a f
 diff the two": `TyConst`/`TyRecord`/`TyUnion`/`TyClass`/`TyFun`/`TyTuple` are each destructured
 and recursed in both `matchTypes` and `Engine.unify`, differing only in what the metavar and
 method-typar arms do (record into `binds` vs `Link` into the graph). A shared structural walk
-parameterised by a leaf handler would make the parallelism mechanical instead of an instruction
+parameterised by a per-node handler would make the parallelism mechanical instead of an instruction
 to the reader; a new `SemType` case added to `unify` alone currently degrades overload filtering
 silently to `| _ -> false`. The sweep cut the twenty-one-line header to three, so the invitation
 to diff is gone but the duplication is not.

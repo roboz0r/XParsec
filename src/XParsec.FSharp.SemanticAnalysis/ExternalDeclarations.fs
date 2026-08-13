@@ -548,7 +548,7 @@ type IntrinsicInterfaceShape =
         /// The abstract member surface (`Dispose`).
         Members: EqArray<ExternalMember>
         /// The directly-inherited interfaces: `enumerator` inherits `disposable`. Empty for
-        /// a leaf capability.
+        /// a capability that inherits none.
         Interfaces: EqArray<FrozenInterface>
         Origin: SymbolOrigin
     }

@@ -180,7 +180,7 @@ later still, from a review that started on one comment and ended in a 30-site sw
 `names no X` occurred 64 times in 44 files and read as one fact. It was three:
 
 - **Structurally has none — no lookup ever ran.** A counter-minted `NodeKey`, a virtual
-  token, a provider layer with no leaf. Say **has no** / **carries no** / **occupies no**.
+  token, a provider layer with no tail. Say **has no** / **carries no** / **occupies no**.
 - **Lookup ran, nothing of that spelling exists.** Say **does not resolve to a X**, or **is
   not in scope here** when the miss is positional.
 - **Resolved fine, wrong kind.** Say **is neither … nor …** / **is not a**.
@@ -205,7 +205,7 @@ verb. The plain transitive with no preposition (`resolves no values`) reads fine
 
 ### H18 — one noun for several concepts
 
-Eight words, each naming several independent things. The replacement count is the measure:
+Ten words, each naming several independent things. The replacement count is the measure:
 
 - `head` → `fn`/`Function`, `tyCtor`, `anchorIdent`, `ctorFun`/`ctorPat`, `current`,
   `zonkShallow`; kept for cons only — 160 files
@@ -221,6 +221,8 @@ Eight words, each naming several independent things. The replacement count is th
   `propagates` (a verdict down graph edges), `escapes` (a closure), `comes from` / `derives
   from` (an origin), `is preserved` (an order), `re-enters` (recursion); kept for `control
   flow` and for dataflow analysis — 23 files
+- `leaf` → `…Channels` (a record oflookup functions), `tryReplace` (a callback fired at every node), `bound variable` (what a pattern introduces), `argument`/`slot` (a type argument at a position), `namingPat`,
+  `TyparKey`, `atom`; kept for a childless tree node and a call-stack frame — 45 files
 
 Every replacement is a word the codebase ALREADY used for that concept. None is a coinage,
 and that is the acceptance test: **when a rename cannot find an existing word, the concept is
@@ -232,8 +234,9 @@ Two diagnostics that name the mode before any renaming:
   `harvest`. A picture accepts any concept that fits it, so it accretes.
 - **The word IS a term of art, for something else** — `head` (cons), `binder` (monadic
   `'a -> M<'b>`), `receiver` (the OO sense), `arrow` (the JS function form), `flow` (control
-  flow, and dataflow analysis). Used for their approximate meaning, these are worse than
-  metaphors: a reader who knows the term is actively misled rather than merely uninformed.
+  flow, and dataflow analysis), `leaf` (a tree node with no children). Used for their
+  approximate meaning, these are worse than metaphors: a reader who knows the term is
+  actively misled rather than merely uninformed.
 
 > Those eight renames touched ~800 files because the vocabulary had reached the identifiers,
 > and the comments only inherited it. **Catch it in the comment and you catch it before it is
@@ -243,6 +246,19 @@ Two diagnostics that name the mode before any renaming:
 exactly one identifier — `Cil.fs`'s `flow`, correctly bound to a `ControlFlowBuilder` — so the
 whole defect sat in prose and no rename pressure ever surfaced it. A word can be this
 overloaded and still be invisible to every tool the compiler gives you.
+
+`leaf` is the case where the warning above arrived too late: it had already reached the API
+as `NamedLeaf`/`KeyedLeaf`/`KeyIndexedLeaf` and `ofNamedLeaf`/`ofKeyedLeaf`, none of which is
+a leaf of anything — they are records of lookup functions, composable at any position in the
+provider stack. Two independent falsehoods surfaced when the senses were separated, and both
+are the signature of a term of art borrowed for its picture:
+
+- **A parameter named for the opposite of its contract.** `FrozenType.mapVariant`'s `leaf`
+  callback fires FIRST at every node, interior ones included, so the test pinning that had to
+  be named *"the leaf is consulted first at NON-leaf nodes"*. A comment forced to negate its
+  own noun is the tell.
+- **A position asserted by a name the value does not have.** One test read *"a repr-only leaf
+  AHEAD of the contract"* and another composed `[ leaf; realProvider ]` — leaf first.
 
 **Its disposition is heavier than the other eight, and that is the point.** Renaming `holder`
 to `Container` is a substitution. Replacing `flow` means first deciding WHICH relation was

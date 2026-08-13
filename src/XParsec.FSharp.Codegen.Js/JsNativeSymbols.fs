@@ -69,8 +69,8 @@ module JsNativeSymbols =
 
     /// The stub table as a provider.
     let provider: IExternalSymbolProvider =
-        ExternalSymbolProviders.ofNamedLeaf
-            { ExternalSymbolProviders.NamedLeaf.empty with
+        ExternalSymbolProviders.ofNamedChannels
+            { ExternalSymbolProviders.NamedChannels.empty with
                 TryLookupType =
                     fun name ->
                         match Map.tryFind name types with

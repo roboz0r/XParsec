@@ -192,7 +192,7 @@ module internal TsManifestTranslate =
     let structuralKey (hash: string) : string * TypeKey = mint structuralHome hash 0
 
     /// Every anonymous OBJECT shape reachable from a `TypeRef`, nested ones included. A `Named`
-    /// ref is a hashing leaf, but its ARGS are descended: a shape in `Array<{x}>` is a value.
+    /// ref hashes by name, but its ARGS are descended: a shape in `Array<{x}>` is a value.
     let rec structuralShapesIn (t: Schema.TypeRef) : (string * (string * Schema.TypeRef) list) list =
         match t with
         | Schema.TypeRef.Named(_, args) -> args |> List.collect structuralShapesIn
@@ -238,7 +238,7 @@ module internal TsManifestTranslate =
             here @ (fields |> List.collect (fun (_, ft) -> structuralIndexSigsIn ft))
 
     /// Every `TypeRef` an export directly mentions, for the structural pre-scan. A namespace
-    /// is flattened to leaf exports before this is reached; an enum carries only literals.
+    /// is flattened to its member exports before this is reached; an enum carries only literals.
     let exportTypeRefs (ex: Schema.Export) : Schema.TypeRef list =
         let sigRefs (sg: Schema.Signature) : Schema.TypeRef list =
             [

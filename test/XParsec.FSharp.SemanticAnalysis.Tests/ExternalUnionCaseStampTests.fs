@@ -11,8 +11,8 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// as the real prelude auto-opens the package namespace so `Some`/`None` are bare-visible;
 /// `Other.Shade` (case `Green`) does not, so bare `Green` needs an explicit `open Other`.
 let private provider: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookupUnionCase =
                 fun caseName ->
                     let mk union name =

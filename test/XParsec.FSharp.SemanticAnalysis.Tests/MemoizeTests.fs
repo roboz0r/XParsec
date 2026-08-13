@@ -9,8 +9,8 @@ open XParsec.FSharp.SemanticAnalysis
 let private origin = SymbolOrigin.Empty
 
 /// An inner provider answering only `name`, counting per-channel hits. It implements the
-/// interface directly rather than wrapping a leaf, because a leaf's `TryLookupMemberByKey` is
-/// derived from `TryLookupMembers` — `MemberKeyHits` would count a different channel.
+/// interface directly rather than wrapping `NamedChannels`, whose `TryLookupMemberByKey` is
+/// derived from `TryLookupMembers`, so `MemberKeyHits` would count a different channel.
 type private CountingProvider(name: string) =
     let mutable lookupHits = 0
     let mutable typeHits = 0

@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 // `declaringArgs.[i]`; `instantiateSignature` also freshens the method axis to `TyVar`s.
 
 /// Ground (`TyVar`-free, `TyTypar`-free) types for the declaring args, so `instantiate*`
-/// produces structurally-comparable `SemType`s — a `TyVar` leaf would defeat `=`.
+/// produces structurally-comparable `SemType`s — a `TyVar` would defeat `=`.
 let private groundArgs: SemType[] =
     [|
         TyConst(RuntimeNames.intKey, EqArray.empty)
@@ -19,7 +19,7 @@ let private groundArgs: SemType[] =
 let private kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
 let private kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
 
-/// The declaring-typar template leaf `FTTypar(Declaring, i)`, which must realise to
+/// The declaring-typar template `FTTypar(Declaring, i)`, which must realise to
 /// `groundArgs.[i]`.
 let private d (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
 

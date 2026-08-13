@@ -67,7 +67,7 @@
     <Compile Include="TastAccessor.fs" />
     <!-- After the pools: the codec serializes the POOL columns, so it depends on
          `TastPoolTypes`/`TastPools`, not the other way round. Its four modules are in
-         layer order — stream/leaf primitives, then the type domain, then the declaration
+         layer order — stream/scalar primitives, then the type domain, then the declaration
          shell, then the columns `flatten`/`thaw` store — each reading only the ones above
          it. -->
     <Compile Include="FrozenCodecPrimitives.fs" />

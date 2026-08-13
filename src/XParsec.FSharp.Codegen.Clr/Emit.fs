@@ -78,8 +78,8 @@ module Emit =
                     buildExpr env b dl.Value
                     b.Add(ILInstr.Stloc slot)
                 // A destructuring top-level `let (a, b) = tupleExpr`: evaluate the value
-                // once into a Main local, then `bindPattern` pulls each leaf into its
-                // own slot.
+                // once into a Main local, then `bindPattern` pulls each bound variable into
+                // its own slot.
                 | ValueNone ->
                     let slot = b.Local(EmitLower.typeOfExpr dl.Value)
                     buildExpr env b dl.Value

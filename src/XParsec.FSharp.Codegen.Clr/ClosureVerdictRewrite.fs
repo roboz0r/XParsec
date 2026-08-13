@@ -4,7 +4,7 @@ open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
 /// `map f src` freezes as `MapSeq<…, (int->int), …>` but the call produces a `<closure>$`
-/// value-struct: rewrite that leaf to the value-struct so the `constrained.` token matches
+/// value-struct: rewrite that argument to the value-struct so the `constrained.` token matches
 /// the value. Keyed by lambda NODE, so two `int->int` transformers are never conflated.
 module internal ClosureVerdictRewrite =
 
@@ -42,15 +42,15 @@ module internal ClosureVerdictRewrite =
 
             d
 
-        // Each verdict module value's rewritten field type + its `function → closure` leaf
+        // Each verdict module value's rewritten field type + its `function → closure` argument
         // replacements. Filled in DECLARATION order, so a chained `let s2 = map g s1` can
         // read the ALREADY-rewritten type of `s1`.
         let verdictBindings =
             Dictionary<BoundVarId, FrozenType * (FrozenType * FrozenType) list>()
 
-        // Replace a stored binding's `'TFunc`-position leaf with the value-struct closure its
+        // Replace a stored binding's `'TFunc` argument with the value-struct closure its
         // initialiser produces, matched by POSITION, so a genuine function-valued field of
-        // the same shape is untouched. Returns the container type + the leaf replacements.
+        // the same shape is untouched. Returns the container type + the argument replacements.
         let substituteVerdictClosures
             (ty: FrozenType)
             (init: TastAccessor.ExprId)
@@ -101,7 +101,7 @@ module internal ClosureVerdictRewrite =
                     | FTTuple ao, FTTuple an when ao.Length = an.Length ->
                         record oldT newT
                         recordArgs recordNominalDiff ao an
-                    // A differing leaf (`FTFun` → `<closure>$`) or a swapped type
+                    // A differing argument (`FTFun` → `<closure>$`) or a swapped type
                     // constructor: the caller already recorded the nominal enclosing it.
                     | _ -> ()
 
@@ -118,7 +118,7 @@ module internal ClosureVerdictRewrite =
                     | true, (newTy, _) ->
                         // The referenced binding contributes two nested positions: its `'S`
                         // source slot (`varTy`→`newTy`) and its `'E` enumerator, derived by
-                        // the witness from that SAME pair rather than from an `FTFun` leaf.
+                        // the witness from that SAME pair rather than from an `FTFun` argument.
                         recordNominalDiff varTy newTy
 
                         match enumeratorOf varTy, enumeratorOf newTy with
@@ -184,8 +184,8 @@ module internal ClosureVerdictRewrite =
 
             scan e
 
-        // In a producing transformer's result (`MapSeq<…,fn,…>`), replace the `'TFunc`-position
-        // leaf with THIS call's own `<closure>$`. A same-shaped function type at any other
+        // In a producing transformer's result (`MapSeq<…,fn,…>`), replace the `'TFunc`
+        // argument with THIS call's own `<closure>$`. A same-shaped function type at any other
         // position is untouched, because the nested source slot is rewritten by its own producing site.
         let rewriteAppResultByVerdict (resultTy: FrozenType) (verdict: struct (FrozenType * int)) : FrozenType =
             let struct (closureFt, pos) = verdict

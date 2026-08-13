@@ -37,7 +37,7 @@ let private widgetShape (ifaceKey: TypeKey) =
         }
     )
 
-/// A key-INDEXED leaf, because a name-indexed one derives its keys with
+/// Key-INDEXED channels, because name-indexed ones derive their keys with
 /// `qualifiedTypeKeyOf` and so cannot express an `InModule` identity at all.
 let private providerFor (ifaceKey: TypeKey) : IExternalSymbolProvider =
     let shapes = Dictionary<SymbolKey, ExternalTypeShape>()
@@ -48,9 +48,9 @@ let private providerFor (ifaceKey: TypeKey) : IExternalSymbolProvider =
     byName.[SymbolKeyOps.typeMetaName widgetKey] <- widgetKey
     byName.[SymbolKeyOps.typeMetaName ifaceKey] <- ifaceKey
 
-    ExternalSymbolProviders.ofKeyedLeaf (
-        ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes
-            { ExternalSymbolProviders.KeyIndexedLeaf.empty with
+    ExternalSymbolProviders.ofKeyedChannels (
+        ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
+            { ExternalSymbolProviders.KeyIndexedChannels.empty with
                 ShapesByKey = shapes
                 ResolveTypeName =
                     fun n ->

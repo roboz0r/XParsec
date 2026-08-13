@@ -11,8 +11,8 @@ type KeyedMemberName =
         Name: string
     }
 
-/// `KeyedMemberName` with the declaring type RENDERED: the address a leaf's own by-name
-/// member index is keyed on.
+/// `KeyedMemberName` with the declaring type RENDERED: the address a by-name member index
+/// is keyed on.
 type ExternalMemberName =
     {
         /// The declaring type's qualified compiled name.
@@ -31,10 +31,10 @@ module ExternalMemberName =
 module ExternalSymbolProviders =
 
 
-    /// A leaf whose types' identities are not a field: a name IS the identity, so a type
-    /// key is minted from the name and a key lookup is the rendered name lookup. A leaf
-    /// holding `TypeContainer.InModule` types supplies a `KeyIndexedLeaf` instead.
-    type NamedLeaf =
+    /// Channels whose types' identities are not a field: a name IS the identity, so a type
+    /// key is minted from the name and a key lookup is the rendered name lookup. A source
+    /// holding `TypeContainer.InModule` types supplies `KeyIndexedChannels` instead.
+    type NamedChannels =
         {
             TryLookup: string -> ExternalSymbol voption
             TryLookupType: string -> ExternalTypeShape voption
@@ -47,10 +47,10 @@ module ExternalSymbolProviders =
             IsValueType: TypeKey -> bool voption
         }
 
-    module NamedLeaf =
+    module NamedChannels =
 
-        /// Every channel misses, so override just what the leaf models.
-        let empty: NamedLeaf =
+        /// Every channel misses, so override just what the source models.
+        let empty: NamedChannels =
             {
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
@@ -63,9 +63,9 @@ module ExternalSymbolProviders =
                 IsValueType = fun _ -> ValueNone
             }
 
-    /// A leaf that HOLDS its types' identities. Needed when a type is
+    /// Channels that HOLD their types' identities. Needed when a type is
     /// `TypeContainer.InModule`, whose rendering is not what the source writes.
-    type KeyIndexedLeaf =
+    type KeyIndexedChannels =
         {
             ShapesByKey: IReadOnlyDictionary<SymbolKey, ExternalTypeShape>
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
@@ -80,9 +80,9 @@ module ExternalSymbolProviders =
             IntrinsicTypeMap: IntrinsicTypeMap
         }
 
-    module KeyIndexedLeaf =
+    module KeyIndexedChannels =
 
-        let empty: KeyIndexedLeaf =
+        let empty: KeyIndexedChannels =
             {
                 ShapesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
                 MembersByKey = Dictionary() :> IReadOnlyDictionary<_, _>
@@ -94,38 +94,38 @@ module ExternalSymbolProviders =
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
             }
 
-    /// A leaf's type channels answered BY KEY, whichever way the leaf came by them:
+    /// Type channels answered BY KEY, whichever way the source came by them:
     /// `ofNamed` renders the key onto a name index, `ofKeyIndexes` reads a real one.
-    type KeyedLeaf =
+    type KeyedChannels =
         {
-            Named: NamedLeaf
+            Named: NamedChannels
             /// Identity + shape from one read. Derived by both builders, never supplied.
             TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
             TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
             TypeMembersByKey: KeyedMemberName -> EqArray<ExternalMember>
         }
 
-    module KeyedLeaf =
+    module KeyedChannels =
 
-        let ofNamed (leaf: NamedLeaf) : KeyedLeaf =
+        let ofNamed (channels: NamedChannels) : KeyedChannels =
             {
-                Named = leaf
+                Named = channels
                 TypeByName =
                     fun name ->
-                        leaf.TryLookupType name
+                        channels.TryLookupType name
                         |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
-                TypeShapeByKey = fun key -> leaf.TryLookupType(SymbolKeyOps.qualifiedName key)
-                TypeMembersByKey = ExternalMemberName.ofKeyed >> leaf.TryLookupMembers
+                TypeShapeByKey = fun key -> channels.TryLookupType(SymbolKeyOps.qualifiedName key)
+                TypeMembersByKey = ExternalMemberName.ofKeyed >> channels.TryLookupMembers
             }
 
-        let ofKeyIndexes (leaf: KeyIndexedLeaf) : KeyedLeaf =
+        let ofKeyIndexes (channels: KeyIndexedChannels) : KeyedChannels =
             let shapeByKey (key: SymbolKey) : ExternalTypeShape voption =
-                match leaf.ShapesByKey.TryGetValue key with
+                match channels.ShapesByKey.TryGetValue key with
                 | true, shape -> ValueSome shape
                 | _ -> ValueNone
 
             let membersNamed (key: KeyedMemberName) : EqArray<ExternalMember> =
-                match leaf.MembersByKey.TryGetValue key.DeclaringType with
+                match channels.MembersByKey.TryGetValue key.DeclaringType with
                 | true, ms ->
                     EqArray.ofSeq
                         [
@@ -137,16 +137,16 @@ module ExternalSymbolProviders =
 
             {
                 Named =
-                    { NamedLeaf.empty with
-                        TryLookup = leaf.TryLookup
-                        TryLookupUnionCase = leaf.TryLookupUnionCase
-                        TryRecordsWithField = leaf.TryRecordsWithField
-                        AmbientOpenPrefixes = leaf.AmbientOpenPrefixes
-                        IntrinsicTypeMap = leaf.IntrinsicTypeMap
+                    { NamedChannels.empty with
+                        TryLookup = channels.TryLookup
+                        TryLookupUnionCase = channels.TryLookupUnionCase
+                        TryRecordsWithField = channels.TryRecordsWithField
+                        AmbientOpenPrefixes = channels.AmbientOpenPrefixes
+                        IntrinsicTypeMap = channels.IntrinsicTypeMap
                     }
                 TypeByName =
                     fun name ->
-                        match leaf.ResolveTypeName name with
+                        match channels.ResolveTypeName name with
                         | ValueSome key ->
                             shapeByKey (SymbolKey.Type key)
                             |> ValueOption.map (fun shape -> struct (key, shape))
@@ -155,32 +155,32 @@ module ExternalSymbolProviders =
                 TypeMembersByKey = membersNamed
             }
 
-    let ofKeyedLeaf (leaf: KeyedLeaf) : IExternalSymbolProvider =
-        let named = leaf.Named
+    let ofKeyedChannels (channels: KeyedChannels) : IExternalSymbolProvider =
+        let named = channels.Named
 
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
               member _.TryLookup name = named.TryLookup name
-              member _.TryLookupType(name: string) = leaf.TypeByName name
+              member _.TryLookupType(name: string) = channels.TypeByName name
               member _.TryLookupUnionCase caseName = named.TryLookupUnionCase caseName
               member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
           interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) = leaf.TypeShapeByKey key
+              member _.TryLookupType(key: SymbolKey) = channels.TypeShapeByKey key
 
               member _.TryLookupMembers(key, memberName) =
-                  leaf.TypeMembersByKey
+                  channels.TypeMembersByKey
                       {
                           DeclaringType = key
                           Name = memberName
                       }
 
-              // A leaf indexes members by (declaring type, member NAME), so a key is the
-              // exact-identity selection out of that name's overload set. A
+              // These channels index members by (declaring type, member NAME), so a key is
+              // the exact-identity selection out of that name's overload set. A
               // first-in-declaration-order pick would answer with a SIBLING overload.
               member _.TryLookupMemberByKey(key: MemberKey) =
-                  leaf.TypeMembersByKey
+                  channels.TypeMembersByKey
                       {
                           DeclaringType = SymbolKey.Type key.Decl
                           Name = key.Name
@@ -200,10 +200,11 @@ module ExternalSymbolProviders =
               member _.IsValueType key = named.IsValueType key
         }
 
-    let ofNamedLeaf (leaf: NamedLeaf) : IExternalSymbolProvider = ofKeyedLeaf (KeyedLeaf.ofNamed leaf)
+    let ofNamedChannels (channels: NamedChannels) : IExternalSymbolProvider =
+        ofKeyedChannels (KeyedChannels.ofNamed channels)
 
     /// Every channel a miss.
-    let nullProvider: IExternalSymbolProvider = ofNamedLeaf NamedLeaf.empty
+    let nullProvider: IExternalSymbolProvider = ofNamedChannels NamedChannels.empty
 
     /// Every channel defaults to forwarding `inner`, so a subclass overrides only what it
     /// changes. The two `TryLookupType` overloads are named apart because an override's
@@ -266,7 +267,7 @@ module ExternalSymbolProviders =
             member this.IsValueType key = this.IsValueType key
 
     /// The composed intrinsic axis of `sources`, EARLIEST source nearest: what `stack`
-    /// publishes, exposed for a caller that must seed a leaf with it before composing.
+    /// publishes, exposed for a caller that must seed a tail source with it before composing.
     let mergeIntrinsics (sources: IExternalSymbolProvider seq) : IntrinsicTypeMap =
         sources
         |> Seq.collect (fun s -> IntrinsicTypeMap.entries s.IntrinsicTypeMap)
@@ -428,7 +429,7 @@ module ExternalSymbolProviders =
               member _.IntrinsicTypeMap = intrinsics
 
               // Per FACT, not per shape: a source with no opinion abstains, so the platform
-              // leaf at the tail is reached past every contract source above it.
+              // tail is reached past every contract source above it.
               member _.IsValueType key = firstHit (fun s -> s.IsValueType key)
         }
 

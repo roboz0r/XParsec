@@ -7,8 +7,9 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
 
 /// The FROZEN type domain: the reference codec every other module reaches a type through,
-/// the non-generic leaf payloads the tree and the side tables carry, the printf hole-form
-/// cluster, and the leaf type-declaration payloads. NOTHING here is written structurally.
+/// the non-generic payloads the tree and the side tables carry, the printf hole-form
+/// cluster, and the type-declaration payloads with no sub-expression. NOTHING here is
+/// written structurally.
 module FrozenCodecTypes =
 
     // ── a REFERENCE into the file's tables ──────────────────────────────────
@@ -84,7 +85,7 @@ module FrozenCodecTypes =
 
         s :> System.Collections.Generic.IReadOnlySet<SymbolKey>
 
-    // ── non-generic leaf payloads the tree / side tables carry ──────────────
+    // ── non-generic payloads the tree / side tables carry ──────────────
 
     let private writeIntWidth (w: FrozenWriter) (iw: IntWidth) =
         match iw with
@@ -532,7 +533,7 @@ module FrozenCodecTypes =
         | b -> failwithf "FrozenCodec: unknown HoleSpecSource tag %d" b
 
     // A `HoleSpec` carries no sub-expression, its three fields being a type, a source and an
-    // anchor, so it is a leaf even though the format SEGMENT that holds it is not.
+    // anchor, so it belongs here even though the format SEGMENT that holds it does not.
     let writeHoleSpec (w: FrozenWriter) (h: Pooled.HoleSpec) =
         writeTypeRef w h.Ty
         writeHoleSpecSource w h.Source
@@ -544,7 +545,7 @@ module FrozenCodecTypes =
         let tok = readAnchor r
         { Ty = ty; Source = source; Tok = tok }
 
-    // ── the leaf type-declaration payloads (no sub-expression) ──────────────
+    // ── the type-declaration payloads with no sub-expression ──────────────
 
     let writeAbstractMethod (w: FrozenWriter) (m: Frozen.TAbstractMethod) =
         w.Write m.Name

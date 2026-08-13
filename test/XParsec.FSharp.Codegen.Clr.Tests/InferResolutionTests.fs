@@ -190,9 +190,9 @@ let tests =
                                 ])
                     }
 
-                    // `isNull`'s body is `(# "ceq" value null : bool #)`, so the `null` leaf
-                    // has to be pinned to the other operand rather than mint a fresh `TyVar`.
-                    test "`isNull` on a nullable operand grounds the `null` leaf" {
+                    // `isNull`'s body is `(# "ceq" value null : bool #)`, so the `null` operand
+                    // has to be pinned to the other one rather than mint a fresh `TyVar`.
+                    test "`isNull` on a nullable operand grounds the `null` operand" {
                         clean "isnull-string" "let f (s: string | null) = isNull s"
                     }
 

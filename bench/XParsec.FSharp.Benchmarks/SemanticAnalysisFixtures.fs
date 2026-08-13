@@ -40,14 +40,14 @@ type Stage =
 
 /// Compose a contract provider from a set of package names — the SAME provider the CLR
 /// package build (`buildPackage`) uses: `ClrSymbolProviders.buildContract` supplies the
-/// BCL reflection leaf (`bclMetaTail`, over the host runtime) AND cross-package inline
+/// BCL reflection tail (`bclMetaTail`, over the host runtime) AND cross-package inline
 /// bodies. Both are load-bearing: Core's `(# "System.Int32" #)` reprs and Set's BCL-
 /// interface impls (`ICollection`/`IComparable`/…) do not resolve without the metadata
-/// leaf — omitting it (a bare `composeContract noMetaTail`) leaves Core/Set analysing on
+/// tail — omitting it (a bare `composeContract noMetaTail`) leaves Core/Set analysing on
 /// the ERROR path, which is not a workload worth timing. `composeContract` resolves the
 /// transitive `depends-on` closure itself, so the DIRECT deps are enough (an empty list is
 /// the empty contract — Core's case). This is faithful because these are the CLR self-host
-/// sources; the JS backend would inject its own leaf.
+/// sources; the JS backend would inject its own tail.
 let composeProvider (pkgs: string list) : IExternalSymbolProvider =
     pkgs |> List.map packageDir |> ClrSymbolProviders.buildContract
 

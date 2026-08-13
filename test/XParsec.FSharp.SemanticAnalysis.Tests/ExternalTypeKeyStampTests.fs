@@ -9,8 +9,8 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// `Tests` is ambient because the real prelude auto-opens the package namespace.
 let private provider: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookupType =
                 fun n ->
                     match n with
@@ -107,8 +107,8 @@ let tests =
             // `Late`, so it names the union and no constructible-class stamp appears.
             test "classification commits to the first hit — a shadowed class stays shadowed" {
                 let shadowingProvider: IExternalSymbolProvider =
-                    ExternalSymbolProviders.ofNamedLeaf
-                        { ExternalSymbolProviders.NamedLeaf.empty with
+                    ExternalSymbolProviders.ofNamedChannels
+                        { ExternalSymbolProviders.NamedChannels.empty with
                             TryLookupType =
                                 fun n ->
                                     match n with

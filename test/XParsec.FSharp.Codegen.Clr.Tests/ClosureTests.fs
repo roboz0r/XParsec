@@ -160,7 +160,7 @@ let tests =
 
             // `(+)` used as a VALUE is eta-reified and the operator's contract body spliced
             // into the `App` the eta minted, so the binding holds a two-lambda closure over
-            // that body, not a bare `External op_Addition` leaf.
+            // that body, not a bare `External op_Addition` reference.
             yield
                 test "`let add = (+)` analyses clean to an eta-reified closure over the operator body" {
                     let tast = analyse "let add = (+)\nprintfn \"%d\" (add 40 2)"

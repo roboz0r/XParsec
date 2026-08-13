@@ -550,7 +550,7 @@ let jsPackageConformanceTests =
                 // Erasure is the axis content cannot decide: `compiler-attributes.fsi`'s
                 // compile-time markers owe the CLR TypeDefs but owe JS nothing, and
                 // `exceptions.js.fsi` declares BCL names the CLR resolves through the metadata
-                // leaf instead. An entry every target of the package carries is a property of
+                // tail instead. An entry every target of the package carries is a property of
                 // the contract; one only a single target carries is the claim this list exists
                 // to make argue for itself.
                 let expected =
@@ -760,8 +760,8 @@ let enforcementTests =
 let private contractProvider (entries: (string * ExternalSymbol) list) : IExternalSymbolProvider =
     let m = Map.ofList entries
 
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookup =
                 fun name ->
                     match Map.tryFind name m with
@@ -863,8 +863,8 @@ let private mkMember
 /// A contract provider publishing exactly `overloads`, keyed by member name only:
 /// the stub serves whatever qualified name the `.fs` type resolves under.
 let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookupMembers = fun q -> overloads |> List.filter (fun m -> m.Name = q.Name) |> EqArray.ofList
         }
 

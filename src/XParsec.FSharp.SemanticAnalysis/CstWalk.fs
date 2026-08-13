@@ -201,8 +201,8 @@ module DeclContainment =
 
         path
 
-/// One flattened leaf element of a module tree, with the ambient facts a pass needs at
-/// that position.
+/// One flattened element of a module tree, nested modules already descended into, with
+/// the ambient facts a pass needs at that position.
 type WalkedElem<'T> =
     {
         Elem: ModuleElem<'T>
@@ -961,7 +961,7 @@ module CstWalk =
 
         b.ToImmutable()
 
-    /// Scope-preserving sibling of `implFileElems`: the same flattened leaf elements, each
+    /// Scope-preserving sibling of `implFileElems`: the same flattened elements, each
     /// paired with the `OpenScope` active at its position, and `onScope` fired once per
     /// body entered. A non-rec scope accumulates; under `rec` every `open` covers it all.
     let walkModuleTreeWith

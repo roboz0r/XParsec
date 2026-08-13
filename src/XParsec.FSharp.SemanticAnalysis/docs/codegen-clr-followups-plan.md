@@ -347,9 +347,9 @@ free function `lookupTypeByKey` reconciles. Nothing today calls the member direc
 interface offers the wrong one first. Normalising the key at registration deletes the helper, its
 doc, and the choice.
 
-## B13. `MetadataLeafKey` — `ClrSymbolProviders`' two memos differ only in what they may key on
+## B13. `MetadataTailKey` — `ClrSymbolProviders`' two memos differ only in what they may key on
 
-`bclMetaTail` memoises leaves process-wide on the reverse map alone, which is sound only because
+`bclMetaTail` memoises tails process-wide on the reverse map alone, which is sound only because
 the host TPA is constant; `bclMetaTailWith` therefore cannot reuse it and mints a fresh
 per-instance memo per compilation. Both functions are otherwise identical, and the deleted prose
 was a warning not to route the path-taking one through the global memo.

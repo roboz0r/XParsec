@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The `ClrDriver` acceptance gate: unlike the rest of this suite, which reads the BCL off
-// the compiler HOST's runtime assemblies, the driver builds its metadata leaf from an
+// the compiler HOST's runtime assemblies, the driver builds its metadata tail from an
 // EXPLICIT reference set, in this case the pinned `net8.0` ref pack.
 
 /// The simple names the PE at `path` declares an `AssemblyRef` to.

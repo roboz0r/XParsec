@@ -47,24 +47,28 @@ module FrozenType =
         | FTLocalTypar _
         | FTUnknown _ -> t
 
-    /// Variance-tracking rebuild. `leaf v node` is consulted FIRST at every node:
-    /// `ValueSome replacement` replaces `node` at variance `v` and STOPS the recursion;
-    /// `ValueNone` recurses under the variance rule the arms below spell out.
-    let rec mapVariant (leaf: Variance -> FrozenType -> FrozenType voption) (v: Variance) (t: FrozenType) : FrozenType =
-        match leaf v t with
+    /// Variance-tracking rebuild. `tryReplace v node` is consulted FIRST at every node,
+    /// interior ones included: `ValueSome replacement` replaces `node` at variance `v` and
+    /// STOPS the recursion; `ValueNone` recurses under the variance rule the arms spell out.
+    let rec mapVariant
+        (tryReplace: Variance -> FrozenType -> FrozenType voption)
+        (v: Variance)
+        (t: FrozenType)
+        : FrozenType =
+        match tryReplace v t with
         | ValueSome replaced -> replaced
         | ValueNone ->
             match t with
-            | FTFun(a, b) -> FTFun(mapVariant leaf v.Flip a, mapVariant leaf v b)
-            | FTConst(key, args) -> FTConst(key, args |> EqArray.map (mapVariant leaf Variance.Inv))
-            | FTClass(k, args) -> FTClass(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
-            | FTRecord(k, args) -> FTRecord(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
-            | FTUnion(k, args) -> FTUnion(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
+            | FTFun(a, b) -> FTFun(mapVariant tryReplace v.Flip a, mapVariant tryReplace v b)
+            | FTConst(key, args) -> FTConst(key, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
+            | FTClass(k, args) -> FTClass(k, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
+            | FTRecord(k, args) -> FTRecord(k, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
+            | FTUnion(k, args) -> FTUnion(k, args |> EqArray.map (mapVariant tryReplace Variance.Inv))
             | FTTuple _
             | FTOr _
             | FTKeyOf _
             | FTIndexedAccess _
-            | FTConditional _ -> mapChildren (mapVariant leaf v) t
+            | FTConditional _ -> mapChildren (mapVariant tryReplace v) t
             | FTEnum _
             | FTLiteral _
             | FTTypar _

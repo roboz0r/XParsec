@@ -26,7 +26,7 @@ separately, through every composed layer, on every query:
 Five of the seven address exactly one type. They are one query wearing five hats, and the cost
 of that shows up in four places:
 
-1. **The leaf already does the round trip and nobody consumes it.** `MetadataSymbols.computeType`
+1. **The metadata tail already does the round trip and nobody consumes it.** `MetadataSymbols.computeType`
    (`:468-493`) enumerates properties, methods, indexers, fields, ctors, interfaces, base type,
    flags and origin in ONE locked reflection pass, and hands them back on
    `ExternalClassShape.Members`. `computeMembers` (`:508`) then re-resolves the same `Type` and
@@ -112,12 +112,12 @@ existing channels, so every provider keeps compiling. Move consumers onto it one
 No behaviour change. This step is only about there being one name for the query before there is
 one implementation.
 
-### 2. Move each leaf onto `TryResolveType` natively, and delete the five channels
+### 2. Move each source onto `TryResolveType` natively, and delete the five channels
 
-Four leaf construction sites in `src` (`JsNativeSymbols.fs:72`, `TsManifestProvider.fs:189`,
+Four channel construction sites in `src` (`JsNativeSymbols.fs:72`, `TsManifestProvider.fs:189`,
 `FrozenSignature.fs:474`, `VesperLib/TyparCapture.fs:256`) plus `MetadataSymbolProvider`, which
-implements the interface directly. The contract leaves already hold whole-type dictionaries
-(`KeyIndexedLeaf.ShapesByKey` / `.MembersByKey`), so for them this is a join, not new work.
+implements the interface directly. The contract sources already hold whole-type dictionaries
+(`KeyIndexedChannels.ShapesByKey` / `.MembersByKey`), so for them this is a join, not new work.
 
 `MetadataSymbolProvider` is where the win lands: `computeType` becomes the sole reflection pass
 and `computeMembers` goes.
@@ -126,15 +126,15 @@ and `computeMembers` goes.
 with `ResolvedType.Members` and must not survive as a second home. Two other shapes carry a
 `Members` field (`:488`, `:549`) — verify what they are before assuming the same applies.
 
-### 3. Fix the key convention at the leaf
+### 3. Fix the key convention at the source
 
-`CodegenSymbols.reconciledLookup` (`:12-22`) exists because leaves disagree on whether a generic
+`CodegenSymbols.reconciledLookup` (`:12-22`) exists because sources disagree on whether a generic
 type is keyed BARE (`Vesper.Option`, contract layer) or ARITY-SUFFIXED (`Vesper.Option\`1`,
 metadata layer). It double-probes every lookup to paper over that.
 
 If `TryResolveType` inherits the double probe, the wart survives the refactor in a channel that
 is now the ONLY way to reach a type — strictly worse than today. Pick one convention, make each
-leaf key on it, delete `reconciledLookup`.
+source key on it, delete `reconciledLookup`.
 
 *This commit generalising `reconciledLookup` to `'a voption` so it could serve a second channel
 is the signal: the next use is the one to remove it before, not after.*
@@ -161,21 +161,21 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
    from one fetch — it is not the defect. Giving it a matching `ResolvedSymbol` is optional
    symmetry and explicitly NOT in scope.
 
-3. **No `Lazy` fields on `ResolvedType` up front.** Both leaves that matter already answer
-   eagerly. Add per-field laziness only when a specific leaf is shown to need it.
+3. **No `Lazy` fields on `ResolvedType` up front.** Both sources that matter already answer
+   eagerly. Add per-field laziness only when a specific source is shown to need it.
 
 4. **`IExternalSymbolResolver` is untouched.** Anything reaching for it during this work is a
    sign the name→identity half is being dragged in; it is a different query and stays one.
 
 ## Constraints
 
-- **17 test files build mock providers as `{ NamedLeaf.empty with … }`** and must not churn.
-  `NamedLeaf` / `KeyIndexedLeaf` are the ergonomic surface, `IExternalSymbolStore` is the
-  contract, and only the latter is changing shape. Keep `NamedLeaf` field-per-channel and derive
-  `TryResolveType` in `ofNamedLeaf`, so a leaf that models three channels still states three.
-- **This is a re-indexing, not new eagerness.** If any step makes a leaf resolve more than it
+- **17 test files build mock providers as `{ NamedChannels.empty with … }`** and must not churn.
+  `NamedChannels` / `KeyIndexedChannels` are the ergonomic surface, `IExternalSymbolStore` is the
+  contract, and only the latter is changing shape. Keep `NamedChannels` field-per-channel and derive
+  `TryResolveType` in `ofNamedChannels`, so a source that models three channels still states three.
+- **This is a re-indexing, not new eagerness.** If any step makes a source resolve more than it
   resolves today, that step is wrong — the eager work is already happening (twice, at the
-  metadata leaf).
+  metadata tail).
 - `MapProviderTypesTests` is the regression gate for rule 1: it pins that a record field is
   covariant and an index key contravariant. It must keep passing channel-for-channel.
 
@@ -195,8 +195,8 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
 - The wrappers: `ProviderDecorator` (`ExternalSymbolProviders.fs:212-267`), `mapProviderTypes`
   (`:457`), `withInlineBodies` (`:569`), `memoize` (`:601`), `stack` (`:279`), `composite`
   (`:448`).
-- Leaf construction: `ofKeyedLeaf` (`:158`), `NamedLeaf` (`:37`), `KeyIndexedLeaf` (`:68`),
-  `KeyedLeaf` (`:99`).
+- Channel construction: `ofKeyedChannels` (`:158`), `NamedChannels` (`:37`), `KeyIndexedChannels` (`:68`),
+  `KeyedChannels` (`:99`).
 - The double reflection pass: `MetadataSymbols.fs:236`, `:239` (caches), `:468` (`computeType`),
   `:508` (`computeMembers`), `:626-639` (the two by-name lookups).
 - The value-ness ladder, spelled once per consumer: `Engine.fs:529` (`valueLayout`, which has a

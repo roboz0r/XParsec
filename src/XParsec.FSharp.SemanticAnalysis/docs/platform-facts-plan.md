@@ -86,7 +86,7 @@ weigh in the design.
 one: an impl `.fs` view binds a representation and publishes no surface, so its silence is not an
 answer. `primitiveSupports` reads `Equality` / `Comparison` off the folded surface and consults no
 list of its own. `SignatureExtractorTests` pins both the contract's answer for `int` and that a
-repr-only leaf ahead of the contract does not shadow it.
+repr-only source ahead of the contract does not shadow it.
 
 *(A first cut instead added a parallel `IExternalSymbolStore.IntrinsicCapabilities` channel that
 routed around the first-hit shape lookup. That fixed the constraint solver only and left
@@ -151,8 +151,8 @@ query** — the design decided in `capability-provenance-plan.md` Change B (user
 `subtypeInterfacesOf` cost, and the rejected alternatives. Read it before starting here.
 
 **The contract PRESCRIBES the floor**: `int` is equatable and comparable because the language
-says so, declared in the shared `.fsi`, and the contract leaf answers the query with that. The
-platform leaf may WIDEN past it (a CLR array really is an `IList<'T>`); the merge is additive.
+says so, declared in the shared `.fsi`, and the contract source answers the query with that. The
+platform tail may WIDEN past it (a CLR array really is an `IList<'T>`); the merge is additive.
 What must NOT happen is reading `FrozenInterfaces` off a first-hit shape lookup — that is what
 makes the answer depend on which route published the shape, and it is the defect this closes.
 
@@ -197,11 +197,11 @@ the HEAD of composition, ahead of the contract (`AssemblyFiles.fs:108-109`,
 `ClrDriver.fs:141-142`). `FrozenSignature.fs:419-441` builds a class surface only when
 `repr.Heritable` and emits `Interfaces = EqArray.empty` when it does, and a capability-declaring
 primitive is deliberately NOT heritable (above) — so the head view answers "no interfaces" when
-the truth is "this leaf does not know", and the contract's populated shape is never consulted.
+the truth is "this source does not know", and the contract's populated shape is never consulted.
 
 For `seq` that hole is latent — nothing in any Vesper package writes `for x in arr`. For eq/cmp
 it would not be: Vesper.Core solves `when 'T : equality` constantly. A dedicated ADDITIVE
-capability member removes it: the lossy leaf abstains by default and the contract's answer
+capability member removes it: the lossy source abstains by default and the contract's answer
 survives. `capability-provenance-plan.md` holds the mechanism, the precedent
 (`AmbientOpenPrefixes`), and the two traps in building it.
 
@@ -273,12 +273,12 @@ on every row, since the sameness is the claim.
 ### 3. `isPrimitiveValueType` → a backend fact — **DONE (2026-08-13)**
 
 **What shipped.** `IExternalSymbolStore.IsValueType : TypeKey -> bool voption`, folded per FACT
-in `stack`: a source with no opinion abstains, so the platform leaf at the tail is reached past
-every contract source above it. The CLR's metadata leaf answers a canon through the repr its
+in `stack`: a source with no opinion abstains, so the platform tail is reached past
+every contract source above it. The CLR's metadata tail answers a canon through the repr its
 `.clr.fs` binds (`Vesper.int` → `System.Int32` → `Type.IsValueType`) and any other key as a
 plain metadata name, so a BCL `System.Guid` answers too and a type the reference set does not
-carry abstains; it rides the leaf's SHAPE cache, so its answer and the `Class` shape's own flag
-cannot disagree. The JS leaf answers `ValueSome false` for EVERY key — that is the whole of "JS
+carry abstains; it rides the tail's SHAPE cache, so its answer and the `Class` shape's own flag
+cannot disagree. The JS tail answers `ValueSome false` for EVERY key — that is the whole of "JS
 has no value types".
 
 `Engine.valueLayout` is the single consumer: ONE query, and `negate` for the other polarity.
@@ -293,7 +293,7 @@ the design — a `[<Struct>]` is a request the target may erase.
    and JS says nothing is, so both polarities now fall out of the one query.
 2. **User nominals go through the SAME per-key query, and no target-level "has value types"
    fact was needed.** JS answers for every key, so a `[<Struct>]` record is refused there; the
-   CLR's leaf abstains for a compilation-local type and the declaration decides — which makes a
+   CLR's tail abstains for a compilation-local type and the declaration decides — which makes a
    `[<Struct>]` record satisfy `when 'a : struct` on the CLR, where the old arm refused it
    whatever it declared. An ENUM asks for a value type wherever the target lays one out, so it
    takes the same ladder with `true` as its declaration. `TyTuple`/`TyFun`/`TyUnion`/`TyOr` stay
@@ -304,10 +304,10 @@ the design — a `[<Struct>]` is a request the target may erase.
    `[<Struct>]` record answered "reference" in every CONSUMING unit — the one place the answer
    is not recoverable from the local registry. `ExternalSymbols.declaredValueType` is the one
    reader of that declaration, shared by the front end and the CLR encoder.
-4. **The zero-leaf case is REACHABLE and stays silent AT A PRIMITIVE.** SA composes no platform,
+4. **The zero-tail case is REACHABLE and stays silent AT A PRIMITIVE.** SA composes no platform,
    so both polarities `Defer` there — and a deferred constraint is re-queued on its root and
    never swept into a diagnostic, so a test wanting that verdict must be a corpus program. A
-   NOMINAL is different: the declaration answers under a zero-leaf compile, so `ConstraintsTests`
+   NOMINAL is different: the declaration answers under a zero-tail compile, so `ConstraintsTests`
    pins both polarities at a record, a class and an enum.
 
 Six corpus programs pin the primitive matrix in `test/Codegen.Conformance/constraints/`, and
@@ -332,7 +332,7 @@ and a reasonable place to prototype the query shape.
 
 *Built in step 3 as `IsValueType: TypeKey -> bool voption`. Two constraints below were met by
 construction rather than by design: the key is the narrow `TypeKey` — nothing else can HAVE a
-layout — and the platform repr is looked up FROM it by the leaf that needs one, so no caller
+layout — and the platform repr is looked up FROM it by the source that needs one, so no caller
 holds an `IntrinsicPlatform` and the many-to-one repr never keys anything. It carries ONE fact
 rather than a record, because step 4's fact is codegen-local and reaches no provider.*
 
@@ -360,7 +360,7 @@ rather than a record, because step 4's fact is codegen-local and reaches no prov
   (`MemoizeTests`, and it counts calls, so it would forward a stub in one line); `MockBuiltins`
   was deliberately deleted and every other test resolves through real `Vesper.*` contracts
   (`feedback_mockbuiltins_is_a_trap`). A test that needs a synthetic surface builds a
-  `KeyIndexedLeaf` — a record of dictionaries with a `KeyIndexedLeaf.empty` default — and
+  `KeyIndexedChannels` — a record of dictionaries with a `KeyIndexedChannels.empty` default — and
   calls `ofKeyIndexes`. That IS the shared, data-driven double, and a new fact channel joins
   it as one more field with a "no opinion" default.
 
@@ -369,7 +369,7 @@ rather than a record, because step 4's fact is codegen-local and reaches no prov
   facts rather than symbol lookups. The interface already carries this kind of answer.
 
   **The real cost, which the reversed bullet mis-stated:** six `{ new IExternalSymbolProvider … }`
-  object expressions live in `ExternalSymbolProviders.fs` (`ofKeyedLeaf`, `stack`,
+  object expressions live in `ExternalSymbolProviders.fs` (`ofKeyedChannels`, `stack`,
   `mapProviderTypes`, `withInlineBodies`, `memoize`, and `composite` through `stack`). Each
   gains a forwarding arm. That is decorator churn in ONE file, mechanical and compiler-checked,
   not a cost spread over the test suite.
@@ -377,14 +377,14 @@ rather than a record, because step 4's fact is codegen-local and reaches no prov
   **Merge policy: FOLD**, like `mergeReverseCanon` / `mergeForwardRepr`, not first-hit.
 
   In practice the fold has at most one contributor: platform facts come from the PLATFORM
-  provider, which is the backend-injected layer-2 leaf at the bottom of the stack
-  (`MetaTailFactory`, the CLR's BCL reflection tail / the JS native leaf). Contract providers
+  provider, which is the backend-injected layer-2 tail at the bottom of the stack
+  (`MetaTailFactory`, the CLR's BCL reflection tail / the JS native tail). Contract providers
   above it have no opinion. So folding and first-hit agree today — fold is chosen because it
   does not DEPEND on that agreeing, and `MetaTailFactory` returns a `IExternalSymbolProvider
-  list`, so "exactly one leaf" is an intent the type does not enforce. Whether the fold can be
+  list`, so "exactly one tail" is an intent the type does not enforce. Whether the fold can be
   optimised on the strength of that intent is a later question; do not build it in.
 
-  **The zero-leaf case.** `noMetaTail` returns `[]`, and
+  **The zero-tail case.** `noMetaTail` returns `[]`, and
   `SemanticAnalysis.Tests/TestHelpers.realProvider` uses it — so the entire SA front-end
   suite runs today with NO platform provider. An empty contribution set folds to "no
   opinion", which is `Defer`.
@@ -392,13 +392,13 @@ rather than a record, because step 4's fact is codegen-local and reaches no prov
   **That is NOT a hazard for step 1**, though an earlier revision of this bullet said it was,
   and the paragraph below still carries the retraction. Step 1's verdicts are
   contract-PRESCRIBED, and SA composes the real `src/Vesper.*` contract, so SA answers them
-  without a platform. The zero-leaf case bites only on axes no contract can state — value-ness
+  without a platform. The zero-tail case bites only on axes no contract can state — value-ness
   (step 3) and the null model (step 2).
 
   **DECIDED (user, 2026-08-12) — and NOT by either option this bullet originally offered.**
   Neither "a compilation asserts it has a platform-facts source" nor "`noMetaTail` is replaced
-  by an explicit facts-only leaf" is taken. SA having no platform is CORRECT and stays: a
-  synthetic platform leaf built to keep tests green is a stand-in for the real provider, which
+  by an explicit facts-only tail" is taken. SA having no platform is CORRECT and stays: a
+  synthetic platform tail built to keep tests green is a stand-in for the real provider, which
   is the trap this tree keeps removing (`feedback_mockbuiltins_is_a_trap`).
 
   The fold's answer for an empty contribution set is therefore "no opinion", and the tests that
@@ -445,7 +445,7 @@ after `per-target-manifest-plan.md` makes the manifest path target-specific.
   `InferControlFlow.fs:592-600` (`for … in` — an exact fit). Neither is the constraint solver.
 - The repr→metadata bridge the CLR answer rides: `EngineCore.fs:450-456`, `:469-478` →
   `InferRecordAccess.fs:35,64`.
-- The JS leaf that must gain capability knowledge: `JsNativeSymbols.fs:63`, `:87-90`.
+- The JS tail that must gain capability knowledge: `JsNativeSymbols.fs:63`, `:87-90`.
 - The value-ness query step 3 shipped: `IExternalSymbolStore.IsValueType`, folded in
   `ExternalSymbolProviders.stack`, answered by `MetadataSymbolProvider` and `JsNativeSymbols`,
   consumed by `Engine.valueLayout` and `CodegenSymbols.isValueType`.

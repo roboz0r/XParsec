@@ -180,13 +180,13 @@ let tests =
         ]
 
 // `FrozenType.mapVariant` — the variance algebra, pinned as a pure `FrozenType -> FrozenType`.
-// The leaf is a position-witness: a marker `FTConst("M", [])` is replaced by
+// The replacement is a position-witness: a marker `FTConst("M", [])` is replaced by
 // `FTConst("co"|"contra"|"inv", [])`, so the output records where the marker was reached.
 [<Tests>]
 let mapVariantTests =
     let marker = FTConst(RuntimeNames.opaqueKey "M", EqArray.empty)
 
-    let witnessLeaf (v: Variance) (t: FrozenType) : FrozenType voption =
+    let witnessVariance (v: Variance) (t: FrozenType) : FrozenType voption =
         match t with
         | FTConst(key, args) when args.Length = 0 && SymbolKeyOps.simpleName key = DisplayName "M" ->
             let name =
@@ -201,7 +201,8 @@ let mapVariantTests =
     /// Reused from the round-trip oracle: reaches every constructor.
     let allShapes = sampleFrozenTypes
 
-    let run v t = FrozenType.mapVariant witnessLeaf v t
+    let run v t =
+        FrozenType.mapVariant witnessVariance v t
 
     let witness name =
         FTConst(RuntimeNames.opaqueKey name, EqArray.empty)
@@ -215,9 +216,9 @@ let mapVariantTests =
                 Expect.equal Variance.Inv.Flip Variance.Inv "inv is self-dual"
             }
 
-            test "a ValueNone leaf is the identity on every constructor shape" {
+            test "a ValueNone replacement is the identity on every constructor shape" {
                 // `FTOr` rebuilds through `MkUnion`, idempotent on already-canonical input, so a
-                // never-firing leaf is the identity there too.
+                // never-firing replacement is the identity there too.
                 for ft in allShapes do
                     Expect.equal (run Variance.Co ft) ft (sprintf "identity: %A" ft)
             }
@@ -337,7 +338,7 @@ let mapVariantTests =
             }
 
             test "childless leaves pass through untouched" {
-                for leaf in
+                for childless in
                     [
                         FTConst(RuntimeNames.intKey, EqArray.empty)
                         FTTypar(TyparAxis.Method, 0)
@@ -345,23 +346,23 @@ let mapVariantTests =
                         FTUnknown "X"
                         FTEnum(SymbolKeyOps.qualifiedTypeKeyOf "Test.Colour" 0)
                     ] do
-                    Expect.equal (run Variance.Co leaf) leaf (sprintf "leaf unchanged: %A" leaf)
+                    Expect.equal (run Variance.Co childless) childless (sprintf "unchanged: %A" childless)
             }
 
-            test "the leaf is consulted first at NON-leaf nodes and can own the whole subtree" {
-                // A leaf that fires on an FTFun replaces it wholesale — recursion never
-                // descends. Proves `leaf` gets first crack at every node, not just scalars.
+            test "tryReplace is consulted first at INTERIOR nodes and can own the whole subtree" {
+                // Firing on an FTFun replaces it wholesale — recursion never descends. Proves
+                // `tryReplace` gets first crack at every node, not just childless ones.
                 let sentinel = FTConst(RuntimeNames.opaqueKey "REPLACED", EqArray.empty)
 
-                let funLeaf (_: Variance) (t: FrozenType) : FrozenType voption =
+                let replaceFun (_: Variance) (t: FrozenType) : FrozenType voption =
                     match t with
                     | FTFun _ -> ValueSome sentinel
                     | _ -> ValueNone
 
                 Expect.equal
-                    (FrozenType.mapVariant funLeaf Variance.Co (FTFun(marker, marker)))
+                    (FrozenType.mapVariant replaceFun Variance.Co (FTFun(marker, marker)))
                     sentinel
-                    "the FTFun subtree is owned by the leaf, undescended"
+                    "the FTFun subtree is replaced, undescended"
             }
         ]
 

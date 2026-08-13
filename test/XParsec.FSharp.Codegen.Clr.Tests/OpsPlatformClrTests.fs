@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The CROSS-target / CLR-repr half of the ops-platform contract: a JS template absent on
-// CLR, and the CLR BCL primitive repr. Both need the BCL metadata leaf, so they live here
+// CLR, and the CLR BCL primitive repr. Both need the BCL metadata tail, so they live here
 // rather than beside the JS-target-only assertions, which stay off the CLR backend.
 
 [<Tests>]

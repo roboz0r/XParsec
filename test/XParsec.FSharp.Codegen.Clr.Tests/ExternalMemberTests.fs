@@ -46,7 +46,7 @@ let tests =
         [
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
                 // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
-                // metadata leaf canonicalizes `GetHashCode`'s `System.Int32` return through.
+                // metadata tail canonicalizes `GetHashCode`'s `System.Int32` return through.
                 let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let ctx, tast =

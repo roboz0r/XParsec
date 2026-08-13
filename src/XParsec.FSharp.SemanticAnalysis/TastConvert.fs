@@ -23,7 +23,7 @@ module TastConvert =
         | TPatG.EnumCase(k, n, ty, tok) -> TPatG.EnumCase(k, n, f ty, tk tok)
         | TPatG.Or(alts, ty, tok) -> TPatG.Or(EqArray.map pp alts, f ty, tk tok)
 
-    /// A format hole across BOTH axes: the one leaf that carries a token of its own and no
+    /// A format hole across BOTH axes: the one node that carries a token of its own and no
     /// sub-expression, so its anchor is widened here rather than at a node.
     let hole (f: 'a -> 'b) (fTok: 'ta -> 'tb) (h: HoleSpecG<'a, 'ta>) : HoleSpecG<'b, 'tb> =
         {

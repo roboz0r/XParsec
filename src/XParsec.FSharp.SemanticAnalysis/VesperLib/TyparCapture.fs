@@ -253,9 +253,9 @@ module VesperLibTyparCapture =
 
             // The symbol channel stays name-addressed: a binding key renders `.`-joined,
             // which is how `ctx.Symbols` is keyed.
-            ExternalSymbolProviders.ofKeyedLeaf (
-                ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes
-                    { ExternalSymbolProviders.KeyIndexedLeaf.empty with
+            ExternalSymbolProviders.ofKeyedChannels (
+                ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
+                    { ExternalSymbolProviders.KeyIndexedChannels.empty with
                         ShapesByKey = shapesByKey
                         MembersByKey = membersByKey
                         ResolveTypeName = typeKeyOfName

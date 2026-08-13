@@ -97,8 +97,8 @@ type IExternalSymbolStore =
     abstract IntrinsicTypeMap: IntrinsicTypeMap
 
     /// Does the compiling target lay this type out as a VALUE? `int` is one on the CLR and
-    /// nothing is on JS, so no shared `.fsi` states it and only the platform leaf answers.
-    /// `ValueNone` is no opinion: every contract source, and a compile with no platform leaf.
+    /// nothing is on JS, so no shared `.fsi` states it and only the platform tail answers.
+    /// `ValueNone` is no opinion: every contract source, and a compile with no platform tail.
     abstract IsValueType: key: TypeKey -> bool voption
 
 /// Both views on ONE object: raw facts only, with NO capability predicates ("is this type
@@ -161,8 +161,8 @@ type ICodegenSymbols =
 
 module ExternalSymbols =
 
-    /// Invert a NAME-INDEXED leaf's qualified name back to a key. Sound only when the
-    /// leaf's type keys are `InNamespace`. Arity comes from the SHAPE, never from the arity
+    /// Invert a NAME-INDEXED source's qualified name back to a key. Sound only when its
+    /// type keys are `InNamespace`. Arity comes from the SHAPE, never from the arity
     /// probed for.
     let nameKeyedTypeHit (name: string) (shape: ExternalTypeShape) : struct (TypeKey * ExternalTypeShape) =
         struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape)

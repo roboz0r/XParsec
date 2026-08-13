@@ -123,7 +123,7 @@ module StructuralPrinter =
             let col1 = renderDoc (dGet kids i) out indent broken col width
             renderCat kids (inc i) out indent broken col1 width
 
-    // --- leaf / classification helpers (none recurse into `fmtValue`) -------------
+    // --- formatting / classification helpers (none recurse into `fmtValue`) -------------
 
     // `a"b` → `"a\"b"`. A JS char is a length-1 string, so `c` compares against
     // string literals directly.

@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 module InlineThaw =
 
     [<RequireQualifiedAccess>]
-    type private TyparLeaf =
+    type private TyparKey =
         | Declaring of declIndex: int
         | Method of methodIndex: int
         | Local of scheme: SchemeId * localIndex: int
@@ -15,20 +15,20 @@ module InlineThaw =
     /// parameter's type and the uses of that parameter come apart. Tokens stay the PRODUCER's,
     /// read out of `origin`'s retained text, so a node still spells where it was written.
     let bodyAtOrigin (store: TypeStore) (sources: OriginSources) (origin: OriginFile) (decl: Wire.TDecl) : TDecl =
-        let cache = Dictionary<TyparLeaf, SemType>()
+        let cache = Dictionary<TyparKey, SemType>()
 
-        let mint (leaf: TyparLeaf) : SemType =
-            match cache.TryGetValue leaf with
+        let mint (key: TyparKey) : SemType =
+            match cache.TryGetValue key with
             | true, v -> v
             | _ ->
                 let v = TyVar(store.NewTypeVar())
-                cache.[leaf] <- v
+                cache.[key] <- v
                 v
 
         TastConvert.decl
             (FrozenTypeBridge.instantiateWith
-                (fun i -> mint (TyparLeaf.Declaring i))
-                (fun j -> mint (TyparLeaf.Method j))
-                (fun scheme k -> mint (TyparLeaf.Local(scheme, k))))
+                (fun i -> mint (TyparKey.Declaring i))
+                (fun j -> mint (TyparKey.Method j))
+                (fun scheme k -> mint (TyparKey.Local(scheme, k))))
             (OriginSources.tokenAt sources origin)
             decl

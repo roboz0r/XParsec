@@ -14,7 +14,7 @@ module internal ElaboratePrintf =
 
     /// The scalars `%A` renders atomically: numerics carry the literal suffixes the engine
     /// reproduces (`5L`, `1.5M`); `string` / `char` / `bool` are special-cased atoms.
-    let private isLeafScalar =
+    let private isAtomScalar =
         RuntimeNames.isKeyIn (
             RuntimeNames.stringKey
             :: RuntimeNames.charKey
@@ -32,8 +32,8 @@ module internal ElaboratePrintf =
         | TyArray elem -> structuredArgFaithful elem
         | TyConst(key, args) ->
             // Matched by KEY, so a user type of the same name is not mistaken for one. All
-            // are leaves, so any type argument means it isn't really the intrinsic.
-            isLeafScalar key && args.Length = 0
+            // are niladic, so any type argument means it isn't really the intrinsic.
+            isAtomScalar key && args.Length = 0
         | TyTuple items -> EqArray.forall structuredArgFaithful items
         // The cons-list renders via the `IEnumerable` arm, so it stays faithful-iff-its-
         // element-is. It surfaces as a `TyUnion` in the self-host but as a `TyRecord`

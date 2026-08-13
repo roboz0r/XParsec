@@ -14,9 +14,9 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// The stub layered OVER `realProvider`, so the primitives an ordinary expression needs
 /// (`int`, `string`) still resolve through the real contract stack.
 let private providerFor (shape: ExternalTypeShape) : IExternalSymbolProvider =
-    let leaf =
-        ExternalSymbolProviders.ofNamedLeaf
-            { ExternalSymbolProviders.NamedLeaf.empty with
+    let stub =
+        ExternalSymbolProviders.ofNamedChannels
+            { ExternalSymbolProviders.NamedChannels.empty with
                 TryLookupType =
                     fun n ->
                         match n with
@@ -25,7 +25,7 @@ let private providerFor (shape: ExternalTypeShape) : IExternalSymbolProvider =
                 AmbientOpenPrefixes = [ "Tests" ]
             }
 
-    ExternalSymbolProviders.composite [ leaf; realProvider.Value ]
+    ExternalSymbolProviders.composite [ stub; realProvider.Value ]
 
 let private analyse (shape: ExternalTypeShape) (input: string) : PassContext =
     let ctx, file = analyseNameRes (providerFor shape) input

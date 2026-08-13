@@ -218,7 +218,7 @@ reference kinds as `TyUnion`. Its cases keep compiled-op names (`op_Nil` /
 `op_ColonColon`) rather than `Empty`/`Cons` so they can't collide with a user
 union's own cases in ctor-name resolution.
 
-### The unresolved leaf — `TyUnknown`
+### The unresolved marker — `TyUnknown`
 
 [`SemType.TyUnknown of name`](../SemanticInfo.fs) is the absorbing element for a
 nominal reference that resolved to no in-scope shape. It is baked only at
@@ -230,7 +230,7 @@ nominal reference that resolved to no in-scope shape. It is baked only at
 'name' could not be resolved during contract extraction — is a package
 dependency missing?"* — and leaves the other side untouched (no `Link`), so one
 broken type constructor can't cascade. `checkConstraint` defers on it (the real error already
-fired at `unify`). Every other exhaustive `SemType` match carries an inert leaf
+fired at `unify`). Every other exhaustive `SemType` match carries an inert
 arm, and `ClrEncoder.encodeTypeCore` rejects it with a pointed internal-error
 message: `TyUnknown` must never reach the backend, because the front end errors
 on it first.

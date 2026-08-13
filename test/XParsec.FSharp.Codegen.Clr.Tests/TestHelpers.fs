@@ -170,7 +170,7 @@ let vesperCoreDll: Lazy<string> =
          let files = implFiles |> List.map (AssemblyFiles.SourceFile.read vesperCorePackage)
 
          // Core defines its own primitives, so it references nothing and names ITSELF as
-         // the self manifest. That seeds the metadata leaf with its own `{ platform -> canon }`
+         // the self manifest. That seeds the metadata tail with its own `{ platform -> canon }`
          // axis, so a BCL signature presents `System.String` as `Vesper.string` here too.
          let provider = ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) []
 
@@ -398,7 +398,7 @@ let withCore (project: ProjectInfo) : ProjectInfo =
 
 /// Build the symbol stack + its cross-package inline bodies once (cached per manifest set)
 /// and run both phases against it: an `External(name)` whose body lives in a referenced
-/// `.fs` splices in pre-freeze. `[]` manifests ⇒ the BCL metadata leaf alone.
+/// `.fs` splices in pre-freeze. `[]` manifests ⇒ the BCL metadata tail alone.
 let private compileContract
     (manifestPaths: string list)
     (project: ProjectInfo)

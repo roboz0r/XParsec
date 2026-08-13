@@ -221,7 +221,7 @@ module private MetadataMapping =
         SymbolKeyOps.typeKeyOfSegment container t.Name
 
 /// `IExternalSymbolProvider` over reference-assembly paths, sharing one
-/// `MetadataLoadContext`. `intrinsics` is empty for a leaf with no Vesper.Core in scope, so
+/// `MetadataLoadContext`. `intrinsics` is empty when no Vesper.Core is in scope, so
 /// BCL primitives stay nominal classes.
 type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
@@ -650,7 +650,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
 
         member _.TryLookupUnionCase _ = ValueNone
-        // A metadata leaf scrapes IL, never F# record tycons, so it never contributes to
+        // The metadata layer scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
         member _.TryRecordsWithField _ = EqArray.empty
         member _.AmbientOpenPrefixes = []
@@ -687,7 +687,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // The metadata layer models no free-function symbols at all (`TryLookup` is a
         // constant miss), so its key-addressed twin is one too.
         member _.TryLookupByKey _ = ValueNone
-        // The metadata leaf CONSUMES the axis to canonicalize BCL names; it declares none.
+        // The metadata layer CONSUMES the axis to canonicalize BCL names; it declares none.
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
 
         // `Vesper.int` is a value type here because the repr its `.clr.fs` binds,
@@ -726,5 +726,5 @@ module MetadataSymbols =
     let create (paths: string seq) : IExternalSymbolProvider = createWith IntrinsicTypeMap.empty paths
 
     /// Process-wide provider over the host runtime's assemblies, a test convenience;
-    /// production composes a per-compilation leaf seeded with the extracted intrinsic axis.
+    /// production composes a per-compilation tail seeded with the extracted intrinsic axis.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())

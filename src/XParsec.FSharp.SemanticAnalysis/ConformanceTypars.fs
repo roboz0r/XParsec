@@ -15,7 +15,7 @@ module ConformanceTypars =
             Inferred: FrozenType
         }
 
-    /// Rewrite every typar leaf onto `axis`, index kept: a free value/function has exactly
+    /// Rewrite every `FTTypar` onto `axis`, index kept: a free value/function has exactly
     /// ONE axis, so `FTTypar(Declaring, i)` and `FTTypar(Method, i)` denote the same slot.
     let rec normAxisTo (axis: TyparAxis) (t: FrozenType) : FrozenType =
         match t with

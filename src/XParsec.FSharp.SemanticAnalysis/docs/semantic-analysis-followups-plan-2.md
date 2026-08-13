@@ -364,15 +364,15 @@ that would fix this — a single-case wrapper for the platform-repr string, so `
 and the name sets are keyed by it. Recording, not fixing; the type change would delete the pair of
 comments now sited on `primitiveKey` and `opaqueKey`.
 
-### `ExternalSymbolProviders.fs:11`, `:47` — `NamedLeaf` and `KeyIndexedLeaf` share six channels by copy
+### `ExternalSymbolProviders.fs:11`, `:47` — `NamedChannels` and `KeyIndexedChannels` share six channels by copy
 
-The two leaf records differ only in how types are addressed, but each independently declares
+The two channel records differ only in how types are addressed, but each independently declares
 `TryLookup`, `TryLookupUnionCase`, `TryRecordsWithField`, `AmbientOpenPrefixes`,
-`IntrinsicReverseCanon` and `IntrinsicForwardRepr`, and `KeyedLeaf.ofKeyIndexes` copies all six
-across field-by-field into a `{ NamedLeaf.empty with … }`. Adding a seventh non-type channel means
+`IntrinsicReverseCanon` and `IntrinsicForwardRepr`, and `KeyedChannels.ofKeyIndexes` copies all six
+across field-by-field into a `{ NamedChannels.empty with … }`. Adding a seventh non-type channel means
 editing three places, and a field forgotten in the copy silently becomes a permanent miss rather
-than a compile error. The candidate is one record of the shared channels held by both leaves (or a
-type-addressing DU on a single leaf record). The prose this would delete is the pair of block
+than a compile error. The candidate is one record of the shared channels held by both (or a
+type-addressing DU on a single channel record). The prose this would delete is the pair of block
 docs on the two types plus the two `empty` docs — one of which was a byte-near clone of the
 other and was removed in this sweep.
 

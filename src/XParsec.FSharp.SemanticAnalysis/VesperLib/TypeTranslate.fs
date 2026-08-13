@@ -466,7 +466,7 @@ module VesperLibTypeTranslate =
                 | ValueNone -> Ok(FTConst(RuntimeNames.primitiveKey name, EqArray.empty))
             else
                 match resolveTypeName ctx opens name 0 with
-                // A name that does not resolve in scope bakes an `FTUnknown` leaf.
+                // A name that does not resolve in scope bakes `FTUnknown`.
                 | Error _ -> Ok(FTUnknown name)
                 | Ok compiled -> Ok(mkNominal ctx compiled EqArray.empty)
 

@@ -3,11 +3,11 @@ namespace XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// `Codegen.Common.SymbolProviders` composes a contract stack over an injected leaf
-/// FACTORY and holds no concrete leaf; this module supplies the .NET reflection tail.
+/// `Codegen.Common.SymbolProviders` composes a contract stack over an injected tail
+/// FACTORY and holds no concrete tail; this module supplies the .NET reflection one.
 module ClrSymbolProviders =
 
-    /// BCL reflection over the host runtime. A seeded leaf is a pure function of
+    /// BCL reflection over the host runtime. A seeded tail is a pure function of
     /// `(intrinsics, paths)` and the paths are constant here, so memoising on the axis gives
     /// one `MetadataLoadContext` per distinct axis rather than one per firing.
     let bclMetaTail: SymbolProviders.MetaTailFactory =
@@ -44,11 +44,11 @@ module ClrSymbolProviders =
         "bcl-refs:"
         + (dllPaths |> List.map System.IO.Path.GetFullPath |> String.concat ";")
 
-    /// Layer-1 contract stack over the BCL metadata leaf. Uncached.
+    /// Layer-1 contract stack over the BCL metadata tail. Uncached.
     let build (packageDirs: string list) : IExternalSymbolProvider =
         SymbolProviders.buildWith bclMetaTail Target.Clr packageDirs
 
-    /// Provider stack for a package set (BCL leaf), including cross-package inline bodies.
+    /// Provider stack for a package set (BCL tail), including cross-package inline bodies.
     let buildContract (packageDirs: string list) : IExternalSymbolProvider =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr packageDirs).Provider
 
@@ -65,7 +65,7 @@ module ClrSymbolProviders =
         | None -> IntrinsicTypeMap.empty
         | Some dir -> (buildContract [ dir ]).IntrinsicTypeMap
 
-    /// The compiling package's own declarations SHADOW the referenced ones the leaf is
+    /// The compiling package's own declarations SHADOW the referenced ones the tail is
     /// otherwise seeded with: a package declaring `string` is served its own, not a dependency's.
     let private seeded
         (seed: IntrinsicTypeMap)
@@ -83,7 +83,7 @@ module ClrSymbolProviders =
             "|self:" + IntrinsicTypeMap.cacheTag seed
 
     /// `buildContract` for a compilation that IS a package, over the host TPA rather than
-    /// an explicit reference set. `selfPackage` seeds the leaf AND joins the resolution stack.
+    /// an explicit reference set. `selfPackage` seeds the tail AND joins the resolution stack.
     let buildContractForSelf (selfPackage: string option) (packageDirs: string list) : IExternalSymbolProvider =
         let seed = selfIntrinsics selfPackage
 

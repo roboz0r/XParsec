@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The leaf-codec gate: `read (write x) = x` for a diagnostic, its `Kind`/`Site` and a node's
+// The value-codec gate: `read (write x) = x` for a diagnostic, its `Kind`/`Site` and a node's
 // anchor; and for a type, `materialise (read (write (intern x))) = x`, since a type reaches
 // the blob only as a row id, so the whole path through the file's tables has to survive.
 
@@ -18,7 +18,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// Filtered, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
 let private gated = compiledBy "js"
 
-/// The deduped leaf values collected from the corpus plus the hand-built edge cases.
+/// The deduped values collected from the corpus plus the hand-built edge cases.
 type private Collected =
     {
         FrozenTypes: FrozenType list
@@ -66,7 +66,7 @@ let private collect () : Collected =
                 visitFt p.WhenFalse
             | FTTypar _ -> ()
             // Its scheme id addresses nothing outside the body that carried it, so there is
-            // no leaf here to collect into any of the key corpora.
+            // nothing here to collect into any of the key corpora.
             | FTLocalTypar _ -> ()
             | FTUnknown _ -> ()
 
@@ -346,7 +346,7 @@ let tests =
     let interned = intern h
 
     testList
-        "FrozenCodec leaf round-trip"
+        "FrozenCodec value round-trip"
         [
             test "FrozenType survives interning, the row codec and materialisation" {
                 for (ft, id) in List.zip h.FrozenTypes interned.TypeIds do

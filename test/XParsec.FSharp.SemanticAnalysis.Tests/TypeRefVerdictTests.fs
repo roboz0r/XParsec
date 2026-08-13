@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // `Type` node. These tests pin the verdict at representative annotation positions and, end
 // to end, the round-trip of the recorded key through the store view during inference.
 
-/// `ofNamedLeaf` derives the store view from the same by-name table the resolver reads, so a
+/// `ofNamedChannels` derives the store view from the same by-name table the resolver reads, so a
 /// key the resolver mints is served back by construction.
 let private provider: IExternalSymbolProvider =
     let widget =
@@ -19,8 +19,8 @@ let private provider: IExternalSymbolProvider =
     let box =
         ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty))
 
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookupType =
                 fun n ->
                     match n with

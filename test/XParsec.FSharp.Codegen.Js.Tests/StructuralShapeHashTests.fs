@@ -46,7 +46,7 @@ let private manifest: Schema.PackageManifest =
                             "label", named "string"
                             "pt", structural "{y:number;x:number}" [ numField "y"; numField "x" ]
                         ])
-                // `Node` is NOT declared here, so the field must stay a LEAF hashed by name:
+                // `Node` is NOT declared here, so the field must stay hashed BY NAME:
                 // `{node:Node}` resolves without `Node` existing, and differs from
                 // `{node:Other}`.
                 var "refNode" (structural "{node:Node}" [ "node", named "Node" ])
@@ -102,7 +102,7 @@ let tests =
                 Expect.equal (identityOf "nB") (identityOf "nA") "nested permuted shapes must share one identity"
             }
 
-            test "a named-ref field stays a LEAF (by-name), not expanded" {
+            test "a named-ref field stays hashed BY NAME, not expanded" {
                 // Resolving at all with `Node` undeclared proves it is not expanded.
                 Expect.equal
                     (identityOf "refNode2")
@@ -112,7 +112,7 @@ let tests =
                 Expect.notEqual
                     (identityOf "refOther")
                     (identityOf "refNode")
-                    "a different named-ref leaf must yield a different identity"
+                    "a different named ref must yield a different identity"
             }
 
             test "an object shape's nominal name is homed under the reserved synthetic namespace" {

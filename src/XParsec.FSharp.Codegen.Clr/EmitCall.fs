@@ -140,7 +140,7 @@ module EmitCall =
                 let key = ext.Key
                 // The recipe's generic instantiation comes from the function's curried type,
                 // which is stale once an argument became a value-struct closure, because that
-                // leaf still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
+                // argument still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
                 let recipeFnTy =
                     if
                         appArgs

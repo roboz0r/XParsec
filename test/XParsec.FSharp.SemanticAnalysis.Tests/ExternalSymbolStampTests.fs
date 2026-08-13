@@ -15,8 +15,8 @@ let private provider: IExternalSymbolProvider =
             ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") name (FTConst(RuntimeNames.intKey, EqArray.empty))
         )
 
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookup =
                 fun n ->
                     match n with

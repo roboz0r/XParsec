@@ -54,7 +54,7 @@ or rebuild a `SemType` (`TyVar rep.Id`).
 A few choices worth noting:
 
 - **Raw id, not a boxed handle.** `SemType.TyVar of TyVarId` — the id *is* the
-  handle, so `SemType` is fully value-comparable (no reference-identity leaf) and the
+  handle, so `SemType` is fully value-comparable (no reference-identity node) and the
   metavar-keyed dictionaries key by the dense int structurally. Within one file ids
   are unique, so structural int equality IS variable identity: a `TypeStore` is
   per-`PassContext` = per file, and `freeze` erases every surviving `TyVar`, so ids

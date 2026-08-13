@@ -27,8 +27,8 @@ let private provider: IExternalSymbolProvider =
                 IsRequireQualifiedAccess = rqa
             }
 
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookup =
                 fun n ->
                     if n = "A.B.thing" then mono "thing"

@@ -269,9 +269,9 @@ The synthesis is implemented end-to-end against the C1 / C2 / C3 plan:
   `0`; inner closures inherit the parent's count. `Emit.staticFnTypars` is the seed.
 - **C2 (provider).** `ClosureMember` DU (`Ctor | CaptureField i |
   Invoke`) on `ICodegenProvider`. `ClrProvider` carries a third
-  ambient (`closureTyparRoots` + `closureTyparLeaf`) chained into
-  `ambientTyparLeaf = methodTyparLeaf || typeTyparLeaf ||
-  closureTyparLeaf`. Public surface: `RegisterClosure`,
+  ambient (`closureTyparRoots` + `closureTyparResolver`) chained into
+  `ambientTyparResolver = methodTyparResolver || typeTyparResolver ||
+  closureTyparResolver`. Public surface: `RegisterClosure`,
   `GenericClosureTypeSpec`, `GenericClosureMemberRef`, and
   `EnterClosureTyparScope` / `ExitClosureTyparScope` (capture-field
   signatures ride `GenericClosureMemberRef` + `ClosureMember.CaptureField`,

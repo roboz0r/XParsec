@@ -7,7 +7,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
 /// Reading facts back off a spliced body. Shared because both backend suites read the same
-/// contract through their own symbol leaf, and the leaf differs where what is read off the
+/// contract through their own symbol tail, and the tail differs where what is read off the
 /// body does not.
 module InlineBodies =
 
@@ -135,7 +135,7 @@ module OperatorSurfaceParity =
             ]
 
     /// One backend's operator surface against the matrix. `provider` is that backend's
-    /// contract as its own symbol leaf resolves it: a width is supported iff it DECLARES
+    /// contract as its own symbol tail resolves it: a width is supported iff it DECLARES
     /// the member.
     let tests (backendName: string) (provider: IExternalSymbolProvider) : Test =
         testList

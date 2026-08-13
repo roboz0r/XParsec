@@ -4,7 +4,7 @@ open System.Collections.Generic
 
 module SemTypeWalk =
 
-    /// `onVar` sees the RAW (un-`find`ed) typar, so each caller's leaf decides its own
+    /// `onVar` sees the RAW (un-`find`ed) typar, so each caller decides its own
     /// find / link / dedup policy. The walk does NOT recurse past a `TyVar`.
     let iterSemTypeVars (onVar: TyVarId -> unit) (t: SemType) : unit =
         let rec walk (t: SemType) : unit =

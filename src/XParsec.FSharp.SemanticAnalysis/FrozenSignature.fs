@@ -471,9 +471,9 @@ module FrozenSignature =
 
             SymbolKeyOps.tryDottedInModule exact moduleContainer name
 
-        ExternalSymbolProviders.ofKeyedLeaf (
-            ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes
-                { ExternalSymbolProviders.KeyIndexedLeaf.empty with
+        ExternalSymbolProviders.ofKeyedChannels (
+            ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
+                { ExternalSymbolProviders.KeyIndexedChannels.empty with
                     ShapesByKey = shapesByKey
                     MembersByKey = membersByKey
                     ResolveTypeName = resolveNameToKey

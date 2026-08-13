@@ -113,7 +113,7 @@ let private runTraceAndAggregate (size: Fixtures.FixtureSize) (iterations: int) 
 
 /// The SA analogue of `runTraceChild`: the loop that runs under `dotnet-trace collect`.
 /// Providers + sources are built ONCE (mirroring the benchmark's `GlobalSetup`) so the
-/// trace window covers only the analyse chain, not the heavy BCL-leaf provider compose.
+/// trace window covers only the analyse chain, not the heavy BCL provider compose.
 let private runSaTraceChild (depth: SemanticAnalysisFixtures.ChainDepth) (iterations: int) =
     let stages = SemanticAnalysisFixtures.stagesFor depth
 

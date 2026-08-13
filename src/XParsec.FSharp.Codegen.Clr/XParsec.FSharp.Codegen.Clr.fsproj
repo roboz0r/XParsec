@@ -62,7 +62,7 @@
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr` and the
-         target-generic `SymbolProviders` (the BCL metadata leaf `MetadataSymbols`
+         target-generic `SymbolProviders` (the BCL metadata tail `MetadataSymbols`
          is .NET-specific and lives here in Codegen.Clr). -->
     <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
   </ItemGroup>

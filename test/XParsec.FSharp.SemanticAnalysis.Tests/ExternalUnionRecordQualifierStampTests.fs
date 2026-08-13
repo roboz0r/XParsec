@@ -11,8 +11,8 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// ambient namespace `Tests`; union `Other.Palette` needs an explicit `open Other`.
 /// No union case resolves at all, so every `.Nope` tail below is an unresolved member.
 let private provider: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookupType =
                 fun n ->
                     match n with

@@ -354,7 +354,7 @@ and TStaticOptClauseG<'ty, 'tok, 'id> =
     }
 
 /// One flattened compiled parameter. A simple bound variable's `Slot` is referenced by the body
-/// directly; a destructuring leaf carries `Pat = Some …` and a synthetic `Slot` the
+/// directly; a destructuring parameter carries `Pat = Some …` and a synthetic `Slot` the
 /// backend spills and then binds the pattern against.
 and StaticParamG<'ty, 'pat, 'id> =
     { Slot: 'id; Ty: 'ty; Pat: 'pat option }

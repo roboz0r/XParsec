@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Flatten a source string to `(label, prefixes)` per leaf element — the prefixes in force there.
+/// Flatten a source string to `(label, prefixes)` per element — the prefixes in force there.
 let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
     let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)

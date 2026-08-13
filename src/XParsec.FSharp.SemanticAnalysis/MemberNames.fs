@@ -8,36 +8,36 @@ module MemberNames =
 
     /// The pattern actually naming the member, under any annotation / attribute / paren
     /// wrapping: `member this.M` names by `NamedSimple`, `member (+)` by `Op`.
-    let rec private leafPat (p: Pat<SyntaxToken>) : Pat<SyntaxToken> voption =
+    let rec private namingPat (p: Pat<SyntaxToken>) : Pat<SyntaxToken> voption =
         match p with
         | Pat.NamedSimple _
         | Pat.Op _ -> ValueSome p
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Typed(pat = inner)
-        | Pat.Attributed(pat = inner) -> leafPat inner
+        | Pat.Attributed(pat = inner) -> namingPat inner
         | _ -> ValueNone
 
-    /// The key a member registers its `DeclSite` under: its leaf pattern's, so
+    /// The key a member registers its `DeclSite` under: its naming pattern's, so
     /// `static member (+) (a, b) = …` keys on `(lParen, PatOp)`, not on the operator token.
     let declKeyOfBinding (b: Binding<SyntaxToken>) : NodeKey voption =
-        leafPat b.pattern |> ValueOption.map CstKeys.ofPat
+        namingPat b.pattern |> ValueOption.map CstKeys.ofPat
 
     /// A member's name and declaration site. An operator-named member takes its compiled
     /// name (`op_Addition`), which is how a use site names it.
     let ofBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
-        match leafPat b.pattern with
-        | ValueSome(Pat.NamedSimple id as leaf) ->
+        match namingPat b.pattern with
+        | ValueSome(Pat.NamedSimple id as named) ->
             ValueSome
                 {|
                     Name = ctx.NameOf id
-                    Site = CstKeys.siteOfPat leaf
+                    Site = CstKeys.siteOfPat named
                 |}
-        | ValueSome(Pat.Op io as leaf) ->
+        | ValueSome(Pat.Op io as named) ->
             OperatorNames.ofPatOp ctx.NameOf io
             |> ValueOption.map (fun n ->
                 {|
                     Name = n
-                    Site = CstKeys.siteOfPat leaf
+                    Site = CstKeys.siteOfPat named
                 |}
             )
         | _ -> ValueNone

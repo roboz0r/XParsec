@@ -101,7 +101,7 @@
     <!-- The OpsPlatformJs tests build the JS-TARGET layer-1 contract stack through the
          JS-native contract (`Codegen.Js.JsNativeSymbols`), so no dependency on the CLR
          backend is needed. The cross-target / CLR-repr contrasts (which need the BCL
-         metadata leaf) live in `Codegen.Clr.Tests.OpsPlatformClrTests` instead. -->
+         metadata tail) live in `Codegen.Clr.Tests.OpsPlatformClrTests` instead. -->
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
     <!-- The backend-neutral conformance corpus loader + assertions; this project
          supplies only the `Backend` record (see `ConformanceTests.fs`). -->

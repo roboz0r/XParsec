@@ -1058,8 +1058,8 @@ let tests =
 
             test "qualified name resolves through provider" {
                 let provider: IExternalSymbolProvider =
-                    ExternalSymbolProviders.ofNamedLeaf
-                        { ExternalSymbolProviders.NamedLeaf.empty with
+                    ExternalSymbolProviders.ofNamedChannels
+                        { ExternalSymbolProviders.NamedChannels.empty with
                             TryLookup =
                                 fun name ->
                                     if name = "Math.pi" then
@@ -1306,12 +1306,13 @@ let tests =
                     Signature = TestHelpers.mkSignature 0 0 (FTTuple ps) unitFt
                 }
 
-            // The stub `leaf` layered OVER `realProvider`: `Vec2` is answered by the stub,
+            // The stub channels layered OVER `realProvider`: `Vec2` is answered by the stub,
             // everything else falls through. `Vec2` is NOT a local type, so `totalMemberKey`
             // takes the external arm. The trivial file initialises what the picker reads.
-            let extCtx (leaf: ExternalSymbolProviders.NamedLeaf) : PassContext =
+            let extCtx (stub: ExternalSymbolProviders.NamedChannels) : PassContext =
                 let provider =
-                    ExternalSymbolProviders.composite [ ExternalSymbolProviders.ofNamedLeaf leaf; realProvider.Value ]
+                    ExternalSymbolProviders.composite
+                        [ ExternalSymbolProviders.ofNamedChannels stub; realProvider.Value ]
 
                 let lexed, file = parseFile "let _ = 0"
                 let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
@@ -1326,7 +1327,7 @@ let tests =
 
                 let ctx =
                     extCtx
-                        { ExternalSymbolProviders.NamedLeaf.empty with
+                        { ExternalSymbolProviders.NamedChannels.empty with
                             TryLookupMembers =
                                 (fun q ->
                                     if q.DeclaringType = "Vec2" && q.Name = "M" then
@@ -1366,7 +1367,7 @@ let tests =
 
                 let ctx =
                     extCtx
-                        { ExternalSymbolProviders.NamedLeaf.empty with
+                        { ExternalSymbolProviders.NamedChannels.empty with
                             TryLookupMembers =
                                 (fun q ->
                                     if q.DeclaringType = "Vec2" && q.Name = "N" then

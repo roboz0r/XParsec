@@ -36,7 +36,7 @@ module Freeze =
             match v with
             | TyVar tv ->
                 // Key on the union-find ROOT: two `TyVar` nodes in the same class are
-                // the same typar and must land on the same leaf.
+                // the same typar and must land on the same `FTLocalTypar`.
                 match schemes.TryGetValue((UnionFind.find store tv).Id) with
                 | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
                 | _ -> FTUnknown "?unresolved-typar"

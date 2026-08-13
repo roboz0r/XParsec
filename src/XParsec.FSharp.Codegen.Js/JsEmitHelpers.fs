@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// Leaf helpers for the walker: no `WalkCtx` parameter, no back-calls into expression emission.
+/// Helpers for the walker: no `WalkCtx` parameter, no back-calls into expression emission.
 module JsEmitHelpers =
 
     // ---- Variable names ------------------------------------------------------

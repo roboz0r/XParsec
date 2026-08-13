@@ -57,7 +57,7 @@ let membersOf (ctx: VesperLib.ExtractCtx) (compiledSuffix: string) : ExternalMem
     | ValueNone ->
         failtestf "no members published for '%s'. Member tables: %A" compiledSuffix (Seq.toList ctx.TypeMembers.Keys)
 
-/// The `interface <ty>` impls a PRIMITIVE declares. Empty for a leaf that binds only a
+/// The `interface <ty>` impls a PRIMITIVE declares. Empty for a source that binds only a
 /// representation, which is indistinguishable here from a primitive that declares none.
 let declaredInterfaces (p: IExternalSymbolStore) (key: SymbolKey) : EqArray<FrozenInterface> =
     match p.TryLookupType key with
@@ -125,8 +125,8 @@ let tests =
             }
 
             test "a signature naming an out-of-scope type bakes TyUnknown" {
-                // Nothing declares `Missing.Thing`, so the val is RETAINED with a `TyUnknown`
-                // leaf carrying the unresolved name — a use-site diagnostic — rather than
+                // Nothing declares `Missing.Thing`, so the val is RETAINED with `TyUnknown`
+                // carrying the unresolved name — a use-site diagnostic — rather than
                 // dropped into `ctx.Skipped`.
                 let ctx =
                     extractFsi "app.fsi" "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
@@ -845,7 +845,7 @@ let tests =
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
-                // A `canonsOf` reader turns a hit into an `FTConst` leaf, so an interface entry
+                // A `canonsOf` reader turns a hit into an `FTConst`, so an interface entry
                 // would mis-present `System.IDisposable` as a scalar canon. Reconciliation
                 // rides the `IntrinsicInterface` identity above instead.
                 match IntrinsicTypeMap.canonsOf "System.IDisposable" provider.IntrinsicTypeMap with
@@ -1288,7 +1288,7 @@ let tests =
             // package's own build and publishes `int` as a bare `Scalar`: it binds a
             // representation and knows no surface. First-hit alone would read that silence as
             // "declares nothing", so the composite folds the surfaces instead.
-            test "a repr-only leaf ahead of the contract does not shadow `int`'s declared interfaces" {
+            test "a repr-only source ahead of the contract does not shadow `int`'s declared interfaces" {
                 let intKey = RuntimeNames.intKey
 
                 let reprOnly =
@@ -1301,22 +1301,22 @@ let tests =
                             IntrinsicShape.Scalar(canon, 0, IntrinsicPlatform.Repr "System.Int32")
                         )
 
-                    ExternalSymbolProviders.ofKeyedLeaf (
-                        ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes
-                            { ExternalSymbolProviders.KeyIndexedLeaf.empty with
+                    ExternalSymbolProviders.ofKeyedChannels (
+                        ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
+                            { ExternalSymbolProviders.KeyIndexedChannels.empty with
                                 ShapesByKey = shapes
                             }
                     )
 
                 Expect.isTrue
                     (declaredInterfaces reprOnly intKey).IsEmpty
-                    "the repr-only leaf alone declares nothing, which is what makes the fold necessary"
+                    "the repr-only source alone declares nothing, which is what makes the fold necessary"
 
                 let composed = ExternalSymbolProviders.composite [ reprOnly; realProvider.Value ]
 
                 Expect.isTrue
                     (declaredInterfaces composed intKey
                      |> EqArray.exists (fun iface -> iface.Key = SymbolKey.Type RuntimeNames.equatableKey))
-                    "the contract's `equatable<int>` survives a leaf that binds only a repr"
+                    "the contract's `equatable<int>` survives a source that binds only a repr"
             }
         ]

@@ -9,7 +9,7 @@ module SymbolProviders =
 
     /// Layer-2 tail FACTORY over the intrinsic axis composed from the layer-1 providers —
     /// what `type int = (# "System.Int32" #)` declares, both directions. A factory, not a
-    /// fixed list, so the leaf is seeded.
+    /// fixed list, so the tail is seeded.
     type MetaTailFactory = ReferencedProject.MetaTailFactory
 
     /// A package's manifest for the compiling target, as resolved from its directory.
@@ -34,8 +34,8 @@ module SymbolProviders =
         | Some p -> packageDirs @ [ p ]
         | None -> packageDirs
 
-    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf FACTORY.
-    /// Common supplies no concrete leaf; the CLR backend injects its BCL reflection tail. Uncached.
+    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 tail FACTORY.
+    /// Common supplies no concrete tail; the CLR backend injects its BCL reflection one. Uncached.
     let buildWith (metaTail: MetaTailFactory) (target: string) (packageDirs: string list) : IExternalSymbolProvider =
         ReferencedProject.composeContract metaTail (ReferencedProject.resolveAll target packageDirs)
 
@@ -232,8 +232,8 @@ module SymbolProviders =
     let private contractCache =
         System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Contract>>(System.StringComparer.Ordinal)
 
-    /// Cached contract for a package set, over a caller-supplied layer-2 leaf FACTORY: the
-    /// seam each backend wraps with its concrete leaf.
+    /// Cached contract for a package set, over a caller-supplied layer-2 tail FACTORY: the
+    /// seam each backend wraps with its concrete tail.
     let buildContractWith
         (cacheTag: string)
         (metaTail: MetaTailFactory)
@@ -294,7 +294,7 @@ module SymbolProviders =
             )
             .Value
 
-    /// `buildContractWith` over a FIXED layer-2 leaf, wrapped as a constant factory: for a
+    /// `buildContractWith` over a FIXED layer-2 tail, wrapped as a constant factory: for a
     /// backend whose tail reads nothing from the intrinsic axis.
     let buildContractWithMetadata
         (cacheTag: string)

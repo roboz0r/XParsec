@@ -48,7 +48,7 @@ Key memories: [project_typar_ordering_unification], [project_contract_demotion],
 LANDED. A compilation's BCL surface now comes from its OWN reference set, not the
 compiler host's runtime. Anchors (read the code, not this doc):
 - `ClrSymbolProviders.bclMetaTailWith` / `buildContractWithRefs` /
-  `contractInlineBodiesWithRefs` — the path-taking leaf (per-instance memo; the path
+  `contractInlineBodiesWithRefs` — the path-taking tail (per-instance memo; the path
   set enters the contract-cache identity via a `bcl-refs:` tag).
 - `Codegen.Clr/RefPack.fs` — TFM → `Microsoft.NETCore.App.Ref` resolver, the
   no-MSBuild convenience; explicit `dllPaths` remains the primary, MSBuild-shaped

@@ -475,7 +475,7 @@ module ReferencedProject =
         )
 
     /// A layer-2 metadata-tail factory: given the intrinsic axis of the layer-1 providers
-    /// composed so far, produce the trailing leaf providers. A backend injects its BCL
+    /// composed so far, produce the tail providers. A backend injects its BCL
     /// metadata / JS-native tail here.
     type MetaTailFactory = IntrinsicTypeMap -> IExternalSymbolProvider list
 
@@ -483,8 +483,8 @@ module ReferencedProject =
     /// caller that resolves no BCL/native metadata.
     let noMetaTail: MetaTailFactory = fun _ -> []
 
-    /// Compose layer-1 providers in dependency (topological) order ahead of the `metaTail`
-    /// leaf. Each package is extracted with read access to its transitive `depends-on`
+    /// Compose layer-1 providers in dependency (topological) order ahead of the `metaTail`.
+    /// Each package is extracted with read access to its transitive `depends-on`
     /// closure's shapes, so a cross-package nominal type constructor kinds at bake time.
     let composeOrdered
         (metaTail: MetaTailFactory)
@@ -548,7 +548,7 @@ module ReferencedProject =
             built.Add bp.Provider
             byPath.[manifest.Path] <- bp.Provider
 
-        // The final composite's leaf IS seeded with the full extracted axis, so a consumer's
+        // The final composite's tail IS seeded with the full extracted axis, so a consumer's
         // BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
         ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeIntrinsics builtList))

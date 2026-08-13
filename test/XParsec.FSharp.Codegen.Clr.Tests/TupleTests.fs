@@ -175,7 +175,7 @@ let constructTests =
 
 /// Tuple destructuring, through both the irrefutable `let` path and the match
 /// compiler. Each program is a one-arg static function returning an int, so the
-/// invoke result is the sum of whatever the leaf patterns bound.
+/// invoke result is the sum of whatever the pattern's bound variables took.
 [<Tests>]
 let destructureTests =
     let invokeIntFn (source: string) (arg: int) : int =

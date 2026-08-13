@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 
-// The metadata leaf canonicalizes BCL primitives (`System.Int32` → `int`) through the
+// The metadata tail canonicalizes BCL primitives (`System.Int32` → `int`) through the
 // intrinsic axis. Seed it from the real Vesper.Core contract, not a static table, so
 // `String.Length` presents `int`.
 let private intrinsics =
@@ -188,7 +188,7 @@ let tests =
             }
 
             test "metadata templates instantiate to the expected use-site types" {
-                // The leaf freezes its templates at construction; check they realise
+                // The tail freezes its templates at construction; check they realise
                 // through the `instantiate*` helpers: declaring typars substituted, and
                 // every member's signature instantiating without throwing.
                 match typeShape "System.Collections.Generic.List`1" with
@@ -215,7 +215,7 @@ let tests =
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 
                     // Base type: `List<'T> : Object` surfaces as the canon `obj` identity
-                    // (`TyConst`), not a BCL-nominal `TyClass`, because the leaf
+                    // (`TyConst`), not a BCL-nominal `TyClass`, because the tail
                     // canonicalizes the subtype roots.
                     match ExternalSymbols.instantiateBaseType info intArg with
                     | ValueSome(TyConst(k, _)) ->
@@ -253,14 +253,14 @@ let tests =
                 Expect.isTrue (provider.TryLookup "op_Addition" |> ValueOption.isNone) "no value surface"
             }
 
-            test "the path-taking leaf resolves identically to the host-TPA leaf" {
+            test "the path-taking tail resolves identically to the host-TPA tail" {
                 // Sourced from the SAME host TPA the singleton reflects, so the
-                // path-taking leaf must resolve a known BCL type identically.
-                let leaf =
+                // path-taking tail must resolve a known BCL type identically.
+                let tail =
                     ClrSymbolProviders.bclMetaTailWith (MetadataSymbols.runtimeAssemblyPaths ()) intrinsics
                     |> List.exactlyOne
 
-                match leaf.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
+                match tail.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
                     Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
@@ -306,13 +306,13 @@ let tests =
                 | Error e -> failtestf "expected net8.0 ref pack to resolve: %s" e
             }
 
-            test "a ref-pack-backed leaf binds the REF assembly identity" {
+            test "a ref-pack-backed tail binds the REF assembly identity" {
                 match RefPack.resolve "net8.0" with
                 | Error e -> failtestf "net8.0 ref pack did not resolve: %s" e
                 | Ok refPaths ->
-                    let leaf = ClrSymbolProviders.bclMetaTailWith refPaths intrinsics |> List.exactlyOne
+                    let tail = ClrSymbolProviders.bclMetaTailWith refPaths intrinsics |> List.exactlyOne
 
-                    match leaf.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
+                    match tail.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class info) ->
                         // In the ref pack `StringBuilder` lives in System.Runtime (the
                         // facade), not System.Private.CoreLib, which also proves the load

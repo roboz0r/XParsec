@@ -388,7 +388,7 @@ denotes, which then unifies with the free typar the annotation became.
 `StringBuilder`. The *same* contract extracts to
 `(int * int * FTClass(System.IO.TextWriter))` under the CLR provider and to
 `(int * int * FTUnknown)` under the JS provider (probed). `FTUnknown` is already the
-type system's "this target cannot name this type" leaf. So per-target sink resolution
+type system's "this target cannot name this type" marker. So per-target sink resolution
 needs **no new machinery** — it is what contract extraction already does.
 
 **The family is not declared.** `Vesper.Printf/printf.fsi` declares only `printf`,

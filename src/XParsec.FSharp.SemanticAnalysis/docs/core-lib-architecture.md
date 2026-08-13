@@ -302,7 +302,7 @@ over the discovery order with gray/black colouring. Properties that callers rely
 
 `composeOrdered` (`:675`) is the single dependency-order wiring shared by the
 codegen `SymbolProviders` stack and the in-assembly test fixtures; do not
-re-implement its ambient-shape loop at a call site. It is **leaf-agnostic**: a
+re-implement its ambient-shape loop at a call site. It is **tail-agnostic**: a
 backend injects its own metadata tail (BCL `MetadataSymbols` on CLR, the JS-native
 tail on JS) through the `MetaTailFactory` seam, and an in-assembly caller that
 needs no metadata passes `noMetaTail`. `composeContract` (`:762`) is the

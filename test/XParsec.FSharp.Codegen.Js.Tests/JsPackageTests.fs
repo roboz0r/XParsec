@@ -137,7 +137,7 @@ type IShape =
                 Expect.isFalse (pkg.Barrel.Contains "interfaces") "and is absent from the barrel"
             }
 
-            test "two sources with the same leaf name are a build error, not a silent overwrite" {
+            test "two sources with the same output file name are a build error, not a silent overwrite" {
                 let moduleNamed (name: string) =
                     sprintf "namespace Test.Pkg\n\nmodule %s =\n    let v () : int = 1\n" name
 

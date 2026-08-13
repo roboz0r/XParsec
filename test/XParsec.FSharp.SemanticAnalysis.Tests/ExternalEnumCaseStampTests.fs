@@ -23,8 +23,8 @@ let private provider: IExternalSymbolProvider =
             SymbolOrigin.Empty
         )
 
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookupType =
                 fun n ->
                     match n with

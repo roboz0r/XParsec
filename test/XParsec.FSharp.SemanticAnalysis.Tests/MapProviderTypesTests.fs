@@ -48,7 +48,7 @@ let private markerCase: ExternalCaseShape =
         FrozenFieldTypes = EqArray.singleton marker
     }
 
-// The by-key channels reach this leaf as the key's qualified name — `Cls`, `Rec`, `Uni`.
+// The by-key channels reach this lookup as the key's qualified name — `Cls`, `Rec`, `Uni`.
 let private typeByName (name: string) : ExternalTypeShape voption =
     match name with
     | "Cls" ->
@@ -98,8 +98,8 @@ let private memberByName (t: string) (m: string) : ExternalMember voption =
         ValueNone
 
 let private fake: IExternalSymbolProvider =
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookup =
                 fun name ->
                     if name = "sym" then

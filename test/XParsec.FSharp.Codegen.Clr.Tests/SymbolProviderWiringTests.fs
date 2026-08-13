@@ -16,7 +16,7 @@ let tests =
         "SymbolProviderWiring"
         [
             test "build [] resolves no values (the List.fold backstop is gone); List.fold comes from the contract" {
-                // With no manifests the stack is the metadata leaf alone, and metadata
+                // With no manifests the stack is the metadata tail alone, and metadata
                 // resolves no values at all.
                 let empty = ClrSymbolProviders.build []
 

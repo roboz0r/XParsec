@@ -117,7 +117,7 @@ still the end goal for provenance generally; it no longer has this hole to close
 
 **The route-dependence this section was going to fix is already gone** — see "Verified, so not
 a question" above: the composite folds intrinsic surfaces, so no reader of
-`IntrinsicClassSurface.Interfaces` depends on which leaf answers first. What remains here is
+`IntrinsicClassSurface.Interfaces` depends on which source answers first. What remains here is
 provenance proper: which FILE a declaration came from, and hiding.
 
 **Status: this is the direction (user, confirmed 2026-08-12). Do not add features that move
@@ -161,7 +161,7 @@ So the two sources are ADDITIVE:
 
 ### So what is the backend for? Widening, and witnessing the floor
 
-The platform leaf has two jobs, and only the first is new capability CONTENT:
+The platform tail has two jobs, and only the first is new capability CONTENT:
 
 1. **Widen.** Surface the target's own capabilities for an intrinsic, so CLR code can use a
    Vesper array as an `IList<'T>`. This is the reflection answer, and it is legitimate.
@@ -172,32 +172,32 @@ The platform leaf has two jobs, and only the first is new capability CONTENT:
 This keeps `feedback_freeze_no_backend_knowledge` satisfied: freezing knows no backend, the
 backend owns its own dialect, and the language owns the floor.
 
-### The mechanism — a dedicated member so the lossy leaf ABSTAINS
+### The mechanism — a dedicated member so the lossy source ABSTAINS
 
 If the contract prescribes the answer, why does the defect exist at all? Because of HOW the
 question is currently asked, and this is the whole of the fix.
 
-`TryLookupType` is **first-hit at whole-shape granularity** — `stack`'s `firstHit` scans leaves
-from index 0 and stops at the first `ValueSome`, returning that leaf's `ExternalTypeShape`
+`TryLookupType` is **first-hit at whole-shape granularity** — `stack`'s `firstHit` scans sources
+from index 0 and stops at the first `ValueSome`, returning that source's `ExternalTypeShape`
 entire (`ExternalSymbolProviders.fs:239-253`, `:330-331`). Composition puts per-file `.fs`
 views at the HEAD and the contract + metaTail at the TAIL (`AssemblyFiles.fs:108-109`,
 `ClrDriver.fs:141-142`, `ReferencedProject.fs:563-564`). So for `'T[]` the array's own
 `prim-types-array.fs` view wins, and its `Interfaces = EqArray.empty` is read as **"no
-interfaces"** when the truth is **"this leaf does not know"**. The contract's populated shape,
+interfaces"** when the truth is **"this source does not know"**. The contract's populated shape,
 sitting further down, is never consulted.
 
 **A dedicated ADDITIVE member fixes this, because abstention becomes the default.**
-`FrozenSignature.toProvider` builds its leaf as a record update over `KeyIndexedLeaf.empty`
-(`FrozenSignature.fs:496-522`). A new field defaulting to "no opinion" in `KeyIndexedLeaf.empty`
+`FrozenSignature.toProvider` builds its channels as a record update over `KeyIndexedChannels.empty`
+(`FrozenSignature.fs:496-522`). A new field defaulting to "no opinion" in `KeyIndexedChannels.empty`
 is inherited there **without editing that call site** — F#'s `with`-syntax makes silence the
-default. The per-file view then says nothing rather than lying, and the contract leaf's answer
+default. The per-file view then says nothing rather than lying, and the contract source's answer
 survives to the caller.
 
 **The lower-bound semantics and the abstention fix are the SAME requirement.** Contract-floor
-plus platform-widening means the query must UNION across leaves rather than stop at the first —
-the contract leaf contributes `seq<'T>`, the CLR leaf contributes `IList<'T>` and the rest, and
+plus platform-widening means the query must UNION across sources rather than stop at the first —
+the contract source contributes `seq<'T>`, the CLR tail contributes `IList<'T>` and the rest, and
 a caller asking "is this assignable to `IList<int>`?" needs both to have been consulted. An
-additive merge delivers that AND makes an abstaining leaf contribute the identity element. One
+additive merge delivers that AND makes an abstaining source contribute the identity element. One
 mechanism, both problems; there is no version of this design where first-hit is right.
 
 **Precedent, already load-bearing in this tree: `AmbientOpenPrefixes`.** The per-file view
@@ -215,7 +215,7 @@ question.
 
 #### Two traps to avoid when building it
 
-1. **Plumb the member THROUGH the leaf record; do not derive it in `ofKeyedLeaf`.** That
+1. **Plumb the member THROUGH the channel record; do not derive it in `ofKeyedChannels`.** That
    function already derives channels from others — `TryLookupMemberByKey` from
    `TypeMembersByKey` (`ExternalSymbolProviders.fs:178-180`), `TryLookupIndexSignature` /
    `TryLookupByKey` by re-rendering keys onto the name index (`:182-189`). Implementing the
@@ -224,7 +224,7 @@ question.
    defect through a new door. This is the live trap; the interface's current shape invites it.
 2. **A single `voption` cannot carry a union.** Under additive merge the natural return is the
    set of satisfied capabilities with their instantiations, not one hit. Note also that
-   `voption` conflates "absent" with "no opinion": decide whether a leaf ever needs to refute a
+   `voption` conflates "absent" with "no opinion": decide whether a source ever needs to refute a
    capability (a target contradicting a stale contract claim) before fixing the shape. Fold or
    first-hit, `voption` has that conflation.
 
@@ -275,14 +275,14 @@ needs an ENUMERATE-interfaces-of-an-intrinsic query as well as the capability qu
 provider-answered, but it is a second member, and rerouting `tryUpcastWitness` is a rewrite of
 the walk rather than a swap.
 
-### Prerequisite — the zero-leaf case, and where those tests go — **DONE (2026-08-12)**
+### Prerequisite — the zero-tail case, and where those tests go — **DONE (2026-08-12)**
 
 `noMetaTail` returns `[]` (`ReferencedProject.fs:490-494`) and
 `SemanticAnalysis.Tests/TestHelpers.fs:27` uses it, so the entire SA front-end suite runs with
 NO platform provider.
 
 **Decided (user, 2026-08-12): SA having no platform is CORRECT, and stays.** Do not give SA a
-synthetic platform leaf to keep those tests running — a test-only stand-in for the real
+synthetic platform tail to keep those tests running — a test-only stand-in for the real
 provider is the shape of thing this tree keeps deleting
 (`feedback_mockbuiltins_is_a_trap`). As the hardcoded types move out of SA, some tests become
 difficult or impossible to construct there. Each one goes one of two ways:
@@ -368,7 +368,7 @@ not observable in a program's stdout — so it goes to the per-backend suites in
 - **The query goes ON `IExternalSymbolProvider`**, not a second interface. The provider being
   the sole outside-world view of a file under analysis is worth keeping; the test-double cost
   it was traded for does not exist (one double on the whole tree — `MemoizeTests.fs:53` — and
-  `KeyIndexedLeaf` is the shared data-driven one); and the interface already carries platform
+  `KeyIndexedChannels` is the shared data-driven one); and the interface already carries platform
   facts in `IntrinsicForwardRepr`. Cost is 7 forwarding arms, mechanical and compiler-checked.
 - **`TypeKey` is the primary key, the repr is secondary.** `IntrinsicIdentity.Platform` is
   many-to-one (JS maps `float` and `float32` both to `number`), so a repr-keyed map — the
@@ -392,7 +392,7 @@ Change A last.
 *(A 2026-08-12 revision briefly moved Change A FIRST, on the grounds that the frozen route
 drops `Interfaces` and so gates the capability axis. That gate is an artefact of reading the
 verdict off a frozen field, and it disappears under the provider query Change B reinstates:
-the platform leaf is injected per target, not derived from the file under analysis. The
+the platform tail is injected per target, not derived from the file under analysis. The
 reversal is withdrawn.)*
 
 0. ~~**Relocate the SA tests that need a platform.**~~ **DONE (2026-08-12)** — and it was the

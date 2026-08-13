@@ -198,7 +198,7 @@ let tests =
             test "a qualified path that does not resolve to a type is silently ignored" {
                 // `Microsoft.FSharp.Core` declares nothing here, so the attribute decodes
                 // to nothing and the record keeps its default structural equality
-                // instead of taking a same-leaf name's meaning.
+                // instead of taking the meaning of a name with the same final segment.
                 let src =
                     String.concat
                         "\n"

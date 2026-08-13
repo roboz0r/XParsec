@@ -300,7 +300,7 @@ and private decodeIndex (m: JsonObject) : Result<(TypeRef * TypeRef) list, strin
             }
         )
 
-// ─── leaf enums ────────────────────────────────────────────────────────────
+// ─── enums ─────────────────────────────────────────────────────────────────
 
 let private encodeMemberKind =
     function

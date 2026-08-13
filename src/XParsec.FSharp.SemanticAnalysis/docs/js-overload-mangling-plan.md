@@ -112,7 +112,7 @@ to survive a recompile of its callers — a version skew is exactly the F# story
    freezes to `FTConst(name, [])`, and **the token is that intrinsic's *simple*
    name** (identity map — no new vocabulary is invented, so the ABI commitment is
    just to already-frozen language surface, and injectivity is automatic because the
-   simple names are distinct). The locked leaf set:
+   simple names are distinct). The locked token set:
 
    ```
    bool  char  string  obj  decimal
@@ -283,7 +283,7 @@ stub. The boundary and contract:
 
 - `FrozenType` canonical serializer + discriminant builder in `Codegen.Common`,
   with `hash` injected (above). Backend-agnostic; CLR doesn't consume it today.
-- The locked well-known leaf set + readable/hash path selection (the arity-1 rule),
+- The locked well-known token set + readable/hash path selection (the arity-1 rule),
   all in `Codegen.Common`. (`FTTypar` renders only in the hashed serialization —
   above — never in a readable token, since a type-variable param is not well-known
   and so always hashes.)

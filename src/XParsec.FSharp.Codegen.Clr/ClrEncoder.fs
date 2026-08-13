@@ -75,7 +75,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// Encode a `FrozenType` into a metadata signature slot. Context-free: open typars are
     /// self-describing `FTTypar(axis, i)` nodes resolved by index, so there is no ambient
-    /// typar window and no leaf hook.
+    /// typar window and no caller-supplied replacement hook.
     let rec encodeType (te: SignatureTypeEncoder) (t: FrozenType) : unit =
         match t with
         // `obj` → `ELEMENT_TYPE_OBJECT`, not `class System.Object`. A BCL interface method

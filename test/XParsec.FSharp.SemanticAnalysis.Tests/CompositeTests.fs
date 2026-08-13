@@ -38,8 +38,8 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
         else
             ValueNone
 
-    ExternalSymbolProviders.ofNamedLeaf
-        { ExternalSymbolProviders.NamedLeaf.empty with
+    ExternalSymbolProviders.ofNamedChannels
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookup =
                 fun n ->
                     if n = name then

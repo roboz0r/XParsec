@@ -110,8 +110,8 @@ module EmitClosures =
         (body: TastAccessor.ExprId)
         : (BoundVarId * FrozenType) list =
         let bound = HashSet<BoundVarId>()
-        // Every leaf the parameter pattern binds: for `fun (a, b) -> …` that is `a` and
-        // `b`, not the placeholder slot.
+        // Every bound variable the parameter pattern introduces: for `fun (a, b) -> …` that
+        // is `a` and `b`, not the placeholder slot.
         for k in paramKeys do
             bound.Add k |> ignore
 
@@ -490,7 +490,7 @@ module EmitClosures =
                         let c = candidates.[k]
                         // A module-value reference is an `ldsfld`, not a capture, so those
                         // keys count as bound. A simple/unit param binds its own `Slot`; a
-                        // tuple param binds each leaf the pattern names.
+                        // tuple param binds each variable the pattern names.
                         let paramBound =
                             c.Params
                             |> List.collect (fun p ->
@@ -787,8 +787,8 @@ module EmitClosures =
                         | None -> ClosureRepr.Heap
                     | ValueNone -> ClosureRepr.Heap
 
-                // Every leaf each param pattern introduces (a tuple's element bindings), not
-                // the placeholder `ParamKey`, because those leaves are parameters, never captures.
+                // Every bound variable each param pattern introduces (a tuple's element bindings),
+                // not the placeholder `ParamKey`, because those are parameters, never captures.
                 // A flat closure binds the peeled inner lambdas' bound variables too.
                 let paramBound =
                     patKeys paramPat

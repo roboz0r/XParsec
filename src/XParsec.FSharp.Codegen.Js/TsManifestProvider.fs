@@ -83,8 +83,8 @@ module TsManifestProvider =
             Some(sym.Name, sym)
         | _ -> None
 
-    /// Resolves every map and guard in the manifest EAGERLY into a by-name leaf.
-    let private manifestLeaf (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedLeaf =
+    /// Resolves every map and guard in the manifest EAGERLY into by-name channels.
+    let private manifestChannels (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedChannels =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name.
         let moduleSpec = pkg
@@ -165,7 +165,7 @@ module TsManifestProvider =
             |> List.map (fun (qn, index) -> qn, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
             |> Map.ofList
 
-        { ExternalSymbolProviders.NamedLeaf.empty with
+        { ExternalSymbolProviders.NamedChannels.empty with
             TryLookup =
                 fun name ->
                     match Map.tryFind name funcs with
@@ -186,7 +186,7 @@ module TsManifestProvider =
 
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
-        ExternalSymbolProviders.ofNamedLeaf (manifestLeaf man)
+        ExternalSymbolProviders.ofNamedChannels (manifestChannels man)
 
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =

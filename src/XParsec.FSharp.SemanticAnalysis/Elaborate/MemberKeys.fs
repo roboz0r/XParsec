@@ -30,7 +30,7 @@ module LocalMemberKeys =
         let declArgs = declArgs |> Array.map (Unification.zonk store)
         let argElems = argElems |> List.map (Unification.zonk store)
 
-        // Ground is the precondition for operand-type overload discrimination: a free leaf
+        // Ground is the precondition for operand-type overload discrimination: a free `TyVar`
         // binds against every candidate, so it tells no two same-arity overloads apart.
         if
             List.forall (SemTypeQuery.isGround store) argElems
