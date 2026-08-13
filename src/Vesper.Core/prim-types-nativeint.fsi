@@ -6,6 +6,9 @@ namespace Vesper
 type nativeint =
     extern with
 
+    interface equatable<nativeint>
+    interface comparable<nativeint>
+
     static member inline (+): x: nativeint * y: nativeint -> nativeint
 
     static member inline (-): x: nativeint * y: nativeint -> nativeint
@@ -37,6 +40,9 @@ type nativeint =
 /// <category>Basic Types</category>
 type unativeint =
     extern with
+
+    interface equatable<unativeint>
+    interface comparable<unativeint>
 
     static member inline (+): x: unativeint * y: unativeint -> unativeint
 

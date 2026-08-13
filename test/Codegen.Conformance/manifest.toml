@@ -236,6 +236,14 @@ run = ["clr", "js"]
 path = "ops/comparison-primitives.fs"
 run = ["clr", "js"]
 
+# The same two operators at `decimal` / `nativeint` / `unativeint`: the widths whose
+# equality and comparison come off the contract's declared capability with no static-
+# optimization clause behind them. CLR only, as `arith-decimal.fs` is.
+[[program]]
+path = "ops/equality-comparison-decimal-nativeint.fs"
+run = ["clr"]
+diagnose = { js = "decimal is not supported on the js target" }
+
 # `bigint` is the other non-CIL-primitive width, and the one both backends represent — the
 # BCL `BigInteger` and the JS `BigInt` primitive. It is the only width in this matrix with
 # no bound to wrap to, so its golden is the one that goes past 2^64 and stays exact.

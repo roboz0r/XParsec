@@ -1227,23 +1227,12 @@ module VesperLib =
                     // RECORD a one-shot finalize-time republish, since neither surface is
                     // complete at extraction.
                     match kindTag with
-                    // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound member
-                    // surface. Re-registers the `Intrinsic` shape the bodied-class extraction
-                    // overwrote; the members ride their own table, not the shape.
-                    | ValueNone ->
-                        let declaresInterface =
-                            elems
-                            |> Seq.exists (
-                                function
-                                | TypeSignatureElement.Interface _ -> true
-                                | _ -> false
-                            )
-
-                        match declaresInterface, ctx.IntrinsicReprs.TryGetValue short with
-                        | true, (false, _) ->
-                            ctx.Diagnostics.Add(file, IntrinsicHost.interfaceNeedsRepr short ctx.Target)
-                            registerIntrinsic ()
-                        | _ -> registerIntrinsic ()
+                    // An untagged `extern with member …`: a scalar. Re-registers the
+                    // `Intrinsic` shape the bodied-class extraction overwrote; the members
+                    // ride their own table, not the shape. A declared `interface` needs no
+                    // repr here — a target that binds none marks the type unsupported, so
+                    // no source it compiles can name the type and reach the capability.
+                    | ValueNone -> registerIntrinsic ()
                     | ValueSome tag ->
                         match ctx.IntrinsicReprs.TryGetValue short with
                         | true, platform ->

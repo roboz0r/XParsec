@@ -6,6 +6,9 @@ namespace Vesper
 type decimal =
     extern with
 
+    interface equatable<decimal>
+    interface comparable<decimal>
+
     static member inline (+): x: decimal * y: decimal -> decimal
 
     static member inline (-): x: decimal * y: decimal -> decimal

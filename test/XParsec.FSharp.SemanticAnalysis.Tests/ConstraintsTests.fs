@@ -100,6 +100,21 @@ let tests =
                 Expect.isTrue (hasMessage ctx "comparison") "comparison-violation diagnostic"
             }
 
+            // These three bind a repr on the CLR and none on JS. The verdict comes off the
+            // contract's declared `interface equatable<_>` / `comparable<_>`, so it holds
+            // wherever the type is representable at all — the surface is not the repr.
+            test "equality and comparison constraints satisfied by decimal, nativeint and unativeint" {
+                for literal in [ "1.0M"; "1n"; "1un" ] do
+                    let ctx =
+                        analyseUnif (
+                            sprintf "let f<'a when 'a : equality and 'a : comparison> (x: 'a) = x\nlet _ = f %s" literal
+                        )
+
+                    Expect.isEmpty
+                        (ctx.Diagnostics |> Seq.map (fun d -> d.Message))
+                        (sprintf "`f %s` discharges both constraints" literal)
+            }
+
             test "comparison constraint satisfied by tuple of comparable elements" {
                 let ctx =
                     analyseUnif "let cmp<'a when 'a : comparison> (x: 'a) (y: 'a) = x\nlet _ = cmp (1, 2) (3, 4)"

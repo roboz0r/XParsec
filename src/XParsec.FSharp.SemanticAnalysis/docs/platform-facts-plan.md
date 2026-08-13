@@ -117,13 +117,16 @@ the same fact answered two ways. Folding in `stack` subsumes it, and the channel
    `(+): bigint * bigint -> bigint`) freeze against it. Registering it as a `Class` and
    republishing later would make the frozen identity depend on when it was asked.
 
-**The floor as authored:** equatable + comparable on `int`, `bool`, `unit`, `char`, `string`,
-`sbyte`, `byte`, `int16`, `uint16`, `uint32`, `int64`, `uint64`, `float32`, `float`, `bigint`;
-equatable only on `obj` and `exn`. **NOT on `decimal`, `nativeint`, `unativeint`** — JS binds no
-repr for them, and `IntrinsicHost.interfaceNeedsRepr` (`VesperLib.fs`) makes an interface
-declaration on a repr-less primitive an error. That is a gap, not a regression: those three were
-absent from `isPrimitiveValueType` too, so they deferred before and defer now. Closing it means
-deciding whether that diagnostic should fire for a type the target marks `Unsupported` at all.
+**The floor as authored:** equatable + comparable on every numeric width plus `bool`, `unit`,
+`char`, `string`, `bigint`, `decimal`, `nativeint`, `unativeint`; equatable only on `obj` and
+`exn` (reference equality, no ordering).
+
+`decimal` / `nativeint` / `unativeint` joined last (user, 2026-08-12): no target could inhabit
+them and not satisfy both. They bind no JS repr, which `interfaceNeedsRepr` used to make an
+error — that diagnostic is DELETED, because its trigger (no repr on this target) was exactly the
+condition that already marks the type `Unsupported`, so no source the target compiles can name
+the type and reach the capability. A paired `.fs` that merely omits the type is a separate,
+better-diagnosed case (`ConformanceError.MissingInImpl`).
 
 ---
 
