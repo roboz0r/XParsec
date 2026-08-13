@@ -250,13 +250,29 @@ module FrozenCodecDecls =
                 )
         )
 
+    and private writeDeclaredFlags (w: FrozenWriter) (d: DeclaredClassFlags) =
+        w.Write d.IsSealed
+        w.Write d.IsAbstract
+        w.Write d.AllowNullLiteral
+
+    and private readDeclaredFlags (r: FrozenReader) : DeclaredClassFlags =
+        let isSealed = r.ReadBoolean()
+        let isAbstract = r.ReadBoolean()
+        let allowNullLiteral = r.ReadBoolean()
+
+        {
+            IsSealed = isSealed
+            IsAbstract = isAbstract
+            AllowNullLiteral = allowNullLiteral
+        }
+
     and private writeClass (w: FrozenWriter) (c: TClassG<FrozenType, BoundVarId, ExprPoolId>) =
         writeEqArrayWith w writeRecordField c.Fields
         writeEqArrayWith w writeRecordField c.CtorParams
         writeEqArrayWith w writeTypeMember c.Members
         writeVOptionWith w writeTypeRef c.BaseType
         writeInterfaces w c.Interfaces
-        w.Write c.IsSealed
+        writeDeclaredFlags w c.Declared
         writeEqArrayWith w writePreambleEntry c.StaticPreamble
         writeEqArrayWith w writePreambleEntry c.InstancePreamble
         writeBoundVarSlot w c.ThisKey
@@ -271,7 +287,7 @@ module FrozenCodecDecls =
         let members = EqArray.ofArray (readArrayWith r readTypeMember)
         let baseType = readVOptionWith r readTypeRef
         let interfaces = readInterfaces r
-        let isSealed = r.ReadBoolean()
+        let declared = readDeclaredFlags r
         let staticPreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let instancePreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let thisKey = readBoundVarSlot r
@@ -286,7 +302,7 @@ module FrozenCodecDecls =
             Members = members
             BaseType = baseType
             Interfaces = interfaces
-            IsSealed = isSealed
+            Declared = declared
             StaticPreamble = staticPreamble
             InstancePreamble = instancePreamble
             ThisKey = thisKey

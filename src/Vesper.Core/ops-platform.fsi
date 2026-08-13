@@ -283,7 +283,7 @@ module Operators =
         ///
         val inline ignore: value: 'T -> unit
 
-        /// <summary>Test whether the given reference value is <c>null</c>.</summary>
+        /// <summary>Test whether the given nullable value is <c>null</c>.</summary>
         ///
         /// <param name="value">The value to test.</param>
         ///
@@ -292,8 +292,9 @@ module Operators =
         ///
         /// <example id="isNull-example">
         /// <code lang="fsharp">
-        /// isNull null        //  Evaluates to true
-        /// isNull "Not null"  //  Evaluates to false
+        /// let f (s: string | null) = isNull s
+        /// f null        //  Evaluates to true
+        /// f "Not null"  //  Evaluates to false
         /// </code>
         /// </example>
         ///

@@ -192,8 +192,8 @@ let tests =
 
                     // `isNull`'s body is `(# "ceq" value null : bool #)`, so the `null` leaf
                     // has to be pinned to the other operand rather than mint a fresh `TyVar`.
-                    test "`isNull` on a reference operand grounds the `null` leaf" {
-                        clean "isnull-string" "let f (s: string) = isNull s"
+                    test "`isNull` on a nullable operand grounds the `null` leaf" {
+                        clean "isnull-string" "let f (s: string | null) = isNull s"
                     }
 
                     // Expanding a generic `let inline` with zero type args leaves the

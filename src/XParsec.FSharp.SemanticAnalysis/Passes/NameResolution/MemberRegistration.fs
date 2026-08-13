@@ -516,10 +516,11 @@ module NameResolutionMemberRegistration =
             // the secondary ctors are the only ctors it has.
             let hasPrimaryCtor = pc.IsSome
 
-            // `[<Sealed>]` seals the emitted type; `[<AllowNullLiteral>]` lets a `null`
-            // literal unify against this class.
+            // The SHAPE attributes, matched by short name because the `.fsi` extractor decodes
+            // the same ones with no resolver. `AllowNullLiteral` is on the decoded record too,
+            // but reading it here would skip the FS0934 kind check below.
             let classAttrs =
-                Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
+                AttributeDecode.decodeClassAttributes ctx.NameOf (Attributes.attributesOfTypeName tn)
 
             // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value type. Known before
             // the preamble is extracted: a struct may not carry an instance one.
@@ -546,8 +547,6 @@ module NameResolutionMemberRegistration =
             info.SecondaryCtors <- structure.SecondaryCtors
             info.HasPrimaryCtor <- hasPrimaryCtor
 
-            info.IsSealed <- classAttrs.IsSealed
-            info.AllowNullLiteral <- classAttrs.AllowNullLiteral
             info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
             // Retained raw: a member body re-enters the class typar scope later and needs
             // `when 'S :> IFace` to resolve an access on a constrained class typar.
@@ -561,20 +560,26 @@ module NameResolutionMemberRegistration =
             info.IsByRefLike <- classAttrs.IsByRefLike
             info.InstanceFields <- structure.InstanceFields
 
-            // Validate eq / comparison attributes against the class kind (FS0382 / FS0377).
-            // Where the validator returns no verdict: `Structural` for a value type,
-            // `Reference` for a class, and comparison is opt-in, so `NoComparison`.
+            // Validate the declaration's attributes against the class kind (FS0382 / FS0377 /
+            // FS0934). The all-abstract form (`type IFoo = abstract M: int`) declares an
+            // INTERFACE and is judged as one, though it registers a `ClassTypeInfo` all the same.
             let classKind =
-                if isValueType then
-                    Attributes.EqCompTargetKind.Struct
-                else
-                    Attributes.EqCompTargetKind.RefClass
+                if info.IsInterface then Attributes.TypeDefnKind.Interface
+                elif isValueType then Attributes.TypeDefnKind.Struct
+                else Attributes.TypeDefnKind.RefClass
 
-            let eqV, cmpV =
-                Attributes.validateEqCompAttributes ctx classKind id.DeclSite.Tok (Attributes.attributesOfTypeName tn)
+            let attrV =
+                Attributes.validateTypeDefnAttributes ctx classKind id.DeclSite.Tok (Attributes.attributesOfTypeName tn)
+
+            info.Declared <-
+                {
+                    IsSealed = classAttrs.IsSealed
+                    IsAbstract = false
+                    AllowNullLiteral = attrV.AllowNullLiteral
+                }
 
             info.EqualitySupport <-
-                match eqV with
+                match attrV.Equality with
                 | ValueSome v -> v
                 | ValueNone ->
                     if isValueType then
@@ -583,24 +588,24 @@ module NameResolutionMemberRegistration =
                         EqualityVerdict.Reference
 
             info.ComparisonSupport <-
-                match cmpV with
+                match attrV.Comparison with
                 | ValueSome v -> v
                 | ValueNone -> ComparisonVerdict.NoComparison
 
             TypeRegistry.registerClass ctx.Types info
 
-    /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict to stamp),
-    /// but `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<CustomEquality>]` are
-    /// still illegal on it, so run the kind-legality check and discard the verdicts.
+    /// The explicit `interface … end` shape claims no type, so there is no `ClassTypeInfo` for a
+    /// verdict to land on, whereas the all-abstract form registers as a class and takes its
+    /// verdicts there. Kind LEGALITY still applies here, so run it and discard the rest.
     let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Interface(typeName = tn) ->
             let (TypeName(ident = nameLi)) = tn
 
             if nameLi.Idents.Length = 1 then
-                Attributes.validateEqCompAttributes
+                Attributes.validateTypeDefnAttributes
                     ctx
-                    Attributes.EqCompTargetKind.Interface
+                    Attributes.TypeDefnKind.Interface
                     nameLi.Idents.[0]
                     (Attributes.attributesOfTypeName tn)
                 |> ignore

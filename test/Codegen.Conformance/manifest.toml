@@ -357,3 +357,35 @@ accept = ["clr", "js"]
 [[program]]
 path = "constraints/typar-not-struct-violated.fs"
 diagnose = { clr = "does not support the 'not struct' constraint", js = "does not support the 'not struct' constraint" }
+
+# ---------------------------------------------------------------------------------------
+# TYPAR CONSTRAINTS over NULLABILITY — `when 'a : null` and `when 'a : not null`.
+#
+# Unlike value-ness above, this answer does NOT differ by target. Both backends are pinned
+# anyway: that sameness is the claim, and only a harness compiling through both real platform
+# providers can hold them to it.
+[[program]]
+path = "constraints/typar-null.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-null-violated.fs"
+diagnose = { clr = "does not support the 'null' constraint", js = "does not support the 'null' constraint" }
+
+[[program]]
+path = "constraints/typar-not-null.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-not-null-violated.fs"
+diagnose = { clr = "does not support the 'not null' constraint", js = "does not support the 'not null' constraint" }
+
+# `[<AllowNullLiteral>]` is the one way a bare NOMINAL answers either constraint, and the
+# answer has to survive the freeze for a downstream package to read it.
+[[program]]
+path = "constraints/typar-null-allownull.fs"
+accept = ["clr", "js"]
+
+[[program]]
+path = "constraints/typar-not-null-allownull.fs"
+diagnose = { clr = "does not support the 'not null' constraint", js = "does not support the 'not null' constraint" }

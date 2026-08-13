@@ -375,6 +375,7 @@ module FrozenCodecDiagnostics =
             w.Write 47uy
             w.Write binding
             writeStringList w via
+        | Kind.AllowNullLiteralOnWrongKind -> w.Write 48uy
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -481,6 +482,7 @@ module FrozenCodecDiagnostics =
         | 47uy ->
             let binding = r.ReadString()
             Kind.CyclicInline(binding, readStringList r)
+        | 48uy -> Kind.AllowNullLiteralOnWrongKind
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

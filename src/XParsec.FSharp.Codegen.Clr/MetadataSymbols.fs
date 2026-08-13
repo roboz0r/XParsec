@@ -462,9 +462,12 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
     let decodeClassFlags (t: Type) : ExternalClassFlags =
         { ExternalClassFlags.Default with
-            IsSealed = t.IsSealed
-            IsAbstract = t.IsAbstract
-            AllowNullLiteral = hasAllowNullLiteral t
+            Declared =
+                {
+                    IsSealed = t.IsSealed
+                    IsAbstract = t.IsAbstract
+                    AllowNullLiteral = hasAllowNullLiteral t
+                }
             IsValueType = t.IsValueType
         }
 

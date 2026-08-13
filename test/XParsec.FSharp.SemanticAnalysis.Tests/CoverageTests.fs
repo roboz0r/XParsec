@@ -827,7 +827,7 @@ let tests =
                     Expect.equal (c.Members.[0].ReturnTy) BuiltinTypes.tyInt "method returns int"
                     Expect.equal c.BaseType ValueNone "no inherit clause ⇒ baseType ValueNone"
                     Expect.equal c.Interfaces.Length 0 "no interface impls on this class"
-                    Expect.isFalse c.IsSealed "no [<Sealed>] ⇒ not sealed"
+                    Expect.isFalse c.Declared.IsSealed "no [<Sealed>] ⇒ not sealed"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
                 Expect.equal typeDecl.EqualitySupport EqualityVerdict.Reference "classes default to reference equality"

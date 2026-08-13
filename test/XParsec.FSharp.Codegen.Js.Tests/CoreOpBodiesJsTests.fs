@@ -38,8 +38,8 @@ let tests =
                 let src =
                     lines
                         [
-                            "let absent: string = Unchecked.defaultof<string>"
-                            "let present = \"hi\""
+                            "let absent: string | null = Unchecked.defaultof<string | null>"
+                            "let present: string | null = \"hi\""
                             "printfn \"%b\" (isNull absent)"
                             "printfn \"%b\" (isNull present)"
                         ]
@@ -53,7 +53,7 @@ let tests =
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "true\nfalse" "the JS default of a reference type IS null"
+                    Expect.equal out "true\nfalse" "the JS default of a nullable type IS null"
             }
 
             test "box is the identity: nothing is emitted around the value" {

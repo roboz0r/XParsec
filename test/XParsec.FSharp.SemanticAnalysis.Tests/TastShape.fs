@@ -778,7 +778,7 @@ type private Renderer() =
                 let members = c.Members
                 let secondaryCtors = c.SecondaryCtors
 
-                if c.IsSealed then
+                if c.Declared.IsSealed then
                     push "[<Sealed>] "
 
                 push "("

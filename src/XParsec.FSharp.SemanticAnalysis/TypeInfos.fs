@@ -387,7 +387,7 @@ type ClassTypeInfo
     /// `inherit Base(arg1, arg2)`'s `(arg1, arg2)` — the CST expression for the base
     /// constructor arguments.
     member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
-    member val IsSealed: bool = false with get, set
+    member val Declared: DeclaredClassFlags = DeclaredClassFlags.Default with get, set
     /// `static let` / `static do` in declaration order — the `.cctor` body.
     member val StaticPreamble: ClassPreambleEntry[] = [||] with get, set
     /// Instance `let` / `do` in declaration order — the tail of the primary ctor, run after
@@ -398,7 +398,6 @@ type ClassTypeInfo
     /// false for the `val`-field form (`type T = val …; new(…) =`) whose only ctors are
     /// secondaries.
     member val HasPrimaryCtor: bool = true with get, set
-    member val AllowNullLiteral: bool = false with get, set
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]`, or the `type X = struct … end` shape.

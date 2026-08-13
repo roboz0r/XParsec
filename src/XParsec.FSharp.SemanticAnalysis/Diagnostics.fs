@@ -266,6 +266,8 @@ type Kind =
     | StructuralEqualityAttributeOnWrongKind
     | CustomEqualityAttributeOnInterface
     | InvalidEqualityAttributeMix
+    /// `[<AllowNullLiteral>]` on a kind with no reference slot for `null` to occupy.
+    | AllowNullLiteralOnWrongKind
     /// `attribute` is the posture attribute (`[<CustomEquality>]`); `capability` the
     /// resolved interface it demands, as this compilation's provider names it.
     | CapabilityNotImplemented of attribute: string * capability: string
@@ -355,6 +357,7 @@ module Kind =
         | Kind.StructuralEqualityAttributeOnWrongKind
         | Kind.CustomEqualityAttributeOnInterface -> DiagCode.FSharp 382
         | Kind.InvalidEqualityAttributeMix -> DiagCode.FSharp 377
+        | Kind.AllowNullLiteralOnWrongKind -> DiagCode.FSharp 934
         | Kind.MemberAndLocalBindingClash _ -> DiagCode.FSharp 905
         | Kind.DuplicateMember _ -> DiagCode.FSharp 438
         | Kind.CyclicType(via = TypeCycle.Immediate) -> DiagCode.FSharp 954 // tcTypeDefinitionIsCyclicThroughInheritance
@@ -446,6 +449,8 @@ module Kind =
             "The 'CustomEquality' and 'CustomComparison' attributes are not valid on an interface type."
         | Kind.InvalidEqualityAttributeMix ->
             "This type uses an invalid mix of the attributes 'NoEquality', 'ReferenceEquality', 'StructuralEquality', 'NoComparison' and 'StructuralComparison'."
+        | Kind.AllowNullLiteralOnWrongKind ->
+            "Records, union, abbreviations and struct types cannot have the 'AllowNullLiteral' attribute"
         | Kind.CapabilityNotImplemented(attribute, capability) ->
             sprintf "A type with %s must implement '%s'." attribute capability
         | Kind.CapabilityNotNamed(attribute, capabilityWord) ->
@@ -527,6 +532,7 @@ module Kind =
         | Kind.StructuralEqualityAttributeOnWrongKind
         | Kind.CustomEqualityAttributeOnInterface
         | Kind.InvalidEqualityAttributeMix
+        | Kind.AllowNullLiteralOnWrongKind
         | Kind.CapabilityNotImplemented _
         | Kind.CapabilityNotNamed _
         | Kind.MissingGetHashCodeOverride

@@ -85,6 +85,7 @@ module RuntimeNames =
     let customEqualityAttributeKey: TypeKey = attributeKey "CustomEquality"
     let noComparisonAttributeKey: TypeKey = attributeKey "NoComparison"
     let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
+    let allowNullLiteralAttributeKey: TypeKey = attributeKey "AllowNullLiteral"
     let globalAttributeKey: TypeKey = attributeKey "Global"
 
     let compilerAttributeKeys: TypeKey list =
@@ -97,6 +98,7 @@ module RuntimeNames =
             customEqualityAttributeKey
             noComparisonAttributeKey
             customComparisonAttributeKey
+            allowNullLiteralAttributeKey
             globalAttributeKey
         ]
 

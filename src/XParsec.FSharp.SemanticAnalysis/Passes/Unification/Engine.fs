@@ -469,14 +469,10 @@ module UnificationEngine =
             if isString then ValueSome true
             elif isValueType then ValueSome false
             else ValueNone
-        | SemanticConstraintKind.Nullness ->
-            if isString then ValueSome true
-            elif isValueType then ValueSome false
-            else ValueNone
-        | SemanticConstraintKind.NotNull ->
-            if isValueType then ValueSome true
-            elif isString then ValueSome false
-            else ValueNone
+        // Nullness is answered structurally, for primitives as much as for anything else,
+        // so it never reaches this table.
+        | SemanticConstraintKind.Nullness
+        | SemanticConstraintKind.NotNull
         | SemanticConstraintKind.Coercion _ -> ValueNone
 
     /// `Violated` is sticky (once any element fails, the whole compound fails);
@@ -493,6 +489,65 @@ module UnificationEngine =
             | Satisfied, Satisfied -> ()
 
         result
+
+    /// The dual of `reduceOutcome`: `Satisfied` is sticky (one element proving it proves the
+    /// whole); `Defer` propagates when none proved it but at least one is still pending.
+    and private reduceAny (check: SemType -> ConstraintOutcome) (items: seq<SemType>) : ConstraintOutcome =
+        let mutable result = Violated
+
+        for item in items do
+            match result, check item with
+            | Satisfied, _ -> ()
+            | _, Satisfied -> result <- Satisfied
+            | Defer, _
+            | _, Defer -> result <- Defer
+            | Violated, Violated -> ()
+
+        result
+
+    and private negate (outcome: ConstraintOutcome) : ConstraintOutcome =
+        match outcome with
+        | Satisfied -> Violated
+        | Violated -> Satisfied
+        | Defer -> Defer
+
+    /// Does `null` inhabit this type? `null` is a union MEMBER, not a property of a type:
+    /// `objnull` is `obj | null` and admits it where bare `obj` does not. The CLR's
+    /// reference-null is erased at the ABI seam, so the answer is the same on every target.
+    and private admitsNull (ctx: PassContext) (t: SemType) : ConstraintOutcome =
+        match resolveStep ctx.Store t with
+        // Not ground yet, so it states nothing either way: the next `Link` re-fires the check.
+        | TyVar _
+        | TyUnknown _
+        | TyTypar _
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ -> Defer
+        | TyNull -> Satisfied
+        // ANY member carrying `null` admits it, so one `null` member decides the union and an
+        // ungrounded member defers. `never` has no member to carry `null`.
+        | TyOr members -> reduceAny (admitsNull ctx) (members.Members.Underlying :> seq<SemType>)
+        // `[<AllowNullLiteral>]` is the class's own statement that `null` inhabits it, which is
+        // what makes `let empty: T = null` legal on such a class.
+        | TyClass(classKey, _) ->
+            match TypeRegistry.tryClassByKey ctx.Types classKey with
+            | ValueSome info ->
+                if info.Declared.AllowNullLiteral then
+                    Satisfied
+                else
+                    Violated
+            | ValueNone ->
+                match ctx.Provider.TryLookupType(SymbolKey.Type classKey) with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    if shape.Flags.Declared.AllowNullLiteral then
+                        Satisfied
+                    else
+                        Violated
+                // No class shape in hand, so refusing a legal `isNull` here would be a guess.
+                | _ -> Defer
+        // Every other ground shape (primitives, tuples, functions, records, unions, enums)
+        // carries no `null` member.
+        | _ -> Violated
 
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested
     /// compounds recurse compositionally.
@@ -518,11 +573,13 @@ module UnificationEngine =
         // already reported where it unified, so a second error would be a duplicate.
         | _, TyUnknown _ -> Defer
         | _, TyTypar _ -> Defer
+        // A carried type-level computation can decide no constraint until it grounds.
+        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
+        | SemanticConstraintKind.Nullness, ty -> admitsNull ctx ty
+        | SemanticConstraintKind.NotNull, ty -> negate (admitsNull ctx ty)
         // Equality on an enum is universal and comparison on one is out of scope, so
         // neither is ever proved or refused here.
         | _, TyEnum _ -> Defer
-        // A carried type-level computation can decide no constraint until it grounds.
-        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
         // A structural literal erases to its base primitive, so re-entering with it judges
         // every kind, `Coercion` included, exactly as the base primitive would be.
         | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
@@ -597,11 +654,6 @@ module UnificationEngine =
             Violated
         | SemanticConstraintKind.ReferenceType, (TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _) ->
             Satisfied
-        | SemanticConstraintKind.Nullness, _ ->
-            // No nullness analysis: `Defer` rather than `Violated`, so code that does
-            // not annotate nullability stays noise-free.
-            Defer
-        | SemanticConstraintKind.NotNull, _ -> Defer
 
     /// On-unified callback for type-parameter constraints. Satisfied constraints are
     /// dropped; deferred ones remain on the root, and a compound `Defer` also copies the

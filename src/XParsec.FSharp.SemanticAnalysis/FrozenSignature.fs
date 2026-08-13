@@ -285,7 +285,7 @@ module FrozenSignature =
                             FrozenBaseType = c.BaseType
                             Flags =
                                 { ExternalClassFlags.Default with
-                                    IsSealed = c.IsSealed
+                                    Declared = c.Declared
                                     IsValueType = (c.ValueKind <> ClassValueKind.RefType)
                                 }
                             Origin = origin

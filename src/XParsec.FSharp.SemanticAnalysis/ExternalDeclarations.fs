@@ -394,9 +394,7 @@ type MemberLowering =
 
 type ExternalClassFlags =
     {
-        IsSealed: bool
-        IsAbstract: bool
-        AllowNullLiteral: bool
+        Declared: DeclaredClassFlags
         /// `true` for a .NET value type (`struct`), so codegen emits a value-type `this`
         /// pointer (`ldloca` + `constrained.`) rather than reference `callvirt`.
         IsValueType: bool
@@ -411,9 +409,7 @@ type ExternalClassFlags =
     /// The conservative default when a `.fsi` commits only name + arity + interface-ness.
     static member Default =
         {
-            IsSealed = false
-            IsAbstract = false
-            AllowNullLiteral = false
+            Declared = DeclaredClassFlags.Default
             IsValueType = false
             MemberLowering = MemberLowering.TypePrefixed
             Global = false

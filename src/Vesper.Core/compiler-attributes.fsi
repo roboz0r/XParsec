@@ -95,6 +95,17 @@ type NoComparisonAttribute =
     /// <summary>Creates an instance of the attribute</summary>
     new: unit -> NoComparisonAttribute
 
+/// <summary>Adding this attribute to a class or interface states that <c>null</c> inhabits
+/// the type: it satisfies <c>when 'T : null</c>, and a <c>null</c> literal may be written at
+/// it. Every other type reaches <c>null</c> through the union <c>T | null</c> instead.</summary>
+[<AttributeUsage(AttributeTargets.Class ||| AttributeTargets.Interface, AllowMultiple = false)>]
+[<Sealed>]
+type AllowNullLiteralAttribute =
+    inherit Attribute
+
+    /// <summary>Creates an instance of the attribute</summary>
+    new: unit -> AllowNullLiteralAttribute
+
 /// <summary>Declares that a module-level value IS a global of the target runtime (JS
 /// <c>undefined</c>): no definition is emitted for it, and a reference emits the bare name
 /// from any file with no import. The body must be one zero-operand template.</summary>

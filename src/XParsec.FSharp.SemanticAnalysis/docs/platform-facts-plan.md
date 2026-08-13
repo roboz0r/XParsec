@@ -236,17 +236,40 @@ SUBSET of what supports the operation, chosen for "can we emit an opcode". Answe
 through the base comparer would be wrongly rejected. That clause list stays the source for the
 EMIT decision (`Inline.staticOptTypesMatch`) and nothing else.
 
-### 2. `Nullness` / `NotNull` → the target's null model
+### 2. `Nullness` / `NotNull` → union membership — **DONE (2026-08-13)**
 
-Same shape, smaller blast radius (`Engine.fs:455-462`). Today `int` yields `ValueSome false`
-("cannot be null"); with `isValueType` false it becomes `Defer`, so `int` goes unchecked for
-nullness on JS rather than getting JS's actual answer.
+**Not a platform fact at all, which this section originally got wrong.** It was headed "the
+target's null model" and predicted a per-target answer needing the query channel below. The
+tree had already decided otherwise: `null` has one cross-backend identity (`nullKey`), the
+nullable form is the ordinary anonymous union, and `type objnull = obj | null` is declared in
+the SHARED `prim-types-object.fsi` — which is only meaningful if bare `obj` admits no null on
+either target. The CLR's reference-null is erased at the ABI seam
+(`EngineCore.stripReferenceNull`) rather than carried in the type. So the verdict is structural
+and target-invariant, and step 2 needed no provider surface.
 
-These are meaningful on JS but currently derived from the wrong premise — "value types cannot be
-null" is CLR reasoning that happens to produce a plausible JS answer. JS has a real null model:
-`null`, plus `undefined` from `prim-types-undefined.js.fsi`. Derive them from it. Note both are
-`Defer` at the structural arm (`Engine.fs:582-586`), so the primitive table is the only place
-they bite.
+**What shipped.** `admitsNull` answers `TyNull` yes, a `TyOr` yes iff some member does (one
+`null` member decides it; an ungrounded member otherwise defers), a `TyClass` from its
+`[<AllowNullLiteral>]`, and every other ground shape — primitives included — no. Both kinds
+are dispatched from it ahead of the `TyConst` table, which now answers neither.
+
+**Two things this cost that the section did not predict:**
+
+1. **`[<AllowNullLiteral>]` was decoded and stored but never read.** `Vesper.Set` is built on
+   it: `SetTree<'T>` is `[<AllowNullLiteral>]` with `let empty: SetTree<'T> = null` and
+   `isEmpty = isNull t`. Under "every ground type is non-null" that is 27 test failures, and
+   the attribute is exactly the type's own statement of the answer. It now rides `TClassG`
+   through the freeze into `ExternalClassFlags` — previously it stopped at `ClassTypeInfo`,
+   so a downstream package would have read the `false` default and refused a legal `isNull`.
+2. **`when 'T : null` no longer holds at a bare reference primitive.** `isNull (s: string)` is
+   now `isNull (s: string | null)`; the `ops-platform.fsi` example and one
+   `InferResolutionTests` case moved with it. That is the union model applied consistently,
+   not a regression — a bare `string` is non-null in this tree the same way bare `obj` is.
+
+`undefined` is a DISTINCT sentinel and answers neither kind: `T | undefined` is not `T | null`.
+Keep them separate, as `nullability-analysis-plan.md` already requires of the guard analysis.
+
+Four corpus programs pin the verdicts in `test/Codegen.Conformance/constraints/`, both targets
+on every row, since the sameness is the claim.
 
 ### 3. `isPrimitiveValueType` → a backend fact
 

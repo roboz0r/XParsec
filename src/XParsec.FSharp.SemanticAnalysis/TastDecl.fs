@@ -39,6 +39,24 @@ type ClassValueKind =
     | Struct
     | RefStruct
 
+/// What a class declaration STATES about itself with an attribute, as against what its
+/// contents decide. Carried whole through the TAST, the freeze and the external shape.
+[<Struct>]
+type DeclaredClassFlags =
+    {
+        IsSealed: bool
+        IsAbstract: bool
+        /// `[<AllowNullLiteral>]`: `null` inhabits this class, so it satisfies `when 'T : null`.
+        AllowNullLiteral: bool
+    }
+
+    static member Default =
+        {
+            IsSealed = false
+            IsAbstract = false
+            AllowNullLiteral = false
+        }
+
 [<RequireQualifiedAccess>]
 type TDeclG<'ty, 'tok, 'id> =
     | Let of pattern: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
@@ -105,7 +123,7 @@ and TClassG<'ty, 'id, 'body> =
         Members: EqArray<TTypeMemberG<'ty, 'id, 'body>>
         BaseType: 'ty voption
         Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'id, 'body>>>
-        IsSealed: bool
+        Declared: DeclaredClassFlags
         /// `static let` / `static do`, in declaration order: the body of the synthesised `.cctor`.
         StaticPreamble: EqArray<TPreambleEntryG<'ty, 'body>>
         /// Instance `let` / `do`, in declaration order: the tail of the primary ctor,

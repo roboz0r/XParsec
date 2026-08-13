@@ -234,7 +234,7 @@ module NameResolutionTypeRegistration =
     let isValueTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : bool =
         match tryDeclaredTypeName td with
         | ValueSome(struct (tn, _)) ->
-            (Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)).IsValueType
+            (AttributeDecode.decodeClassAttributes ctx.NameOf (Attributes.attributesOfTypeName tn)).IsValueType
             || TypeDefnPatterns.isStructShape td
         | ValueNone -> false
 
@@ -526,19 +526,19 @@ module NameResolutionTypeRegistration =
             // agree.
             info.IsValueType <- isValueTypeDefn ctx td
 
-            // Validate the equality / comparison attributes against the
-            // record kind (FS0382 / FS0377) and read the resolved verdicts.
-            let eqV, cmpV =
-                Attributes.validateEqCompAttributes
+            // Validate the declaration's attributes against the record kind
+            // (FS0382 / FS0377 / FS0934) and read the resolved verdicts.
+            let attrV =
+                Attributes.validateTypeDefnAttributes
                     ctx
-                    Attributes.EqCompTargetKind.Record
+                    Attributes.TypeDefnKind.Record
                     declSite.Tok
                     (Attributes.attributesOfTypeName tn)
 
             // Explicit equality attribute wins; absent, the default is Structural when every
             // field is immutable and Reference otherwise.
             info.EqualitySupport <-
-                match eqV with
+                match attrV.Equality with
                 | ValueSome v -> v
                 | ValueNone ->
                     if fieldInfos |> Array.forall (fun fi -> not fi.IsMutable) then
@@ -548,7 +548,7 @@ module NameResolutionTypeRegistration =
 
             // Comparison defaults to NoComparison, explicit attribute overrides.
             info.ComparisonSupport <-
-                match cmpV with
+                match attrV.Comparison with
                 | ValueSome v -> v
                 | ValueNone -> ComparisonVerdict.NoComparison
 
@@ -674,24 +674,24 @@ module NameResolutionTypeRegistration =
             let info =
                 UnionTypeInfo(name, typeParams, caseInfos, id.DeclSite, typarConstraints, id.Key)
 
-            // Validate the equality / comparison attributes against the
-            // union kind (FS0382 / FS0377) and read the resolved verdicts.
-            let eqV, cmpV =
-                Attributes.validateEqCompAttributes
+            // Validate the declaration's attributes against the union kind
+            // (FS0382 / FS0377 / FS0934) and read the resolved verdicts.
+            let attrV =
+                Attributes.validateTypeDefnAttributes
                     ctx
-                    Attributes.EqCompTargetKind.Union
+                    Attributes.TypeDefnKind.Union
                     declSite.Tok
                     (Attributes.attributesOfTypeName tn)
 
             // Union equality defaults to Structural, explicit attribute overrides.
             info.EqualitySupport <-
-                match eqV with
+                match attrV.Equality with
                 | ValueSome v -> v
                 | ValueNone -> EqualityVerdict.Structural
 
             // Comparison defaults to NoComparison, explicit attribute overrides.
             info.ComparisonSupport <-
-                match cmpV with
+                match attrV.Comparison with
                 | ValueSome v -> v
                 | ValueNone -> ComparisonVerdict.NoComparison
 
@@ -727,7 +727,16 @@ module NameResolutionTypeRegistration =
     /// and have no member side tables; the case→literal VALUES are resolved later, in Elaborate.
     let registerEnumTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
-        | TypeDefn.Enum(cases = cases) ->
+        | TypeDefn.Enum(typeName = tn; cases = cases) ->
+            // Nothing is stamped on an enum: equality on one is universal, and being a value
+            // type it is refused `[<AllowNullLiteral>]`. Only the kind-legality check applies.
+            Attributes.validateTypeDefnAttributes
+                ctx
+                Attributes.TypeDefnKind.Enum
+                id.DeclSite.Tok
+                (Attributes.attributesOfTypeName tn)
+            |> ignore
+
             let name = id.Name
             let declSite = id.DeclSite
             let caseNames = [| for EnumTypeCase(ident = cid) in cases -> ctx.NameOf cid |]
@@ -839,6 +848,15 @@ module NameResolutionTypeRegistration =
                         )
                     )
             | _ ->
+                // An alias renames one type as another and declares nothing of its own, so
+                // every posture and `[<AllowNullLiteral>]` belongs on the type it names.
+                Attributes.validateTypeDefnAttributes
+                    ctx
+                    Attributes.TypeDefnKind.Abbrev
+                    id.DeclSite.Tok
+                    (Attributes.attributesOfTypeName tn)
+                |> ignore
+
                 // A transparent-alias abbrev cannot carry members: diagnose and drop the
                 // augmentation, but still register the alias so references keep resolving.
                 match ext with

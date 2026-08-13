@@ -12,6 +12,10 @@ let private analyse (input: string) =
     NameResolution.run ctx file
     ctx
 
+let private reportsWrongKind (ctx: PassContext) =
+    ctx.Diagnostics
+    |> Seq.exists (fun d -> d.Kind = Kind.AllowNullLiteralOnWrongKind)
+
 [<Tests>]
 let tests =
     testList
@@ -455,34 +459,100 @@ let tests =
                 let ctx = analyse "[<Sealed>]\ntype C() = member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.isTrue info.IsSealed "[<Sealed>] sets IsSealed"
-                Expect.isFalse info.AllowNullLiteral "AllowNullLiteral not stamped"
+                Expect.isTrue info.Declared.IsSealed "[<Sealed>] sets IsSealed"
+                Expect.isFalse info.Declared.AllowNullLiteral "AllowNullLiteral not stamped"
             }
 
-            test "[<AllowNullLiteral>] stamps ClassTypeInfo.AllowNullLiteral" {
+            test "[<AllowNullLiteral>] stamps ClassTypeInfo.Declared.AllowNullLiteral" {
                 let ctx = analyse "[<AllowNullLiteral>]\ntype C() = member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.isTrue info.AllowNullLiteral "[<AllowNullLiteral>] sets AllowNullLiteral"
-                Expect.isFalse info.IsSealed "IsSealed not stamped"
+                Expect.isTrue info.Declared.AllowNullLiteral "[<AllowNullLiteral>] sets AllowNullLiteral"
+                Expect.isFalse info.Declared.IsSealed "IsSealed not stamped"
+                Expect.isEmpty ctx.Diagnostics "a reference class may declare it"
+            }
+
+            // The flag decides `when 'a : null`, a type-checking verdict, so it is read off the
+            // RESOLVED marker like the equality postures: a same-named type of the author's own
+            // keeps its own meaning and states nothing about `null`.
+            test "[<AllowNullLiteral>] naming a user type of that name stamps nothing" {
+                let ctx =
+                    analyse (
+                        "type AllowNullLiteralAttribute() =\n"
+                        + "    inherit System.Attribute()\n"
+                        + "[<AllowNullLiteral>]\n"
+                        + "type C() = member this.M () = 1"
+                    )
+
+                let info = expectClass ctx "C"
+                Expect.isFalse info.Declared.AllowNullLiteral "a user's own attribute is not the marker"
+            }
+
+            test "a qualified [<AllowNullLiteral>] path that resolves to nothing stamps nothing" {
+                let ctx =
+                    analyse "[<Microsoft.FSharp.Core.AllowNullLiteral>]\ntype C() = member this.M () = 1"
+
+                let info = expectClass ctx "C"
+                Expect.isFalse info.Declared.AllowNullLiteral "an unresolved path is not the marker"
+            }
+
+            test "[<AllowNullLiteral>] on an interface stamps it" {
+                // The all-abstract form registers a `ClassTypeInfo`, so the verdict lands.
+                let ctx = analyse "[<AllowNullLiteral>]\ntype IFoo =\n    abstract M: int"
+
+                let info = expectClass ctx "IFoo"
+                Expect.isTrue info.Declared.AllowNullLiteral "an interface may declare it"
+                Expect.isEmpty ctx.Diagnostics "and is not reported for it"
+            }
+
+            // FS0934. The flag decides `when 'a : null`, so a value type carrying it would
+            // satisfy `null` and `struct` at once; the stamp is refused, not just reported.
+            test "[<Struct>] with [<AllowNullLiteral>] reports FS0934 and stamps nothing" {
+                let ctx =
+                    analyse "[<Struct>]\n[<AllowNullLiteral>]\ntype S(x: int) = member this.X = x"
+
+                let info = expectClass ctx "S"
+                Expect.isFalse info.Declared.AllowNullLiteral "a struct never admits `null`"
+                Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
+            }
+
+            test "[<AllowNullLiteral>] on a record reports FS0934" {
+                let ctx = analyse "[<AllowNullLiteral>]\ntype R = { A: int }"
+                Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
+            }
+
+            test "[<AllowNullLiteral>] on a union reports FS0934" {
+                let ctx = analyse "[<AllowNullLiteral>]\ntype U =\n    | A\n    | B"
+                Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
+            }
+
+            test "[<AllowNullLiteral>] on an enum reports FS0934" {
+                let ctx = analyse "[<AllowNullLiteral>]\ntype E =\n    | A = 1\n    | B = 2"
+                Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
+            }
+
+            test "[<AllowNullLiteral>] on an abbreviation reports FS0934" {
+                // The alias states nothing of its own: `null` belongs to the type it renames.
+                let ctx = analyse "[<AllowNullLiteral>]\ntype X = string"
+                Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
             }
 
             test "fully-qualified [<Microsoft.FSharp.Core.Sealed>] still stamps IsSealed" {
-                // The class-shaping attributes decode by SHORT NAME (suffix optional):
-                // nothing declares `Sealed`, so there is no identity to resolve to.
+                // The class-SHAPING attributes decode by SHORT NAME (suffix optional): they are
+                // emission facts the `.fsi` extractor decodes with no resolver to hand.
                 let ctx =
                     analyse "[<Microsoft.FSharp.Core.SealedAttribute>]\ntype C() = member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.isTrue info.IsSealed "long-ident [<...Sealed>] is decoded"
+                Expect.isTrue info.Declared.IsSealed "long-ident [<...Sealed>] is decoded"
             }
 
             test "no class-shaping attribute leaves IsSealed=false, AllowNullLiteral=false" {
                 let ctx = analyse "type C() = member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.isFalse info.IsSealed "default: not sealed"
-                Expect.isFalse info.AllowNullLiteral "default: no null literal"
+                Expect.isFalse info.Declared.IsSealed "default: not sealed"
+                Expect.isFalse info.Declared.AllowNullLiteral "default: no null literal"
             }
 
             // --- inheritance registration --------------------------------------

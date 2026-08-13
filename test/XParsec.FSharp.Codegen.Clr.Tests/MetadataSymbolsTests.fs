@@ -106,14 +106,14 @@ let tests =
             test "the Class shape decodes sealed / abstract flags from TypeAttributes" {
                 match typeShape "System.String" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.isTrue info.Flags.IsSealed "System.String is sealed"
-                    Expect.isFalse info.Flags.IsAbstract "System.String is not abstract"
+                    Expect.isTrue info.Flags.Declared.IsSealed "System.String is sealed"
+                    Expect.isFalse info.Flags.Declared.IsAbstract "System.String is not abstract"
                 | other -> failtestf "expected System.String as a Class shape, got %A" other
 
                 match typeShape "System.IO.Stream" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.isTrue info.Flags.IsAbstract "System.IO.Stream is abstract"
-                    Expect.isFalse info.Flags.IsSealed "System.IO.Stream is not sealed"
+                    Expect.isTrue info.Flags.Declared.IsAbstract "System.IO.Stream is abstract"
+                    Expect.isFalse info.Flags.Declared.IsSealed "System.IO.Stream is not sealed"
                 | other -> failtestf "expected System.IO.Stream as a Class shape, got %A" other
             }
 

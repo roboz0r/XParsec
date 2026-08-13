@@ -44,9 +44,18 @@ module VesperLib =
 
     /// A `[<Struct>] type X = …` (the ATTRIBUTE form) parses through the Class/Anon arm, not
     /// the `struct … end` form, so its value-type-ness is on the `TypeName`'s attributes.
-    let private typeNameHasStructAttr (lexed: Lexed) (typeName: TypeName<SyntaxToken>) : bool =
+    let private classFlagsOfTypeName (lexed: Lexed) (typeName: TypeName<SyntaxToken>) : ExternalClassFlags =
         let (TypeName(attributes = attrs)) = typeName
-        (AttributeDecode.decodeClassAttributes (nameOfTok lexed) attrs).IsValueType
+        let decoded = AttributeDecode.decodeClassAttributes (nameOfTok lexed) attrs
+
+        { ExternalClassFlags.Default with
+            Declared =
+                { DeclaredClassFlags.Default with
+                    IsSealed = decoded.IsSealed
+                    AllowNullLiteral = decoded.AllowNullLiteral
+                }
+            IsValueType = decoded.IsValueType
+        }
 
     /// A setter is dispatched from `x.[i] <- v`, never applied a group at a time, so its groups
     /// collapse to ONE .NET parameter vector with the getter's result appended: `Item: int -> 'T
@@ -1028,15 +1037,10 @@ module VesperLib =
         (typeName: TypeName<SyntaxToken>)
         (elements: TypeElementsSignature<SyntaxToken>)
         : unit =
-        let isValueType = typeNameHasStructAttr lexed typeName
-
         ctx.TypeShapes.[compiled] <-
             ExternalTypeShape.Class(
                 { ExternalClassShape.basic (arity, isInterface, SymbolOrigin.Empty) with
-                    Flags =
-                        { ExternalClassFlags.Default with
-                            IsValueType = isValueType
-                        }
+                    Flags = classFlagsOfTypeName lexed typeName
                 }
             )
 

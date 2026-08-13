@@ -33,5 +33,9 @@ type NoComparisonAttribute() =
     inherit Attribute()
 
 [<Sealed>]
+type AllowNullLiteralAttribute() =
+    inherit Attribute()
+
+[<Sealed>]
 type GlobalAttribute() =
     inherit Attribute()

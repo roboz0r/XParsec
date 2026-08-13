@@ -10,50 +10,62 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Attributes =
 
-    /// The axis the FS0382 legality matrix keys on. Records, unions and exceptions are
-    /// separate cases because a record may carry `[<ReferenceEquality>]` where a class cannot.
+    /// The axis the attribute-legality matrices key on: one case per shape a declaration can
+    /// take, because a record may carry `[<ReferenceEquality>]` where a class cannot.
     [<RequireQualifiedAccess>]
-    type EqCompTargetKind =
+    type TypeDefnKind =
         | Record
         | Union
-        | Exception
+        | Enum
+        | Abbrev
         | Struct
         | RefClass
         | Interface
+
+    /// What a declaration's attributes decided, each already checked legal for its kind: an
+    /// attribute this kind may not carry supplies no verdict, only its complaint.
+    type TypeDefnAttrVerdict =
+        {
+            /// `ValueNone` where no legal attribute spoke, leaving the caller's per-kind default.
+            Equality: EqualityVerdict voption
+            Comparison: ComparisonVerdict voption
+            AllowNullLiteral: bool
+        }
 
     type private EqCompAttr<'Verdict> =
         {
             Key: TypeKey
             Verdict: 'Verdict
-            LegalKinds: EqCompTargetKind list
+            LegalKinds: TypeDefnKind list
             OnWrongKind: Kind
         }
 
     let private anyKind =
         [
-            EqCompTargetKind.Record
-            EqCompTargetKind.Union
-            EqCompTargetKind.Exception
-            EqCompTargetKind.Struct
-            EqCompTargetKind.RefClass
-            EqCompTargetKind.Interface
+            TypeDefnKind.Record
+            TypeDefnKind.Union
+            TypeDefnKind.Enum
+            TypeDefnKind.Abbrev
+            TypeDefnKind.Struct
+            TypeDefnKind.RefClass
+            TypeDefnKind.Interface
         ]
 
     /// A structural posture states what the FIELDS decide, so only the kinds that have them.
     let private structuralKinds =
-        [
-            EqCompTargetKind.Record
-            EqCompTargetKind.Union
-            EqCompTargetKind.Exception
-            EqCompTargetKind.Struct
-        ]
+        [ TypeDefnKind.Record; TypeDefnKind.Union; TypeDefnKind.Struct ]
 
     /// Reference identity additionally bars a struct, which has none.
-    let private referenceKinds =
-        [ EqCompTargetKind.Record; EqCompTargetKind.Union; EqCompTargetKind.Exception ]
+    let private referenceKinds = [ TypeDefnKind.Record; TypeDefnKind.Union ]
 
     /// A custom posture needs members to carry it, which an interface cannot declare.
-    let private customKinds = anyKind |> List.except [ EqCompTargetKind.Interface ]
+    let private customKinds = anyKind |> List.except [ TypeDefnKind.Interface ]
+
+    /// FS0934. `[<AllowNullLiteral>]` states that `null` inhabits the type, which only a
+    /// reference can hold. A record or union reaches `null` through `| null` instead, a struct
+    /// (an enum included) has no reference to hold it, and an abbreviation states nothing.
+    let private allowNullLiteralKinds =
+        [ TypeDefnKind.RefClass; TypeDefnKind.Interface ]
 
     /// The equality axis. Table ORDER is the within-axis verdict priority.
     let private equalityAttrs: EqCompAttr<EqualityVerdict> list =
@@ -115,18 +127,25 @@ module Attributes =
         : EqCompAttr<'Verdict> list =
         rows |> List.filter (fun r -> a.Has r.Key)
 
-    let private wrongKindDiagnostics (kind: EqCompTargetKind) (rows: EqCompAttr<'Verdict> list) : Kind list =
+    let private isLegalOn (kind: TypeDefnKind) (r: EqCompAttr<'Verdict>) : bool = List.contains kind r.LegalKinds
+
+    let private legalOn (kind: TypeDefnKind) (rows: EqCompAttr<'Verdict> list) : EqCompAttr<'Verdict> list =
+        rows |> List.filter (isLegalOn kind)
+
+    let private wrongKindDiagnostics (kind: TypeDefnKind) (rows: EqCompAttr<'Verdict> list) : Kind list =
         rows
-        |> List.filter (fun r -> not (List.contains kind r.LegalKinds))
+        |> List.filter (fun r -> not (isLegalOn kind r))
         |> List.map (fun r -> r.OnWrongKind)
 
-    /// FS0382 kind-legality + FS0377 invalid-mix at `declTok`, returning the verdict per axis.
-    let validateEqCompAttributes
+    /// Every attribute-against-kind check a type declaration gets: FS0382 legality + FS0377
+    /// invalid-mix on the equality / comparison axes, and FS0934 on `[<AllowNullLiteral>]`,
+    /// all reported at `declTok`.
+    let validateTypeDefnAttributes
         (ctx: PassContext)
-        (kind: EqCompTargetKind)
+        (kind: TypeDefnKind)
         (declTok: SyntaxToken)
         (attrs: Attributes<SyntaxToken> voption)
-        : EqualityVerdict voption * ComparisonVerdict voption =
+        : TypeDefnAttrVerdict =
         let a = NameResolutionTypeRefStamp.resolveAttributes ctx attrs
         let eq = presentAttrs a equalityAttrs
         let cmp = presentAttrs a comparisonAttrs
@@ -146,12 +165,24 @@ module Attributes =
         if eq.Length > 1 || cmp.Length > 1 || (structuralCmp && nonStructuralEq) then
             ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
+        // Off the LEGAL rows only: a posture just refused for this kind must not go on to
+        // stamp the verdict it asked for, or the report is advice the compiler ignored.
         let firstVerdict (rows: EqCompAttr<'Verdict> list) =
-            match rows with
+            match legalOn kind rows with
             | r :: _ -> ValueSome r.Verdict
             | [] -> ValueNone
 
-        firstVerdict eq, firstVerdict cmp
+        let allowNullLiteral = a.Has RuntimeNames.allowNullLiteralAttributeKey
+        let legalNullLiteral = allowNullLiteral && List.contains kind allowNullLiteralKinds
+
+        if allowNullLiteral && not legalNullLiteral then
+            ctx.Report(declTok, Kind.AllowNullLiteralOnWrongKind)
+
+        {
+            Equality = firstVerdict eq
+            Comparison = firstVerdict cmp
+            AllowNullLiteral = legalNullLiteral
+        }
 
     let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
         let a = NameResolutionTypeRefStamp.resolveAttributes ctx (ValueSome sets)
@@ -179,9 +210,6 @@ module Attributes =
     let attributesOfTypeName (tn: TypeName<SyntaxToken>) : Attributes<SyntaxToken> voption =
         let (TypeName(attributes = a)) = tn
         a
-
-    let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) =
-        AttributeDecode.decodeClassAttributes ctx.NameOf attrs
 
     /// `[<Global>]`: the value IS a target global, so no definition is emitted. Checked BOTH
     /// ways because marking a body that is not a bare intrinsic template silently deletes real code,
