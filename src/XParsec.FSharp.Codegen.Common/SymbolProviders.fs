@@ -188,9 +188,33 @@ module SymbolProviders =
                         // `manifest.Name` is the home assembly the published keys are rooted
                         // at, the same one the package's own symbols are stamped with, so a
                         // served key and a resolved one agree.
-                        let _, tast = Pipeline.analyseWithContextFor manifest.Name provider origin f
+                        let ctx, sem = Pipeline.analyseSemWithContextFor manifest.Name provider origin f
 
-                        let values, members = collectInlineBodies origin tast
+                        // Freezing an errored tree prunes the failed declarations, and pooling
+                        // then trips on the side-table entries that outlived them, blaming the
+                        // file's FIRST binding — nowhere near the fault, and it moves to
+                        // whatever binding is first whenever the file is edited. An analysis
+                        // error is not itself fatal here (a contract file may name types this
+                        // pass never needs), so they surface as the explanation for a freeze
+                        // that DID fail rather than as a refusal of their own.
+                        let frozen =
+                            try
+                                Freeze.run ctx sem
+                            with e ->
+                                let pruned =
+                                    match sem.Diagnostics |> Diagnostic.errors with
+                                    | [] -> " (none — the fault is in the freeze itself)"
+                                    | errors ->
+                                        errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
+
+                                failwithf
+                                    "SymbolProviders: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
+                                    manifest.Name
+                                    rel
+                                    e.Message
+                                    pruned
+
+                        let values, members = collectInlineBodies origin frozen
 
                         acc.AddRange values
                         memberAcc.AddRange members
