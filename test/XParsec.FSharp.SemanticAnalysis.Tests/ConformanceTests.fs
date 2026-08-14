@@ -21,7 +21,7 @@ let private readNormalised (path: string) =
 let private conform (sigSrc: string) (implSrc: string) : Conformance.ConformanceError list =
     let sigLexed, sigFile = parseSigFile sigSrc
     let implLexed, implFile = parseFile implSrc
-    Conformance.checkPair sigLexed sigFile implLexed implFile
+    (Conformance.checkUnit sigLexed sigFile implLexed implFile).Errors
 
 let private externNames (decls: Conformance.SigDecl list) =
     decls
@@ -652,7 +652,7 @@ let enforcementTests =
                         {
                             SigFile = "x.fsi"
                             ImplFile = "x.fs"
-                            ModuleMismatch = None
+                            ModuleMismatch = ValueNone
                             Errors = [ Conformance.ConformanceError.MissingInImpl "bar" ]
                         }
 
@@ -669,7 +669,7 @@ let enforcementTests =
                         {
                             SigFile = "paired.fsi"
                             ImplFile = "paired.fs"
-                            ModuleMismatch = None
+                            ModuleMismatch = ValueNone
                             Errors = []
                         }
 

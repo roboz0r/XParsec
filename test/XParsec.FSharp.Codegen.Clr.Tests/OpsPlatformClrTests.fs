@@ -18,7 +18,7 @@ let tests =
         [
             // The declared operator surface IS the CLR's arithmetic-support definition.
             // This is the contract a CLR build resolves against.
-            OperatorSurfaceParity.tests "clr" (ClrSymbolProviders.buildContract [ vesperCorePackage ])
+            OperatorSurfaceParity.tests Target.Clr (ClrSymbolProviders.buildContract [ vesperCorePackage ])
 
             test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
                 let js = ClrSymbolProviders.buildContractFor Target.Js [ vesperCorePackage ]

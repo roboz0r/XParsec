@@ -104,7 +104,8 @@ let expectMemberKeyHalvesAgree
             | Result.Error e -> failtestf "loadManifest: %s" e
         )
 
-    let implBodies = (SymbolProviders.inlineBodies contract.Provider manifests).Members
+    let implBodies =
+        (SymbolProviders.inlineBodies contract.Provider manifests).Bodies.Members
 
     for memberName in members do
         let contractKey =

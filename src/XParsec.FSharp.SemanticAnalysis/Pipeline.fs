@@ -97,6 +97,46 @@ module Pipeline =
                 parsed (ImplementationFile.AnonymousModule elems)
             | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
 
+    /// A parsed SIGNATURE file. No pass runs over one — it is read by the contract extractor,
+    /// which walks the CST — so this carries the tree and the token table and nothing else.
+    type ParsedSignature =
+        {
+            Lexed: Lexed
+            File: SignatureFile<SyntaxToken>
+            Diagnostics: Diagnostic list
+        }
+
+    /// `parse` for a `.fsi`. A signature file has no bare-expression form, so a tree that is
+    /// not a `SignatureFile` is a failure rather than something to wrap.
+    let parseSignature (source: string) : Result<ParsedSignature, ParseFailure> =
+        match Lexing.lexString source with
+        | Result.Error e ->
+            Error
+                {
+                    Lexed = ValueNone
+                    Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
+                }
+        | Result.Ok lexed ->
+            let reader = Reader.ofLexed lexed Set.empty
+
+            let failed (kind: Kind) =
+                Error
+                    {
+                        Lexed = ValueSome lexed
+                        Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
+                    }
+
+            match FSharpAst.parseSignature reader with
+            | Result.Error e -> failed (Kind.ParseFailure(sprintf "%A" e))
+            | Result.Ok(FSharpAst.SignatureFile f) ->
+                Ok
+                    {
+                        Lexed = lexed
+                        File = f
+                        Diagnostics = ofParseDiagnostics reader.State.Diagnostics
+                    }
+            | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
+
     /// `parse`, refusing a tree the parser had to PATCH: every inserted delimiter and every
     /// `Expr.Missing` is a hole the source did not fill, so a recovered parse is not a
     /// compilable one.

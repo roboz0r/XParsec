@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.ConformanceRoundTripByteIdentityTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -10,7 +11,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // by itself guarantee identical IL, so the emitted assembly is the judge. Compared by
 // structural digest rather than raw bytes, since each compile mints a fresh MVID.
 
-let private gated = compiledBy "clr"
+let private gated = compiledBy Target.Clr
 
 let private digest (artifact: ClrArtifact) =
     ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)

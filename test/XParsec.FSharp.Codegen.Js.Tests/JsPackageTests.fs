@@ -13,10 +13,10 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 let private packageName = "Test.Pkg"
 
-/// Compile `files` as one JS package through the production driver, failing the test on
+/// Compile `units` as one JS package through the production driver, failing the test on
 /// any front-end diagnostic (anchored to its own file, as the driver reports it).
-let private compilePackage (files: AssemblyFiles.SourceFile list) : JsPackage =
-    match JsDriver.compileAssemblyWith jsContract.Value packageName files with
+let private compileUnits (units: AssemblyFiles.SourceUnit list) : JsPackage =
+    match JsDriver.compileAssemblyWith jsContract.Value packageName units with
     | Ok pkg -> pkg
     | Error diags ->
         failtestf
@@ -24,6 +24,9 @@ let private compilePackage (files: AssemblyFiles.SourceFile list) : JsPackage =
             (diags
              |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
              |> String.concat "\n")
+
+let private compilePackage (files: AssemblyFiles.SourceFile list) : JsPackage =
+    compileUnits (files |> List.map AssemblyFiles.SourceUnit.ofImplementation)
 
 let private sourceOf (pkg: JsPackage) (fileName: string) : string =
     match pkg.Modules |> List.tryFind (fun m -> m.Path.FileName = fileName) with
@@ -92,6 +95,66 @@ let tests =
                 expectImportsResolvable pkg
             }
 
+            // A `.fsi` publishes the declarations, but what a backend EMITS for the unit is
+            // compiled from the `.fs` — so the import must name that module, not the signature.
+            test "a reference through a `.fsi` imports the IMPLEMENTATION's module" {
+                let declaring =
+                    "\
+namespace Test.Pkg
+
+module Shapes =
+    type Point = { X: int; Y: int }
+
+    let scale (n: int) : int = n * 2
+
+    let hidden (p: Point) : int = p.X + p.Y
+"
+
+                // `val` before `type`, which is the order a signature module parses in today.
+                let declaringSig =
+                    "\
+namespace Test.Pkg
+
+module Shapes =
+    val scale: n: int -> int
+
+    type Point = { X: int; Y: int }
+"
+
+                // The record literal names no type: it resolves through the field-reverse
+                // index the SIGNATURE publishes, which is a channel a `.fsi` view must carry.
+                let consuming =
+                    "\
+namespace Test.Pkg
+
+module Use =
+    open Test.Pkg.Shapes
+
+    let total () : int = scale 21
+
+    let origin () = { X = 0; Y = 0 }
+"
+
+                let pkg =
+                    compileUnits
+                        [
+                            AssemblyFiles.SourceUnit.paired
+                                (AssemblyFiles.SourceFile.ofText "shapes.fsi" declaringSig)
+                                (AssemblyFiles.SourceFile.ofText "shapes.fs" declaring)
+                            AssemblyFiles.SourceUnit.ofImplementation (
+                                AssemblyFiles.SourceFile.ofText "use.fs" consuming
+                            )
+                        ]
+
+                let js = sourceOf pkg "use.mjs"
+
+                Expect.stringContains js "from \"./shapes.mjs\"" (sprintf "imports the `.fs` module, got:\n%s" js)
+
+                Expect.isFalse (js.Contains "shapes.fsi") (sprintf "no signature file is a module, got:\n%s" js)
+
+                expectImportsResolvable pkg
+            }
+
             test "each emitting file becomes its own module, and the barrel re-exports them" {
                 let pkg =
                     compilePackage
@@ -146,6 +209,7 @@ type IShape =
                         AssemblyFiles.SourceFile.ofText "a/one.fs" (moduleNamed "Alpha")
                         AssemblyFiles.SourceFile.ofText "b/one.fs" (moduleNamed "Beta")
                     ]
+                    |> List.map AssemblyFiles.SourceUnit.ofImplementation
 
                 match JsDriver.compileAssemblyWith jsContract.Value packageName files with
                 | Ok _ -> failtest "the collision must be refused"
@@ -212,7 +276,9 @@ module Shim =
 
                 let dir = vesperCorePackage
 
-                let files = manifest.Impl |> List.map (AssemblyFiles.SourceFile.read dir)
+                let files =
+                    manifest.Impl
+                    |> List.map (AssemblyFiles.SourceFile.read dir >> AssemblyFiles.SourceUnit.ofImplementation)
 
                 let pkg =
                     match

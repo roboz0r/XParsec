@@ -11,11 +11,6 @@ open XParsec.FSharp.Parser
 
 module ConformancePass =
 
-    /// The leading `module`/`namespace` declarations of a paired `.fsi`/`.fs`
-    /// disagree, so the pairing rule paired two files F# would not consider a pair.
-    [<Struct; NoEquality; NoComparison>]
-    type ModuleDeclMismatch = { SigDecl: string; ImplDecl: string }
-
     /// A `.fsi` contract paired with its `.fs` implementation, plus the conformance verdict.
     [<NoEquality; NoComparison>]
     type PairResult =
@@ -24,7 +19,7 @@ module ConformancePass =
             SigFile: string
             /// The companion `.fs` relative path (resolved from the impl set).
             ImplFile: string
-            ModuleMismatch: ModuleDeclMismatch option
+            ModuleMismatch: Conformance.ModuleDeclMismatch voption
             /// Empty = the pair conforms.
             Errors: Conformance.ConformanceError list
         }
@@ -67,40 +62,6 @@ module ConformancePass =
             /// exemption; one outside it is the FS0240-style hard error.
             SigOnlyExemptions: Set<string>
         }
-
-    let private identText (lexed: Lexed) (tok: SyntaxToken) : string =
-        match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
-        | TokenIndex.Virtual -> ""
-
-    let private longIdentText (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
-        li.Idents |> Seq.map (identText lexed) |> String.concat "."
-
-    /// The dotted leading `module`/`namespace` path of a parsed file, the basis of
-    /// F#'s `QualifiedNameOfFile` pairing key. `"global"` for an explicit
-    /// `namespace global`; `""` for an anonymous module (no declaration).
-    let private leadingDeclPath (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) : string =
-        match ast with
-        | FSharpAst.SignatureFile sf ->
-            match sf with
-            | SignatureFile.Namespaces groups when groups.Length > 0 ->
-                match groups.[0] with
-                | NamespaceDeclGroupSignature.Named(longIdent = li) -> longIdentText lexed li
-                | NamespaceDeclGroupSignature.Global _ -> "global"
-            | SignatureFile.Namespaces _ -> ""
-            | SignatureFile.NamedModule(NamedModuleSignature.NamedModuleSignature(longIdent = li)) ->
-                longIdentText lexed li
-            | SignatureFile.AnonymousModule _ -> ""
-        | FSharpAst.ImplementationFile f ->
-            match f with
-            | ImplementationFile.Namespaces groups when groups.Length > 0 ->
-                match groups.[0] with
-                | NamespaceDeclGroup.Named(longIdent = li) -> longIdentText lexed li
-                | NamespaceDeclGroup.Global _ -> "global"
-            | ImplementationFile.Namespaces _ -> ""
-            | ImplementationFile.NamedModule(NamedModule.NamedModule(longIdent = li)) -> longIdentText lexed li
-            | ImplementationFile.AnonymousModule _ -> ""
-        | _ -> ""
 
     // A `[core] runtime` asset is a committed ESM module read as JS TEXT, never
     // parsed as F#. Only the presence of an exported NAME is read, never the body behind it.
@@ -187,16 +148,12 @@ module ConformancePass =
                 else
                     match parseRel m.Name dir fsiRel with
                     | Error e -> PairOutcome.ParseFailed(fsiRel, e)
-                    | Ok sigParsed ->
-                        let decls =
-                            match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sf
-                            | _ -> []
-
-                        let valNames =
-                            match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf -> Conformance.summariseSigVals sigParsed.Lexed sf
-                            | _ -> []
+                    | Ok {
+                             Ast = FSharpAst.SignatureFile sf
+                             Lexed = sigLexed
+                         } ->
+                        let decls = Conformance.summariseSig sigLexed sf
+                        let valNames = Conformance.summariseSigVals sigLexed sf
 
                         let externs =
                             decls
@@ -218,6 +175,8 @@ module ConformancePass =
                             | Some(asset, exports) when valNames |> List.forall exports.Contains ->
                                 PairOutcome.RuntimeServed(fsiRel, asset, valNames)
                             | _ -> PairOutcome.SigOnly fsiRel
+                    // Listed under `files`, which is the contract list, but not a signature.
+                    | Ok _ -> PairOutcome.ParseFailed(fsiRel, sprintf "'%s' is not a signature file" fsiRel)
 
             let outcome (fsiRel: string) : PairOutcome =
                 match companionOf fsiRel with
@@ -225,49 +184,23 @@ module ConformancePass =
                 | Some implRel ->
                     match parseRel m.Name dir fsiRel, parseRel m.Name dir implRel with
                     | Ok sigParsed, Ok implParsed ->
-                        let sigDecls =
-                            match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sf
-                            | _ -> []
+                        // Narrowed ONCE: a manifest that lists a `.fs` under `files`, or a
+                        // `.fsi` under `impl`, has mispaired the two halves and is reported as
+                        // such rather than conformed as an empty surface.
+                        match sigParsed.Ast, implParsed.Ast with
+                        | FSharpAst.SignatureFile sf, FSharpAst.ImplementationFile impl ->
+                            let verdict = Conformance.checkUnit sigParsed.Lexed sf implParsed.Lexed impl
 
-                        let implDecls =
-                            match implParsed.Ast with
-                            | FSharpAst.ImplementationFile f -> Conformance.summariseImpl implParsed.Lexed f
-                            | _ -> []
-
-                        // Each empty for the wrong file kind.
-                        let sigVals =
-                            match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf -> Conformance.summariseSigVals sigParsed.Lexed sf
-                            | _ -> []
-
-                        let implVals =
-                            match implParsed.Ast with
-                            | FSharpAst.ImplementationFile f -> Conformance.summariseImplVals implParsed.Lexed f
-                            | _ -> []
-
-                        let sigPath = leadingDeclPath sigParsed.Lexed sigParsed.Ast
-                        let implPath = leadingDeclPath implParsed.Lexed implParsed.Ast
-
-                        let mismatch =
-                            if sigPath = implPath then
-                                None
-                            else
-                                Some
-                                    {
-                                        SigDecl = sigPath
-                                        ImplDecl = implPath
-                                    }
-
-                        PairOutcome.Paired
-                            {
-                                SigFile = fsiRel
-                                ImplFile = implRel
-                                ModuleMismatch = mismatch
-                                Errors =
-                                    Conformance.check sigDecls implDecls
-                                    @ Conformance.checkValuePresence sigVals implVals
-                            }
+                            PairOutcome.Paired
+                                {
+                                    SigFile = fsiRel
+                                    ImplFile = implRel
+                                    ModuleMismatch = verdict.ModuleMismatch
+                                    Errors = verdict.Errors
+                                }
+                        | FSharpAst.SignatureFile _, _ ->
+                            PairOutcome.ParseFailed(fsiRel, sprintf "'%s' is not an implementation file" implRel)
+                        | _ -> PairOutcome.ParseFailed(fsiRel, sprintf "'%s' is not a signature file" fsiRel)
                     | Error e, _
                     | _, Error e -> PairOutcome.ParseFailed(fsiRel, e)
 
@@ -333,12 +266,12 @@ module ConformancePass =
                         yield err (ConformanceVerdict.Unimplemented(r.SigFile, Conformance.describe e))
 
                     match r.ModuleMismatch with
-                    | Some mm ->
+                    | ValueSome mm ->
                         yield
                             err (
                                 ConformanceVerdict.ModulePairingMismatch(r.SigFile, r.ImplFile, mm.SigDecl, mm.ImplDecl)
                             )
-                    | None -> ()
+                    | ValueNone -> ()
                 | PairOutcome.SigOnly s ->
                     if not (outcome.SigOnlyExemptions.Contains s) then
                         yield err (ConformanceVerdict.SigWithoutImpl s)

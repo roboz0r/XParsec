@@ -43,125 +43,19 @@ module SymbolProviders =
         : IExternalSymbolProvider =
         ReferencedProject.composeContract platformMetadata (ReferencedProject.resolveAll target packageDirs)
 
-    /// Mint the `this`-first inline `TDecl.Let` for a `member inline`: an accessor
-    /// `member inline _.M p0 p1 = body` IS the inline function `M this p0 p1 = body`, `this`
-    /// the OUTERMOST curried param (a static member, `ThisKey = ValueNone`, prepends none).
-    let liftMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
-        if not m.IsInline then
-            None
-        else
-            let pool = m.Body.Pool
-            // Every node minted below takes the body's own anchor, so the lifted tree indexes
-            // exactly one file and the collection can stamp ONE origin over the whole thing.
-            let bodyTok = TastAccessor.exprTok m.Body
-
-            let curried =
-                [
-                    match m.ThisKey with
-                    | ValueSome tk -> yield (tk, m.ThisTy)
-                    | ValueNone -> ()
-
-                    for (k, ty) in m.Params do
-                        yield (k, ty)
-                ]
-
-            let mutable body = m.Body
-            let mutable resultTy = m.ReturnTy
-
-            // Fold innermost-last so the outermost lambda's type is the whole curried
-            // function (`this -> p0 -> … -> ret`).
-            for i = curried.Length - 1 downto 0 do
-                let (pk, pty) = curried.[i]
-                let lamTy = FTFun(pty, resultTy)
-                let param = TastAccessor.mintNamedPat pool (BoundVarKey.identity pk) pty bodyTok
-                body <- TastAccessor.mintLambda param body lamTy bodyTok
-                resultTy <- lamTy
-
-            let declTy = resultTy
-            // `inlineExpand` matches `TDecl.Let(_, value, _, declTy)`, so this bound variable is
-            // filler that keeps the node total — minted rather than taken from anything.
-            let decl =
-                TastAccessor.mintLetDecl
-                    (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBoundVar pool) declTy bodyTok)
-                    body
-                    true
-                    declTy
-
-            // One entry per curried position, so `this` takes a leading default. No member
-            // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.
-            let paramAttrs = EqArray.init curried.Length (fun _ -> ParamAttrs.Default)
-
-            Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
-
-    type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
-
-    let private collectInlineBodies
-        (origin: OriginSource)
-        (tast: FrozenPools)
-        : KeyedInlineBody list * KeyedInlineBody list =
-        // The file's trees as columns, plus an append-only overlay for the wrapper lambdas.
-        // The overlay dies with this call.
-        let pool = TastPoolBuilder.openOver tast
-
-        let anchored = InlineBody.anchoredIn origin
-
-        // Unpooled off their own pool roots: the wire form is DU-typed because a pool id
-        // means nothing in the consuming file's pool.
-        let values =
-            [
-                for iv in tast.InlineTemplates ->
-                    {
-                        Key = iv.Key
-                        Body = anchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
-                    }
-            ]
-
-        let members =
-            [
-                for d in TastAccessor.roots pool do
-                    // A `member inline` on ANY member-bearing host (class / union / record)
-                    // is a splice template; `liftMemberBody` skips every other member.
-                    match TastAccessor.declKind d with
-                    | DeclShape.Type ->
-                        let tdecl = TastAccessor.declType d
-
-                        for m in TTypeKindG.members tdecl.Kind do
-                            match liftMemberBody origin m with
-                            | Some body ->
-                                let kind =
-                                    match m.Kind with
-                                    | TMemberKind.Method -> MemberKind.Method
-                                    | TMemberKind.Property -> MemberKind.Property
-
-                                let key =
-                                    SymbolKeyOps.memberKey
-                                        tdecl.TypeKey
-                                        m.Name
-                                        (m.Params |> EqArray.map snd)
-                                        m.MethodTypeParams.Length
-                                        kind
-
-                                yield { Key = key; Body = body }
-                            | None -> ()
-                    | _ -> ()
-            ]
-
-        values, members
-
     /// One pass over a manifest set's splice sources: the templates published, and the
     /// producer file each was declared in.
     type CollectedInlineBodies =
         {
-            Values: KeyedInlineBody list
-            Members: KeyedInlineBody list
+            Bodies: InlineBodies.FileInlineBodies
             Origins: OriginSources
         }
 
     /// Load cross-package inline bodies from manifests' `impl` files, type-checked and
     /// frozen once against `provider`. Manifest/decl order, so a later body wins a clash.
     let inlineBodies (provider: IExternalSymbolProvider) (manifests: Manifest list) : CollectedInlineBodies =
-        let acc = ResizeArray<KeyedInlineBody>()
-        let memberAcc = ResizeArray<KeyedInlineBody>()
+        let acc = ResizeArray<InlineBodies.KeyedInlineBody>()
+        let memberAcc = ResizeArray<InlineBodies.KeyedInlineBody>()
         let mutable origins = OriginSources.empty
 
         for manifest in manifests do
@@ -171,7 +65,7 @@ module SymbolProviders =
                 match VesperLib.parseFileFull file with
                 | Result.Error _ -> ()
                 | Result.Ok parsed ->
-                    let origin = Hashing.originSource parsed.File.Path parsed.Lexed
+                    let origin = Hashing.originSource parsed.File parsed.Lexed
 
                     origins <- OriginSources.add origin origins
 
@@ -210,14 +104,17 @@ module SymbolProviders =
                                     e.Message
                                     pruned
 
-                        let values, members = collectInlineBodies origin frozen
+                        let bodies = InlineBodies.collect origin frozen
 
-                        acc.AddRange values
-                        memberAcc.AddRange members
+                        acc.AddRange bodies.Values
+                        memberAcc.AddRange bodies.Members
 
         {
-            Values = List.ofSeq acc
-            Members = List.ofSeq memberAcc
+            Bodies =
+                {
+                    Values = List.ofSeq acc
+                    Members = List.ofSeq memberAcc
+                }
             Origins = origins
         }
 
@@ -290,25 +187,12 @@ module SymbolProviders =
 
                          // A later body wins a clash (the list is in manifest/decl order).
                          let byName =
-                             (Map.empty, collected.Values)
+                             (Map.empty, collected.Bodies.Values)
                              ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
-
-                         let byKey =
-                             System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
-
-                         for v in collected.Values do
-                             byKey.[v.Key] <- v.Body
-
-                         for mb in collected.Members do
-                             byKey.[mb.Key] <- mb.Body
 
                          let served =
                              provider
-                             |> ExternalSymbolProviders.withInlineBodies (fun key ->
-                                 match byKey.TryGetValue key with
-                                 | true, v -> ValueSome v
-                                 | _ -> ValueNone
-                             )
+                             |> ExternalSymbolProviders.withInlineBodies (InlineBodies.index collected.Bodies)
 
                          {
                              RuntimeAssets = ReferencedProject.runtimeModules ordered

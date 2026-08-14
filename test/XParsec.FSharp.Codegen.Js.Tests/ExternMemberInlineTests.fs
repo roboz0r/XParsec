@@ -51,12 +51,8 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
         {
             File =
                 {
-                    Path =
-                        {
-                            BucketName = "Widgets"
-                            Relative = AssemblyFileId.ofRelative "widget.fsi"
-                        }
-                    Absolute = "widget.fsi"
+                    BucketName = "Widgets"
+                    Relative = AssemblyFileId.ofRelative "widget.fsi"
                 }
             Lexed = lexed
             Ast = ast
@@ -234,7 +230,7 @@ let tests =
             }
 
             test "liftMemberBody mints a `this`-first curried inline TDecl.Let" {
-                match SymbolProviders.liftMemberBody nowhereSource (pokeMember ()) with
+                match InlineBodies.liftMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _), inner, _, _), true, declTy) ->
@@ -273,7 +269,7 @@ let tests =
                         ThisKey = ValueNone
                     }
 
-                match SymbolProviders.liftMemberBody nowhereSource staticPoke with
+                match InlineBodies.liftMemberBody nowhereSource staticPoke with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_,
@@ -299,7 +295,7 @@ let tests =
             test "a non-IL body publishes when the member is declared inline" {
                 let identity = pokeMemberWith ftInt (fun xId -> TExprG.Var(xId, ftInt, dummyTok))
 
-                match SymbolProviders.liftMemberBody nowhereSource identity with
+                match InlineBodies.liftMemberBody nowhereSource identity with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.Var _, _, _), _, _), true, _) -> ()
@@ -313,7 +309,7 @@ let tests =
                 let notInline = { pokeMember () with IsInline = false }
 
                 Expect.isNone
-                    (SymbolProviders.liftMemberBody nowhereSource notInline)
+                    (InlineBodies.liftMemberBody nowhereSource notInline)
                     "a member without `inline` is a real callable, not a splice template"
             }
 
@@ -326,7 +322,7 @@ let tests =
                     | ValueNone -> failtest "TryLookupMember(widget, Poke) missing — member capture failed"
 
                 let body =
-                    match SymbolProviders.liftMemberBody nowhereSource (pokeMember ()) with
+                    match InlineBodies.liftMemberBody nowhereSource (pokeMember ()) with
                     | Some b -> b
                     | None -> failtest "liftMemberBody returned None"
 
@@ -378,7 +374,7 @@ let tests =
 
                 // Each overload's OWN body, stored under its OWN key.
                 let bodyOf (template: string) (paramTy: FrozenType) =
-                    match SymbolProviders.liftMemberBody nowhereSource (pokeMemberOf template paramTy) with
+                    match InlineBodies.liftMemberBody nowhereSource (pokeMemberOf template paramTy) with
                     | Some b -> b
                     | None -> failtest "liftMemberBody returned None"
 
@@ -521,7 +517,7 @@ let tests =
             // Two same-name lifted signatures differing only by parameter TYPE must mint two
             // DISTINCT keys, or the second lifted body overwrites the first. Hand-built,
             // because two `(# … #)`-bodied same-name overloads are not declarable in one file.
-            test "collectInlineBodies mints distinct keys for two distinct lifted overload signatures" {
+            test "InlineBodies.collect mints distinct keys for two distinct lifted overload signatures" {
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf "widget" 0
 
                 // The per-member key mint the inline-body collector performs: decl, name,
@@ -578,7 +574,7 @@ let tests =
                                 let tdecl = TastAccessor.declType d
 
                                 for m in TTypeKindG.members tdecl.Kind do
-                                    match SymbolProviders.liftMemberBody source m with
+                                    match InlineBodies.liftMemberBody source m with
                                     | Some body -> yield m.Name, body
                                     | None -> ()
                             | _ -> ()

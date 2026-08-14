@@ -113,7 +113,8 @@ type TypeCycle =
     | Inheritance
     | Immediate
 
-/// One package-conformance verdict about one contract `.fsi` (and its companion `.fs`).
+/// One conformance verdict about one `.fsi` (and its companion `.fs`), whether the two were
+/// paired by a package manifest or sit beside each other in one assembly.
 [<RequireQualifiedAccess>]
 type ConformanceVerdict =
     /// A binding the contract declares that the implementation does not satisfy.
@@ -133,6 +134,13 @@ type ConformanceVerdict =
     | UnknownImplOnly of name: string
     /// The contract or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
+    /// A declaration the signature makes that extraction could not MODEL, so the signature
+    /// publishes LESS than it says: the declaration is absent for everything that reads it.
+    /// Named by the diagnostic's own anchor, which is the signature that made the claim.
+    | SignatureNotExtracted of detail: string
+    /// A declaration the signature is not ALLOWED to make (a non-`inline` member on an
+    /// `extern` type). A rule violation rather than a gap in what this compiler models.
+    | SignatureRejected of detail: string
 
 [<RequireQualifiedAccess>]
 module ConformanceVerdict =
@@ -149,6 +157,8 @@ module ConformanceVerdict =
         | ConformanceVerdict.UnknownSigOnly _
         | ConformanceVerdict.UnknownImplOnly _ -> DiagCode.Vesper "V243"
         | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
+        | ConformanceVerdict.SignatureNotExtracted _ -> DiagCode.Vesper "V245"
+        | ConformanceVerdict.SignatureRejected _ -> DiagCode.Vesper "V246"
 
     let describe (v: ConformanceVerdict) : string =
         match v with
@@ -178,6 +188,9 @@ module ConformanceVerdict =
                 name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
+        | ConformanceVerdict.SignatureNotExtracted detail ->
+            sprintf "the signature declares something this compiler cannot publish, so it is hidden: %s" detail
+        | ConformanceVerdict.SignatureRejected detail -> sprintf "the signature declares %s" detail
 
 /// A broken invariant INSIDE this compiler, never a verdict about the program: the source
 /// that provoked one may be perfectly correct. A diagnostic rather than a crash, so a break
@@ -337,7 +350,9 @@ type Kind =
     | RedundantDowncast of ty: string
 
     // ── Whole-file and whole-package verdicts ──────────────────────────────────
-    | Conformance of package: string * verdict: ConformanceVerdict
+    /// `assembly` is what the checked pair belongs to, which a package build spells with
+    /// its manifest name and an assembly build with the name it compiles into.
+    | Conformance of assembly: string * verdict: ConformanceVerdict
     | LexFailure of detail: string
     | ParseFailure of detail: string
     /// A refusal by the DRIVER rather than a verdict about the code: a missing target
@@ -528,7 +543,7 @@ module Kind =
         | Kind.UnrelatedTypeTest(source, target) ->
             sprintf "Type test of '%s' against unrelated type '%s' is always false" source target
         | Kind.RedundantDowncast ty -> sprintf "Downcast is redundant — the static type '%s' already matches" ty
-        | Kind.Conformance(package, verdict) -> sprintf "%s: %s" package (ConformanceVerdict.describe verdict)
+        | Kind.Conformance(assembly, verdict) -> sprintf "%s: %s" assembly (ConformanceVerdict.describe verdict)
         | Kind.LexFailure detail -> sprintf "lex error: %s" detail
         | Kind.ParseFailure detail -> sprintf "parse error: %s" detail
         | Kind.Driver message -> message

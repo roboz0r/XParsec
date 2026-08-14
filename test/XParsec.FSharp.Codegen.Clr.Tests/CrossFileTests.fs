@@ -10,9 +10,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // compiled together and RUN. A cross-file reference that failed to re-home to a LOCAL
 // definition would emit a self-`AssemblyRef`, so the loader faults and `peAssemblyRefs` sees it.
 
-/// Compile a multi-file assembly through the production driver seam: each file analysed against
+/// Compile a multi-file assembly through the production driver seam: each unit analysed against
 /// the composed prior views, `views ++ external` composed, ONE PE emitted. Returns its bytes.
-let private compileFiles (asmName: string) (sources: AssemblyFiles.SourceFile list) : byte[] =
+let private compileUnits (asmName: string) (units: AssemblyFiles.SourceUnit list) : byte[] =
     // The external surface (operators, `printfn`, the Vesper primitives) that the front end
     // resolves against and codegen threads through.
     let external = ClrSymbolProviders.buildContract defaultPackages
@@ -20,9 +20,12 @@ let private compileFiles (asmName: string) (sources: AssemblyFiles.SourceFile li
 
     // Scoping is forward-only: each file sees the earlier ones through their projected views.
     // A parse or analysis error surfaces here, anchored to its own file.
-    match ClrDriver.compileAssemblyWith [] external project sources with
+    match ClrDriver.compileAssemblyWith [] external project units with
     | Ok artifact -> Codegen.toBytes artifact
     | Error diags -> failtestf "cross-file compile failed: %A" diags
+
+let private compileFiles (asmName: string) (sources: AssemblyFiles.SourceFile list) : byte[] =
+    compileUnits asmName (sources |> List.map SourceUnit.ofImplementation)
 
 let private compileTwoFiles (asmName: string) (file1: string) (file2: string) : byte[] =
     compileFiles asmName [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
@@ -70,6 +73,72 @@ printfn \"%d\" (s + e)
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "24" "cross-file module fn + generic fn combine to 24"
+            }
+
+            // A unit with a `.fsi`: file 2 resolves what the SIGNATURE publishes, and the
+            // `inline` template beside it still splices. Run, so the emitted PE is the proof.
+            test "two files run: file 1 has a `.fsi`, and its inline template still splices" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    let hidden (x: int) : int = x * 1000
+
+    let addBase (x: int) : int = x + 10
+
+    let inline twice (x: int) : int = addBase (addBase x)
+"
+
+                // `hidden` is deliberately absent: what file 2 meets is this, not what the
+                // implementation infers. It is still COMPILED — hiding is visibility, not
+                // deletion — so the emitted assembly carries it either way.
+                let file1Sig =
+                    "\
+namespace CrossFile
+
+module Lib =
+    val addBase: x: int -> int
+
+    val inline twice: x: int -> int
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+printfn \"%d\" (twice 11 + addBase 1)
+"
+
+                let asmName = "CrossFileSigned"
+
+                let bytes =
+                    compileUnits
+                        asmName
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                            SourceUnit.ofImplementation (SourceFile.ofText "file2.fs" file2)
+                        ]
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                // `twice 11` = addBase (addBase 11) = 31, plus `addBase 1` = 11 ⇒ 42.
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the spliced template and the published call both ran"
+
+                // Hidden from file 2, still EMITTED: a signature governs what later files
+                // resolve, not what codegen lowers. Asked of the metadata, which throws when
+                // the method is absent.
+                Expect.isNonEmpty (peMethodIl bytes "CrossFile.Lib" "hidden") "the unpublished binding still compiled"
             }
 
             // A TOP-LEVEL binding (one outside any `module`) is held by the file's namespace,

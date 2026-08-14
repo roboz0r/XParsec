@@ -72,7 +72,7 @@ module VesperLibTyparCapture =
             Ctx: DeferredCtx
             Key: BindingKey
             Source: string voption
-            File: VesperLibManifest.LibFile
+            File: OriginPath
             Signature: CurriedSig<SyntaxToken>
         }
 
@@ -106,9 +106,9 @@ module VesperLibTyparCapture =
         member _.Target: string = target
         member val Symbols = Dictionary<string, ExternalSymbol>(StringComparer.Ordinal) with get
         /// File-level failures: a file that would not lex, parse, or match an AST shape.
-        member val Diagnostics = ResizeArray<VesperLibManifest.LibFile * string>() with get
+        member val Diagnostics = ResizeArray<OriginPath * string>() with get
         /// Per-val extraction failures: an `.fsi` that parses cleanly can still lose vals.
-        member val Skipped = ResizeArray<VesperLibManifest.LibFile * string>() with get
+        member val Skipped = ResizeArray<OriginPath * string>() with get
         /// Type-name index: short name -> (arity, compiledName). First declaration wins
         /// when two types share a short name.
         member val Types = Dictionary<string, int * string>(StringComparer.Ordinal) with get
@@ -217,6 +217,36 @@ module VesperLibTyparCapture =
 
                 d
 
+            // Field name -> the records declaring it, a MULTIMAP rather than first-wins: a
+            // field name is deliberately shared across records, so each one ADDS a candidate.
+            // What resolves a consumer's bare `{ x = 1 }` to a record this signature publishes.
+            let recordFieldIndex =
+                let d =
+                    Dictionary<string, ResizeArray<ExternalRecordCandidate>>(StringComparer.Ordinal)
+
+                for KeyValue(compiled, typeKey) in ctx.TypeKeys do
+                    match ctx.TypeShapes.TryGetValue compiled with
+                    | true, ExternalTypeShape.Record(arity, fields, origin, _) ->
+                        let candidate =
+                            {
+                                TypeKey = typeKey
+                                TyparArity = arity
+                                Origin = origin
+                                FieldNames = fields |> EqArray.map (fun f -> f.Name)
+                                IsRequireQualifiedAccess = ctx.RqaTypes.Contains compiled
+                            }
+
+                        for f in fields do
+                            match d.TryGetValue f.Name with
+                            | true, buf -> buf.Add candidate
+                            | _ ->
+                                let buf = ResizeArray<ExternalRecordCandidate>()
+                                buf.Add candidate
+                                d.[f.Name] <- buf
+                    | _ -> ()
+
+                d
+
             // The intrinsic axis, off the `Intrinsic` shapes alone: a CAPABILITY interface
             // carries its platform name on its own identity and is deliberately absent here.
             let intrinsics =
@@ -269,6 +299,11 @@ module VesperLibTyparCapture =
                                 match unionCaseIndex.TryGetValue caseName with
                                 | true, hit -> ValueSome hit
                                 | _ -> ValueNone
+                        TryRecordsWithField =
+                            fun fieldName ->
+                                match recordFieldIndex.TryGetValue fieldName with
+                                | true, buf -> EqArray.ofResizeArray buf
+                                | _ -> EqArray.empty
                         AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
                         IntrinsicTypeMap = intrinsics
                     }

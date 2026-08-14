@@ -31,6 +31,7 @@ module ConcatProbe =
 
         (implFiles |> List.map (AssemblyFiles.SourceFile.read vesperCorePackage))
         @ [ AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource ]
+        |> List.map AssemblyFiles.SourceUnit.ofImplementation
 
     /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's
     /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.

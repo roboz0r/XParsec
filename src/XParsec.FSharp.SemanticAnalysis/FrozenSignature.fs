@@ -5,6 +5,9 @@ open System.Collections.Generic
 // In-memory projection of a FROZEN implementation file to an `IExternalSymbolProvider`,
 // a file's *implicit signature*, so file N+1 resolves file N's exports by NAME with no DLL
 // emitted. Keeps INTERNAL-or-better, where the `.fsi` contract extractor keeps public-only.
+//
+// SIGNATURES only: the splice templates are collected separately and layered on, so a `.fsi`
+// can replace what a file publishes without taking its inline bodies with it.
 
 module FrozenSignature =
 
@@ -30,8 +33,8 @@ module FrozenSignature =
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a provider
     /// view. `producer` is the file `frozen` was analysed FROM: every anchor in every
-    /// published template indexes that file's `Lexed`.
-    let toProvider (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
+    /// published `ValRepr` indexes that file's `Lexed`.
+    let toSignatures (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
                 Home = Origin.InFile producer.File.Path
@@ -355,7 +358,7 @@ module FrozenSignature =
             | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
             | _ -> ValueNone
 
-        let addValue (bindingKey: BindingKey) (boundVar: BoundVarId) (ty: FrozenType) (inlineBody: InlineBody voption) =
+        let addValue (bindingKey: BindingKey) (boundVar: BoundVarId) (ty: FrozenType) =
             let scheme = ConformanceTypars.toDeclaringAxis ty
 
             let sym =
@@ -367,29 +370,14 @@ module FrozenSignature =
                       [] with
                     Origin = originIn bindingKey.Decl.Namespace
                     ValRepr = bindingValRepr boundVar
-                    InlineBody = inlineBody
                 }
 
             symbols.[sym.Name] <- sym
 
-        // The inline VOCABULARY, indexed by the bound variable it is published FOR: a template is a
-        // second tree over the SAME source bound variable as the ordinary function.
-        let inlineBodyOf =
-            let d = Dictionary<BoundVarId, InlineBody>(frozen.InlineTemplates.Length)
-
-            for iv in frozen.InlineTemplates do
-                match { Pool = pool; Id = iv.Decl } with
-                | TastAccessor.DLet {
-                                        Pattern = TastAccessor.PNamed boundVar
-                                    } ->
-                    d.[boundVar] <- InlineBody.anchoredIn producer (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
-                | _ -> ()
-
-            d
-
         // EVERY module binding rides `Decls`, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it
-        // exports bare. A template is not a second entry here, but the binding's `InlineBody`.
+        // exports bare. An `inline` one publishes this declaration and nothing more: its
+        // template is a separate object, keyed by this same binding key.
         for decl in TastAccessor.roots pool do
             match decl with
             | TastAccessor.DLet {
@@ -399,13 +387,7 @@ module FrozenSignature =
                 match moduleMembers.TryGetValue boundVar with
                 | true, info ->
                     match info.Key with
-                    | SymbolKey.Binding bindingKey when exported info.Key ->
-                        let inlineBody =
-                            match inlineBodyOf.TryGetValue boundVar with
-                            | true, body -> ValueSome body
-                            | _ -> ValueNone
-
-                        addValue bindingKey boundVar ty inlineBody
+                    | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey boundVar ty
                     | _ -> ()
                 | _ -> ()
             | _ -> ()

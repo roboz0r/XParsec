@@ -4,6 +4,48 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 module ConformanceTypars =
 
+    /// A scheme as a compiler MESSAGE reads it: `'a -> ('a * int) -> 'b`. Typars render by
+    /// index off their axis, which is what a disagreement here is always about. Approximate
+    /// by design — a shape with no source spelling (`keyof`, a conditional) renders as its
+    /// constructor and children rather than growing a second type syntax.
+    let rec private describeType (t: FrozenType) : string =
+        let args (name: string) (xs: EqArray<FrozenType>) =
+            match xs.Length with
+            | 0 -> name
+            | _ -> sprintf "%s<%s>" name (xs |> Seq.map describeType |> String.concat ", ")
+
+        // A nested function or tuple is parenthesised: both are left-ambiguous otherwise.
+        let nested (x: FrozenType) =
+            match x with
+            | FTFun _
+            | FTTuple _ -> "(" + describeType x + ")"
+            | _ -> describeType x
+
+        match t with
+        | FTConst(key, a) -> args (SymbolKeyOps.intrinsicName key) a
+        | FTRecord(key, a)
+        | FTUnion(key, a)
+        | FTClass(key, a) -> args key.Name a
+        | FTEnum key -> key.Name
+        | FTFun(arg, result) -> sprintf "%s -> %s" (nested arg) (describeType result)
+        | FTTuple items -> items |> Seq.map nested |> String.concat " * "
+        | FTOr members -> members |> EqSet.toList |> List.map describeType |> String.concat " | "
+        | FTLiteral value -> sprintf "%A" value
+        | FTKeyOf ty -> sprintf "keyof %s" (nested ty)
+        | FTIndexedAccess(objTy, index) -> sprintf "%s[%s]" (nested objTy) (describeType index)
+        | FTConditional p ->
+            sprintf
+                "%s extends %s ? %s : %s"
+                (nested p.Check)
+                (nested p.Extends)
+                (describeType p.WhenTrue)
+                (describeType p.WhenFalse)
+        // The INDEX is the quantification order, which is exactly what these checks compare,
+        // so it is what the name shows: `'0`, `'1`, … rather than a source-invented `'a`.
+        | FTTypar(_, index) -> sprintf "'%d" index
+        | FTLocalTypar(_, index) -> sprintf "'local%d" index
+        | FTUnknown name -> name
+
     /// A binding whose `.fs`-inferred generic scheme disagrees with its `.fsi`-declared
     /// one: a different typar COUNT or a different typar ORDER.
     [<NoEquality; NoComparison>]
@@ -14,6 +56,14 @@ module ConformanceTypars =
             Declared: FrozenType
             Inferred: FrozenType
         }
+
+    /// One binding's disagreement as a compiler message.
+    let describe (m: TyparMismatch) : string =
+        sprintf
+            "%s: declared %s, but the implementation infers %s"
+            m.Name
+            (describeType m.Declared)
+            (describeType m.Inferred)
 
     /// Rewrite every `FTTypar` onto `axis`, index kept: a free value/function has exactly
     /// ONE axis, so `FTTypar(Declaring, i)` and `FTTypar(Method, i)` denote the same slot.
@@ -113,6 +163,17 @@ module ConformanceTypars =
             /// The matching-arity published overloads' signatures.
             Published: FrozenType list
         }
+
+    /// One member's disagreement as a compiler message. The published overloads are listed:
+    /// with more than one of the same arity, which one was MEANT is the reader's question.
+    let describeMember (m: MemberMismatch) : string =
+        sprintf
+            "%s.%s: the implementation's %s matches no declared overload of %d method type parameter(s) (declared: %s)"
+            m.TypeName
+            m.MemberName
+            (describeType m.Inferred)
+            m.MethodTyparArity
+            (m.Published |> List.map describeType |> String.concat "; ")
 
     let private tupledParams (ps: EqArray<BoundVarKeyG<'id> * FrozenType>) : FrozenType =
         ExternalSignature.tupledParams (EqArray.map snd ps)

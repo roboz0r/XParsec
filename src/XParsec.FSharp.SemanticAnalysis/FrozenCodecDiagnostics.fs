@@ -92,6 +92,12 @@ module FrozenCodecDiagnostics =
         | ConformanceVerdict.UnknownImplOnly name ->
             w.Write 7uy
             w.Write name
+        | ConformanceVerdict.SignatureNotExtracted detail ->
+            w.Write 8uy
+            w.Write detail
+        | ConformanceVerdict.SignatureRejected detail ->
+            w.Write 9uy
+            w.Write detail
 
     let private readConformanceVerdict (r: FrozenReader) : ConformanceVerdict =
         match r.ReadByte() with
@@ -111,6 +117,8 @@ module FrozenCodecDiagnostics =
             let sigFile = r.ReadString()
             ConformanceVerdict.PairParseFailure(sigFile, r.ReadString())
         | 7uy -> ConformanceVerdict.UnknownImplOnly(r.ReadString())
+        | 8uy -> ConformanceVerdict.SignatureNotExtracted(r.ReadString())
+        | 9uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 
     /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a

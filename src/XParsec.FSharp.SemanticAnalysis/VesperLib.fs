@@ -510,7 +510,7 @@ module VesperLib =
 
     let private extractValSig
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (lexed: Lexed)
         (opens: string list)
         (decl: ModuleContainer)
@@ -638,7 +638,7 @@ module VesperLib =
     /// name+arity are known leaves no name-without-shape gap.
     let private skipBodyUnmodelled
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (compiled: string)
         (arity: int)
         (reason: string)
@@ -714,7 +714,7 @@ module VesperLib =
 
     let private extractUnionBody
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (lexed: Lexed)
         (opens: string list)
         (compiled: string)
@@ -830,7 +830,7 @@ module VesperLib =
     /// reference, so nothing here can forward-reference a later declaration.
     let private extractEnumBody
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (lexed: Lexed)
         (compiled: string)
         (arity: int)
@@ -1112,7 +1112,7 @@ module VesperLib =
     /// only splice the body its sibling `.fs` gives it.
     let private requireInlineExternMembers
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (name: string)
         (elems: TypeElementsSignature<SyntaxToken>)
         : unit =
@@ -1148,7 +1148,7 @@ module VesperLib =
 
     let private extractTypeSig
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (lexed: Lexed)
         (opens: string list)
         (decl: ModuleContainer)
@@ -1373,7 +1373,7 @@ module VesperLib =
 
     let rec private extractModuleSigElement
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (naming: ModuleNaming)
         (lexed: Lexed)
         (opens: string list)
@@ -1433,7 +1433,7 @@ module VesperLib =
 
     let private extractNamespaceGroup
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (naming: ModuleNaming)
         (lexed: Lexed)
         (fileOpens: string list)
@@ -1463,7 +1463,7 @@ module VesperLib =
 
     let private extractNamedModuleSig
         (ctx: ExtractCtx)
-        (file: LibFile)
+        (file: OriginPath)
         (naming: ModuleNaming)
         (lexed: Lexed)
         (fileOpens: string list)

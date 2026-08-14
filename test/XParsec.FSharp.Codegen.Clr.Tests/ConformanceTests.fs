@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.ConformanceTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Clr.Tests
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -12,7 +13,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 let private clrBackend: Backend =
     {
-        Name = "clr"
+        Name = Target.Clr
         // The entry point runs IN-PROCESS by reflection, so an uncaught user exception
         // never reaches an exit code: it arrives as a throw naming the inner exception,
         // and that throw is the fault surface reported as `Faulted`.

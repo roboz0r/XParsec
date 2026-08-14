@@ -132,9 +132,15 @@ module ClrDriver =
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (files: AssemblyFiles.SourceFile list)
+        (units: AssemblyFiles.SourceUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        AssemblyFiles.analyseGated Pipeline.analyseFor project.AssemblyName external files
+        let assembly: AssemblyFiles.CompilingAssembly =
+            {
+                Name = project.AssemblyName
+                Target = Target.Clr
+            }
+
+        AssemblyFiles.analyseGated Pipeline.analyseFor assembly external units
         |> Result.map (fun analysed ->
             // The visibility stack analysis composed, rebuilt: `external` is the floor and
             // `Files` is in file order, so each view pushes on top of the ones it may shadow.
@@ -151,12 +157,12 @@ module ClrDriver =
     /// into both the contract provider and `AssemblyRef` identity.
     let compileAssembly
         (inputs: ClrCompilation)
-        (files: AssemblyFiles.SourceFile list)
+        (units: AssemblyFiles.SourceUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let provider =
             ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
 
-        compileAssemblyWith inputs.ReferenceAssemblies provider inputs.Project files
+        compileAssemblyWith inputs.ReferenceAssemblies provider inputs.Project units
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
     /// set. An in-memory compilation returns the artifact unwritten.

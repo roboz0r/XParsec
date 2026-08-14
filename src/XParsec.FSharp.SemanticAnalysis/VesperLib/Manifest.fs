@@ -27,10 +27,11 @@ module VesperLibManifest =
         }
 
     /// The lexer's token table and source text are retained so subsequent
-    /// passes can extract identifier text off a `SyntaxToken`.
+    /// passes can extract identifier text off a `SyntaxToken`. Named by IDENTITY alone: a
+    /// source handed over as text has no path on disk, and nothing downstream reads one.
     type ParsedFile =
         {
-            File: LibFile
+            File: OriginPath
             Lexed: Lexed
             Ast: FSharpAst<SyntaxToken>
         }
@@ -57,7 +58,7 @@ module VesperLibManifest =
             | Ok ast ->
                 Ok
                     {
-                        File = file
+                        File = file.Path
                         Lexed = lexed
                         Ast = ast
                     }

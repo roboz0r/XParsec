@@ -387,7 +387,7 @@ module ReferencedProject =
     type BuiltPackage =
         {
             Provider: IExternalSymbolProvider
-            Diagnostics: (VesperLib.LibFile * string) list
+            Diagnostics: (OriginPath * string) list
             HomeAssembly: string
             DeclaredTypeNames: string list
         }
@@ -416,14 +416,7 @@ module ReferencedProject =
             if File.Exists abs then
                 match VesperLib.parseFileFull (VesperLib.libFile manifest.Name dir rel) with
                 | Error _ -> ()
-                | Ok parsed ->
-                    let reprs =
-                        System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
-
-                    VesperLib.extractIntrinsicReprsInto reprs parsed
-
-                    for KeyValue(k, v) in reprs do
-                        ctx.IntrinsicReprs.[k] <- v
+                | Ok parsed -> VesperLib.extractIntrinsicReprsInto ctx.IntrinsicReprs parsed
 
         // In declared order, so a later contract's RHS (`Vesper.disposable`) is already
         // in the registry.
@@ -431,7 +424,7 @@ module ReferencedProject =
             let file = VesperLib.libFile manifest.Name dir rel
 
             match VesperLib.parseFileFull file with
-            | Error e -> ctx.Diagnostics.Add(file, e)
+            | Error e -> ctx.Diagnostics.Add(file.Path, e)
             | Ok parsed -> VesperLib.extractSymbols ctx parsed
 
         let home = Origin.InAssembly(AssemblyName manifest.Name)
@@ -467,7 +460,7 @@ module ReferencedProject =
 
     /// Stand up a referenced project in isolation: no dependency shapes in scope, so
     /// `ambientShapes` resolves nothing. For a package with no `depends-on`.
-    let buildProvider (mp: ManifestPath) : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
+    let buildProvider (mp: ManifestPath) : Result<IExternalSymbolProvider * (OriginPath * string) list, string> =
         loadManifest mp
         |> Result.map (fun manifest ->
             let bp = buildProviderWith (fun _ -> ValueNone) [] manifest

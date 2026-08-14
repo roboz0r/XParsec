@@ -43,11 +43,12 @@ let private writePackageFilesFor
     | Result.Ok mp -> mp
     | Result.Error e -> failwithf "resolveManifest: %s" e
 
-/// `writePackageFilesFor` at the clr target, which `compilation` below names.
+/// `writePackageFilesFor` at the target these fixtures are indifferent to — they hash a
+/// manifest's own file set, which no target reads differently.
 let private writePackageFiles (root: string) (pkg: string) (manifestBody: string) (files: (string * string) list) =
-    writePackageFilesFor root pkg "clr" manifestBody files
+    writePackageFilesFor root pkg "none" manifestBody files
 
-/// A one-contract clr package: `contract.fsi` carrying `contract`, and nothing else.
+/// A one-contract package: `contract.fsi` carrying `contract`, and nothing else.
 let private writePackage (root: string) (pkg: string) (contract: string) : ReferencedProject.ManifestPath =
     writePackageFiles root pkg "[core]\nfiles = [\"contract.fsi\"]\n" [ "contract.fsi", contract ]
 
@@ -68,7 +69,7 @@ let private hashAcrossWrite (mp: ReferencedProject.ManifestPath) (rel: string) (
 let private compilation: Hashing.CompilationInputs =
     {
         HomeAssembly = "Consumer"
-        Target = "clr"
+        Target = "none"
         ReferenceAssemblies = []
         Packages = []
         SelfPackage = None
@@ -547,7 +548,10 @@ let tests =
                                 [ "a.fsi", "type a = extern\n"; "b.fsi", "type b = extern\n" ]
 
                         let struct (before, after) =
-                            hashAcrossWrite manifest "manifest.clr.toml" "[core]\nfiles = [\"b.fsi\", \"a.fsi\"]\n"
+                            hashAcrossWrite
+                                manifest
+                                (Path.GetFileName manifest.Path)
+                                "[core]\nfiles = [\"b.fsi\", \"a.fsi\"]\n"
 
                         Expect.notEqual before after "compile order is part of the signature"
                     }

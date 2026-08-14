@@ -408,18 +408,80 @@ module Conformance =
 
         List.ofSeq errors
 
-    /// Both checks over a parsed `.fsi` / `.fs` pair, each with its own `Lexed`:
-    /// type findings first, then value findings.
-    let checkPair
+    /// The leading `module` / `namespace` declarations of a `.fsi` and its `.fs` disagree, so
+    /// the two files are not a pair at all and every finding below them is about the wrong
+    /// companion.
+    [<Struct; NoEquality; NoComparison>]
+    type ModuleDeclMismatch = { SigDecl: string; ImplDecl: string }
+
+    let private identText (lexed: Lexed) (tok: SyntaxToken) : string =
+        match tok.Index with
+        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
+        | TokenIndex.Virtual -> ""
+
+    let private longIdentText (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
+        li.Idents |> Seq.map (identText lexed) |> String.concat "."
+
+    /// The dotted leading declaration of a `.fsi`, F#'s `QualifiedNameOfFile` pairing key.
+    /// `"global"` for an explicit `namespace global`; `""` for an anonymous module.
+    let sigDeclPath (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : string =
+        match file with
+        | SignatureFile.Namespaces groups when groups.Length > 0 ->
+            match groups.[0] with
+            | NamespaceDeclGroupSignature.Named(longIdent = li) -> longIdentText lexed li
+            | NamespaceDeclGroupSignature.Global _ -> "global"
+        | SignatureFile.Namespaces _ -> ""
+        | SignatureFile.NamedModule(NamedModuleSignature.NamedModuleSignature(longIdent = li)) -> longIdentText lexed li
+        | SignatureFile.AnonymousModule _ -> ""
+
+    /// `sigDeclPath` for the implementation half.
+    let implDeclPath (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string =
+        match file with
+        | ImplementationFile.Namespaces groups when groups.Length > 0 ->
+            match groups.[0] with
+            | NamespaceDeclGroup.Named(longIdent = li) -> longIdentText lexed li
+            | NamespaceDeclGroup.Global _ -> "global"
+        | ImplementationFile.Namespaces _ -> ""
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(longIdent = li)) -> longIdentText lexed li
+        | ImplementationFile.AnonymousModule _ -> ""
+
+    /// Every CST-level verdict about one `.fsi` / `.fs` pair.
+    [<NoEquality; NoComparison>]
+    type UnitConformance =
+        {
+            ModuleMismatch: ModuleDeclMismatch voption
+            /// Empty = the implementation answers the signature.
+            Errors: ConformanceError list
+        }
+
+    /// EVERY check over a parsed `.fsi` / `.fs` pair, each with its own `Lexed`: the two files
+    /// pair on their leading declaration, then type findings, then value findings. The one
+    /// rule set, so a pair gets the same verdict whether a manifest or a compilation unit
+    /// brought the two halves together.
+    let checkUnit
         (sigLexed: Lexed)
         (sigFile: SignatureFile<SyntaxToken>)
         (implLexed: Lexed)
         (implFile: ImplementationFile<SyntaxToken>)
-        : ConformanceError list =
+        : UnitConformance =
+        let sigPath = sigDeclPath sigLexed sigFile
+        let implPath = implDeclPath implLexed implFile
+
         let typeErrors =
             check (summariseSig sigLexed sigFile) (summariseImpl implLexed implFile)
 
         let valueErrors =
             checkValuePresence (summariseSigVals sigLexed sigFile) (summariseImplVals implLexed implFile)
 
-        typeErrors @ valueErrors
+        {
+            ModuleMismatch =
+                if sigPath = implPath then
+                    ValueNone
+                else
+                    ValueSome
+                        {
+                            SigDecl = sigPath
+                            ImplDecl = implPath
+                        }
+            Errors = typeErrors @ valueErrors
+        }

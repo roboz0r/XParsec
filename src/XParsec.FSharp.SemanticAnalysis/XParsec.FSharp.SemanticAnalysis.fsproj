@@ -101,6 +101,7 @@
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <Compile Include="FrozenSignature.fs" />
+    <Compile Include="InlineBodies.fs" />
     <Compile Include="Intrinsics.fs" />
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />

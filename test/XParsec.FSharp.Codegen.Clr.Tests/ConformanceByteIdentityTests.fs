@@ -4,6 +4,7 @@ open System
 open System.IO
 open Expecto
 open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -15,7 +16,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 
-let private gated = compiledBy "clr"
+let private gated = compiledBy Target.Clr
 
 [<Tests>]
 let tests =

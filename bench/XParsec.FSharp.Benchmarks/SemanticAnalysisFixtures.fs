@@ -128,7 +128,11 @@ let stagesFor (depth: ChainDepth) : Stage list =
 /// Analyse one stage, returning every file's result. `analyse` is a seam so the probe can
 /// inject a timing wrapper.
 let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
-    AssemblyFiles.analyseAssemblyWith analyse s.Name s.Provider s.Files
+    AssemblyFiles.analyseAssemblyWith
+        analyse
+        { Name = s.Name; Target = Target.Clr }
+        s.Provider
+        (s.Files |> List.map AssemblyFiles.SourceUnit.ofImplementation)
 
 /// Count error-severity diagnostics across a stage's results (parse failures + analysis
 /// errors). The green-workload guard: a bench on an erroring workload measures the error

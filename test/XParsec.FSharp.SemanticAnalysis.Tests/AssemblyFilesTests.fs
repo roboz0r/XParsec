@@ -12,7 +12,16 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // projected provider view. Each file owns its own Input/Lexed, so `NodeKey` offsets are
 // per-file.
 
-let private asm = "MultiFileAsm"
+let private asm: CompilingAssembly =
+    {
+        Name = "MultiFileAsm"
+        Target = "none"
+    }
+
+/// A `.fs` with no `.fsi` beside it, so it publishes the surface it infers. Every test here
+/// is in that case but the hiding ones, which pair the two halves explicitly.
+let private impl (id: string) (text: string) : SourceUnit =
+    SourceUnit.ofImplementation (SourceFile.ofText id text)
 
 /// The `Ok` files of an assembly run, or a test failure naming the first parse error.
 let private files (results: Result<FrozenFile, UnparsedFile> list) : FrozenFile list =
@@ -50,6 +59,47 @@ module M =
     let f (x: int) : int = x + 1
 "
 
+// --- shared file-1 hiding surface ------------------------------------------------------
+// Two records and two functions, of which the signature below publishes one of each.
+
+let private file1Signed =
+    "\
+namespace Test.A
+
+module M =
+    type Shown = { value: int }
+
+    type Hidden = { other: int }
+
+    let shown (x: int) : int = x + 1
+
+    let hidden (x: int) : int = x + 2
+"
+
+let private file1Fsi =
+    "\
+namespace Test.A
+
+module M =
+    val shown: int -> int
+
+    type Shown = { value: int }
+"
+
+/// A file 2 naming one of file 1's types and one of its functions, both qualified.
+let private usesFile1 (typeName: string) (valueName: string) : string =
+    sprintf
+        "\
+namespace Test.B
+
+module N =
+    let useT (t: Test.A.M.%s) : int = 0
+
+    let useF () : int = Test.A.M.%s 3
+"
+        typeName
+        valueName
+
 [<Tests>]
 let tests =
     testList
@@ -67,13 +117,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [
-                            SourceFile.ofText "file1.fs" file1Qualified
-                            SourceFile.ofText "file2.fs" file2
-                        ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1Qualified; impl "file2.fs" file2 ]
                     |> files
 
                 Expect.hasLength all 2 "both files analysed"
@@ -100,13 +144,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [
-                            SourceFile.ofText "file1.fs" file1Qualified
-                            SourceFile.ofText "file2.fs" file2
-                        ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1Qualified; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -136,10 +174,7 @@ module B =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f1 = all.[0]
@@ -169,10 +204,7 @@ module Shared =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "earlier.fs" earlier; SourceFile.ofText "later.fs" later ]
+                    analyseAssembly asm realProvider.Value [ impl "earlier.fs" earlier; impl "later.fs" later ]
                     |> files
 
                 let viewEarlier = all.[0].View
@@ -245,11 +277,7 @@ module C =
                     analyseAssembly
                         asm
                         realProvider.Value
-                        [
-                            SourceFile.ofText "file1.fs" file1
-                            SourceFile.ofText "file2.fs" file2
-                            SourceFile.ofText "file3.fs" file3
-                        ]
+                        [ impl "file1.fs" file1; impl "file2.fs" file2; impl "file3.fs" file3 ]
                     |> files
 
                 let name = "Test.Shared.dup"
@@ -334,7 +362,7 @@ module C =
                 let source = "namespace Test.A\n\nmodule M =\n    let f () : int = 1\n"
 
                 let frozenAs (spelling: string) =
-                    match analyseAssembly asm realProvider.Value [ SourceFile.ofText spelling source ] with
+                    match analyseAssembly asm realProvider.Value [ impl spelling source ] with
                     | [ Ok f ] -> f.Source.File
                     | other -> failtestf "expected one analysed file, got %A" other
 
@@ -362,10 +390,7 @@ module B =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "one.fs" file1; SourceFile.ofText "two.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "one.fs" file1; impl "two.fs" file2 ]
                     |> files
 
                 let anchored = consolidatedDiagnostics all
@@ -411,10 +436,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -462,10 +484,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -532,10 +551,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -585,10 +601,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -631,10 +644,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -665,13 +675,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [
-                            SourceFile.ofText "file1.fs" file1Qualified
-                            SourceFile.ofText "file2.fs" file2
-                        ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1Qualified; impl "file2.fs" file2 ]
                     |> files
 
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
@@ -700,10 +704,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -738,10 +739,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -776,10 +774,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -828,10 +823,7 @@ module N =
 "
 
                 let errorsOf (caller: string) =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" caller ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" caller ]
                     |> files
                     |> fun all -> all.[1].Frozen.Residue.Diagnostics
                     |> Diagnostic.errors
@@ -868,10 +860,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let consumer = all.[1]
@@ -922,10 +911,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -962,10 +948,7 @@ type IdInt() =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -1000,10 +983,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -1035,10 +1015,7 @@ module N =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "file1.fs" file1; SourceFile.ofText "file2.fs" file2 ]
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
                     |> files
 
                 let f2 = all.[1]
@@ -1068,10 +1045,7 @@ module B =
 "
 
                 let all =
-                    analyseAssembly
-                        asm
-                        realProvider.Value
-                        [ SourceFile.ofText "clean.fs" clean; SourceFile.ofText "broken.fs" broken ]
+                    analyseAssembly asm realProvider.Value [ impl "clean.fs" clean; impl "broken.fs" broken ]
                     |> files
 
                 let anchored = consolidatedDiagnostics all
@@ -1092,5 +1066,414 @@ module B =
                 Expect.isEmpty
                     (anchored |> List.filter (fun a -> a.Path.Name = "clean.fs"))
                     "the clean file contributed none"
+            }
+
+            // --- a `.fsi` HIDES ------------------------------------------------------
+            // A file with a signature publishes what the signature DECLARES, not what its
+            // implementation infers, and a later file resolves only through that.
+
+            test "file 2 resolves what file 1's `.fsi` publishes" {
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Fsi)
+                                (SourceFile.ofText "file1.fs" file1Signed)
+                            impl "file2.fs" (usesFile1 "Shown" "shown")
+                        ]
+                    |> files
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (definitionErrors f2)
+                    (sprintf "a published type and val resolve (diagnostics: %A)" (consolidatedDiagnostics all))
+            }
+
+            test "file 2 constructs a published record from its FIELD NAMES alone" {
+                // No type named: the field set is all the literal carries, so it resolves
+                // through the field-reverse index the signature publishes, scope-gated by
+                // the `open` — the same channel an unsigned file's own view publishes.
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let make () = { value = 1 }
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Fsi)
+                                (SourceFile.ofText "file1.fs" file1Signed)
+                            impl "file2.fs" file2
+                        ]
+                    |> files
+
+                Expect.isEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "the bare record literal resolves to the published record"
+            }
+
+            test "file 2 cannot resolve what file 1's `.fsi` OMITS" {
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Fsi)
+                                (SourceFile.ofText "file1.fs" file1Signed)
+                            impl "file2.fs" (usesFile1 "Hidden" "hidden")
+                        ]
+                    |> files
+
+                let f2 = all.[1]
+
+                Expect.isNonEmpty (definitionErrors f2) "the unpublished type and val are hidden"
+            }
+
+            test "the SAME file 1 publishes them when it has no `.fsi`" {
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [ impl "file1.fs" file1Signed; impl "file2.fs" (usesFile1 "Hidden" "hidden") ]
+                    |> files
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (definitionErrors f2)
+                    (sprintf
+                        "nothing is hidden without a signature to hide it (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
+            }
+
+            test "the `.fsi` REPLACES the inferred signature: a narrower type is what binds" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    let same x = x
+"
+
+                let file1Sig =
+                    "\
+namespace Test.A
+
+module M =
+    val same: x: int -> int
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let useIt () : string = Test.A.M.same \"s\"
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                            impl "file2.fs" file2
+                        ]
+                    |> files
+
+                // The implementation infers `'a -> 'a`, which would take the `string`. The
+                // declared `int -> int` is what file 2 meets, so the argument is rejected —
+                // and rejected on its TYPE, having resolved through the signature.
+                Expect.isEmpty (unresolvedErrors all.[1]) "the declared binding resolves"
+
+                Expect.isNonEmpty
+                    (all.[1].Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "the declared parameter type rejects the argument"
+            }
+
+            test "a `let inline`'s template survives the `.fsi` that publishes its declaration" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    let inline twice (x: int) : int = x + x
+"
+
+                let file1Sig =
+                    "\
+namespace Test.A
+
+module M =
+    val inline twice: x: int -> int
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                // The signature carries no template — the implementation's is layered back on
+                // under the same key, so a later file still splices rather than calling.
+                match all.[0].View.TryLookup "Test.A.M.twice" with
+                | ValueSome s -> Expect.isTrue s.InlineBody.IsSome "the published symbol carries its body"
+                | ValueNone -> failtest "twice did not publish"
+            }
+
+            test "a `val` the implementation does not answer is a conformance error on the `.fsi`" {
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    let present (x: int) : int = x
+"
+
+                let file1Sig =
+                    "\
+namespace Test.A
+
+module M =
+    val present: x: int -> int
+
+    val absent: x: int -> int
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                let conformance =
+                    consolidatedDiagnostics all
+                    |> List.filter (fun a ->
+                        match a.Diagnostic.Kind with
+                        | Kind.Conformance _ -> true
+                        | _ -> false
+                    )
+
+                match conformance with
+                | [ a ] ->
+                    Expect.equal a.Path.Name "file1.fsi" "anchored to the file that made the claim"
+                    Expect.stringContains a.Diagnostic.Message "absent" "names the unanswered val"
+                | other -> failtestf "expected one conformance error, got %A" other
+            }
+
+            test "the two halves must agree on their leading declaration" {
+                // The pairing rule a manifest-paired unit is held to as well: two files whose
+                // leading `namespace` differ are not a pair, so every finding below that
+                // would be about the wrong companion.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    let f (x: int) : int = x
+"
+
+                let file1Sig =
+                    "\
+namespace Test.Elsewhere
+
+module M =
+    val f: x: int -> int
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                let mismatches =
+                    consolidatedDiagnostics all
+                    |> List.filter (fun a ->
+                        match a.Diagnostic.Kind with
+                        | Kind.Conformance(_, ConformanceVerdict.ModulePairingMismatch _) -> true
+                        | _ -> false
+                    )
+
+                match mismatches with
+                | [ a ] ->
+                    Expect.stringContains a.Diagnostic.Message "Test.A" "names the implementation's declaration"
+                    Expect.stringContains a.Diagnostic.Message "Test.Elsewhere" "names the signature's"
+                | other -> failtestf "expected one pairing mismatch, got %A" other
+            }
+
+            test "a `.fsi` the parser had to RECOVER reports against the signature's own text" {
+                // The signature half is as lenient as the implementation half: recovery patches
+                // the tree and its findings ride along, anchored to the `.fsi`, where the gate
+                // then refuses them. Only a signature that yields no tree at all fails the unit.
+                let file1 = "namespace Test.A\n\nmodule M =\n    let f (x: int) : int = x\n"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" "namespace Test.A\n\nmodule M =\n    val f: (((\n")
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                let parseFindings =
+                    consolidatedDiagnostics all
+                    |> List.filter (fun a ->
+                        match a.Diagnostic.Kind with
+                        | Kind.Parse _ -> true
+                        | _ -> false
+                    )
+
+                match parseFindings with
+                | [] -> failtest "the malformed signature reported nothing"
+                | findings ->
+                    Expect.all
+                        findings
+                        (fun a -> a.Path.Name = "file1.fsi")
+                        "every parse finding anchors to the signature, not its companion"
+            }
+
+            test "a published symbol is homed at the IMPLEMENTATION, not the signature" {
+                // A home names where a symbol physically lives, and what a backend emits for
+                // this unit is compiled from the `.fs`. A backend that resolves the home to a
+                // module path would otherwise name a file no build writes.
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Fsi)
+                                (SourceFile.ofText "file1.fs" file1Signed)
+                        ]
+                    |> files
+
+                match (all.[0].View :> IExternalSymbolResolver).TryLookup "Test.A.M.shown" with
+                | ValueSome s ->
+                    match s.Origin.Home.DeclaringFile with
+                    | ValueSome f -> Expect.equal f.Relative.Name "file1.fs" "homed at the compiled file"
+                    | ValueNone -> failtest "the published symbol carries no declaring file"
+                | ValueNone -> failtest "shown did not publish"
+            }
+
+            test "a `member inline`'s template survives the `.fsi` that publishes the member" {
+                // The member half of the same rule the `let inline` case states: the signature
+                // publishes the member, the implementation's lifted body is layered back on
+                // under the member key a call site resolves through. The two keys are minted by
+                // different code paths, so their agreement is what this asserts.
+                let file1 =
+                    "\
+namespace Test.A
+
+#nowarn \"42\"
+
+type prim =
+    (# \"System.Int32\" #)
+
+    with
+
+        member inline this.Poke(x: int) : int = x
+
+    end
+"
+
+                let file1Sig =
+                    "\
+namespace Test.A
+
+type prim = extern with
+    member inline Poke: x: int -> int
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                match (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.prim" with
+                | ValueSome(struct (typeKey, _)) ->
+                    match all.[0].View.TryLookupMember(SymbolKey.Type typeKey, "Poke") with
+                    | ValueSome m -> Expect.isTrue m.InlineBody.IsSome "the published member carries its body"
+                    | ValueNone -> failtest "Poke did not publish"
+                | ValueNone -> failtest "prim did not publish"
+            }
+
+            test "an in-assembly `type t = extern` takes the repr its own `.fs` binds" {
+                // The `.fs` pre-scan the signature extraction runs first: without it the type
+                // publishes as `Unsupported <target>` and every later mention of it is an error.
+                let file1 =
+                    "\
+namespace Test.A
+
+type prim = (# \"System.Int32\" #)
+"
+
+                let file1Sig =
+                    "\
+namespace Test.A
+
+type prim = extern
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                match
+                    (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.prim"
+                    |> ExternalSymbols.typeShapeOf
+                with
+                | ValueSome(ExternalTypeShape.Intrinsic {
+                                                            Id = {
+                                                                     Platform = IntrinsicPlatform.Repr platform
+                                                                 }
+                                                        }) ->
+                    Expect.equal platform "System.Int32" "the repr came from the sibling `.fs`"
+                | other -> failtestf "expected Test.A.prim to publish its repr, got %A" other
             }
         ]

@@ -167,7 +167,12 @@ let vesperCoreDll: Lazy<string> =
                  | Ok m -> m.Impl
                  | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
 
-         let files = implFiles |> List.map (AssemblyFiles.SourceFile.read vesperCorePackage)
+         let files =
+             implFiles
+             |> List.map (
+                 AssemblyFiles.SourceFile.read vesperCorePackage
+                 >> AssemblyFiles.SourceUnit.ofImplementation
+             )
 
          // Core defines its own primitives, so it references nothing and names ITSELF as
          // the self manifest. That seeds the platform metadata with its own `{ platform -> canon }`
@@ -321,7 +326,9 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
                  // on any error-severity diagnostic instead of emitting a degraded DLL.
-                 let files = implRels |> List.map (AssemblyFiles.SourceFile.read dir)
+                 let files =
+                     implRels
+                     |> List.map (AssemblyFiles.SourceFile.read dir >> AssemblyFiles.SourceUnit.ofImplementation)
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")

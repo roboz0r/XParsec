@@ -65,9 +65,10 @@ let private writeManifestFor (target: string) (name: string) (body: string) : Re
     File.WriteAllText(Path.Combine(dir, "manifest." + target + ".toml"), body)
     resolveOrFail target dir
 
-/// `writeManifestFor` at clr, the target most of these fixtures are indifferent to.
+/// `writeManifestFor` at a tag no backend claims, for the fixtures that exercise
+/// resolution and closure shape rather than anything a target decides.
 let private writeManifest (name: string) (body: string) : ReferencedProject.ManifestPath =
-    writeManifestFor "clr" name body
+    writeManifestFor "none" name body
 
 /// A synthetic package with no sources: `files = []` keeps it parse-valid with no `.fsi`.
 let private writeSyntheticManifest (name: string) (dependsOn: string list) : ReferencedProject.ManifestPath =
@@ -536,7 +537,7 @@ let tests =
                         | Result.Error e -> failtestf "buildClosureWithDeps failed: %s" e
                         | Result.Ok(_, transitiveDeps) ->
                             let pathOf name =
-                                resolveOrFail "clr" (Path.Combine(tmpSrc, name))
+                                resolveOrFail "none" (Path.Combine(tmpSrc, name))
 
                             let depsA = transitiveDeps (pathOf "ClosureA")
                             Expect.contains depsA (pathOf "ClosureB") "A's direct dependency B"
@@ -556,12 +557,12 @@ let tests =
 
                         match
                             ReferencedProject.buildClosureWithDeps
-                                [ resolveOrFail "clr" (Path.Combine(tmpSrc, "IndepD")); e ]
+                                [ resolveOrFail "none" (Path.Combine(tmpSrc, "IndepD")); e ]
                         with
                         | Result.Error err -> failtestf "buildClosureWithDeps failed: %s" err
                         | Result.Ok(_, transitiveDeps) ->
                             let pathOf name =
-                                resolveOrFail "clr" (Path.Combine(tmpSrc, name))
+                                resolveOrFail "none" (Path.Combine(tmpSrc, name))
 
                             Expect.equal
                                 (transitiveDeps (pathOf "IndepE"))

@@ -7,8 +7,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// Lex + parse an in-memory `.fsi` snippet into the `ParsedFile` the extractor consumes.
-/// No FIELD of the `LibFile` is read — it is only the tag on a `ctx.Diagnostics` /
-/// `ctx.Skipped` entry — so `relative` just names the snippet in a lex/parse failure.
+/// The path is only the tag on a `ctx.Diagnostics` / `ctx.Skipped` entry, so `relative`
+/// just names the snippet in a lex/parse failure.
 let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
     let lexed =
         match Lexing.lexString input with
@@ -25,12 +25,8 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
     {
         File =
             {
-                Path =
-                    {
-                        BucketName = "App"
-                        Relative = AssemblyFileId.ofRelative relative
-                    }
-                Absolute = relative
+                BucketName = "App"
+                Relative = AssemblyFileId.ofRelative relative
             }
         Lexed = lexed
         Ast = ast
@@ -39,7 +35,7 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
 /// Extract one in-memory `.fsi`. A fixture that must seed the ctx first (`AmbientShapes`,
 /// intrinsic reprs) spells the steps out instead of coming through here.
 let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
-    let ctx = VesperLib.ExtractCtx.empty "clr"
+    let ctx = VesperLib.ExtractCtx.empty "none"
     VesperLib.extractSymbols ctx (parseFsi relative input)
     ctx
 
@@ -87,7 +83,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.AmbientShapes <- ambient
                 // Vals are stashed as the file is walked, then built into `ctx.Symbols` once
                 // it is fully registered.
@@ -204,7 +200,7 @@ let tests =
             test "a signature naming a type declared in a LATER file bakes TyUnknown" {
                 // Files are processed top-down into one ctx, so the same rule holds across
                 // them: `b.fsi`'s type is not in scope while `a.fsi` is being walked.
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
 
                 VesperLib.extractSymbols
                     ctx
@@ -307,7 +303,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Colour =\n        | Red = -1\n        | Green = 2uy\n        | Amber = - 3\n\n    type Verb =\n        | Get = \"GET\"\n        | Put = \"PUT\"\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 VesperLib.extractSymbols ctx parsed
 
                 let casesOf (suffix: string) : EqArray<ExternalEnumCaseShape> =
@@ -351,7 +347,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Thing =\n        | Red = true\n        | Green = 1\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 VesperLib.extractSymbols ctx parsed
 
                 let thingShape =
@@ -383,7 +379,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Colour =\n        | Red = 0\n        | Green = 1\n\n    val paint: Colour -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 VesperLib.extractSymbols ctx parsed
 
                 let mutable found = ValueNone
@@ -409,7 +405,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Point =\n        struct\n            val X: int\n            val Y: int\n        end\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 VesperLib.extractSymbols ctx parsed
 
                 let pointShape =
@@ -477,7 +473,7 @@ let tests =
                 // An untagged `extern … with interface …` extracts as a bodied class would,
                 // then republishes as an `Intrinsic` carrying that class surface: the declared
                 // interface rides the SHAPE, the members ride `ctx.TypeMembers`.
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["Foo"] <- "App.Foo`1"
 
                 VesperLib.extractSymbols
@@ -540,7 +536,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 VesperLib.extractSymbols ctx parsed
 
                 let thingShape =
@@ -578,7 +574,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 VesperLib.extractSymbols ctx parsed
 
                 Expect.isTrue
@@ -616,7 +612,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.AmbientShapes <- ambient
 
                 VesperLib.extractSymbols ctx parsed
@@ -716,7 +712,7 @@ let tests =
             // A primitive has no type in the output to hang a method on, so a concrete member
             // on one can only be spliced — and the `.fsi` contract must say so.
             test "a concrete member on an intrinsic must be declared inline" {
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 VesperLib.extractSymbols
@@ -737,7 +733,7 @@ let tests =
             // A capability's slots declare no body, so there is nothing to splice: the rule
             // is about members WITH a body.
             test "an extern interface's abstract members do not want inline" {
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 VesperLib.extractSymbols
@@ -756,7 +752,7 @@ let tests =
             // `override`/`default` have no `inline` slot in the signature grammar, so on a
             // host that publishes no method table neither the slot nor the remedy exists.
             test "an override on an intrinsic is rejected outright, not asked for inline" {
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 VesperLib.extractSymbols
@@ -780,7 +776,7 @@ let tests =
             // `new: unit -> obj` NAMES a target-provided constructor, so there is no body
             // to splice.
             test "a heritable primitive's constructor signature is exempt" {
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["obj"] <- "System.Object"
 
                 VesperLib.extractSymbols
@@ -803,7 +799,7 @@ let tests =
                 // A `.fsi` interface member surface plus a `.fs` `(# "System.IDisposable" #)`
                 // repr extract to ONE `IntrinsicInterface` carrying the members and
                 // `{ Canon; Platform }`, so the type reconciles to its BCL spelling.
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 let parsed =
@@ -857,7 +853,7 @@ let tests =
                 // The shape stays `Intrinsic`: a primitive declaring an operator surface (`int`
                 // with `static member (+)`) must keep the `TyConst` identity that intrinsic
                 // recognisers, repr lookup and literal inference key on. Members ride a table.
-                let ctx = VesperLib.ExtractCtx.empty "clr"
+                let ctx = VesperLib.ExtractCtx.empty "none"
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 // A CONCRETE instance member (`member M`), NOT `abstract member`.
