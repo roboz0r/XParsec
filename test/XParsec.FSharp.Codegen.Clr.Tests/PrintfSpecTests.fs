@@ -22,13 +22,19 @@ let tests =
 
             test "`%A` of a float" { runsEq "3.0" "printfn \"%A\" 3.0" }
 
-            test "`%A` of a list (flat)" { runsEq "[1; 2; 3]" "printfn \"%A\" [ 1; 2; 3 ]" }
+            test "`%A` of an array (flat)" { runsEq "[1; 2; 3]" "printfn \"%A\" [| 1; 2; 3 |]" }
 
-            test "`%0A` of a list (never break)" { runsEq "[1; 2; 3]" "printfn \"%0A\" [ 1; 2; 3 ]" }
+            test "`%0A` of an array (never break)" { runsEq "[1; 2; 3]" "printfn \"%0A\" [| 1; 2; 3 |]" }
+
+            // `Vesper.List` declares its own `IStructuralFormattable`, so a cons-list renders
+            // as a sequence rather than as the synthesised `Cons (1, …)` spine.
+            test "`%A` of a cons-list renders as a sequence" { runsEq "[1; 2; 3]" "printfn \"%A\" [ 1; 2; 3 ]" }
 
             test "`%A` of a tuple" { runsEq "(1, 2)" "printfn \"%A\" (1, 2)" }
 
-            test "`%.2A` truncates a list after 2 nodes" { runsEq "[1; 2; ...]" "printfn \"%.2A\" [ 1; 2; 3; 4; 5 ]" }
+            test "`%.2A` truncates an array after 2 nodes" {
+                runsEq "[1; 2; ...]" "printfn \"%.2A\" [| 1; 2; 3; 4; 5 |]"
+            }
 
             test "`%.0A` truncates immediately" { runsEq "..." "printfn \"%.0A\" [ 1; 2; 3 ]" }
 
@@ -48,7 +54,11 @@ let tests =
                 runsEq "S (S N)" "type Opt = | N | S of Opt\nlet v = S (S N)\nprintfn \"%A\" v"
             }
 
-            test "`%A` of a record nested in a list" {
+            test "`%A` of a record nested in an array" {
+                runsEq "[{ X = 1 }; { X = 2 }]" "type R = { X: int }\nprintfn \"%A\" [| { X = 1 }; { X = 2 } |]"
+            }
+
+            test "`%A` of a record nested in a cons-list" {
                 runsEq "[{ X = 1 }; { X = 2 }]" "type R = { X: int }\nprintfn \"%A\" [ { X = 1 }; { X = 2 } ]"
             }
 

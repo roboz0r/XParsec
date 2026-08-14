@@ -4,6 +4,23 @@ open System
 open System.Collections.Generic
 
 
+    /// <summary>A cursor as the <c>seq&lt;obj&gt;</c> that <c>Vesper.IFormatSink.Sequence</c>
+    /// takes, boxing each element as the sink pulls it and never before.</summary>
+    ///
+    /// <remarks>The one adapter every collection's <c>%A</c> body goes through, so none of them
+    /// mints its own. One-shot: <c>GetEnumerator</c> hands back <c>this</c>, and disposing it
+    /// disposes the cursor, which matters because the sink may cut the walk short.
+    ///
+    /// It takes the cursor rather than the <c>seq</c> it came from because
+    /// <c>GetEnumerator</c> on the capability is a Core runtime call, which would make every
+    /// collection's JS module import Core just to print itself.</remarks>
+    type BoxedItems<'T> =
+        new: cursor: enumerator<'T> -> BoxedItems<'T>
+
+        interface seq<obj>
+        interface enumerator<obj>
+        interface Vesper.disposable
+
     /// <summary>The type of immutable singly-linked lists.</summary>
     ///
     /// <remarks>Use the constructors <c>[]</c> and <c>::</c> (infix) to create values of this type, or
@@ -74,6 +91,9 @@ open System.Collections.Generic
         // Both targets implement this: JS emits `*[Symbol.iterator]()` on the class, CLR
         // synthesises the BCL `IEnumerable` co-slots from it.
         interface seq<'T>
+
+        // Declared, so `%A` renders `[1; 2; 3]` rather than the synthesised spine.
+        interface Vesper.IStructuralFormattable
 
     /// <summary>The type of immutable singly-linked lists. </summary>
     ///

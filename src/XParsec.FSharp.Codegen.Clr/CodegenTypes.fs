@@ -162,9 +162,19 @@ type internal NominalEmissionInput =
         isStruct: bool
     | Class of ClassDecl
 
-/// Shared index contract over a nominal type's method members.
+/// Shared contract over a nominal type's own method members and its `interface … with` impls.
 [<RequireQualifiedAccess>]
 module internal NominalMembers =
+
+    /// Whether the impl blocks include `Vesper.IStructuralFormattable`: the type supplies its
+    /// own `%A` body, so no `Format` row, IL or `InterfaceImpl` is synthesised for it.
+    let declaresStructuralFormat (interfaces: (FrozenType * TastAccessor.TypeMember list) list) : bool =
+        interfaces
+        |> List.exists (fun (ifaceTy, _) ->
+            match ifaceTy with
+            | FTClass(key, args) -> args.IsEmpty && key = RuntimeNames.structuralFormattableKey
+            | _ -> false
+        )
 
     /// The grouped `interface … with` impls as one member sequence, in declaration order,
     /// which is the order `indexed` numbers impl members in.

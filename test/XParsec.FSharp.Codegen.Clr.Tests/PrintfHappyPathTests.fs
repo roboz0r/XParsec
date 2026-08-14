@@ -913,8 +913,20 @@ let tests =
 
             // `%A` runtime oracle is the structural spec (copy-pasteable source), not
             // `sprintf "%A"`; small values coincide with F#.
-            test "`%A` of a list prints the copy-pasteable literal (slice 4)" {
+            test "`%A` of an array prints the copy-pasteable literal (slice 4)" {
+                runPrints "PHpStructArray" "printfn \"%A\" [| 1; 2; 3 |]" "[1; 2; 3]"
+            }
+
+            // `Vesper.List` declares its own `IStructuralFormattable`, so a cons-list renders
+            // as a sequence rather than as the synthesised `Cons (1, …)` spine.
+            test "`%A` of a cons-list renders as a sequence" {
                 runPrints "PHpStructList" "printfn \"%A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            }
+
+            // The sink stops pulling at the budget, so the walk stops there too rather than
+            // being filtered afterwards.
+            test "`%.2A` truncates a cons-list after 2 nodes" {
+                runPrints "PHpStructListSize2" "printfn \"%.2A\" [ 1; 2; 3; 4; 5 ]" "[1; 2; ...]"
             }
 
             test "`%A` of an int prints the bare value" { runPrints "PHpStructInt" "printfn \"%A\" 42" "42" }
@@ -930,31 +942,53 @@ let tests =
                 runParity "PHpStructSpaceInt" "printfn \"% A\" 42" (sprintf "%A" 42)
             }
 
-            test "`% A` of a list prints the copy-pasteable literal (like `%A`)" {
-                runParity "PHpStructSpaceList" "printfn \"% A\" [ 1; 2; 3 ]" (sprintf "%A" [ 1; 2; 3 ])
+            test "`% A` of a tuple prints the copy-pasteable literal (like `%A`)" {
+                runParity "PHpStructSpaceTuple" "printfn \"% A\" (1, 2, 3)" (sprintf "%A" (1, 2, 3))
             }
 
-            test "`%0A` of a list prints flat (fits the budget either way)" {
-                runPrints "PHpStructFlat" "printfn \"%0A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            test "`%0A` of an array prints flat (fits the budget either way)" {
+                runPrints "PHpStructFlat" "printfn \"%0A\" [| 1; 2; 3 |]" "[1; 2; 3]"
             }
 
             // ---- `%A` flag forms: `%.NA` (PrintSize), `%+A`, `%-A` ----
             // `%.NA` is a global node budget: after N leaves the engine truncates with `...`.
             // `%+A` (non-public fields) and `%-A` (left-justify) are no-ops on `%A`.
 
-            test "`%.2A` truncates a list after 2 nodes (PrintSize)" {
-                runPrints "PHpStructSize2" "printfn \"%.2A\" [ 1; 2; 3; 4; 5 ]" "[1; 2; ...]"
+            test "`%.2A` truncates an array after 2 nodes (PrintSize)" {
+                runPrints "PHpStructSize2" "printfn \"%.2A\" [| 1; 2; 3; 4; 5 |]" "[1; 2; ...]"
             }
 
             test "`%.0A` truncates immediately (zero node budget)" {
                 runPrints "PHpStructSize0" "printfn \"%.0A\" [ 1; 2; 3 ]" "..."
             }
 
-            test "`%.3A` truncates a nested list per the shared node budget" {
+            test "`%.3A` truncates a nested array per the shared node budget" {
                 runPrints
                     "PHpStructSizeNest"
+                    "printfn \"%.3A\" [| [| 1; 2 |]; [| 3; 4 |]; [| 5; 6 |] |]"
+                    "[[1; 2]; [3; ...]; ...]"
+            }
+
+            // The same budget through the DECLARED `Format` body rather than the `IEnumerable`
+            // arm: a cons-list is the one type in the tree that reaches the renderer that way,
+            // so the flag forms are pinned on it too, not only on arrays.
+            test "`%.3A` truncates a nested cons-list per the shared node budget" {
+                runPrints
+                    "PHpStructSizeNestList"
                     "printfn \"%.3A\" [ [ 1; 2 ]; [ 3; 4 ]; [ 5; 6 ] ]"
                     "[[1; 2]; [3; ...]; ...]"
+            }
+
+            test "`% A` of a cons-list prints the copy-pasteable literal (like `%A`)" {
+                runPrints "PHpStructSpaceList" "printfn \"% A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            }
+
+            test "`%0A` of a cons-list prints flat (fits the budget either way)" {
+                runPrints "PHpStructFlatList" "printfn \"%0A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            }
+
+            test "`%-A` of a cons-list prints the same as plain `%A`" {
+                runPrints "PHpStructMinusList" "printfn \"%-A\" [ 1; 2; 3 ]" "[1; 2; 3]"
             }
 
             test "`%+A` of a record prints the same as plain `%A`" {
@@ -964,8 +998,8 @@ let tests =
                     "{ X = 1; Y = \"a\" }"
             }
 
-            test "`%-A` of a list prints the same as plain `%A`" {
-                runPrints "PHpStructMinus" "printfn \"%-A\" [ 1; 2; 3 ]" "[1; 2; 3]"
+            test "`%-A` of an array prints the same as plain `%A`" {
+                runPrints "PHpStructMinus" "printfn \"%-A\" [| 1; 2; 3 |]" "[1; 2; 3]"
             }
 
             // ---- `%A` of a record / DU ----
@@ -1009,10 +1043,10 @@ let tests =
                 runPrints "PHpStructDuNest" "type Opt = | N | S of Opt\nlet v = S (S N)\nprintfn \"%A\" v" "S (S N)"
             }
 
-            test "`%A` of a record nested in a list renders both structurally" {
+            test "`%A` of a record nested in an array renders both structurally" {
                 runPrints
-                    "PHpStructRecInList"
-                    "type R = { X: int }\nprintfn \"%A\" [ { X = 1 }; { X = 2 } ]"
+                    "PHpStructRecInArray"
+                    "type R = { X: int }\nprintfn \"%A\" [| { X = 1 }; { X = 2 } |]"
                     "[{ X = 1 }; { X = 2 }]"
             }
 
@@ -1711,7 +1745,11 @@ let tests =
             }
 
             test "`%-*A` renders identically to `%*A` (F# parity)" {
-                runParity "PHpLeftStarA" "printfn \"%-*A\" 20 [1; 2; 3]" (sprintf "%-*A" 20 [ 1; 2; 3 ])
+                runParity "PHpLeftStarA" "printfn \"%-*A\" 20 (1, 2, 3)" (sprintf "%-*A" 20 (1, 2, 3))
+            }
+
+            test "`%-*A` of a cons-list renders identically to `%*A`" {
+                runPrints "PHpLeftStarAList" "printfn \"%-*A\" 20 [1; 2; 3]" "[1; 2; 3]"
             }
 
             // ---- Star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`, `%.*A`) ----
@@ -1845,11 +1883,19 @@ let tests =
             }
 
             test "`%*A` with a wide width stays flat and matches F#" {
-                runParity "PHpStarAWide" "printfn \"%*A\" 80 [1; 2; 3]" (sprintf "%*A" 80 [ 1; 2; 3 ])
+                runParity "PHpStarAWide" "printfn \"%*A\" 80 (1, 2, 3)" (sprintf "%*A" 80 (1, 2, 3))
             }
 
             test "`%*A` with a negative width renders flat without throwing" {
-                runParity "PHpStarANeg" "printfn \"%*A\" (0 - 1) [1; 2; 3]" (sprintf "%*A" -1 [ 1; 2; 3 ])
+                runParity "PHpStarANeg" "printfn \"%*A\" (0 - 1) (1, 2, 3)" (sprintf "%*A" -1 (1, 2, 3))
+            }
+
+            test "`%*A` of a cons-list with a wide width stays flat" {
+                runPrints "PHpStarAWideList" "printfn \"%*A\" 80 [1; 2; 3]" "[1; 2; 3]"
+            }
+
+            test "`%*A` of a cons-list with a negative width renders flat without throwing" {
+                runPrints "PHpStarANegList" "printfn \"%*A\" (0 - 1) [1; 2; 3]" "[1; 2; 3]"
             }
 
             // Star precision, native. Oracle IS the process's own `sprintf`.
@@ -1897,7 +1943,11 @@ let tests =
             }
 
             test "`%.*A` with a generous size budget matches F#" {
-                runParity "PHpPrecAWide" "printfn \"%.*A\" 100 [1; 2; 3]" (sprintf "%.*A" 100 [ 1; 2; 3 ])
+                runParity "PHpPrecAWide" "printfn \"%.*A\" 100 (1, 2, 3)" (sprintf "%.*A" 100 (1, 2, 3))
+            }
+
+            test "`%.*A` of a cons-list applies the runtime size budget" {
+                runPrints "PHpPrecAList" "printfn \"%.*A\" 2 [1; 2; 3; 4; 5]" "[1; 2; ...]"
             }
 
             // The clamp asymmetry: the two-star path clamps precision to 0..99, the

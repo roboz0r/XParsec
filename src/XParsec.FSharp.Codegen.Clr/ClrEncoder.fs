@@ -85,30 +85,6 @@ type internal ClrEncoder(env: ClrEnv) =
         | FTConst(key, _) when key = ClrSinkKeys.textWriter -> te.Type(eTextWriter.Value, false)
         | FTConst(key, _) when key = ClrSinkKeys.formatter -> te.Type(eFormatter.Value, true)
         | FTConst(key, _) when key = ClrSinkKeys.hashCode -> te.Type(eHashCode.Value, true)
-        // Only scalar (argless) intrinsics rekey off their repr string; a generic one
-        // (`args ≠ []`) has no `!n`-substituting encoder and falls to the catch-all error.
-        | FTConst(key, args) when args.IsEmpty && ((|PrimitiveRepr|_|) key).IsSome ->
-            // Key the IL type off the repr string (`"int"` → `"System.Int32"` → `i4`), not the
-            // Vesper name, which survives only for the failure diagnostic below.
-            let (DisplayName name) = SymbolKeyOps.simpleName key
-            let repr = ((|PrimitiveRepr|_|) key).Value
-
-            if IntrinsicRepr.tryEncodeValueType te repr then
-                ()
-            elif repr = "System.ValueTuple" then
-                // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
-                te.Type(eValueTuple.Value, true)
-            else
-                // An intrinsic whose repr is a BCL TYPE, not a primitive: `exn` →
-                // `System.Exception`, `bigint` → `System.Numerics.BigInteger`. Carry the repr's
-                // OWN value-ness, because a struct encoded as `class X` only dies later, at JIT
-                // time.
-                let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
-
-                match externalClassRef platformKey with
-                | ValueSome tref -> te.Type(tref, externalIsValueType platformKey)
-                | ValueNone ->
-                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
         | FTArray elem -> encodeType (te.SZArray()) elem
@@ -283,6 +259,36 @@ type internal ClrEncoder(env: ClrEnv) =
                 failwithf
                     "ClrProvider: cannot encode anonymous union %A — only a nullable reference `T | null` is representable on CLR (erased to `T`)"
                     t
+        // LAST among the `FTConst` arms, because `obj`, `'T[]` and `byref<'T>` are `FTConst`
+        // spellings too and each has an IL form of its own. What is left keys the IL type off
+        // the repr string (`"int"` → `"System.Int32"` → `i4`) rather than the Vesper name,
+        // which survives only for the failure diagnostic. A GENERIC one (`seq<obj>`) is
+        // reached only from the package DECLARING the capability — elsewhere the provider
+        // resolves it to a nominal and `ExternalClass` matches — and its repr already spells
+        // `` `N ``, so it keys the `TypeRef` at arity 0 and instantiates over `args`.
+        | FTConst(PrimitiveRepr repr & key, args) ->
+            if args.IsEmpty && IntrinsicRepr.tryEncodeValueType te repr then
+                ()
+            elif args.IsEmpty && repr = "System.ValueTuple" then
+                // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
+                te.Type(eValueTuple.Value, true)
+            else
+                // An intrinsic whose repr is a BCL TYPE, not a primitive: `exn` →
+                // `System.Exception`, `bigint` → `System.Numerics.BigInteger`. Carry the repr's
+                // OWN value-ness, because a struct encoded as `class X` only dies later, at JIT
+                // time.
+                let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
+
+                match externalClassRef platformKey with
+                | ValueSome tref when args.IsEmpty -> te.Type(tref, externalIsValueType platformKey)
+                | ValueSome tref ->
+                    let g = te.GenericInstantiation(tref, args.Length, externalIsValueType platformKey)
+
+                    for a in args do
+                        encodeType (g.AddArgument()) a
+                | ValueNone ->
+                    let (DisplayName name) = SymbolKeyOps.simpleName key
+                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
     /// Recover both open-typar axes by structurally matching a member's OPEN signature template

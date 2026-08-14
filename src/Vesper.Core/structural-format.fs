@@ -13,6 +13,7 @@ type IFormatSink =
     abstract member EndRecord: unit -> unit
     abstract member BeginCase: name: string -> unit
     abstract member EndCase: unit -> unit
+    abstract member Sequence: items: seq<obj> -> unit
     abstract member Child: value: obj -> unit
 
 type IStructuralFormattable =

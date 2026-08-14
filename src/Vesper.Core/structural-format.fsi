@@ -31,6 +31,10 @@ type IFormatSink =
     /// <c>Child</c> count. A single payload is parenthesised iff it is itself an
     /// application-shaped case (<c>Some (Some 3)</c> but not <c>Some 3</c> / <c>Some [1; 2]</c>).</summary>
     abstract member EndCase: unit -> unit
+    /// <summary>Render a sequence as <c>[a; b; c]</c> (empty: <c>[]</c>). Enumerated ONCE, and
+    /// only as far as the <c>%.NA</c> node budget allows: truncation is the sink's call, so
+    /// nothing past its cut is pulled.</summary>
+    abstract member Sequence: items: seq<obj> -> unit
     /// <summary>Recurse into a record field / union payload child; the enclosing frame fixes its position.</summary>
     abstract member Child: value: obj -> unit
 

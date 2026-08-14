@@ -25,6 +25,14 @@ type Doc =
 /// `Doc` width, and the primitive → copy-pasteable-source atom renderers.
 module internal DocLayout =
 
+    /// F#'s PrintLength: elements past this many render as `...`, per collection.
+    [<Literal>]
+    let printLength = 100
+
+    /// F#'s PrintDepth: a value nested deeper than this renders as `...`.
+    [<Literal>]
+    let printDepth = 100
+
     /// The flat (single-line) width of a `Doc`.
     let rec flatWidth (d: Doc) : int =
         match d with
@@ -183,6 +191,26 @@ type SemFrame =
         mutable Count: int
         mutable ChildAppShaped: bool
     }
+
+/// A NON-generic BCL `IEnumerator` as the `seq<obj>` `Sequence` takes, so the `IEnumerable`
+/// arm and a declared `Format` body reach the one renderer. `Vesper.Collections.BoxedItems`
+/// is the generic counterpart every collection uses; this one cannot be it, because
+/// `IEnumerator` is CLR-only and already hands back `obj`. One-shot: `GetEnumerator` is `this`.
+type BclPrintItems =
+    val inner: IEnumerator
+
+    new(inner: IEnumerator) = { inner = inner }
+
+    interface seq<obj> with
+        member this.GetEnumerator() = (this :> enumerator<obj>)
+
+    interface enumerator<obj> with
+        member this.Current = this.inner.Current
+        member this.MoveNext() = this.inner.MoveNext()
+
+    // Non-generic `IEnumerator` carries no `Dispose`, so there is nothing to forward to.
+    interface Vesper.disposable with
+        member this.Dispose() = ()
 
 type RuntimeFormatState =
 
@@ -392,36 +420,51 @@ type RuntimeFormatState =
         // A tuple is never application-shaped (`Some (1, 2)` gets no extra parens).
         this.LastAppShaped <- false
 
-    member private this.FormatEnumerable(xs: IEnumerable) =
-        // `[1; 2; 3]` flat; broken puts the brackets on their own lines with the
-        // elements nested (indent 2), `;`-separated.
+    /// `; ` before every element but the first.
+    member private this.SeqSep(count: int) =
+        if count > 0 then
+            this.Add(DocText ";")
+            this.Add(DocLine " ")
+
+    /// The `;`-separated elements, then `...` iff the source outlasts the budget. Owns the
+    /// cursor, because cutting the walk short is the normal case here and the source may be
+    /// holding a file or stream behind it.
+    member private this.SeqElements(items: seq<obj>) =
+        use cursor = items.GetEnumerator()
+        let mutable count = 0
+        // One element AHEAD of the last rendered: `...` shows iff one remains, so a source
+        // ending exactly at the cut is not elided. `Current` is never read for it.
+        let mutable more = cursor.MoveNext()
+
+        while more && count < DocLayout.printLength && this.Size > 0 do
+            this.SeqSep count
+            this.Dispatch(cursor.Current)
+            count <- count + 1
+            more <- cursor.MoveNext()
+
+        if more then
+            // The `;` precedes it, so the output ends `2; ...]`.
+            this.SeqSep count
+            this.Add(DocText "...")
+
+    /// `[1; 2; 3]` flat; broken puts the brackets on their own lines with the elements
+    /// nested (indent 2), `;`-separated. Pulls only what the budget allows, so an unbounded
+    /// source is safe.
+    member private this.SequenceP(items: seq<obj>) =
         this.PushKind(Group, 0)
         this.Add(DocText "[")
         this.PushKind(Nest, 2)
         this.Add(DocLine "")
-        let mutable i = 0
-        let mutable truncated = false
-
-        for item in xs do
-            if not truncated then
-                if i > 0 then
-                    this.Add(DocText ";")
-                    this.Add(DocLine " ")
-
-                // Truncate at the per-collection cap (PrintLength = 100) or an exhausted
-                // node budget. The `;` is already emitted, so the output ends `2; ...]`.
-                if i >= 100 || this.Size <= 0 then
-                    this.Add(DocText "...")
-                    truncated <- true
-                else
-                    this.Dispatch(item)
-                    i <- i + 1
-
+        this.SeqElements(items)
         this.PopWrap(Nest)
         this.Add(DocLine "")
         this.Add(DocText "]")
         this.PopWrap(Group)
+        // A list is never application-shaped (`Some [1; 2]` gets no extra parens).
         this.LastAppShaped <- false
+
+    member private this.FormatEnumerable(xs: IEnumerable) =
+        this.SequenceP(new BclPrintItems(xs.GetEnumerator()) :> seq<obj>)
 
     /// The depth / node-budget guard around every value.
     member private this.Dispatch(value: obj) =
@@ -431,7 +474,7 @@ type RuntimeFormatState =
         | null -> this.Add(DocText "null")
         | _ ->
             // Depth guard / exhausted node budget: truncate before classifying the value.
-            if this.Depth >= 100 then
+            if this.Depth >= DocLayout.printDepth then
                 this.Add(DocText "...")
             elif this.Size <= 0 then
                 this.Add(DocText "...")
@@ -570,6 +613,7 @@ type RuntimeFormatState =
         member this.EndRecord() = this.EndRecordP()
         member this.BeginCase(name: string) = this.BeginCaseP(name)
         member this.EndCase() = this.EndCaseP()
+        member this.Sequence(items: seq<obj>) = this.SequenceP(items)
         member this.Child(value: obj) = this.ChildP(value)
 
 type StructuralPrinter =

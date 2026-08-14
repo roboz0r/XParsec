@@ -22,6 +22,13 @@ interface Vesper.IFormatSink with
     member this.BeginCase(name: string) =
         this.SemFrames <- SemFrame(name) :: this.SemFrames
         this.Push(Frame(CaseCollect, 0))
+    member this.Sequence(items: seq<obj>) =
+        this.Push(Frame(Group, 0))
+        this.Add(LText "[")
+        for x in items do
+            this.Dispatch(x)
+        this.Add(LText "]")
+        this.PopWrap(Group)
     member this.Child(value: obj) =
         this.Dispatch(value)
         match this.SemFrames with

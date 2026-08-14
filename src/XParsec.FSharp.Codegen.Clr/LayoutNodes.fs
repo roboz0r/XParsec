@@ -182,17 +182,23 @@ module internal LayoutNodes =
             ]
         | _ -> []
 
-    /// The synthesised `IStructuralFormattable.Format` row (`%A`), reserved for EVERY
-    /// record / union: `%A` renders a value's structure and so never depends on whether
-    /// the type supports `=` / `<`.
-    let private formatRows (td: TastAccessor.TypeDecl) : MethodRow list =
-        [
-            {
-                Key = MethodKey.FmtFormat td.Key
-                Name = "Format"
-                Attrs = ifaceEqualsAttrs
-            }
-        ]
+    /// The synthesised `IStructuralFormattable.Format` row (`%A`), for every record / union
+    /// that does not declare the interface itself: `%A` renders a value's structure and so
+    /// never depends on whether the type supports `=` / `<`.
+    let private formatRows
+        (td: TastAccessor.TypeDecl)
+        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        : MethodRow list =
+        if NominalMembers.declaresStructuralFormat interfaces then
+            []
+        else
+            [
+                {
+                    Key = MethodKey.FmtFormat td.Key
+                    Name = "Format"
+                    Attrs = ifaceEqualsAttrs
+                }
+            ]
 
     /// The capability co-slot rows: each a new virtual slot the runtime binds to the
     /// inherited BCL interface method by name + signature, like the typed `Equals(Self)`.
@@ -328,7 +334,7 @@ module internal LayoutNodes =
 
                         yield! equalityRows td
                         yield! comparisonRows td
-                        yield! formatRows td
+                        yield! formatRows td ud.Interfaces
                         yield! coSlotRows symbols td ud.Interfaces
                     ]
 
@@ -365,7 +371,7 @@ module internal LayoutNodes =
 
                         yield! equalityRows td
                         yield! comparisonRows td
-                        yield! formatRows td
+                        yield! formatRows td rd.Interfaces
                         yield! coSlotRows symbols td rd.Interfaces
                     ]
 
