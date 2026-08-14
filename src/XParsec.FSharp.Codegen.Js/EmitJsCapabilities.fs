@@ -8,34 +8,36 @@ open XParsec.FSharp.SemanticAnalysis
 /// in source; a JS anchor is a dispatch SYMBOL, so it lives here in the backend.
 module EmitJsCapabilities =
 
+    /// The dispatch slot a member's body is emitted into.
     [<RequireQualifiedAccess>]
-    type JsCapability =
-        /// `seq<'T>`.
-        | Iteration
-        /// `enumerator<'T>` — the split `MoveNext`/`Current` cursor.
-        | Cursor
-        /// `disposable`.
-        | Disposal
-        /// `equatable<'T>`.
-        | Equality
-        /// `comparable<'T>`.
-        | Comparison
+    type MemberSlot =
+        /// `M(a) { … }`, called as `x.M(a)`.
+        | Named
+        /// `*[Symbol.iterator]() { … }`, driving the body's `MoveNext`/`Current`.
+        | Iterator
+        /// `[Symbol.for("vesper.equality")](b) { … }` and its comparison/hash twins.
+        | Protocol of registryKey: string
+        /// `[Symbol.dispose]() { … }`, which `use` calls.
+        | Dispose
+        /// No class slot: a top-level `<Type>__M = (this$) => (a) => …` that call sites lower
+        /// to instead, so an unused member tree-shakes away.
+        | Free
 
-    /// Capability identity is resolved through the provider, so a provider-less compile
-    /// recognises nothing: every key is `ValueNone`.
-    let capabilityOf (caps: RuntimeNames.CapabilityIds) (key: TypeKey) : JsCapability voption =
-        if RuntimeNames.matchesKey caps.Enumerable key then
-            ValueSome JsCapability.Iteration
-        elif RuntimeNames.matchesKey caps.Enumerator key then
-            ValueSome JsCapability.Cursor
-        elif RuntimeNames.matchesKey caps.Disposable key then
-            ValueSome JsCapability.Disposal
-        elif RuntimeNames.matchesKey caps.Equatable key then
-            ValueSome JsCapability.Equality
-        elif RuntimeNames.matchesKey caps.Comparable key then
-            ValueSome JsCapability.Comparison
-        else
-            ValueNone
+    /// How a call through a capability member lowers. `imports` and the member name are the
+    /// anchor's own inputs; the object argument and location come from the call site.
+    type CapabilityLowering = JsImports -> string -> JsExpr -> JsLoc voption -> JsExpr
+
+    /// One language capability: the front-end interface it is anchored to, the slot an IMPL of
+    /// it takes, and how a CALL through it lowers.
+    [<NoEquality; NoComparison>]
+    type JsCapability =
+        {
+            /// Reads this capability's identity out of the provider-resolved set.
+            Anchor: RuntimeNames.CapabilityIds -> RuntimeNames.CapabilityIdentity voption
+            Slot: MemberSlot
+            /// `ValueNone` → a call keeps the ordinary external-member lowering.
+            Lowering: CapabilityLowering voption
+        }
 
     // ---- The JS anchors ------------------------------------------------------
 
@@ -73,32 +75,73 @@ module EmitJsCapabilities =
             Form = ImportForm.Named
         }
 
-    // ---- The CONSUMER table --------------------------------------------------
+    // ---- The capability table ------------------------------------------------
 
-    /// Rows are name-blind: every routed member takes `unit`, so an applied call and a bare
-    /// property read emit the same node.
-    let tryCapabilitySlot
+    let private capabilities: JsCapability list =
+        [
+            // `seq<'T>`
+            {
+                Anchor = fun caps -> caps.Enumerable
+                Slot = MemberSlot.Iterator
+                Lowering =
+                    ValueSome(fun imports _ objArg loc ->
+                        let adapter =
+                            JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
+
+                        JsExpr.Call(adapter, [ objArg ], loc)
+                    )
+            }
+            // `enumerator<'T>`, the one capability still on a NAME slot: its dispatch is the
+            // plain pair `e.MoveNext()` / `e.Current()`, not a symbol method.
+            {
+                Anchor = fun caps -> caps.Enumerator
+                Slot = MemberSlot.Named
+                Lowering =
+                    ValueSome(fun _ memberName objArg loc -> JsExternalMembers.attachedCall objArg memberName [] loc)
+            }
+            // `disposable`
+            {
+                Anchor = fun caps -> caps.Disposable
+                Slot = MemberSlot.Dispose
+                Lowering = ValueSome(fun _ _ objArg loc -> disposeSlotCall objArg loc)
+            }
+            // `equatable<'T>` and `comparable<'T>`. `=` reaches both through structural equality,
+            // never a member call, so neither lowers a call of its own.
+            {
+                Anchor = fun caps -> caps.Equatable
+                Slot = MemberSlot.Protocol equalityRegistryKey
+                Lowering = ValueNone
+            }
+            {
+                Anchor = fun caps -> caps.Comparable
+                Slot = MemberSlot.Protocol comparisonRegistryKey
+                Lowering = ValueNone
+            }
+        ]
+
+    /// Capability identity is resolved through the provider, so a provider-less compile
+    /// recognises nothing: every anchor is `ValueNone` and no row matches.
+    let capabilityOf (caps: RuntimeNames.CapabilityIds) (key: TypeKey) : JsCapability voption =
+        let anchored (c: JsCapability) =
+            RuntimeNames.matchesKey (c.Anchor caps) key
+
+        match List.tryFind anchored capabilities with
+        | Some c -> ValueSome c
+        | None -> ValueNone
+
+    // ---- The CONSUMER side ---------------------------------------------------
+
+    /// Name-blind: every routed member takes `unit`, so an applied call and a bare property
+    /// read emit the same node.
+    let tryCapabilityLowering
         (caps: RuntimeNames.CapabilityIds)
         (imports: JsImports)
         (declKey: TypeKey)
         (memberName: string)
         : (JsExpr -> JsLoc voption -> JsExpr) voption =
-        match capabilityOf caps declKey with
-        | ValueSome JsCapability.Iteration ->
-            ValueSome(fun objArg loc ->
-                let adapter =
-                    JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
-
-                JsExpr.Call(adapter, [ objArg ], loc)
-            )
-        | ValueSome JsCapability.Cursor ->
-            ValueSome(fun objArg loc -> JsExternalMembers.attachedCall objArg memberName [] loc)
-        | ValueSome JsCapability.Disposal -> ValueSome disposeSlotCall
-        // `=` reaches equality/comparison through structural equality, never a member call, so
-        // these keep the ordinary external-member lowering.
-        | ValueSome JsCapability.Equality
-        | ValueSome JsCapability.Comparison
-        | ValueNone -> ValueNone
+        capabilityOf caps declKey
+        |> ValueOption.bind (fun c -> c.Lowering)
+        |> ValueOption.map (fun lower -> lower imports memberName)
 
     /// An un-applied capability-member VALUE read: an interface property compiles to a zero-arg
     /// method, so `e.Current` IS the call `e.Current()`.
@@ -110,7 +153,7 @@ module EmitJsCapabilities =
         : struct (TastAccessor.ExprId * (JsExpr -> JsLoc voption -> JsExpr)) voption =
         match e with
         | JsExternalMembers.InstanceExternalMember(objArg, em) when em.Storage.IsValueMember ->
-            tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
+            tryCapabilityLowering caps imports (JsExternalMembers.declKey em.Key) em.MemberName
             |> ValueOption.map (fun emit -> struct (objArg, emit))
         | _ -> ValueNone
 
@@ -131,6 +174,6 @@ module EmitJsCapabilities =
             && TastAccessor.exprKind arg = ExprShape.Const
             && TastAccessor.exprConstValue arg = TConstValue.Unit
             ->
-            tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
+            tryCapabilityLowering caps imports (JsExternalMembers.declKey em.Key) em.MemberName
             |> ValueOption.map (fun emit -> emit (build objArg) loc)
         | _ -> ValueNone

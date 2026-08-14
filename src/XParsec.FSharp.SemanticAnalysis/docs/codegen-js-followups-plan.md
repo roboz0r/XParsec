@@ -15,11 +15,12 @@ kinds of work that the sweep itself could not do, because both change code:
   unnecessary. This is the half that stops the regrowth: a fact the compiler enforces cannot
   rot, and there is nothing left to narrate.
 
-The two overlap once: **A1 and B6 are the same confusion**, and landing A1 closed B6's
-JS half.
+Two pairs overlap. **A1 and B6 are the same confusion**, and landing A1 closed B6's JS half.
+**B3 and B7 are one type** — `MemberSlot` is a field of B7's capability row — and landed
+together.
 
 Nothing here is urgent. Nothing here is blocked on anything else, and no item touches
-another's files except A1/B6.
+another's files except those two pairs.
 
 ---
 
@@ -101,19 +102,21 @@ precedence `match` that the surviving comments exist to state. One classifier re
 `NewTarget` DU — the shape `MemberDispatch` already has in this project — makes precedence a
 total match and deletes both comments.
 
-## B3. `PartitionedMembers` ↔ `emitCapabilityMethods` state one mapping twice
+## B3. `PartitionedMembers` ↔ `emitCapabilityMethods` state one mapping twice — DONE
 
-`EmitJsTypes`'s four record fields and `EmitJsMembers`'s four-line comprehension are the same
-partition→emitter table, and three of the emitters are one-line wrappers over
-`emitPlainMethod` differing only in the `JsMethodKey` they pass.
+Landed with B7 as one type, since `MemberSlot` is a field of B7's row.
+`MemberSlot = Named | Iterator | Protocol of registryKey | Dispose | Free` makes
+`PartitionedMembers` a single `(MemberSlot * TypeMember) list`; `emitCapabilityMethods` became
+`emitClassMethods`, one comprehension matching the slot. `emitAttachedMethod`,
+`emitDisposeMethod` and `emitProtocolMethod` — the three wrappers that attracted both
+fabricated claims — are gone, and with them the prose that restated the partition.
 
-A `MemberSlot = Named | Iterator | Protocol of registryKey: string | Dispose` carried per
-member makes the partition one list, `emitCapabilityMethods` one `List.map`, and deletes all
-three wrappers.
+`Free` is a slot rather than a list beside the slots: it is the only case with no class method,
+so `emitClassMethods` skips it and `collectTypes` enrols it as a top-level function.
 
-Why this one matters beyond tidiness: **a wrapper with nothing to say attracts a summary.**
-Both fabricated claims found in `EmitJsMembers.fs` sat on exactly those wrappers, and one of
-them contradicted a correct doc five declarations lower in the same file.
+Emitted method ORDER changed as a fall-out: a class body is now in source order, not grouped
+attached-then-iterator-then-protocol-then-disposer. Inert in JS. The committed
+`Vesper.List.mjs` was regenerated; its method bodies are byte-identical, only their order moved.
 
 ## B4. `TsManifestTypes.structuralKey (hash: string)`
 
@@ -140,16 +143,22 @@ What remains is Part C's move: `Codegen.Clr`'s `EmitCall` indexes the flat param
 with a source-group index, and `TailParams` is trampoline-shaped, so it does not serve that
 call site. A shared value in `Codegen.Common` is still wanted.
 
-## B7. `EmitJsCapabilities`'s capability table
+## B7. `EmitJsCapabilities`'s capability table — DONE
 
 The 42-line module header's centre was an ASCII table mapping capability → JS anchor →
 implemented shape → call lowering: four fields per row, in prose, that two code tables read
 off and restate.
 
-A record per capability would BE the table, and the two routing tables would read off it
-rather than duplicate it in a form that can drift from either.
+The `JsCapability` DU is gone. A `JsCapability` RECORD replaced it —
+`{ Anchor: CapabilityIds -> CapabilityIdentity voption; Slot: MemberSlot; Lowering }` — and the
+five values are one `capabilities` list. Three matches over the old DU (the anchor if-chain,
+the partition's slot routing, the call lowering) became a `List.tryFind` over the rows and two
+field reads. `tryCapabilitySlot` is `tryCapabilityLowering`: "slot" now names `MemberSlot`.
 
-The header is already gone; this entry is what would keep it from coming back.
+`Anchor` is a selector rather than an identity, so the table is a static value and reading it
+allocates nothing per member access.
+
+Adding a capability is one row. There is nowhere for the ASCII table to come back to.
 
 ## B8. `ClrDriver.compileCachedWith` — `Codegen.Clr`, out of scope here
 

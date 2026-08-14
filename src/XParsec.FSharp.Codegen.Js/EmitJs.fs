@@ -966,7 +966,7 @@ module EmitJs =
                     JsStatement.Class(
                         pc.Name,
                         ctor,
-                        EmitJsMembers.emitCapabilityMethods buildExpr ctx pc.Members,
+                        EmitJsMembers.emitClassMethods buildExpr ctx pc.Members,
                         ctx.ExportTopLevel
                     )
             ]
@@ -980,7 +980,7 @@ module EmitJs =
                         pu.Name,
                         pu.Brand,
                         pu.Cases,
-                        EmitJsMembers.emitCapabilityMethods buildExpr ctx pu.Members,
+                        EmitJsMembers.emitClassMethods buildExpr ctx pu.Members,
                         ctx.ExportTopLevel
                     )
             ]

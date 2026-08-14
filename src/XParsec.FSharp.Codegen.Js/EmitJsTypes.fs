@@ -76,23 +76,8 @@ module EmitJsTypes =
 
     // ---- Member partition ----------------------------------------------------
 
-    /// A nominal type's members split by the JS form each is emitted in.
-    type PartitionedMembers =
-        {
-            /// → a name-keyed class method `M(a) { … }`, called as `x.M(a)`.
-            Attached: TastAccessor.TypeMember list
-            /// → a top-level `<Type>__M = (this$) => (a) => …`; call sites lower to it
-            /// rather than to a method, so an unused member tree-shakes away.
-            Free: TastAccessor.TypeMember list
-            /// `seq<'T>`/`IEnumerable<'T>` `GetEnumerator` impls → a `*[Symbol.iterator]()`
-            /// generator method.
-            Iterators: TastAccessor.TypeMember list
-            /// Eq/comp/hash impls with their registry key → `[Symbol.for("vesper.equality")](b) { … }`
-            /// and the `vesper.comparison` / `vesper.hash` twins.
-            Protocols: (string * TastAccessor.TypeMember) list
-            /// `Dispose` impls → a native `[Symbol.dispose]() { … }` method, which `use` calls.
-            Disposers: TastAccessor.TypeMember list
-        }
+    /// A nominal type's members, each paired with the slot it is emitted into, in source order.
+    type PartitionedMembers = (MemberSlot * TastAccessor.TypeMember) list
 
     /// A class's instance `let`/`do` preamble. `ThisKey` is the bound variable its entries read
     /// their siblings through, so the emitted ctor must alias that name to JS `this`.
@@ -160,37 +145,26 @@ module EmitJsTypes =
         (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
         (members: EqArray<TastAccessor.TypeMember>)
         : PartitionedMembers =
-        let attached = ResizeArray<TastAccessor.TypeMember>()
-        let iterators = ResizeArray<TastAccessor.TypeMember>()
-        let protocols = ResizeArray<string * TastAccessor.TypeMember>()
-        let disposers = ResizeArray<TastAccessor.TypeMember>()
+        let slotted = ResizeArray<MemberSlot * TastAccessor.TypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
-        let attachNamed (ifaceMembers: EqArray<TastAccessor.TypeMember>) =
-            for m in ifaceMembers do
-                if claimed.Add m.Name then
-                    attached.Add m
+        // Only a `Named` slot spends a name, so only it consults `claimed`.
+        let addNamed (m: TastAccessor.TypeMember) =
+            if claimed.Add m.Name then
+                slotted.Add(MemberSlot.Named, m)
 
-        // `Cursor` (`enumerator<'T>`) is the capability that still takes a NAME slot: its
-        // dispatch is the plain pair `e.MoveNext()` / `e.Current()`, not a symbol method.
+        // An interface with no capability implements plain named methods.
         for (iface, ifaceMembers) in interfaces do
-            match ifaceTyCtorKey iface |> ValueOption.bind (capabilityOf caps) with
-            | ValueSome JsCapability.Iteration ->
-                for m in ifaceMembers do
-                    iterators.Add m
-            | ValueSome JsCapability.Equality ->
-                for m in ifaceMembers do
-                    protocols.Add(equalityRegistryKey, m)
-            | ValueSome JsCapability.Comparison ->
-                for m in ifaceMembers do
-                    protocols.Add(comparisonRegistryKey, m)
-            | ValueSome JsCapability.Disposal ->
-                for m in ifaceMembers do
-                    disposers.Add m
-            | ValueSome JsCapability.Cursor
-            | ValueNone -> attachNamed ifaceMembers
+            let slot =
+                ifaceTyCtorKey iface
+                |> ValueOption.bind (capabilityOf caps)
+                |> ValueOption.map (fun c -> c.Slot)
+                |> ValueOption.defaultValue MemberSlot.Named
 
-        let free = ResizeArray<TastAccessor.TypeMember>()
+            for m in ifaceMembers do
+                match slot with
+                | MemberSlot.Named -> addNamed m
+                | _ -> slotted.Add(slot, m)
 
         for m in members do
             if m.IsOverride && m.Name = "Equals" then
@@ -200,10 +174,10 @@ module EmitJsTypes =
             elif m.IsOverride && m.Name = "GetHashCode" then
                 // The runtime's `hashOf` reads `x[Symbol.for("vesper.hash")]()`, so this one
                 // override takes the registry slot; `ToString` and the rest stay string-named.
-                protocols.Add(hashRegistryKey, m)
+                slotted.Add(MemberSlot.Protocol hashRegistryKey, m)
             elif m.IsOverride then
                 if claimed.Add m.Name then
-                    attached.Add m
+                    slotted.Add(MemberSlot.Named, m)
                 else
                     failwithf
                         "EmitJs: class '%s' override '%s' clashes with an interface-impl member of the same name (no JS dispatch slot for both)"
@@ -215,15 +189,9 @@ module EmitJsTypes =
                     typeName
                     m.Name
             else
-                free.Add m
+                slotted.Add(MemberSlot.Free, m)
 
-        {
-            Attached = List.ofSeq attached
-            Free = List.ofSeq free
-            Iterators = List.ofSeq iterators
-            Protocols = List.ofSeq protocols
-            Disposers = List.ofSeq disposers
-        }
+        List.ofSeq slotted
 
     /// Collect the file's nominal `type` decls, in source order. Takes the UN-lowered
     /// decls: lowering discards every `type` decl, so nothing survives it to read.
@@ -254,8 +222,10 @@ module EmitJsTypes =
             : PartitionedMembers =
             let parts = partitionClassMembers caps typeName interfaces declMembers
 
-            for m in parts.Free do
-                members.Add(typeName, m)
+            for (slot, m) in parts do
+                match slot with
+                | MemberSlot.Free -> members.Add(typeName, m)
+                | _ -> ()
 
             parts
 
@@ -316,7 +286,7 @@ module EmitJsTypes =
                     else
                         // The impls attach to the BASE class, so every case subclass inherits
                         // them. A union's augmentation members are never interface impls, so
-                        // `parts.Free` is all of `unionMembers`. Hence no `addMembers` here.
+                        // every one of `unionMembers` slots `Free`. Hence no `addMembers` here.
                         let parts = deferPartition td.Name unionInterfaces unionMembers
 
                         pendingUnions.Add

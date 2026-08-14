@@ -3,6 +3,13 @@ export class BoxedItems {
   constructor(cursor) {
     this.inner = cursor;
   }
+  *[Symbol.iterator]() {
+    const _s0 = this;
+    const _e85 = _s0;
+    while (_e85.MoveNext()) {
+      yield _e85.Current();
+    }
+  }
   Current() {
     const _s0 = this;
     return ((_s70) => _s70)(_s0.inner.Current());
@@ -10,13 +17,6 @@ export class BoxedItems {
   MoveNext() {
     const _s0 = this;
     return _s0.inner.MoveNext();
-  }
-  *[Symbol.iterator]() {
-    const _s0 = this;
-    const _e85 = _s0;
-    while (_e85.MoveNext()) {
-      yield _e85.Current();
-    }
   }
   [Symbol.dispose]() {
     const _s0 = this;
@@ -60,16 +60,16 @@ export class List {
   cases() {
     return ["Empty", "Cons"];
   }
-  Format(sink) {
-    const _s2 = this;
-    return sink.Sequence(new BoxedItems(new ListEnumerator(_s2)));
-  }
   *[Symbol.iterator]() {
     const _s2 = this;
     const _e87 = new ListEnumerator(_s2);
     while (_e87.MoveNext()) {
       yield _e87.Current();
     }
+  }
+  Format(sink) {
+    const _s2 = this;
+    return sink.Sequence(new BoxedItems(new ListEnumerator(_s2)));
   }
 }
 export class List_Empty extends List {

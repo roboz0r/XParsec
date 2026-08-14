@@ -43,14 +43,6 @@ module EmitJsMembers =
             Generator = false
         }
 
-    /// An interface-impl or `override` member as a name-keyed method `M(a) { … }`.
-    let emitAttachedMethod
-        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
-        (ctx: WalkCtx)
-        (m: TastAccessor.TypeMember)
-        : JsClassMethod =
-        emitPlainMethod buildExpr ctx (JsMethodKey.Named m.Name) m
-
     /// A `GetEnumerator` impl as a native generator:
     /// `*[Symbol.iterator]() { const e = <body>; while (e.MoveNext()) yield e.Current(); }`.
     let emitIteratorMethod
@@ -77,24 +69,6 @@ module EmitJsMembers =
             Body = body
             Generator = true
         }
-
-    /// A `Dispose` impl as the native `[Symbol.dispose]() { … }` method that `use` calls.
-    let emitDisposeMethod
-        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
-        (ctx: WalkCtx)
-        (m: TastAccessor.TypeMember)
-        : JsClassMethod =
-        emitPlainMethod buildExpr ctx (JsMethodKey.Computed symbolDispose) m
-
-    /// An eq/comp/hash impl as a registry-symbol slot: `registryName` of `vesper.equality`
-    /// emits `[Symbol.for("vesper.equality")](b) { … }`, which the runtime `eq` calls.
-    let emitProtocolMethod
-        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
-        (ctx: WalkCtx)
-        (registryName: string)
-        (m: TastAccessor.TypeMember)
-        : JsClassMethod =
-        emitPlainMethod buildExpr ctx (JsMethodKey.Computed(registrySymbol registryName)) m
 
     /// Emit a record/union member as a free, curried, type-prefixed top-level function:
     /// `member this.Foo a b` → `<Type>__Foo = (this$) => (a) => (b) => <body>`.
@@ -130,16 +104,20 @@ module EmitJsMembers =
         // A member function is an arrow value, never reassigned → always `const`.
         topLevelBinding ctx false name init
 
-    /// Every class-method form of a partitioned member set; its `Free` members become
-    /// top-level functions via `emitMemberFn` instead.
-    let emitCapabilityMethods
+    /// The class body of a partitioned member set. A `Free` member has no class slot: it
+    /// emits as a top-level function instead.
+    let emitClassMethods
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (p: PartitionedMembers)
         : JsClassMethod list =
         [
-            for m in p.Attached -> emitAttachedMethod buildExpr ctx m
-            for m in p.Iterators -> emitIteratorMethod buildExpr ctx m
-            for (sym, m) in p.Protocols -> emitProtocolMethod buildExpr ctx sym m
-            for m in p.Disposers -> emitDisposeMethod buildExpr ctx m
+            for (slot, m) in p do
+                match slot with
+                | MemberSlot.Named -> yield emitPlainMethod buildExpr ctx (JsMethodKey.Named m.Name) m
+                | MemberSlot.Iterator -> yield emitIteratorMethod buildExpr ctx m
+                | MemberSlot.Protocol registryKey ->
+                    yield emitPlainMethod buildExpr ctx (JsMethodKey.Computed(registrySymbol registryKey)) m
+                | MemberSlot.Dispose -> yield emitPlainMethod buildExpr ctx (JsMethodKey.Computed symbolDispose) m
+                | MemberSlot.Free -> ()
         ]
