@@ -509,7 +509,7 @@ module internal UnificationInferApp =
             ctx.DynamicEscapes.Add { Root = resultVar; Node = node }
 
             resultTy
-        | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope "dynamic-access operator '?' (op_Dynamic)")
+        | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope Intrinsic.DynamicGet)
 
     /// `x?name <- value` — the dynamic-set operator (`(?<-) x "name" value`), unified
     /// against `x -> string -> value -> unit`.
@@ -536,8 +536,7 @@ module internal UnificationInferApp =
                 (TyFun(objArgTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
 
             ctx.Intrinsics.Unit
-        | ValueNone ->
-            errorTy ctx node.Tok (Kind.IntrinsicNotInScope "dynamic-set operator '?<-' (op_DynamicAssignment)")
+        | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope Intrinsic.DynamicSet)
 
     and inferPrefix (infer: Infer) (ctx: PassContext) (node: NodeSite) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand

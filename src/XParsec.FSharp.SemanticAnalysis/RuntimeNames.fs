@@ -22,6 +22,15 @@ module RuntimeNames =
     /// The namespaces resolving UNQUALIFIED in every compilation.
     let preludeNamespaces: string list = [ intrinsicNamespace; collectionsNamespace ]
 
+    // The packages carrying the intrinsics, spelled as a manifest's `depends-on` spells them,
+    // because that is where an `IntrinsicNotInScope` diagnostic tells the author to add one.
+
+    [<Literal>]
+    let corePackageName = "Vesper.Core"
+
+    [<Literal>]
+    let listPackageName = "Vesper.List"
+
     let vesperListKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity collectionsNamespace "List" 1
 

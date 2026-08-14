@@ -218,6 +218,39 @@ module InternalBreak =
                 propertyName
                 bindingName
 
+/// A construct with no syntax of its own that a lowering resolves out of a referenced
+/// package: `[…]` needs a cons-list type, `x?n` needs an `op_Dynamic` to call.
+[<RequireQualifiedAccess>]
+type Intrinsic =
+    /// The cons-list type `[…]`, `h :: t` and `for … in` build.
+    | ConsList
+    /// `x?name`.
+    | DynamicGet
+    /// `x?name <- value`.
+    | DynamicSet
+    /// `x.[i]` against an index signature.
+    | GetIndex
+
+[<RequireQualifiedAccess>]
+module Intrinsic =
+
+    /// The package supplying it, spelled as a manifest's `depends-on` spells it, because the
+    /// diagnostic tells the author to add exactly that line.
+    let package (i: Intrinsic) : string =
+        match i with
+        | Intrinsic.ConsList -> RuntimeNames.listPackageName
+        | Intrinsic.DynamicGet
+        | Intrinsic.DynamicSet
+        | Intrinsic.GetIndex -> RuntimeNames.corePackageName
+
+    /// The noun phrase naming it in a sentence, subject-position.
+    let describe (i: Intrinsic) : string =
+        match i with
+        | Intrinsic.ConsList -> "the cons-list type a '[…]' literal builds"
+        | Intrinsic.DynamicGet -> "the dynamic-access operator '?' (op_Dynamic)"
+        | Intrinsic.DynamicSet -> "the dynamic-set operator '?<-' (op_DynamicAssignment)"
+        | Intrinsic.GetIndex -> "the index-signature intrinsic 'GetIndex'"
+
 /// WHAT a diagnostic says. A case carries the facts its sentence is built from, never the
 /// sentence, so a consumer selects on the verdict instead of parsing English.
 [<RequireQualifiedAccess>]
@@ -287,9 +320,9 @@ type Kind =
     // ── Written, understood, not implemented ───────────────────────────────────
     /// The program is not WRONG, but this compiler does not do that yet.
     | NotYetSupported of feature: string
-    /// A lowering needs an intrinsic the compilation cannot see (`Vesper.Core` absent from
-    /// the reference set), so the fault is the reference set's, not the source's.
-    | IntrinsicNotInScope of intrinsic: string
+    /// A lowering needs an intrinsic the compilation cannot see (its package absent from the
+    /// reference set), so the fault is the reference set's, not the source's.
+    | IntrinsicNotInScope of intrinsic: Intrinsic
 
     // ── Not the program's fault at all ─────────────────────────────────────────
     | Internal of InternalBreak
@@ -475,7 +508,11 @@ module Kind =
                 binding
                 (String.concat " → " (binding :: via @ [ binding ]))
         | Kind.NotYetSupported feature -> sprintf "not yet supported: %s" feature
-        | Kind.IntrinsicNotInScope intrinsic -> sprintf "%s is not in scope (Vesper.Core missing?)" intrinsic
+        | Kind.IntrinsicNotInScope intrinsic ->
+            sprintf
+                "%s is not in scope; add depends-on \"%s\" to this package's manifest"
+                (Intrinsic.describe intrinsic)
+                (Intrinsic.package intrinsic)
         | Kind.Internal b -> sprintf "internal compiler error: %s" (InternalBreak.describe b)
         | Kind.DynamicEscape pinnedType ->
             sprintf

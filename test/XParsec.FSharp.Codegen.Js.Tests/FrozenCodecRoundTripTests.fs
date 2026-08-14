@@ -476,7 +476,10 @@ let tests =
                         Kind.CyclicInline("f", [])
                         Kind.CyclicInline("f", [ "g"; "h" ])
                         Kind.NotYetSupported "inheritance"
-                        Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"
+                        Kind.IntrinsicNotInScope Intrinsic.ConsList
+                        Kind.IntrinsicNotInScope Intrinsic.DynamicGet
+                        Kind.IntrinsicNotInScope Intrinsic.DynamicSet
+                        Kind.IntrinsicNotInScope Intrinsic.GetIndex
                         Kind.DynamicEscape "int"
                         Kind.HeterogeneousEnum "E"
                         Kind.IncompleteAnonUnionMatch [ "a"; "b"; "c" ]

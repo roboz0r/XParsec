@@ -541,8 +541,7 @@ module internal UnificationInferRecordAccess =
                     unify ctx node.Tok idxTy keyTy
                     unify ctx node.Tok resultTy valTy
                     ValueSome resultTy
-                | ValueNone ->
-                    ValueSome(errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"))
+                | ValueNone -> ValueSome(errorTy ctx node.Tok (Kind.IntrinsicNotInScope Intrinsic.GetIndex))
 
         // A declared `get_Item` read is a method call, not a spliced body, so it stamps no
         // intrinsic key. It does pin WHICH `get_Item`, because Elaborate cannot tell the object

@@ -335,7 +335,14 @@ module FrozenCodecDiagnostics =
             w.Write feature
         | Kind.IntrinsicNotInScope intrinsic ->
             w.Write 35uy
-            w.Write intrinsic
+
+            w.Write(
+                match intrinsic with
+                | Intrinsic.ConsList -> 0uy
+                | Intrinsic.DynamicGet -> 1uy
+                | Intrinsic.DynamicSet -> 2uy
+                | Intrinsic.GetIndex -> 3uy
+            )
         | Kind.DynamicEscape pinnedType ->
             w.Write 36uy
             w.Write pinnedType
@@ -463,7 +470,15 @@ module FrozenCodecDiagnostics =
 
             Kind.CyclicType(name, via)
         | 34uy -> Kind.NotYetSupported(r.ReadString())
-        | 35uy -> Kind.IntrinsicNotInScope(r.ReadString())
+        | 35uy ->
+            Kind.IntrinsicNotInScope(
+                match r.ReadByte() with
+                | 0uy -> Intrinsic.ConsList
+                | 1uy -> Intrinsic.DynamicGet
+                | 2uy -> Intrinsic.DynamicSet
+                | 3uy -> Intrinsic.GetIndex
+                | b -> failwithf "FrozenCodec: unknown Intrinsic tag %d" b
+            )
         | 36uy -> Kind.DynamicEscape(r.ReadString())
         | 37uy -> Kind.HeterogeneousEnum(r.ReadString())
         | 38uy -> Kind.IncompleteAnonUnionMatch(readStringList r)
