@@ -63,14 +63,24 @@ module internal TsManifestTranslate =
             | other -> [ nsPath, other ]
         )
 
-    /// `IsInterface` picks a heritage entry's slot: interface list vs single base class.
-    type TypeIdentity = { Key: TypeKey; IsInterface: bool }
+    /// A nominal type's two spellings, minted together: `QualifiedName` is the arity-suffixed
+    /// dotted name (`` NS.Emitter`1 ``) of `Key`, which carries the arity as an INT instead.
+    type MintedType = { QualifiedName: string; Key: TypeKey }
 
-    /// `(name, arity)` pairs are DISTINCT nominal types: the map key is the arity-suffixed
-    /// dotted qualified name (`` NS.Emitter`1 ``), the `TypeKey` carries arity as an INT.
-    /// The home module is NOT part of it, so a cross-package ref mints the same key.
-    let mint (nsPath: string) (name: string) (arity: int) : string * TypeKey =
-        qualify nsPath (SymbolKeyOps.arityName name arity), SymbolKeyOps.typeKeyOfArity nsPath name arity
+    /// `(name, arity)` pairs are DISTINCT nominal types. The home module is NOT part of the
+    /// identity, so a cross-package ref mints the same one.
+    let mint (nsPath: string) (name: string) (arity: int) : MintedType =
+        {
+            QualifiedName = qualify nsPath (SymbolKeyOps.arityName name arity)
+            Key = SymbolKeyOps.typeKeyOfArity nsPath name arity
+        }
+
+    /// `IsInterface` picks a heritage entry's slot: interface list vs single base class.
+    type TypeIdentity =
+        {
+            Minted: MintedType
+            IsInterface: bool
+        }
 
     type TranslateCtx =
         {
@@ -90,7 +100,7 @@ module internal TsManifestTranslate =
         /// The gate that turns a nominal `Named` into `FTClass`: only a declared class or
         /// interface hits. A primitive, a cross-package name and a `TypeAlias` stay `FTConst`.
         member ctx.Resolve(name: string) : TypeKey option =
-            ctx.Types |> Map.tryFind name |> Option.map (fun id -> id.Key)
+            ctx.Types |> Map.tryFind name |> Option.map (fun id -> id.Minted.Key)
 
         /// `None` for a name not declared in this package (cross-package / unknown).
         member ctx.TryFindType(name: string) : TypeIdentity option = Map.tryFind name ctx.Types
@@ -106,11 +116,11 @@ module internal TsManifestTranslate =
             |> List.choose (fun (nsPath, ex) ->
                 match ex with
                 | Schema.Export.Interface(name, tp, _, _, _) ->
-                    let qn, key = mint nsPath name tp
-                    Some(qn, { Key = key; IsInterface = true })
+                    let minted = mint nsPath name tp
+                    Some(minted.QualifiedName, { Minted = minted; IsInterface = true })
                 | Schema.Export.Class(name, tp, _, _, _, _) ->
-                    let qn, key = mint nsPath name tp
-                    Some(qn, { Key = key; IsInterface = false })
+                    let minted = mint nsPath name tp
+                    Some(minted.QualifiedName, { Minted = minted; IsInterface = false })
                 | _ -> None
             )
             |> Map.ofList
@@ -123,11 +133,11 @@ module internal TsManifestTranslate =
         }
 
     /// Total for the exports the ctx was built from; a miss is a bug, not a data condition.
-    let declaredIdentity (ctx: TranslateCtx) (nsPath: string) (name: string) (arity: int) : string * TypeKey =
-        let qn = fst (mint nsPath name arity)
+    let declaredIdentity (ctx: TranslateCtx) (nsPath: string) (name: string) (arity: int) : MintedType =
+        let qn = (mint nsPath name arity).QualifiedName
 
         match Map.tryFind qn ctx.Types with
-        | Some id -> qn, id.Key
+        | Some id -> id.Minted
         | None -> failwithf "declared type '%s' is missing from the identity table" qn
 
     /// A key carries no home, so codegen reads the import path here. `Home` is the MODULE
@@ -139,6 +149,12 @@ module internal TsManifestTranslate =
         }
 
     // ─── Structural shape-hash ─────────────────────────────────────────────
+
+    /// The interning string an anonymous object shape's identity IS. Opaque, because only
+    /// `structuralHash` sorts the fields that make a permuted twin hash the same.
+    type StructuralHash = private | StructuralHash of string
+
+    let private hashText (StructuralHash s) = s
 
     /// The canonical string IS the identity, and every case carries a tag so no two shapes
     /// alias. `Named` refs are LEAVES: never expanded, which bounds the recursion, since TS
@@ -168,28 +184,27 @@ module internal TsManifestTranslate =
             + ")"
         | Schema.TypeRef.Dynamic -> "Dyn"
         // Identity is the field set: the index facet does not participate.
-        | Schema.TypeRef.Structural(printed, fields, _) -> structuralHash printed fields
+        | Schema.TypeRef.Structural(printed, fields, _) -> hashText (structuralHash printed fields)
 
     /// A FIELDLESS structural form (function&, branded) carries no usable shape, so it falls
     /// back to the tsc-`printed` string rather than collapsing them all to one `{}` identity.
-    and structuralHash (printed: string) (fields: (string * Schema.TypeRef) list) : string =
+    and structuralHash (printed: string) (fields: (string * Schema.TypeRef) list) : StructuralHash =
         match fields with
-        | [] -> "printed:" + printed
+        | [] -> StructuralHash("printed:" + printed)
         | _ ->
             fields
             |> List.sortBy fst
             |> List.map (fun (name, ft) -> name + ":" + shapeHash ft)
             |> String.concat ";"
-            |> fun body -> "{" + body + "}"
+            |> fun body -> StructuralHash("{" + body + "}")
 
     /// A namespace segment is a JS identifier and a module specifier is an import path, so
     /// neither can spell the `@` or `{ : ; }` of `@struct.{x:number;y:number}`.
     let structuralHome = "@struct"
 
-    /// The erasing-nominal identity of an anonymous object shape. `hash` MUST be the
-    /// `structuralHash` interning string, or a field-order-permuted twin resolves to a
-    /// second type. Identity is cross-manifest; member REGISTRATION is per-manifest.
-    let structuralKey (hash: string) : string * TypeKey = mint structuralHome hash 0
+    /// The erasing-nominal identity of an anonymous object shape. Identity is
+    /// cross-manifest; member REGISTRATION is per-manifest.
+    let structuralKey (hash: StructuralHash) : MintedType = mint structuralHome (hashText hash) 0
 
     /// Every anonymous OBJECT shape reachable from a `TypeRef`, nested ones included. A `Named`
     /// ref hashes by name, but its ARGS are descended: a shape in `Array<{x}>` is a value.
@@ -214,7 +229,7 @@ module internal TsManifestTranslate =
 
     /// Every anonymous shape carrying a non-empty TS index signature, keyed by the SAME hash its
     /// frozen nominal carries. A FIELDLESS one counts: a bare `{ [k: K]: V }` IS its index.
-    let rec structuralIndexSigsIn (t: Schema.TypeRef) : (string * (Schema.TypeRef * Schema.TypeRef) list) list =
+    let rec structuralIndexSigsIn (t: Schema.TypeRef) : (StructuralHash * (Schema.TypeRef * Schema.TypeRef) list) list =
         match t with
         | Schema.TypeRef.Named(_, args) -> args |> List.collect structuralIndexSigsIn
         | Schema.TypeRef.Typar _
@@ -322,7 +337,7 @@ module internal TsManifestTranslate =
                         // `Js.Map` here is what that home's provider registers under.
                         let ns = TsGlobalHomes.mountFor entry.Home
 
-                        let key = snd (mint ns name entry.TyparArity)
+                        let key = (mint ns name entry.TyparArity).Key
 
                         FTClass(key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias
@@ -361,8 +376,8 @@ module internal TsManifestTranslate =
         // `{ [k: K]: V }` counts, because its index is its content; with neither, it stays opaque.
         | Schema.TypeRef.Structural(printed, fields, index) ->
             match fields, index with
-            | [], [] -> FTUnknown("structural:" + structuralHash printed fields)
-            | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
+            | [], [] -> FTUnknown("structural:" + hashText (structuralHash printed fields))
+            | _ -> FTClass((structuralKey (structuralHash printed fields)).Key, EqArray.empty)
 
     let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 

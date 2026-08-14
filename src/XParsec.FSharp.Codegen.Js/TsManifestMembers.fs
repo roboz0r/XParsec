@@ -119,7 +119,7 @@ module internal TsManifestMembers =
                 // or unknown one has only its arity-suffixed spelling to cut a key from.
                 let key =
                     match found with
-                    | Some id -> id.Key
+                    | Some id -> id.Minted.Key
                     | None ->
                         SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.arityName name ifaceArgs.Length) ifaceArgs.Length
 
@@ -159,11 +159,11 @@ module internal TsManifestMembers =
         : (string * ExternalTypeShape) option =
         let build name tp members heritage isInterface =
             let origin = originFor ctx nsPath
-            let qn, key = declaredIdentity ctx nsPath name tp
+            let declared = declaredIdentity ctx nsPath name tp
 
             let mems =
                 members
-                |> List.collect (toExternalMembers ctx key origin tp isInterface)
+                |> List.collect (toExternalMembers ctx declared.Key origin tp isInterface)
                 |> EqArray.ofList
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
@@ -182,7 +182,7 @@ module internal TsManifestMembers =
                 | ValueNone -> heritageInterfaces
 
             Some(
-                qn,
+                declared.QualifiedName,
                 ExternalTypeShape.Class
                     {
                         TyparArity = tp
@@ -210,7 +210,7 @@ module internal TsManifestMembers =
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
             // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
             // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
-            Some(fst (mint nsPath name tp), ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
+            Some((mint nsPath name tp).QualifiedName, ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
         | Schema.Export.Enum(name, members) ->
             // A computed (non-constant) member has no value to reference it by, so it
             // cannot be a case at all and is dropped.
@@ -252,7 +252,7 @@ module internal TsManifestMembers =
         |> List.map (fun (printed, fields) -> structuralHash printed fields, fields)
         |> List.distinctBy fst
         |> List.map (fun (hash, fields) ->
-            let qn, declKey = structuralKey hash
+            let declared = structuralKey hash
 
             let origin: SymbolOrigin =
                 {
@@ -273,11 +273,11 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    toExternalMembers ctx declKey origin 0 true mem
+                    toExternalMembers ctx declared.Key origin 0 true mem
                 )
                 |> EqArray.ofList
 
-            qn,
+            declared.QualifiedName,
             ExternalTypeShape.Class
                 {
                     TyparArity = 0
@@ -361,7 +361,7 @@ module internal TsManifestMembers =
             let simpleName = syntheticTypeName moduleSpec
             // `mint`, not `declaredIdentity`: the grouping type never enters the ctx table,
             // but is found by qualified name through the seam's lookups.
-            let qn, declKey = mint nsPath simpleName 0
+            let declared = mint nsPath simpleName 0
             let origin = originFor ctx nsPath
 
             let members =
@@ -379,11 +379,11 @@ module internal TsManifestMembers =
                             Optional = false
                         }
 
-                    expandMethod ctx declKey origin 0 MemberKind.Method mem
+                    expandMethod ctx declared.Key origin 0 MemberKind.Method mem
                 )
                 |> EqArray.ofList
 
-            qn,
+            declared.QualifiedName,
             ExternalTypeShape.Class
                 {
                     TyparArity = 0

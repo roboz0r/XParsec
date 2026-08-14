@@ -148,9 +148,9 @@ module TsManifestProvider =
                 |> List.choose (fun (nsPath, ex) ->
                     match ex with
                     | Schema.Export.Interface(name, tp, _, _, ((_ :: _) as index)) ->
-                        Some(fst (declaredIdentity ctx nsPath name tp), index)
+                        Some((declaredIdentity ctx nsPath name tp).QualifiedName, index)
                     | Schema.Export.Class(name, tp, _, _, _, ((_ :: _) as index)) ->
-                        Some(fst (declaredIdentity ctx nsPath name tp), index)
+                        Some((declaredIdentity ctx nsPath name tp).QualifiedName, index)
                     | _ -> None
                 )
 
@@ -158,7 +158,7 @@ module TsManifestProvider =
                 flatExports
                 |> List.collect (fun (_, ex) -> exportTypeRefs ex)
                 |> List.collect structuralIndexSigsIn
-                |> List.map (fun (hash, index) -> fst (structuralKey hash), index)
+                |> List.map (fun (hash, index) -> (structuralKey hash).QualifiedName, index)
 
             (named @ structural)
             |> List.distinctBy fst

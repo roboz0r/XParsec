@@ -129,20 +129,22 @@ Emitted method ORDER changed as a fall-out: a class body is now in source order,
 attached-then-iterator-then-protocol-then-disposer. Inert in JS. The committed
 `Vesper.List.mjs` was regenerated; its method bodies are byte-identical, only their order moved.
 
-## B4. `TsManifestTypes.structuralKey (hash: string)`
+## B4. `TsManifestTypes.structuralKey (hash: string)` — DONE
 
-An unenforced contract on a `string` parameter: it MUST be the `structuralHash` interning
-string, or a field-order-permuted twin resolves to a second type.
+`StructuralHash = private StructuralHash of string`, minted only by `structuralHash` and
+opaque outside the module, replaced the `string`. `structuralKey` and `structuralIndexSigsIn`
+take/return it, so the "MUST be the interning string" sentence is unstatable and the
+field-order-permuted twin is unconstructible. A private `hashText` unwraps it at the three
+in-module sites that want the characters (`shapeHash`'s recursion, `FTUnknown`, `mint`).
 
-A single-case `StructuralHash` produced only by `structuralHash` deletes the sentence and the
-bug class. Both callers already thread exactly that string.
+## B5. `TsManifestTypes.mint : … -> string * TypeKey` — DONE
 
-## B5. `TsManifestTypes.mint : … -> string * TypeKey`
-
-Every consumer must independently know the `string` is the qualified name OF that `TypeKey`;
-the prose asserted "equals the map key by construction" twice, in two blocks. A record, or
-keying by `TypeKey` and rendering at the edge, makes the pairing structural.
-`declaredIdentity` and `structuralKey` return the same bare pair and want the same treatment.
+`MintedType = { QualifiedName: string; Key: TypeKey }` replaced the bare pair, returned by
+`mint`, `declaredIdentity` and `structuralKey` alike. `TypeIdentity` now holds the whole
+`MintedType` rather than the `Key` alone, so `declaredIdentity` hands back the value
+`buildCtx` minted instead of re-pairing a freshly computed name with a stored key — the
+pairing is the same object, not an asserted invariant. Both "equals the map key by
+construction" blocks are gone.
 
 ## B6. `EmitJs.trampolineOrExpr`'s `arity` — DONE JS-side by A1
 
