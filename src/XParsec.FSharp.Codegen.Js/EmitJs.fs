@@ -214,54 +214,26 @@ module EmitJs =
 
             JsExpr.New(callee, [ for a in TastAccessor.exprChildren e -> buildExpr ctx a ], loc)
 
-        // External exception construction → `new <exn repr>(msg)`, the repr sourced from the
-        // `inherit` chain; only the leading message arg is kept, as `Error` has no slot for
-        // further ones. An external type that is no `exn` subtype has no analogue and faults.
         | ExprShape.New ->
-            let ty = TastAccessor.exprTy e
             let args = TastAccessor.exprChildren e
-            // A locally-emitted class constructs by its emitted name with positional args,
-            // the ctor storing each into the like-named field.
-            let localClassName =
-                match TastLower.objArgShape ty with
-                | ValueSome(key, _) ->
-                    match ctx.Classes.TryGetValue key with
-                    | true, name -> ValueSome name
-                    | _ -> ValueNone
-                | ValueNone -> ValueNone
 
-            // A GLOBAL (ambient) external class constructs by its BARE export name with NO
-            // import, because the JS runtime provides it intrinsically. That name is the key's
-            // simple name (`Js.Widget` → `Widget`).
-            let globalClassName =
-                match TastLower.objArgShape ty with
-                | ValueSome(key, _) ->
-                    JsExternalMembers.classFlagsOf ctx.Provider key
-                    |> ValueOption.filter (fun flags -> flags.Global)
-                    |> ValueOption.map (fun _ ->
-                        let (DisplayName name) = SymbolKeyOps.typeSimpleName key
-                        name
-                    )
-                | ValueNone -> ValueNone
-
-            match localClassName, globalClassName with
-            | ValueSome name, _
-            | ValueNone, ValueSome name ->
+            match tryNewTarget ctx (TastAccessor.exprTy e) with
+            | ValueSome(NewTarget.LocalClass name)
+            | ValueSome(NewTarget.GlobalClass name) ->
                 JsExpr.New(JsExpr.Identifier(name, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
-            | ValueNone, ValueNone ->
-                match JsExternalMembers.exnReprOf ctx.Provider ty with
-                | ValueSome repr ->
-                    let errArgs =
-                        if Array.isEmpty args then
-                            []
-                        else
-                            [ buildExpr ctx args.[0] ]
+            | ValueSome(NewTarget.ExnRepr repr) ->
+                // Only the leading message argument is kept: `Error` has no slot for further ones.
+                let errArgs =
+                    if Array.isEmpty args then
+                        []
+                    else
+                        [ buildExpr ctx args.[0] ]
 
-                    JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
-                | ValueNone ->
-                    failwithf
-                        "EmitJs: construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
-                        (TastAccessor.exprNewClassName e)
+                JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
+            | ValueNone ->
+                failwithf
+                    "EmitJs: construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
+                    (TastAccessor.exprNewClassName e)
 
         // A LOCAL interface slot's impl is an ATTACHED method on the object argument's class, so
         // it dispatches as `objArg.<member>(args)`. No free `<Type>__<member>` function is

@@ -233,6 +233,40 @@ module EmitJsContext =
         | ValueSome h -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports h className, loc)
         | ValueNone -> JsExpr.Identifier(className, ValueNone)
 
+    /// WHICH class an `ExprShape.New` constructs, and so how its arguments are passed.
+    type NewTarget =
+        /// A class emitted in this file: its emitted name, positional args stored into the
+        /// like-named fields.
+        | LocalClass of name: string
+        /// An ambient external class: the key's simple name (`Js.Widget` → `Widget`), with NO
+        /// import, because the JS runtime provides it intrinsically.
+        | GlobalClass of name: string
+        /// An external `exn` subtype, constructed through the repr its `inherit` chain names.
+        | ExnRepr of repr: string
+
+    /// The probe order IS the precedence: a locally emitted class wins over an ambient one of
+    /// the same key, and only a type that is neither class resolves through its `exn` repr.
+    let tryNewTarget (ctx: WalkCtx) (ty: FrozenType) : NewTarget voption =
+        let ambient (key: TypeKey) =
+            JsExternalMembers.classFlagsOf ctx.Provider key
+            |> ValueOption.filter (fun flags -> flags.Global)
+            |> ValueOption.map (fun _ ->
+                let (DisplayName name) = SymbolKeyOps.typeSimpleName key
+                NewTarget.GlobalClass name
+            )
+
+        let asClass =
+            match TastLower.objArgShape ty with
+            | ValueSome(key, _) ->
+                match ctx.Classes.TryGetValue key with
+                | true, name -> ValueSome(NewTarget.LocalClass name)
+                | _ -> ambient key
+            | ValueNone -> ValueNone
+
+        match asClass with
+        | ValueSome _ -> asClass
+        | ValueNone -> JsExternalMembers.exnReprOf ctx.Provider ty |> ValueOption.map NewTarget.ExnRepr
+
     // ---- Unions --------------------------------------------------------------
 
     /// Resolve a `UnionCons` / union-pattern type to its `JsUnionInfo`, local or

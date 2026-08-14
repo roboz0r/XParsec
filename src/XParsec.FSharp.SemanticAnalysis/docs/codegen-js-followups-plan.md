@@ -101,12 +101,17 @@ through a new `SymbolKeyOps.asTypeKey` beside `asMemberKey`, because the TAST's
 `Codegen.Clr` change out of scope here. Worth a Part C entry: the CLR backend wraps the same
 keys at its own `env.Enums` / `env.Classes` reads.
 
-## B2. `EmitJs`'s `ExprShape.New` arm
+## B2. `EmitJs`'s `ExprShape.New` arm — DONE
 
-Three construction strategies are probed as two independent `voption`s and joined by a
-precedence `match` that the surviving comments exist to state. One classifier returning a
-`NewTarget` DU — the shape `MemberDispatch` already has in this project — makes precedence a
-total match and deletes both comments.
+`NewTarget` (`LocalClass | GlobalClass | ExnRepr`) and `EmitJsContext.tryNewTarget` replaced the
+two independent `voption`s and the precedence `match` that joined them. Precedence is now the
+classifier's top-down probe order — local class, then ambient, then `exn` repr — and the emit arm
+is a total match on the result, so both comments are gone: each names a case instead.
+`TastLower.objArgShape` is called once rather than twice.
+
+The three-line header comment above the arm went with them; it described only the `exn` strategy,
+which is now the `ExnRepr` case's own doc. What survives in the arm is one line on why `Error`
+takes just the leading argument — a fact about the emission, not about the classification.
 
 ## B3. `PartitionedMembers` ↔ `emitCapabilityMethods` state one mapping twice — DONE
 
