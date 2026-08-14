@@ -16,6 +16,16 @@ type ClrCompilation =
         SelfPackage: string option
     }
 
+/// A `ClrCompilation` resolved ONCE for reuse across its files: the digest half of every file's
+/// cache key, paired with the provider built from the same inputs.
+type PreparedCompilation =
+    private
+        {
+            Inputs: ClrCompilation
+            Digest: Hashing.CompilationDigest
+            Provider: IExternalSymbolProvider
+        }
+
 module ClrCompilation =
 
     /// References packages, defines no primitives of its own. The shape to reach for unless
@@ -39,14 +49,16 @@ module ClrDriver =
     let private blockingErrors (tast: FrozenPools) : Diagnostic list =
         Diagnostic.errors tast.Residue.Diagnostics
 
+    let private contractFor (inputs: ClrCompilation) : IExternalSymbolProvider =
+        ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
+
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
     /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
     let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
         match Pipeline.parseUnrecovered source with
         | Error diagnostics -> Error diagnostics
         | Ok parsed ->
-            let provider =
-                ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
+            let provider = contractFor inputs
 
             let tast =
                 Pipeline.analyseFor
@@ -71,17 +83,24 @@ module ClrDriver =
                 SelfPackage = inputs.SelfPackage
             }
 
+    /// Resolve a compilation's per-file-invariant work: the digest and the contract provider,
+    /// which each read the dependency closure.
+    let prepare (inputs: ClrCompilation) : PreparedCompilation =
+        {
+            Inputs = inputs
+            Digest = compilationDigest inputs
+            Provider = contractFor inputs
+        }
+
     /// `compile` through the frozen-compile cache: a HIT skips parse + analyse + freeze, and an
     /// errored front end comes back as `Error` and is NOT stored. Emission is never elided, so
-    /// the provider is built on both paths, and `digest` must be folded from THESE `inputs`.
+    /// the provider serves both paths.
     let compileCachedWith
         (store: ICacheStore)
-        (digest: Hashing.CompilationDigest)
-        (inputs: ClrCompilation)
+        (prepared: PreparedCompilation)
         (source: string)
         : Result<ClrArtifact, Diagnostic list> =
-        let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
+        let inputs = prepared.Inputs
 
         // The key covers the path the frozen tree's nodes name, so a hit cannot serve a tree
         // anchored elsewhere.
@@ -91,7 +110,7 @@ module ClrDriver =
             {
                 Query = QueryId.Freeze
                 CodeVersion = Cache.CodeVersion
-                Input = Hashing.fileInputHash path source digest
+                Input = Hashing.fileInputHash path source prepared.Digest
             }
 
         FrozenCache.freezeResult
@@ -104,7 +123,7 @@ module ClrDriver =
                     let tast =
                         Pipeline.analyseFor
                             inputs.Project.AssemblyName
-                            provider
+                            prepared.Provider
                             (Hashing.originSource path parsed.Lexed)
                             parsed.File
 
@@ -113,17 +132,17 @@ module ClrDriver =
                     | errors -> Error errors
             )
         |> Result.map (fun frozen ->
-            Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project frozen
+            Codegen.compileWithReferences inputs.ReferenceAssemblies prepared.Provider inputs.Project frozen
         )
 
-    /// `compileCachedWith` for a ONE-FILE compilation, folding the digest inline. Several
-    /// files through this would re-read the whole dependency closure per file.
+    /// `compileCachedWith` for a ONE-FILE compilation, preparing inline. Several files through
+    /// this would re-read the whole dependency closure per file.
     let compileCached
         (store: ICacheStore)
         (inputs: ClrCompilation)
         (source: string)
         : Result<ClrArtifact, Diagnostic list> =
-        compileCachedWith store (compilationDigest inputs) inputs source
+        compileCachedWith store (prepare inputs) source
 
     /// An ordered source-file list analysed as one assembly and emitted as ONE PE, so a
     /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back
@@ -159,10 +178,7 @@ module ClrDriver =
         (inputs: ClrCompilation)
         (units: AssemblyFiles.SourceUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
-
-        compileAssemblyWith inputs.ReferenceAssemblies provider inputs.Project units
+        compileAssemblyWith inputs.ReferenceAssemblies (contractFor inputs) inputs.Project units
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
     /// set. An in-memory compilation returns the artifact unwritten.

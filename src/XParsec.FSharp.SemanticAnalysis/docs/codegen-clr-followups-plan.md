@@ -420,17 +420,17 @@ deletes the obligation clause from all eight docs and the three `Assembler` reas
 them. `MetadataContext` would then expose no member whose misuse SRM can only catch at
 serialize.
 
-## B19. A prepared compilation — `ClrDriver`'s provider and cache digest are folded separately
+## B19. A prepared compilation — `ClrDriver`'s provider and cache digest are folded separately — DONE
 
-Three entry points (`compile`, `compileCachedWith`, `compileAssembly`) each rebuild the
-provider with the identical `buildContractWithRefs inputs.SelfManifest inputs.BclReferences
-clrTarget inputs.Manifests`, and `compileCachedWith` takes a `digest` that must have been
-folded from the SAME `ClrCompilation` — nothing enforces it, so a digest folded from other
-inputs would serve a cached front end built against a different provider.
+Also `codegen-js-followups-plan.md` B8. `PreparedCompilation` — private representation, minted
+only by `ClrDriver.prepare` — holds the `ClrCompilation`, its digest and its provider, and
+`compileCachedWith` takes one in place of a digest plus the inputs. A digest folded from other
+inputs can no longer reach it, and the doc clause that asked for one folded from THESE `inputs`
+is gone.
 
-A value built once off `ClrCompilation` and carrying the provider together with its digest
-makes that mismatch unspellable and deletes the surviving clause of `compileCachedWith`'s
-three-line doc, which exists only to say "fold `digest` from THESE `inputs`".
+The three identical `buildContractWithRefs` calls became a private `contractFor`, so `compile`,
+`prepare` and `compileAssembly` resolve a contract one way. `compile` and `compileAssembly` do
+not prepare: neither keys a cache, and folding a digest reads the whole dependency closure.
 
 ## B20. A CLR-repr classifier, not a `bool` over three answers
 

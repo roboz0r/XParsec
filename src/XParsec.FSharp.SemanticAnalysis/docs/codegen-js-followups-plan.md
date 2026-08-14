@@ -173,12 +173,18 @@ allocates nothing per member access.
 
 Adding a capability is one row. There is nowhere for the ASCII table to come back to.
 
-## B8. `ClrDriver.compileCachedWith` — `Codegen.Clr`, out of scope here
+## B8. `ClrDriver.compileCachedWith` — DONE
 
-Recorded so it is not lost. Eleven lines argue that the `digest` parameter covers every input
-the `provider` is built from, because nothing enforces it. Folding the digest inside, or
-making the provider a projection of the digest, deletes the note. Found during the earlier
-code-quality sweep; belongs to the `Codegen.Clr` pass.
+The same item as `codegen-clr-followups-plan.md` B19, landed with it. `PreparedCompilation`
+(private representation, minted only by `ClrDriver.prepare`) carries the digest and the
+provider built from one `ClrCompilation`, and `compileCachedWith` takes it instead of a digest
+plus the inputs — so a digest folded from other inputs is unspellable and the clause saying to
+fold it from THESE `inputs` is gone. The triplicated `buildContractWithRefs` call became a
+private `contractFor`, so a compilation resolves its contract one way.
+
+`compileCached` prepares inline, as it folded the digest inline before; a multi-file caller
+prepares once and pays for the closure read and the contract build once between them, where
+before it paid for the contract per file.
 
 ---
 
