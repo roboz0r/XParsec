@@ -204,6 +204,19 @@ type private Renderer() =
 
             push ")"
 
+        | TExpr.ArrayLit(elems, _, _) ->
+            push "[|"
+
+            elems
+            |> EqArray.iteri (fun i x ->
+                if i > 0 then
+                    push "; "
+
+                this.Expr x
+            )
+
+            push "|]"
+
         | TExpr.Sequential(items, _, _) ->
             push "("
 

@@ -411,8 +411,8 @@ type DesugaredForm =
     /// Lowered to a nested `UnionCons` cons/nil chain over the resolved list union, taking
     /// that union's own case names.
     | ListLiteral
-    /// `[|1; 2; 3|]` or `[||]` — the array `ParenKind` counterpart. Lowered to the same
-    /// list chain as `ListLiteral`, wrapped in an `Array.ofList` external call.
+    /// `[|1; 2; 3|]` or `[||]` — the array `ParenKind` counterpart. Lowered to an array
+    /// node holding the elements, with no list in between.
     | ArrayLiteral
     /// `h :: t` — an `Expr.InfixApp(_, ::, _)` node. Unlike `+` / `|>`, `::` is not
     /// provider-resolved: it builds the list union directly, lowering to the same

@@ -31,9 +31,7 @@ module Desugar =
         | Token.OpAmp -> ValueSome OperatorData.OpAddressOf
         | _ -> ValueNone
 
-    /// `[ … ]` / `[| … |]` literals share the same lowering target: the
-    /// nested `Cons` / `Nil` chain, with arrays adding an `Array.ofList`
-    /// wrap at Elaborate time.
+    /// `[ … ]` lowers to a nested `Cons` / `Nil` chain, `[| … |]` to an array node.
     let private literalFormOfParen (pk: ParenKind<SyntaxToken>) : DesugaredForm voption =
         match pk with
         | ParenKind.List _ -> ValueSome DesugaredForm.ListLiteral

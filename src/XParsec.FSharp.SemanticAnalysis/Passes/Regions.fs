@@ -139,9 +139,9 @@ module Regions =
         | TyFun _ -> true
         | _ -> false
 
-    /// Mint a value region that outlives every child region. Tuples, records, `new`
-    /// and clones allocate a composite holding its elements; no such composite can
-    /// carry a `ref struct` field, so the region is also a heap-repr sink.
+    /// Mint a value region that outlives every child region: the caller allocates a
+    /// composite holding those children. No such composite can carry a `ref struct`
+    /// field, so the region is also a heap-repr sink.
     let private holds (s: State) (children: RegionId seq) : RegionId =
         let r = freshValue s
         s.Graph.MarkHeapSink r
@@ -200,7 +200,8 @@ module Regions =
             | true, r -> r
             | false, _ -> RegionId.Unknown // external / not region-tracked
         // Composite allocations: the region outlives every element's region.
-        | TExpr.Tuple(items, _, _) -> holds s [ for it in items -> inferRegion s ctx it ]
+        | TExpr.Tuple(items, _, _)
+        | TExpr.ArrayLit(items, _, _) -> holds s [ for it in items -> inferRegion s ctx it ]
         | TExpr.RecordCons(fields, _, _) -> holds s [ for (_, v) in fields -> inferRegion s ctx v ]
         | TExpr.RecordClone(src, ov, _, _) ->
             holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]

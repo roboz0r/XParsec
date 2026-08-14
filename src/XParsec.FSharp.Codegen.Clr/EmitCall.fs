@@ -35,50 +35,6 @@ module EmitCall =
                 funcTy <- resTy
             | ValueNone -> failwithf "Emit: cannot apply argument to Vesper.Fun value of type %A" funcTy
 
-    /// `[| a; b |]` reaches codegen as `ArrayModule.OfList (Cons(a, Cons(b, Nil)))`; the
-    /// BCL-only path has no FSharp.Core, so emit `newarr` + `dup; ldc i; <elem>; stelem`.
-    /// `false` (and nothing emitted) unless the argument is that literal cons-chain.
-    let private tryEmitArrayLiteral
-        (recur: Recur)
-        (env: EmitEnv)
-        (b: IlBuilder)
-        (arrTy: FrozenType)
-        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
-        : bool =
-        let elemOf =
-            match arrTy with
-            | FTArray elem -> ValueSome elem
-            | _ -> ValueNone
-
-        let rec collect (acc: TastAccessor.ExprId list) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
-            match TastAccessor.exprKind e with
-            | ExprShape.UnionCons ->
-                match TastAccessor.exprChildren e with
-                | [| x; rest |] -> collect (x :: acc) rest
-                | [||] -> Some(List.rev acc)
-                | _ -> None
-            | _ -> None
-
-        match elemOf, appArgs with
-        | ValueSome elem, [ (chain, _, _) ] ->
-            match collect [] chain with
-            | Some elems ->
-                let elemTok = env.Provider.TypeToken elem
-                b.Add(ILInstr.LdcI4 elems.Length)
-                b.Add(ILInstr.Newarr elemTok)
-
-                elems
-                |> List.iteri (fun i el ->
-                    b.Add ILInstr.Dup
-                    b.Add(ILInstr.LdcI4 i)
-                    recur env b el
-                    b.Add(ILInstr.Stelem elemTok)
-                )
-
-                true
-            | None -> false
-        | _ -> false
-
     /// Push each step as IL, returning the pushed values' actual types in order for
     /// generic-instantiation matching. A value→`obj` box is an explicit `Upcast` node
     /// from Elaborate, so every argument pushes raw.
@@ -129,71 +85,64 @@ module EmitCall =
 
         match fn with
         | TastAccessor.EExternal ext ->
-            if
-                ext.CompiledName = RuntimeNames.arrayOfListName
-                && tryEmitArrayLiteral recur env b (typeOfExpr e) appArgs
-            then
-                ()
-            else
-
-                let name = ext.CompiledName
-                let key = ext.Key
-                // The recipe's generic instantiation comes from the function's curried type,
-                // which is stale once an argument became a value-struct closure, because that
-                // argument still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
-                let recipeFnTy =
-                    if
+            let name = ext.CompiledName
+            let key = ext.Key
+            // The recipe's generic instantiation comes from the function's curried type,
+            // which is stale once an argument became a value-struct closure, because that
+            // argument still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
+            let recipeFnTy =
+                if
+                    appArgs
+                    |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
+                then
+                    // The tuple's middle element is the partial-application RESULT type
+                    // at that step, not the argument's own type.
+                    let argTys =
                         appArgs
-                        |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
-                    then
-                        // The tuple's middle element is the partial-application RESULT type
-                        // at that step, not the argument's own type.
-                        let argTys =
-                            appArgs
-                            |> List.map (fun (arg, _, _) ->
-                                match env.ClosureValueTypeByNode.TryGetValue arg with
-                                | true, closureFt -> closureFt
-                                | false, _ -> typeOfExpr arg
-                            )
+                        |> List.map (fun (arg, _, _) ->
+                            match env.ClosureValueTypeByNode.TryGetValue arg with
+                            | true, closureFt -> closureFt
+                            | false, _ -> typeOfExpr arg
+                        )
 
-                        List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
-                    else
-                        typeOfExpr fn
+                    List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
+                else
+                    typeOfExpr fn
 
-                match env.Provider.TryEmitCall(name, key, recipeFnTy) with
-                | ValueSome recipe ->
-                    // `Grouped` splits one argument per SOURCE group and flattens each;
-                    // `Flat` carries an already-flat count and pushes one-to-one.
-                    let leading, rest =
-                        match recipe.Arity with
-                        | CallArity.Grouped(groups, _) ->
-                            let leading, rest = List.splitAt (List.length groups) appArgs
-                            flattenGroupPushes recur env b groups leading |> ignore
-                            leading, rest
-                        | CallArity.Flat argCount ->
-                            let leading, rest = List.splitAt argCount appArgs
+            match env.Provider.TryEmitCall(name, key, recipeFnTy) with
+            | ValueSome recipe ->
+                // `Grouped` splits one argument per SOURCE group and flattens each;
+                // `Flat` carries an already-flat count and pushes one-to-one.
+                let leading, rest =
+                    match recipe.Arity with
+                    | CallArity.Grouped(groups, _) ->
+                        let leading, rest = List.splitAt (List.length groups) appArgs
+                        flattenGroupPushes recur env b groups leading |> ignore
+                        leading, rest
+                    | CallArity.Flat argCount ->
+                        let leading, rest = List.splitAt argCount appArgs
 
-                            for (a, _, _) in leading do
-                                recur env b a
+                        for (a, _, _) in leading do
+                            recur env b a
 
-                            leading, rest
+                        leading, rest
 
-                    b.Add(ILInstr.Recipe recipe)
+                b.Add(ILInstr.Recipe recipe)
 
-                    // A `void` recipe (`Pushes = 0`) left nothing on the stack; reify a
-                    // `unit` for the value-position consumer.
-                    if recipe.Pushes = 0 then
-                        EmitTypes.buildUnitValue env b
+                // A `void` recipe (`Pushes = 0`) left nothing on the stack; reify a
+                // `unit` for the value-position consumer.
+                if recipe.Pushes = 0 then
+                    EmitTypes.buildUnitValue env b
 
-                    // The partial-application result at the last consumed argument, the type
-                    // of the value `rest` is applied to.
-                    let funcTy =
-                        match List.tryLast leading with
-                        | Some(_, ty, _) -> ty
-                        | None -> typeOfExpr fn
+                // The partial-application result at the last consumed argument, the type
+                // of the value `rest` is applied to.
+                let funcTy =
+                    match List.tryLast leading with
+                    | Some(_, ty, _) -> ty
+                    | None -> typeOfExpr fn
 
-                    foldInvoke recur env b funcTy rest
-                | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
+                foldInvoke recur env b funcTy rest
+            | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
         | TastAccessor.EVar k when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method: `call` it with one

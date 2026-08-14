@@ -69,6 +69,7 @@ module TastConvert =
         | TExprG.Use(p, v, body, dispose, ty, tok) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty, tk tok)
         | TExprG.IfThenElse(c, t, el, ty, tok) -> TExprG.IfThenElse(pe c, pe t, pe el, f ty, tk tok)
         | TExprG.Tuple(items, ty, tok) -> TExprG.Tuple(EqArray.map pe items, f ty, tk tok)
+        | TExprG.ArrayLit(elems, ty, tok) -> TExprG.ArrayLit(EqArray.map pe elems, f ty, tk tok)
         | TExprG.Sequential(items, ty, tok) -> TExprG.Sequential(EqArray.map pe items, f ty, tk tok)
         | TExprG.While(c, b, ty, tok) -> TExprG.While(pe c, pe b, f ty, tk tok)
         | TExprG.ForTo(k, it, s, e2, b, ty, tok) -> TExprG.ForTo(k, tk it, pe s, pe e2, pe b, f ty, tk tok)

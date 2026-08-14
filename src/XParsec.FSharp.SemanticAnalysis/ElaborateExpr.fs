@@ -220,9 +220,9 @@ module internal ElaborateExpr =
         | Expr.Fun(argumentPats = argPats; expr = body) -> translateFun ctx argPats body
         | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> translateLet ctx kw bindings body
         | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner) ->
-            translateListLikeLiteral ctx ty false (listLiteralItems inner) tok
+            translateListLiteral ctx ty (listLiteralItems inner) tok
         | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
-            translateListLikeLiteral ctx ty true (listLiteralItems inner) tok
+            translateArrayLiteral ctx ty (listLiteralItems inner) tok
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty tok
@@ -246,8 +246,8 @@ module internal ElaborateExpr =
                 | ValueNone -> failwithf "Elaborate: no recorded type-test target for %O" key
 
             TExpr.TypeTest(translateExpr ctx inner, testTy, ty, tok)
-        | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLikeLiteral ctx ty false [] tok
-        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateListLikeLiteral ctx ty true [] tok
+        | Expr.EmptyBlock(lParen = ParenKind.List _) -> translateListLiteral ctx ty [] tok
+        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> translateArrayLiteral ctx ty [] tok
         | Expr.EmptyBlock _ -> unitConst ctx e
         | Expr.While(condition = cond; body = body) ->
             TExpr.While(translateExpr ctx cond, translateExpr ctx body, ty, tok)
@@ -556,13 +556,29 @@ module internal ElaborateExpr =
             }
         )
 
-    /// Project `[…]` / `[|…|]` literals into a `Cons` / `Nil` chain; an array
-    /// additionally routes through `Array.ofList`, so codegen has one lowering
-    /// target. A degenerate element type falls back to a free `TyVar`.
-    and private translateListLikeLiteral
+    /// `[| … |]`: the elements onto an array node, with no list in between.
+    and private translateArrayLiteral
         (ctx: PassContext)
         (literalTy: SemType)
-        (isArray: bool)
+        (items: Expr<SyntaxToken> list)
+        (tok: SyntaxToken)
+        : TExpr =
+        let arrayKey = RuntimeNames.arrayKey 1
+
+        // The `'T[]` unification drove the literal to; a fresh element var where an earlier
+        // error left it unsolved.
+        let arrayTy =
+            match Unification.zonk ctx.Store literalTy with
+            | TyConst(key, args) as ty when key = arrayKey && args.Length = 1 -> ty
+            | _ -> TyConst(arrayKey, EqArray.singleton (TyVar(ctx.NewTypeVar())))
+
+        TExpr.ArrayLit(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), arrayTy, tok)
+
+    /// Project a `[…]` literal into a `Cons` / `Nil` chain. A degenerate element type falls
+    /// back to a free `TyVar`.
+    and private translateListLiteral
+        (ctx: PassContext)
+        (literalTy: SemType)
         (items: Expr<SyntaxToken> list)
         (tok: SyntaxToken)
         : TExpr =
@@ -570,19 +586,16 @@ module internal ElaborateExpr =
 
         let elemTy =
             match zonked with
-            // An array literal's zonked type is `TyConst("[]", [elem])`; a list
-            // literal's is `TyRecord` / `TyUnion`. Pull the element out of whichever.
-            | TyConst(_, args) when args.Length = 1 -> args.[0]
             | TyRecord(_, args) when args.Length = 1 -> args.[0]
             | TyUnion(_, args) when args.Length = 1 -> args.[0]
             | _ -> TyVar(ctx.NewTypeVar())
 
         // A program-declared list union (via the `'T list = List<'T>` abbrev) builds
         // `[…]` from its own cases: nullary = empty terminator, binary = cons.
-        // Otherwise, and for every array literal, the FSharp.Core `Cons` / `Nil`.
+        // Otherwise the FSharp.Core `Cons` / `Nil`.
         let listTy, consName, nilName =
             match zonked with
-            | LocalUnion ctx info when not isArray ->
+            | LocalUnion ctx info ->
                 let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
                 let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
 
@@ -592,27 +605,16 @@ module internal ElaborateExpr =
             // The external Vesper cons-list, whose cases are `Cons` / `Empty`. Being
             // *external* it is absent from `ctx.Types.Union`, so the user-union arm
             // above misses it; recognition of its key is shared with codegen.
-            | TyUnion(listKey, _) when not isArray && RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Empty"
+            | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Empty"
             | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
 
-        let listExpr =
-            let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy, tok)
+        let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy, tok)
 
-            items
-            |> List.foldBack (fun item acc ->
-                TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy, tok)
-            )
-            <| nil
-
-        if isArray then
-            let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)
-            // Codegen resolves `Array.ofList` against its target; the BCL-only path
-            // recognises this function and emits the array directly (no FSharp.Core).
-            let opName = RuntimeNames.arrayOfListName
-            let opTy = TyFun(listTy, arrayTy)
-            TExpr.App(TExpr.External(opName, ValueNone, opTy, tok), listExpr, arrayTy, tok)
-        else
-            listExpr
+        items
+        |> List.foldBack (fun item acc ->
+            TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy, tok)
+        )
+        <| nil
 
     and private translateIfThenElse
         (ctx: PassContext)

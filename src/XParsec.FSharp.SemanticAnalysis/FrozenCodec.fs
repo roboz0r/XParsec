@@ -241,6 +241,7 @@ module FrozenCodec =
         | ExprPayload.CallerExpr origin ->
             w.Write 40uy
             writeOriginRef w origin
+        | ExprPayload.ArrayLit -> w.Write 41uy
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
         match r.ReadByte() with
@@ -365,6 +366,7 @@ module FrozenCodec =
                     Origin = readOriginRef r
                 |}
         | 40uy -> ExprPayload.CallerExpr(readOriginRef r)
+        | 41uy -> ExprPayload.ArrayLit
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =

@@ -21,6 +21,7 @@ module TastWalk =
         | TExprG.Use(ty = ty)
         | TExprG.IfThenElse(ty = ty)
         | TExprG.Tuple(ty = ty)
+        | TExprG.ArrayLit(ty = ty)
         | TExprG.Sequential(ty = ty)
         | TExprG.While(ty = ty)
         | TExprG.ForTo(ty = ty)
@@ -65,6 +66,7 @@ module TastWalk =
         | TExprG.Use(tok = tok)
         | TExprG.IfThenElse(tok = tok)
         | TExprG.Tuple(tok = tok)
+        | TExprG.ArrayLit(tok = tok)
         | TExprG.Sequential(tok = tok)
         | TExprG.While(tok = tok)
         | TExprG.ForTo(tok = tok)
@@ -335,6 +337,12 @@ module TastWalk =
                 match EqArray.mapPreserve pe items with
                 | ValueNone -> if refEq ty' ty then e else TExpr.Tuple(items, ty', tok)
                 | ValueSome items' -> TExpr.Tuple(items', ty', tok)
+            | TExpr.ArrayLit(elems, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe elems with
+                | ValueNone -> if refEq ty' ty then e else TExpr.ArrayLit(elems, ty', tok)
+                | ValueSome elems' -> TExpr.ArrayLit(elems', ty', tok)
             | TExpr.Sequential(items, ty, tok) ->
                 let ty' = f ty
 
@@ -781,6 +789,7 @@ module TastWalk =
                 walk t
                 walk el
             | TExpr.Tuple(items, _, _)
+            | TExpr.ArrayLit(items, _, _)
             | TExpr.Sequential(items, _, _) ->
                 for x in items do
                     walk x

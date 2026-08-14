@@ -16,6 +16,7 @@ type ExprShape =
     | Use
     | IfThenElse
     | Tuple
+    | ArrayLit
     | Sequential
     | While
     | ForTo
@@ -194,6 +195,7 @@ type ExprPayload =
     | Use of Disposal
     | IfThenElse
     | Tuple
+    | ArrayLit
     | Sequential
     | While
     /// `Var` is the bound variable this node INTRODUCES, named by the dense id the body's `Var`s
@@ -302,6 +304,7 @@ module ExprPayload =
         | ExprPayload.Use _ -> ExprShape.Use
         | ExprPayload.IfThenElse -> ExprShape.IfThenElse
         | ExprPayload.Tuple -> ExprShape.Tuple
+        | ExprPayload.ArrayLit -> ExprShape.ArrayLit
         | ExprPayload.Sequential -> ExprShape.Sequential
         | ExprPayload.While -> ExprShape.While
         | ExprPayload.ForTo _ -> ExprShape.ForTo
@@ -364,6 +367,7 @@ module ExprPayload =
         | ExprPayload.Use _
         | ExprPayload.IfThenElse
         | ExprPayload.Tuple
+        | ExprPayload.ArrayLit
         | ExprPayload.Sequential
         | ExprPayload.While
         | ExprPayload.ForIn _

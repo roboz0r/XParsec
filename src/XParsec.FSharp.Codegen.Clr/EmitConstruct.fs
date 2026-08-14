@@ -248,6 +248,27 @@ module EmitConstruct =
 
         buildFrom refs 0
 
+    /// `[| a; b |]`: `newarr` at the element type, then `dup; ldc.i4 i; <elem>; stelem`
+    /// per element, leaving the array on the stack.
+    let buildArrayLit (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+        let elems = TastAccessor.exprChildren e
+
+        let elemTok =
+            match TastAccessor.exprTy e with
+            | FTArray elem -> env.Provider.TypeToken elem
+            | ty -> failwithf "Emit: array literal typed %A" ty
+
+        b.Add(ILInstr.LdcI4 elems.Length)
+        b.Add(ILInstr.Newarr elemTok)
+
+        elems
+        |> Array.iteri (fun i el ->
+            b.Add ILInstr.Dup
+            b.Add(ILInstr.LdcI4 i)
+            recur env b el
+            b.Add(ILInstr.Stelem elemTok)
+        )
+
     let private closureOf (env: EmitEnv) (e: TastAccessor.ExprId) : Closure =
         match env.ClosureByNode.TryGetValue e with
         | true, closure -> closure

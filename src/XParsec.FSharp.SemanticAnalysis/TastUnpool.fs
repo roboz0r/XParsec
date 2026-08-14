@@ -62,6 +62,7 @@ module TastUnpool =
             let elseExpr = nextE ()
             TExprG.IfThenElse(cond, thenExpr, elseExpr, ty, tok)
         | ExprPayload.Tuple -> TExprG.Tuple(EqArray.ofArray es, ty, tok)
+        | ExprPayload.ArrayLit -> TExprG.ArrayLit(EqArray.ofArray es, ty, tok)
         | ExprPayload.Sequential -> TExprG.Sequential(EqArray.ofArray es, ty, tok)
         | ExprPayload.While ->
             let cond = nextE ()

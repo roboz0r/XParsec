@@ -1099,8 +1099,8 @@ let failsWithChoice (fragment: string) (src: string) : unit =
     failsWithPackages [ "Vesper.Choice" ] fragment src
 
 // ---- Vesper.Array wrappers ---------------------------------------------------
-// BCL-only: `arr.[i]` / `arr.Length` / `Array.zeroCreate` lower to `ldelem` / `ldlen` /
-// `newarr`. An array LITERAL `[| … |]` still routes through `ArrayModule.OfList`.
+// BCL-only: `arr.[i]` / `arr.Length` / `Array.zeroCreate` / `[| … |]` lower to `ldelem` /
+// `ldlen` / `newarr`.
 
 let runsArray (expected: string) (src: string) : unit =
     runsPackages [ "Vesper.Array" ] expected src

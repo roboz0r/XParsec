@@ -76,6 +76,7 @@ module EmitExpr =
         | ExprShape.RecordClone -> EmitConstruct.buildRecordClone buildExpr env b e
         | ExprShape.UnionCons -> EmitConstruct.buildUnionCons buildExpr env b e
         | ExprShape.Tuple -> EmitConstruct.buildTuple buildExpr env b e
+        | ExprShape.ArrayLit -> EmitConstruct.buildArrayLit buildExpr env b e
 
         | ExprShape.App -> EmitCall.buildAppCall buildExpr env b e
 

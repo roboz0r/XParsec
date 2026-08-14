@@ -54,7 +54,8 @@ module EmitJs =
         | ExprShape.Sequential -> JsExpr.Sequence([ for x in TastAccessor.exprChildren e -> buildExpr ctx x ], loc)
 
         // A tuple `(a, b, …)` is a JS array `[a, b, …]`; a pattern reads elements by index.
-        | ExprShape.Tuple -> JsExpr.Array([ for x in TastAccessor.exprChildren e -> buildExpr ctx x ], loc)
+        | ExprShape.Tuple
+        | ExprShape.ArrayLit -> JsExpr.Array([ for x in TastAccessor.exprChildren e -> buildExpr ctx x ], loc)
 
         | ExprShape.Let ->
             match e with

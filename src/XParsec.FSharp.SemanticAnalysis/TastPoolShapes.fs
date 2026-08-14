@@ -36,6 +36,7 @@ module TastPoolShapes =
             acc.Add thenExpr
             acc.Add elseExpr
         | TExprG.Tuple(items = items)
+        | TExprG.ArrayLit(elems = items)
         | TExprG.Sequential(items = items) ->
             for x in items do
                 acc.Add x
@@ -172,6 +173,7 @@ module TastPoolShapes =
         | TExprG.App _
         | TExprG.IfThenElse _
         | TExprG.Tuple _
+        | TExprG.ArrayLit _
         | TExprG.Sequential _
         | TExprG.While _
         | TExprG.ForTo _
@@ -275,6 +277,7 @@ module TastPoolShapes =
         | TExprG.Use(dispose = dispose) -> ExprPayload.Use dispose
         | TExprG.IfThenElse _ -> ExprPayload.IfThenElse
         | TExprG.Tuple _ -> ExprPayload.Tuple
+        | TExprG.ArrayLit _ -> ExprPayload.ArrayLit
         | TExprG.Sequential _ -> ExprPayload.Sequential
         | TExprG.While _ -> ExprPayload.While
         | TExprG.ForTo(identTok = identTok) ->

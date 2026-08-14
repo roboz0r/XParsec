@@ -140,6 +140,9 @@ type TExprG<'ty, 'tok, 'id> =
         tok: 'tok
     /// `ty` is always a TyTuple of the elements' inferred types.
     | Tuple of items: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    /// `[| e1; …; en |]`, elements in source order. `ty` is the rank-1 array of their
+    /// common element type, which unification drove them all to.
+    | ArrayLit of elems: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// All items but the last must have unit type; `ty` is the last item's type.
     | Sequential of items: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `ty` is always unit; cond : bool, body : unit.

@@ -118,9 +118,6 @@ module RuntimeNames =
 
     let stringWriterTypeName: string = "System.IO.StringWriter"
 
-    /// The function an `[| … |]` literal lowers to; codegen emits the array directly from it.
-    let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
-
     // Members of an anonymous union (`T | null`), not nominal types: no payload, so they
     // resolve to a bare `TyConst name`.
 

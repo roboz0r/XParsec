@@ -157,13 +157,9 @@ let tests =
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
 
-            test "`let xs = [|1; 2|]` wraps the Cons chain in Array.ofList" {
+            test "`let xs = [|1; 2|]` freezes as an array literal over its elements" {
                 let tast = analyse "let xs = [|1; 2|]"
                 let intTy = BuiltinTypes.tyInt
-
-                let listTy =
-                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton intTy)
-
                 let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -171,15 +167,12 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
-                            TExpr.App(TExpr.External("Microsoft.FSharp.Collections.ArrayModule.OfList", _, opTy, _),
-                                      TExpr.UnionCons("Cons", _, innerTy, _),
-                                      outerTy,
-                                      _),
+                            TExpr.ArrayLit(EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _)
+                                                    TExpr.Const(TConstValue.Integral(IntWidth.Int32, 2L), _, _) ],
+                                           outerTy,
+                                           _),
                             _,
-                            _) ->
-                    Expect.equal opTy (TyFun(listTy, arrayTy)) "Array.ofList: list -> array"
-                    Expect.equal innerTy listTy "inner list type"
-                    Expect.equal outerTy arrayTy "outer array type"
+                            _) -> Expect.equal outerTy arrayTy "array literal ty"
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
 
