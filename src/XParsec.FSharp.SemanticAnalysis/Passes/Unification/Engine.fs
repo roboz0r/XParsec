@@ -523,45 +523,14 @@ module UnificationEngine =
         // carries no `null` member.
         | _ -> Violated
 
-    /// Is this laid out as a VALUE? `[<Struct>]` is what a type asks for and the target is
-    /// what it gets: JS erases the request and answers `false` for every key.
-    and private valueLayout (ctx: PassContext) (t: SemType) : ConstraintOutcome =
-        // What a NOMINAL's declaration asked for, from this compilation or from the unit that
-        // published it.
-        let declaredNominal (key: TypeKey) : bool voption =
-            TypeRegistry.tryRecordByKey ctx.Types key
-            |> ValueOption.map (fun info -> info.IsValueType)
-            |> ValueOption.orElseWith (fun () ->
-                TypeRegistry.tryClassByKey ctx.Types key
-                |> ValueOption.map (fun info -> info.IsValueType)
-            )
-            |> ValueOption.orElseWith (fun () ->
-                ctx.Provider.TryLookupType(SymbolKey.Type key)
-                |> ValueOption.bind ExternalSymbols.declaredValueType
-            )
-
-        // The target overrides a declaration, so it leads. No answer from either is a `Defer`,
-        // never a refusal: a compile composing no platform states nothing about either polarity.
-        let settled (key: TypeKey) (declared: unit -> bool voption) : ConstraintOutcome =
-            ctx.Provider.IsValueType key
-            |> ValueOption.orElseWith declared
-            |> ValueOption.map (fun isValueType -> if isValueType then Satisfied else Violated)
-            |> ValueOption.defaultValue Defer
-
-        match t with
-        // An anonymous union erases to the backend's universal reference primitive, and a
-        // tuple, a function and a union are laid out by reference on every target.
-        | TyTuple _
-        | TyFun _
-        | TyUnion _
-        | TyOr _ -> Violated
-        | TyConst(SymbolKey.Type key, _) -> settled key (fun () -> ValueNone)
-        // An enum declaration asks for a value type wherever the target lays one out.
-        | TyEnum key -> settled key (fun () -> ValueSome true)
-        | TyRecord(key, _)
-        | TyClass(key, _) -> settled key (fun () -> declaredNominal key)
-        // Not ground (or not key-addressed), so it states nothing either way.
-        | _ -> Defer
+    /// The layout query as a constraint verdict. No answer is a `Defer`, never a refusal: a
+    /// compile composing no platform states nothing about either polarity, and neither does
+    /// the front end about a tuple, whose layout only its backend encoding settles.
+    and private valueLayoutOutcome (ctx: PassContext) (t: SemType) : ConstraintOutcome =
+        match TypeLayout.ofSemType ctx t with
+        | TypeLayout.Value -> Satisfied
+        | TypeLayout.Reference -> Violated
+        | TypeLayout.Unanswered -> Defer
 
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested
     /// compounds recurse compositionally.
@@ -595,10 +564,10 @@ module UnificationEngine =
         // excluded so it widens to its base primitive first.
         | SemanticConstraintKind.Struct,
           ((TyConst _ | TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _ | TyEnum _) as ty) ->
-            valueLayout ctx ty
+            valueLayoutOutcome ctx ty
         | SemanticConstraintKind.ReferenceType,
           ((TyConst _ | TyTuple _ | TyFun _ | TyRecord _ | TyUnion _ | TyClass _ | TyOr _ | TyEnum _) as ty) ->
-            negate (valueLayout ctx ty)
+            negate (valueLayoutOutcome ctx ty)
         // Equality on an enum is universal and comparison on one is out of scope, so
         // neither is ever proved or refused here.
         | _, TyEnum _ -> Defer

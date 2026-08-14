@@ -25,15 +25,20 @@ module CodegenSymbols =
     let lookupTypeByKey (symbols: ICodegenSymbols) (key: SymbolKey) : ExternalTypeShape voption =
         reconciledLookup symbols.TryLookupType key
 
-    /// The settled value-ness, over either registration convention. `false` is the floor: a
-    /// `VALUETYPE`/`CLASS` tag is emitted for a non-type key and for an unanswered type alike.
-    let isValueType (symbols: ICodegenSymbols) (key: SymbolKey) : bool =
+    /// The settled layout of a REFERENCED type, over either registration convention:
+    /// `Unanswered` for a non-type key, and for a name this compilation emits itself.
+    let externalLayout (symbols: ICodegenSymbols) (key: SymbolKey) : TypeLayout =
         let settled (k: SymbolKey) =
             match k with
             | SymbolKey.Type t -> symbols.IsValueType t
             | _ -> ValueNone
 
-        reconciledLookup settled key |> ValueOption.defaultValue false
+        reconciledLookup settled key |> TypeLayout.ofAnswer
+
+    /// `false` is the floor: a `VALUETYPE`/`CLASS` tag is emitted for a non-type key and for
+    /// an unanswered type alike.
+    let isValueType (symbols: ICodegenSymbols) (key: SymbolKey) : bool =
+        externalLayout symbols key = TypeLayout.Value
 
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
         let storeShape (k: SymbolKey) : ExternalTypeShape voption = provider.TryLookupType k

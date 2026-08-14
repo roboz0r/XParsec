@@ -66,27 +66,10 @@ module Inline =
         | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
         | _ -> false
 
-    /// The value-type primitives the operator surface can reach.
-    let private isStructPrimitive =
-        RuntimeNames.isKeyIn
-            [
-                RuntimeNames.intKey
-                RuntimeNames.int64Key
-                RuntimeNames.byteKey
-                RuntimeNames.floatKey
-                RuntimeNames.float32Key
-                RuntimeNames.boolKey
-                RuntimeNames.charKey
-                RuntimeNames.decimalKey
-            ]
-
-    /// Approximate `when ^T : struct` for the primitives above; anything else is treated as
-    /// non-struct. Matched by KEY, so a user type spelling one of these names in its own
-    /// namespace cannot satisfy a `struct` constraint it does not meet.
-    let private isStructType (t: SemType) : bool =
-        match t with
-        | TyConst(key, _) -> isStructPrimitive key
-        | _ -> false
+    /// `when ^T : struct` as a clause guard: the target's layout, else what the declaration
+    /// asked for. A type neither answers for selects no clause, falling to the base.
+    let private isStructType (ctx: PassContext) (t: SemType) : bool =
+        TypeLayout.ofSemType ctx t = TypeLayout.Value
 
     /// The declaring `TypeKey` of an operand that can CARRY a static operator member, and so
     /// the only shape an SRTP trait call can dispatch to. An intrinsic qualifies on the same
@@ -113,7 +96,7 @@ module Inline =
             match c with
             | TStaticOptConstraint.TyconEquals(typar, required) ->
                 staticOptTypesMatch ctx.Store (sub typar) (sub required)
-            | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
+            | TStaticOptConstraint.IsStruct typar -> isStructType ctx (sub typar)
 
         // No clause body is a trait call: the arithmetic bodies carry the SRTP dispatch in the
         // BASE, with an explicit clause per supported primitive, so an operand matching no

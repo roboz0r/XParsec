@@ -47,9 +47,6 @@ type PassContextBindings =
         Scheme: SideTable<TypeScheme>
         TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
-        /// Keyed as `Escape` but orthogonal to it: a frame-local closure held in an aggregate
-        /// is `RequiresHeapRepr` here, `LocalStack` in `Escape`.
-        Repr: SideTable<RegionRepr>
         /// Bindings inside a named `module Foo = …`: which compiled module name (`Foo`/`FooModule`,
         /// not the anonymous "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BoundVarKey, ModuleBindingInfo>
@@ -70,7 +67,6 @@ module PassContextBindings =
             Scheme = SideTable<_>()
             TypeVar = SideTable<_>()
             Escape = SideTable<_>()
-            Repr = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
             DeclaredTypars = SideTable<_>()
             Accessibility = Dictionary<_, _>()

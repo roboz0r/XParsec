@@ -42,10 +42,11 @@ of that shows up in four places:
    variance mapping silently. Before the decorator, the compiler refused to build.
 
 3. **Composition rules get re-derived downstream.** `IsValueType`'s ladder — the target's layout
-   first, the declaration second — is spelled twice, in two projects: `Engine.valueLayout`
-   (`:529`) and `CodegenSymbols.ofProvider` (`:111`). They cannot merge as they stand, because
-   the front end has a local-`TypeRegistry` rung between the two that codegen has no equivalent
-   of. That is the tell: a ladder over composed sources is a property OF THE COMPOSITE, and
+   first, the declaration second — is `TypeLayout.resolve`, which both ends now share, but each
+   still supplies its own `declared` rung (the front end's local `TypeRegistry`, the backend's
+   `EmitEnv.Classes` / `.Records`) and `CodegenSymbols.ofProvider` (`:110`) keeps its own fold of
+   the two provider rungs. That is the tell: a ladder over composed sources is a property OF THE
+   COMPOSITE, and
    until `stack` settles it, every consumer holding a different subset of the rungs has to
    re-derive the order.
 
@@ -97,7 +98,7 @@ boundary correctly; this plan only makes the store half honest about being one q
 | `memoize`'s 11 dictionaries | one `TypeKey -> ResolvedType voption` |
 | `ReferencedProject.wrap`'s 1-source `stack` | a stamp argument, which it already is |
 | `CodegenSymbols.isValueType`'s ladder | settled in `stack`'s fold |
-| `Engine.valueLayout`'s external branch | one `TryResolveType` read |
+| `TypeLayout.declaredOf`'s external rung | one `TryResolveType` read |
 | `ProviderDecorator` | deleted |
 | `MetadataSymbols.computeMembers` + `membersCache` | deleted; `computeType` already has the data |
 
@@ -181,9 +182,9 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
 
 ## Not in scope
 
-- `EmitPattern.fs:89-106`'s hand-rolled value-type key list, which disagrees with the query about
-  `unit` and about enums. Independent of this plan and wants deciding on its own terms — see
-  `platform-facts-plan.md` step 4, whose anchor list should gain it.
+- ~~`EmitPattern`'s hand-rolled value-type key list~~ **DONE (2026-08-13)** — it classifies
+  through `TypeLayout.shapeOfFrozen` and the shared ladder now. One shape still has no key for
+  the query to answer under; `tuple-platform-type-plan.md` carries it.
 - `IntrinsicTypeMap` as a provider-level channel. The canon↔repr edge is walked at ~6 independent
   sites; resolving a canon THROUGH its repr once is a natural consequence of this plan but not a
   precondition for it.
@@ -199,9 +200,9 @@ Call sites to re-point: `NumberCovariance.fs:48`, `SymbolProviders.fs:282`, `Pas
   `KeyedChannels` (`:99`).
 - The double reflection pass: `MetadataSymbols.fs:236`, `:239` (caches), `:468` (`computeType`),
   `:508` (`computeMembers`), `:626-639` (the two by-name lookups).
-- The value-ness ladder, spelled once per consumer: `Engine.fs:529` (`valueLayout`, which has a
-  local-registry rung), `CodegenSymbols.fs:111` (inside `ofProvider`, so `ICodegenSymbols`
-  publishes the settled answer and no emission site re-derives it).
+- The value-ness ladder: `TypeLayout.resolve`, shared by both ends, each supplying its own
+  `declared` rung; and `CodegenSymbols.fs:110` (inside `ofProvider`, so `ICodegenSymbols`
+  publishes the settled provider answer and no emission site re-derives it).
 - The key-convention patch: `CodegenSymbols.fs:12-22`.
 - Composition sites: `AssemblyFiles.fs:130`, `:139`; `ReferencedProject.fs:383`, `:519`, `:554`;
   `ClrDriver.fs:143`; `SymbolProviders.fs:262`, `:282`.

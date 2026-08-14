@@ -88,5 +88,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
+    <ProjectReference Include="..\XParsec.FSharp.Codegen.Common.Tests\XParsec.FSharp.Codegen.Common.Tests.fsproj" />
   </ItemGroup>
 </Project>

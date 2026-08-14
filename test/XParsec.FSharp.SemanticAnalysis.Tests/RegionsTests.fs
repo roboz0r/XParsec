@@ -3,193 +3,35 @@ module XParsec.FSharp.SemanticAnalysis.Tests.RegionsTests
 open Expecto
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private analyse (input: string) =
-    let lexed, file = parseFile input
+// A compile composing no platform, so nothing is laid out flat and every type is tracked.
+// What holds here is what holds whatever a target answers; the rows that turn on the answer
+// are pinned per backend, in each codegen suite's `RegionLayoutTests`.
 
-    let ctx, _ =
-        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
+let private probe (input: string) =
+    RegionProbe.analyse realProvider.Value input
 
-    ctx, file
+/// Down to the pattern a parameter's parentheses and annotation wrap.
+let rec private unwrapPat (p: Pat<SyntaxToken>) : Pat<SyntaxToken> =
+    match p with
+    | Pat.EnclosedBlock(pat = inner)
+    | Pat.Typed(pat = inner) -> unwrapPat inner
+    | _ -> p
 
-/// Find the binding-pattern NodeKey of a module-level binding by name.
-let private patternKeyOf (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) (name: string) : NodeKey =
-    let rec tryBindings (bindings: System.Collections.Immutable.ImmutableArray<Binding<SyntaxToken>>) =
-        let mutable found = ValueNone
-        let mutable i = 0
+let private escapeOf (input: string) (name: string) : EscapeState option = RegionProbe.escapeOf (probe input) name
 
-        while found.IsNone && i < bindings.Length do
-            let b = bindings.[i]
+let private reprOf (input: string) (name: string) : RegionRepr option = RegionProbe.reprOf (probe input) name
 
-            match b.pattern with
-            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.pattern)
-            | _ -> ()
-
-            i <- i + 1
-
-        found
-
-    let tryElems (elems: ModuleElems<SyntaxToken>) =
-        let mutable found = ValueNone
-        let mutable i = 0
-
-        while found.IsNone && i < elems.Length do
-            match elems.[i] with
-            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
-                found <- tryBindings bindings
-            | _ -> ()
-
-            i <- i + 1
-
-        found
-
-    let result =
-        match file with
-        | ImplementationFile.AnonymousModule elems -> tryElems elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> tryElems elems
-        | _ -> ValueNone
-
-    match result with
-    | ValueSome k -> k
-    | ValueNone -> failwithf "binding %s not found at module level" name
-
-let private escapeOf (input: string) (name: string) : EscapeState option =
-    let ctx, file = analyse input
-    let key = patternKeyOf ctx file name
-
-    match ctx.Bindings.Escape.TryGetValue key with
-    | ValueSome s -> Some s
-    | ValueNone -> None
-
-/// Region of a binding, via its binding-pattern type variable.
-let private regionOf (input: string) (name: string) : RegionId option =
-    let ctx, file = analyse input
-    let key = patternKeyOf ctx file name
-
-    match ctx.Bindings.TypeVar.TryGetValue key with
-    | ValueSome tv ->
-        let root = UnionFind.find ctx.Store tv
-
-        if (ctx.Store.Region root.Id).Raw >= 0 then
-            Some(ctx.Store.Region root.Id)
-        else
-            None
-    | ValueNone -> None
-
-/// Axis-2 representation verdict of a MODULE-LEVEL binding, over the `Repr` side table.
-let private reprOf (input: string) (name: string) : RegionRepr option =
-    let ctx, file = analyse input
-    let key = patternKeyOf ctx file name
-
-    match ctx.Bindings.Repr.TryGetValue key with
-    | ValueSome r -> Some r
-    | ValueNone -> None
-
-/// The binding-pattern NodeKey of the first `let` named `name` reachable from `e`, through
-/// binding RHSs, let bodies and lambda bodies — e.g. `let g = fun x -> x` inside a function.
-let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToken>) : NodeKey voption =
-    match e with
-    | Expr.LetOrUse(bindings = bs; body = body) ->
-        let mutable found = ValueNone
-        let mutable i = 0
-
-        while found.IsNone && i < bs.Length do
-            let b = bs.[i]
-
-            match b.pattern with
-            | Pat.NamedSimple t when ctx.NameOf t = name -> found <- ValueSome(CstKeys.ofPat b.pattern)
-            | _ -> found <- findLetKey ctx name b.expr
-
-            i <- i + 1
-
-        match found with
-        | ValueSome _ -> found
-        | ValueNone ->
-            match body with
-            | ValueSome b -> findLetKey ctx name b
-            | ValueNone -> ValueNone
-    | Expr.Fun(expr = body) -> findLetKey ctx name body
-    | _ -> ValueNone
-
-/// Axis-2 verdict of a NESTED binding, under the first module-level binding's RHS.
 let private reprOfNested (input: string) (name: string) : RegionRepr option =
-    let ctx, file = analyse input
-
-    let rhs =
-        let elems =
-            match file with
-            | ImplementationFile.AnonymousModule e -> e
-            | _ -> failwith "expected anonymous module"
-
-        match elems.[0] with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0].expr
-        | _ -> failwith "expected let"
-
-    match findLetKey ctx name rhs with
-    | ValueSome key ->
-        match ctx.Bindings.Repr.TryGetValue key with
-        | ValueSome r -> Some r
-        | ValueNone -> None
-    | ValueNone -> failwithf "binding %s not found" name
+    RegionProbe.reprOfNested (probe input) name
 
 [<Tests>]
 let tests =
     testList
         "Regions"
         [
-            test "local closure doesn't escape" {
-                // `f` is called inside `useLocal`'s body and never escapes; `useLocal`
-                // returns the `int` result of `f 3`.
-                let input = "let useLocal () = let f x = x + 1 in f 3"
-                let useLocalEscape = escapeOf input "useLocal"
-                Expect.equal useLocalEscape (Some LocalStack) "useLocal returns int → LocalStack"
-
-                let fEscape =
-                    let ctx, file = analyse input
-
-                    let rec findInExpr e =
-                        match e with
-                        | Expr.LetOrUse(bindings = bs; body = body) ->
-                            let mutable found = ValueNone
-
-                            for b in bs do
-                                match b.pattern with
-                                | Pat.NamedSimple t when ctx.NameOf t = "f" ->
-                                    found <- ValueSome(CstKeys.ofPat b.pattern)
-                                | _ -> ()
-
-                            if found.IsNone then
-                                match body with
-                                | ValueSome b -> findInExpr b
-                                | ValueNone -> ValueNone
-                            else
-                                found
-                        | Expr.Fun(expr = body) -> findInExpr body
-                        | _ -> ValueNone
-
-                    let key =
-                        let elems =
-                            match file with
-                            | ImplementationFile.AnonymousModule e -> e
-                            | _ -> failwith "expected anonymous module"
-
-                        let rhs =
-                            match elems.[0] with
-                            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0].expr
-                            | _ -> failwith "expected let"
-
-                        match findInExpr rhs with
-                        | ValueSome k -> k
-                        | ValueNone -> failwith "f not found"
-
-                    match ctx.Bindings.Escape.TryGetValue key with
-                    | ValueSome s -> Some s
-                    | ValueNone -> None
-
-                Expect.equal fEscape (Some LocalStack) "f is LocalStack"
-            }
-
             test "returned closure escapes" {
                 let escape = escapeOf "let mkAdder n = fun x -> x + n\nlet a = mkAdder 5" "mkAdder"
 
@@ -214,45 +56,15 @@ let tests =
 
             test "doubly-captured closure becomes HeapShared" {
                 // `x` is captured by both `fun y` and `fun z`, so it reaches 2 distinct
-                // lambda regions → HeapShared.
-                let input = "let mk x = fun y -> fun z -> x + y + z"
-                let ctx, file = analyse input
+                // lambda regions → HeapShared. What `mk` itself settles at turns on whether
+                // the target tracks the `int` the bodies compute, so it is pinned per backend.
+                let p = probe "let mk x = fun y -> fun z -> x + y + z"
+                let xKey = CstKeys.ofPat (RegionProbe.firstBinding p).argumentPats.[0]
 
-                let mkEscape =
-                    let k = patternKeyOf ctx file "mk"
-
-                    match ctx.Bindings.Escape.TryGetValue k with
-                    | ValueSome s -> Some s
-                    | ValueNone -> None
-
-                Expect.equal mkEscape (Some CallerStack) "mk returns nested closures → CallerStack"
-
-                let xKey =
-                    let elems =
-                        match file with
-                        | ImplementationFile.AnonymousModule e -> e
-                        | _ -> failwith "expected anonymous module"
-
-                    let bindings =
-                        match elems.[0] with
-                        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs
-                        | _ -> failwith "expected let"
-
-                    let mkB = bindings.[0]
-                    let xPat = mkB.argumentPats.[0]
-                    CstKeys.ofPat xPat
-
-                let xEscape =
-                    match ctx.Bindings.Escape.TryGetValue xKey with
-                    | ValueSome s -> Some s
-                    | ValueNone -> None
-
-                Expect.equal xEscape (Some HeapShared) "x captured across 2 lambda boundaries → HeapShared"
-            }
-
-            test "pure arithmetic has no escape entry" {
-                let escape = escapeOf "let r = 1 + 2" "r"
-                Expect.equal escape None "r has no escape entry — it's a primitive value"
+                Expect.equal
+                    (RegionProbe.escapeAt p xKey)
+                    (Some HeapShared)
+                    "x captured across 2 lambda boundaries → HeapShared"
             }
 
             test "branching joins regions: function returning tuple from either arm" {
@@ -263,75 +75,22 @@ let tests =
             test "identifier reuse: bindings share a region" {
                 // `x` and `y` must map to one RegionId through the Ident pass-through rule;
                 // their binding patterns are inside `r`'s RHS, so the walk goes via the CST.
-                let input = "let r = let x = (1, 2) in let y = x in y"
-                let ctx, file = analyse input
+                let p = probe "let r = let x = (1, 2) in let y = x in y"
 
-                let rec scanLet (e: Expr<SyntaxToken>) : (NodeKey * RegionId) option * (NodeKey * RegionId) option =
-                    let mutable xR = None
-                    let mutable yR = None
+                let regionOfName name =
+                    RegionProbe.regionAt p (RegionProbe.nestedKeyOf p name)
 
-                    let regionOfPattern (b: Binding<SyntaxToken>) =
-                        let k = CstKeys.ofPat b.pattern
-
-                        match ctx.Bindings.TypeVar.TryGetValue k with
-                        | ValueSome tv ->
-                            let root = UnionFind.find ctx.Store tv
-
-                            if (ctx.Store.Region root.Id).Raw >= 0 then
-                                Some(k, ctx.Store.Region root.Id)
-                            else
-                                None
-                        | ValueNone -> None
-
-                    let rec walk e =
-                        match e with
-                        | Expr.LetOrUse(bindings = bs; body = body) ->
-                            for b in bs do
-                                match b.pattern with
-                                | Pat.NamedSimple t ->
-                                    match ctx.NameOf t with
-                                    | "x" -> xR <- regionOfPattern b
-                                    | "y" -> yR <- regionOfPattern b
-                                    | _ -> ()
-                                | _ -> ()
-
-                            match body with
-                            | ValueSome b -> walk b
-                            | ValueNone -> ()
-                        | _ -> ()
-
-                    walk e
-                    xR, yR
-
-                let rRhs =
-                    let elems =
-                        match file with
-                        | ImplementationFile.AnonymousModule e -> e
-                        | _ -> failwith "expected anonymous module"
-
-                    match elems.[0] with
-                    | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0].expr
-                    | _ -> failwith "expected let"
-
-                let xR, yR = scanLet rRhs
-
-                match xR, yR with
-                | Some(_, rx), Some(_, ry) -> Expect.equal rx ry "x and y share the same RegionId"
-                | _ -> failwithf "expected x and y to have regions, got x=%A y=%A" xR yR
+                let xR = regionOfName "x"
+                let yR = regionOfName "y"
+                Expect.isSome xR "x has a region"
+                Expect.equal xR yR "x and y share the same RegionId"
             }
 
             test "recursive binding doesn't crash the solver" {
                 // region(f) edges may form a self-loop through the App rule; the fixpoint
                 // solver must still converge.
-                let ctx, file = analyse "let rec f x = f x"
-                let k = patternKeyOf ctx file "f"
-
-                let escape =
-                    match ctx.Bindings.Escape.TryGetValue k with
-                    | ValueSome s -> Some s
-                    | ValueNone -> None
                 // Either verdict is acceptable; the test is that the pass terminates.
-                ignore escape
+                escapeOf "let rec f x = f x" "f" |> ignore
                 Expect.isTrue true "solver converged on recursive binding"
             }
 
@@ -347,88 +106,30 @@ let tests =
                 // `translatePat` drops the `as` node and surfaces only the inner bound
                 // variable `x`; the alias `y` is not a `TPat` bound variable, and downstream
                 // `Var`s find it via the side tables. So only `x`'s region is stamped.
-                let input = "let f (x as y) = x"
-                let ctx, file = analyse input
-
-                let elems =
-                    match file with
-                    | ImplementationFile.AnonymousModule e -> e
-                    | _ -> failwith "expected anonymous module"
-
-                let fBinding =
-                    match elems.[0] with
-                    | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0]
-                    | _ -> failwith "expected let"
-
-                let rec unwrap p =
-                    match p with
-                    | Pat.EnclosedBlock(pat = inner)
-                    | Pat.Typed(pat = inner) -> unwrap inner
-                    | _ -> p
-
-                let asPat = unwrap fBinding.argumentPats.[0]
+                let p = probe "let f (x as y) = x"
 
                 let innerKey =
-                    match asPat with
+                    match unwrapPat (RegionProbe.firstBinding p).argumentPats.[0] with
                     | Pat.As(pat = inner) -> CstKeys.ofPat inner
-                    | _ -> failwithf "expected As pattern, got %A" asPat
+                    | other -> failwithf "expected As pattern, got %A" other
 
-                let regionOfKey k =
-                    match ctx.Bindings.TypeVar.TryGetValue k with
-                    | ValueSome tv ->
-                        let root = UnionFind.find ctx.Store tv
-
-                        if (ctx.Store.Region root.Id).Raw >= 0 then
-                            Some(ctx.Store.Region root.Id)
-                        else
-                            None
-                    | ValueNone -> None
-
-                Expect.isSome (regionOfKey innerKey) "the as-pattern's surfaced inner bound variable has a region"
+                Expect.isSome
+                    (RegionProbe.regionAt p innerKey)
+                    "the as-pattern's surfaced inner bound variable has a region"
             }
 
             test "tuple-pattern parameter bound variables share a region" {
                 // `a` and `b` project parts of the same tuple parameter, so both land on
                 // the parameter's single region.
-                let input = "let f (a, b) = a"
-                let ctx, file = analyse input
-
-                let elems =
-                    match file with
-                    | ImplementationFile.AnonymousModule e -> e
-                    | _ -> failwith "expected anonymous module"
-
-                let fBinding =
-                    match elems.[0] with
-                    | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0]
-                    | _ -> failwith "expected let"
-
-                let rec unwrap p =
-                    match p with
-                    | Pat.EnclosedBlock(pat = inner)
-                    | Pat.Typed(pat = inner) -> unwrap inner
-                    | _ -> p
-
-                let tuplePat = unwrap fBinding.argumentPats.[0]
+                let p = probe "let f (a, b) = a"
 
                 let aKey, bKey =
-                    match tuplePat with
+                    match unwrapPat (RegionProbe.firstBinding p).argumentPats.[0] with
                     | Pat.Tuple(patterns = pats) -> CstKeys.ofPat pats.[0], CstKeys.ofPat pats.[1]
-                    | _ -> failwithf "expected Tuple pattern, got %A" tuplePat
+                    | other -> failwithf "expected Tuple pattern, got %A" other
 
-                let regionOfKey k =
-                    match ctx.Bindings.TypeVar.TryGetValue k with
-                    | ValueSome tv ->
-                        let root = UnionFind.find ctx.Store tv
-
-                        if (ctx.Store.Region root.Id).Raw >= 0 then
-                            Some(ctx.Store.Region root.Id)
-                        else
-                            None
-                    | ValueNone -> None
-
-                let rA = regionOfKey aKey
-                let rB = regionOfKey bKey
+                let rA = RegionProbe.regionAt p aKey
+                let rB = RegionProbe.regionAt p bKey
                 Expect.isSome rA "tuple-pattern element should have a region"
                 Expect.equal rA rB "tuple-pattern elements share one region"
             }
@@ -459,46 +160,12 @@ let tests =
             test "mutable cell captured by an escaping closure is HeapShared" {
                 // The cell is captured by the returned closure; with a threshold of 1, any
                 // closure capture forces HeapShared.
-                let input = "let mkCounter () = let mutable n = 0 in fun () -> n"
-                let ctx, file = analyse input
+                let p = probe "let mkCounter () = let mutable n = 0 in fun () -> n"
 
-                let nKey =
-                    let elems =
-                        match file with
-                        | ImplementationFile.AnonymousModule e -> e
-                        | _ -> failwith "expected anonymous module"
-
-                    let mkBinding =
-                        match elems.[0] with
-                        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) -> bs.[0]
-                        | _ -> failwith "expected let"
-
-                    let rec findN e =
-                        match e with
-                        | Expr.LetOrUse(bindings = bs; body = body) ->
-                            let mutable found = ValueNone
-
-                            for b in bs do
-                                match b.pattern with
-                                | Pat.NamedSimple t when ctx.NameOf t = "n" ->
-                                    found <- ValueSome(CstKeys.ofPat b.pattern)
-                                | _ -> ()
-
-                            if found.IsSome then
-                                found
-                            else
-                                match body with
-                                | ValueSome b -> findN b
-                                | ValueNone -> ValueNone
-                        | _ -> ValueNone
-
-                    match findN mkBinding.expr with
-                    | ValueSome k -> k
-                    | ValueNone -> failwith "n not found"
-
-                match ctx.Bindings.Escape.TryGetValue nKey with
-                | ValueSome HeapShared -> ()
-                | other -> failwithf "expected HeapShared for captured mutable, got %A" other
+                Expect.equal
+                    (RegionProbe.escapeOfNested p "n")
+                    (Some HeapShared)
+                    "a captured mutable cell is HeapShared"
             }
 
             test "list literal at module top is precisely analysed (no spurious HeapShared)" {

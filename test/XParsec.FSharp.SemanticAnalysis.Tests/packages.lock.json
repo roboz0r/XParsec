@@ -127,6 +127,15 @@
           "XParsec": "[1.0.0, )"
         }
       },
+      "xparsec.fsharp.codegen.common.tests": {
+        "type": "Project",
+        "dependencies": {
+          "Expecto": "[10.2.2, )",
+          "FSharp.Core": "[8.0.300, )",
+          "XParsec.FSharp.SemanticAnalysis": "[1.0.0, )",
+          "XParsec.Toml": "[1.0.0, )"
+        }
+      },
       "xparsec.fsharp.semanticanalysis": {
         "type": "Project",
         "dependencies": {

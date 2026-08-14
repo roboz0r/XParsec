@@ -157,6 +157,41 @@ let structTests =
                 Expect.equal (cmp.CompareTo(null)) 9 "the boxed struct keeps its field value through `:>`"
             }
 
+            test "`:> obj` boxes every value-type shape — unit, tuple and enum" {
+                let _, artifact = compileSourceData "ValueUpcast"
+                let bytes = Codegen.toBytes artifact
+
+                for fn in [ "unitAsObj"; "tupleAsObj"; "enumAsObj" ] do
+                    Expect.isTrue
+                        (peMethodIl bytes "Program" fn |> Array.contains 0x8Cuy)
+                        (sprintf "%s IL contains a `box` (0x8C)" fn)
+
+                let program = (loadAssembly bytes).GetType "Program"
+
+                // Each `describe` runs its boxed value through `ToString`, so a missing box is
+                // invalid IL the JIT refuses here rather than a wrong answer. Whether a `unit`
+                // parameter survives into the ABI is not this test's claim, so the call is
+                // built from the signature it finds.
+                let describes (name: string) : string =
+                    let m = program.GetMethod(name, BindingFlags.Public ||| BindingFlags.Static)
+                    Expect.isNotNull m (sprintf "%s emitted as a static method" name)
+
+                    let args =
+                        m.GetParameters()
+                        |> Array.map (fun p -> Activator.CreateInstance p.ParameterType)
+
+                    m.Invoke(null, args) :?> string
+
+                Expect.equal (describes "describeUnit") (ValueTuple().ToString()) "boxed `unit` is a ValueTuple"
+
+                Expect.equal
+                    (describes "describeTuple")
+                    (ValueTuple<int, int>(3, 4).ToString())
+                    "boxed tuple keeps 3, 4"
+
+                Expect.equal (describes "describeEnum") "Red" "boxed enum keeps its case name"
+            }
+
             test "a two-parameter static member on a struct binds both args (SumOf(3,4) returns 7)" {
                 let _, artifact = compileSourceData "StructStaticAdd2"
 

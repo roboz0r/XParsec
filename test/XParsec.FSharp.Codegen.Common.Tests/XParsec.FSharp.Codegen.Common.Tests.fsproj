@@ -21,6 +21,7 @@
     <Compile Include="Conformance.fs" />
     <Compile Include="Goldens.fs" />
     <Compile Include="OperatorClauses.fs" />
+    <Compile Include="RegionProbe.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Expecto" />

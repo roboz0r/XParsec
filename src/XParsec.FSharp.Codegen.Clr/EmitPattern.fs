@@ -85,25 +85,26 @@ module EmitPattern =
                 recur fldSlot subPat
         )
 
-    /// The scalars whose CLR representation is a VALUE type. `string` and `obj` are absent
-    /// because they are reference types; `unit` is absent despite its `System.ValueTuple` repr.
-    let private isValueTypePrimitive =
-        RuntimeNames.isKeyIn (RuntimeNames.boolKey :: RuntimeNames.charKey :: RuntimeNames.numericKeys)
-
-    /// A CLR value type: one of the scalars above, or a `[<Struct>]` class / record, whether
-    /// emitted into this assembly or living in a referenced package.
-    let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
-        match ty with
-        | FTConst(key, _) -> isValueTypePrimitive key
-        | FTClass(key, _) ->
-            match env.Classes.TryGetValue(SymbolKey.Type key) with
-            | true, c -> c.IsValueType
-            | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
-        | FTRecord(key, _) ->
+    /// The `[<Struct>]` a type EMITTED HERE asked for. Unanswered for a referenced name, which
+    /// the provider holds instead; the two sets are disjoint.
+    let private declaredHere (env: EmitEnv) (key: TypeKey) : TypeLayout =
+        match env.Classes.TryGetValue(SymbolKey.Type key) with
+        | true, c -> TypeLayout.ofValueness c.IsValueType
+        | false, _ ->
             match env.Records.TryGetValue(SymbolKey.Type key) with
-            | true, r -> r.IsValueType
-            | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
-        | _ -> false
+            | true, r -> TypeLayout.ofValueness r.IsValueType
+            | false, _ -> TypeLayout.Unanswered
+
+    /// Is a value of this type laid out as a CLR value type? Every shape but one is the shared
+    /// projection the front end typed against, so the two ends cannot classify a type
+    /// differently — a divergence is a missing `box` at every `:>` / `:?` / addressed call.
+    let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
+        match TypeLayout.shapeOfFrozen ty with
+        // The one shape carrying no key to answer under: this backend encodes a tuple as
+        // `System.ValueTuple`n`, which the same file's `destructureTuple` reads `Item` off.
+        | LayoutShape.Encoded -> true
+        | shape ->
+            TypeLayout.resolve (fun key -> env.Provider.ExternalLayout(SymbolKey.Type key)) (declaredHere env) shape = TypeLayout.Value
 
     /// Test a pattern against the value in local `scrutSlot`: branch to `nextLabel` on
     /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its bound variable to

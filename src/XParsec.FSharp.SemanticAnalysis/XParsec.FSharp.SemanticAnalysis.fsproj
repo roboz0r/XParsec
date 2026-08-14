@@ -105,6 +105,7 @@
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />
     <Compile Include="PassContext.fs" />
+    <Compile Include="TypeLayout.fs" />
     <Compile Include="MemberNames.fs" />
     <Compile Include="PropertyAccessors.fs" />
     <Compile Include="AssignTarget.fs" />

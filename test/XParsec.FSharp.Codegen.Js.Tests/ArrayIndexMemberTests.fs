@@ -67,7 +67,7 @@ let tests =
 
                 let lexed, file = parseFile input
 
-                let ctx, _ =
+                let ctx, _, _ =
                     Pipeline.analyseSemWithContextForCore
                         true
                         ""

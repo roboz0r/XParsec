@@ -590,6 +590,10 @@ type internal ClrEnv
     member _.LookupTypeByKey key = lookupTypeByKey key
     /// Drives the `VALUETYPE` vs `CLASS` element tag an encoded type spec carries.
     member _.ExternalIsValueType key = CodegenSymbols.isValueType symbols key
+
+    member _.ExternalLayout key =
+        CodegenSymbols.externalLayout symbols key
+
     member _.ExternalRecordShape(key, arity) = externalRecordShape key arity
     member _.ExternalRecordRef(key, arity) = externalRecordRef key arity
     member _.ExternalUnionShape(key, arity) = externalUnionShape key arity

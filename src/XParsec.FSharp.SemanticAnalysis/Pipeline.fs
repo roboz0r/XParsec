@@ -108,16 +108,16 @@ module Pipeline =
             | [] -> Ok parsed
             | recovered -> Error recovered
 
-    /// Runs every pass through the `SemType` domain, returning the populated `PassContext`
-    /// and the pre-freeze `TastFile`. `assemblyName` is the assembly this file emits into;
-    /// `""` for the front-end-only paths that never emit.
+    /// Runs every pass through the `SemType` domain, returning the populated `PassContext`,
+    /// what the region pass decided, and the pre-freeze `TastFile`. `assemblyName` is the
+    /// assembly this file emits into; `""` for the front-end-only paths that never emit.
     let analyseSemWithContextForCore
         (selfHostList: bool)
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
-        : PassContext * TastFile =
+        : PassContext * RegionVerdicts * TastFile =
         let ctx = PassContext(provider, source)
         ctx.AssemblyName <- assemblyName
         // A self-host (BCL-only) package build has no FSharp.Core, so an unpinned `[]`/`::`
@@ -130,12 +130,11 @@ module Pipeline =
         // Elaboration lowers the CST to a typar-quantified TAST with every inline call site
         // already expanded, so escape analysis below sees the closures codegen emits.
         let tast0 = Elaborate.run ctx file
-        Regions.run ctx tast0.Decls tast0.Specializations
-        // Codegen has no `PassContext`, so the closure verdicts decided in side tables are
-        // snapshotted onto the TastFile here, now that both are populated.
+        let regions = Regions.run ctx tast0.Decls tast0.Specializations
+        // Codegen has no `PassContext`, so the closure verdicts ride the TastFile.
         let tast0 =
             { tast0 with
-                ClosureReprs = Regions.closureReprSnapshot ctx tast0.Decls
+                ClosureReprs = regions.ClosureReprs
                 FunVerdicts =
                     ctx.FunVerdicts.AsDictionary()
                     |> Seq.map (fun kv -> kv.Key, kv.Value)
@@ -155,7 +154,7 @@ module Pipeline =
                 Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
-        ctx, tast
+        ctx, regions, tast
 
     /// The default front end: a bare-program list literal defaults to FSharp.Core's
     /// `list`. Self-host package builds use `…ForSelfHost` below.
@@ -165,7 +164,10 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        analyseSemWithContextForCore false assemblyName provider source file
+        let ctx, _, tast =
+            analyseSemWithContextForCore false assemblyName provider source file
+
+        ctx, tast
 
     /// Every pass plus the final `SemType → FrozenType` freeze: the frozen tree AS POOLS,
     /// which is what codegen consumes. `SemType` consumers use the `…Sem…` variants above.
@@ -186,6 +188,16 @@ module Pipeline =
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
         analyseSemWithContextFor "" provider source file
+
+    /// `analyseSemWithContext` keeping what the region pass returned. The escape axis lands on
+    /// the context, but the representation axis has no side table to read it off — it is
+    /// `Regions.run`'s return value, and this is its only route out of the pipeline.
+    let analyseSemWithRegions
+        (provider: IExternalSymbolProvider)
+        (source: OriginSource)
+        (file: ImplementationFile<SyntaxToken>)
+        : PassContext * RegionVerdicts * TastFile =
+        analyseSemWithContextForCore false "" provider source file
 
     /// `analyseWithContextFor` with no home assembly.
     let analyseWithContext
@@ -237,7 +249,7 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        let _, tast = analyseSemWithContextForCore true "" provider source file
+        let _, _, tast = analyseSemWithContextForCore true "" provider source file
         tast
 
     /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the tree's
@@ -248,7 +260,8 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        analyseSemWithContextForCore true "" provider source file
+        let ctx, _, tast = analyseSemWithContextForCore true "" provider source file
+        ctx, tast
 
     /// The self-host production entry: like `analyseFor` but a bare-program list
     /// literal/pattern defaults to the Vesper cons-list, so a BCL-only package with no
@@ -259,6 +272,7 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        let ctx, tast = analyseSemWithContextForCore true assemblyName provider source file
+        let ctx, _, tast =
+            analyseSemWithContextForCore true assemblyName provider source file
 
         Freeze.run ctx tast

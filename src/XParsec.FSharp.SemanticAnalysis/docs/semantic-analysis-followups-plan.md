@@ -1254,13 +1254,13 @@ reads drifting if the second is ever edited.
 
 ### `Passes/Regions.fs:6` — the pass contract lives in a `Pre:`/`Post:` prose header
 
-`run` is `PassContext -> EqArray<TDecl> -> EqArray<TSpecialization> -> unit`, so which side tables it
-requires (`Bindings.Binding`, `Bindings.TypeVar`) and which it fills (`Bindings.Escape`,
-`Bindings.Repr`, `Store.Region`) is stated only in the file header — a 27-line block, now 3, and the
-same shape recurs in `Validation.fs`, `Desugar.fs` and `RefCellPromotion.fs`. Nothing checks it:
-running `closureReprSnapshot` before `run` silently yields an empty map rather than an error. An
-explicit input record (the tables read) and returned output record (the tables written), threaded by
-`Pipeline`, would delete four prose headers and turn the ordering into a compile error.
+*Half landed 2026-08-13: `run` returns a `RegionVerdicts`, so the representation axis is no longer
+a `PassContext` table and the snapshot cannot be taken before the pass — it IS the pass's return.*
+
+Which side tables `run` requires (`Bindings.Binding`, `Bindings.TypeVar`) and which it still fills
+(`Bindings.Escape`, `Store.Region`) is stated only in the file header, and the same shape recurs in
+`Validation.fs`, `Desugar.fs` and `RefCellPromotion.fs`. An explicit input record (the tables read),
+threaded by `Pipeline`, would delete four prose headers and turn the ordering into a compile error.
 
 ### `Passes/Validation.fs:56`, `:93` — the record-field mutability check is written twice
 
@@ -1527,8 +1527,8 @@ deleted by the comment sweep).
 
 ### `Pipeline.fs:138` — closure verdicts reach codegen only by a hand-written side-table snapshot
 
-`analyseSemWithContextForCore` copies two `PassContext` side tables onto the `TastFile` by hand
-(`ClosureReprs` from `Regions.closureReprSnapshot`, `FunVerdicts` from `ctx.FunVerdicts`), because
+`analyseSemWithContextForCore` copies two verdict tables onto the `TastFile` by hand
+(`ClosureReprs` from `Regions.run`'s return, `FunVerdicts` from `ctx.FunVerdicts`), because
 codegen holds no `PassContext`. Nothing types the requirement: a third verdict table added to
 `PassContext` compiles and reaches codegen as a silent default. The prose that explained this ran
 to eleven lines over three blocks and was cut to two by the comment sweep, so the debt is now

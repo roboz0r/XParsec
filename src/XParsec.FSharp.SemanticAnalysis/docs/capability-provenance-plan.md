@@ -124,8 +124,8 @@ provenance proper: which FILE a declaration came from, and hiding.
 away from it.** This section carried a "SUPERSEDED — do not implement" marker for two days,
 deferring to `intrinsic-capability-representation-plan.md`. That deference was never earned:
 the doc it deferred to was three weeks OLDER, and when its premises were checked (2026-08-12)
-three of them were stale — it has since been absorbed into `platform-facts-plan.md`. The
-sketch below is reinstated as the target design.
+three of them were stale — it was absorbed into the platform-facts plan, which has since landed
+whole and been deleted. The sketch below is reinstated as the target design.
 
 **The provider answers the capability query** — given an intrinsic identity and a capability
 identity, is the capability satisfied and at what instantiation. `subtypeInterfacesOf` and
@@ -358,10 +358,11 @@ carrying no `.expected`, so the row does not have to borrow `run` and invent an 
 to say it. The same gap is why the nine equality/comparison SA sites listed above are weak
 assertions TODAY, not only after step 1.
 
-**Still outstanding, and NOT part of this: `Regions.isNonAllocatingPrimitive` (step 4).**
-`RegionsTests`'s `pure arithmetic has no escape entry` reads that predicate, and when step 4
-makes it backend-answered SA will have no answer. It cannot go to this corpus — a region is
-not observable in a program's stdout — so it goes to the per-backend suites instead.
+**`Regions.isNonAllocatingPrimitive` (step 4) landed 2026-08-13, and this held.**
+`RegionsTests`'s `pure arithmetic has no escape entry` read that predicate and SA now has no
+answer. A region is not observable in a program's stdout, so it could not go to this corpus:
+it and two others moved to a `RegionLayoutTests` in each backend suite, over the shared
+`RegionProbe`, and the two targets take opposite rows.
 
 ### Settled points carried forward
 
@@ -398,10 +399,10 @@ reversal is withdrawn.)*
 0. ~~**Relocate the SA tests that need a platform.**~~ **DONE (2026-08-12)** — and it was the
    `struct` / `not struct` axis alone, not "the larger half of step 1" this entry predicted.
    See the sub-section above for why the equality/comparison and array-`seq` tests stay in SA.
-1. `platform-facts-plan.md` step 1 (which absorbs Change B) — the capability query on the
-   provider, then eq/cmp routed to it. Independent of Change A.
-2. `platform-facts-plan.md` steps 2–4 — the representation axis and `Regions`. Step 4 is
-   independent of everything and is the reasonable place to prototype the query shape.
+1. ~~The platform-facts plan's capability query (which absorbs Change B)~~ **DONE
+   (2026-08-12)** — the query is on the provider and eq/cmp route to it.
+2. ~~Its representation axis and `Regions`~~ **DONE (2026-08-13)** — the layout ladder is
+   `TypeLayout`, read by both ends. `tuple-platform-type-plan.md` carries what it left open.
 3. **Change A**, last. Biggest, newest, and it no longer has anything waiting on it: with the
    capability verdict provider-answered, Change A is about `.fsi` HIDING and the
    signatures/bodies split on their own merits, not about plugging the capability hole.

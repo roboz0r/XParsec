@@ -4,8 +4,20 @@ open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  ctx.Bindings.Binding / .TypeVar populated; `decls` is post-inline.
-// Post: ctx.Bindings.Escape and .Repr populated per binding site; TypeVar.Region set.
-// Inlining both removes and creates closures, so escape is computed on what codegen emits.
+// Post: ctx.Bindings.Escape populated per binding site; TypeVar.Region set; the two axes
+//       returned. Inlining both removes and creates closures, so escape is computed on what
+//       codegen emits.
+
+/// What `Regions.run` decided. `Escape` lands on the context because a later pass reads it;
+/// these have no reader but the caller, so they are returned rather than parked there.
+type RegionVerdicts =
+    {
+        /// The pair of axes collapsed to the one verdict the backend reads.
+        ClosureReprs: Map<BoundVarKey, ClosureRepr>
+        /// Axis 2 alone, keyed as `ctx.Bindings.Escape` and orthogonal to it: a frame-local
+        /// closure held in an aggregate is `RequiresHeapRepr` here, `LocalStack` there.
+        Repr: SideTable<RegionRepr>
+    }
 
 module Regions =
 
@@ -102,73 +114,30 @@ module Regions =
     let private freshParam (s: State) : RegionId =
         s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false)
 
-    /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
-    /// into compound shapes).
-    let rec private resolveLink (store: TypeStore) (t: SemType) : SemType =
-        match t with
-        | TyVar tv ->
-            let root = UnionFind.find store tv
+    /// Does this type represent an allocation we should track? What the target lays out as a
+    /// VALUE does not; a closure, a named composite and anything unanswered do.
+    let private isAllocation (ctx: PassContext) (t: SemType) : bool =
+        match TypeLayout.shapeOf ctx.Store t with
+        // Not ground: the pass sees this type again once it grounds, so err toward not stamping.
+        | LayoutShape.Opaque -> false
+        | shape ->
+            // Decided BY KEY, so a user type merely SPELLED `int` reaches no primitive layout.
+            // A target that says nothing never will, so no answer is tracked, not assumed flat.
+            // Costs precision at `Encoded`, which is keyless BY SHAPE: a CLR tuple is a
+            // `System.ValueTuple` and is tracked here anyway. A tuple intrinsic key would
+            // recover it.
+            match TypeLayout.ofShape ctx shape with
+            | TypeLayout.Value -> false
+            | TypeLayout.Reference
+            | TypeLayout.Unanswered -> true
 
-            match store.Link root with
-            | ValueSome target -> resolveLink store target
-            | ValueNone -> TyVar root.Id
-        | _ -> t
-
-    /// The primitives that do not allocate. `string` is a reference type but its values
-    /// are interned/shared rather than allocated at a use site, so it belongs here with
-    /// the scalars.
-    let private isNonAllocatingPrimitive =
-        RuntimeNames.isKeyIn
-            [
-                RuntimeNames.intKey
-                RuntimeNames.int64Key
-                RuntimeNames.byteKey
-                RuntimeNames.floatKey
-                RuntimeNames.float32Key
-                RuntimeNames.decimalKey
-                RuntimeNames.boolKey
-                RuntimeNames.unitKey
-                RuntimeNames.stringKey
-            ]
-
-    /// Does this type represent an allocation we should track? Primitive scalars
-    /// and `unit` don't allocate; closures, tuples and named composites do.
-    /// Unresolved shapes resolve as non-allocating, so the pass errs toward not stamping.
-    let rec private isAllocation (store: TypeStore) (t: SemType) : bool =
-        match resolveLink store t with
-        // Matched by KEY: a user type merely SPELLED `int` is a nominal composite and
-        // does allocate, so a name-only test would wrongly stop tracking it.
-        | TyConst(key, _) -> not (isNonAllocatingPrimitive key)
-        | TyFun _
-        | TyTuple _ -> true
-        | TyRecord _ -> true
-        | TyUnion _ -> true
-        | TyClass _ -> true
-        // An anonymous union erases to a boxed reference (`obj` + `isinst`), so
-        // converting a value to one allocates.
-        | TyOr _ -> true
-        // An unevaluated type-level computation erases like `TyOr` once evaluated.
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ -> true
-        | TyVar _ -> false
-        | TyUnknown _ -> false
-        // An open typar: like a free `TyVar`, whether it allocates is unknown.
-        | TyTypar _ -> false
-        // An enum is a value type (numeric → `System.Enum`; string / mixed →
-        // a `[<Struct>]` wrapper), so it does not heap-allocate.
-        | TyEnum _ -> false
-        // A literal erases to its base primitive, an interned `string` or a
-        // scalar, both non-allocating here.
-        | TyLiteral _ -> false
-
-    let private exprIsAllocation (store: TypeStore) (e: TExpr) : bool = isAllocation store (TastWalk.exprTy e)
+    let private exprIsAllocation (ctx: PassContext) (e: TExpr) : bool = isAllocation ctx (TastWalk.exprTy e)
 
     /// Is an `Upcast` to `t` a heap-repr sink? A box to `obj`, or an upcast to the
     /// `Vesper.Fun<_,_>` interface, materialises a reference-typed value and pins the
     /// upcast source to a heap representation.
     let private isHeapReprTarget (store: TypeStore) (t: SemType) : bool =
-        match resolveLink store t with
+        match UnionFind.zonkShallow store t with
         | TyObj -> true
         | TyFun _ -> true
         | _ -> false
@@ -188,10 +157,10 @@ module Regions =
     /// If `e` allocates, mint a value region that outlives every arm region;
     /// otherwise return `fallback`. The `arms.Count > 0` guard is for a `match`
     /// with no rules, which allocates nothing.
-    let private joinArms (store: TypeStore) (s: State) (e: TExpr) (arms: RegionId seq) (fallback: RegionId) : RegionId =
+    let private joinArms (ctx: PassContext) (s: State) (e: TExpr) (arms: RegionId seq) (fallback: RegionId) : RegionId =
         let arms = ResizeArray(arms)
 
-        if exprIsAllocation store e && arms.Count > 0 then
+        if exprIsAllocation ctx e && arms.Count > 0 then
             let r = freshValue s
 
             for a in arms do
@@ -201,8 +170,8 @@ module Regions =
         else
             fallback
 
-    let private primitiveOrFreshResult (store: TypeStore) (s: State) (e: TExpr) : RegionId =
-        if exprIsAllocation store e then
+    let private primitiveOrFreshResult (ctx: PassContext) (s: State) (e: TExpr) : RegionId =
+        if exprIsAllocation ctx e then
             freshValue s
         else
             RegionId.Unknown
@@ -335,7 +304,7 @@ module Regions =
             for a in args do
                 inferRegion s ctx a |> ignore
 
-            primitiveOrFreshResult ctx.Store s e
+            primitiveOrFreshResult ctx s e
         // Resolved away by the inline-expansion pass; walk defensively in case a
         // residual one survives so any captures inside it still register.
         | TExpr.StaticOptimization(clauses, def, _, _) ->
@@ -348,13 +317,13 @@ module Regions =
         | TExpr.Use _ -> letChainRegion s ctx e
         | TExpr.IfThenElse(c, t, el, _, _) ->
             inferRegion s ctx c |> ignore
-            joinArms ctx.Store s e [ inferRegion s ctx t; inferRegion s ctx el ] RegionId.Unknown
+            joinArms ctx s e [ inferRegion s ctx t; inferRegion s ctx el ] RegionId.Unknown
         | TExpr.Match(sc, armRules, _, _) ->
             inferRegion s ctx sc |> ignore
-            joinArms ctx.Store s e [ for arm in armRules -> inferRegionArm s ctx arm ] RegionId.Unknown
+            joinArms ctx s e [ for arm in armRules -> inferRegionArm s ctx arm ] RegionId.Unknown
         | TExpr.TryWith(b, armRules, _, _) ->
             let bodyR = inferRegion s ctx b
-            joinArms ctx.Store s e [ yield bodyR; for arm in armRules -> inferRegionArm s ctx arm ] bodyR
+            joinArms ctx s e [ yield bodyR; for arm in armRules -> inferRegionArm s ctx arm ] bodyR
         | TExpr.TryFinally(b, c, _, _) ->
             let bodyR = inferRegion s ctx b
             inferRegion s ctx c |> ignore
@@ -366,29 +335,23 @@ module Regions =
             let fn, args = TastWalk.collectAppChain [] e
 
             joinArms
-                ctx.Store
+                ctx
                 s
                 e
                 [ yield inferRegion s ctx fn; for (a, _, _) in args -> inferRegion s ctx a ]
                 RegionId.Unknown
         | TExpr.MethodCall(objArg, _, _, args, _, _) ->
-            joinArms
-                ctx.Store
-                s
-                e
-                [ yield inferRegion s ctx objArg; for a in args -> inferRegion s ctx a ]
-                RegionId.Unknown
+            joinArms ctx s e [ yield inferRegion s ctx objArg; for a in args -> inferRegion s ctx a ] RegionId.Unknown
         | TExpr.StaticMethodCall(_, args, _, _) ->
-            joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+            joinArms ctx s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Resolved to a `StaticMethodCall` by inline expansion; walk args defensively
         // in case a residual one survives so captures inside it still register.
         | TExpr.TraitCall(_, _, args, _, _) ->
-            joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+            joinArms ctx s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // The entry's body is a separate root shared by every call site, so walking it
         // here would mint one region per site for one body's allocations. Treated as
         // the opaque call it is, coarse in the same direction `App` is.
-        | TExpr.InlineCall(args = args) ->
-            joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+        | TExpr.InlineCall(args = args) -> joinArms ctx s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Purely an anchor-domain marker: it allocates nothing and evaluates to its body,
         // so it rides the body's region exactly as a `Downcast` rides its source's.
         | TExpr.CallerExpr(body = body) -> inferRegion s ctx body
@@ -496,6 +459,11 @@ module Regions =
                 // `let mutable x = rhs`: one cell holds many values over its lifetime
                 // (`r <- (3, 4)`), so it gets its own region that outlives every value
                 // stored into it, rather than sharing the initial rhs's.
+                //
+                // Minted WITHOUT asking `isAllocation`, and its out-edges come only from
+                // `addCaptureEdges`. That is what keeps `RefCellPromotion` — the one reader of
+                // `Escape` that runs on every target — deciding the same on a target that lays
+                // primitives out flat and one that lays none out flat.
                 let cell = freshCell s
                 s.Graph.AddEdge(rhsR, cell)
                 recordBindingRegion s ctx p cell
@@ -653,10 +621,43 @@ module Regions =
                     RegionRepr.StackOnlyEligible
             )
 
+    /// One verdict per bound variable in `decls`: `Stack` iff frame-confined (`LocalStack`) AND
+    /// free of any heap-repr channel. `decls` only, because emit-time expansion re-mints bound
+    /// variables, so an entry's own bound variable is unlookupable.
+    let private closureReprs
+        (ctx: PassContext)
+        (repr: SideTable<RegionRepr>)
+        (decls: EqArray<TDecl>)
+        : Map<BoundVarKey, ClosureRepr> =
+        Map.ofSeq (
+            seq {
+                for boundVar in TastWalk.declBoundVars decls do
+                    let key = BoundVarKey.identity boundVar
+
+                    match ctx.Bindings.Escape.TryGetValue key with
+                    | ValueNone -> ()
+                    | ValueSome escape ->
+                        let stackEligible =
+                            escape = LocalStack
+                            && (
+                                match repr.TryGetValue key with
+                                | ValueSome RegionRepr.StackOnlyEligible -> true
+                                | _ -> false
+                            )
+
+                        yield
+                            boundVar,
+                            (if stackEligible then
+                                 ClosureRepr.Stack
+                             else
+                                 ClosureRepr.Heap)
+            }
+        )
+
     /// `specializations` is the file's resolved-inline table. It must be walked: a caller
     /// local captured by a lambda fused into an inline body is a capture of THIS file's
     /// binding, and leaving it unseen is a `let mutable` left unpromoted.
-    let run (ctx: PassContext) (decls: EqArray<TDecl>) (specializations: EqArray<TSpecialization>) : unit =
+    let run (ctx: PassContext) (decls: EqArray<TDecl>) (specializations: EqArray<TSpecialization>) : RegionVerdicts =
         let s: State =
             {
                 Graph = RegionGraph()
@@ -703,39 +704,17 @@ module Regions =
 
         let state = solve s.Graph
         let repr = solveRepr s.Graph state
+        let reprTable = SideTable<RegionRepr>()
 
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let tv = UnionFind.find ctx.Store kv.Value
+            let region = ctx.Store.Region tv.Id
 
-            if (ctx.Store.Region tv.Id).Raw >= 0 && (ctx.Store.Region tv.Id).Raw < state.Length then
-                ctx.Bindings.Escape.Set(kv.Key, state.[(ctx.Store.Region tv.Id).Raw])
-                ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv.Id).Raw])
+            if region.Raw >= 0 && region.Raw < state.Length then
+                ctx.Bindings.Escape.Set(kv.Key, state.[region.Raw])
+                reprTable.Set(kv.Key, repr.[region.Raw])
 
-    /// One verdict per bound variable in `decls`, after `run` has filled both side tables: `Stack`
-    /// iff frame-confined (`LocalStack`) AND free of any heap-repr channel. `decls` only, because
-    /// emit-time expansion re-mints bound variables, so an entry's own bound variable is unlookupable.
-    let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BoundVarKey, ClosureRepr> =
-        Map.ofSeq (
-            seq {
-                for boundVar in TastWalk.declBoundVars decls do
-                    let key = BoundVarKey.identity boundVar
-
-                    match ctx.Bindings.Escape.TryGetValue key with
-                    | ValueNone -> ()
-                    | ValueSome escape ->
-                        let stackEligible =
-                            escape = LocalStack
-                            && (
-                                match ctx.Bindings.Repr.TryGetValue key with
-                                | ValueSome RegionRepr.StackOnlyEligible -> true
-                                | _ -> false
-                            )
-
-                        yield
-                            boundVar,
-                            (if stackEligible then
-                                 ClosureRepr.Stack
-                             else
-                                 ClosureRepr.Heap)
-            }
-        )
+        {
+            ClosureReprs = closureReprs ctx reprTable decls
+            Repr = reprTable
+        }

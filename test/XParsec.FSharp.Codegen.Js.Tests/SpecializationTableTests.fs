@@ -69,7 +69,7 @@ let private heapSharedCount (input: string) (walkTable: bool) : int =
         else
             EqArray.empty
 
-    Regions.run analysed.Ctx decls table
+    Regions.run analysed.Ctx decls table |> ignore
 
     analysed.Ctx.Bindings.Escape.AsDictionary()
     |> Seq.filter (fun kv -> kv.Value = EscapeState.HeapShared)

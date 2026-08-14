@@ -579,7 +579,7 @@ Deletes: both `Module`-suffix exception comments and the "a module has no compan
 
 `RegionsTests` carries two banner comments defining "Axis 1" (lifetime, `EscapeState`) and
 "Axis 2" (representation, `RegionRepr`), plus eight test comments that only parse once you
-have read them. The two side tables are `ctx.Bindings.Escape` and `ctx.Bindings.Repr`, and the
+have read them. The two tables are `ctx.Bindings.Escape` and `RegionVerdicts.Repr`, and the
 ref-struct predicate `LocalStack ∧ StackOnlyEligible` is stated in prose in two files (here and
 `SemanticScalars.fs:131`) and computed in neither.
 

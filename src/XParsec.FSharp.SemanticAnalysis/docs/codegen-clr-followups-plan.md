@@ -189,29 +189,27 @@ Either delete `AddProgramType` and call `AddClass`, or make the container member
 one that takes no `firstField` and derives it from the row count is the shape its doc
 describes.
 
-## A15. `isValueType` answers `false` for tuples and for enums
+## A15. `isValueType` answers `false` for tuples and for enums — **DONE (2026-08-13)**
 
-`EmitPattern.isValueType` matches `FTConst` (against the scalar-name set), `FTClass` and
-`FTRecord` (against an `IsValueType` flag), and returns `false` for everything else. Two
-shapes the backend itself emits as value types fall into that `_` arm:
+`EmitPattern.isValueType` classifies through `TypeLayout.shapeOfFrozen`, which is TOTAL over
+`FrozenType`, so `unit` (a `System.ValueTuple` that the scalar-name set omitted), `FTTuple`,
+`FTEnum` and `FTLiteral` each answer for themselves and a new case is a compile error rather
+than a silent `false`. Three sites acted on the wrong answer — `EmitIntrinsic.buildUpcast` (`box` vs
+nothing), `buildDowncast` (`unbox.any` vs `castclass`) and `EmitPattern`'s `:? T as x` — so
+`(t :> obj)` on any of the three pushed an unboxed value where a reference was required:
+invalid IL, caught by nothing at emit. `data/ValueUpcast.fs` + the `Struct` suite pin the
+`box` per shape; each arm reverted individually drops it.
 
-- `FTTuple` — emitted as `System.ValueTuple`n`, a struct. The same file's `destructureTuple`
-  reads its `Item` fields off exactly that layout.
-- `FTEnum` — `env.Enums` is a dictionary of its own, so neither the `FTClass` nor the
-  `FTRecord` arm can see it. A numeric enum is a `System.Enum` subclass and a string/mixed
-  one is `[<Struct>]`; both are value types.
-
-A third, by a different route: `unit` REACHES the `FTConst` arm and is absent from the key
-list, which is `boolKey :: charKey :: numericKeys`. `prim-types-min.clr.fs` binds
-`type unit = (# "System.ValueTuple" #)` and `ClrEncoder` encodes that repr with
-`isValueType = true`, so the encoder and the predicate disagree about the same type. Fixing
-the `_` arm alone leaves this one, which is why it belongs here rather than in its own entry.
-
-Three sites act on the answer: `EmitIntrinsic.buildUpcast` (`box` vs nothing),
-`buildDowncast` (`unbox.any` vs `castclass`) and `EmitPattern`'s `:? T as x`. So
-`(t :> obj)` on a tuple or an enum pushes an unboxed value where a reference is required —
-invalid IL, caught by nothing at emit — and `(o :?> int * int)` emits `castclass` against a
-struct. Pairs with B20.
+**Why the key list could not have been patched instead (user, 2026-08-13):** a backend
+classifying a CLR REPR fact off `RuntimeNames` keys is a latent bug by construction — the key
+is the front-end canon and the fact belongs to the repr the target's `.fs` binds it to, so the
+two can only agree by hand. Naming a canon to CONSTRUCT a type
+(`FTConst(RuntimeNames.unitKey, …)`) is the opposite and stays: the repr is resolved FROM it,
+through `IntrinsicTypeMap`. Three key-set classifications survive in this backend —
+`isVesperListKey`, `isFsharpCoreListKey`, `isPrintfFormatKey` — each recognising one nominal
+identity rather than a layout, which is why they are not this bug; and `RuntimeNames` itself
+still carries four CLR-specific NAMES (`textWriterTypeName`, `stringWriterTypeName`,
+`arrayOfListName`, `formatterTypeName`), which is the same seam crossed the other way.
 
 ## A16. The ref-struct disposal carve-out can never fire on the CLR — `use` rejects it first
 
@@ -434,18 +432,19 @@ A value built once off `ClrCompilation` and carrying the provider together with 
 makes that mismatch unspellable and deletes the surviving clause of `compileCachedWith`'s
 three-line doc, which exists only to say "fold `digest` from THESE `inputs`".
 
-## B20. A CLR-repr classifier, not a `bool` with an open `_` arm
+## B20. A CLR-repr classifier, not a `bool` over three answers
 
-`EmitPattern.isValueType : EmitEnv -> FrozenType -> bool` decides value-vs-reference by
-enumerating the cases it knows and defaulting the rest to `false`, which is what makes A15
-silent: adding `FTEnum` to `FrozenType` could not have broken it. Its surviving two-line doc
-("one of the scalars above, or a `[<Struct>]` class / record — emitted into this assembly, or
-living in a referenced package") exists only to list which cases the `bool` covers.
+*Half landed with A15 (2026-08-13): `TypeLayout.shapeOfFrozen` enumerates every `FrozenType`
+case, so the open `_` arm that made A15 silent is gone and a new case is a compile error. What
+remains is the THIRD answer, below.*
 
-A total classifier — `clrRepr : FrozenType -> ClrRepr` over `Value | Reference | Boxable of
-typar` — makes the default unwritable, gives `buildUpcast`'s `FTTypar`-then-`isValueType`
-two-step one match, and deletes the doc. Its acceptance test is A15: with the DU in place a
-missing case is a compile error, not a wrong `box`.
+The predicate still returns `bool`, so "boxable typar" is not one of its answers: `buildUpcast`
+tests `FTTypar` itself, ahead of the call, and `isValueType` answers `false` for a typar it
+must nonetheless box. Two shapes, two readers, one of which has to remember the other.
+
+`clrRepr : FrozenType -> ClrRepr` over `Value | Reference | Boxable of typar` gives
+`buildUpcast` one match, and puts the typar answer where the other two live rather than in the
+one caller that happens to need it.
 
 ## B21. A resolved reference set — `ProjectInfo.References` is a `string list` of paths
 

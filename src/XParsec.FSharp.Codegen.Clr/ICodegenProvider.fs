@@ -339,10 +339,12 @@ type ICodegenProvider =
     /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`.
     abstract ValueTupleRefs: elemTys: FrozenType list -> ValueTupleHandles
 
-    /// Whether a *referenced-assembly / referenced-package* nominal type is laid out as a
-    /// value: the metadata layer's `Type.IsValueType` first, then the `[<Struct>]` the shape's
-    /// declaration carries. `false` for a reference type or any unresolved name.
-    abstract IsExternalValueType: key: SymbolKey -> bool
+    /// How a *referenced-assembly / referenced-package* nominal type is laid out: the metadata
+    /// layer's `Type.IsValueType` first, then the `[<Struct>]` the shape's declaration carries.
+    /// `Unanswered` where the referenced set is silent, so a caller holding its own declarations
+    /// can take over. It reads the store the front end typed against, which is what keeps the
+    /// two ends from classifying a type differently.
+    abstract ExternalLayout: key: SymbolKey -> TypeLayout
 
     /// `System.Decimal::.ctor(int32, int32, int32, bool, uint8)` — emits a
     /// `decimal` constant the way F# / Roslyn do, from `Decimal.GetBits`.

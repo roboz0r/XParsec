@@ -277,7 +277,7 @@ type ClrProvider
         member _.IntrinsicClassBase(canon) = ext.IntrinsicClassBase(canon)
         member _.TypeToken(ty) = recipes.TypeToken(ty)
         member _.ValueTupleRefs(elemTys) = enc.ValueTupleRefs elemTys
-        member _.IsExternalValueType(key) = env.ExternalIsValueType key
+        member _.ExternalLayout(key) = env.ExternalLayout key
         member _.DecimalCtor = env.EDecimalCtor.Value
         member _.ExceptionCtor = env.EExceptionCtor.Value
 

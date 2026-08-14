@@ -17,6 +17,7 @@
     <Compile Include="AnchorFileLocalityTests.fs" />
     <Compile Include="BoundVarNamingTests.fs" />
     <Compile Include="PrimitiveExprTests.fs" />
+    <Compile Include="RegionLayoutTests.fs" />
     <Compile Include="FunctionEmissionTests.fs" />
     <Compile Include="RecordTests.fs" />
     <Compile Include="UnionMatchTests.fs" />
