@@ -80,20 +80,26 @@ had been reassuring readers this hole did not exist.
 Each entry names the comment it deletes. That is the acceptance test: if the refactor lands
 and the sentence would still need writing, the refactor was the wrong shape.
 
-## B1. `EmitJsContext.WalkCtx`'s six `Dictionary<SymbolKey, _>` fields
+## B1. `EmitJsContext.WalkCtx`'s six `Dictionary<SymbolKey, _>` fields — DONE
 
-Two structural facts were narrated in prose across several blocks: which key kind each table
-takes, and that each `External*` table is the fall-back consulted on a miss in its local
-twin.
+`LocalThenExternal<'Info>` (`Local` / `External` / `Resolve`) replaced the `Records`+
+`ExternalRecords` and `Unions`+`ExternalUnions` pairs, so six fields are four and the
+fall-back is `tryFind` rather than a sentence. `resolveExternalRecord` / `resolveExternalUnion`
+became the private `externalRecord` / `externalUnion`, provider-only functions that no longer
+cache — the table does that — and are baked into the value at `WalkCtx.create`; `buildProgram`
+supplies the collected local half through `withLocal`.
 
-A `LocalThenExternal<'Info>` — the two dictionaries plus the resolver, with miss-then-provider
-as its one operation — makes the pairing visible instead of asserted, for both records and
-unions.
+`tryLocal` is the second operation: `Members.typeName` mangles off a name only a locally
+emitted declaration has, and must not resolve an import to answer.
 
-Narrower half of the same finding, and independently worth doing: `Classes` / `Enums` /
-`Records` / `Unions` are keyed by a `SymbolKey` that is ALWAYS `SymbolKey.Type`, so every
-call site writes `SymbolKey.Type key` to get in. Keying them by `TypeKey` removes the wrapping
-AND the need to document the key at all.
+All four tables are now keyed by `TypeKey`. `nominalKey` returns one instead of widening;
+`collectTypes` writes `td.TypeKey`; `enumCaseAccess` and `staticFieldRef` take one. The two
+`SymbolKey.Type key` wrappings at the table reads are gone. Three call sites narrow instead,
+through a new `SymbolKeyOps.asTypeKey` beside `asMemberKey`, because the TAST's
+`StaticFieldGetView.Key` / `StaticFieldSetView.Key` / `EnumCasePatView.EnumKey` are still
+`SymbolKey` — always `SymbolKey.Type`, and narrowing them is a `SemanticAnalysis` +
+`Codegen.Clr` change out of scope here. Worth a Part C entry: the CLR backend wraps the same
+keys at its own `env.Enums` / `env.Classes` reads.
 
 ## B2. `EmitJs`'s `ExprShape.New` arm
 
@@ -186,6 +192,14 @@ at independently in the other backend**, and also defended by a comment claiming
 counts cannot diverge. A1's `TailParams` is trampoline-shaped and JS-local, so it does not
 reach that call site: the CLR half still wants a value in **`Codegen.Common`** pairing the
 groups with the flat vector. See `codegen-clr-followups-plan.md` A1/B1.
+
+## The static-field / enum-case TAST views are over-wide — SemanticAnalysis + both backends
+
+Fallen out of B1. `StaticFieldGetView.Key`, `StaticFieldSetView.Key` and
+`EnumCasePatView.EnumKey` are `SymbolKey`, and every producer builds `SymbolKey.Type`. The JS
+backend now narrows at three call sites; `Codegen.Clr` wraps at each `env.Enums` /
+`env.Classes` read instead. Narrowing the three views to `TypeKey` deletes both, but touches
+`TastNodeViews`, `FrozenCodec` and the CLR backend, so it belongs to a pass that owns all three.
 
 ## Diagnostic STRINGS carry the H19 causal hedge — one decision, three projects
 

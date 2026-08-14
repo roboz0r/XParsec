@@ -225,7 +225,7 @@ module EmitJs =
             let localClassName =
                 match TastLower.objArgShape ty with
                 | ValueSome(key, _) ->
-                    match ctx.Classes.TryGetValue(SymbolKey.Type key) with
+                    match ctx.Classes.TryGetValue key with
                     | true, name -> ValueSome name
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
@@ -292,15 +292,17 @@ module EmitJs =
         // being the enum. Any other key is a `static let` backing field, `ClassName.field`.
         | ExprShape.StaticFieldGet ->
             let sfg = TastAccessor.exprStaticFieldGet e
+            let declKey = SymbolKeyOps.asTypeKey "EmitJs: static field" sfg.Key
 
             match TastAccessor.exprTy e with
-            | FTEnum _ -> enumCaseAccess ctx sfg.Key sfg.FieldName loc
-            | _ -> staticFieldRef ctx sfg.Key sfg.FieldName loc
+            | FTEnum _ -> enumCaseAccess ctx declKey sfg.FieldName loc
+            | _ -> staticFieldRef ctx declKey sfg.FieldName loc
 
         // `x <- v` on a `static let mutable` backing field → `(ClassName.field = v)`.
         | ExprShape.StaticFieldSet ->
             let sfs = TastAccessor.exprStaticFieldSet e
-            JsExpr.Assign(staticFieldRef ctx sfs.Key sfs.FieldName loc, buildExpr ctx sfs.Value, loc)
+            let declKey = SymbolKeyOps.asTypeKey "EmitJs: static field" sfs.Key
+            JsExpr.Assign(staticFieldRef ctx declKey sfs.FieldName loc, buildExpr ctx sfs.Value, loc)
 
         | ExprShape.StaticMethodCall ->
             applyArgs
@@ -939,8 +941,8 @@ module EmitJs =
 
         let ctx =
             { ctx0 with
-                Records = collected.Records
-                Unions = collected.Unions
+                Records = LocalThenExternal.withLocal collected.Records ctx0.Records
+                Unions = LocalThenExternal.withLocal collected.Unions ctx0.Unions
                 Classes = collected.Classes
                 Enums = collected.Enums
                 CompiledFns = compiledFns

@@ -280,6 +280,12 @@ module SymbolKeyOps =
 
     let declTypeKeyOf (what: string) (k: SymbolKey) : TypeKey = (asMemberKey what k).Decl
 
+    /// Narrow a wide `SymbolKey` to a `TypeKey`; `what` names the site in the failure.
+    let asTypeKey (what: string) (k: SymbolKey) : TypeKey =
+        match k with
+        | SymbolKey.Type t -> t
+        | other -> failwithf "%s: expected a TypeKey, got %A" what other
+
     /// Arguments consumed by a member's argument groups, and what is left over.
     type OpenedArgGroups<'a> =
         {

@@ -120,12 +120,12 @@ module EmitJsTypes =
     type CollectedTypes =
         {
             Decls: JsStatement list
-            Records: System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>
-            Unions: System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>
-            Classes: System.Collections.Generic.Dictionary<SymbolKey, string>
+            Records: System.Collections.Generic.Dictionary<TypeKey, JsRecordInfo>
+            Unions: System.Collections.Generic.Dictionary<TypeKey, JsUnionInfo>
+            Classes: System.Collections.Generic.Dictionary<TypeKey, string>
             /// Enum type → the emitted `Object.freeze({…})` map's name, which is what
             /// makes a case reference resolve to the property read `E.Ci`.
-            Enums: System.Collections.Generic.Dictionary<SymbolKey, string>
+            Enums: System.Collections.Generic.Dictionary<TypeKey, string>
             PendingClasses: PendingClass list
             PendingUnions: PendingUnion list
             Members: (string * TastAccessor.TypeMember) list
@@ -201,10 +201,10 @@ module EmitJsTypes =
         (decls: TastAccessor.DeclId list)
         : CollectedTypes =
         let ordered = ResizeArray<JsStatement>()
-        let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
-        let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
-        let classes = System.Collections.Generic.Dictionary<SymbolKey, string>()
-        let enums = System.Collections.Generic.Dictionary<SymbolKey, string>()
+        let records = System.Collections.Generic.Dictionary<TypeKey, JsRecordInfo>()
+        let unions = System.Collections.Generic.Dictionary<TypeKey, JsUnionInfo>()
+        let classes = System.Collections.Generic.Dictionary<TypeKey, string>()
+        let enums = System.Collections.Generic.Dictionary<TypeKey, string>()
         let pendingClasses = ResizeArray<PendingClass>()
         let pendingUnions = ResizeArray<PendingUnion>()
         let members = ResizeArray<string * TastAccessor.TypeMember>()
@@ -246,7 +246,7 @@ module EmitJsTypes =
                             Home = ValueNone
                         }
 
-                    records.[td.Key] <- info
+                    records.[td.TypeKey] <- info
 
                     if recInterfaces.IsEmpty then
                         // No interface impls → no method bodies to defer; emit the class now
@@ -274,7 +274,7 @@ module EmitJsTypes =
                             td.Name
                             [ for case in cases -> case.Name, [ for (nm, _) in case.Fields -> nm ] ]
 
-                    unions.[td.Key] <- info
+                    unions.[td.TypeKey] <- info
                     let brand = SymbolKeyOps.qualifiedName td.Key
 
                     if unionInterfaces.IsEmpty then
@@ -297,7 +297,7 @@ module EmitJsTypes =
                                 Members = parts
                             }
                 | TTypeKindG.Class cls ->
-                    classes.[td.Key] <- td.Name
+                    classes.[td.TypeKey] <- td.Name
 
                     // Two class shapes are REJECTED rather than dropped: `inherit`, since no
                     // `extends` / `super(…)` is emitted and the base ctor would never run;
@@ -357,7 +357,7 @@ module EmitJsTypes =
                 // shape `const E = Object.freeze({ C1: v1, … })`, no reverse map. A case with
                 // no value was already a hard error at elaboration, so drop it silently.
                 | TTypeKindG.Enum cases ->
-                    enums.[td.Key] <- td.Name
+                    enums.[td.TypeKey] <- td.Name
 
                     let entries =
                         [
