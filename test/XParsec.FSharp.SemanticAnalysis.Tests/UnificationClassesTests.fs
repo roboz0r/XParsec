@@ -193,14 +193,14 @@ let tests =
                 Expect.isTrue hasStaticDiag "instance.staticMember access diagnoses"
             }
 
-            test "list literal `[1; 2; 3]` types as `list<int>`" {
+            test "list literal `[1; 2; 3]` types as `List<int>`" {
                 let ctx = analyse "let xs = [1; 2; 3]"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 let expected =
-                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton BuiltinTypes.tyInt)
+                    SemType.TyUnion(RuntimeNames.vesperListKey, EqArray.singleton BuiltinTypes.tyInt)
 
-                Expect.equal (typeOf ctx patKey) expected "xs : list<int>"
+                Expect.equal (typeOf ctx patKey) expected "xs : List<int>"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -233,12 +233,12 @@ let tests =
                 Expect.isNonEmpty ctx.Diagnostics "the element type still has to match"
             }
 
-            test "empty list `[]` types as `list<'a>` (element TyVar stays free)" {
+            test "empty list `[]` types as `List<'a>` (element TyVar stays free)" {
                 let ctx = analyse "let xs = []"
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match typeOf ctx patKey with
-                | TyRecord("Microsoft.FSharp.Collections.list`1", args) when
+                | TyUnion("Vesper.Collections.List`1", args) when
                     args.Length = 1
                     && (
                         match args.[0] with
@@ -247,7 +247,7 @@ let tests =
                     )
                     ->
                     ()
-                | other -> failtestf "expected list<free TyVar>, got %A" other
+                | other -> failtestf "expected List<free TyVar>, got %A" other
             }
 
             test "list literal element types must unify" {

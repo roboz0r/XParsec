@@ -55,8 +55,7 @@ export function D_useAny(v) { return "A:" + v; }
 let private warningsWith (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
-    let tast =
-        Pipeline.analyseSemForSelfHost dynProvider (Hashing.originSourceOfText lexed) file
+    let tast = Pipeline.analyseSem dynProvider (Hashing.originSourceOfText lexed) file
 
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Warning)
 

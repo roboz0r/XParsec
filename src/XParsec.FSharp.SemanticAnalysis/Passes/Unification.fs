@@ -917,24 +917,20 @@ module Unification =
     /// walked: still free (`printfn "%A" [1;2;3]`) → link to the default list type;
     /// already driven to a list-like type → reconcile its element with the literal's.
     let private resolveListLiterals (ctx: PassContext) : unit =
-        // A self-host package build (no FSharp.Core) defaults to the Vesper cons-list
-        // union instead, so the emission stays BCL-only.
-        let defaultListTy (elemTy: SemType) : SemType =
-            if ctx.DefaultListIsVesper then
-                TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy)
-            else
-                TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
-
         for lit in ctx.ListLiterals do
             let root = UnionFind.find ctx.Store lit.Var
 
             match ctx.Store.Link root with
-            | ValueNone -> unify ctx lit.Tok (TyVar root.Id) (defaultListTy lit.Elem)
             | ValueSome target ->
                 match zonk ctx.Store target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
                 | TyUnion(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
                 | _ -> ()
+            | ValueNone ->
+                if ctx.ConsListInScope then
+                    unify ctx lit.Tok (TyVar root.Id) (RuntimeNames.consListTy lit.Elem)
+                else
+                    ctx.Report(lit.Tok, Kind.IntrinsicNotInScope Intrinsic.ConsList)
 
     /// For a class, union or record: `EqualitySupport = Custom` ⇒ it must implement the
     /// equatable capability over Self; `ComparisonSupport = Custom` ⇒ the comparable

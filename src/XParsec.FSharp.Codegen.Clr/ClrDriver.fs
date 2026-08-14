@@ -129,13 +129,12 @@ module ClrDriver =
     /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back
     /// anchored to their own file rather than thrown.
     let compileAssemblyWith
-        (analyse: AssemblyFiles.AnalyseFile)
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
         (files: AssemblyFiles.SourceFile list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        AssemblyFiles.analyseGated analyse project.AssemblyName external files
+        AssemblyFiles.analyseGated Pipeline.analyseFor project.AssemblyName external files
         |> Result.map (fun analysed ->
             // The visibility stack analysis composed, rebuilt: `external` is the floor and
             // `Files` is in file order, so each view pushes on top of the ones it may shadow.
@@ -148,8 +147,8 @@ module ClrDriver =
             Codegen.compileFilesWithReferences referenceAssemblies symbols project tasts
         )
 
-    /// The multi-file counterpart of `compile`, MSBuild-shaped: the default front end, with
-    /// `ReferenceAssemblies` threaded into both the contract provider and `AssemblyRef` identity.
+    /// The multi-file counterpart of `compile`, MSBuild-shaped: `ReferenceAssemblies` threaded
+    /// into both the contract provider and `AssemblyRef` identity.
     let compileAssembly
         (inputs: ClrCompilation)
         (files: AssemblyFiles.SourceFile list)
@@ -157,7 +156,7 @@ module ClrDriver =
         let provider =
             ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
 
-        compileAssemblyWith Pipeline.analyseFor inputs.ReferenceAssemblies provider inputs.Project files
+        compileAssemblyWith inputs.ReferenceAssemblies provider inputs.Project files
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
     /// set. An in-memory compilation returns the artifact unwritten.

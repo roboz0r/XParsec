@@ -100,12 +100,11 @@ module JsDriver =
 
     /// Compile an ordered source-file list as ONE assembly named `packageName`.
     let compileAssemblyWith
-        (analyse: AssemblyFiles.AnalyseFile)
         (contract: SymbolProviders.Contract)
         (packageName: string)
         (files: AssemblyFiles.SourceFile list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
-        AssemblyFiles.analyseGated analyse packageName contract.Provider files
+        AssemblyFiles.analyseGated Pipeline.analyseFor packageName contract.Provider files
         |> Result.bind (fun analysed ->
             // A spliced node reads only against its declaring file's own text, so the
             // assembly's own sources join the references' before any file is emitted.

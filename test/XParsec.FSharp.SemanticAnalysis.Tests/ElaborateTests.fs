@@ -105,15 +105,14 @@ let tests =
                 Expect.isGreaterThanOrEqual tast.Diagnostics.Length 1 "unresolved diagnostic reaches the TAST"
             }
 
-            test "`let xs = [1; 2; 3]` freezes as nested Cons / Nil over `list<int>`" {
+            test "`let xs = [1; 2; 3]` freezes as nested Cons / Empty over `List<int>`" {
                 let tast = analyse "let xs = [1; 2; 3]"
                 let intTy = BuiltinTypes.tyInt
 
-                let listTy =
-                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton intTy)
+                let listTy = SemType.TyUnion(RuntimeNames.vesperListKey, EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-                Expect.equal (declType tast) listTy "xs : list<int>"
+                Expect.equal (declType tast) listTy "xs : List<int>"
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
@@ -129,7 +128,7 @@ let tests =
                                                                                                                                         3L),
                                                                                                                    _,
                                                                                                                    _)
-                                                                                                       TExpr.UnionCons("Nil",
+                                                                                                       TExpr.UnionCons("Empty",
                                                                                                                        EqList [],
                                                                                                                        _,
                                                                                                                        _) ],
@@ -144,16 +143,16 @@ let tests =
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
 
-            test "`let xs = []` freezes as empty Nil with a free element type" {
+            test "`let xs = []` freezes as empty Empty with a free element type" {
                 let tast = analyse "let xs = []"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty, _), _, _) ->
+                | TDecl.Let(_, TExpr.UnionCons("Empty", EqList [], ty, _), _, _) ->
                     match ty with
-                    | TyRecord("Microsoft.FSharp.Collections.list`1", args) when args.Length = 1 -> ()
-                    | _ -> failtestf "expected list<_> Nil, got %A" ty
+                    | TyUnion("Vesper.Collections.List`1", args) when args.Length = 1 -> ()
+                    | _ -> failtestf "expected List<_> Empty, got %A" ty
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
 
@@ -575,8 +574,7 @@ let unionCaseSyntaxTests =
         ]
 
 // An `and 'T list = List<'T>` abbreviation retargets `[…]` literals onto the program's own
-// list union. A program declaring no such abbreviation keeps the
-// `Microsoft.FSharp.Collections.list` nominal with `Cons`/`Nil`.
+// list union; without one they stay on `Vesper.Collections.List`.
 [<Tests>]
 let listAbbrevTests =
     let listSrc =
@@ -625,8 +623,8 @@ let listAbbrevTests =
                 | other -> failtestf "unexpected unions: %A" other
             }
 
-            // A literal in a program declaring the union + abbrev types as that union and
-            // freezes to a Cons chain ending in the union's own `Empty`, not `Nil`.
+            // The literal resolves to the program's OWN union, not the external cons-list,
+            // and freezes to a chain of its case names.
             test "`[1; 2; 3]` resolves to the declared list union and freezes a Cons/Empty chain" {
                 let src = listSrc + "\nlet xs = [1; 2; 3]"
                 let tast = analyse src
@@ -689,8 +687,8 @@ let listAbbrevTests =
                 | ValueNone -> failtest "no `let e` binding surfaced"
             }
 
-            // With no `list` abbreviation in scope the literal stays the FSharp.Core nominal.
-            test "a list literal with no `list` abbrev keeps the FSharp.Core nominal" {
+            // With no `list` abbreviation in scope the literal stays the default cons-list.
+            test "a list literal with no `list` abbrev keeps the Vesper nominal" {
                 let tast = analyse "let xs = [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -711,16 +709,16 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (SemType.TyRecord(
-                            RuntimeNames.fsharpCoreListKey,
+                        (SemType.TyUnion(
+                            RuntimeNames.vesperListKey,
                             EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))
                         ))
-                        "xs : Microsoft.FSharp.Collections.list<int> (the FSharp.Core default)"
+                        "xs : Vesper.Collections.List<int> (the default cons-list)"
 
                     Expect.equal
                         (TastShape.prettyExpr value)
-                        "Cons(1, Cons(2, Cons(3, Nil)))"
-                        "the default FSharp.Core Cons/Nil chain"
+                        "Cons(1, Cons(2, Cons(3, Empty)))"
+                        "the default Cons/Empty chain"
                 | ValueNone -> failtest "no `let xs` binding surfaced"
             }
         ]

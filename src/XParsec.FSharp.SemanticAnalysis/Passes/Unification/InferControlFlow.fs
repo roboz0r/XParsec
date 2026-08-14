@@ -83,7 +83,7 @@ module internal UnificationInferControlFlow =
         match zonk ctx.Store srcTy with
         | TyVar tv ->
             match tryListLiteralElem ctx (UnionFind.find ctx.Store tv).Id with
-            | ValueSome elemTy -> unify ctx tok srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
+            | ValueSome elemTy -> unify ctx tok srcTy (RuntimeNames.consListTy elemTy)
             | ValueNone -> ()
         | _ -> ()
 

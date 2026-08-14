@@ -26,7 +26,7 @@
     <Compile Include="FrozenCacheIncrementalTests.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="PrintfPartialTests.fs" />
-    <Compile Include="FSharpCoreDepsTests.fs" />
+    <Compile Include="NoFSharpCoreTests.fs" />
     <Compile Include="RunnableAppTests.fs" />
     <Compile Include="SelfHostTests.fs" />
     <Compile Include="ILIntrinsicTests.fs" />

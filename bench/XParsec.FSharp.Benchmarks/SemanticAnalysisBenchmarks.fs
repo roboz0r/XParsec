@@ -35,7 +35,7 @@ type SemanticAnalysisBenchmarks() =
         // guard scopes to the current `Depth`, iterating on the not-yet-proven synthetic
         // last stage never blocks the Core/List/Set baselines: just omit that param.)
         for s in stages do
-            let errs = analyseStage Pipeline.analyseForSelfHost s |> stageErrorCount
+            let errs = analyseStage Pipeline.analyseFor s |> stageErrorCount
 
             if errs > 0 then
                 failwithf
@@ -52,6 +52,6 @@ type SemanticAnalysisBenchmarks() =
         let mutable acc = 0
 
         for s in stages do
-            acc <- acc + List.length (analyseStage Pipeline.analyseForSelfHost s)
+            acc <- acc + List.length (analyseStage Pipeline.analyseFor s)
 
         acc

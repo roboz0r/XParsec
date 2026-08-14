@@ -5,16 +5,11 @@ open System.Collections.Generic
 
 
     /// <summary>A cursor as the <c>seq&lt;obj&gt;</c> that <c>Vesper.IFormatSink.Sequence</c>
-    /// takes, boxing each element as the sink pulls it and never before.</summary>
-    ///
-    /// <remarks>The one adapter every collection's <c>%A</c> body goes through, so none of them
-    /// mints its own. One-shot: <c>GetEnumerator</c> hands back <c>this</c>, and disposing it
-    /// disposes the cursor, which matters because the sink may cut the walk short.
-    ///
-    /// It takes the cursor rather than the <c>seq</c> it came from because
-    /// <c>GetEnumerator</c> on the capability is a Core runtime call, which would make every
-    /// collection's JS module import Core just to print itself.</remarks>
+    /// takes, boxing each element as the sink pulls it. One-shot: <c>GetEnumerator</c> hands
+    /// back <c>this</c>, and disposing it disposes the cursor.</summary>
     type BoxedItems<'T> =
+        /// Takes the cursor, not the <c>seq</c> it came from: <c>GetEnumerator</c> on the
+        /// capability is a Core runtime call, which this module would then have to import.
         new: cursor: enumerator<'T> -> BoxedItems<'T>
 
         interface seq<obj>
@@ -34,7 +29,6 @@ open System.Collections.Generic
 #endif
     [<DefaultAugmentation(false)>]
     [<StructuralEquality; StructuralComparison>]
-    [<CompiledName("FSharpList`1")>]
     type List<'T> =
         | ([]): 'T list
         | (::): Head: 'T * Tail: 'T list -> 'T list
@@ -111,8 +105,7 @@ open System.Collections.Generic
     /// <summary>Contains methods for compiler use related to lists.</summary>
     and [<CompilerMessage("This type is for compiler use and should not be used directly", 1204, IsHidden=true);
           Sealed;
-          AbstractClass;
-          CompiledName("FSharpList")>] List =
+          AbstractClass>] List =
         /// <summary>Creates a list with the specified items.</summary>
         ///
         /// <param name="items">The items to store in the list.</param>

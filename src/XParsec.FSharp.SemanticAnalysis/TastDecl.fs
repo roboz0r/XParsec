@@ -144,7 +144,7 @@ and TClassG<'ty, 'id, 'body> =
 
 /// `Fields` are the case's payload in declaration order; a field's name is
 /// `ValueNone` when the source is positional (`Cons of 'T * list`). Empty
-/// `Fields` ⇒ a nullary case (`Nil`).
+/// `Fields` ⇒ a nullary case (`Empty`).
 and TUnionCaseG<'ty> =
     {
         Name: string

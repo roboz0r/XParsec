@@ -170,9 +170,6 @@ type internal ClrEnv
                 ctx.AssemblyRef(refRequired "Vesper.List" "a list literal / List.fold needs Vesper.Collections.List")
             ))
 
-    let eFSharpList1 =
-        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "FSharpList`1")))
-
     let eVesperList1 =
         lazy (typeRefOfKey vesperListRef.Value RuntimeNames.vesperListKey)
 
@@ -526,7 +523,6 @@ type internal ClrEnv
             | ValueSome repr -> Some repr
             | ValueNone -> None
 
-    member _.FsCoreRef = fsCoreRef
     member _.CoreRef = coreRef
     member _.VesperRef = vesperRef
     member _.ConsoleRef = consoleRef
@@ -536,7 +532,6 @@ type internal ClrEnv
     member _.EFun2() = eFun2 ()
     member _.FlatFunEntity(genericArity: int) = flatFunEntity genericArity
     member _.VesperListRef = vesperListRef
-    member _.EFSharpList1 = eFSharpList1
     member _.EVesperList1 = eVesperList1
     member _.EListModule = eListModule
     member _.EObject = eObject

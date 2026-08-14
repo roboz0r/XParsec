@@ -228,15 +228,11 @@ module internal UnificationInferGeneralize =
                             | ValueSome elemTy when ctx.Store.Level root > outerLevel ->
                                 match zonk ctx.Store elemTy with
                                 | TyVar _ ->
-                                    // Self-host (no FSharp.Core) defaults the bare container
-                                    // to the Vesper cons-list.
-                                    let listTy =
-                                        if ctx.DefaultListIsVesper then
-                                            TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy)
-                                        else
-                                            TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
-
-                                    ctx.Store.SetLink(root, ValueSome listTy)
+                                    // Out of scope, there is nothing to link to: leave the
+                                    // container free and let it reach the whole-file sweep,
+                                    // which blames each literal once, by its own token.
+                                    if ctx.ConsListInScope then
+                                        ctx.Store.SetLink(root, ValueSome(RuntimeNames.consListTy elemTy))
                                 | _ -> ctx.Store.SetLevel(root, outerLevel)
                             | _ -> ()
                 | t -> SemType.iterChildren walk t

@@ -1,9 +1,5 @@
 namespace Vesper.Collections
 
-/// A cursor as the `seq<obj>` `IFormatSink.Sequence` takes: each element boxed as the sink
-/// pulls it, never before. One-shot, so `GetEnumerator` hands back `this`. Takes the cursor
-/// rather than the `seq` it came from: `GetEnumerator` on the capability is a Core runtime
-/// call, and that would make every collection's JS module import Core just to print itself.
 type BoxedItems<'T> =
     val inner: enumerator<'T>
 
@@ -47,8 +43,6 @@ type List<'T> =
     interface seq<'T> with
         member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> enumerator<'T>)
 
-    // Without this the compiler would synthesise a per-case body and `%A` would render the
-    // spine, `Cons (1, Cons (2, Empty))`.
     interface Vesper.IStructuralFormattable with
         member this.Format(sink: Vesper.IFormatSink) =
             sink.Sequence(new BoxedItems<'T>(new ListEnumerator<'T>(this) :> enumerator<'T>) :> seq<obj>)

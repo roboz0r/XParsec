@@ -409,9 +409,15 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// typing them. Generalisation quantifies the TyVars above the pre-push value.
     member val CurrentLevel = 0 with get, set
 
-    /// Each `[…]` whose container type was left FLEXIBLE: a `Vesper.Collections.List` parameter
-    /// drives it, otherwise it defaults to FSharp.Core's `list`.
+    /// Each `[…]` whose container type was left FLEXIBLE: a parameter of a cons-list type
+    /// drives it, otherwise it defaults to `Vesper.Collections.List`.
     member val ListLiterals = ResizeArray<ListLiteral>() with get
+
+    /// Whether the cons-list an unpinned literal defaults to is reachable at all: declared by
+    /// this compilation (`Vesper.List`'s own sources) or carried by the reference set.
+    member _.ConsListInScope: bool =
+        (TypeRegistry.tryUnionByKey types RuntimeNames.vesperListKey).IsSome
+        || (provider.TryLookupType(SymbolKey.Type RuntimeNames.vesperListKey)).IsSome
 
     /// `x?name` sites, swept once inference has settled: a `Root` that zonks to a concrete
     /// non-`dynamic` type is an implicit escape and warns unless `DynamicEscapeSuppressed`.
@@ -426,10 +432,6 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// Written type names already blamed, so one two passes both reach is blamed once.
     member val private undefinedTypeSites = HashSet<Site>() with get
-
-    /// Which cons-list an unpinned `[]`/`::` defaults to: `false` keeps FSharp.Core's `list`,
-    /// `true` the Vesper one, for a BCL-only self-host package that has no FSharp.Core.
-    member val DefaultListIsVesper = false with get, set
 
     /// Per module-level `let inline` binding, keyed by its function-bound-variable `NodeKey` and
     /// positionally aligned to its curried parameters. Only non-default parameters register.

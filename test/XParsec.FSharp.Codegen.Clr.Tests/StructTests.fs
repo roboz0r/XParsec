@@ -642,7 +642,7 @@ let structTests =
             // `this.G(y, 0)`, so picking by argument type (not by name) is what makes
             // two `U` calls total 2 rather than 200 or 20.
             test "overloaded struct self-call resolves the right overload by arg types" {
-                runsSelfHostDataLines [ "2" ] "overloaded-struct-selfcall"
+                runsDataLines [ "2" ] "overloaded-struct-selfcall"
             }
 
             test "%u / aligned / zero-padded-float holes match the structural spec" {
@@ -656,7 +656,7 @@ let structTests =
             // sink parenthesises a single payload only when the child is itself
             // application-shaped: `Some (Some 1)` gets parens, a bare `Some 1` does not.
             test "a class IFormatSink sink + frame stack renders lists and nested cases" {
-                runsSelfHostDataLines
+                runsDataLines
                     [
                         "[1; 2; 3]" // width 80: the list group fits ⇒ flat
                         "[" // width 5: the group breaks ⇒ soft breaks become newlines
@@ -671,13 +671,11 @@ let structTests =
             }
 
             test "structural-format probe: numeric type-tests + suffix render" {
-                runsSelfHostDataLines
-                    [ "5y"; "5uy"; "5s"; "5us"; "5u"; "5L"; "5UL"; "5M" ]
-                    "structural-format-numeric-suffixes"
+                runsDataLines [ "5y"; "5uy"; "5s"; "5us"; "5u"; "5L"; "5UL"; "5M" ] "structural-format-numeric-suffixes"
             }
 
             test "structural-format probe: float fixup + string/char quoting" {
-                runsSelfHostDataLines
+                runsDataLines
                     [
                         "3.0"
                         "3.5"
@@ -693,13 +691,13 @@ let structTests =
             }
 
             test "structural-format probe: ITuple + IEnumerable walk" {
-                runsSelfHostDataLines [ "(1, 2)"; "[1; 2; 3]" ] "structural-format-tuple-enum"
+                runsDataLines [ "(1, 2)"; "[1; 2; 3]" ] "structural-format-tuple-enum"
             }
 
             // One value per arm of the reflection-free `:?` dispatch chain; the final
             // `[1; 2; ...]` is the size budget cutting the list short.
             test "structural %A engine: Dispatch + atom rendering (depth+size budget)" {
-                runsSelfHostDataLines
+                runsDataLines
                     [
                         "42"
                         "true"

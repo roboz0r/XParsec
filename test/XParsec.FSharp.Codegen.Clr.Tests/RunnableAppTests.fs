@@ -53,7 +53,7 @@ let tests =
                 Expect.equal (output.Trim()) "15" "the recursive static method runs as a real assembly"
             }
 
-            test "`materialiseApp` emits a `dotnet <dll>`-runnable bundle that prints [1; 2; 3]" {
+            test "`materialiseApp` emits a `dotnet <dll>`-runnable bundle that prints a `%A` list" {
                 let outDir = tmpDir "runnable-app"
                 // `withCore`: a `%A` bundle needs `Vesper.Core`, because the formatter's
                 // `RuntimeFormatState` implements the Core-owned `IFormatSink`.
@@ -69,10 +69,9 @@ let tests =
                     (IO.File.Exists(IO.Path.Combine(outDir, "XParsecListApp.runtimeconfig.json")))
                     "runtimeconfig.json written"
 
-                Expect.isTrue (IO.File.Exists(IO.Path.Combine(outDir, "FSharp.Core.dll"))) "FSharp.Core.dll copied"
-
                 let exitCode, output = runOnDisk dllPath
                 Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
+
                 Expect.equal (output.Trim()) "[1; 2; 3]" "the standalone app prints the list"
             }
         ]

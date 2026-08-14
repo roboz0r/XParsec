@@ -16,7 +16,7 @@ let tests =
             // own `if x > 0` guard. Keys are source-position based, so identically-named
             // bound variables in different arms still route to their own slot.
             test "many same-named `:? T as x` arms in an interface member bind per-arm" {
-                runsSelfHostLines
+                runsLines
                     [ "11"; "21"; "31"; "41"; "51" ]
                     (String.concat
                         "\n"
@@ -44,7 +44,7 @@ let tests =
 
             // A module-level `let` read from inside an interface-impl member body (an `ldsfld`).
             test "a module `let` value resolves when read from an interface member" {
-                runsSelfHostLines
+                runsLines
                     [ "105" ]
                     (String.concat
                         "\n"
@@ -61,7 +61,7 @@ let tests =
             }
 
             test "interface-declared method on an interface-typed `as`-bound variable works" {
-                runsSelfHost
+                runs
                     "42"
                     (String.concat
                         "\n"
@@ -80,7 +80,7 @@ let tests =
             }
 
             test "method call on a value-type `as`-bound variable works (module fn)" {
-                runsSelfHostLines
+                runsLines
                     [ "1.5"; "2.5f"; "42" ]
                     (String.concat
                         "\n"
@@ -98,7 +98,7 @@ let tests =
             }
 
             test "property on an interface-typed `as`-bound variable works (ITuple.Length)" {
-                runsSelfHost
+                runs
                     "3"
                     (String.concat
                         "\n"
@@ -121,7 +121,7 @@ let tests =
             // on the interface, so the metadata provider must walk through to `Object`. On a
             // string boxed as `obj` the `IEnumerable` arm fires and `xs.ToString()` is "abc".
             test "Object-inherited member on an interface object argument resolves (IEnumerable.ToString)" {
-                runsSelfHost
+                runs
                     "abc"
                     (String.concat
                         "\n"
@@ -144,7 +144,7 @@ let tests =
             // `Equals`, so `sb.Equals(sb)` resolves to `Object.Equals`, which compares by
             // reference and so returns true.
             test "Object-inherited member on an external class object argument resolves (StringBuilder.Equals)" {
-                runsSelfHost
+                runs
                     "true"
                     (String.concat
                         "\n"
@@ -158,7 +158,7 @@ let tests =
             // `Message` is declared on `System.Exception`, not `ArgumentException`, so this
             // needs the full walk (ArgumentException -> SystemException -> Exception).
             test "intermediate-base member on an external class object argument resolves (Exception.Message)" {
-                runsSelfHost
+                runs
                     "boom"
                     (String.concat "\n" [ "let e = System.ArgumentException(\"boom\")"; "printfn \"%s\" e.Message" ])
             }
@@ -167,7 +167,7 @@ let tests =
             // `TextWriter`, so using both proves the base overload survives the base-chain
             // merge as a candidate alongside the derived one.
             test "overloads split across base classes both resolve (TextWriter/StringWriter.Write)" {
-                runsSelfHost
+                runs
                     "Truex"
                     (String.concat
                         "\n"
@@ -183,7 +183,7 @@ let tests =
             // `StringBuilder` overrides `ToString()` and `Object` declares it too; the merge
             // dedups by signature, so only the most-derived survives and there is no ambiguity.
             test "an overridden member is not double-counted across the base chain (StringBuilder.ToString)" {
-                runsSelfHost
+                runs
                     "hi"
                     (String.concat "\n" [ "open System.Text"; "printfn \"%s\" (StringBuilder(\"hi\").ToString())" ])
             }

@@ -112,7 +112,6 @@ module Pipeline =
     /// what the region pass decided, and the pre-freeze `TastFile`. `assemblyName` is the
     /// assembly this file emits into; `""` for the front-end-only paths that never emit.
     let analyseSemWithContextForCore
-        (selfHostList: bool)
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
@@ -120,9 +119,6 @@ module Pipeline =
         : PassContext * RegionVerdicts * TastFile =
         let ctx = PassContext(provider, source)
         ctx.AssemblyName <- assemblyName
-        // A self-host (BCL-only) package build has no FSharp.Core, so an unpinned `[]`/`::`
-        // must default to the Vesper cons-list.
-        ctx.DefaultListIsVesper <- selfHostList
         Desugar.run ctx file
         NameResolution.run ctx file
         Unification.run ctx file
@@ -156,16 +152,14 @@ module Pipeline =
 
         ctx, regions, tast
 
-    /// The default front end: a bare-program list literal defaults to FSharp.Core's
-    /// `list`. Self-host package builds use `…ForSelfHost` below.
+    /// Every pass, for a caller with no use for the region verdicts.
     let analyseSemWithContextFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        let ctx, _, tast =
-            analyseSemWithContextForCore false assemblyName provider source file
+        let ctx, _, tast = analyseSemWithContextForCore assemblyName provider source file
 
         ctx, tast
 
@@ -197,7 +191,7 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * RegionVerdicts * TastFile =
-        analyseSemWithContextForCore false "" provider source file
+        analyseSemWithContextForCore "" provider source file
 
     /// `analyseWithContextFor` with no home assembly.
     let analyseWithContext
@@ -240,39 +234,3 @@ module Pipeline =
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
         analyseFor "" provider source file
-
-    /// The self-host pre-freeze entry: like `analyseSem`, but a bare-program list
-    /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`. The JS
-    /// target has no FSharp.Core, so the cons-list is its only list representation.
-    let analyseSemForSelfHost
-        (provider: IExternalSymbolProvider)
-        (source: OriginSource)
-        (file: ImplementationFile<SyntaxToken>)
-        : TastFile =
-        let _, _, tast = analyseSemWithContextForCore true "" provider source file
-        tast
-
-    /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the tree's
-    /// diagnostics before freezing it needs both halves: the freeze reads each residual
-    /// typar root's bound variable out of the context.
-    let analyseSemForSelfHostWithContext
-        (provider: IExternalSymbolProvider)
-        (source: OriginSource)
-        (file: ImplementationFile<SyntaxToken>)
-        : PassContext * TastFile =
-        let ctx, _, tast = analyseSemWithContextForCore true "" provider source file
-        ctx, tast
-
-    /// The self-host production entry: like `analyseFor` but a bare-program list
-    /// literal/pattern defaults to the Vesper cons-list, so a BCL-only package with no
-    /// FSharp.Core reference emits cons-list only.
-    let analyseForSelfHost
-        (assemblyName: string)
-        (provider: IExternalSymbolProvider)
-        (source: OriginSource)
-        (file: ImplementationFile<SyntaxToken>)
-        : FrozenPools =
-        let ctx, _, tast =
-            analyseSemWithContextForCore true assemblyName provider source file
-
-        Freeze.run ctx tast

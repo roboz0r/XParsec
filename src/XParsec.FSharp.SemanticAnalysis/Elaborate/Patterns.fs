@@ -14,20 +14,21 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
 module internal ElaboratePatterns =
 
-    /// The `(consName, nilName)` case names of the list union a `[…]` or `h :: t` pattern
-    /// targets. A program-declared list union names its own cases BY ARITY (nullary = empty,
-    /// binary = cons); Vesper's is `("Cons", "Empty")`, FSharp.Core's `("Cons", "Nil")`.
+    /// The `(cons, empty)` case names of the list type `ty`. A program-declared list union
+    /// names its own BY ARITY (binary = cons, nullary = empty); anything else is the
+    /// cons-list, `("Cons", "Empty")`.
     let listCaseNames (ctx: PassContext) (ty: SemType) : string * string =
+        let consList = RuntimeNames.consCaseName, RuntimeNames.emptyCaseName
+
         match Unification.zonk ctx.Store ty with
         | LocalUnion ctx info ->
-            let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
+            let emptyCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
             let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
 
-            match nilCase, consCase with
-            | Some n, Some c -> c.Name, n.Name
-            | _ -> "Cons", "Empty"
-        | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> "Cons", "Empty"
-        | _ -> "Cons", "Nil"
+            match emptyCase, consCase with
+            | Some e, Some c -> c.Name, e.Name
+            | _ -> consList
+        | _ -> consList
 
     /// A `NamedSimple` node, recording HOW THE SOURCE WRITES its bound variable as the node is
     /// built, because that is the last moment the key and the token that produced it are
@@ -63,29 +64,29 @@ module internal ElaboratePatterns =
         | Pat.NamedSimple _ -> namedSimple ctx key ty tok
         | Pat.Wildcard _ -> TPat.Wildcard(ty, tok)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
-            // `[a; b; c]` → `Cons(a, Cons(b, Cons(c, Empty)))`. Every cons/nil node carries
-            // the WHOLE list type, because a tail of a `'T list` is the same `'T list`. A
-            // single-element `[a]` arrives unwrapped; `[]` is `Pat.EmptyBlock`.
-            let consName, nilName = listCaseNames ctx ty
+            // `[a; b; c]` → `Cons(a, Cons(b, Cons(c, Empty)))`. Every node carries the WHOLE
+            // list type, because a tail of a `'T list` is the same `'T list`. A single-element
+            // `[a]` arrives unwrapped; `[]` is `Pat.EmptyBlock`.
+            let consName, emptyName = listCaseNames ctx ty
 
             let elems =
                 match inner with
                 | Pat.Elems(pats = pats) -> List.ofSeq pats
                 | single -> [ single ]
 
-            let nil = TPat.Union(nilName, EqArray.empty, ty, tok)
+            let empty = TPat.Union(emptyName, EqArray.empty, ty, tok)
 
             List.foldBack
                 (fun el acc -> TPat.Union(consName, EqArray.ofList [ translatePat ctx el; acc ], ty, tok))
                 elems
-                nil
+                empty
         | Pat.EnclosedBlock(pat = inner) -> translatePat ctx inner
         | Pat.Tuple(patterns = pats) ->
             TPat.Tuple(EqArray.ofSeq (seq { for sub in pats -> translatePat ctx sub }), ty, tok)
         | Pat.EmptyBlock(lParen = ParenKind.List _) ->
             // `[]` pattern → the list union's nullary (empty) case, by arity.
-            let _, nilName = listCaseNames ctx ty
-            TPat.Union(nilName, EqArray.empty, ty, tok)
+            let _, emptyName = listCaseNames ctx ty
+            TPat.Union(emptyName, EqArray.empty, ty, tok)
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t` → the list union's binary (cons) case.
             let consName, _ = listCaseNames ctx ty

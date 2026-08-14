@@ -20,7 +20,7 @@ let private compileFiles (asmName: string) (sources: AssemblyFiles.SourceFile li
 
     // Scoping is forward-only: each file sees the earlier ones through their projected views.
     // A parse or analysis error surfaces here, anchored to its own file.
-    match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] external project sources with
+    match ClrDriver.compileAssemblyWith [] external project sources with
     | Ok artifact -> Codegen.toBytes artifact
     | Error diags -> failtestf "cross-file compile failed: %A" diags
 

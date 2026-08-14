@@ -76,8 +76,6 @@ there is deliberately no feedback edge.
 **Entry points** (all in `Pipeline.fs`): `analyse*` returns the frozen tree — the
 production path. `analyseSem*` stops **before** the freeze and returns the
 `SemType` tree plus the `PassContext`; that is what front-end tests assert on.
-`*ForSelfHost` defaults a bare list literal to the Vesper cons-list instead of
-FSharp.Core's `list` (the JS target has no FSharp.Core).
 
 ## Landmarks
 

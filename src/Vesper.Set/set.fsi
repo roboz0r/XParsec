@@ -852,7 +852,7 @@ module Set =
     /// let list = Set.toList set
     /// printfn $"The set is {list} and type is {list.GetType().Name}"
     /// </code>
-    /// The sample evaluates to the following output: <c>The set is [1; 2; 3] and type is "FSharpList`1"</c>
+    /// The sample evaluates to the following output: <c>The set is [1; 2; 3]</c>
     /// </example>
     ///
     /// <remarks>This is an O(n) operation, where n is the number of elements in the set.</remarks>

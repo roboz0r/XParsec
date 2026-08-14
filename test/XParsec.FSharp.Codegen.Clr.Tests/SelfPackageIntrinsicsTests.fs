@@ -36,7 +36,6 @@ module ConcatProbe =
     /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.
     let private compileProbeAsCore (selfManifest: string option) =
         ClrDriver.compileAssemblyWith
-            Pipeline.analyseFor
             []
             (ClrSymbolProviders.buildContractForSelf selfManifest [])
             (ProjectInfo.library "Vesper.Core")

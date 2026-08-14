@@ -4,13 +4,12 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// Call / constructor / format recipes (`printfn`, function `Invoke`, list cons/nil, `List.fold`, the
+/// Call / constructor / format recipes (`printfn`, function `Invoke`, list `Cons`/`Empty`, `List.fold`, the
 /// `Vesper.Formatter` write-through handler) plus the synthesised structural equality / comparison
 /// member refs (`EqualityComparer`1` / `Comparer`1` / `HashCode` / `IEquatable`1` / `IComparable`1`).
 type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
     let symbols = env.Symbols
-    let markFSharpCoreDep c = env.MarkFSharpCoreDep c
 
     let recoverOpenTypars declTyparArity methodTyparArity openT instT =
         enc.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
@@ -20,7 +19,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`.
     let uncurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelFunDomains -1 t
 
-    let encodeListOf te inner = enc.EncodeListOf(te, inner)
     let methodSpec handle args = enc.MethodSpec(handle, args)
     let eTextWriter = env.ETextWriter
     let eStringBuilder = env.EStringBuilder
@@ -71,58 +69,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 Pushes = 1
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
-
-    /// `FSharpList`1<elem>` as a member-ref parent `TypeSpec`.
-    let listTypeSpec (elem: FrozenType) : EntityHandle =
-        let tsB = BlobBuilder()
-        let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        encodeListOf te (fun arg -> encodeType arg elem)
-        toEntity (ctx.TypeSpec tsB)
-
-    let emitListCons (elem: FrozenType) : CallRecipe =
-        markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1.Cons"
-        let typeSpec = listTypeSpec elem
-        let msig = BlobBuilder()
-
-        BlobEncoder(msig)
-            .MethodSignature(isInstanceMethod = false)
-            .Parameters(
-                2,
-                (fun (ret: ReturnTypeEncoder) -> encodeListOf (ret.Type()) (fun a -> a.GenericTypeParameter(0))),
-                (fun (pars: ParametersEncoder) ->
-                    pars.AddParameter().Type().GenericTypeParameter(0)
-                    encodeListOf (pars.AddParameter().Type()) (fun a -> a.GenericTypeParameter(0))
-                )
-            )
-
-        let consRef = toEntity (ctx.MemberRef(typeSpec, "Cons", msig))
-
-        {
-            Emit = fun il -> il.Encoder.Call consRef
-            Arity = CallArity.Flat 2
-            Pushes = 1
-        }
-
-    let emitListNil (elem: FrozenType) : CallRecipe =
-        markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1.get_Empty"
-        let typeSpec = listTypeSpec elem
-        let msig = BlobBuilder()
-
-        BlobEncoder(msig)
-            .MethodSignature(isInstanceMethod = false)
-            .Parameters(
-                0,
-                (fun (ret: ReturnTypeEncoder) -> encodeListOf (ret.Type()) (fun a -> a.GenericTypeParameter(0))),
-                (fun (_: ParametersEncoder) -> ())
-            )
-
-        let emptyRef = toEntity (ctx.MemberRef(typeSpec, "get_Empty", msig))
-
-        {
-            Emit = fun il -> il.Encoder.Call emptyRef
-            Arity = CallArity.Flat 0
-            Pushes = 1
-        }
 
     /// `Vesper.Collections.List`1<elem>` as a member-ref parent `TypeSpec`.
     let vesperListTypeSpec (elem: FrozenType) : EntityHandle =
@@ -943,8 +889,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.TypeSpec tsB)
 
     member _.EmitInvoke funcTy = emitInvoke funcTy
-    member _.EmitListCons elem = emitListCons elem
-    member _.EmitListNil elem = emitListNil elem
     member _.EmitVesperListCons elem = emitVesperListCons elem
     member _.EmitVesperListEmpty elem = emitVesperListEmpty elem
     member _.EmitVesperListTagField elem = emitVesperListTagField elem

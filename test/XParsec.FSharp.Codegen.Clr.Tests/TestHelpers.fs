@@ -175,7 +175,7 @@ let vesperCoreDll: Lazy<string> =
          let provider = ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) []
 
          let artifact =
-             match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] provider project files with
+             match ClrDriver.compileAssemblyWith [] provider project files with
              | Ok artifact -> artifact
              | Error diags ->
                  failwithf "vesperCoreDll: %d analysis error(s):\n%s" (List.length diags) (anchoredDiagText diags)
@@ -333,7 +333,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let artifact =
-                     match ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost [] provider project files with
+                     match ClrDriver.compileAssemblyWith [] provider project files with
                      | Ok artifact -> artifact
                      | Error diags ->
                          failwithf
@@ -456,19 +456,6 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
 /// must be an identifier the emitted module can carry.
 let conformanceAssemblyName (program: string) : string =
     "Conformance_" + program.Replace("-", "_")
-
-/// `compileSource` on the self-host front end: a bare `[]` / `::` defaults to the Vesper
-/// cons-list. Needed when a probe mixes `'T list`-annotated state (Vesper, via the `list`
-/// abbreviation) with bare `::` construction, which the default pipeline resolves to F#'s.
-let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
-    let provider = ClrSymbolProviders.buildContract defaultPackages
-    let project = ProjectInfo.defaults assemblyName
-    let lexed, file = parseFile input
-
-    let tast =
-        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText lexed) file
-
-    Codegen.compile provider (withCore project) tast
 
 /// `compileSource` against a caller-supplied `ProjectInfo` (e.g. an on-disk app build via
 /// `ProjectInfo.app`).
@@ -693,7 +680,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -750,7 +737,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -789,23 +776,6 @@ let runs (expected: string) (src: string) : unit =
 
 /// `runs` for a multi-line expected block (joined with "\n").
 let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
-
-/// `runs` on the self-host front end: bare `[]` / `::` default to the Vesper cons-list.
-/// For probes that mix `'T list`-typed state with bare cons construction.
-let runsSelfHost (expected: string) (src: string) : unit =
-    let artifact = compileSourceSelfHost "Layer1SelfHost" src
-    let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
-    let actual = output.Replace("\r", "").Trim()
-
-    if exitCode <> 0 then
-        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
-
-    if actual <> expected then
-        failwithf "expected %A but got %A for:\n%s" expected actual src
-
-/// `runsSelfHost` for a multi-line expected block (joined with "\n").
-let runsSelfHostLines (expected: string list) (src: string) : unit =
-    runsSelfHost (String.concat "\n" expected) src
 
 // ---- Externalised program sources (`data/*.fs`) ------------------------------
 // Probe programs live under `data/` as `<None Include>` text, compiled through this
@@ -850,10 +820,6 @@ let compileSourceData (name: string) : TastFile * ClrArtifact = compileSource na
 
 /// `runsLines` with the program read from `data/<name>.fs`.
 let runsDataLines (expected: string list) (name: string) : unit = runsLines expected (dataSource name)
-
-/// `runsSelfHostLines` with the program read from `data/<name>.fs`.
-let runsSelfHostDataLines (expected: string list) (name: string) : unit =
-    runsSelfHostLines expected (dataSource name)
 
 /// Compile + run `src` and assert it threw a runtime exception whose type name contains
 /// `expectedTypeFragment` (e.g. `"DivideByZero"`), matched against the `failwithf` message

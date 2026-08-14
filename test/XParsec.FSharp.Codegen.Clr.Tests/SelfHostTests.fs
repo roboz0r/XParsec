@@ -469,19 +469,10 @@ let tests =
                     "Vesper.List.dll shipped because the self-hosted %A engine references the Vesper cons-list"
             }
 
-            // The emitted FSharp.Core reference identity is read off the referenced FILE, not
-            // the compiler host, though numerically the same here, the reference BEING the host's.
-            test "an FSharp.Core in References drives the emitted reference identity" {
-                let fsCorePath = typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location
-
-                let project =
-                    { ProjectInfo.defaults "XParsecR4Identity" with
-                        References = [ fsCorePath ]
-                    }
-
-                // A list LITERAL pins FSharp.Core through its representation (`[1; 2; 3]` builds
-                // `FSharpList` `Cons`/`Empty`) with no printf at all, which makes it the vehicle
-                // for a program that references FSharp.Core and nothing else optional.
+            // A referenced package's identity is read off the referenced FILE, not the
+            // compiler host's own copy of it.
+            test "a referenced Vesper package drives the emitted reference identity" {
+                let project = withCore (ProjectInfo.defaults "XParsecRefIdentity")
                 let src = "let xs = [1; 2; 3]"
                 let lexed, file = parseFile src
                 // Resolve `int` from the real contract stack, because `MockBuiltins` carries
@@ -496,19 +487,19 @@ let tests =
 
                 Expect.contains
                     artifact.ReferencedAssemblies
-                    "FSharp.Core"
-                    "the list-literal representation references FSharp.Core"
+                    "Vesper.List"
+                    "the cons-list representation references Vesper.List"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
-                let fsRef =
-                    asm.GetReferencedAssemblies() |> Array.find (fun a -> a.Name = "FSharp.Core")
+                let listRef =
+                    asm.GetReferencedAssemblies() |> Array.find (fun a -> a.Name = "Vesper.List")
 
-                let expected = AssemblyName.GetAssemblyName(fsCorePath).Version
+                let expected = AssemblyName.GetAssemblyName(vesperListDll.Value).Version
 
                 Expect.equal
-                    fsRef.Version
+                    listRef.Version
                     expected
-                    "the emitted FSharp.Core ref version is read off the referenced file"
+                    "the emitted Vesper.List ref version is read off the referenced file"
             }
         ]

@@ -190,13 +190,9 @@ module SymbolProviders =
                         // served key and a resolved one agree.
                         let ctx, sem = Pipeline.analyseSemWithContextFor manifest.Name provider origin f
 
-                        // Freezing an errored tree prunes the failed declarations, and pooling
-                        // then trips on the side-table entries that outlived them, blaming the
-                        // file's FIRST binding — nowhere near the fault, and it moves to
-                        // whatever binding is first whenever the file is edited. An analysis
-                        // error is not itself fatal here (a contract file may name types this
-                        // pass never needs), so they surface as the explanation for a freeze
-                        // that DID fail rather than as a refusal of their own.
+                        // Freezing an errored tree prunes the failed declarations; pooling then
+                        // trips on side-table entries that outlived them, blaming the file's FIRST
+                        // binding. Errors alone are not fatal: a contract file may name spare types.
                         let frozen =
                             try
                                 Freeze.run ctx sem

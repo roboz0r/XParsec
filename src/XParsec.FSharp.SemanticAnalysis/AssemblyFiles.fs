@@ -81,8 +81,7 @@ module AssemblyFiles =
         }
 
     /// The per-file front-end seam: analyse+freeze one parsed file against a composed
-    /// provider. Both the package/FSharp.Core front end and the BCL-only self-host one have
-    /// this shape, so a multi-file assembly can be driven through either.
+    /// provider. A seam so a probe can wrap it and time each file.
     type AnalyseFile =
         string -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
 

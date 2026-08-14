@@ -35,12 +35,8 @@ module internal ElaboratePrintf =
             // are niladic, so any type argument means it isn't really the intrinsic.
             isAtomScalar key && args.Length = 0
         | TyTuple items -> EqArray.forall structuredArgFaithful items
-        // The cons-list renders via the `IEnumerable` arm, so it stays faithful-iff-its-
-        // element-is. It surfaces as a `TyUnion` in the self-host but as a `TyRecord`
-        // against the FSharp.Core contract, so both list-key shapes are accepted.
-        | TyUnion(key, args)
-        | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
-            EqArray.forall structuredArgFaithful args
+        // The cons-list stays faithful-iff-its-element-is.
+        | TyUnion(key, args) when RuntimeNames.isVesperListKey key -> EqArray.forall structuredArgFaithful args
         // Every nominal record / DU / class renders on the engine, wherever its assembly
         // lives. No recursion into fields: this is a cold-vs-engine switch, not a
         // per-field renderer, and the runtime dispatcher already routes each field.

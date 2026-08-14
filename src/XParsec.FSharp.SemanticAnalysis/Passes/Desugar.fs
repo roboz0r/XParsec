@@ -31,7 +31,7 @@ module Desugar =
         | Token.OpAmp -> ValueSome OperatorData.OpAddressOf
         | _ -> ValueNone
 
-    /// `[ … ]` lowers to a nested `Cons` / `Nil` chain, `[| … |]` to an array node.
+    /// `[ … ]` lowers to a nested `Cons` / `Empty` chain, `[| … |]` to an array node.
     let private literalFormOfParen (pk: ParenKind<SyntaxToken>) : DesugaredForm voption =
         match pk with
         | ParenKind.List _ -> ValueSome DesugaredForm.ListLiteral

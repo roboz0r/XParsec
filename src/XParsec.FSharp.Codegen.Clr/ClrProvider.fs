@@ -324,14 +324,8 @@ type ClrProvider
                 | [ e ] -> e
                 | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
 
-            // FSharp.Core's `list` vs the Vesper cons-list, distinguished by key identity
-            // rather than by string name.
-            if RuntimeNames.isFsharpCoreListKey key then
-                match caseName with
-                | "Cons" -> ValueSome(recipes.EmitListCons(elem ()))
-                | "Nil" -> ValueSome(recipes.EmitListNil(elem ()))
-                | _ -> ValueNone
-            elif RuntimeNames.isVesperListKey key then
+            // The cons-list, recognised by key identity rather than by string name.
+            if RuntimeNames.isVesperListKey key then
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitVesperListCons(elem ()))
                 | "Empty" -> ValueSome(recipes.EmitVesperListEmpty(elem ()))

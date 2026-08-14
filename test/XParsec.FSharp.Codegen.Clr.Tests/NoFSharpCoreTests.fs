@@ -1,0 +1,104 @@
+module XParsec.FSharp.Codegen.Clr.Tests.NoFSharpCoreTests
+
+open System
+open Expecto
+open XParsec.FSharp.Codegen.Clr
+open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+
+// Nothing the backend emits names an FSharp.Core construct, so the invariant is asserted on
+// the ARTIFACT: no `AssemblyRef` row in the PE, no `FSharp.Core.dll` beside a materialised app.
+
+// The one construct that can still put FSharp.Core back is `PrintfFormat`4`, reached when a
+// format falls off the structural engine onto the cold path. So an EMPTY use-set per
+// specifier is the guard that each of these lowers natively.
+let private nativeFormats =
+    [
+        "SpaceA", "printfn \"% A\" 42"
+        "PlusZeroF", "printfn \"%+08.2f\" 1234.5"
+        "StarWidth", "printfn \"%*d\" 5 42"
+        "StarWidthA", "printfn \"%*A\" 1 [1; 2; 3]"
+        "StarLeftA", "printfn \"%-*A\" 1 [1; 2; 3]"
+        "StarPlusA", "printfn \"%+*A\" 1 [1; 2; 3]"
+        "StarPrecA", "printfn \"%.*A\" 2 [1; 2; 3]"
+        "StarPrecF", "printfn \"%.*f\" 2 3.5"
+        "StarWidthPrecF", "printfn \"%*.*f\" 8 2 3.5"
+        "StarPrecPlusF", "printfn \"%+.*f\" 3 3.14159"
+        "StarPrecE", "printfn \"%.*e\" 3 31415.9"
+        "StarPrecG", "printfn \"%.*g\" 4 31415.9"
+        "SynthRecordA", "type R = { X: int; Y: string }\nprintfn \"%A\" { X = 1; Y = \"a\" }"
+        "SynthUnionA", "type Opt = | N | S of int\nlet v = S 3\nprintfn \"%A\" v"
+        "BclA", "printfn \"%A\" System.Guid.Empty"
+        "PolyA", "let f x = printfn \"%A\" x\nf 42"
+        "ListA", "let nums = [1; 2; 3]\nprintfn \"%A\" nums"
+        "Interp", "printfn \"%s\" $\"n={42}\""
+        "Fprintf", "fprintf System.Console.Out \"%d\" 42"
+        "Bprintf", "bprintf (System.Text.StringBuilder()) \"%d\" 42"
+        "Fold", "let inline sum xs = List.fold (+) 0 xs\nprintfn \"%d\" (sum [1; 2; 3])"
+    ]
+
+[<Tests>]
+let tests =
+    testList
+        "NoFSharpCore"
+        [
+            testList
+                "every format specifier lowers on the structural engine"
+                [
+                    for name, src in nativeFormats do
+                        test src {
+                            let _, artifact = compileSource ("Deps" + name) src
+
+                            Expect.isEmpty
+                                artifact.FSharpCoreDependencies
+                                (sprintf "%s pins no FSharp.Core construct" src)
+                        }
+
+                    // An EXTERNAL Vesper union carries the synthesised `Format`, so `%A` of one
+                    // lowers on the engine too. Stdout cannot show this — the cold path renders
+                    // `Ok 5` identically — but the use-set can.
+                    test "printfn \"%A\" (Ok 5 : Result<int, string>)" {
+                        let artifact =
+                            compileResultArtifact "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
+
+                        Expect.isEmpty
+                            artifact.FSharpCoreDependencies
+                            "%A of an external Vesper union pins no FSharp.Core construct"
+                    }
+                ]
+
+            // The provider's refs are `lazy`, so an `AssemblyRef` row is added only when one
+            // is actually forced, so an empty use-set leaves no dead reference row.
+            test "an emitted executable carries no FSharp.Core reference row" {
+                let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
+
+                Expect.isFalse
+                    (refs |> Array.contains "FSharp.Core")
+                    (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
+            }
+
+            test "`materialiseApp` writes no FSharp.Core.dll, and the app still runs" {
+                let outDir = tmpDir "no-fsharpcore-app"
+                // `withCore`: the happy-path `printfn` binds `Vesper.Printf` and its deps,
+                // so their on-disk paths must be references for the bundle to copy them.
+                let project = withCore (ProjectInfo.app "XParsecNoCoreApp" outDir)
+
+                // Deterministic regardless of a prior run leaving the dll behind.
+                let coreDst = IO.Path.Combine(outDir, "FSharp.Core.dll")
+
+                if IO.File.Exists coreDst then
+                    IO.File.Delete coreDst
+
+                let artifact = compileSourceTo project "printfn \"%d\" 42"
+                Codegen.materialiseApp project artifact
+
+                let dllPath = IO.Path.Combine(outDir, "XParsecNoCoreApp.dll")
+                Expect.isTrue (IO.File.Exists dllPath) "PE written"
+                Expect.isFalse (IO.File.Exists coreDst) "FSharp.Core.dll NOT copied, because there is no dependency"
+
+                let exitCode, output = runOnDisk dllPath
+                Expect.equal exitCode 0 (sprintf "dotnet exits 0 (output was: %s)" output)
+                Expect.equal (output.Trim()) "42" "the standalone app runs and prints 42 without FSharp.Core present"
+            }
+        ]

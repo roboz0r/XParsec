@@ -23,7 +23,7 @@ module RuntimeNames =
     let preludeNamespaces: string list = [ intrinsicNamespace; collectionsNamespace ]
 
     // The packages carrying the intrinsics, spelled as a manifest's `depends-on` spells them,
-    // because that is where an `IntrinsicNotInScope` diagnostic tells the author to add one.
+    // because a diagnostic quotes the line for the author to add.
 
     [<Literal>]
     let corePackageName = "Vesper.Core"
@@ -40,8 +40,17 @@ module RuntimeNames =
     let vesperListAbbrevKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity collectionsNamespace "list" 1
 
-    let fsharpCoreListKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Collections" "list" 1
+    /// The one cons-list `[…]`, `h :: t` and `for … in` all default to, over `elemTy`.
+    let consListTy (elemTy: SemType) : SemType =
+        TyUnion(vesperListKey, EqArray.singleton elemTy)
+
+    /// The cons-list's binary case: element, then the rest of the chain.
+    [<Literal>]
+    let consCaseName = "Cons"
+
+    /// The cons-list's nullary case, terminating a chain.
+    [<Literal>]
+    let emptyCaseName = "Empty"
 
     let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Ref" 1
 
@@ -112,8 +121,6 @@ module RuntimeNames =
         ]
 
     let objAbbrevName: string = "obj"
-
-    let systemObjectQualifiedName: string = "System.Object"
 
     // The printf sinks. CLR contracts with no JS analogue.
 
@@ -216,8 +223,6 @@ module RuntimeNames =
     /// Either nominal form: the `List` union or its `list` abbreviation.
     let isVesperListKey (k: TypeKey) : bool =
         k = vesperListKey || k = vesperListAbbrevKey
-
-    let isFsharpCoreListKey (k: TypeKey) : bool = k = fsharpCoreListKey
 
     let isVesperListName (compiledName: string) : bool =
         compiledName = SymbolKeyOps.typeMetaName vesperListKey

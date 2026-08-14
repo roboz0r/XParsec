@@ -16,7 +16,7 @@ let private packageName = "Test.Pkg"
 /// Compile `files` as one JS package through the production driver, failing the test on
 /// any front-end diagnostic (anchored to its own file, as the driver reports it).
 let private compilePackage (files: AssemblyFiles.SourceFile list) : JsPackage =
-    match JsDriver.compileAssemblyWith Pipeline.analyseForSelfHost jsContract.Value packageName files with
+    match JsDriver.compileAssemblyWith jsContract.Value packageName files with
     | Ok pkg -> pkg
     | Error diags ->
         failtestf
@@ -147,7 +147,7 @@ type IShape =
                         AssemblyFiles.SourceFile.ofText "b/one.fs" (moduleNamed "Beta")
                     ]
 
-                match JsDriver.compileAssemblyWith Pipeline.analyseForSelfHost jsContract.Value packageName files with
+                match JsDriver.compileAssemblyWith jsContract.Value packageName files with
                 | Ok _ -> failtest "the collision must be refused"
                 | Error diags ->
                     Expect.equal
@@ -216,11 +216,7 @@ module Shim =
 
                 let pkg =
                     match
-                        JsDriver.compileAssemblyWith
-                            Pipeline.analyseForSelfHost
-                            (JsDriver.contractForSelf vesperCorePackage [])
-                            manifest.Name
-                            files
+                        JsDriver.compileAssemblyWith (JsDriver.contractForSelf vesperCorePackage []) manifest.Name files
                     with
                     | Ok pkg -> pkg
                     | Error diags ->

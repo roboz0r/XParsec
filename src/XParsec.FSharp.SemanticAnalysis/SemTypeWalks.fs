@@ -408,8 +408,8 @@ type DesugaredForm =
     /// call to it; a polymorphic `|>` / `>>` is a fresh instantiation per lookup.
     | OpName of compiledName: string
     /// `[1; 2; 3]` or `[]` — an `EnclosedBlock` / `EmptyBlock` node of list `ParenKind`.
-    /// Lowered to a nested `UnionCons` cons/nil chain over the resolved list union, taking
-    /// that union's own case names.
+    /// Lowered to a nested `UnionCons` chain over the resolved list union, taking that
+    /// union's own case names.
     | ListLiteral
     /// `[|1; 2; 3|]` or `[||]` — the array `ParenKind` counterpart. Lowered to an array
     /// node holding the elements, with no list in between.

@@ -7,8 +7,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
 /// Turns a `FrozenType` into a metadata signature: function types → `Vesper.Fun`2`, lists →
-/// `FSharpList`1` / `Vesper.Collections.List`1`, user types → their predicted `TypeDefinition`,
-/// external types through the symbol provider. Also hosts the blob builders that wrap it.
+/// `Vesper.Collections.List`1`, user types → their predicted `TypeDefinition`, external types
+/// through the symbol provider. Also hosts the blob builders that wrap it.
 type internal ClrEncoder(env: ClrEnv) =
     let ctx = env.Ctx
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
@@ -27,7 +27,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let eFun2 () = env.EFun2()
     let ePrintfFormat4 = env.EPrintfFormat4
     let eVesperList1 = env.EVesperList1
-    let eFSharpList1 = env.EFSharpList1
 
     /// Single-sourced primitive repr, as an active pattern over an `FTConst` canon key.
     let (|PrimitiveRepr|_|) (key: SymbolKey) = env.TryPrimitiveRepr key
@@ -37,13 +36,6 @@ type internal ClrEncoder(env: ClrEnv) =
     // without this even the two sites of one `let (a, b) = (1, 2)` would mint duplicate rows.
     let valueTupleRefsCache =
         Dictionary<FrozenType list, ValueTupleHandles>(HashIdentity.Structural)
-
-    /// `FSharpList`1<X>` where `X` is encoded by `inner`. Shared by `encodeType`'s list case and
-    /// the cons/nil recipe signatures.
-    let encodeListOf (te: SignatureTypeEncoder) (inner: SignatureTypeEncoder -> unit) : unit =
-        markFSharpCoreDep "Microsoft.FSharp.Collections.FSharpList`1"
-        let g = te.GenericInstantiation(eFSharpList1.Value, 1, false)
-        inner (g.AddArgument())
 
     // Referenced-assembly nominal recognisers: each looks the `TypeRef` up ONCE and matches on
     // the whole node, so the pattern can read `args` for the arity probe.
@@ -98,9 +90,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
             for a in args do
                 encodeType (g.AddArgument()) a
-        | FTRecord(key, args) when RuntimeNames.isFsharpCoreListKey key && args.Length = 1 ->
-            let elem = args.[0]
-            encodeListOf te (fun arg -> encodeType arg elem)
         // `userTypes` holds exactly the types emitted into THIS assembly. A self-host
         // `Vesper.Collections.List` and a referenced one share a key; membership is the only
         // thing separating the emitted `TypeDef` from the cached external `eVesperList1`.
@@ -259,13 +248,9 @@ type internal ClrEncoder(env: ClrEnv) =
                 failwithf
                     "ClrProvider: cannot encode anonymous union %A — only a nullable reference `T | null` is representable on CLR (erased to `T`)"
                     t
-        // LAST among the `FTConst` arms, because `obj`, `'T[]` and `byref<'T>` are `FTConst`
-        // spellings too and each has an IL form of its own. What is left keys the IL type off
-        // the repr string (`"int"` → `"System.Int32"` → `i4`) rather than the Vesper name,
-        // which survives only for the failure diagnostic. A GENERIC one (`seq<obj>`) is
-        // reached only from the package DECLARING the capability — elsewhere the provider
-        // resolves it to a nominal and `ExternalClass` matches — and its repr already spells
-        // `` `N ``, so it keys the `TypeRef` at arity 0 and instantiates over `args`.
+        // Keys the IL type off the repr string (`"int"` → `"System.Int32"` → `i4`), not the
+        // Vesper name, which survives only for the failure diagnostic. `obj` and `'T[]` are
+        // `FTConst` spellings too, so this arm follows theirs.
         | FTConst(PrimitiveRepr repr & key, args) ->
             if args.IsEmpty && IntrinsicRepr.tryEncodeValueType te repr then
                 ()
@@ -274,12 +259,11 @@ type internal ClrEncoder(env: ClrEnv) =
                 te.Type(eValueTuple.Value, true)
             else
                 // An intrinsic whose repr is a BCL TYPE, not a primitive: `exn` →
-                // `System.Exception`, `bigint` → `System.Numerics.BigInteger`. Carry the repr's
-                // OWN value-ness, because a struct encoded as `class X` only dies later, at JIT
-                // time.
+                // `System.Exception`. A generic repr spells its own `` `N ``, hence arity 0.
                 let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
 
                 match externalClassRef platformKey with
+                // The repr's OWN value-ness: a struct encoded as `class X` only dies at JIT time.
                 | ValueSome tref when args.IsEmpty -> te.Type(tref, externalIsValueType platformKey)
                 | ValueSome tref ->
                     let g = te.GenericInstantiation(tref, args.Length, externalIsValueType platformKey)
@@ -375,7 +359,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
             toEntity (ctx.MethodSpec(handle, inst))
 
-    member _.EncodeListOf(te, inner) = encodeListOf te inner
     member _.EncodeType(te, t: FrozenType) = encodeType te t
 
     member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =

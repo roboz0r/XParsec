@@ -574,47 +574,24 @@ module internal ElaborateExpr =
 
         TExpr.ArrayLit(EqArray.ofSeq (seq { for x in items -> translateExpr ctx x }), arrayTy, tok)
 
-    /// Project a `[…]` literal into a `Cons` / `Nil` chain. A degenerate element type falls
-    /// back to a free `TyVar`.
+    /// Project a `[…]` literal into a `Cons` / `Empty` chain over the list type unification
+    /// drove it to — the same type and case names the matching `[…]` pattern takes.
     and private translateListLiteral
         (ctx: PassContext)
         (literalTy: SemType)
         (items: Expr<SyntaxToken> list)
         (tok: SyntaxToken)
         : TExpr =
-        let zonked = Unification.zonk ctx.Store literalTy
+        let listTy = Unification.zonk ctx.Store literalTy
+        let consName, emptyName = listCaseNames ctx listTy
 
-        let elemTy =
-            match zonked with
-            | TyRecord(_, args) when args.Length = 1 -> args.[0]
-            | TyUnion(_, args) when args.Length = 1 -> args.[0]
-            | _ -> TyVar(ctx.NewTypeVar())
-
-        // A program-declared list union (via the `'T list = List<'T>` abbrev) builds
-        // `[…]` from its own cases: nullary = empty terminator, binary = cons.
-        // Otherwise the FSharp.Core `Cons` / `Nil`.
-        let listTy, consName, nilName =
-            match zonked with
-            | LocalUnion ctx info ->
-                let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
-                let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
-
-                match nilCase, consCase with
-                | Some n, Some c -> zonked, c.Name, n.Name
-                | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
-            // The external Vesper cons-list, whose cases are `Cons` / `Empty`. Being
-            // *external* it is absent from `ctx.Types.Union`, so the user-union arm
-            // above misses it; recognition of its key is shared with codegen.
-            | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Empty"
-            | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
-
-        let nil = TExpr.UnionCons(nilName, EqArray.empty, listTy, tok)
+        let empty = TExpr.UnionCons(emptyName, EqArray.empty, listTy, tok)
 
         items
         |> List.foldBack (fun item acc ->
             TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx item; acc ], listTy, tok)
         )
-        <| nil
+        <| empty
 
     and private translateIfThenElse
         (ctx: PassContext)

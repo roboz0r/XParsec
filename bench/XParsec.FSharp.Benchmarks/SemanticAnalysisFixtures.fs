@@ -125,9 +125,8 @@ let stagesFor (depth: ChainDepth) : Stage list =
         ]
     | other -> failwithf "SemanticAnalysisFixtures: unknown chain depth %A" other
 
-/// Analyse one stage through the self-host front end (`analyseForSelfHost`, the entry the
-/// package build uses: bare `[]`/`::` default to the Vesper cons-list) and return every
-/// file's result. `analyse` is a seam so the probe can inject a timing wrapper.
+/// Analyse one stage, returning every file's result. `analyse` is a seam so the probe can
+/// inject a timing wrapper.
 let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
     AssemblyFiles.analyseAssemblyWith analyse s.Name s.Provider s.Files
 

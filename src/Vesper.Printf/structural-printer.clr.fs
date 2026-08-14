@@ -193,9 +193,8 @@ type SemFrame =
     }
 
 /// A NON-generic BCL `IEnumerator` as the `seq<obj>` `Sequence` takes, so the `IEnumerable`
-/// arm and a declared `Format` body reach the one renderer. `Vesper.Collections.BoxedItems`
-/// is the generic counterpart every collection uses; this one cannot be it, because
-/// `IEnumerator` is CLR-only and already hands back `obj`. One-shot: `GetEnumerator` is `this`.
+/// arm and a declared `Format` body reach the one renderer. One-shot: `GetEnumerator` is
+/// `this`; the source is non-generic, so `Current` needs no boxing.
 type BclPrintItems =
     val inner: IEnumerator
 
