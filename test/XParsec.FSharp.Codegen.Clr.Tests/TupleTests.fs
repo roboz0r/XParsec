@@ -273,4 +273,30 @@ let lambdaParamTests =
 
                 Expect.equal r 36 "g over an 8-tuple = 8 + 28"
             }
+
+            test "the member a tuple is CLASSIFIED as is the member it is EMITTED as" {
+                // The layout answer keys off `typeKey`, the `TypeRef` off `memberName`. Drift
+                // between them would classify a tuple as something else than it emits.
+                for arity in 2..12 do
+                    Expect.equal
+                        (SymbolKeyOps.typeMetaName (ClrTuples.typeKey arity))
+                        (ClrTuples.Namespace + "." + ClrTuples.memberName (ClrTuples.memberArity arity))
+                        (sprintf "arity %d" arity)
+            }
+
+            test "every classified ValueTuple member resolves, as a value type" {
+                // The layout answer is a metadata lookup, so a member that did not resolve would
+                // hand back `Unanswered` and silently classify a tuple as a reference.
+                let facts =
+                    match MetadataSymbols.provider.Platform with
+                    | ValueSome f -> f
+                    | ValueNone -> failtest "the metadata provider IS the platform"
+
+                for arity in 2..12 do
+                    match facts.TupleType arity with
+                    | ValueSome key -> Expect.equal (facts.IsValueType key) (ValueSome true) (sprintf "arity %d" arity)
+                    | ValueNone -> failtestf "arity %d reached no tuple type" arity
+
+                Expect.equal (facts.TupleType 1) ValueNone "a 1-tuple is not a tuple value"
+            }
         ]

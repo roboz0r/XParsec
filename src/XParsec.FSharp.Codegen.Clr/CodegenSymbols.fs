@@ -118,4 +118,6 @@ module CodegenSymbols =
                 | ValueNone ->
                     provider.TryLookupType(SymbolKey.Type key)
                     |> ValueOption.bind ExternalSymbols.declaredValueType
+
+            member _.Platform = provider.Platform
         }

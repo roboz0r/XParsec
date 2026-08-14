@@ -67,6 +67,22 @@ module JsNativeSymbols =
         | Some(ExternalTypeShape.Class shape) -> shape.Members |> EqArray.filter (fun m -> m.Name = key.Name)
         | _ -> EqArray.empty
 
+    let private platformFacts: IPlatformFacts =
+        { new IPlatformFacts with
+            // JS has no value types, of any key: `int` is a `number` like every other numeric,
+            // and a `[<Struct>]` record erases to the same object a plain one is.
+            member _.IsValueType _ = ValueSome false
+
+            // A tuple of any arity is one rank-1 array; `unit` and a 1-tuple are not tuple
+            // values. WHICH array key is unforced, because every key gets the same layout
+            // answer above.
+            member _.TupleType arity =
+                if arity < 2 then
+                    ValueNone
+                else
+                    ValueSome(RuntimeNames.arrayTypeKey 1)
+        }
+
     /// The stub table as a provider.
     let provider: IExternalSymbolProvider =
         ExternalSymbolProviders.ofNamedChannels
@@ -77,9 +93,7 @@ module JsNativeSymbols =
                         | Some s -> ValueSome s
                         | None -> ValueNone
                 TryLookupMembers = membersOf
-                // JS has no value types, of any key: `int` is a `number` like every other
-                // numeric, and a `[<Struct>]` record erases to the same object a plain one is.
-                IsValueType = fun _ -> ValueSome false
+                Platform = ValueSome platformFacts
             }
 
     /// The platform metadata a JS compile ends in: these stubs stand where a CLR compile puts

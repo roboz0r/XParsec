@@ -16,10 +16,12 @@ type private CountingProvider(name: string) =
     let mutable typeHits = 0
     let mutable memberKeyHits = 0
     let mutable valueTypeHits = 0
+    let mutable tupleTypeHits = 0
     member _.LookupHits = lookupHits
     member _.TypeHits = typeHits
     member _.MemberKeyHits = memberKeyHits
     member _.ValueTypeHits = valueTypeHits
+    member _.TupleTypeHits = tupleTypeHits
 
     member private _.TypeByName(n: string) =
         typeHits <- typeHits + 1
@@ -66,10 +68,19 @@ type private CountingProvider(name: string) =
         member _.TryLookupIndexSignature _ = []
         member _.TryLookupByKey _ = ValueNone
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
+        member this.Platform = ValueSome(this :> IPlatformFacts)
+
+    interface IPlatformFacts with
 
         // A miss, but a counted one: a provider with no opinion is asked at most once too.
         member _.IsValueType _ =
             valueTypeHits <- valueTypeHits + 1
+            ValueNone
+
+        // Counted for the OPPOSITE reason: this channel is deliberately NOT cached, so a
+        // second ask must reach through.
+        member _.TupleType _ =
+            tupleTypeHits <- tupleTypeHits + 1
             ValueNone
 
 [<Tests>]
@@ -154,5 +165,19 @@ let tests =
                 cached.IsValueType key |> ignore
 
                 Expect.equal inner.ValueTypeHits 1 "value-type channel hit once"
+            }
+
+            test "the TUPLE-TYPE channel is deliberately not cached" {
+                // Pinned so re-adding a cache is a deliberate decision.
+                let inner = CountingProvider "known"
+                let cached = ExternalSymbolProviders.memoize inner
+
+                match cached.Platform with
+                | ValueSome facts ->
+                    facts.TupleType 2 |> ignore
+                    facts.TupleType 2 |> ignore
+
+                    Expect.equal inner.TupleTypeHits 2 "tuple-type channel reached through both times"
+                | ValueNone -> failtest "the counting provider publishes platform facts"
             }
         ]

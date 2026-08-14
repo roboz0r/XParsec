@@ -44,7 +44,7 @@ module ExternalSymbolProviders =
             TryLookupMembers: ExternalMemberName -> EqArray<ExternalMember>
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
             IntrinsicTypeMap: IntrinsicTypeMap
-            IsValueType: TypeKey -> bool voption
+            Platform: IPlatformFacts voption
         }
 
     module NamedChannels =
@@ -60,7 +60,7 @@ module ExternalSymbolProviders =
                 TryLookupMembers = fun _ -> EqArray.empty
                 TryLookupIndexSignature = fun _ -> []
                 IntrinsicTypeMap = IntrinsicTypeMap.empty
-                IsValueType = fun _ -> ValueNone
+                Platform = ValueNone
             }
 
     /// Channels that HOLD their types' identities. Needed when a type is
@@ -197,7 +197,7 @@ module ExternalSymbolProviders =
                   named.TryLookup(SymbolKeyOps.qualifiedName key)
 
               member _.IntrinsicTypeMap = named.IntrinsicTypeMap
-              member _.IsValueType key = named.IsValueType key
+              member _.Platform = named.Platform
         }
 
     let ofNamedChannels (channels: NamedChannels) : IExternalSymbolProvider =
@@ -245,8 +245,8 @@ module ExternalSymbolProviders =
         abstract IntrinsicTypeMap: IntrinsicTypeMap
         default _.IntrinsicTypeMap = inner.IntrinsicTypeMap
 
-        abstract IsValueType: key: TypeKey -> bool voption
-        default _.IsValueType key = inner.IsValueType key
+        abstract Platform: IPlatformFacts voption
+        default _.Platform = inner.Platform
 
         interface IExternalSymbolProvider
 
@@ -264,7 +264,7 @@ module ExternalSymbolProviders =
             member this.TryLookupIndexSignature(key: SymbolKey) = this.TryLookupIndexSignature key
             member this.TryLookupByKey key = this.TryLookupByKey key
             member this.IntrinsicTypeMap = this.IntrinsicTypeMap
-            member this.IsValueType key = this.IsValueType key
+            member this.Platform = this.Platform
 
     /// The composed intrinsic axis of `sources`, EARLIEST source nearest: what `stack`
     /// publishes, exposed for a caller that must seed a later source with it before composing.
@@ -428,9 +428,9 @@ module ExternalSymbolProviders =
 
               member _.IntrinsicTypeMap = intrinsics
 
-              // Per FACT, not per shape: a source with no opinion abstains, so the platform
-              // metadata is reached past every contract source above it.
-              member _.IsValueType key = firstHit (fun s -> s.IsValueType key)
+              // Every contract source above it abstains as a WHOLE, so this reaches the one
+              // source that is the platform metadata, wherever in the stack it sits.
+              member _.Platform = firstHit (fun s -> s.Platform)
         }
 
     /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
@@ -620,6 +620,20 @@ module ExternalSymbolProviders =
         let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
         let valueTypes = ConcurrentDictionary<TypeKey, bool voption>()
 
+        // Only `IsValueType` is cached: it reaches a metadata name lookup, where `TupleType`
+        // answers from the target's own fixed family and is cheaper than the dictionary probe.
+        let platform =
+            lazy
+                (inner.Platform
+                 |> ValueOption.map (fun facts ->
+                     { new IPlatformFacts with
+                         member _.IsValueType key =
+                             valueTypes.GetOrAdd(key, (fun k -> facts.IsValueType k))
+
+                         member _.TupleType arity = facts.TupleType arity
+                     }
+                 ))
+
         { new ProviderDecorator(inner) with
             override _.TryLookup name =
                 symbols.GetOrAdd(name, (fun n -> inner.TryLookup n))
@@ -648,8 +662,7 @@ module ExternalSymbolProviders =
             override _.TryLookupByKey key =
                 symbolsByKey.GetOrAdd(key, (fun k -> inner.TryLookupByKey k))
 
-            override _.IsValueType key =
-                valueTypes.GetOrAdd(key, (fun k -> inner.IsValueType k))
+            override _.Platform = platform.Value
         }
         :> IExternalSymbolProvider
 

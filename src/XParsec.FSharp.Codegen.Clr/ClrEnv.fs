@@ -128,7 +128,7 @@ type internal ClrEnv
     // `unit` — the zero-field `System.ValueTuple` struct that `prim-types-min.clr.fs` binds it
     // to. No `FSharp.Core.Unit` is referenced.
     let eValueTuple =
-        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, ClrTuples.Namespace, ClrTuples.Name)))
 
     // The open generic tuple structs `System.ValueTuple`1..`8`, cached by arity as bare
     // `TypeRef`s. `1` is in the family because `ValueTuple`1` arises as the `TRest` of
@@ -136,7 +136,7 @@ type internal ClrEnv
     let valueTupleEntities = Dictionary<int, EntityHandle>()
 
     let eValueTupleN (arity: int) : EntityHandle =
-        if arity < 1 || arity > 8 then
+        if arity < 1 || arity > ClrTuples.MaxArity then
             failwithf
                 "ClrProvider: ValueTuple arity %d is out of range — only the generic family `ValueTuple`1..`8` exists (≥9 nests via `ValueTuple`8`'s `TRest`)."
                 arity
@@ -145,7 +145,7 @@ type internal ClrEnv
         | true, h -> h
         | _ ->
             let h =
-                toEntity (ctx.TypeRef(coreRef.Value, "System", sprintf "ValueTuple`%d" arity))
+                toEntity (ctx.TypeRef(coreRef.Value, ClrTuples.Namespace, ClrTuples.memberName arity))
 
             valueTupleEntities.[arity] <- h
             h

@@ -274,8 +274,10 @@ module RuntimeNames =
     let undefinedKey: SymbolKey = primitiveKey undefinedTypeName
     let byrefKey: SymbolKey = primitiveKey SymbolKeyOps.byrefName
 
-    let arrayKey (rank: int) : SymbolKey =
-        primitiveKey (SymbolKeyOps.arrayName rank)
+    let arrayTypeKey (rank: int) : TypeKey =
+        SymbolKeyOps.typeKeyOf intrinsicNamespace (SymbolKeyOps.arrayName rank)
+
+    let arrayKey (rank: int) : SymbolKey = SymbolKey.Type(arrayTypeKey rank)
 
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 

@@ -10,6 +10,8 @@
     <!-- TFM → reference-pack resolver: the no-MSBuild convenience over an explicit
          `dllPaths` set. Depends on nothing else in Codegen.Clr, so it sorts first. -->
     <Compile Include="RefPack.fs" />
+    <!-- Ahead of the metadata source that classifies a tuple and the encoder that mints it. -->
+    <Compile Include="ClrTuples.fs" />
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="ClrSymbolProviders.fs" />
     <Compile Include="ProjectInfo.fs" />

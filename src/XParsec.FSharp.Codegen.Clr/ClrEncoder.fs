@@ -217,25 +217,25 @@ type internal ClrEncoder(env: ClrEnv) =
             // slots, so a method-axis typar lands at `!(d + i)` (a static-fn closure: `d = 0`).
             | ValueSome d -> te.GenericTypeParameter(d + i)
             | ValueNone -> te.GenericMethodTypeParameter i
-        // A tuple is the arity-N member of the `System.ValueTuple` struct family, a `VALUETYPE`
-        // generic instantiation. Arity ≤ 7 is the flat `ValueTuple`n`; arity ≥ 8 packs slots 0–6
-        // then nests the rest in `ValueTuple`8`'s 8th arg (`TRest`), the standard .NET scheme.
+        // A tuple is a member of the `System.ValueTuple` struct family, a `VALUETYPE` generic
+        // instantiation, and nests whatever does not fit one member, per the standard .NET scheme.
         | FTTuple items ->
             let rec encodeFrom (out: SignatureTypeEncoder) (start: int) =
                 let remaining = items.Length - start
 
-                if remaining <= 7 then
+                if ClrTuples.fitsOneMember remaining then
                     let g = out.GenericInstantiation(env.EValueTupleN remaining, remaining, true)
 
                     for i in start .. items.Length - 1 do
                         encodeType (g.AddArgument()) items.[i]
                 else
-                    let g = out.GenericInstantiation(env.EValueTupleN 8, 8, true)
+                    let g =
+                        out.GenericInstantiation(env.EValueTupleN ClrTuples.MaxArity, ClrTuples.MaxArity, true)
 
-                    for i in start .. start + 6 do
+                    for i in start .. start + ClrTuples.MaxDirect - 1 do
                         encodeType (g.AddArgument()) items.[i]
 
-                    encodeFrom (g.AddArgument()) (start + 7)
+                    encodeFrom (g.AddArgument()) (start + ClrTuples.MaxDirect)
 
             encodeFrom te 0
         // A by-ref (`T&`) is legal only in parameter / return / local position, where the
@@ -393,9 +393,7 @@ type internal ClrEncoder(env: ClrEnv) =
     /// destructuring. The ctor / `Item` signatures name the type's own `!0…`, so they are
     /// element-type-independent and only the parent `TypeSpec` carries the instantiation.
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles =
-        // A user-level tuple is arity ≥ 2 (`unit` and `(x)` are not tuples); `ValueTuple`1` is
-        // reachable only as a `TRest` in the recursion below.
-        if List.length elemTys < 2 then
+        if not (ClrTuples.isTupleArity (List.length elemTys)) then
             failwithf
                 "ClrProvider: ValueTupleRefs needs arity ≥ 2, got %d (unit / 1-tuples are not tuple values)."
                 (List.length elemTys)
@@ -405,9 +403,7 @@ type internal ClrEncoder(env: ClrEnv) =
         | _ ->
             let rec build (elems: FrozenType[]) : ValueTupleHandles =
                 let n = elems.Length
-                // The family member that DIRECTLY holds these elements: flat `ValueTuple`n` for
-                // n ≤ 7, else `ValueTuple`8` (slots 0–6 + a nested `TRest`).
-                let k = if n <= 7 then n else 8
+                let k = ClrTuples.memberArity n
 
                 // The full (possibly nested) tuple type, doubling as the member-ref parent
                 // `TypeSpec`. The recursive `TRest` nesting happens inside `encodeType`.
@@ -436,9 +432,9 @@ type internal ClrEncoder(env: ClrEnv) =
                     toEntity (ctx.MemberRef(typeSpec, ".ctor", s))
 
                 // `public !i Item{i+1}` — `ValueTuple` exposes public FIELDS, not properties, so
-                // element access is `ldfld`, not `call get_ItemN`. For arity ≥ 8 only the 7
-                // directly-stored slots get `Item` fields; the rest ride the `Rest` field below.
-                let directCount = if n <= 7 then n else 7
+                // element access is `ldfld`, not `call get_ItemN`. Only the directly-stored
+                // slots get `Item` fields; the rest ride the `Rest` field below.
+                let directCount = if ClrTuples.fitsOneMember n then n else ClrTuples.MaxDirect
 
                 let itemFields =
                     [|

@@ -66,6 +66,17 @@ type IExternalSymbolResolver =
     /// BEHIND every explicit `open`; earliest wins: `["Vesper.ArithmeticOperators"; "Vesper"]`.
     abstract AmbientOpenPrefixes: string list
 
+/// What the COMPILING TARGET lays out and encodes, which no `.fsi` can state: `int` is a
+/// value type on the CLR and nothing is on JS. Answered only by a source that IS the platform
+/// metadata, so the whole interface is what a contract source declines.
+type IPlatformFacts =
+    /// Does the target lay this type out as a VALUE? `ValueNone` for a key it does not know.
+    abstract IsValueType: key: TypeKey -> bool voption
+
+    /// The nominal a tuple of `arity` elements BECOMES: the OUTERMOST constructor, so a target
+    /// that nests keeps the nesting in its encoder. `ValueNone` below arity 2, not a tuple.
+    abstract TupleType: arity: int -> TypeKey voption
+
 /// The STORE view of the external-symbol contract: identity → payload, once identity is
 /// resolved. Addressed by `(namespace, arity-qualified name)` and NOTHING ELSE, so
 /// same-named types in two assemblies are indistinguishable here.
@@ -96,10 +107,8 @@ type IExternalSymbolStore =
     /// carrying no intrinsics.
     abstract IntrinsicTypeMap: IntrinsicTypeMap
 
-    /// Does the compiling target lay this type out as a VALUE? `int` is one on the CLR and
-    /// nothing is on JS, so no shared `.fsi` states it and only the platform metadata answers.
-    /// `ValueNone` is no opinion: every contract source, and a compile with no platform.
-    abstract IsValueType: key: TypeKey -> bool voption
+    /// This source's target facts, `ValueNone` unless it IS the platform metadata.
+    abstract Platform: IPlatformFacts voption
 
 /// Both views on ONE object: raw facts only, with NO capability predicates ("is this type
 /// disposable?" is a language judgment the passes make). Every lookup must be thread-safe.
@@ -118,6 +127,11 @@ module IExternalSymbolStoreExtensions =
             match this.TryLookupMembers(key, memberName) with
             | EqEmpty -> ValueNone
             | ms -> ValueSome ms.[0]
+
+        /// "No platform" and "the platform doesn't know" flattened into the one `ValueNone`
+        /// a layout question treats alike.
+        member this.IsValueType(key: TypeKey) : bool voption =
+            this.Platform |> ValueOption.bind (fun p -> p.IsValueType key)
 
 /// An external module-level function as the codegen boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as
@@ -158,6 +172,9 @@ type ICodegenSymbols =
     /// Does the compiling target lay this type out as a VALUE? Already SETTLED: the target's
     /// layout, else what the declaration asked for. `ValueNone` when neither states one.
     abstract IsValueType: key: TypeKey -> bool voption
+    /// The RAW target facts, unmerged with any declaration, so emission classifies a shape
+    /// through the same answers the front end typed it against.
+    abstract Platform: IPlatformFacts voption
 
 module ExternalSymbols =
 

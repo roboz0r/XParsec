@@ -24,13 +24,25 @@ type LayoutShape =
     | Enum of key: TypeKey
     /// A closure, a union, or an anonymous union erasing to a boxed reference.
     | Reference
-    /// A tuple. Structural, so there is no key to ask the target under, and the backend
-    /// that encodes it is the only source: `System.ValueTuple`n` on the CLR, an array on JS.
-    | Encoded
+    /// A tuple. Structural, so it carries no key of its own; the target answers what a
+    /// tuple of this many elements BECOMES, and that nominal's layout is the answer.
+    | Tuple of arity: int
     /// An unevaluated type-level computation, settled at neither layout until it evaluates.
     | Unevaluated
     /// Not ground, or not key-addressed.
     | Opaque
+
+/// The answers a layout question is resolved against; the front end and a backend fill
+/// them differently.
+type LayoutOracle =
+    {
+        /// What the compile has already SETTLED for a key, however that end settles it.
+        Settled: TypeKey -> TypeLayout
+        /// What the type's own declaration ASKED for, reached only when nothing settled it.
+        Declared: TypeKey -> TypeLayout
+        /// The target's facts, for a shape carrying no key of its own.
+        Platform: IPlatformFacts voption
+    }
 
 [<RequireQualifiedAccess>]
 module TypeLayout =
@@ -68,7 +80,7 @@ module TypeLayout =
         | TyFun _
         | TyUnion _
         | TyOr _ -> LayoutShape.Reference
-        | TyTuple _ -> LayoutShape.Encoded
+        | TyTuple items -> LayoutShape.Tuple items.Length
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> LayoutShape.Unevaluated
@@ -88,7 +100,7 @@ module TypeLayout =
         | FTFun _
         | FTUnion _
         | FTOr _ -> LayoutShape.Reference
-        | FTTuple _ -> LayoutShape.Encoded
+        | FTTuple items -> LayoutShape.Tuple items.Length
         | FTKeyOf _
         | FTIndexedAccess _
         | FTConditional _ -> LayoutShape.Unevaluated
@@ -97,16 +109,19 @@ module TypeLayout =
         | FTLocalTypar _
         | FTUnknown _ -> LayoutShape.Opaque
 
-    /// `platform` is what the TARGET lays a key out as and `declared` what that type's own
-    /// declaration asked for. The target leads: `[<Struct>]` is the request, the target is
-    /// what it gets. `Encoded` reaches no answer here — only a backend can settle it.
-    let resolve (platform: TypeKey -> TypeLayout) (declared: TypeKey -> TypeLayout) (shape: LayoutShape) : TypeLayout =
+    /// What is settled leads what was asked for: `[<Struct>]` is the request, the target is
+    /// what it gets. A tuple resolves through the nominal it becomes, asked for like any
+    /// other key.
+    let resolve (oracle: LayoutOracle) (shape: LayoutShape) : TypeLayout =
         match shape with
-        | LayoutShape.Primitive key -> platform key
-        | LayoutShape.Nominal key -> platform key |> orElse (fun () -> declared key)
-        | LayoutShape.Enum key -> platform key |> orElse (fun () -> TypeLayout.Value)
+        | LayoutShape.Primitive key -> oracle.Settled key
+        | LayoutShape.Nominal key -> oracle.Settled key |> orElse (fun () -> oracle.Declared key)
+        | LayoutShape.Enum key -> oracle.Settled key |> orElse (fun () -> TypeLayout.Value)
         | LayoutShape.Reference -> TypeLayout.Reference
-        | LayoutShape.Encoded
+        | LayoutShape.Tuple arity ->
+            match oracle.Platform |> ValueOption.bind (fun p -> p.TupleType arity) with
+            | ValueSome key -> oracle.Settled key
+            | ValueNone -> TypeLayout.Unanswered
         | LayoutShape.Unevaluated
         | LayoutShape.Opaque -> TypeLayout.Unanswered
 
@@ -127,11 +142,17 @@ module TypeLayout =
         )
         |> ofAnswer
 
+    /// Nothing is emitted yet, so the target alone settles a key: every declaration, this
+    /// compilation's or a referenced unit's, is still only the request.
+    let private oracleOf (ctx: PassContext) : LayoutOracle =
+        {
+            Settled = platformOf ctx
+            Declared = declaredOf ctx
+            Platform = ctx.Provider.Platform
+        }
+
     /// The compiling target's layout for an already-projected shape, for a caller that
     /// branches on the shape too.
-    let ofShape (ctx: PassContext) (shape: LayoutShape) : TypeLayout =
-        resolve (platformOf ctx) (declaredOf ctx) shape
+    let ofShape (ctx: PassContext) (shape: LayoutShape) : TypeLayout = resolve (oracleOf ctx) shape
 
-    /// The compiling target's layout for `t`. `Unanswered` at a tuple: the front end holds no
-    /// key for one, so the backend that encodes it answers instead.
     let ofSemType (ctx: PassContext) (t: SemType) : TypeLayout = ofShape ctx (shapeOf ctx.Store t)

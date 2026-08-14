@@ -346,6 +346,9 @@ type ICodegenProvider =
     /// two ends from classifying a type differently.
     abstract ExternalLayout: key: SymbolKey -> TypeLayout
 
+    /// The RAW target facts, unmerged with any declaration.
+    abstract Platform: IPlatformFacts voption
+
     /// `System.Decimal::.ctor(int32, int32, int32, bool, uint8)` — emits a
     /// `decimal` constant the way F# / Roslyn do, from `Decimal.GetBits`.
     abstract DecimalCtor: EntityHandle

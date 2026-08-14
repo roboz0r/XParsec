@@ -95,16 +95,20 @@ module EmitPattern =
             | true, r -> TypeLayout.ofValueness r.IsValueType
             | false, _ -> TypeLayout.Unanswered
 
-    /// Is a value of this type laid out as a CLR value type? Every shape but one is the shared
-    /// projection the front end typed against, so the two ends cannot classify a type
-    /// differently — a divergence is a missing `box` at every `:>` / `:?` / addressed call.
+    /// A referenced name arrives already settled, target-then-declaration; only a type EMITTED
+    /// HERE still has its `[<Struct>]` as an open request.
+    let private oracle (env: EmitEnv) : LayoutOracle =
+        {
+            Settled = fun key -> env.Provider.ExternalLayout(SymbolKey.Type key)
+            Declared = declaredHere env
+            Platform = env.Provider.Platform
+        }
+
+    /// Is a value of this type laid out as a CLR value type? The same projection the front end
+    /// typed against, so the two ends cannot classify a type differently: a divergence is a
+    /// missing `box` at every `:>` / `:?` / addressed call.
     let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
-        match TypeLayout.shapeOfFrozen ty with
-        // The one shape carrying no key to answer under: this backend encodes a tuple as
-        // `System.ValueTuple`n`, which the same file's `destructureTuple` reads `Item` off.
-        | LayoutShape.Encoded -> true
-        | shape ->
-            TypeLayout.resolve (fun key -> env.Provider.ExternalLayout(SymbolKey.Type key)) (declaredHere env) shape = TypeLayout.Value
+        TypeLayout.resolve (oracle env) (TypeLayout.shapeOfFrozen ty) = TypeLayout.Value
 
     /// Test a pattern against the value in local `scrutSlot`: branch to `nextLabel` on
     /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its bound variable to

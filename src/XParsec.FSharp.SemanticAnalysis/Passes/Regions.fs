@@ -123,9 +123,6 @@ module Regions =
         | shape ->
             // Decided BY KEY, so a user type merely SPELLED `int` reaches no primitive layout.
             // A target that says nothing never will, so no answer is tracked, not assumed flat.
-            // Costs precision at `Encoded`, which is keyless BY SHAPE: a CLR tuple is a
-            // `System.ValueTuple` and is tracked here anyway. A tuple intrinsic key would
-            // recover it.
             match TypeLayout.ofShape ctx shape with
             | TypeLayout.Value -> false
             | TypeLayout.Reference

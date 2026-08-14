@@ -278,6 +278,7 @@ type ClrProvider
         member _.TypeToken(ty) = recipes.TypeToken(ty)
         member _.ValueTupleRefs(elemTys) = enc.ValueTupleRefs elemTys
         member _.ExternalLayout(key) = env.ExternalLayout key
+        member _.Platform = env.Symbols.Platform
         member _.DecimalCtor = env.EDecimalCtor.Value
         member _.ExceptionCtor = env.EExceptionCtor.Value
 

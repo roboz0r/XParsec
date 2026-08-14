@@ -44,6 +44,14 @@ let tests =
                     "r is tracked — no int is laid out flat here — and has no frame to escape"
             }
 
+            test "a tuple-typed call result is tracked" {
+                // JS answers an array for a tuple of any arity, and no array is laid out flat,
+                // so `pair 3` is tracked where the CLR suite's copy of this program is not.
+                let p = probe "let pair x = (x, x)\nlet pt = pair 3"
+
+                Expect.equal (RegionProbe.escapeOf p "pt") (Some CallerStack) "pt is tracked — a JS tuple is an array"
+            }
+
             test "a closure returning nested closures is HeapShared" {
                 // The tracked `int` the bodies compute reaches both lambda regions, which is
                 // the two-boundary rule the CLR never sees at this program.

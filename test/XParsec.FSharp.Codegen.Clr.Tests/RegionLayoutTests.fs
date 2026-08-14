@@ -36,6 +36,14 @@ let tests =
                 Expect.equal (RegionProbe.escapeOf p "r") None "r has no escape entry — the CLR lays an int flat"
             }
 
+            test "a tuple-typed call result mints no region" {
+                // The CLR answers `System.ValueTuple`2` for a 2-tuple, and that is a value type,
+                // so `pair 3` is flat. The literal that BUILT it still allocates, inside `pair`.
+                let p = probe "let pair x = (x, x)\nlet pt = pair 3"
+
+                Expect.equal (RegionProbe.escapeOf p "pt") None "pt has no escape entry — a CLR tuple is a value"
+            }
+
             test "a closure returning nested closures is CallerStack" {
                 // `mk` returns closures, not a tracked value: the `int` they compute stamps
                 // nothing, so nothing lifts `mk` past `CallerStack`.

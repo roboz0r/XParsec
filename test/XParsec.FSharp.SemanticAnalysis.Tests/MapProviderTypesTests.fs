@@ -132,7 +132,12 @@ let private fake: IExternalSymbolProvider =
                         EqArray.singleton candidate
                     else
                         EqArray.empty
-            IsValueType = fun _ -> ValueSome true
+            Platform =
+                ValueSome
+                    { new IPlatformFacts with
+                        member _.IsValueType _ = ValueSome true
+                        member _.TupleType _ = ValueNone
+                    }
         }
 
 let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake

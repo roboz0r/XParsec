@@ -524,8 +524,7 @@ module UnificationEngine =
         | _ -> Violated
 
     /// The layout query as a constraint verdict. No answer is a `Defer`, never a refusal: a
-    /// compile composing no platform states nothing about either polarity, and neither does
-    /// the front end about a tuple, whose layout only its backend encoding settles.
+    /// compile composing no platform states nothing about either polarity.
     and private valueLayoutOutcome (ctx: PassContext) (t: SemType) : ConstraintOutcome =
         match TypeLayout.ofSemType ctx t with
         | TypeLayout.Value -> Satisfied

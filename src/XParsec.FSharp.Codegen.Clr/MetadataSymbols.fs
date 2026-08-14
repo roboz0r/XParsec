@@ -690,6 +690,11 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         // The metadata layer CONSUMES the axis to canonicalize BCL names; it declares none.
         member _.IntrinsicTypeMap = IntrinsicTypeMap.empty
 
+        // .NET metadata IS the platform, so this source is the one that answers.
+        member this.Platform = ValueSome(this :> IPlatformFacts)
+
+    interface IPlatformFacts with
+
         // `Vesper.int` is a value type here because the repr its `.clr.fs` binds,
         // `System.Int32`, is one. A canon declared UNSUPPORTED on this target has no repr to
         // reflect; any other key answers under its plain metadata name.
@@ -703,6 +708,12 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             | ValueSome(IntrinsicPlatform.Repr repr) -> reflected repr
             | ValueSome(IntrinsicPlatform.Unsupported _) -> ValueNone
             | ValueNone -> reflected (SymbolKeyOps.typeMetaName key)
+
+        member _.TupleType(arity: int) =
+            if ClrTuples.isTupleArity arity then
+                ValueSome(ClrTuples.typeKey arity)
+            else
+                ValueNone
 
 module MetadataSymbols =
 
