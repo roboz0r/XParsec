@@ -232,9 +232,9 @@ type internal ClrEncoder(env: ClrEnv) =
         // A nullable REFERENCE union `T | null` IS the CLR reference-null repr of `T`, because
         // `obj | null` and `obj` are the same `System.Object` slot, so erase `null` and encode
         // the survivor. `int | string` has no anonymous-union IL repr and falls to the error below.
-        | FTOr members ->
+        | FTOr disjuncts ->
             let nonNull =
-                members
+                disjuncts.Disjuncts
                 |> EqSet.toList
                 |> List.filter (
                     function

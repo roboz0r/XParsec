@@ -134,7 +134,7 @@ module RuntimeNames =
 
     let stringWriterTypeName: string = "System.IO.StringWriter"
 
-    // Members of an anonymous union (`T | null`), not nominal types: no payload, so they
+    // Disjuncts of an anonymous union (`T | null`), not nominal types: no payload, so they
     // resolve to a bare `TyConst name`.
 
     let nullTypeName: string = "null"

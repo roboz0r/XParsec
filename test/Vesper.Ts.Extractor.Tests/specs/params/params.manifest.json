@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "params",
   "version": null,
   "exports": [
@@ -73,7 +73,7 @@
                   "name": "prefix",
                   "type": {
                     "k": "union",
-                    "members": [
+                    "disjuncts": [
                       {
                         "k": "named",
                         "name": "undefined",

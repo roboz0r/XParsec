@@ -29,7 +29,11 @@ module ConformanceTypars =
         | FTEnum key -> key.Name
         | FTFun(arg, result) -> sprintf "%s -> %s" (nested arg) (describeType result)
         | FTTuple items -> items |> Seq.map nested |> String.concat " * "
-        | FTOr members -> members |> EqSet.toList |> List.map describeType |> String.concat " | "
+        | FTOr disjuncts ->
+            disjuncts.Disjuncts
+            |> EqSet.toList
+            |> List.map describeType
+            |> String.concat " | "
         | FTLiteral value -> sprintf "%A" value
         | FTKeyOf ty -> sprintf "keyof %s" (nested ty)
         | FTIndexedAccess(objTy, index) -> sprintf "%s[%s]" (nested objTy) (describeType index)

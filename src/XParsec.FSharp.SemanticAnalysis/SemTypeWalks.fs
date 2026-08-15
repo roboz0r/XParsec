@@ -21,7 +21,7 @@ type Variance =
 [<RequireQualifiedAccess>]
 module FrozenType =
     /// Rebuild with `f` applied to each DIRECT child; a leaf returns unchanged.
-    /// `FTOr` rebuilds through `MkUnion`: a mapped member set can collapse or splice.
+    /// `FTOr` rebuilds through `MkUnion`: a mapped disjunct set can collapse or splice.
     let mapChildren (f: FrozenType -> FrozenType) (t: FrozenType) : FrozenType =
         match t with
         | FTConst(key, args) -> FTConst(key, EqArray.map f args)
@@ -30,7 +30,7 @@ module FrozenType =
         | FTRecord(key, args) -> FTRecord(key, EqArray.map f args)
         | FTUnion(key, args) -> FTUnion(key, EqArray.map f args)
         | FTClass(key, args) -> FTClass(key, EqArray.map f args)
-        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> f m })
+        | FTOr disjuncts -> disjuncts.Map f
         | FTKeyOf ty -> FTKeyOf(f ty)
         | FTIndexedAccess(objTy, index) -> FTIndexedAccess(f objTy, f index)
         | FTConditional c ->
@@ -85,7 +85,7 @@ module FrozenType =
             f arg
             f result
         | FTTuple items -> EqArray.iter f items
-        | FTOr members -> EqSet.iter f members
+        | FTOr disjuncts -> EqSet.iter f disjuncts.Disjuncts
         | FTKeyOf ty -> f ty
         | FTIndexedAccess(objTy, index) ->
             f objTy
@@ -110,7 +110,7 @@ module FrozenType =
         | FTClass(_, args) -> EqArray.forall p args
         | FTFun(arg, result) -> p arg && p result
         | FTTuple items -> EqArray.forall p items
-        | FTOr members -> EqSet.forall p members
+        | FTOr disjuncts -> EqSet.forall p disjuncts.Disjuncts
         | FTKeyOf ty -> p ty
         | FTIndexedAccess(objTy, index) -> p objTy && p index
         | FTConditional c -> p c.Check && p c.Extends && p c.WhenTrue && p c.WhenFalse
@@ -168,7 +168,9 @@ module FrozenType =
         | FTRecord(_, xs), FTRecord(_, ys)
         | FTUnion(_, xs), FTUnion(_, ys)
         | FTClass(_, xs), FTClass(_, ys) -> pairwise xs ys
-        | FTOr xs, FTOr ys when xs.Length = ys.Length ->
+        | FTOr xds, FTOr yds when xds.Disjuncts.Length = yds.Disjuncts.Length ->
+            let xs = xds.Disjuncts
+            let ys = yds.Disjuncts
             let n = xs.Length
             let mutable positionalOk = true
 
@@ -179,7 +181,7 @@ module FrozenType =
                 for i in 0 .. n - 1 do
                     f xs.[i] ys.[i]
             else
-                // Instantiation can reorder the member set: pair by type constructor instead.
+                // Instantiation can reorder the disjunct set: pair by type constructor instead.
                 let used = Array.zeroCreate<bool> n
                 let wildcards = ResizeArray<FrozenType>()
 
@@ -201,11 +203,11 @@ module FrozenType =
                         | [] -> ()
                         | _ ->
                             failwithf
-                                "FrozenType.iterChildren2: ambiguous FTOr member pairing — open member %A matches multiple instantiated members in %A"
+                                "FrozenType.iterChildren2: ambiguous FTOr pairing — open disjunct %A matches multiple instantiated disjuncts in %A"
                                 x
                                 ys
 
-                // Leftover instantiated members go to the wildcard open members, in index
+                // Leftover instantiated disjuncts go to the wildcard open ones, in index
                 // order.
                 let mutable wi = 0
 
@@ -277,7 +279,7 @@ module SemType =
             match EqArray.mapPreserve f args with
             | ValueNone -> t
             | ValueSome args' -> TyClass(key, args')
-        | TyOr members -> members.Map f
+        | TyOr disjuncts -> disjuncts.Map f
         | TyKeyOf ty ->
             let ty' = f ty
             if refEq ty' ty then t else TyKeyOf ty'
@@ -326,7 +328,7 @@ module SemType =
             f arg
             f result
         | TyTuple items -> EqArray.iter f items
-        | TyOr members -> EqSet.iter f members.Members
+        | TyOr disjuncts -> EqSet.iter f disjuncts.Disjuncts
         | TyKeyOf ty -> f ty
         | TyIndexedAccess(objTy, index) ->
             f objTy
@@ -351,7 +353,7 @@ module SemType =
         | TyClass(_, args) -> EqArray.forall p args
         | TyFun(arg, result) -> p arg && p result
         | TyTuple items -> EqArray.forall p items
-        | TyOr members -> EqSet.forall p members.Members
+        | TyOr disjuncts -> EqSet.forall p disjuncts.Disjuncts
         | TyKeyOf ty -> p ty
         | TyIndexedAccess(objTy, index) -> p objTy && p index
         | TyConditional c -> p c.Check && p c.Extends && p c.WhenTrue && p c.WhenFalse

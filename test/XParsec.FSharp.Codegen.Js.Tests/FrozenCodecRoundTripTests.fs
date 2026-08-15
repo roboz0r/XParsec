@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // the blob only as a row id, so the whole path through the file's tables has to survive.
 
 // Data: the frozen conformance corpus for breadth, plus hand-built edge cases pinning EVERY
-// case shape it may not exercise (an `FTOr` of several members, each `MemberKind`, …).
+// case shape it may not exercise (an `FTOr` of several disjuncts, each `MemberKind`, …).
 
 /// Filtered, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
 let private gated = compiledBy "js"
@@ -53,7 +53,7 @@ let private collect () : Collected =
                 tks.Add key |> ignore
                 EqArray.iter visitFt args
             | FTEnum key -> tks.Add key |> ignore
-            | FTOr members -> EqSet.iter visitFt members
+            | FTOr disjuncts -> EqSet.iter visitFt disjuncts.Disjuncts
             | FTLiteral _ -> ()
             | FTKeyOf ty -> visitFt ty
             | FTIndexedAccess(o, i) ->
@@ -249,9 +249,8 @@ let private collect () : Collected =
             FTUnion(tkList, EqArray.singleton ftString)
             FTClass(tkList, EqArray.empty)
             FTEnum tkInt
-            // FTOr of several members — must survive as the exact stored set (no MkUnion
-            // flatten/collapse on read).
-            FTOr(EqSet.ofSeq [ ftInt; ftString; ftLitStr; ftLitInt ])
+            // FTOr of several disjuncts — must survive as the exact stored set, uncollapsed.
+            FTOr(FTDisjuncts.OfSeq [ ftInt; ftString; ftLitStr; ftLitInt ])
             ftLitStr
             ftLitInt
             FTKeyOf ftRecord
@@ -262,7 +261,10 @@ let private collect () : Collected =
             FTLocalTypar(SchemeId 7, 2)
             FTUnknown "?free-typar"
             // Deeply nested: functions, tuples, sets and computations composed together.
-            FTFun(FTTuple(EqArray.ofList [ ftCond; ftArray ]), FTOr(EqSet.ofSeq [ FTKeyOf ftRecord; ftCond; ftInt ]))
+            FTFun(
+                FTTuple(EqArray.ofList [ ftCond; ftArray ]),
+                FTOr(FTDisjuncts.OfSeq [ FTKeyOf ftRecord; ftCond; ftInt ])
+            )
         ]
 
     // Both ends of the anchor's value range plus its absence, which the column stores as

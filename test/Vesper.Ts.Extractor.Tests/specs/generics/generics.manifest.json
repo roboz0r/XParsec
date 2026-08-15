@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "generics",
   "version": null,
   "exports": [
@@ -147,7 +147,7 @@
       "typeParams": 2,
       "target": {
         "k": "union",
-        "members": [
+        "disjuncts": [
           {
             "k": "typar",
             "i": 0

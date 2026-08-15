@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
 // `EqSet<'T>` is the set-semantic sibling of `EqArray`; it backs anonymous-union
-// (`FTOr`/`TyOr`) members.
+// (`FTOr`/`TyOr`) disjuncts.
 
 [<Tests>]
 let tests =

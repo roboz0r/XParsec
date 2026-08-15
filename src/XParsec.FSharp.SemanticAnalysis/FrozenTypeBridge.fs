@@ -15,9 +15,9 @@ module FrozenTypeBridge =
         | TyUnion(key, args) -> FTUnion(key, EqArray.map go args)
         | TyClass(key, args) -> FTClass(key, EqArray.map go args)
         | TyEnum key -> FTEnum key
-        // Freezing members can collapse the set (two distinct members freezing
-        // equal), so rebuild through `MkUnion` rather than mapping in place.
-        | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> go m })
+        // Freezing can collapse the set (two distinct disjuncts freezing equal),
+        // so rebuild through `MkUnion` rather than mapping in place.
+        | TyOr ds -> FrozenType.MkUnion(seq { for d in ds.Disjuncts -> go d })
         | TyLiteral v -> FTLiteral v
         // The type-level computations are carried across without being evaluated.
         | TyKeyOf t -> FTKeyOf(go t)
@@ -54,9 +54,9 @@ module FrozenTypeBridge =
         | FTUnion(key, args) -> TyUnion(key, EqArray.map go args)
         | FTClass(key, args) -> TyClass(key, EqArray.map go args)
         | FTEnum key -> TyEnum key
-        // Realising members can collapse the set (a typar member instantiating to
-        // another member), so rebuild through `MkUnion`, not a raw `TyOr`.
-        | FTOr members -> SemType.MkUnion(seq { for m in members -> go m })
+        // Realising can collapse the set (a typar disjunct instantiating to another
+        // disjunct), so rebuild through `MkUnion`, not a raw `TyOr`.
+        | FTOr ds -> SemType.MkUnion(seq { for d in ds.Disjuncts -> go d })
         | FTLiteral v -> TyLiteral v
         // The type-level computations realise their children but are NOT evaluated.
         | FTKeyOf t -> TyKeyOf(go t)

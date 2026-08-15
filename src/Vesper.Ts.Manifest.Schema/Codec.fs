@@ -175,7 +175,7 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
                 "ret", encodeTypeRef ret
             ]
     | TypeRef.Tuple items -> jObj [ "k", jStr "tuple"; "items", jArr (List.map encodeTypeRef items) ]
-    | TypeRef.Union members -> jObj [ "k", jStr "union"; "members", jArr (List.map encodeTypeRef members) ]
+    | TypeRef.Union disjuncts -> jObj [ "k", jStr "union"; "disjuncts", jArr (List.map encodeTypeRef disjuncts) ]
     | TypeRef.Literal v -> jObj (("k", jStr "literal") :: literalPayloadFields v)
     // keyof / indexed-access / conditional carry their child types verbatim: nothing
     // here evaluates them, so a consumer can still do so with the operands intact.
@@ -249,8 +249,8 @@ let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
             let! items = listField "items" decodeTypeRef m
             return TypeRef.Tuple items
         | "union" ->
-            let! members = listField "members" decodeTypeRef m
-            return TypeRef.Union members
+            let! disjuncts = listField "disjuncts" decodeTypeRef m
+            return TypeRef.Union disjuncts
         | "literal" ->
             let! v = decodeLiteralPayload m
             return TypeRef.Literal v

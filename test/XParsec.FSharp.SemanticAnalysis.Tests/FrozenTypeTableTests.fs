@@ -263,7 +263,7 @@ let tests =
                 Expect.equal
                     table.[forward]
                     (FrozenType.MkUnion [ intTy; stringTy ])
-                    "the stored member order is the first spelling's"
+                    "the stored disjunct order is the first spelling's"
             }
 
             test "a symbol key materialises back to the key it was interned from" {

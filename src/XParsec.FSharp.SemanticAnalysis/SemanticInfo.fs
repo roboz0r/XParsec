@@ -42,7 +42,7 @@ and FrozenType =
     /// No `args`, because enums are never generic. A distinct nominal, NOT its underlying `int`.
     | FTEnum of key: TypeKey
     /// An anonymous (structural) union: `A | B ≡ B | A`, and `FTOr []` is `never`.
-    | FTOr of members: EqSet<FrozenType>
+    | FTOr of disjuncts: FTDisjuncts
     /// A structural LITERAL type (`"GET"`, `42`): ground, no children. A plain Vesper literal
     /// does not make one: `"ping"` types as `string`.
     | FTLiteral of value: LiteralConst
@@ -60,23 +60,12 @@ and FrozenType =
     /// A nominal type constructor that resolved to no type shape, carried so `freeze` is total.
     | FTUnknown of name: string
 
-    /// Instantiation can make two members equal after the fact, so a re-map of an existing
-    /// `FTOr` must come back through here rather than be rebuilt directly.
-    static member MkUnion(members: FrozenType seq) : FrozenType =
-        let acc = ResizeArray<FrozenType>()
+    /// A one-disjunct set collapses to the bare disjunct; `MkUnion []` is `never` (bottom).
+    static member MkUnion(disjuncts: FrozenType seq) : FrozenType =
+        let canonical = FTDisjuncts.OfSeq disjuncts
 
-        let rec add (t: FrozenType) =
-            match t with
-            | FTOr ms -> EqSet.iter add ms
-            | _ -> acc.Add t
-
-        for m in members do
-            add m
-
-        let canonical = EqSet.ofSeq acc
-
-        if canonical.Length = 1 then
-            canonical.[0]
+        if canonical.Disjuncts.Length = 1 then
+            canonical.Disjuncts.[0]
         else
             FTOr canonical
 
@@ -88,6 +77,35 @@ and FTConditionalPayload =
         WhenTrue: FrozenType
         WhenFalse: FrozenType
     }
+
+/// The disjuncts of an `FTOr`: flattened and deduped, so `string | int` = `int | string`.
+and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
+    member _.Disjuncts: EqSet<FrozenType> = disjuncts
+
+    static member OfSeq(xs: FrozenType seq) : FTDisjuncts =
+        let acc = ResizeArray<FrozenType>()
+
+        let rec add (t: FrozenType) =
+            match t with
+            | FTOr ds -> EqSet.iter add ds.Disjuncts
+            | _ -> acc.Add t
+
+        for x in xs do
+            add x
+
+        FTDisjuncts(EqSet.ofSeq acc)
+
+    /// Instantiation can collapse the set (`'T | string` with `'T := string` → `string`), so
+    /// the result is a `FrozenType`, not an `FTDisjuncts`.
+    member _.Map(f: FrozenType -> FrozenType) : FrozenType =
+        FrozenType.MkUnion(seq { for d in disjuncts -> f d })
+
+    override _.Equals(other) =
+        match other with
+        | :? FTDisjuncts as o -> disjuncts = o.Disjuncts
+        | _ -> false
+
+    override _.GetHashCode() = hash disjuncts
 
 /// A nominal `interface <ty>` reference, over the declaring type's typars. Only a nominal
 /// reference witnesses anything at a use site, so a non-nominal one cannot be built.
@@ -163,7 +181,7 @@ type SemType =
     | TyEnum of key: TypeKey
     /// An anonymous (structural) union: `X | Y | null`, no key and no nominal identity.
     /// `TyOr []` is `never` (bottom); assignability is `subsumes`, not `unify`.
-    | TyOr of members: UnionMembers
+    | TyOr of disjuncts: TyDisjuncts
     /// A structural LITERAL type (`"GET"`, `42`); ground, and widens OUTWARD to its base
     /// primitive.
     | TyLiteral of value: LiteralConst
@@ -179,12 +197,12 @@ type SemType =
     /// afterwards no `TyVar` remains in any TAST `.ty` field.
     | TyTypar of axis: TyparAxis * index: int
 
-    /// A one-member set collapses to the bare member; `MkUnion []` is `never` (bottom).
-    static member MkUnion(members: SemType seq) : SemType =
-        let canonical = UnionMembers.OfSeq members
+    /// A one-disjunct set collapses to the bare disjunct; `MkUnion []` is `never` (bottom).
+    static member MkUnion(disjuncts: SemType seq) : SemType =
+        let canonical = TyDisjuncts.OfSeq disjuncts
 
-        if canonical.Members.Length = 1 then
-            canonical.Members.[0]
+        if canonical.Disjuncts.Length = 1 then
+            canonical.Disjuncts.[0]
         else
             TyOr canonical
 
@@ -197,34 +215,34 @@ and TyConditionalPayload =
         WhenFalse: SemType
     }
 
-/// The member set of a `TyOr`: flattened and deduped, so `string | int` = `int | string`.
-and [<Sealed>] UnionMembers private (members: EqSet<SemType>) =
-    member _.Members: EqSet<SemType> = members
+/// The disjuncts of a `TyOr`: flattened and deduped, so `string | int` = `int | string`.
+and [<Sealed>] TyDisjuncts private (disjuncts: EqSet<SemType>) =
+    member _.Disjuncts: EqSet<SemType> = disjuncts
 
-    static member OfSeq(xs: SemType seq) : UnionMembers =
+    static member OfSeq(xs: SemType seq) : TyDisjuncts =
         let acc = ResizeArray<SemType>()
 
         let rec add (t: SemType) =
             match t with
-            | TyOr ms -> EqSet.iter add ms.Members
+            | TyOr ds -> EqSet.iter add ds.Disjuncts
             | _ -> acc.Add t
 
         for x in xs do
             add x
 
-        UnionMembers(EqSet.ofSeq acc)
+        TyDisjuncts(EqSet.ofSeq acc)
 
     /// Substituting can collapse the set (`'T | string` with `'T := string` → `string`), so
-    /// the result is a `SemType`, not a `UnionMembers`.
+    /// the result is a `SemType`, not a `TyDisjuncts`.
     member _.Map(f: SemType -> SemType) : SemType =
-        SemType.MkUnion(seq { for m in members -> f m })
+        SemType.MkUnion(seq { for d in disjuncts -> f d })
 
     override _.Equals(other) =
         match other with
-        | :? UnionMembers as o -> members = o.Members
+        | :? TyDisjuncts as o -> disjuncts = o.Disjuncts
         | _ -> false
 
-    override _.GetHashCode() = hash members
+    override _.GetHashCode() = hash disjuncts
 
 /// Abelian-group expression over named measure atoms. Always stored normalised: duplicates
 /// merged, zero exponents dropped, entries sorted, so equality is structural list equality.

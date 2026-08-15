@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "unions",
   "version": null,
   "exports": [
@@ -14,7 +14,7 @@
               "name": "value",
               "type": {
                 "k": "union",
-                "members": [
+                "disjuncts": [
                   {
                     "k": "named",
                     "name": "string",
@@ -33,7 +33,7 @@
           ],
           "returns": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "undefined",
@@ -60,7 +60,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "string",
@@ -82,7 +82,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "null",
@@ -104,7 +104,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "undefined",
@@ -126,7 +126,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "undefined",

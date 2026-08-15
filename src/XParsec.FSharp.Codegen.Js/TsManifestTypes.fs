@@ -158,7 +158,7 @@ module internal TsManifestTranslate =
 
     /// The canonical string IS the identity, and every case carries a tag so no two shapes
     /// alias. `Named` refs are LEAVES: never expanded, which bounds the recursion, since TS
-    /// recursion requires a name. Fields and union members are SORTED: order-invariant.
+    /// recursion requires a name. Fields and union disjuncts are SORTED: order-invariant.
     let rec private shapeHash (t: Schema.TypeRef) : string =
         match t with
         | Schema.TypeRef.Named(name, []) -> "N:" + name
@@ -167,7 +167,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.MethodTypar i -> "M:" + string i
         | Schema.TypeRef.Fun(args, ret) -> "Fn(" + String.concat "," (List.map shapeHash args) + ")->" + shapeHash ret
         | Schema.TypeRef.Tuple items -> "Tup(" + String.concat "," (List.map shapeHash items) + ")"
-        | Schema.TypeRef.Union members -> "U(" + String.concat "|" (List.sort (List.map shapeHash members)) + ")"
+        | Schema.TypeRef.Union disjuncts -> "U(" + String.concat "|" (List.sort (List.map shapeHash disjuncts)) + ")"
         | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> "Ls:" + s
         | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> "Li:" + string n
         | Schema.TypeRef.KeyOf t -> "K(" + shapeHash t + ")"
@@ -215,7 +215,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.MethodTypar _ -> []
         | Schema.TypeRef.Fun(args, ret) -> (args |> List.collect structuralShapesIn) @ structuralShapesIn ret
         | Schema.TypeRef.Tuple items -> items |> List.collect structuralShapesIn
-        | Schema.TypeRef.Union members -> members |> List.collect structuralShapesIn
+        | Schema.TypeRef.Union disjuncts -> disjuncts |> List.collect structuralShapesIn
         | Schema.TypeRef.Literal _ -> []
         | Schema.TypeRef.KeyOf t -> structuralShapesIn t
         | Schema.TypeRef.IndexedAccess(objTy, index) -> structuralShapesIn objTy @ structuralShapesIn index
@@ -236,7 +236,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.MethodTypar _ -> []
         | Schema.TypeRef.Fun(args, ret) -> (args |> List.collect structuralIndexSigsIn) @ structuralIndexSigsIn ret
         | Schema.TypeRef.Tuple items -> items |> List.collect structuralIndexSigsIn
-        | Schema.TypeRef.Union members -> members |> List.collect structuralIndexSigsIn
+        | Schema.TypeRef.Union disjuncts -> disjuncts |> List.collect structuralIndexSigsIn
         | Schema.TypeRef.Literal _ -> []
         | Schema.TypeRef.KeyOf t -> structuralIndexSigsIn t
         | Schema.TypeRef.IndexedAccess(objTy, index) -> structuralIndexSigsIn objTy @ structuralIndexSigsIn index
@@ -353,7 +353,7 @@ module internal TsManifestTranslate =
             List.foldBack (fun a acc -> FTFun(toFrozen ctx a, acc)) args (toFrozen ctx ret)
         | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map (toFrozen ctx) items))
         // Flatten/dedupe/collapse per TS's union rules: a singleton `("a")` becomes a literal.
-        | Schema.TypeRef.Union members -> FrozenType.MkUnion(List.map (toFrozen ctx) members)
+        | Schema.TypeRef.Union disjuncts -> FrozenType.MkUnion(List.map (toFrozen ctx) disjuncts)
         // A TS literal TYPE → `FTLiteral` (structural, external-vocabulary only).
         | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> FTLiteral(LiteralConst.String s)
         | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> FTLiteral(LiteralConst.Int n)

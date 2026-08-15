@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// and at `float`.
 let private utilManifestJson =
     """{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "util",
   "version": null,
   "exports": [

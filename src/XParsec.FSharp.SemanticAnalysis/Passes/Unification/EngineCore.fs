@@ -29,8 +29,8 @@ module UnificationEngineCore =
         // Resolve at each node: an annotated `objnull` param can arrive behind a `TyVar`
         // Link, and `mapChildren` treats a `TyVar` as a leaf, so a raw walk misses the union.
         match resolveStep store t with
-        | TyOr members ->
-            members.Members
+        | TyOr ds ->
+            ds.Disjuncts
             |> EqSet.toList
             |> List.filter (
                 function
@@ -646,7 +646,7 @@ module UnificationEngineCore =
             | TyFun _ -> sprintf "(%s) -> %s" (shown store dom) (shown store cod)
             | _ -> sprintf "%s -> %s" (shown store dom) (shown store cod)
         | TyTuple _ -> "tuple"
-        | TyOr ms -> ms.Members |> EqSet.toList |> List.map (shown store) |> String.concat " | "
+        | TyOr ds -> ds.Disjuncts |> EqSet.toList |> List.map (shown store) |> String.concat " | "
         | TyLiteral v -> sprintf "%A" v
         | TyUnknown name -> name
         | TyKeyOf _

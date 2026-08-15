@@ -323,7 +323,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTEnum key -> TypeRow.Enum(typeKey key)
             // Interning is injective on structural equality, so distinct `FrozenType`
             // members give distinct ids: the set keeps its cardinality and its order.
-            | FTOr ms -> TypeRow.Or(EqSet.ofSeq (seq { for m in ms -> frozenType m }))
+            | FTOr ds -> TypeRow.Or(EqSet.ofSeq (seq { for d in ds.Disjuncts -> frozenType d }))
             | FTLiteral value -> TypeRow.Literal(literal value)
             | FTKeyOf ty -> TypeRow.KeyOf(frozenType ty)
             | FTIndexedAccess(objTy, index) -> TypeRow.IndexedAccess(frozenType objTy, frozenType index)
@@ -526,7 +526,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 | TypeRow.Union(key, xs) -> FTUnion(typeKey key, args xs)
                 | TypeRow.Class(key, xs) -> FTClass(typeKey key, args xs)
                 | TypeRow.Enum key -> FTEnum(typeKey key)
-                | TypeRow.Or ms -> FTOr(EqSet.ofSeq (seq { for m in ms -> frozenType m }))
+                | TypeRow.Or ds -> FTOr(FTDisjuncts.OfSeq(seq { for d in ds -> frozenType d }))
                 | TypeRow.Literal value -> FTLiteral(literal value)
                 | TypeRow.KeyOf ty -> FTKeyOf(frozenType ty)
                 | TypeRow.IndexedAccess(objTy, index) -> FTIndexedAccess(frozenType objTy, frozenType index)

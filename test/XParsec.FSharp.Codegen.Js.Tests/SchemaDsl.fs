@@ -24,7 +24,7 @@ let methodTypar (i: int) : Schema.TypeRef = Schema.TypeRef.MethodTypar i
 let fn (args: Schema.TypeRef list) (ret: Schema.TypeRef) : Schema.TypeRef = Schema.TypeRef.Fun(args, ret)
 
 /// A structural union (`"auto" | "manual"`, `string | null`).
-let union (members: Schema.TypeRef list) : Schema.TypeRef = Schema.TypeRef.Union members
+let union (disjuncts: Schema.TypeRef list) : Schema.TypeRef = Schema.TypeRef.Union disjuncts
 
 /// A TS string-literal TYPE (`"auto"`).
 let strLit (s: string) : Schema.TypeRef =

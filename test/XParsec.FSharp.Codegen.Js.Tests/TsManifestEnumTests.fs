@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// enum `Dir`. Both are top-level exports (flat package = module specifier `palette`).
 let private paletteManifestJson =
     """{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "palette",
   "version": null,
   "exports": [

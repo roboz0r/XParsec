@@ -495,9 +495,9 @@ module UnificationEngine =
         | TyIndexedAccess _
         | TyConditional _ -> Defer
         | TyNull -> Satisfied
-        // ANY member carrying `null` admits it, so one `null` member decides the union and an
-        // ungrounded member defers. `never` has no member to carry `null`.
-        | TyOr members -> reduceAny (admitsNull ctx) (members.Members.Underlying :> seq<SemType>)
+        // ANY disjunct carrying `null` admits it, so one `null` disjunct decides the union and
+        // an ungrounded one defers. `never` has no disjunct to carry `null`.
+        | TyOr ds -> reduceAny (admitsNull ctx) (ds.Disjuncts.Underlying :> seq<SemType>)
         // `[<AllowNullLiteral>]` is the class's own statement that `null` inhabits it, which is
         // what makes `let empty: T = null` legal on such a class.
         | TyClass(classKey, _) ->
@@ -627,14 +627,14 @@ module UnificationEngine =
                         info.InstanceFields |> Seq.map (fun f -> substituteWith ctx.Store subst f.Type)
                     )
             | ValueNone -> Defer
-        | SemanticConstraintKind.Equality, TyOr members ->
-            // EQUALITY iff EVERY member has it: generic equality is total on the union's
-            // boxed repr, a cross-member `=` returning `false` rather than throwing.
-            reduceOutcome (checkConstraint ctx c) (members.Members.Underlying :> seq<SemType>)
-        | SemanticConstraintKind.Comparison, TyOr members ->
-            // COMPARISON does NOT reduce member-wise: `(1).CompareTo("a")` throws, so a
-            // heterogeneous union is non-comparable even when each member is comparable.
-            if members.Members.IsEmpty then Satisfied else Violated
+        | SemanticConstraintKind.Equality, TyOr ds ->
+            // EQUALITY iff EVERY disjunct has it: generic equality is total on the union's
+            // boxed repr, a cross-disjunct `=` returning `false` rather than throwing.
+            reduceOutcome (checkConstraint ctx c) (ds.Disjuncts.Underlying :> seq<SemType>)
+        | SemanticConstraintKind.Comparison, TyOr ds ->
+            // COMPARISON does NOT reduce disjunct-wise: `(1).CompareTo("a")` throws, so a
+            // heterogeneous union is non-comparable even when each disjunct is comparable.
+            if ds.Disjuncts.IsEmpty then Satisfied else Violated
 
     /// On-unified callback for type-parameter constraints. Satisfied constraints are
     /// dropped; deferred ones remain on the root, and a compound `Defer` also copies the
@@ -870,7 +870,7 @@ module UnificationEngine =
         let rec isLiteralBearing t =
             match resolveStep ctx.Store t with
             | TyLiteral _ -> true
-            | TyOr ms -> ms.Members |> EqSet.forall isLiteralBearing
+            | TyOr ds -> ds.Disjuncts |> EqSet.forall isLiteralBearing
             | _ -> false
 
         // A `TyOr` annotation admits any subsuming actual (`let x: int | string = 1`); a

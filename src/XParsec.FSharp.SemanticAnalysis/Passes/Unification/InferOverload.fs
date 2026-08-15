@@ -12,13 +12,13 @@ open UnificationSubsume
 
 module UnificationInferOverload =
 
-    /// A union whose every member is a structural literal, so overload filtering can keep it
-    /// by-VALUE, unlike a union with a function / carried-node member, which is
+    /// A union whose every disjunct is a structural literal, so overload filtering can keep it
+    /// by-VALUE, unlike a union with a function / carried-node disjunct, which is
     /// applicability-opaque.
-    let isPureLiteralUnion (store: TypeStore) (ms: UnionMembers) : bool =
-        ms.Members
-        |> EqSet.forall (fun m ->
-            match zonk store m with
+    let isPureLiteralUnion (store: TypeStore) (ds: TyDisjuncts) : bool =
+        ds.Disjuncts
+        |> EqSet.forall (fun d ->
+            match zonk store d with
             | TyLiteral _ -> true
             | _ -> false
         )
@@ -58,9 +58,9 @@ module UnificationInferOverload =
         | (TyKeyOf _ | TyIndexedAccess _ | TyConditional _), _
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> true
         // A non-literal union parameter / a carried-node union argument stay opaque,
-        // because their members can carry a not-yet-ground node.
-        | _, TyOr ms when not (isPureLiteralUnion store ms) -> true
-        | TyOr ms, _ when EqSet.exists (hasCarriedNode store) ms.Members -> true
+        // because their disjuncts can carry a not-yet-ground node.
+        | _, TyOr ds when not (isPureLiteralUnion store ds) -> true
+        | TyOr ds, _ when EqSet.exists (hasCarriedNode store) ds.Disjuncts -> true
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
         | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (matchTypes store canon binds) xs ys
         // A free metavar on EITHER side binds to the opposite type, or agrees if already bound.

@@ -21,14 +21,14 @@ module UnificationSubsume =
         | Subtype
         | Unrelated
 
-    /// Does the string ENUM `enumKey`'s case-VALUE set sit ⊆ the string-literal members
+    /// Does the string ENUM `enumKey`'s case-VALUE set sit ⊆ the string-literal disjuncts
     /// of a union? `false` for a numeric/mixed enum, an unresolved enum, or a union whose
-    /// literals miss a value; a non-literal union member covers nothing, so it is ignored.
-    let private enumAdmitsIntoLiteralUnion (ctx: PassContext) (enumKey: TypeKey) (members: EqSet<SemType>) : bool =
+    /// literals miss a value; a non-literal disjunct covers nothing, so it is ignored.
+    let private enumAdmitsIntoLiteralUnion (ctx: PassContext) (enumKey: TypeKey) (disjuncts: EqSet<SemType>) : bool =
         let litValues = HashSet<string>()
 
-        for m in members do
-            match resolveStep ctx.Store m with
+        for d in disjuncts do
+            match resolveStep ctx.Store d with
             | TyLiteral(LiteralConst.String s) -> litValues.Add s |> ignore
             | _ -> ()
 
@@ -84,18 +84,18 @@ module UnificationSubsume =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The literal members of `t` when it is a PURE literal shape: a single `TyLiteral`
-    /// yields a singleton, a `TyOr` yields its members iff EVERY member is a literal,
+    /// The literal disjuncts of `t` when it is a PURE literal shape: a single `TyLiteral`
+    /// yields a singleton, a `TyOr` yields its disjuncts iff EVERY one is a literal,
     /// anything else is `ValueNone`. Only `resolveStep`s, so a caller needing a fold pre-folds.
-    let tryLiteralMembers (store: TypeStore) (t: SemType) : LiteralConst list voption =
+    let tryLiteralDisjuncts (store: TypeStore) (t: SemType) : LiteralConst list voption =
         match resolveStep store t with
         | TyLiteral v -> ValueSome [ v ]
-        | TyOr ms ->
+        | TyOr ds ->
             let acc = ResizeArray<LiteralConst>()
             let mutable allLit = true
 
-            for m in ms.Members do
-                match resolveStep store m with
+            for d in ds.Disjuncts do
+                match resolveStep store d with
                 | TyLiteral v -> acc.Add v
                 | _ -> allLit <- false
 
@@ -105,10 +105,10 @@ module UnificationSubsume =
                 ValueNone
         | _ -> ValueNone
 
-    /// `tryLiteralMembers` narrowed to ALL-STRING literals (`ValueNone` when any
-    /// member is a non-string literal or a non-literal).
+    /// `tryLiteralDisjuncts` narrowed to ALL-STRING literals (`ValueNone` when any
+    /// disjunct is a non-string literal or a non-literal).
     let tryLiteralStrings (store: TypeStore) (t: SemType) : string list voption =
-        match tryLiteralMembers store t with
+        match tryLiteralDisjuncts store t with
         | ValueSome vs ->
             let strings =
                 vs
@@ -146,23 +146,23 @@ module UnificationSubsume =
 
     /// Subtyping query distinct from `unify`: does a value of type `src` coerce to `tgt`? It
     /// never mutates `Link` / `Constraints`, so a read-only `:?` site needs no undo trace.
-    /// A `TyOr` operand resolves structurally, with its members folded first.
+    /// A `TyOr` operand resolves structurally, with its disjuncts folded first.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match resolveStep ctx.Store src, resolveStep ctx.Store tgt with
-        // union → union (`A | B ≤ A | B | C`): identical member sets are `Equal` (`EqSet`
+        // union → union (`A | B ≤ A | B | C`): identical disjunct sets are `Equal` (`EqSet`
         // equality is order-independent and deduped, so declared order does not matter);
-        // every source member landing in some target member is `Subtype`.
+        // every source disjunct landing in some target disjunct is `Subtype`.
         | TyOr ss, TyOr ts ->
-            let ssm = ss.Members
-            let tsm = ts.Members
+            let ssd = ss.Disjuncts
+            let tsd = ts.Disjuncts
 
-            if ssm = tsm then
+            if ssd = tsd then
                 SubsumeOutcome.Equal
             elif
-                ssm
+                ssd
                 |> EqSet.forall (fun s ->
-                    tsm
-                    |> EqSet.exists (fun t -> subsumes ctx s (foldMemberCarried ctx t) <> SubsumeOutcome.Unrelated)
+                    tsd
+                    |> EqSet.exists (fun t -> subsumes ctx s (foldDisjunctCarried ctx t) <> SubsumeOutcome.Unrelated)
                 )
             then
                 SubsumeOutcome.Subtype
@@ -171,29 +171,29 @@ module UnificationSubsume =
         // A Vesper string ENUM admits into a literal union when its case-VALUE set ⊆ the
         // union's literal set, so an enum can be the nominal companion for code that wants to
         // name the literal type. A non-string enum declines the guard and takes the arm below.
-        | TyEnum ek, TyOr ts when enumAdmitsIntoLiteralUnion ctx ek ts.Members -> SubsumeOutcome.Subtype
-        // member → union (`A ≤ A | B`): `Equal` when `src` *is* a member by structural `=`,
-        // `Subtype` when it subsumes into some member (a subclass of a member, or a literal
-        // widening into a base-primitive member).
+        | TyEnum ek, TyOr ts when enumAdmitsIntoLiteralUnion ctx ek ts.Disjuncts -> SubsumeOutcome.Subtype
+        // disjunct → union (`A ≤ A | B`): `Equal` when `src` *is* a disjunct by structural `=`,
+        // `Subtype` when it subsumes into some disjunct (a subclass of one, or a literal
+        // widening into a base-primitive one).
         | src', TyOr ts ->
-            let tsm = ts.Members
+            let tsd = ts.Disjuncts
 
-            if tsm |> EqSet.exists (fun t -> foldMemberCarried ctx t = src') then
+            if tsd |> EqSet.exists (fun t -> foldDisjunctCarried ctx t = src') then
                 SubsumeOutcome.Equal
             elif
-                tsm
-                |> EqSet.exists (fun t -> subsumes ctx src' (foldMemberCarried ctx t) <> SubsumeOutcome.Unrelated)
+                tsd
+                |> EqSet.exists (fun t -> subsumes ctx src' (foldDisjunctCarried ctx t) <> SubsumeOutcome.Unrelated)
             then
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // union → member/other (`A | B ⋠ A`): coerces only when *every* member subsumes the
+        // union → disjunct/other (`A | B ⋠ A`): coerces only when *every* disjunct subsumes the
         // target (`obj` or a wider type); otherwise the consumer must narrow first.
         // `never` (`TyOr []`) subsumes into everything (`forall` over the empty set).
         | TyOr ss, _ ->
             if
-                ss.Members
-                |> EqSet.forall (fun s -> subsumes ctx (foldMemberCarried ctx s) tgt <> SubsumeOutcome.Unrelated)
+                ss.Disjuncts
+                |> EqSet.forall (fun s -> subsumes ctx (foldDisjunctCarried ctx s) tgt <> SubsumeOutcome.Unrelated)
             then
                 SubsumeOutcome.Subtype
             else
@@ -240,14 +240,14 @@ module UnificationSubsume =
             else
                 SubsumeOutcome.Unrelated
 
-    /// Deep-fold carried type-level nodes NESTED inside a union member, since the union
-    /// arms compare a member WHOLE: `Handler<Events[Key]> | undefined` only matches once
+    /// Deep-fold carried type-level nodes NESTED inside a union disjunct, since the union
+    /// arms compare a disjunct WHOLE: `Handler<Events[Key]> | undefined` only matches once
     /// `Handler<Events[Key]>` has folded to `(int) -> unit`.
-    and private foldMemberCarried (ctx: PassContext) (m: SemType) : SemType =
-        if hasCarriedNode ctx.Store m then
-            evalTypeLevel ctx m
+    and private foldDisjunctCarried (ctx: PassContext) (d: SemType) : SemType =
+        if hasCarriedNode ctx.Store d then
+            evalTypeLevel ctx d
         else
-            m
+            d
 
     /// Ground-evaluate a carried type-level computation as far as its inputs allow: the
     /// FOLDED type when a rule fires, otherwise the (child-eval'd) carrier unchanged so it

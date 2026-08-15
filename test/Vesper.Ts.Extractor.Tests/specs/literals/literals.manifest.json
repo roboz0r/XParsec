@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "literals",
   "version": null,
   "exports": [
@@ -14,7 +14,7 @@
               "name": "method",
               "type": {
                 "k": "union",
-                "members": [
+                "disjuncts": [
                   {
                     "k": "literal",
                     "kind": "string",
@@ -50,7 +50,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "literal",
                 "kind": "string",
@@ -77,7 +77,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "literal",
                 "kind": "int",

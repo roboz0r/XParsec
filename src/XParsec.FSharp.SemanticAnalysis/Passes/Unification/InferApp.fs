@@ -150,13 +150,13 @@ module internal UnificationInferApp =
             // Ground-fold first: a `keyof T` parameter (`TyKeyOf`) folds to its literal-name
             // union, so a string constant admits by the same rule as an explicit literal
             // union (a bare `TyLiteral` slot is a singleton set).
-            match tryLiteralMembers ctx.Store (evalTypeLevel ctx (resolveStep ctx.Store dom)) with
+            match tryLiteralDisjuncts ctx.Store (evalTypeLevel ctx (resolveStep ctx.Store dom)) with
             | ValueNone -> false
-            | ValueSome members ->
-                if List.contains lit members then
+            | ValueSome disjuncts ->
+                if List.contains lit disjuncts then
                     true
                 else
-                    let allowed = members |> List.map (fun v -> v.Render) |> String.concat " | "
+                    let allowed = disjuncts |> List.map (fun v -> v.Render) |> String.concat " | "
 
                     ctx.Report(
                         tok,

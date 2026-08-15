@@ -83,7 +83,7 @@ let rec private tyName (t: SemType) : string =
     | TyUnion(n, _)
     | TyClass(n, _)
     | TyEnum n -> shownTypeName n
-    | TyOr members -> [ for m in members.Members -> tyName m ] |> String.concat " | "
+    | TyOr disjuncts -> [ for d in disjuncts.Disjuncts -> tyName d ] |> String.concat " | "
     | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
     | TyLiteral(LiteralConst.Int n) -> string n
     | TyKeyOf t -> "keyof " + tyName t
@@ -704,7 +704,7 @@ type private Renderer() =
                 | TyUnion(n, _)
                 | TyClass(n, _)
                 | TyEnum n -> shownTypeName n
-                | TyOr members -> [ for m in members.Members -> tyStr m ] |> String.concat " | "
+                | TyOr disjuncts -> [ for d in disjuncts.Disjuncts -> tyStr d ] |> String.concat " | "
                 | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
                 | TyLiteral(LiteralConst.Int n) -> string n
                 | TyKeyOf t -> "keyof " + tyStr t

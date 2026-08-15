@@ -155,8 +155,8 @@ and private structuralFieldType (ctx: MapCtx) (p: Ts.Symbol) : Schema.TypeRef =
 
         match ty with
         // Don't double-add `undefined` if the resolved type already carries it.
-        | Schema.TypeRef.Union ms when List.contains undef ms -> ty
-        | Schema.TypeRef.Union ms -> Schema.TypeRef.Union(ms @ [ undef ])
+        | Schema.TypeRef.Union ds when List.contains undef ds -> ty
+        | Schema.TypeRef.Union ds -> Schema.TypeRef.Union(ds @ [ undef ])
         | _ -> Schema.TypeRef.Union [ ty; undef ]
     else
         ty
@@ -267,16 +267,16 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
             // so it goes by printed form. `unknown` is deliberately not remapped.
             | "any" -> Schema.TypeRef.Dynamic
             | _ when t.isUnion () ->
-                // `null`/`undefined` ride in as their own members, never folded to `unit`.
-                // Literal members stay distinct (`"GET" | "POST"` → two `Literal`s), so the
+                // `null`/`undefined` ride in as their own disjuncts, never folded to `unit`.
+                // Literal disjuncts stay distinct (`"GET" | "POST"` → two `Literal`s), so the
                 // dedup only collapses genuine duplicates.
-                let members =
+                let disjuncts =
                     (unbox<Ts.UnionType> t).types
                     |> Seq.map (mapType ctx)
                     |> List.ofSeq
                     |> List.distinct
 
-                match members with
+                match disjuncts with
                 | [ single ] -> single
                 | many -> Schema.TypeRef.Union many
             | _ when t.isIntersection () ->

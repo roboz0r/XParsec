@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "indexsig",
   "version": null,
   "exports": [
@@ -18,7 +18,7 @@
           },
           "value": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "undefined",
@@ -44,7 +44,7 @@
           "kind": "property",
           "type": {
             "k": "union",
-            "members": [
+            "disjuncts": [
               {
                 "k": "named",
                 "name": "undefined",
@@ -127,7 +127,7 @@
             "name": "timeout",
             "type": {
               "k": "union",
-              "members": [
+              "disjuncts": [
                 {
                   "k": "named",
                   "name": "undefined",
@@ -182,7 +182,7 @@
             "name": "x",
             "type": {
               "k": "union",
-              "members": [
+              "disjuncts": [
                 {
                   "k": "named",
                   "name": "undefined",
@@ -200,7 +200,7 @@
             "name": "y",
             "type": {
               "k": "union",
-              "members": [
+              "disjuncts": [
                 {
                   "k": "named",
                   "name": "undefined",

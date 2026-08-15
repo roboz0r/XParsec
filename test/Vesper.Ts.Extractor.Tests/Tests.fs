@@ -326,9 +326,9 @@ let indexSignatureContract =
                     Expect.equal key stringRef "Dict index key is string"
 
                     match value with
-                    | Schema.TypeRef.Union ms ->
-                        Expect.isTrue (List.contains undefinedRef ms) "Dict index value union includes undefined"
-                        Expect.isTrue (List.contains stringRef ms) "Dict index value union includes string"
+                    | Schema.TypeRef.Union ds ->
+                        Expect.isTrue (List.contains undefinedRef ds) "Dict index value union includes undefined"
+                        Expect.isTrue (List.contains stringRef ds) "Dict index value union includes string"
                     | other -> failtestf "Dict index value should be a union, got %A" other
                 | other -> failtestf "Dict must carry an index signature, got %A" other
             }
@@ -376,8 +376,8 @@ let indexSignatureContract =
                     let _, timeoutTy = fields |> List.find (fun (n, _) -> n = "timeout")
 
                     match timeoutTy with
-                    | Schema.TypeRef.Union ms ->
-                        Expect.isTrue (List.contains undefinedRef ms) "settings.timeout carries undefined"
+                    | Schema.TypeRef.Union ds ->
+                        Expect.isTrue (List.contains undefinedRef ds) "settings.timeout carries undefined"
                     | other -> failtestf "settings.timeout should be a union, got %A" other
                 | other -> failtestf "settings should be a Structural, got %A" other
             }

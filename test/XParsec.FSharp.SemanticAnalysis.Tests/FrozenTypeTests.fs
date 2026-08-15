@@ -44,7 +44,7 @@ let private sampleFrozenTypes: FrozenType list =
             FTRecord(kRec, EqArray.singleton (FTTypar(TyparAxis.Declaring, 0)))
             FTUnion(kUnion, EqArray.singleton (FTConst(RuntimeNames.stringKey, EqArray.empty)))
             FTClass(kClass, EqArray.ofList [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 1) ])
-            // Anonymous union through the smart constructor: `EqSet` members, set identity.
+            // Anonymous union through the smart constructor: `EqSet` disjuncts, set identity.
             FrozenType.MkUnion
                 [
                     FTConst(RuntimeNames.intKey, EqArray.empty)
@@ -334,7 +334,7 @@ let mapVariantTests =
                 Expect.equal
                     (run Variance.Contra t)
                     (FrozenType.MkUnion [ witness "contra"; FTConst(RuntimeNames.intKey, EqArray.empty) ])
-                    "union member carried to contra"
+                    "union disjunct carried to contra"
             }
 
             test "childless leaves pass through untouched" {
@@ -366,9 +366,9 @@ let mapVariantTests =
             }
         ]
 
-// `iterChildren2` pairs the members of an `FTOr` — a SET, so storage order is not preserved
+// `iterChildren2` pairs the disjuncts of an `FTOr` — a SET, so storage order is not preserved
 // across instantiation, and a positional-only walk would mis-recover an open typar buried
-// under a reordered member. These pin the tyctor-keyed fallback that recovers the pairing.
+// under a reordered disjunct. These pin the tyctor-keyed fallback that recovers the pairing.
 [<Tests>]
 let iterChildren2FTOrTests =
     // A minimal mirror of the CLR encoder's open-typar recovery: record what each method-axis
@@ -387,7 +387,7 @@ let iterChildren2FTOrTests =
     testList
         "FrozenType.iterChildren2 FTOr pairing"
         [
-            test "recovers a typar buried under a REORDERED FTOr member by tyctor key, not position" {
+            test "recovers a typar buried under a REORDERED FTOr disjunct by tyctor key, not position" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
                 // Open `Box<!!0> | int` against instantiated `int | Box<string>`: `EqSet` keeps
                 // insertion order, so a positional pairing would match `Box<!!0>` with `int` and
@@ -416,11 +416,11 @@ let iterChildren2FTOrTests =
                     "!!0 recovers to `string` via tyctor-keyed pairing, not the positional `int`"
             }
 
-            test "fails loudly when an open FTOr member's type constructor matches TWO instantiated members" {
+            test "fails loudly when an open FTOr disjunct's type constructor matches TWO instantiated ones" {
                 let kBox = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
                 // Open `int | Box<!!0>` against `Box<string> | Box<float>`: positional type
                 // constructors mismatch so the fallback runs, and `Box<!!0>` then matches BOTH
-                // instantiated members. Genuinely ambiguous, so guessing would be a bug.
+                // instantiated disjuncts. Genuinely ambiguous, so guessing would be a bug.
                 let openOr =
                     FrozenType.MkUnion
                         [

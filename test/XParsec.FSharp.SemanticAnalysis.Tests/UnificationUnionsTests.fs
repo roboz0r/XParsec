@@ -22,25 +22,25 @@ let tests =
                 Expect.equal b a "string | int ≡ int | string after translate"
 
                 match b with
-                | TyOr ms -> Expect.equal ms.Members.Length 2 "two distinct members"
+                | TyOr ms -> Expect.equal ms.Disjuncts.Length 2 "two distinct disjuncts"
                 | other -> failtestf "expected a TyOr, got %A" other
             }
 
-            test "int | null translates with the reserved `null` member present" {
+            test "int | null translates with the reserved `null` disjunct present" {
                 let dom = unionDomainOf "let f (x: int | null) = x"
 
                 match dom with
                 | TyOr ms ->
-                    Expect.equal ms.Members.Length 2 "two members"
+                    Expect.equal ms.Disjuncts.Length 2 "two disjuncts"
 
                     Expect.contains
-                        (EqSet.toList ms.Members)
+                        (EqSet.toList ms.Disjuncts)
                         (TyConst(RuntimeNames.nullKey, EqArray.empty))
-                        "the reserved `null` literal type is a member"
+                        "the reserved `null` literal type is a disjunct"
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other
             }
 
-            test "int | string | bool translates to a 3-member canonical TyOr" {
+            test "int | string | bool translates to a 3-disjunct canonical TyOr" {
                 let dom = unionDomainOf "let f (x: int | string | bool) = x"
 
                 Expect.equal
@@ -49,20 +49,20 @@ let tests =
                     "f domain is int | string | bool"
 
                 match dom with
-                | TyOr ms -> Expect.equal ms.Members.Length 3 "three distinct members"
+                | TyOr ms -> Expect.equal ms.Disjuncts.Length 3 "three distinct disjuncts"
                 | other -> failtestf "expected a TyOr, got %A" other
             }
 
-            test "member → union: a member is Equal to the union it belongs to" {
+            test "disjunct → union: a disjunct is Equal to the union it belongs to" {
                 let ctx = subsumeCtx ()
 
                 Expect.equal
                     (UnificationSubsume.subsumes ctx intTy (mkUnion [ intTy; strTy ]))
                     UnificationSubsume.SubsumeOutcome.Equal
-                    "int ≤ (int | string) is Equal (int is a member)"
+                    "int ≤ (int | string) is Equal (int is a disjunct)"
             }
 
-            test "member → union: a non-member is Unrelated" {
+            test "disjunct → union: a non-disjunct is Unrelated" {
                 let ctx = subsumeCtx ()
 
                 Expect.equal
@@ -80,7 +80,7 @@ let tests =
                     "(int | string) ≤ (int | string | bool)"
             }
 
-            test "union → union: identical canonical member sets are Equal" {
+            test "union → union: identical canonical disjunct sets are Equal" {
                 let ctx = subsumeCtx ()
 
                 Expect.equal
@@ -89,7 +89,7 @@ let tests =
                     "(int | string) ≤ (string | int) is Equal (order-insensitive)"
             }
 
-            test "union → union: a member outside the target makes it Unrelated" {
+            test "union → union: a disjunct outside the target makes it Unrelated" {
                 let ctx = subsumeCtx ()
 
                 Expect.equal
@@ -98,7 +98,7 @@ let tests =
                     "(int | string) ⋠ (int | bool)"
             }
 
-            test "union → member: a union does NOT subsume one of its members" {
+            test "union → disjunct: a union does NOT subsume one of its disjuncts" {
                 let ctx = subsumeCtx ()
 
                 Expect.equal
@@ -107,22 +107,22 @@ let tests =
                     "(int | string) ⋠ int — the consumer must narrow first"
             }
 
-            test "let binding annotated with a union accepts a member value" {
+            test "let binding annotated with a union accepts a disjunct value" {
                 let ctx = analyse "let x: int | string = 1"
                 Expect.isEmpty ctx.Diagnostics "an int is accepted by an (int | string) annotation"
             }
 
-            test "let binding annotated with a reordered union accepts the other member" {
+            test "let binding annotated with a reordered union accepts the other disjunct" {
                 let ctx = analyse "let x: string | int = \"a\""
                 Expect.isEmpty ctx.Diagnostics "a string is accepted by a (string | int) annotation"
             }
 
-            test "a union-typed parameter accepts arguments of each member" {
+            test "a union-typed parameter accepts arguments of each disjunct" {
                 let ctx = analyse "let f (x: int | string) = 0\nlet a = f 1\nlet b = f \"a\""
                 Expect.isEmpty ctx.Diagnostics "f 1 and f \"a\" both check against (int | string)"
             }
 
-            test "passing a member into a union slot does NOT narrow the slot" {
+            test "passing a disjunct into a union slot does NOT narrow the slot" {
                 // `f 1` returns the *union* `int | string`, not `int`: the slot accepted `1`
                 // by assignability without unifying the parameter down to the actual. (The
                 // body is `x`, so the return type is the parameter's.)
@@ -135,7 +135,7 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "a non-member value is still rejected against a union annotation" {
+            test "a non-disjunct value is still rejected against a union annotation" {
                 let ctx = analyse "let x: int | string = true"
 
                 let hasMismatch = ctx.Diagnostics |> Seq.exists Diagnostic.isError
@@ -155,7 +155,7 @@ let tests =
             }
 
             test "a union slot accepts a value by assignability WITHOUT pinning its typar" {
-                // A value that subsumes into a member is accepted without `unify`, so the
+                // A value that subsumes into a disjunct is accepted without `unify`, so the
                 // actual's typar stays free — a plain `unify` against the union would link it.
                 let ctx = subsumeCtx ()
                 let tv = ctx.Store.NewTypeVar()
@@ -170,17 +170,17 @@ let tests =
                     "the actual's typar is left free (no pin)"
             }
 
-            test "equality on (int | string) is Satisfied — every member is equatable" {
+            test "equality on (int | string) is Satisfied — every disjunct is equatable" {
                 let ctx = subsumeCtx ()
 
                 Expect.equal
                     (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; strTy ]))
                     UnificationEngine.ConstraintOutcome.Satisfied
-                    "int | string supports equality (both members do)"
+                    "int | string supports equality (both disjuncts do)"
             }
 
-            test "equality on a union with a function member is Violated" {
-                // A `TyFun` arm supports no structural equality, so the all-members
+            test "equality on a union with a function disjunct is Violated" {
+                // A `TyFun` arm supports no structural equality, so the all-disjuncts
                 // reduction fails for the whole union.
                 let ctx = subsumeCtx ()
 
@@ -190,9 +190,9 @@ let tests =
                     "int | (int -> int) — the function arm breaks equality"
             }
 
-            test "equality on a union with an unresolved member Defers" {
-                // A free member is "unknown yet": the reduction defers so the
-                // constraint re-fires when that member's TyVar Links.
+            test "equality on a union with an unresolved disjunct Defers" {
+                // A free disjunct is "unknown yet": the reduction defers so the
+                // constraint re-fires when that disjunct's TyVar Links.
                 let ctx = subsumeCtx ()
 
                 Expect.equal
@@ -201,11 +201,11 @@ let tests =
                         SemanticConstraintKind.Equality
                         (mkUnion [ intTy; TyVar(ctx.Store.NewTypeVar()) ]))
                     UnificationEngine.ConstraintOutcome.Defer
-                    "int | 'a — defers on the free member"
+                    "int | 'a — defers on the free disjunct"
             }
 
-            test "comparison on (int | string) is Violated though each member is comparable" {
-                // Unlike equality, comparison does NOT reduce member-wise: generic `compare`
+            test "comparison on (int | string) is Violated though each disjunct is comparable" {
+                // Unlike equality, comparison does NOT reduce disjunct-wise: generic `compare`
                 // throws across distinct runtime types, so admitting it would let `List.sort`
                 // on a `(int | string) list` type-check and then throw.
                 let ctx = subsumeCtx ()
@@ -217,7 +217,7 @@ let tests =
             }
 
             test "an exhaustive type-test match on a union checks with no warning" {
-                // Both members tested, so the match is provably
+                // Both disjuncts tested, so the match is provably
                 // exhaustive and the bound variables `i`/`s` narrow to `int`/`string`.
                 let ctx =
                     analyse
@@ -227,7 +227,7 @@ let tests =
                 Expect.isFalse (hasUnionExhaustivenessWarning ctx) "no non-exhaustiveness warning"
             }
 
-            test "a union match missing a member warns (closed-union exhaustiveness)" {
+            test "a union match missing a disjunct warns (closed-union exhaustiveness)" {
                 let ctx =
                     analyse "let f (x: int | string) =\n    match x with\n    | :? int as i -> i"
 
@@ -237,7 +237,7 @@ let tests =
                     ctx.Diagnostics
                     |> Seq.find (fun d -> d.Severity = Severity.Warning && d.Message.Contains "anonymous union")
 
-                Expect.isTrue (warning.Message.Contains "string") "the warning names the uncovered member"
+                Expect.isTrue (warning.Message.Contains "string") "the warning names the uncovered disjunct"
             }
 
             test "a fall-through catch-all binds the narrowed residual union" {
@@ -256,27 +256,27 @@ let tests =
             test "an annotated `int | string` binding freezes to a canonical FTOr signature" {
                 // Domain and return are both `int | string`, so the decl freezes to
                 // `FTFun(FTOr, FTOr)`. Expected is built by freezing the SAME canonical
-                // SemType, not by guessing the member order.
+                // SemType, not by guessing the disjunct order.
                 let file = freezeDecls "let f (x: int | string) : int | string = x"
                 let union = mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
                 let expected = toFrozen (TyFun(union, union))
                 Expect.equal (frozenLetTy file) expected "f freezes to (int | string) -> (int | string)"
             }
 
-            test "the frozen union carries both members as FTOr in canonical order" {
+            test "the frozen union carries both disjuncts as FTOr in canonical order" {
                 // Pin the `FTOr` shape directly (not just via the round-trip equality
                 // above): the domain is an `FTOr` of exactly the two `FTConst`
                 // leaves, sorted to the canonical order `mkUnion` produces.
                 let file = freezeDecls "let f (x: int | string) : int | string = x"
 
                 match frozenLetTy file with
-                | FTFun(FTOr members, _) ->
+                | FTFun(FTOr disjuncts, _) ->
                     let canonical =
                         match toFrozen (mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]) with
-                        | FTOr ms -> ms
+                        | FTOr ds -> ds
                         | other -> failtestf "expected the canonical union to freeze to FTOr, got %A" other
 
-                    Expect.equal members canonical "domain members are the canonical FTOr [int; string]"
+                    Expect.equal disjuncts canonical "domain disjuncts are the canonical FTOr [int; string]"
                 | other -> failtestf "expected f's domain to freeze to an FTOr, got %A" other
             }
 

@@ -649,9 +649,9 @@ let tests =
                     Expect.notEqual frozen unfreezable "objnull did not freeze to the <unfreezable> sentinel"
 
                     match frozen with
-                    | FTOr members ->
+                    | FTOr disjuncts ->
                         let names =
-                            EqSet.toList members
+                            EqSet.toList disjuncts.Disjuncts
                             |> List.map (fun ft ->
                                 match ft with
                                 | FTConst(k, _) ->

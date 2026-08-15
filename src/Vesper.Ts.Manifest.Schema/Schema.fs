@@ -4,7 +4,7 @@
 module Vesper.Ts.Manifest.Schema
 
 [<Literal>]
-let SchemaVersion = 1
+let SchemaVersion = 2
 
 /// A type-tagged literal value, shared by `TypeRef.Literal` (a TS literal TYPE, `"GET"`)
 /// and enum member values. TS source expresses only `number` or `string`, so the wire
@@ -34,8 +34,8 @@ type TypeRef =
     | Fun of args: TypeRef list * ret: TypeRef
     | Tuple of items: TypeRef list
     /// Anonymous structural union → `FTOr`. `null`/`undefined` ride in as their
-    /// own members (NOT folded): `T | null | undefined → FTOr [T; null; undefined]`.
-    | Union of members: TypeRef list
+    /// own disjuncts (NOT folded): `T | null | undefined → FTOr [T; null; undefined]`.
+    | Union of disjuncts: TypeRef list
     /// A TS string/number literal TYPE (`"GET"`, `42`) → `FTLiteral`. Composes with
     /// `Union`: `("ping" | "pong")` is `Union [Literal "ping"; Literal "pong"]`.
     | Literal of value: LiteralValue

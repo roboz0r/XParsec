@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// `(float, float)` and `(string, string)`.
 let private calcManifestJson =
     """{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "calc",
   "version": null,
   "exports": [

@@ -173,20 +173,20 @@ module internal UnificationInferControlFlow =
     /// A short display name for an anonymous-union member in an incomplete-match
     /// diagnostic. Members are ground annotation types (`int`, `string`, `null`), so the
     /// bare `TyConst` name reads well; anything compound falls back to `%A`.
-    let rec private describeUnionMember (store: TypeStore) (m: SemType) : string =
-        match resolveStep store m with
+    let rec private describeDisjunct (store: TypeStore) (d: SemType) : string =
+        match resolveStep store d with
         | TyConst(key, args) when args.IsEmpty ->
             let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
             shown
         | TyOr inner ->
-            inner.Members
+            inner.Disjuncts
             |> EqSet.toList
-            |> List.map (describeUnionMember store)
+            |> List.map (describeDisjunct store)
             |> String.concat " | "
         | other -> sprintf "%A" other
 
     /// Per-arm scrutinee narrowing for a closed anonymous-union match (`match (x: A | B)
-    /// with …`): the members not yet caught by an earlier *unguarded* arm, paired 1:1 with
+    /// with …`): the disjuncts not yet caught by an earlier *unguarded* arm, paired 1:1 with
     /// `rules`, plus the final uncovered residual, reported as an incomplete match if non-empty.
     let private computeArmNarrowing
         (ctx: PassContext)
@@ -194,9 +194,9 @@ module internal UnificationInferControlFlow =
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType list * SemType list =
         match zonk ctx.Store scrutineeTy with
-        | TyOr members ->
-            // The members a `:? T` / `:? T as _` arm tests for, recursing through
-            // `|` alternatives. Anything else tests no member.
+        | TyOr disjuncts ->
+            // The disjuncts a `:? T` / `:? T as _` arm tests for, recursing through
+            // `|` alternatives. Anything else tests for none.
             let rec patTests pat =
                 match pat with
                 | Pat.TypeTest(typ = t)
@@ -216,11 +216,11 @@ module internal UnificationInferControlFlow =
                 | Pat.Attributed(pat = p) -> isCatchAll p
                 | _ -> false
 
-            let mutable residual = EqSet.toList members.Members
+            let mutable residual = EqSet.toList disjuncts.Disjuncts
             let armScruts = ResizeArray(rules.Length)
 
             for r in rules do
-                // The bound variable narrows against the members still live *before* this arm. Once
+                // The bound variable narrows against the disjuncts still live *before* this arm. Once
                 // the residual is exhausted, fall back to the full scrutinee rather than
                 // pin a redundant trailing bound variable to an empty union.
                 armScruts.Add(
@@ -230,7 +230,7 @@ module internal UnificationInferControlFlow =
                         mkUnion residual
                 )
 
-                // Shrink the residual by the members this arm definitively catches.
+                // Shrink the residual by the disjuncts this arm definitively catches.
                 // A guarded arm may fail at runtime, so it removes nothing.
                 match r with
                 | Rule.Rule(pat = pat; guard = ValueNone) ->
@@ -242,8 +242,8 @@ module internal UnificationInferControlFlow =
                         if not (List.isEmpty tests) then
                             residual <-
                                 residual
-                                |> List.filter (fun m ->
-                                    tests |> List.forall (fun tst -> subsumes ctx m tst = SubsumeOutcome.Unrelated)
+                                |> List.filter (fun d ->
+                                    tests |> List.forall (fun tst -> subsumes ctx d tst = SubsumeOutcome.Unrelated)
                                 )
                 | _ -> ()
 
@@ -678,7 +678,7 @@ module internal UnificationInferControlFlow =
             | _ -> ()
 
         match residual with
-        | _ :: _ -> ctx.Report(tok, Kind.IncompleteAnonUnionMatch(residual |> List.map (describeUnionMember ctx.Store)))
+        | _ :: _ -> ctx.Report(tok, Kind.IncompleteAnonUnionMatch(residual |> List.map (describeDisjunct ctx.Store)))
         | [] -> ()
 
     and inferMatch

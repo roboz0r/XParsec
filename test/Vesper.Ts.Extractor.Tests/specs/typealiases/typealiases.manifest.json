@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "package": "typealiases",
   "version": null,
   "exports": [
@@ -19,7 +19,7 @@
       "typeParams": 0,
       "target": {
         "k": "union",
-        "members": [
+        "disjuncts": [
           {
             "k": "named",
             "name": "string",
