@@ -2502,13 +2502,18 @@ and walkTypeExtensionElementsSignature (visitor: AstVisitor<'T>) (ext: TypeExten
 
 and walkTypeSignature (visitor: AstVisitor<'T>) (typeSig: TypeSignature<'T>) : unit =
     match typeSig with
-    | TypeSignature.Abbrev(typeName, equals, typ) ->
+    | TypeSignature.Abbrev(typeName, equals, typ, ext) ->
         visitor.EnterSection "TypeSig.Abbrev"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
         visitor.EnterSection ""
         walkType visitor typ
         visitor.ExitSection ""
+
+        match ext with
+        | ValueSome e -> walkTypeExtensionElementsSignature visitor e
+        | ValueNone -> ()
+
         visitor.ExitSection "TypeSig.Abbrev"
     | TypeSignature.Union(typeName, equals, cases, ext) ->
         visitor.EnterSection "TypeSig.Union"

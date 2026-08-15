@@ -1155,7 +1155,7 @@ module VesperLib =
         (ts: TypeSignature<SyntaxToken>)
         : unit =
         match ts with
-        | TypeSignature.Abbrev(typeName, _, rhs) ->
+        | TypeSignature.Abbrev(typeName = typeName; typ = rhs) ->
             match registerTypeDecl ctx lexed decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) -> extractAbbrevBody ctx lexed opens compiled arity typeName rhs

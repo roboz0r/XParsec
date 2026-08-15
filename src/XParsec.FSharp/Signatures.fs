@@ -72,7 +72,11 @@ type TypeExtensionElementsSignature<'T> =
 
 // Represents: type-signature
 type TypeSignature<'T> =
-    | Abbrev of typeName: TypeName<'T> * equals: 'T * typ: Type<'T>
+    | Abbrev of
+        typeName: TypeName<'T> *
+        equals: 'T *
+        typ: Type<'T> *
+        extensions: TypeExtensionElementsSignature<'T> voption
     | Record of
         typeName: TypeName<'T> *
         equals: 'T *

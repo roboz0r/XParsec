@@ -467,10 +467,16 @@ module TypeSignature =
                                         ->
                                         return! fail errSingleNullaryUnionCaseIsAbbrev
                                     | _ ->
-                                        let! ext = TypeExtensionElementsSignature.parseOpt
+                                        let! ext = TypeExtensionElementsSignature.parseOptAt next
                                         return TypeSignature.Union(typeName, equals, cases, ext)
                                 }
-                                (Type.parse |>> fun t -> TypeSignature.Abbrev(typeName, equals, t))
+                                parser {
+                                    let! t = Type.parse
+                                    // An abbreviation's augmentation needs an explicit `with`:
+                                    // `type Shown = int` followed by a bare `member` is invalid.
+                                    let! ext = opt TypeExtensionElementsSignature.parse
+                                    return TypeSignature.Abbrev(typeName, equals, t, ext)
+                                }
                             ]
                             "Union or Type abbreviation"
         }
