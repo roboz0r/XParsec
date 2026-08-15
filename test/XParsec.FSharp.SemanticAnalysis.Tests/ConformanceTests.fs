@@ -533,15 +533,20 @@ let jsPackageConformanceTests =
                 | _ -> failtest "prim-types-array.fsi must pair with prim-types-array.fs"
             }
 
-            test "js: a contract-less body is declared, not inferred, and raises nothing" {
+            test "js: a body that answers no contract raises nothing" {
                 // `structural-printer.js.fs` is a standalone `%A` engine whose published
-                // surface IS its contract, so it is declared `impl-only` rather than paired.
+                // surface IS its contract. It pairs with nothing, and owes nothing: only a
+                // `.fsi` demands a companion.
                 let outcome = outcomeFor (manifestOf "js" "Vesper.Printf")
 
-                Expect.equal
-                    (List.ofSeq outcome.ImplOnlyDeclarations)
-                    [ "structural-printer.js.fs" ]
-                    "the one body that implements no contract"
+                Expect.isEmpty
+                    [
+                        for p in outcome.Pairs do
+                            match p with
+                            | ConformancePass.PairOutcome.Paired r -> yield r.ImplFile
+                            | _ -> ()
+                    ]
+                    "no contract in the package pairs with the engine"
 
                 Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
@@ -604,8 +609,6 @@ let private mkOutcome
     {
         Package = "Test"
         Pairs = pairs
-        ImplOnly = []
-        ImplOnlyDeclarations = Set.empty
         SigOnlyExemptions = sigOnly
     }
 
@@ -678,40 +681,6 @@ let enforcementTests =
 
                 Expect.equal (List.length errors) 1 "one hygiene error"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale exemption"
-            }
-
-            test "a contract-less .fs → V242, unless the manifest declares it `impl-only`" {
-                // F# requires no `.fsi`, but a Vesper package publishes a contract surface,
-                // so an UNDECLARED body with none is the hard error.
-                let orphaned =
-                    { mkOutcome [] Set.empty with
-                        ImplOnly = [ "engine.js.fs" ]
-                    }
-
-                let errors = ConformancePass.enforce orphaned
-                Expect.equal (List.length errors) 1 "one hard error"
-                Expect.equal errors.Head.Code (DiagCode.Vesper "V242") "the contract-less-body family"
-
-                Expect.isEmpty
-                    (ConformancePass.enforce
-                        { orphaned with
-                            ImplOnlyDeclarations = Set.ofList [ "engine.js.fs" ]
-                        })
-                    "a declared contract-less body conforms"
-            }
-
-            test "an `impl-only` naming a body the target does not compile → V243 hygiene error" {
-                // The mirror of a stale `sig-only`: the declaration outlived the file, or
-                // the `.fsi` it disclaims came back.
-                let errors =
-                    ConformancePass.enforce
-                        { mkOutcome [] Set.empty with
-                            ImplOnlyDeclarations = Set.ofList [ "gone.js.fs" ]
-                        }
-
-                Expect.equal (List.length errors) 1 "one hygiene error"
-                Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale/unknown declaration"
-                Expect.stringContains errors.Head.Message "gone.js.fs" "names the dangling declaration"
             }
 
             test "a RuntimeServed .fsi → no error, with no exemption declared" {

@@ -22,14 +22,9 @@ sig-only = [
 ]
 
 # The standalone JS `%A` engine: a shape-keyed walker over the same Wadler `Doc` layout,
-# but with no BCL and no interface dispatch. It implements no printf `.fsi`.
+# but with no BCL and no interface dispatch. It implements no printf `.fsi`, and owes
+# none — its published surface (`structuralFormat`, `float32ToString`) IS its contract.
 impl = [
-    "structural-printer.js.fs",
-]
-
-# Its published surface (`structuralFormat`, `float32ToString`) IS its contract. Named
-# here so the pairing rule never marries it to a `structural-printer.fsi`.
-impl-only = [
     "structural-printer.js.fs",
 ]
 

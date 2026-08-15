@@ -51,12 +51,6 @@ module ConformancePass =
             Package: string
             /// One outcome per `.fsi` contract, in manifest `files` order.
             Pairs: PairOutcome list
-            /// `.fs` files in the impl set whose pairing key has no `.fsi` contract.
-            ImplOnly: string list
-            /// The `.fs` bodies the manifest declares contract-less for this target
-            /// (`impl-only`). One reported in `ImplOnly` is accepted; one that is not is a
-            /// stale/typo'd declaration.
-            ImplOnlyDeclarations: Set<string>
             /// The `.fsi` files the manifest declares DELIBERATELY impl-free for this target
             /// (`[core] sig-only`). A `SigOnly` contract in this set is an accepted
             /// exemption; one outside it is the FS0240-style hard error.
@@ -104,21 +98,15 @@ module ConformancePass =
             let dir = m.Dir
 
             // The impl candidate set: every `.fs` the manifest names. A `.fsi` pairs only
-            // with a `.fs` that is in it.
+            // with a `.fs` that is in it; a `.fs` matching no `.fsi` simply stays unpaired.
             let implFiles = m.Impl |> List.distinct
 
             let sigFiles = m.Files
 
             let pairingKey = ReferencedProject.pairingKey m
 
-            let declaredImplOnly = m.ImplOnly |> Set.ofList
-
-            // A body declared contract-less publishes its own surface, so it is no pairing
-            // candidate: it must not be married to a `.fsi` of the same key it does not implement.
-            let pairCandidates = implFiles |> List.filter (declaredImplOnly.Contains >> not)
-
             // A later impl wins a key clash.
-            let implByKey = pairCandidates |> List.map (fun f -> pairingKey f, f) |> Map.ofList
+            let implByKey = implFiles |> List.map (fun f -> pairingKey f, f) |> Map.ofList
 
             let companionOf (fsiRel: string) : string option =
                 Map.tryFind (pairingKey fsiRel) implByKey
@@ -206,18 +194,10 @@ module ConformancePass =
 
             let pairs = sigFiles |> List.map outcome
 
-            // A body with no published surface.
-            let contractKeys = sigFiles |> List.map pairingKey |> Set.ofList
-
-            let implOnly =
-                implFiles |> List.filter (fun f -> not (contractKeys.Contains(pairingKey f)))
-
             Ok
                 {
                     Package = m.Name
                     Pairs = pairs
-                    ImplOnly = implOnly
-                    ImplOnlyDeclarations = declaredImplOnly
                     SigOnlyExemptions = declaredSigOnly
                 }
 
@@ -282,16 +262,6 @@ module ConformancePass =
                 | PairOutcome.RuntimeServed _ -> ()
                 | PairOutcome.ParseFailed(sigFile, detail) ->
                     yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
-
-            for f in outcome.ImplOnly do
-                if not (outcome.ImplOnlyDeclarations.Contains f) then
-                    yield err (ConformanceVerdict.ImplWithoutContract f)
-
-            // A declared contract-less body the impl set does not report as one: a name this
-            // target does not compile, or one whose `.fsi` has since appeared.
-            for d in outcome.ImplOnlyDeclarations do
-                if not (List.contains d outcome.ImplOnly) then
-                    yield err (ConformanceVerdict.UnknownImplOnly d)
 
             for ex in outcome.SigOnlyExemptions do
                 if pairedSigs.Contains ex then

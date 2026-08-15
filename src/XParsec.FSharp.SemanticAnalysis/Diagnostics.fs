@@ -123,15 +123,10 @@ type ConformanceVerdict =
     | SigWithoutImpl of sigFile: string
     /// The paired files' leading module / namespace declarations disagree.
     | ModulePairingMismatch of sigFile: string * implFile: string * sigDecl: string * implDecl: string
-    /// A compiled implementation with no `.fsi` contract.
-    | ImplWithoutContract of implFile: string
     /// Declared `sig-only`, but a companion implementation exists.
     | StaleSigOnly of name: string
     /// Declared `sig-only`, but no contract `.fsi` in the package has that name at all.
     | UnknownSigOnly of name: string
-    /// Declared `impl-only`, but the target compiles no such contract-less body, so either
-    /// the name is a typo or the `.fsi` it disclaims has since appeared.
-    | UnknownImplOnly of name: string
     /// The contract or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
     /// A declaration the signature makes that extraction could not MODEL, so the signature
@@ -152,10 +147,8 @@ module ConformanceVerdict =
         | ConformanceVerdict.Unimplemented _
         | ConformanceVerdict.SigWithoutImpl _ -> DiagCode.Vesper "V240"
         | ConformanceVerdict.ModulePairingMismatch _ -> DiagCode.Vesper "V241"
-        | ConformanceVerdict.ImplWithoutContract _ -> DiagCode.Vesper "V242"
         | ConformanceVerdict.StaleSigOnly _
-        | ConformanceVerdict.UnknownSigOnly _
-        | ConformanceVerdict.UnknownImplOnly _ -> DiagCode.Vesper "V243"
+        | ConformanceVerdict.UnknownSigOnly _ -> DiagCode.Vesper "V243"
         | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
         | ConformanceVerdict.SignatureNotExtracted _ -> DiagCode.Vesper "V245"
         | ConformanceVerdict.SignatureRejected _ -> DiagCode.Vesper "V246"
@@ -174,18 +167,12 @@ module ConformanceVerdict =
                 implFile
                 sigDecl
                 implDecl
-        | ConformanceVerdict.ImplWithoutContract implFile ->
-            sprintf "the implementation file '%s' has no '.fsi' contract" implFile
         | ConformanceVerdict.StaleSigOnly name ->
             sprintf
                 "'%s' is declared `sig-only` but a companion implementation exists — remove the stale exemption"
                 name
         | ConformanceVerdict.UnknownSigOnly name ->
             sprintf "`sig-only` names '%s', which is not a contract `.fsi` in this package" name
-        | ConformanceVerdict.UnknownImplOnly name ->
-            sprintf
-                "`impl-only` names '%s', which this target does not compile as a contract-less body — remove it, or implement the `.fsi` it now has"
-                name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
         | ConformanceVerdict.SignatureNotExtracted detail ->

@@ -4,11 +4,15 @@
 `files = [every .fs and .fsi, in compile order]`, dropping the other groups of files that
 get compiled?
 
-**Answer: yes for `files` + `impl`. No for `sig-only` / `impl-only` / `runtime`** — those
-are not "groups of files that get compiled", they are declarations of intent and an asset
-list, and none of them is derivable from the merged order. The win is real but it is not
-the one it looks like from outside: it is not "fewer keys", it is **one ordering instead of
-two that can silently disagree**.
+**Answer: yes for `files` + `impl`. No for `sig-only` / `runtime`** — those are not "groups
+of files that get compiled", they are a declaration of intent and an asset list, and neither
+is derivable from the merged order. The win is real but it is not the one it looks like from
+outside: it is not "fewer keys", it is **one ordering instead of two that can silently
+disagree**.
+
+**`impl-only` is gone (2026-08-15, user decision).** A `.fs` owes no contract, as in F#
+itself, so a body that pairs with no `.fsi` is simply unpaired — there is nothing left to
+declare. See below.
 
 **The prerequisite has landed (2026-08-15); the merge itself is still a decision.** What the
 pairing found is recorded below — read it before merging, because it changes what
@@ -21,7 +25,6 @@ justifications 1 and 3 are claiming.
 | `files` | `.fsi` contracts, compile order | contract extraction, in order, into the package provider |
 | `impl` | `.fs` bodies, compile order | intrinsic-repr pre-scan (order-free); cross-package inline bodies (**order matters** — a later body wins a clash); conformance pairing (order-free, keyed by name); hashing |
 | `sig-only` | `.fsi` deliberately without a `.fs` | suppresses the content-based unpaired split |
-| `impl-only` | `.fs` deliberately without a `.fsi` | removes it from pairing candidacy |
 | `runtime` | JS assets | never parsed; deliberately excluded from `sourceInputs` |
 
 The compiled `SourceFile list` does **not** come from the manifest — a driver is handed it.
@@ -83,6 +86,29 @@ Two failures came out of it, one of each predicted kind:
   only thing separating "conforms" from "skipped" for the typar half; the CST half has no
   equivalent guard.
 
+## `impl-only` — REMOVED
+
+The two lists were never symmetric, and only one direction was ever a rule. A `.fsi` that
+names no body is F#'s own FS0240 — the surface is published and nothing answers it — so
+`sig-only` waives a real error. A `.fs` that answers no `.fsi` breaks nothing: the
+consumer-facing provider is built from `files` alone, so a contract-less body publishes
+NOTHING outside its package, and inline bodies are keyed by `SymbolKey`, so one the contract
+never declares is unreachable. `ImplWithoutContract` (V242) was therefore a house style rule
+wearing an error's clothes, and `UnknownImplOnly` (V243) was the bookkeeping that rule needed
+to stay honest. Both are gone with the key.
+
+What it cost to remove: one manifest declared it (`Vesper.Printf`'s JS `structural-printer.js.fs`,
+whose key collides with no contract), and the entry was ALREADY in `impl` — `impl-only` was a
+marker over that list, never a source of its own. So nothing moved.
+
+- `ReferencedProject`: the `Manifest.ImplOnly` field, the `impl-only` key, its `coreKeys`
+  entry, its `sourceInputs` term. An `impl-only` key is now an unknown-key parse error, which
+  is what makes a stale manifest fail loudly instead of quietly losing its exemption.
+- `ConformancePass`: `PackageOutcome.ImplOnly` / `ImplOnlyDeclarations` and their `enforce`
+  arms. Every `.fs` is now a pairing candidate; one matching no contract stays unpaired.
+- `ConformanceVerdict`: `ImplWithoutContract` / `UnknownImplOnly` cases, with the wire tags
+  renumbered densely and `Cache.CodeVersion` bumped 30 → 31, since the encoding changed.
+
 ## Why NOT also merge the rest
 
 - **`sig-only` is not derivable.** With one list, "`foo.fsi` present and `foo.fs` absent" is
@@ -90,14 +116,12 @@ Two failures came out of it, one of each predicted kind:
   job is to *outrank* that split: it says "these `val`s have no bodies here and that is
   intended" for a case the content check would otherwise report. That intent has no
   spelling in the file list.
-- **`impl-only` is not derivable** for the same reason, plus it actively removes a file from
-  pairing candidacy so it is not married to a same-named `.fsi` it does not implement.
 - **`runtime` is not a source.** It is never parsed and is excluded from the hash's source
   inputs on purpose. Folding it in would make an asset edit look like a source edit.
 
-The natural follow-on — moving `sig-only` / `impl-only` from separate lists to a per-entry
-marker, so the exemption sits next to the file it exempts — is a **separate** change and
-needs the TOML reader to accept inline tables in the array. Not bundled here.
+The natural follow-on — moving `sig-only` from a separate list to a per-entry marker, so the
+exemption sits next to the file it exempts — is a **separate** change and needs the TOML
+reader to accept inline tables in the array. Not bundled here.
 
 ## Design
 

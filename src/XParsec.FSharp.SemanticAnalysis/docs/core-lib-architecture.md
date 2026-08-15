@@ -27,7 +27,6 @@ read once; the file name is the only place a manifest states which target it is 
 | `files` | contract `.fsi` files **in compile order** — the front-end symbol contract |
 | `impl` | the `.fs` files compiled into the package DLL, and the splice sources they publish |
 | `sig-only` | `.fsi` files deliberately impl-free — an accepted conformance exemption |
-| `impl-only` | `.fs` bodies that implement no contract, publishing their whole public surface |
 | `runtime` | hand-authored runtime *assets* (the JS `.mjs`) the backend ships beside its output |
 | `depends-on` | the other packages this one needs, **for this target** |
 | `name` | **optional** — see below |

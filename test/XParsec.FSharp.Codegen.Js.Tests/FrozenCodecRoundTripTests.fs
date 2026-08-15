@@ -423,10 +423,8 @@ let tests =
                         ConformanceVerdict.Unimplemented("a.fsi", "M is missing")
                         ConformanceVerdict.SigWithoutImpl "a.fsi"
                         ConformanceVerdict.ModulePairingMismatch("a.fsi", "a.fs", "M", "N")
-                        ConformanceVerdict.ImplWithoutContract "a.fs"
                         ConformanceVerdict.StaleSigOnly "list.fsi"
                         ConformanceVerdict.UnknownSigOnly "gone.fsi"
-                        ConformanceVerdict.UnknownImplOnly "gone.js.fs"
                         ConformanceVerdict.PairParseFailure("a.fsi", "unexpected token")
                     ]
 

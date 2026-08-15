@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 // The units a PACKAGE compiles, as against the list a driver is handed: the manifest's `impl`
 // order, each body under the contract the conformance pass married it to. The pairing is
-// `checkManifest`'s, so `sig-only` and `impl-only` are honoured here without restating them.
+// `checkManifest`'s, so a `sig-only` contract stays bodiless here without restating why.
 
 module PackageUnits =
 

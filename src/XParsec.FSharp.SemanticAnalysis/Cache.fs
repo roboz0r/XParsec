@@ -49,7 +49,7 @@ module Cache =
     /// hash says what a blob came from, never how it was written, so a reordered wire field
     /// misparses.
     [<Literal>]
-    let CodeVersion = 30
+    let CodeVersion = 31
 
     type InMemoryStore() =
         let map = Dictionary<CacheKey, byte[]>()

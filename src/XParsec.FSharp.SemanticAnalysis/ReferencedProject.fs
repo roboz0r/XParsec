@@ -80,12 +80,9 @@ module ReferencedProject =
             Impl: string list
             /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`): a
             /// front-end intrinsic lowered inline (`printf.fsi`), or a BCL-resolved contract
-            /// (`exceptions.fsi`). An impl-free `.fsi` NOT listed is a hard error.
+            /// (`exceptions.fsi`). An impl-free `.fsi` NOT listed is a hard error. The
+            /// converse needs no list: a `.fs` owes no contract, as in F# itself.
             SigOnly: string list
-            /// `.fs` bodies that implement NO contract (`[core] impl-only`), publishing their
-            /// whole public surface. Naming one here keeps the pairing rule from marrying it
-            /// to a `.fsi` of the same key.
-            ImplOnly: string list
             /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
@@ -132,22 +129,12 @@ module ReferencedProject =
     /// own directory; a path named here need not exist. `Runtime` is omitted: an asset is
     /// never parsed, so determines no frozen tree.
     let sourceInputs (m: Manifest) : string list =
-        m.Files @ m.Impl @ m.SigOnly @ m.ImplOnly |> List.distinct
+        m.Files @ m.Impl @ m.SigOnly |> List.distinct
 
     /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: read as
     /// silence, it would resolve a stale manifest to a plausible wrong file set.
     let private coreKeys =
-        set
-            [
-                "name"
-                "description"
-                "depends-on"
-                "files"
-                "impl"
-                "sig-only"
-                "impl-only"
-                "runtime"
-            ]
+        set [ "name"; "description"; "depends-on"; "files"; "impl"; "sig-only"; "runtime" ]
 
     let private unknownKey (path: string) (t: TomlTable) : string option =
         t
@@ -206,7 +193,6 @@ module ReferencedProject =
                                     Files = files
                                     Impl = list "impl"
                                     SigOnly = list "sig-only"
-                                    ImplOnly = list "impl-only"
                                     Runtime = list "runtime"
                                 }
 

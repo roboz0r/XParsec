@@ -659,7 +659,6 @@ let tests =
                                  files = [\"contract.fsi\", \"shim.js.fsi\"]\n\
                                  impl = [\"ops.fs\", \"ops.js.fs\"]\n\
                                  sig-only = [\"shim.js.fsi\"]\n\
-                                 impl-only = [\"ops.js.fs\"]\n\
                                  runtime = [\"runtime.mjs\"]\n"
 
                         match ReferencedProject.loadManifest path with
@@ -671,7 +670,6 @@ let tests =
                         Expect.equal jsManifest.Files [ "contract.fsi"; "shim.js.fsi" ] "files"
                         Expect.equal jsManifest.Impl [ "ops.fs"; "ops.js.fs" ] "impl"
                         Expect.equal jsManifest.SigOnly [ "shim.js.fsi" ] "sig-only"
-                        Expect.equal jsManifest.ImplOnly [ "ops.js.fs" ] "impl-only"
                         Expect.equal jsManifest.Runtime [ "runtime.mjs" ] "runtime"
                     }
 
@@ -781,6 +779,19 @@ let tests =
                         | Result.Error e -> Expect.stringContains e "inline-bodies" "the error names the retired key"
                     }
 
+                    // A `.fs` owes no contract, so there is nothing to exempt. The key erroring
+                    // rather than being ignored is what tells a manifest still carrying it that
+                    // the rule it waived no longer exists.
+                    test "the retired `impl-only` key is rejected, not ignored" {
+                        match
+                            ReferencedProject.loadManifest (
+                                writeManifest "RetiredImplOnly" "[core]\nfiles = []\nimpl-only = [\"ops.fs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected an unknown-key error, got Ok %A" m
+                        | Result.Error e -> Expect.stringContains e "impl-only" "the error names the retired key"
+                    }
+
                     // A `[targets.<t>]` table is the retired two-tier shape; read as silence it
                     // would resolve a stale manifest to a file set missing everything it held.
                     test "the retired [targets.<t>] table is rejected, not ignored" {
@@ -880,7 +891,6 @@ let tests =
                             "files", neutral m m.Files
                             "impl", neutral m m.Impl
                             "sig-only", neutral m m.SigOnly
-                            "impl-only", neutral m m.ImplOnly
                         ]
 
                     test "every divergence is a declared one" {
