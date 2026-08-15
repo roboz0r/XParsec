@@ -2297,7 +2297,11 @@ module internal TokenInfo =
             | Token.KWTry -> PrecedenceLevel.Function
             | Token.KWIf -> PrecedenceLevel.If
             | Token.OpArrowRight -> PrecedenceLevel.RArrow
-            | Token.OpArrowLeft // <- isn't in the spec but appears in pars.fsy adjacent to := operator, treating as same precedence
+            // <- isn't in the spec but appears in pars.fsy adjacent to := operator, treating as same precedence
+            | Token.OpArrowLeft
+            // `expr1 ? ident <- expr2` elaborates to `(?<-) expr1 "ident" expr2` (F# spec 6.4.5),
+            // so the fused `?<-` token binds the same as `<-`.
+            | Token.OpDynamicAssignment
             | Token.OpColonEquals -> PrecedenceLevel.Assignment
             | Token.OpComma -> PrecedenceLevel.Comma
             | Token.OpRange -> PrecedenceLevel.Range

@@ -3,6 +3,8 @@ module Operators
 val (+): int -> int -> int
 val (=?): obj -> obj -> bool
 val inline (|||): int -> int -> int
+val (?): obj -> string -> obj
+val (?<-): obj -> string -> obj -> unit
 
 val (|Even|_|): int -> int option
 val inline (|Length|): string -> int
