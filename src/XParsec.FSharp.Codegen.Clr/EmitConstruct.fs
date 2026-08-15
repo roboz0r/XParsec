@@ -118,9 +118,8 @@ module EmitConstruct =
 
     let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let srcFields = TastAccessor.exprRecordConsFields e
-        let ty = TastAccessor.exprTy e
-
-        let key, tyArgs = nominalShape "RecordCons" ty
+        let nominal = nominalOfExpr e
+        let key, tyArgs = keyAndTyArgs nominal
 
         match env.Records.TryGetValue key with
         | true, r ->
@@ -155,16 +154,16 @@ module EmitConstruct =
         let cloneView = TastAccessor.exprRecordClone e
         let source = cloneView.Source
         let overrides = cloneView.Overrides
-        let ty = TastAccessor.exprTy e
 
         // `{ r with X = v }` — spill `r` to a local, then per declaration-order field push
         // the override if there is one, else `ldloc; ldfld` the saved source, then `newobj`.
-        let key, tyArgs = nominalShape "RecordClone" ty
+        let nominal = nominalOfExpr e
+        let key, tyArgs = keyAndTyArgs nominal
 
         match env.Records.TryGetValue key with
         | true, r ->
             let overrideMap = Map.ofSeq overrides
-            let srcSlot = b.Local ty
+            let srcSlot = b.Local nominal.Frozen
             recur env b source
             b.Add(ILInstr.Stloc srcSlot)
 
@@ -193,9 +192,8 @@ module EmitConstruct =
     let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let caseName = TastAccessor.exprUnionConsCaseName e
         let args = TastAccessor.exprChildren e
-        let ty = TastAccessor.exprTy e
-
-        let key, tyArgs = nominalShape "UnionCons" ty
+        let nominal = nominalOfExpr e
+        let key, tyArgs = keyAndTyArgs nominal
         let qualName = SymbolKeyOps.typeMetaName key
 
         // A value assigned to a case field typed `obj` is boxed by an explicit `Upcast`

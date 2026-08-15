@@ -146,7 +146,7 @@ module EmitJs =
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args reordered from
         // source order to the class's *declaration*-order positional constructor.
         | ExprShape.RecordCons ->
-            let info = recordInfoOf ctx "RecordCons" (TastAccessor.exprTy e)
+            let info = recordInfoOf ctx "RecordCons" (TastAccessor.exprNominalTy e).Key
             let srcMap = Map.ofSeq (TastAccessor.exprRecordConsFields e)
 
             let args =
@@ -164,7 +164,7 @@ module EmitJs =
         // bare `Var` splices inline and any other source binds once through an IIFE.
         | ExprShape.RecordClone ->
             let rc = TastAccessor.exprRecordClone e
-            let info = recordInfoOf ctx "RecordClone" (TastAccessor.exprTy e)
+            let info = recordInfoOf ctx "RecordClone" (TastAccessor.exprNominalTy e).Key
             let overrideMap = Map.ofSeq rc.Overrides
 
             let argsFrom (srcRef: JsExpr) =
@@ -205,7 +205,7 @@ module EmitJs =
         // A union constructor `Case e0 e1 …` → `new <Union>_<Case>(args…)`. The args already
         // arrive in declaration (field) order, so no reordering, unlike a record literal.
         | ExprShape.UnionCons ->
-            let info = unionInfoOf ctx "UnionCons" (TastAccessor.exprTy e)
+            let info = unionInfoOf ctx "UnionCons" (TastAccessor.exprNominalTy e).Key
             let c = unionCaseFromInfo info "UnionCons" (TastAccessor.exprUnionConsCaseName e)
 
             // A local union's class is in this file; an external union's case class is
@@ -217,7 +217,7 @@ module EmitJs =
         | ExprShape.New ->
             let args = TastAccessor.exprChildren e
 
-            match tryNewTarget ctx (TastAccessor.exprTy e) with
+            match tryNewTarget ctx (TastAccessor.exprNominalTy e).Key with
             | ValueSome(NewTarget.LocalClass name)
             | ValueSome(NewTarget.GlobalClass name) ->
                 JsExpr.New(JsExpr.Identifier(name, ValueNone), [ for a in args -> buildExpr ctx a ], loc)

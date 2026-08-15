@@ -33,13 +33,6 @@ module TastLower =
             "Emit: a TraitCall to '%s' reached the emitter — inline expansion grounds every trait call it can and reports the rest, so this node should not exist here"
             memberName
 
-    let inline objArgShape (ty: FrozenType) : (TypeKey * FrozenType list) voption =
-        match ty with
-        | FTUnion(n, args)
-        | FTRecord(n, args)
-        | FTClass(n, args) -> ValueSome(n, EqArray.toList args)
-        | _ -> ValueNone
-
     /// As `matchInstantiation`, but leaves a `ValueNone` hole for a typar no
     /// parameter/result mentions, because a phantom constraint typar (`fold`'s enumerator `'E`)
     /// is unrecoverable by param-matching and must be solved from its bounds.

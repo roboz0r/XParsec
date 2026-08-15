@@ -239,17 +239,9 @@ module EmitJsContext =
 
     // ---- Records -------------------------------------------------------------
 
-    /// The nominal type a construct's own type names; `what` names the site in the failure.
-    let nominalKey (what: string) (ty: FrozenType) : TypeKey =
-        match TastLower.objArgShape ty with
-        | ValueSome(key, _) -> key
-        | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
-
     /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` record type to its `JsRecordInfo`,
     /// local or external.
-    let recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
-        let key = nominalKey what ty
-
+    let recordInfoOf (ctx: WalkCtx) (what: string) (key: TypeKey) : JsRecordInfo =
         match LocalThenExternal.tryFind ctx.Records key with
         | ValueSome info -> info
         | ValueNone -> failwithf "EmitJs: %s on record with no emitted type (key %A)" what key
@@ -274,34 +266,23 @@ module EmitJsContext =
 
     /// The probe order IS the precedence: a locally emitted class wins over an ambient one of
     /// the same key, and only a type that is neither class resolves through its `exn` repr.
-    let tryNewTarget (ctx: WalkCtx) (ty: FrozenType) : NewTarget voption =
-        let ambient (key: TypeKey) =
-            JsExternalMembers.classFlagsOf ctx.Provider key
-            |> ValueOption.filter (fun flags -> flags.Global)
-            |> ValueOption.map (fun _ ->
+    let tryNewTarget (ctx: WalkCtx) (key: TypeKey) : NewTarget voption =
+        match ctx.Classes.TryGetValue key with
+        | true, name -> ValueSome(NewTarget.LocalClass name)
+        | _ ->
+            match JsExternalMembers.classFlagsOf ctx.Provider key with
+            | ValueSome flags when flags.Global ->
                 let (DisplayName name) = SymbolKeyOps.typeSimpleName key
-                NewTarget.GlobalClass name
-            )
-
-        let asClass =
-            match TastLower.objArgShape ty with
-            | ValueSome(key, _) ->
-                match ctx.Classes.TryGetValue key with
-                | true, name -> ValueSome(NewTarget.LocalClass name)
-                | _ -> ambient key
-            | ValueNone -> ValueNone
-
-        match asClass with
-        | ValueSome _ -> asClass
-        | ValueNone -> JsExternalMembers.exnReprOf ctx.Provider ty |> ValueOption.map NewTarget.ExnRepr
+                ValueSome(NewTarget.GlobalClass name)
+            | _ ->
+                JsExternalMembers.exnReprOf ctx.Provider key
+                |> ValueOption.map NewTarget.ExnRepr
 
     // ---- Unions --------------------------------------------------------------
 
     /// Resolve a `UnionCons` / union-pattern type to its `JsUnionInfo`, local or
     /// external.
-    let unionInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsUnionInfo =
-        let key = nominalKey what ty
-
+    let unionInfoOf (ctx: WalkCtx) (what: string) (key: TypeKey) : JsUnionInfo =
         match LocalThenExternal.tryFind ctx.Unions key with
         | ValueSome info -> info
         | ValueNone -> failwithf "EmitJs: %s on union with no emitted type (key %A)" what key
@@ -311,8 +292,8 @@ module EmitJsContext =
         | true, c -> c
         | _ -> failwithf "EmitJs: %s on union '%s' has no case '%s'" what info.Name caseName
 
-    let unionCaseOf (ctx: WalkCtx) (what: string) (ty: FrozenType) (caseName: string) : JsUnionCaseDecl =
-        unionCaseFromInfo (unionInfoOf ctx what ty) what caseName
+    let unionCaseOf (ctx: WalkCtx) (what: string) (key: TypeKey) (caseName: string) : JsUnionCaseDecl =
+        unionCaseFromInfo (unionInfoOf ctx what key) what caseName
 
     // ---- Members -------------------------------------------------------------
 
@@ -501,9 +482,8 @@ module EmitJsContext =
             Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
         | PatShape.Union ->
             let caseName = TastAccessor.patUnionCaseName pat
-            let ty = TastAccessor.patTy pat
             let subPats = TastAccessor.patChildren pat
-            let c = unionCaseOf ctx "match pattern" ty caseName
+            let c = unionCaseOf ctx "match pattern" (TastAccessor.patNominalTy pat).Key caseName
 
             let tagTest =
                 JsExpr.Binary(
@@ -525,9 +505,8 @@ module EmitJsContext =
         | PatShape.Record ->
             // Validate each field name against the emitted record so a stale name
             // fails here rather than silently reading `undefined`.
-            let ty = TastAccessor.patTy pat
             let fields = TastAccessor.patRecordFields pat
-            let info = recordInfoOf ctx "record pattern" ty
+            let info = recordInfoOf ctx "record pattern" (TastAccessor.patNominalTy pat).Key
             let known = Set.ofList info.Fields
 
             let tests, binds =

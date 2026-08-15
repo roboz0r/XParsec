@@ -467,10 +467,12 @@ module ExternalSymbolProviders =
                     }
             }
 
-        // An interface's type ARGUMENTS are invariant slots; the reference itself holds no
-        // value, so `transform` has nothing to say about it.
-        let mapInterfaces (ifaces: EqArray<FrozenInterface>) =
-            ifaces |> EqArray.map (fun i -> i.MapArgs inv)
+        // An interface's type ARGUMENTS are invariant slots; the reference itself holds no value,
+        // so `transform` has nothing to say about it. A base type maps the same way, and for a
+        // second reason: it widens `number` at `Inv` to `int|float|…`, and no class inherits a union.
+        let mapNominal (n: FrozenNominal) = n.MapArgs inv
+
+        let mapInterfaces (ifaces: EqArray<FrozenNominal>) = ifaces |> EqArray.map mapNominal
 
         // A union-case field is a covariant value read.
         let mapCase (c: ExternalCaseShape) : ExternalCaseShape =
@@ -485,7 +487,7 @@ module ExternalSymbolProviders =
                     { info with
                         Members = info.Members |> EqArray.map mapMember
                         FrozenInterfaces = mapInterfaces info.FrozenInterfaces
-                        FrozenBaseType = info.FrozenBaseType |> ValueOption.map inv
+                        FrozenBaseType = info.FrozenBaseType |> ValueOption.map mapNominal
                     }
             | ExternalTypeShape.Record(arity, fields, origin, isValueType) ->
                 // A record field is a covariant value read.
@@ -504,7 +506,7 @@ module ExternalSymbolProviders =
                         Class =
                             ValueSome
                                 { surface with
-                                    BaseType = surface.BaseType |> ValueOption.map inv
+                                    BaseType = surface.BaseType |> ValueOption.map mapNominal
                                     Interfaces = mapInterfaces surface.Interfaces
                                     Members = surface.Members |> EqArray.map mapMember
                                 }

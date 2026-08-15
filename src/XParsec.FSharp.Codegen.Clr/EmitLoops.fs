@@ -244,7 +244,7 @@ module EmitLoops =
                         false,
                         FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumeratorTy)
                     )
-                | ForInGetEnumG.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
+                | ForInGetEnumG.Local -> fst (resolveInstanceMember env (nominalOfExpr source) "GetEnumerator" [])
                 | ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
                     constrainedSlot env ifaceKey ifaceArgs "GetEnumerator"
 
@@ -252,8 +252,11 @@ module EmitLoops =
                 match members with
                 | ForInEnumMembersG.External(mnKey, curKey) -> externalEnumMembers env enumeratorTy mnKey curKey elemTy
                 | ForInEnumMembersG.Local ->
-                    fst (resolveInstanceMember env enumeratorTy "MoveNext" []),
-                    fst (resolveInstanceMember env enumeratorTy "Current" [])
+                    // A duck-typed enumerator emitted in this assembly is one of its own
+                    // nominals, so `MoveNext` / `Current` resolve off the type's key.
+                    let en = FrozenNominal.OfFrozen "a `for … in` enumerator" enumeratorTy
+
+                    fst (resolveInstanceMember env en "MoveNext" []), fst (resolveInstanceMember env en "Current" [])
                 | ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
                     constrainedSlot env ifaceKey ifaceArgs "MoveNext", constrainedSlot env ifaceKey ifaceArgs "Current"
 

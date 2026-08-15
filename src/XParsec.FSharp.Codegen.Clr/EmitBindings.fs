@@ -132,10 +132,9 @@ module EmitBindings =
             let isLocalType (key: TypeKey) =
                 env.Classes.ContainsKey key || env.Unions.ContainsKey key
 
-            let isLocalBoundVar =
-                match TastLower.objArgShape varTy with
-                | ValueSome(tyCtorKey, _) -> isLocalType tyCtorKey
-                | ValueNone -> false
+            let localNominal =
+                FrozenNominal.TryOfFrozen varTy
+                |> ValueOption.filter (fun n -> isLocalType n.Key)
 
             let isLocalDisposeKey (key: SymbolKey) =
                 isLocalType (SymbolKeyOps.declTypeKeyOf "Emit: use-dispose member" key)
@@ -149,19 +148,14 @@ module EmitBindings =
                 b.Add(ILInstr.Brfalse skipLabel)
 
                 match view.Dispose with
-                // A LOCAL capability impl disposes through its own `Dispose` method; an
-                // EXTERNAL one through the capability's interface slot, since the type's own
-                // `Dispose` may not exist on it (`MemoryStream` inherits `Stream.Dispose`).
-                | Disposal.ViaCapability _ when isLocalBoundVar ->
-                    emitLocalDispose (
-                        SymbolKeyOps.memberKey
-                            (nominalTypeKey "use-dispose object argument" varTy)
-                            "Dispose"
-                            EqArray.empty
-                            0
-                            MemberKind.Method
-                    )
-                | Disposal.ViaCapability slot -> emitExternalDispose slot
+                | Disposal.ViaCapability slot ->
+                    // A LOCAL capability impl disposes through its own `Dispose` method; an
+                    // EXTERNAL one through the capability's interface slot, since the type's own
+                    // `Dispose` may not exist on it (`MemoryStream` inherits `Stream.Dispose`).
+                    match localNominal with
+                    | ValueSome n ->
+                        emitLocalDispose (SymbolKeyOps.memberKey n.Key "Dispose" EqArray.empty 0 MemberKind.Method)
+                    | ValueNone -> emitExternalDispose slot
                 // The carve-out: an own pattern `Dispose()`, called directly.
                 | Disposal.ViaOwnMember key when isLocalDisposeKey key -> emitLocalDispose key
                 | Disposal.ViaOwnMember key -> emitExternalDispose key

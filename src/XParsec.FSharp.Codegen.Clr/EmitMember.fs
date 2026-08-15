@@ -33,11 +33,11 @@ module EmitMember =
         | TastAccessor.EFieldGet fieldGet ->
             let parent = fieldGet.ObjArg
             let name = fieldGet.FieldName
-            let parentTy = typeOfExpr parent
-            let fldHandle = resolveRecordField env parentTy name
+            let parentNominal = nominalOfExpr parent
+            let fldHandle = resolveRecordField env parentNominal name
 
-            if isValueType env parentTy then
-                loadStructThisPtr recur env b parent parentTy
+            if isValueType env parentNominal.Frozen then
+                loadStructThisPtr recur env b parent parentNominal.Frozen
             else
                 recur env b parent
 
@@ -167,7 +167,7 @@ module EmitMember =
         let objArg = view.ObjArg
         let name = view.FieldName
         // `r.X` — load the object argument and `ldfld` the field.
-        let handle = resolveRecordField env (typeOfExpr objArg) name
+        let handle = resolveRecordField env (nominalOfExpr objArg) name
         recur env b objArg
         b.Add(ILInstr.Ldfld handle)
 
@@ -196,7 +196,7 @@ module EmitMember =
         // `r.X <- v` on a `mutable` field. `stfld` consumes both pushes and leaves nothing, but
         // a `FieldSet` is UNIT-TYPED and a `Sequential` middle item or a unit-returning body
         // expects a value present, so reify `unit` to keep the IL verifier happy.
-        let handle = resolveRecordField env (typeOfExpr objArg) name
+        let handle = resolveRecordField env (nominalOfExpr objArg) name
         recur env b objArg
         recur env b value
         b.Add(ILInstr.Stfld handle)
@@ -214,13 +214,13 @@ module EmitMember =
             let ty = TastAccessor.exprTy e
             emitConstrainedInterfaceCall recur env b objArg key ifaceArgs EqArray.empty ty
         | via ->
-            let objArgTy = typeOfExpr objArg
+            let objArgNominal = nominalOfExpr objArg
             // A property is never a generic method and takes no arguments, so the resolved
             // member metadata is unused and there are no overload args to match.
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
-            let handle, _ = resolveInstanceMember env objArgTy memberName []
+            let handle, _ = resolveInstanceMember env objArgNominal memberName []
             // A property get is never `unit`-returning, so it always yields a value.
-            emitInstanceMember recur env b via objArg objArgTy handle EqArray.empty false
+            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle EqArray.empty false
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
@@ -233,11 +233,11 @@ module EmitMember =
         match view.Via with
         | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b objArg key ifaceArgs args ty
         | via ->
-            let objArgTy = typeOfExpr objArg
+            let objArgNominal = nominalOfExpr objArg
             let argTys = [ for a in args -> typeOfExpr a ]
 
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
-            let handle0, m = resolveInstanceMember env objArgTy memberName argTys
+            let handle0, m = resolveInstanceMember env objArgNominal memberName argTys
 
             // A generic instance method's member-ref already carries the `GENERIC` header (its
             // `'U` rides `!!i`), so the call must wrap it in a `MethodSpec`. The node carries no
@@ -246,12 +246,7 @@ module EmitMember =
                 if m.MethodTyparCount = 0 then
                     handle0
                 else
-                    let declTyparArity =
-                        match objArgShape objArgTy with
-                        | ValueSome(_, rargs) -> List.length rargs
-                        | ValueNone -> 0
-
-                    let _, methodArgs = recoverMemberInst env m declTyparArity argTys ty
+                    let _, methodArgs = recoverMemberInst env m objArgNominal.Args.Length argTys ty
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
@@ -261,7 +256,7 @@ module EmitMember =
                 | FTUnit -> true
                 | _ -> false
 
-            emitInstanceMember recur env b via objArg objArgTy handle args returnsUnit
+            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle args returnsUnit
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e

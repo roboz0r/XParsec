@@ -424,26 +424,27 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         EqArray.ofArray (Array.concat [| properties; methods; indexers; fields; ctors |])
 
     /// Interface set. An interface whose own type args do not map is skipped. Must hold `gate`.
-    let buildClassInterfaces (t: Type) : EqArray<FrozenInterface> =
+    let buildClassInterfaces (t: Type) : EqArray<FrozenNominal> =
         t.GetInterfaces()
         |> Array.choose (fun i ->
             match MetadataMapping.tryBuildType intrinsics i with
             | Some frozen ->
-                match FrozenInterface.TryOfFrozen frozen with
+                match FrozenNominal.TryOfFrozen frozen with
                 | ValueSome iface -> Some iface
                 | ValueNone -> None
             | None -> None
         )
         |> EqArray.ofArray
 
-    /// Declared base type as a `FrozenType` template. `ValueNone` for interfaces and
-    /// `System.Object`. Must hold `gate`.
-    let buildClassBaseType (t: Type) : FrozenType voption =
+    /// Declared base type as a template over the declaring typars. `ValueNone` for interfaces,
+    /// for `System.Object`, and for a base the intrinsic map sends to a non-nominal (a union
+    /// repr), dropped as an unmappable interface is. Must hold `gate`.
+    let buildClassBaseType (t: Type) : FrozenNominal voption =
         if t.IsInterface || isNull t.BaseType then
             ValueNone
         else
             match MetadataMapping.tryBuildType intrinsics t.BaseType with
-            | Some frozen -> ValueSome frozen
+            | Some frozen -> FrozenNominal.TryOfFrozen frozen
             | None -> ValueNone
 
     /// `[<AllowNullLiteral>]` is emitted into metadata and visible in reflection-only loads.

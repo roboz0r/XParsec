@@ -21,6 +21,7 @@
     <Compile Include="FunctionEmissionTests.fs" />
     <Compile Include="RecordTests.fs" />
     <Compile Include="UnionMatchTests.fs" />
+    <Compile Include="NominalEmitSiteTests.fs" />
     <Compile Include="TupleTests.fs" />
     <Compile Include="OptionTests.fs" />
     <Compile Include="ListTests.fs" />

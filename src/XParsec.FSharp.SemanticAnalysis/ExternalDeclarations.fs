@@ -448,9 +448,9 @@ type ExternalClassShape =
         /// All public declared methods + properties whose signature maps; one whose
         /// parameter or return type does not (a pointer) is dropped, not faked.
         Members: EqArray<ExternalMember>
-        FrozenInterfaces: EqArray<FrozenInterface>
+        FrozenInterfaces: EqArray<FrozenNominal>
         /// The declared base type; `ValueNone` for an interface and for `System.Object`.
-        FrozenBaseType: FrozenType voption
+        FrozenBaseType: FrozenNominal voption
         Flags: ExternalClassFlags
         Origin: SymbolOrigin
     }
@@ -502,10 +502,10 @@ type IntrinsicClassSurface =
         /// `equatable<int>`) carries a surface too, and is NOT heritable.
         Heritable: bool
         /// The declared `inherit` parent (`exn`'s is `obj`; `obj`'s is `ValueNone`).
-        BaseType: FrozenType voption
+        BaseType: FrozenNominal voption
         /// The declared `interface <ty>` impls (`'T[]`'s is `seq<'T>`), written over the
         /// declaring typars. The target supplies each one; no Vesper code implements them.
-        Interfaces: EqArray<FrozenInterface>
+        Interfaces: EqArray<FrozenNominal>
         /// The contract `.ctor`s (`new: string -> exn`): the constructible surface both
         /// `new exn "…"` and `inherit exn(…)` check against.
         Members: EqArray<ExternalMember>
@@ -592,6 +592,6 @@ type IntrinsicInterfaceShape =
         Members: EqArray<ExternalMember>
         /// The directly-inherited interfaces: `enumerator` inherits `disposable`. Empty for
         /// a capability that inherits none.
-        Interfaces: EqArray<FrozenInterface>
+        Interfaces: EqArray<FrozenNominal>
         Origin: SymbolOrigin
     }

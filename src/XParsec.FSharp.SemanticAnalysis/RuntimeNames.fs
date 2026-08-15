@@ -188,7 +188,7 @@ module RuntimeNames =
 
     /// Whether a DECLARED interface set carries `cap`: `int`'s surface lists `equatable<int>`
     /// because `prim-types-min.fsi` says so.
-    let declaresCapability (cap: CapabilityIdentity voption) (interfaces: EqArray<FrozenInterface>) : bool =
+    let declaresCapability (cap: CapabilityIdentity voption) (interfaces: EqArray<FrozenNominal>) : bool =
         match cap with
         | ValueNone -> false
         | ValueSome c -> interfaces |> EqArray.exists (fun iface -> c.Matches iface.Key)

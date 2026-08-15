@@ -173,7 +173,7 @@ module EmitTypes =
             /// The implemented interfaces, each written over THIS class's declaring typars
             /// (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for instantiation at an
             /// object argument. Direct impls only, not a base's.
-            Interfaces: FrozenInterface list
+            Interfaces: FrozenNominal list
         }
 
     /// How an emitted enum's cases are loaded and compared.

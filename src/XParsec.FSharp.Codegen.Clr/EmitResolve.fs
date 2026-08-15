@@ -6,8 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
 
-/// Member/field handle resolution: the mono-vs-generic handle decision, the
-/// nominal object-arg destructure, and the per-shape `resolve*` lookups over them.
+/// Member/field handle resolution: the mono-vs-generic handle decision and the per-shape
+/// `resolve*` lookups over it.
 module EmitResolve =
     /// `[a; b]` and `r` → `FTFun(a, FTFun(b, r))`.
     let curriedFun (args: FrozenType list) (ret: FrozenType) : FrozenType =
@@ -28,16 +28,6 @@ module EmitResolve =
             monoHandle
         else
             env.Provider.UserGenericMemberRef(key, tyArgs, kind)
-
-    /// Destructure a nominal type into its `(TypeKey, tyArgs)`, failing for a
-    /// non-nominal one. `what` names the construct being emitted, and is quoted in the
-    /// diagnostic (`"RecordCons"`, `"field 'X' access"`, …).
-    let nominalShape (what: string) (ty: FrozenType) : TypeKey * FrozenType list =
-        match objArgShape ty with
-        | ValueSome(k, xs) -> k, xs
-        | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
-
-    let nominalTypeKey (what: string) (ty: FrozenType) : TypeKey = fst (nominalShape what ty)
 
     /// Recover a generic member's instantiation by structurally matching its declared
     /// OPEN curried signature (declaring-/method-axis markers) against the call's
@@ -122,12 +112,12 @@ module EmitResolve =
     /// generic-instance-method site mints its `MethodSpec` from. `argTys` pick the overload.
     let resolveInstanceMember
         (env: EmitEnv)
-        (objArgTy: FrozenType)
+        (objArgTy: FrozenNominal)
         (name: string)
         (argTys: FrozenType list)
         : EntityHandle * EmittedMember =
         // Project-local types only. An external one goes to `externalInstanceMemberRef`.
-        let key, tyArgs = nominalShape (sprintf "member '%s' access" name) objArgTy
+        let key, tyArgs = keyAndTyArgs objArgTy
 
         // The member-key registry read, identical across every emitted-nominal kind: pick
         // the overload by argument types, then mint the `Def`-token or generic `MemberRef`.
@@ -222,8 +212,8 @@ module EmitResolve =
             let declaringTypars =
                 [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
-            match objArgShape resultTy with
-            | ValueSome(rk, rargs) when rk = key && List.length rargs = List.length typars -> rargs
+            match FrozenNominal.TryOfFrozen resultTy with
+            | ValueSome r when r.Key = key && r.Args.Length = List.length typars -> EqArray.toList r.Args
             | _ when List.isEmpty typars -> declaringTypars
             | _ ->
                 // `recoverMemberInst` throws when the typar surfaces nowhere in the signature
@@ -315,8 +305,8 @@ module EmitResolve =
     /// Resolve a field by name on a record / class object arg: the field's `Def` token for a
     /// monomorphic type, a `MemberRef` on its instantiated `TypeSpec` for a generic
     /// one (`Box<int>::Value`). A class reaches here via elaboration's `FieldGet(this, name)`.
-    let resolveRecordField (env: EmitEnv) (objArgTy: FrozenType) (fieldName: string) : EntityHandle =
-        let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) objArgTy
+    let resolveRecordField (env: EmitEnv) (objArgTy: FrozenNominal) (fieldName: string) : EntityHandle =
+        let key, tyArgs = keyAndTyArgs objArgTy
 
         match env.Records.TryGetValue key with
         | true, r ->

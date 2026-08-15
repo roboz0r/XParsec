@@ -32,7 +32,7 @@ module internal NominalEmit =
 
     /// The user `interface … with` impls (interface type + member bodies) a nominal
     /// carries.
-    let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * TastAccessor.TypeMember list) list =
+    let private userInterfacesOf (input: NominalEmissionInput) : (FrozenNominal * TastAccessor.TypeMember list) list =
         match input with
         | NominalEmissionInput.Class cd -> cd.Interfaces
         | NominalEmissionInput.Union(_, interfaces) -> interfaces
@@ -193,13 +193,7 @@ module internal NominalEmit =
                     SecondaryCtors = secondaryCtorHandles
                     // The implemented interfaces over this class's declaring typars; the impl
                     // member bodies are not needed here.
-                    Interfaces =
-                        [
-                            for (ifaceTy, _) in cd.Interfaces do
-                                match FrozenInterface.TryOfFrozen ifaceTy with
-                                | ValueSome i -> i
-                                | ValueNone -> ()
-                        ]
+                    Interfaces = [ for (iface, _) in cd.Interfaces -> iface ]
                 }
 
     let prepare
@@ -354,18 +348,23 @@ module internal NominalEmit =
             let baseShape =
                 match baseType with
                 | ValueNone -> BaseShape.NoBase
-                | ValueSome(FTClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
-                    match icodegen.ExternalClassTypeRef(baseKey) with
-                    | ValueSome tref -> BaseShape.ExternalBase(baseKey, tref)
-                    | ValueNone -> BaseShape.LocalMono baseKey
-                // An intrinsic-class parent (`inherit exn`) arrives as the canon
-                // `FTConst`, not an `FTClass`, so resolve it to its platform class
-                // (`System.Exception`).
-                | ValueSome(FTConst(canonKey, args) as bt) when args.IsEmpty ->
-                    match icodegen.IntrinsicClassBase canonKey with
-                    | ValueSome(platformKey, tref) -> BaseShape.ExternalBase(platformKey, tref)
-                    | ValueNone -> BaseShape.Generic bt
-                | ValueSome bt -> BaseShape.Generic bt
+                // A parent carrying type ARGUMENTS resolves through a `TypeSpec` whatever its
+                // flavour, so only an argless one is worth classifying further.
+                | ValueSome b when not b.Args.IsEmpty -> BaseShape.Generic b.Frozen
+                | ValueSome b ->
+                    match b.Frozen with
+                    | FTClass _ ->
+                        match icodegen.ExternalClassTypeRef(b.Key) with
+                        | ValueSome tref -> BaseShape.ExternalBase(b.Key, tref)
+                        | ValueNone -> BaseShape.LocalMono b.Key
+                    // An intrinsic-class parent (`inherit exn`) arrives as the canon
+                    // `FTConst`, not an `FTClass`, so resolve it to its platform class
+                    // (`System.Exception`).
+                    | FTConst _ ->
+                        match icodegen.IntrinsicClassBase b.Key with
+                        | ValueSome(platformKey, tref) -> BaseShape.ExternalBase(platformKey, tref)
+                        | ValueNone -> BaseShape.Generic b.Frozen
+                    | _ -> BaseShape.Generic b.Frozen
 
             // A non-generic parent is its token directly because the `extends` column
             // rejects a `TypeSpec` that merely wraps a plain class.
@@ -901,12 +900,12 @@ module internal NominalEmit =
         // unsynthesised, the CLR refuses to load the type. Only the non-generic slots
         // need it, because a generic slot binds implicitly by the authored member's signature.
         let coSlots =
-            CapabilityCoSlots.required asm.Symbols [ for (ifaceTy, _) in userInterfaces -> ifaceTy ]
+            CapabilityCoSlots.required asm.Symbols [ for (iface, _) in userInterfaces -> iface ]
 
         // The authored capability member a shim forwards to, as a handle callable from
         // inside this type. Scoped to the impl block of the capability that DEMANDED the
         // slot, so a like-named member of another interface can never be picked up.
-        let capabilityMember (ifaceTy: FrozenType) (slot: CoSlot) : EntityHandle * FrozenType =
+        let capabilityMember (ifaceTy: FrozenNominal) (slot: CoSlot) : EntityHandle * FrozenType =
             let name =
                 match CapabilityCoSlots.forwardsTo slot with
                 | ValueSome n -> n
@@ -921,7 +920,7 @@ module internal NominalEmit =
                 failwithf
                     "Emit: type '%A' implements capability '%A', whose co-slot forwards to member '%s' — but that impl block declares no such member"
                     td.Key
-                    ifaceTy
+                    ifaceTy.Key
                     name
             | Some(i, mem) ->
                 let kind =
@@ -976,8 +975,8 @@ module internal NominalEmit =
                         provider.IComparableType
                     if emitsStructuralFormat then
                         provider.StructuralFormattableInterface
-                    for (ifaceTy, _) in userInterfaces do
-                        provider.InterfaceHandleOf ifaceTy
+                    for (iface, _) in userInterfaces do
+                        provider.InterfaceHandleOf iface.Frozen
                 ]
             else
                 []

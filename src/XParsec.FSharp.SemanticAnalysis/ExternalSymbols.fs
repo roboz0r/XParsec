@@ -18,7 +18,7 @@ type ExternalTypeShape =
     | Union of
         arity: int *
         cases: EqArray<ExternalCaseShape> *
-        interfaces: EqArray<FrozenInterface> *
+        interfaces: EqArray<FrozenNominal> *
         origin: SymbolOrigin
     /// An external enum: named constant cases in source order. No `arity`, because enums are
     /// never generic; the numeric / string / mixed variant is DERIVED from `cases`, never baked.
@@ -363,15 +363,16 @@ module ExternalSymbols =
 
     /// Realise a class's `FrozenInterfaces`, or a union's declared `interface <ty>` impls,
     /// at a use site.
-    let instantiateInterfacesOf (interfaces: EqArray<FrozenInterface>) (declaringArgs: SemType[]) : SemType[] =
+    let instantiateInterfacesOf (interfaces: EqArray<FrozenNominal>) (declaringArgs: SemType[]) : SemType[] =
         Array.init interfaces.Length (fun i -> instantiateDeclaring interfaces.[i].Frozen declaringArgs)
 
     let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType[] =
         instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
 
     /// Shared by a class shape and a heritable primitive's class surface.
-    let instantiateBaseTypeFrozen (baseType: FrozenType voption) (declaringArgs: SemType[]) : SemType voption =
-        baseType |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
+    let instantiateBaseTypeFrozen (baseType: FrozenNominal voption) (declaringArgs: SemType[]) : SemType voption =
+        baseType
+        |> ValueOption.map (fun b -> instantiateDeclaring b.Frozen declaringArgs)
 
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
         instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs

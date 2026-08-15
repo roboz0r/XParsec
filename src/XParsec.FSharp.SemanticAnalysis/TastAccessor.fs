@@ -80,6 +80,15 @@ module TastAccessor =
 
     let exprTy (e: ExprId) : FrozenType = TastPoolBuilder.exprTy e.Pool e.Id
 
+    /// The node's type where the construct emits that type ITSELF: a record/union
+    /// construction, a `new`, a member access's object argument.
+    let exprNominalTy (e: ExprId) : FrozenNominal =
+        let ty = exprTy e
+
+        match FrozenNominal.TryOfFrozen ty with
+        | ValueSome n -> n
+        | ValueNone -> failwithf "a %A expression does not name a type constructor: %A" (exprKind e) ty
+
     /// Where the node SITS: its token's index in the file's `Lexed`, or `Anchor.nowhere`
     /// where no source spells it (a minted node, a contract's rebuilt pattern).
     let exprTok (e: ExprId) : Anchor = TastPoolBuilder.exprTok e.Pool e.Id
@@ -622,6 +631,15 @@ module TastAccessor =
     let patKind (p: PatId) : PatShape = TastPoolBuilder.patShape p.Pool p.Id
 
     let patTy (p: PatId) : FrozenType = TastPoolBuilder.patTy p.Pool p.Id
+
+    /// A union / record pattern tests the type ITSELF, so its scrutinee names a type
+    /// constructor.
+    let patNominalTy (p: PatId) : FrozenNominal =
+        let ty = patTy p
+
+        match FrozenNominal.TryOfFrozen ty with
+        | ValueSome n -> n
+        | ValueNone -> failwithf "a %A pattern does not name a type constructor: %A" (patKind p) ty
 
     let patTok (p: PatId) : Anchor = TastPoolBuilder.patTok p.Pool p.Id
 

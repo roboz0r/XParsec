@@ -107,45 +107,52 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
-/// A nominal `interface <ty>` reference, over the declaring type's typars. Only a nominal
-/// reference witnesses anything at a use site, so a non-nominal one cannot be built.
-type FrozenInterface =
+/// A frozen type known to name a type CONSTRUCTOR, with its key and arguments destructured.
+/// Required where the construct emits the type itself: an `interface <ty>` reference, an
+/// `inherit` parent, a construction, a member access's object argument.
+type FrozenNominal =
     private
         {
-            /// Kept whole, because realising the reference keeps its nominal FLAVOUR: an
-            /// `FTUnion` realises as a `TyUnion`, not a `TyClass`.
+            /// Kept whole, because realising it keeps its nominal FLAVOUR: an `FTUnion`
+            /// realises as a `TyUnion`, not a `TyClass`.
             Ref: FrozenType
             RefKey: TypeKey
             RefArgs: EqArray<FrozenType>
         }
 
-    /// The reference as a type, to realise at a use site.
+    /// The whole freeze, to realise at a use site.
     member this.Frozen: FrozenType = this.Ref
 
     member this.Key: TypeKey = this.RefKey
 
     member this.Args: EqArray<FrozenType> = this.RefArgs
 
-    static member OfClass(key: TypeKey, args: EqArray<FrozenType>) : FrozenInterface =
+    static member OfClass(key: TypeKey, args: EqArray<FrozenType>) : FrozenNominal =
         {
             Ref = FTClass(key, args)
             RefKey = key
             RefArgs = args
         }
 
-    /// `ValueNone` for a non-nominal freeze, which carries no witness to match.
-    static member TryOfFrozen(ft: FrozenType) : FrozenInterface voption =
+    static member TryOfFrozen(ft: FrozenType) : FrozenNominal voption =
         match ft with
         | FTClass(k, args)
         | FTUnion(k, args)
         | FTRecord(k, args)
-        // An intrinsic interface (`seq<'T>` on JS) freezes as `FTConst`, and its key is as
-        // nominal as the other three.
+        // An intrinsic (`seq<'T>` on JS) freezes as `FTConst`, and its key is as nominal as
+        // the other three.
         | FTConst(k, args) -> ValueSome { Ref = ft; RefKey = k; RefArgs = args }
         | _ -> ValueNone
 
+    /// `what` is a bare noun phrase the failure completes: "an `inherit` clause" reads
+    /// "an `inherit` clause does not name a type constructor: FTFun (…)".
+    static member OfFrozen (what: string) (ft: FrozenType) : FrozenNominal =
+        match FrozenNominal.TryOfFrozen ft with
+        | ValueSome n -> n
+        | ValueNone -> failwithf "%s does not name a type constructor: %A" what ft
+
     /// Rebuild over the type ARGUMENTS; the identity is untouched.
-    member this.MapArgs(f: FrozenType -> FrozenType) : FrozenInterface =
+    member this.MapArgs(f: FrozenType -> FrozenType) : FrozenNominal =
         let args = EqArray.map f this.RefArgs
 
         let rebuilt =

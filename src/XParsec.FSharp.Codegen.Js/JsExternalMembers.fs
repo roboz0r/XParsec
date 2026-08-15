@@ -104,23 +104,15 @@ module JsExternalMembers =
                 | MemberLowering.TypePrefixed -> MemberDispatch.TypePrefixedImport
 
     /// Walk a type's `inherit` chain to the `exn` root and resolve its `(# "Error" #)` repr to
-    /// the native runtime class name. `ValueNone` if it is no `exn` subtype.
-    let exnReprOf (provider: IExternalSymbolProvider) (ty: FrozenType) : string voption =
-        let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
-            match ft with
-            | FTClass(key, _)
-            | FTUnion(key, _)
-            | FTRecord(key, _) -> provider.TryLookupType key
-            // An intrinsic's canon key is a nominal identity, so ask by KEY as the arms above do.
-            | FTConst(key, _) -> provider.TryLookupType key
-            | _ -> ValueNone
-
+    /// the native runtime class name. `ValueNone` for a key that does not resolve to an `exn`
+    /// subtype.
+    let exnReprOf (provider: IExternalSymbolProvider) (key: TypeKey) : string voption =
         // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict ancestor.
-        let rec climb (depth: int) (ft: FrozenType) : string voption =
+        let rec climb (depth: int) (k: TypeKey) : string voption =
             if depth > 16 then
                 ValueNone
             else
-                match shapeOf ft with
+                match provider.TryLookupType k with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Platform = IntrinsicPlatform.Repr platform
@@ -132,11 +124,11 @@ module JsExternalMembers =
                     | _ -> ValueNone
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenBaseType with
-                    | ValueSome b -> climb (depth + 1) b
+                    | ValueSome b -> climb (depth + 1) b.Key
                     | ValueNone -> ValueNone
                 | _ -> ValueNone
 
-        climb 0 ty
+        climb 0 key
 
     /// `objArg.<member>` — a manifest Property read IS this bare Member node (a JS DATA
     /// property, not a zero-arg call); the call forms wrap it.

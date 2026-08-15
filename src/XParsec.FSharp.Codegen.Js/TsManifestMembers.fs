@@ -96,8 +96,8 @@ module internal TsManifestMembers =
     let private classifyHeritage
         (ctx: TranslateCtx)
         (heritage: Schema.TypeRef list)
-        : EqArray<FrozenInterface> * FrozenType voption =
-        let interfaces = ResizeArray<FrozenInterface>()
+        : EqArray<FrozenNominal> * FrozenNominal voption =
+        let interfaces = ResizeArray<FrozenNominal>()
         let mutable baseTy = ValueNone
 
         for h in heritage do
@@ -111,7 +111,8 @@ module internal TsManifestMembers =
             // The table keys by the arity-suffixed name: `extends Foo<T>` classifies under
             // `` Foo`1 ``. `arityName` is a no-op at arity 0.
             match ctx.TryFindType(SymbolKeyOps.arityName name (List.length args)) with
-            | Some id when not id.IsInterface -> baseTy <- ValueSome(toFrozen ctx h)
+            | Some id when not id.IsInterface ->
+                baseTy <- ValueSome(FrozenNominal.OfFrozen "a manifest heritage base" (toFrozen ctx h))
             | found ->
                 let ifaceArgs = args |> List.map (toFrozen ctx) |> Array.ofList
 
@@ -123,7 +124,7 @@ module internal TsManifestMembers =
                     | None ->
                         SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.arityName name ifaceArgs.Length) ifaceArgs.Length
 
-                interfaces.Add(FrozenInterface.OfClass(key, EqArray.ofArray ifaceArgs))
+                interfaces.Add(FrozenNominal.OfClass(key, EqArray.ofArray ifaceArgs))
 
         EqArray.ofResizeArray interfaces, baseTy
 
@@ -177,7 +178,7 @@ module internal TsManifestMembers =
                     EqArray.ofSeq
                         [
                             yield! heritageInterfaces
-                            FrozenInterface.OfClass(RuntimeNames.seqKey, EqArray.singleton elem)
+                            FrozenNominal.OfClass(RuntimeNames.seqKey, EqArray.singleton elem)
                         ]
                 | ValueNone -> heritageInterfaces
 

@@ -8,6 +8,15 @@ open XParsec.FSharp.SemanticAnalysis
 
 module internal LayoutNodes =
 
+    /// The TAST's `interface … with` blocks, narrowed once here. Inference stamps a block only
+    /// once it resolves to an interface, so a non-nominal is a bug, not a shape to drop.
+    let private ifaceBlocks
+        (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
+        : (FrozenNominal * TastAccessor.TypeMember list) list =
+        [
+            for (ifaceTy, ms) in interfaces -> FrozenNominal.OfFrozen "an `interface` clause" ifaceTy, EqArray.toList ms
+        ]
+
     let partitionTypeDecls (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
@@ -29,7 +38,7 @@ module internal LayoutNodes =
                             Decl = td
                             Cases = EqArray.toList cases
                             Members = EqArray.toList members
-                            Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
+                            Interfaces = ifaceBlocks interfaces
                         }
                 | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
                     records.Add
@@ -37,7 +46,7 @@ module internal LayoutNodes =
                             Decl = td
                             Fields = EqArray.toList fields
                             Members = EqArray.toList members
-                            Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
+                            Interfaces = ifaceBlocks interfaces
                             ValueKind = valueKind
                         }
                 // A numeric enum emits a real `System.Enum` subclass.
@@ -89,8 +98,8 @@ module internal LayoutNodes =
                             Fields = EqArray.toList c.Fields
                             CtorParams = EqArray.toList c.CtorParams
                             Members = EqArray.toList c.Members
-                            BaseType = c.BaseType
-                            Interfaces = [ for (ifaceTy, ms) in c.Interfaces -> ifaceTy, EqArray.toList ms ]
+                            BaseType = c.BaseType |> ValueOption.map (FrozenNominal.OfFrozen "an `inherit` clause")
+                            Interfaces = ifaceBlocks c.Interfaces
                             IsSealed = c.Declared.IsSealed
                             StaticPreamble = EqArray.toList c.StaticPreamble
                             InstancePreamble = EqArray.toList c.InstancePreamble
@@ -136,7 +145,7 @@ module internal LayoutNodes =
     let private ownAndIfaceMemberRows
         (key: SymbolKey)
         (members: TastAccessor.TypeMember list)
-        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
         : MethodRow list =
         NominalMembers.indexed members interfaces
         |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
@@ -187,7 +196,7 @@ module internal LayoutNodes =
     /// never depends on whether the type supports `=` / `<`.
     let private formatRows
         (td: TastAccessor.TypeDecl)
-        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
         : MethodRow list =
         if NominalMembers.declaresStructuralFormat interfaces then
             []
@@ -205,10 +214,10 @@ module internal LayoutNodes =
     let private coSlotRows
         (symbols: ICodegenSymbols)
         (td: TastAccessor.TypeDecl)
-        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
         : MethodRow list =
         [
-            for (_, slot) in CapabilityCoSlots.required symbols [ for (ifaceTy, _) in interfaces -> ifaceTy ] ->
+            for (_, slot) in CapabilityCoSlots.required symbols [ for (iface, _) in interfaces -> iface ] ->
                 {
                     Key = MethodKey.CapCoSlot(td.Key, slot)
                     Name = CapabilityCoSlots.metaName slot

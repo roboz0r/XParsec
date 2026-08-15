@@ -126,7 +126,7 @@ let symbolOf (r: Resolved) (suffix: string) : ExternalSymbol =
 
 /// The `interface <ty>` impls a PRIMITIVE declares. Empty for a source that binds only a
 /// representation, which is indistinguishable here from a primitive that declares none.
-let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : EqArray<FrozenInterface> =
+let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : EqArray<FrozenNominal> =
     match p.TryLookupType key with
     | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface.Interfaces
     | _ -> EqArray.empty

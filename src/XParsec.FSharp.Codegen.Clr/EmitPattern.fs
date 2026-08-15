@@ -196,8 +196,8 @@ module EmitPattern =
             b.Add(ILInstr.BneUn nextLabel)
         | PatShape.Union ->
             let caseName = TastAccessor.patUnionCaseName pat
-            let ty = TastAccessor.patTy pat
-            let key, tyArgs = nominalShape "union pattern" ty
+            let nominal = nominalOfPat pat
+            let key, tyArgs = keyAndTyArgs nominal
             let qualName = SymbolKeyOps.typeMetaName key
 
             // The tag field, this case's tag value, and a per-index field-ref source, either
@@ -250,10 +250,10 @@ module EmitPattern =
             )
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat
-            let ty = TastAccessor.patTy pat
             // A record pattern has no tag to compare, so it never fails on shape and
             // only its sub-patterns can branch to `nextLabel`.
-            let key, tyArgs = nominalShape "record pattern" ty
+            let nominal = nominalOfPat pat
+            let key, tyArgs = keyAndTyArgs nominal
 
             match env.Records.TryGetValue key with
             | true, r ->

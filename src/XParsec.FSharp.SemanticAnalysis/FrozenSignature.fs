@@ -225,15 +225,17 @@ module FrozenSignature =
                             TyparArity = arity
                             IsInterface = false
                             Members = EqArray.ofResizeArray members
+                            // Neither clause is DROPPED: inference stamps one only once it
+                            // resolves, reporting every other spelling. A drop would lose an
+                            // impl, or re-parent the class to `obj`.
                             FrozenInterfaces =
                                 EqArray.ofSeq
                                     [
-                                        for (ity, _) in c.Interfaces do
-                                            match FrozenInterface.TryOfFrozen ity with
-                                            | ValueSome i -> i
-                                            | ValueNone -> ()
+                                        for (ity, _) in c.Interfaces ->
+                                            FrozenNominal.OfFrozen "an `interface` clause" ity
                                     ]
-                            FrozenBaseType = c.BaseType
+                            FrozenBaseType =
+                                c.BaseType |> ValueOption.map (FrozenNominal.OfFrozen "an `inherit` clause")
                             Flags =
                                 { ExternalClassFlags.Default with
                                     Declared = c.Declared

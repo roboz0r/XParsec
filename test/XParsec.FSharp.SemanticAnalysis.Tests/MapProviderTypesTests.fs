@@ -58,9 +58,12 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                     Members = EqArray.singleton markerMember
                     FrozenInterfaces =
                         EqArray.singleton (
-                            FrozenInterface.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker)
+                            FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "I" 1, EqArray.singleton marker)
                         )
-                    FrozenBaseType = ValueSome marker
+                    FrozenBaseType =
+                        ValueSome(
+                            FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "B" 1, EqArray.singleton marker)
+                        )
                 }
         )
     | "Rec" ->
@@ -83,7 +86,7 @@ let private typeByName (name: string) : ExternalTypeShape voption =
                 1,
                 EqArray.singleton markerCase,
                 EqArray.singleton (
-                    FrozenInterface.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker)
+                    FrozenNominal.OfClass(SymbolKeyOps.qualifiedTypeKeyOf "J" 1, EqArray.singleton marker)
                 ),
                 origin
             )
@@ -181,9 +184,14 @@ let tests =
                 Expect.equal (EqArray.toArray iface.Args) [| witness Variance.Inv |] "interface arg root is inv"
             }
 
-            test "the base type is invariant" {
-                let info = clsShape ()
-                Expect.equal info.FrozenBaseType (ValueSome(witness Variance.Inv)) "base type root is inv"
+            // As for an interface: a base type is a REFERENCE, so only its arguments are
+            // positions a value passes through.
+            test "base-type type-arguments are invariant" {
+                let baseTy = (clsShape ()).FrozenBaseType.Value
+
+                Expect.equal baseTy.Key (SymbolKeyOps.qualifiedTypeKeyOf "B" 1) "base type identity preserved"
+
+                Expect.equal (EqArray.toArray baseTy.Args) [| witness Variance.Inv |] "base type arg root is inv"
             }
 
             test "a record field is covariant" {

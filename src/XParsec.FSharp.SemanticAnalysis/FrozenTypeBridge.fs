@@ -180,7 +180,7 @@ module FrozenTypeBridge =
     let pickInterfaceWitness
         (target: TypeKey)
         (declArgs: FrozenType[])
-        (ifaces: FrozenInterface seq)
+        (ifaces: FrozenNominal seq)
         : EqArray<FrozenType> voption =
         match ifaces |> Seq.tryFind (fun iface -> iface.Key = target) with
         | Some iface -> ValueSome(iface.Args |> EqArray.map (substituteDeclaring declArgs))

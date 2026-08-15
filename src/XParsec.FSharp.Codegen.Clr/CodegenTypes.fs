@@ -33,15 +33,12 @@ module internal CapabilityCoSlots =
     /// The co-slots the implemented `interfaces` require, in emission order, each paired
     /// with the interface that demands it, so a shim's forwarding target is looked up in
     /// THAT interface's impl block, not by name across every impl member.
-    let required (symbols: ICodegenSymbols) (interfaces: FrozenType list) : (FrozenType * CoSlot) list =
+    let required (symbols: ICodegenSymbols) (interfaces: FrozenNominal list) : (FrozenNominal * CoSlot) list =
         [
             for iface in interfaces do
-                match iface with
-                | FTClass(key, _) ->
-                    match CodegenSymbols.lookupTypeByKey symbols key with
-                    | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
-                        for slot in ofPlatformInterface platform -> iface, slot
-                    | _ -> ()
+                match CodegenSymbols.lookupTypeByKey symbols iface.Key with
+                | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
+                    for slot in ofPlatformInterface platform -> iface, slot
                 | _ -> ()
         ]
 
@@ -69,7 +66,7 @@ type internal UnionDecl =
         Members: TastAccessor.TypeMember list
         /// User `interface … with member …` impls: each pair is an implemented interface
         /// type + its already-typed member bodies.
-        Interfaces: (FrozenType * TastAccessor.TypeMember list) list
+        Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
     }
 
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
@@ -80,7 +77,7 @@ type internal RecordDecl =
         Members: TastAccessor.TypeMember list
         /// User `interface … with member …` impls: each pair is an implemented interface
         /// type + its already-typed member bodies.
-        Interfaces: (FrozenType * TastAccessor.TypeMember list) list
+        Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
         /// `Struct` for a `[<Struct>]` record (`System.ValueType` base, sealed) or
         /// `RefType` otherwise. Records are never `RefStruct`.
         ValueKind: ClassValueKind
@@ -95,8 +92,8 @@ type internal ClassDecl =
         Fields: Frozen.TRecordField list
         CtorParams: Frozen.TRecordField list
         Members: TastAccessor.TypeMember list
-        BaseType: FrozenType voption
-        Interfaces: (FrozenType * TastAccessor.TypeMember list) list
+        BaseType: FrozenNominal voption
+        Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
         IsSealed: bool
         /// `static let` / `static do` in declaration order: the body of the synthesised
         /// `.cctor`. A `let` also takes a static backing field.
@@ -153,12 +150,12 @@ type internal PartitionedTypeDecls =
 /// virtual `MethodDefinition` per member.
 [<RequireQualifiedAccess>]
 type internal NominalEmissionInput =
-    | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenType * TastAccessor.TypeMember list) list
+    | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
     /// `isStruct` ⇒ a `[<Struct>]` value-type record: `System.ValueType` base, a
     /// base-chain-free `.ctor`, and value-type-shaped equality/comparison bodies.
     | Record of
         fields: Frozen.TRecordField list *
-        interfaces: (FrozenType * TastAccessor.TypeMember list) list *
+        interfaces: (FrozenNominal * TastAccessor.TypeMember list) list *
         isStruct: bool
     | Class of ClassDecl
 
@@ -168,18 +165,14 @@ module internal NominalMembers =
 
     /// Whether the impl blocks include `Vesper.IStructuralFormattable`: the type supplies its
     /// own `%A` body, so no `Format` row, IL or `InterfaceImpl` is synthesised for it.
-    let declaresStructuralFormat (interfaces: (FrozenType * TastAccessor.TypeMember list) list) : bool =
+    let declaresStructuralFormat (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list) : bool =
         interfaces
-        |> List.exists (fun (ifaceTy, _) ->
-            match ifaceTy with
-            | FTClass(key, args) -> args.IsEmpty && key = RuntimeNames.structuralFormattableKey
-            | _ -> false
-        )
+        |> List.exists (fun (iface, _) -> iface.Args.IsEmpty && iface.Key = RuntimeNames.structuralFormattableKey)
 
     /// The grouped `interface … with` impls as one member sequence, in declaration order,
     /// which is the order `indexed` numbers impl members in.
     let flattenIfaceMembers
-        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
         : TastAccessor.TypeMember list =
         [
             for (_, ms) in interfaces do
@@ -191,7 +184,7 @@ module internal NominalMembers =
     /// is the `MethodKey.Member` index contract row declaration and body emission share.
     let indexed
         (members: TastAccessor.TypeMember list)
-        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
         : (int * bool * TastAccessor.TypeMember) list =
         [
             yield! members |> List.mapi (fun i m -> i, false, m)
@@ -205,11 +198,11 @@ module internal NominalMembers =
     /// same-named member declared by another interface.
     let ofInterface
         (members: TastAccessor.TypeMember list)
-        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
-        (iface: FrozenType)
+        (interfaces: (FrozenNominal * TastAccessor.TypeMember list) list)
+        (iface: FrozenNominal)
         : (int * TastAccessor.TypeMember) list =
         // `indexed`'s walk, carrying each block's start index instead of discarding it.
-        let rec go (index: int) (rest: (FrozenType * TastAccessor.TypeMember list) list) =
+        let rec go (index: int) (rest: (FrozenNominal * TastAccessor.TypeMember list) list) =
             match rest with
             | [] -> []
             | (ifaceTy, ms) :: tail ->

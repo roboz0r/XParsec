@@ -33,7 +33,7 @@ let private ifaceShape =
 let private widgetShape (ifaceKey: TypeKey) =
     ExternalTypeShape.Class(
         { ExternalClassShape.basic (0, false, SymbolOrigin.Empty) with
-            FrozenInterfaces = EqArray.singleton (FrozenInterface.OfClass(ifaceKey, EqArray.empty))
+            FrozenInterfaces = EqArray.singleton (FrozenNominal.OfClass(ifaceKey, EqArray.empty))
         }
     )
 

@@ -282,7 +282,7 @@ module SignatureResolutionMembers =
         (ctx: PassContext)
         (declTypars: EqArray<string * TyVarId>)
         (types: Type<SyntaxToken> list)
-        : EqArray<FrozenInterface> =
+        : EqArray<FrozenNominal> =
         let env = typarEnv ctx (TyparOwner.Type declTypars)
 
         // Translated UNDER the declaring typars, not merely frozen over them: `interface
@@ -294,7 +294,7 @@ module SignatureResolutionMembers =
         EqArray.ofList
             [
                 for ty in translated do
-                    match FrozenInterface.TryOfFrozen(freezeOver ctx env ty) with
+                    match FrozenNominal.TryOfFrozen(freezeOver ctx env ty) with
                     | ValueSome i -> i
                     | ValueNone -> ()
             ]
@@ -355,10 +355,14 @@ module SignatureResolutionMembers =
                              else
                                  EqArray.empty)
                         FrozenInterfaces = freezeInterfaces ctx typeParams interfaceTypes
+                        // TODO: an undefined `inherit` name is diagnosed and translates to
+                        // `TyUnknown`, which freezes unfreezable, so this throws where the
+                        // interfaces above drop. Diagnosed source, crashing pass.
                         FrozenBaseType =
                             baseTy
                             |> ValueOption.map (fun t ->
                                 freezeOver ctx (typarEnv ctx (TyparOwner.Type typeParams)) (translateType ctx t)
+                                |> FrozenNominal.OfFrozen "an `inherit` clause"
                             )
                         Flags =
                             { ExternalClassFlags.Default with
