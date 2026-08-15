@@ -10,6 +10,9 @@ list, and none of them is derivable from the merged order. The win is real but i
 the one it looks like from outside: it is not "fewer keys", it is **one ordering instead of
 two that can silently disagree**.
 
+**Not ready to start (2026-08-15).** The prerequisite below has to land first; until it does,
+justification 3 is an argument nothing has tested.
+
 ## What the five lists mean today
 
 | key | contents | who reads it |
@@ -37,8 +40,60 @@ So merging is a change to contract extraction and conformance, not to codegen in
 3. **The merged order is the order F# actually compiles in.** `a.fsi, a.fs, b.fsi, b.fs` is
    expressible in one list and is not expressible in two. The current split can only say
    "all contracts, then all bodies", which is not how the compiler under test orders a real
-   project — a difference that will matter as soon as a `.fsi` is passed to the assembly
-   pipeline (see `capability-provenance-plan.md`).
+   project. The assembly pipeline now TAKES a `.fsi` (`AssemblyFiles.SourceUnit`), so this
+   stopped being hypothetical — but nothing passes one yet, which is the prerequisite below.
+
+## Prerequisite — pair the `.fsi` halves into a real package build
+
+**Do this first, and decide the merge afterwards.** Every caller hands the pipeline
+`SourceUnit.ofImplementation`: `TestHelpers.buildPackage` and `TestHelpers.vesperCoreDll` in
+`Codegen.Clr.Tests`, `SelfPackageIntrinsicsTests`, and the `JsPackageTests` corpus run. No
+real package has ever been analysed alongside its own contract.
+
+### What that costs today
+
+`AssemblyFiles.conformanceDiagnostics` is the only place the CST check (`Conformance.checkUnit`)
+and the semantic typar checks (`ConformanceTypars.checkFile` / `checkMembers`) run inside the
+assembly pipeline, and it is reached only from a unit that HAS a signature. So on the real
+packages it has never run at all.
+
+An unrun check decays. On 2026-08-15 `checkFile` turned out to be doing nothing on the real
+corpus twice over: it exempted `let inline` by construction, and its lookup names carried no
+namespace (`ArithmeticOperators.op_Addition` against a contract publishing
+`Vesper.ArithmeticOperators.op_Addition`), so every binding in a namespaced module — which is
+all of `Vesper.Core`'s operators — was skipped. Both are fixed, with a mutation guard in
+`ConformanceTyparsTests` that reverses `(+)`'s typars and requires the sweep to report it,
+because a conforming corpus and a skipped one are otherwise indistinguishable. The CST half
+has had no such exposure and should be assumed to be in the same state.
+
+### Why it is cheap
+
+The pairing needs no new mechanism and no manifest change. `ConformancePass.checkManifest`
+already computes it, and `buildPackage` already CALLS it (for `enforce`) and then throws the
+result away: `PackageOutcome.Pairs` carries `PairOutcome.Paired { SigFile; ImplFile }` per
+contract, with `sig-only` and `impl-only` already honoured — a `sig-only` `.fsi` owes no `.fs`,
+an `impl-only` `.fs` is kept out of pairing candidacy. Build the `SourceUnit` list off those
+outcomes instead of mapping `manifest.Impl`, keeping each pair at its `.fs`'s position in
+`impl` order.
+
+### Expect it to fail, in two different ways
+
+- **Real drift**, reported through `Kind.Conformance` and therefore fatal: `analyseGated`
+  refuses an assembly carrying an error-severity diagnostic, so `buildPackage` fails rather
+  than emitting a degraded DLL. This is the point of the exercise.
+- **A publication change that is not drift.** A unit with a `.fsi` publishes the SIGNATURE's
+  surface — the `.fsi`-derived signatures REPLACE the `.fs`-derived ones — so anything the
+  contract hides stops being visible to LATER files in the same package. A package that
+  compiles today can legitimately stop compiling, and that is a source fix (or a contract
+  fix), not a reason to back the pairing out.
+
+### What it settles for this doc
+
+Justification 3 is untested until a `.fsi` sits in a package build. Once the unit list is
+being constructed, the interleaved order is either load-bearing or it is not, and the
+`Vesper.Core` `files`/`impl` disagreement in justification 1 is either a live bug or inert.
+Merging first means rewriting every manifest — and every package hash — on an argument, and
+then discovering which.
 
 ## Why NOT also merge the rest
 
@@ -79,13 +134,14 @@ type ManifestFile = { Relative: string; Role: ManifestRole }
   to a plausible wrong file set.
 - `impl` stays a recognised key for one release, parsed as `Implementation` entries appended
   after `files`, so migration is not a flag day. Or drop it in one commit — there are only
-  19 packages and they are all in this repo. **Recommend the second**: a compatibility path
+  10 packages and they are all in this repo. **Recommend the second**: a compatibility path
   for an in-repo format nobody else consumes is the kind of moving piece worth not having.
 
 ## Cost
 
-- 19 packages × up to 2 targets, plus `test/Codegen.Conformance/manifest.toml`, the JS
-  `widget` fixture, and the `tmp/buildClosure-tests` fixtures.
+- 19 manifests across 10 packages (`Vesper.Set` is CLR-only), plus
+  `test/Codegen.Conformance/manifest.toml`, the JS `widget` fixture, and the
+  `tmp/buildClosure-tests` fixtures.
 - `ReferencedProject.parseManifest` / `sourceInputs` / `pairingKey`; `Hashing` (the manifest
   bytes are hashed, so every package hash changes once → one full rebuild);
   `ConformancePass` (`m.Impl` → `m.Impls`); `ReferencedProject.buildProviderWith` (two

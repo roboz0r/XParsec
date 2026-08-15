@@ -83,19 +83,31 @@ module ConformanceTypars =
     /// equality fails exactly when a `.fs` `<'b,'a>` meets a `.fsi` `<'a,'b>`.
     let schemesAgree (declared: FrozenType) (inferred: FrozenType) : bool = normAxis declared = normAxis inferred
 
-    /// The lookup names to try, most-specific first: the qualified compiled name
-    /// (`ListModule.fold`), then the bare one, which covers a top-level binding.
+    /// The lookup names to try, most-specific first: the binding's own key
+    /// (`Vesper.ArithmeticOperators.op_Addition`, the name a `.fsi` in a namespace publishes),
+    /// then the module-qualified one (`ListModule.fold`), then the bare one, which covers a
+    /// top-level binding.
     let private lookupNames (info: ModuleBindingInfo option) (name: string) : string list =
         match info with
         | Some mi ->
-            match mi.DeclaringModule with
-            | ValueSome m -> [ m.Name + "." + mi.Name; mi.Name ] |> List.distinct
-            | ValueNone -> [ mi.Name ]
+            [
+                SymbolKeyOps.qualifiedName mi.Key
+
+                match mi.DeclaringModule with
+                | ValueSome m -> m.Name + "." + mi.Name
+                | ValueNone -> ()
+
+                mi.Name
+            ]
+            |> List.distinct
         | None -> [ name ]
 
-    /// Check every NON-inline generic module binding of a frozen `.fs` file against the
-    /// `.fsi` contract `provider`, in source-declaration order. A binding the provider does
-    /// not publish, or a monomorphic one, has no typar order to compare and is skipped.
+    /// Check every generic module binding of a frozen `.fs` file against the `.fsi` contract
+    /// `provider`, in source-declaration order. A binding the provider does not publish, or a
+    /// monomorphic one, has no typar order to compare and is skipped.
+    ///
+    /// `inline` included: a binding's typars are the slots a splice fills, so a body folding
+    /// `^T1 -> ^T2 -> ^T3` into one `^T` binds `y` at `x`'s type.
     let checkFile (provider: IExternalSymbolProvider) (pools: FrozenPools) : TyparMismatch list =
         let pool = TastPoolBuilder.openOver pools
         let moduleMembers = DenseTable.index pools.ModuleMembers
@@ -103,11 +115,8 @@ module ConformanceTypars =
         [
             for decl in TastAccessor.roots pool do
                 match decl with
-                // An `inline` binding IS in `Decls`, and is excluded here: its body is
-                // SRTP-solved per call site, so its typar order drives nothing.
                 | TastAccessor.DLet {
                                         Pattern = TastAccessor.PNamed boundVar
-                                        IsInline = false
                                         Ty = ty
                                     } ->
                     let info =

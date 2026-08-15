@@ -5,6 +5,7 @@ open System.IO
 open Expecto
 
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -37,6 +38,87 @@ let tests =
                 let mismatches = ConformanceTypars.checkFile contract tast
 
                 Expect.isEmpty mismatches (sprintf "list.fs conforms to list.fsi typar order; got %A" mismatches)
+            }
+
+            test "Vesper.Core: every module binding, `inline` included, conforms to its `.fsi`" {
+                // The whole package through the multi-file route, so `ops-platform.clr.fs`'s
+                // `let inline (+) (x: ^T1) (y: ^T2) : ^T3` is checked against the contract's
+                // three typars. Those are the slots a splice fills, one per typar: a body
+                // folding them into one `^T` binds `y` at `x`'s type and emits a program that
+                // fails at runtime, having type-checked with no diagnostic.
+                let units =
+                    manifestImplFiles vesperCorePackage
+                    |> List.map (
+                        AssemblyFiles.SourceFile.read vesperCorePackage
+                        >> AssemblyFiles.SourceUnit.ofImplementation
+                    )
+
+                let analysed =
+                    AssemblyFiles.analyseAssembly
+                        {
+                            Name = "Vesper.Core"
+                            Target = Target.Clr
+                        }
+                        (ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) [])
+                        units
+
+                let contract = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+
+                let sweep (provider: IExternalSymbolProvider) =
+                    [
+                        for result in analysed do
+                            match result with
+                            | Ok file -> yield! ConformanceTypars.checkFile provider file.Frozen
+                            | Error e -> failwithf "Vesper.Core: %s did not parse" e.Id.Name
+                    ]
+
+                let mismatches = sweep contract
+
+                Expect.isEmpty
+                    mismatches
+                    (sprintf
+                        "Vesper.Core conforms to its own contract's typar order; got %s"
+                        (mismatches |> List.map ConformanceTypars.describe |> String.concat "\n"))
+
+                // The sweep above is only evidence if it REACHED `(+)`. Shadow the contract's
+                // `^T1 -> ^T2 -> ^T3` with its own reversal and the inline binding must be
+                // reported — a conforming corpus and a skipped one look alike otherwise.
+                let addName = "Vesper.ArithmeticOperators.op_Addition"
+
+                let add =
+                    match contract.TryLookup addName with
+                    | ValueSome s -> s
+                    | ValueNone -> failtestf "the Vesper.Core contract publishes %s" addName
+
+                Expect.equal add.TyparArity 3 "(+) is published with its three typars"
+
+                let rec reverseTypars (t: FrozenType) : FrozenType =
+                    match t with
+                    | FTTypar(axis, i) -> FTTypar(axis, add.TyparArity - 1 - i)
+                    | t -> FrozenType.mapChildren reverseTypars t
+
+                let reversed =
+                    ExternalSymbolProviders.composite
+                        [
+                            ExternalSymbolProviders.ofNamedChannels
+                                { ExternalSymbolProviders.NamedChannels.empty with
+                                    TryLookup =
+                                        fun name ->
+                                            if name = addName then
+                                                ValueSome
+                                                    { add with
+                                                        Scheme = reverseTypars add.Scheme
+                                                    }
+                                            else
+                                                ValueNone
+                                }
+                            contract
+                        ]
+
+                Expect.contains
+                    (sweep reversed |> List.map (fun m -> m.Name))
+                    addName
+                    "an inline binding is compared, not exempt"
             }
 
             // The member half: a generic member (`AppendFormatted: 'T -> unit`) must carry

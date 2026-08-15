@@ -837,6 +837,57 @@ let typarConformanceTests =
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty (ConformanceTypars.checkFile (contractProvider []) tast) "unpublished binding skipped"
             }
+
+            // ---- `inline`: the declared typars ARE the splice's substitution slots ----
+
+            test "an inline binding's typar order is checked: `<'b,'a>` reorder → TyparMismatch" {
+                let contract =
+                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+
+                let tast = frozenOf "let inline f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
+
+                let mismatches = ConformanceTypars.checkFile contract tast
+                Expect.equal (List.length mismatches) 1 "one typar-order mismatch"
+                Expect.equal mismatches.Head.Name "f" "the mismatch names f"
+            }
+
+            test "an inline binding in appearance order conforms → no mismatch" {
+                let contract =
+                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
+
+                let tast = frozenOf "let inline f (x: 'a) (y: 'b) : 'b = y"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
+
+                Expect.isEmpty (ConformanceTypars.checkFile contract tast) "appearance-order inline impl conforms"
+            }
+
+            test "an inline body folding two declared typars into one → TyparMismatch" {
+                // The miscompile species: the contract's `'a -> 'b -> 'a` is TWO substitution
+                // slots, and a homogeneous body offers one, so a call site would bind the
+                // second argument at the first's type. Nothing else catches this.
+                let contract =
+                    contractProvider
+                        [
+                            "f",
+                            ExternalSymbols.scheme
+                                (SymbolKeyOps.inNamespace "")
+                                "f"
+                                (FTFun(
+                                    FTTypar(TyparAxis.Declaring, 0),
+                                    FTFun(FTTypar(TyparAxis.Declaring, 1), FTTypar(TyparAxis.Declaring, 0))
+                                ))
+                                2
+                                []
+                        ]
+
+                let tast = frozenOf "let inline f (x: 'a) (y: 'a) : 'a = x"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
+
+                let mismatches = ConformanceTypars.checkFile contract tast
+                Expect.equal (List.length mismatches) 1 "the folded body disagrees with the contract"
+                Expect.equal mismatches.Head.Name "f" "the mismatch names f"
+            }
         ]
 
 // ---- Semantic typar-order conformance for type MEMBERS ----------------------

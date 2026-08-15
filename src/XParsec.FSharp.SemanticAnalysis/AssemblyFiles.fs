@@ -271,7 +271,6 @@ module AssemblyFiles =
     /// the CST rule set a manifest-paired unit is held to as well, then typar ORDER over the
     /// two frozen surfaces. The typar half is reachable only here — the package route conforms
     /// a manifest without freezing anything, so it has no inferred scheme to compare.
-    /// A `let inline` is exempt from it by construction, on both routes.
     let private conformanceDiagnostics
         (assembly: string)
         (signature: ParsedHalf<Pipeline.ParsedSignature>)

@@ -143,6 +143,16 @@ let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : st
     |> List.map (fun d -> sprintf "%s: %s" d.Path.Name d.Diagnostic.Message)
     |> String.concat "\n"
 
+/// The `impl` files a package's CLR manifest lists, in manifest order, relative to the
+/// package directory.
+let manifestImplFiles (package: string) : string list =
+    match ReferencedProject.resolveManifest Target.Clr package with
+    | Error e -> failwithf "manifestImplFiles %s: %s" package e
+    | Ok mp ->
+        match ReferencedProject.loadManifest mp with
+        | Ok m -> m.Impl
+        | Error e -> failwithf "manifestImplFiles %s: cannot load manifest: %s" package e
+
 /// Compile `Vesper.Core.dll` from its manifest's `impl` files, load it into the *Default*
 /// `AssemblyLoadContext`, and return its path. *Default* because a PE loaded into a fresh
 /// context resolves `Vesper.Fun\`2` / `Vesper.Ref\`1` through that context's fallback to it.
@@ -159,16 +169,8 @@ let vesperCoreDll: Lazy<string> =
          // Each `impl` file the manifest lists is analysed as its own file against the
          // composed prior-file views, so a primitive repr (`string`, …) resolves from
          // Core's own `.fs`.
-         let implFiles =
-             match ReferencedProject.resolveManifest Target.Clr vesperCorePackage with
-             | Error e -> failwithf "vesperCoreDll: %s" e
-             | Ok mp ->
-                 match ReferencedProject.loadManifest mp with
-                 | Ok m -> m.Impl
-                 | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
-
          let files =
-             implFiles
+             manifestImplFiles vesperCorePackage
              |> List.map (
                  AssemblyFiles.SourceFile.read vesperCorePackage
                  >> AssemblyFiles.SourceUnit.ofImplementation

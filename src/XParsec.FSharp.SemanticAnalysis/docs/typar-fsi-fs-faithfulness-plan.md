@@ -114,6 +114,6 @@ this is the one remaining FSharp.Core tie on the printf stack.
 
   The general lesson for this doc: `.fsi`/`.fs` typar drift is **not** confined to the ABI
   just because the ABI is the only thing extracted. An inline body's typars are load-bearing
-  at the splice, and nothing checks them — `ConformanceTypars.fs:24-36` exempts `let inline`
-  by construction. That exemption is now the last thing standing between this class of bug
-  and the compiler; treat it as a gap, not a scope boundary.
+  at the splice. `ConformanceTypars.checkFile` used to exempt `let inline` by construction;
+  it no longer does, and its lookup now reaches a binding in a namespaced module, which is
+  where the operators live.
