@@ -1033,9 +1033,11 @@ module Set =
     let intersect (set1: Set<'T>) (set2: Set<'T>) =
         Set<'T>.Intersection(set1, set2)
 
+    // Written out rather than calling `Set.Intersection sets`: a static member overloaded on
+    // arity resolves to its first declaration, which is the two-set one.
     [<CompiledName("IntersectMany")>]
-    let intersectMany sets =
-        Set.Intersection sets
+    let intersectMany (sets: seq<Set<'T>>) : Set<'T> =
+        Seq.reduce (fun s1 s2 -> Set<'T>.Intersection(s1, s2)) sets
 
     [<CompiledName("Iterate")>]
     let iter action (set: Set<'T>) =

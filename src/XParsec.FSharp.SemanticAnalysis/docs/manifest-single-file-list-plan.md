@@ -10,8 +10,9 @@ list, and none of them is derivable from the merged order. The win is real but i
 the one it looks like from outside: it is not "fewer keys", it is **one ordering instead of
 two that can silently disagree**.
 
-**Not ready to start (2026-08-15).** The prerequisite below has to land first; until it does,
-justification 3 is an argument nothing has tested.
+**The prerequisite has landed (2026-08-15); the merge itself is still a decision.** What the
+pairing found is recorded below — read it before merging, because it changes what
+justifications 1 and 3 are claiming.
 
 ## What the five lists mean today
 
@@ -40,60 +41,47 @@ So merging is a change to contract extraction and conformance, not to codegen in
 3. **The merged order is the order F# actually compiles in.** `a.fsi, a.fs, b.fsi, b.fs` is
    expressible in one list and is not expressible in two. The current split can only say
    "all contracts, then all bodies", which is not how the compiler under test orders a real
-   project. The assembly pipeline now TAKES a `.fsi` (`AssemblyFiles.SourceUnit`), so this
-   stopped being hypothetical — but nothing passes one yet, which is the prerequisite below.
+   project. **Superseded by the prerequisite:** the package build compiles that interleave
+   today, off the pairing, with the two lists unchanged.
 
-## Prerequisite — pair the `.fsi` halves into a real package build
+## Prerequisite — pair the `.fsi` halves into a real package build — **DONE**
 
-**Do this first, and decide the merge afterwards.** Every caller hands the pipeline
-`SourceUnit.ofImplementation`: `TestHelpers.buildPackage` and `TestHelpers.vesperCoreDll` in
-`Codegen.Clr.Tests`, `SelfPackageIntrinsicsTests`, and the `JsPackageTests` corpus run. No
-real package has ever been analysed alongside its own contract.
+`PackageUnits.ofOutcome` / `ofManifest` build the unit list off `ConformancePass.checkManifest`'s
+pairing, each `.fsi` riding its `.fs`'s unit at that `.fs`'s position in `impl` order.
+`TestHelpers.buildPackage`, `TestHelpers.vesperCoreDll`, `SelfPackageIntrinsicsTests` and the
+`JsPackageTests` corpus run all take it; `ConformanceTests`'s `PackageUnits` list pins the
+pairing per package per target, so a revert to `SourceUnit.ofImplementation` fails loudly.
 
-### What that costs today
+Two failures came out of it, one of each predicted kind:
 
-`AssemblyFiles.conformanceDiagnostics` is the only place the CST check (`Conformance.checkUnit`)
-and the semantic typar checks (`ConformanceTypars.checkFile` / `checkMembers`) run inside the
-assembly pipeline, and it is reached only from a unit that HAS a signature. So on the real
-packages it has never run at all.
+- **A publication gap, not drift.** The `.fsi` extractor published a member-less
+  `type X = extern class` as a bare scalar, dropping the heritability the declaration states,
+  so `inherit Attribute()` in a later `Vesper.Core` file stopped resolving. Fixed at the
+  extractor (`IntrinsicShape.HeritableClass`); it was never specific to the paired build — a
+  consumer package inheriting a contract's `extern class` hit the same wall.
+- **Real drift.** `Vesper.Set`'s `SetModule.intersectMany` was inferring
+  `(Set<'T> * Set<'T>) -> Set<'T>` against a contract declaring `seq<Set<'T>> -> Set<'T>`,
+  because a project-local static member overloaded on arity resolves to its FIRST declaration:
+  `resolveMember`'s ranking is reached only for instance calls. The source is fixed; the
+  resolution gap is not, and is worth its own plan.
 
-An unrun check decays. On 2026-08-15 `checkFile` turned out to be doing nothing on the real
-corpus twice over: it exempted `let inline` by construction, and its lookup names carried no
-namespace (`ArithmeticOperators.op_Addition` against a contract publishing
-`Vesper.ArithmeticOperators.op_Addition`), so every binding in a namespaced module — which is
-all of `Vesper.Core`'s operators — was skipped. Both are fixed, with a mutation guard in
-`ConformanceTyparsTests` that reverses `(+)`'s typars and requires the sweep to report it,
-because a conforming corpus and a skipped one are otherwise indistinguishable. The CST half
-has had no such exposure and should be assumed to be in the same state.
+### What it settles — and it weakens the case for merging
 
-### Why it is cheap
-
-The pairing needs no new mechanism and no manifest change. `ConformancePass.checkManifest`
-already computes it, and `buildPackage` already CALLS it (for `enforce`) and then throws the
-result away: `PackageOutcome.Pairs` carries `PairOutcome.Paired { SigFile; ImplFile }` per
-contract, with `sig-only` and `impl-only` already honoured — a `sig-only` `.fsi` owes no `.fs`,
-an `impl-only` `.fs` is kept out of pairing candidacy. Build the `SourceUnit` list off those
-outcomes instead of mapping `manifest.Impl`, keeping each pair at its `.fs`'s position in
-`impl` order.
-
-### Expect it to fail, in two different ways
-
-- **Real drift**, reported through `Kind.Conformance` and therefore fatal: `analyseGated`
-  refuses an assembly carrying an error-severity diagnostic, so `buildPackage` fails rather
-  than emitting a degraded DLL. This is the point of the exercise.
-- **A publication change that is not drift.** A unit with a `.fsi` publishes the SIGNATURE's
-  surface — the `.fsi`-derived signatures REPLACE the `.fs`-derived ones — so anything the
-  contract hides stops being visible to LATER files in the same package. A package that
-  compiles today can legitimately stop compiling, and that is a source fix (or a contract
-  fix), not a reason to back the pairing out.
-
-### What it settles for this doc
-
-Justification 3 is untested until a `.fsi` sits in a package build. Once the unit list is
-being constructed, the interleaved order is either load-bearing or it is not, and the
-`Vesper.Core` `files`/`impl` disagreement in justification 1 is either a live bug or inert.
-Merging first means rewriting every manifest — and every package hash — on an argument, and
-then discovering which.
+- **Justification 3 no longer argues for one list.** `a.fsi, a.fs, b.fsi, b.fs` IS what the
+  pipeline now compiles, and a `SourceUnit` carries both halves, so the interleave is a
+  property of the unit rather than of the file list. A merged list would only be spelling out
+  an order the pairing already derives.
+- **Justification 1's disagreement is inert for the build.** The package build now reads
+  `impl` order alone — every `.fsi` sits at its `.fs`'s position — so `fun-adapters.fsi` being
+  last in `files` and sixth-from-last in `impl` costs the build nothing. `files` order still
+  sequences the CONSUMER-facing contract extraction in `ReferencedProject.buildProviderWith`,
+  which is a different list serving a different pass; that is the question left, and merging
+  would answer it by fiat rather than by test.
+- The CST check (`Conformance.checkUnit`) and the typar sweeps in
+  `AssemblyFiles.conformanceDiagnostics` now run on every package build, both targets, and are
+  clean on the corpus. `ConformanceTyparsTests`'s reversed-`(+)` mutation guard is still the
+  only thing separating "conforms" from "skipped" for the typar half; the CST half has no
+  equivalent guard.
 
 ## Why NOT also merge the rest
 

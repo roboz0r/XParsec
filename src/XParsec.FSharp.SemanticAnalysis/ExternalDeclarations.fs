@@ -509,6 +509,26 @@ type IntrinsicShape =
             Class = ValueNone
         }
 
+    /// `type Attribute = extern class`: heritable, and declaring nothing else. `inherit
+    /// Attribute()` in a later file has only this surface to read the heritability off.
+    static member HeritableClass(canon: TypeKey, arity: int, platform: IntrinsicPlatform) : IntrinsicShape =
+        {
+            Id =
+                {
+                    Canon = canon
+                    TyparArity = arity
+                    Platform = platform
+                }
+            Class =
+                ValueSome
+                    {
+                        Heritable = true
+                        BaseType = ValueNone
+                        Interfaces = EqArray.empty
+                        Members = EqArray.empty
+                    }
+        }
+
 module IntrinsicClassSurface =
 
     /// Fold a farther source's surface onto a nearer one: an impl `.fs` view binds a

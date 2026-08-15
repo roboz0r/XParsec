@@ -176,6 +176,7 @@
     <Compile Include="Freeze.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="AssemblyFiles.fs" />
+    <Compile Include="PackageUnits.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />

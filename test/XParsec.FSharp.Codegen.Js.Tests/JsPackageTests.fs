@@ -266,19 +266,20 @@ module Shim =
             // The package this shape exists for: many contract files, no single one of
             // which could be "the package's module".
             test "Vesper.Core compiles as one package and its modules load under Node" {
+                let manifestPath =
+                    match ReferencedProject.resolveManifest Target.Js vesperCorePackage with
+                    | Result.Ok mp -> mp
+                    | Result.Error e -> failtestf "Vesper.Core manifest: %s" e
+
                 let manifest =
-                    match
-                        ReferencedProject.resolveManifest Target.Js vesperCorePackage
-                        |> Result.bind ReferencedProject.loadManifest
-                    with
+                    match ReferencedProject.loadManifest manifestPath with
                     | Result.Ok m -> m
                     | Result.Error e -> failtestf "Vesper.Core manifest: %s" e
 
-                let dir = vesperCorePackage
-
                 let files =
-                    manifest.Impl
-                    |> List.map (AssemblyFiles.SourceFile.read dir >> AssemblyFiles.SourceUnit.ofImplementation)
+                    match PackageUnits.ofManifest manifestPath with
+                    | Result.Ok units -> units
+                    | Result.Error e -> failtestf "Vesper.Core units: %s" e
 
                 let pkg =
                     match

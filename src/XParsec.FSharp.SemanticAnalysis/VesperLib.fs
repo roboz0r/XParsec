@@ -1215,9 +1215,15 @@ module VesperLib =
                         | true, repr -> IntrinsicPlatform.Repr repr
                         | _ -> IntrinsicPlatform.Unsupported ctx.Target
 
+                    let canon = SymbolKeyOps.intrinsicCanonKey compiled
+
                     ctx.TypeShapes.[compiled] <-
                         ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(SymbolKeyOps.intrinsicCanonKey compiled, arity, platform)
+                            // A member-less `extern class` (`Attribute`) declares no surface but
+                            // is still heritable, and only the shape carries that.
+                            match kindTag with
+                            | ValueSome(ExternKind.Class _) -> IntrinsicShape.HeritableClass(canon, arity, platform)
+                            | _ -> IntrinsicShape.Scalar(canon, arity, platform)
                         )
 
                 match members with

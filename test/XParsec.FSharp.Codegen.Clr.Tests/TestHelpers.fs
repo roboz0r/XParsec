@@ -153,7 +153,7 @@ let manifestImplFiles (package: string) : string list =
         | Ok m -> m.Impl
         | Error e -> failwithf "manifestImplFiles %s: cannot load manifest: %s" package e
 
-/// Compile `Vesper.Core.dll` from its manifest's `impl` files, load it into the *Default*
+/// Compile `Vesper.Core.dll` from its manifest's units, load it into the *Default*
 /// `AssemblyLoadContext`, and return its path. *Default* because a PE loaded into a fresh
 /// context resolves `Vesper.Fun\`2` / `Vesper.Ref\`1` through that context's fallback to it.
 let vesperCoreDll: Lazy<string> =
@@ -166,15 +166,15 @@ let vesperCoreDll: Lazy<string> =
                  OutputPath = Some corePath
              }
 
-         // Each `impl` file the manifest lists is analysed as its own file against the
-         // composed prior-file views, so a primitive repr (`string`, …) resolves from
-         // Core's own `.fs`.
+         // Each unit the manifest lists is analysed as its own file against the composed
+         // prior-file views, so a primitive repr (`string`, …) resolves from Core's own `.fs`.
          let files =
-             manifestImplFiles vesperCorePackage
-             |> List.map (
-                 AssemblyFiles.SourceFile.read vesperCorePackage
-                 >> AssemblyFiles.SourceUnit.ofImplementation
-             )
+             match
+                 ReferencedProject.resolveManifest Target.Clr vesperCorePackage
+                 |> Result.bind PackageUnits.ofManifest
+             with
+             | Ok units -> units
+             | Error e -> failwithf "vesperCoreDll: %s" e
 
          // Core defines its own primitives, so it references nothing and names ITSELF as
          // the self manifest. That seeds the platform metadata with its own `{ platform -> canon }`
@@ -294,18 +294,20 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
 
                  // `.fsi`↔`.fs` conformance gates the build: a contract binding with no
-                 // implementation and no manifest `sig-only` declaration is an error.
-                 match ConformancePass.checkManifest manifestPath with
-                 | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
-                 | Result.Ok outcome ->
-                     match ConformancePass.enforce outcome with
-                     | [] -> ()
-                     | ds ->
-                         failwithf
-                             "buildPackage %s: %d conformance error(s):\n%s"
-                             pkg
-                             (List.length ds)
-                             (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
+                 // implementation and no manifest `sig-only` declaration is an error. Its
+                 // pairing is also what marries each body below to the contract it answers.
+                 let outcome =
+                     match ConformancePass.checkManifest manifestPath with
+                     | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
+                     | Result.Ok outcome ->
+                         match ConformancePass.enforce outcome with
+                         | [] -> outcome
+                         | ds ->
+                             failwithf
+                                 "buildPackage %s: %d conformance error(s):\n%s"
+                                 pkg
+                                 (List.length ds)
+                                 (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
 
                  // Force each dependency's build first: that registers it in `packageAlc`,
                  // so this package resolves against it at load time. Its DLL goes to
@@ -322,15 +324,10 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let provider =
                      ClrSymbolProviders.buildContractForSelf (Some(srcPackage pkg)) depManifests
 
-                 let dir = manifestPath.PackageDir
-                 let implRels = manifest.Impl
-
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
                  // on any error-severity diagnostic instead of emitting a degraded DLL.
-                 let files =
-                     implRels
-                     |> List.map (AssemblyFiles.SourceFile.read dir >> AssemblyFiles.SourceUnit.ofImplementation)
+                 let files = PackageUnits.ofOutcome manifest outcome
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")
@@ -358,7 +355,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // A package with no `impl` files carries no runtime types, and `Vesper.Printf`
                  // is loaded into Default separately, so registering a second copy here would
                  // bind a driver's `Vesper.Formatter` to the wrong one. Throwaway ALC for both.
-                 if List.isEmpty implRels || manifest.Name = "Vesper.Printf" then
+                 if List.isEmpty files || manifest.Name = "Vesper.Printf" then
                      let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
 
                      throwaway.LoadFromStream ms, artifact

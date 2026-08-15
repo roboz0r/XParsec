@@ -21,17 +21,18 @@ module ConcatProbe =
 """
 
     let private coreFilesPlusProbe () =
-        let implFiles =
+        let coreUnits =
             match
                 ReferencedProject.resolveManifest Target.Clr vesperCorePackage
-                |> Result.bind ReferencedProject.loadManifest
+                |> Result.bind PackageUnits.ofManifest
             with
-            | Ok m -> m.Impl
+            | Ok units -> units
             | Error e -> failwithf "cannot load Vesper.Core manifest: %s" e
 
-        (implFiles |> List.map (AssemblyFiles.SourceFile.read vesperCorePackage))
-        @ [ AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource ]
-        |> List.map AssemblyFiles.SourceUnit.ofImplementation
+        coreUnits
+        @ [
+            AssemblyFiles.SourceUnit.ofImplementation (AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource)
+        ]
 
     /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's
     /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.

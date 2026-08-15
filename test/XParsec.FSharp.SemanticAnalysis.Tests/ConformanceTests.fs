@@ -961,3 +961,77 @@ let memberTyparConformanceTests =
                     "unpublished member skipped"
             }
         ]
+
+// ---- The units a package COMPILES ------------------------------------------
+// Pairing is what carries the CST and typar conformance checks INTO the assembly pipeline:
+// a unit list built off `impl` alone analyses every body as though it published its own
+// surface, and reaches neither check.
+
+/// Each unit as `(signature, implementation)` relative paths, the signature `""` when the
+/// body carries none.
+let private unitPaths (units: AssemblyFiles.SourceUnit list) : (string * string) list =
+    [
+        for u in units ->
+            (match u.Signature with
+             | ValueSome s -> s.Id.Name
+             | ValueNone -> ""),
+            u.Implementation.Id.Name
+    ]
+
+let private unitsOf (mp: ReferencedProject.ManifestPath) : AssemblyFiles.SourceUnit list =
+    match PackageUnits.ofManifest mp with
+    | Ok units -> units
+    | Error e ->
+        failtestf "PackageUnits.ofManifest failed for %s: %s" mp.Path e
+        []
+
+[<Tests>]
+let packageUnitsTests =
+    testList
+        "PackageUnits"
+        [
+            for target in [ "clr"; "js" ] do
+                for package, manifestPath in packageManifests target do
+                    test $"{package} ({target}): every body compiles under the contract it answers" {
+                        let manifest =
+                            match ReferencedProject.loadManifest manifestPath with
+                            | Ok m -> m
+                            | Error e -> failtestf "%s: %s" package e
+
+                        let units = unitsOf manifestPath
+
+                        Expect.equal
+                            (units |> List.map (fun u -> u.Implementation.Id.Name))
+                            manifest.Impl
+                            "one unit per `impl` entry, in manifest order"
+
+                        let paired = unitPaths units |> List.filter (fst >> (<>) "") |> List.sort
+
+                        let expected =
+                            [
+                                for p in (outcomeFor manifestPath).Pairs do
+                                    match p with
+                                    | ConformancePass.PairOutcome.Paired r -> yield r.SigFile, r.ImplFile
+                                    | ConformancePass.PairOutcome.SigOnly _
+                                    | ConformancePass.PairOutcome.Unrepresentable _
+                                    | ConformancePass.PairOutcome.RuntimeServed _
+                                    | ConformancePass.PairOutcome.ParseFailed _ -> ()
+                            ]
+                            |> List.sort
+
+                        Expect.equal paired expected "the conformance pass's pairing, and no other"
+                    }
+
+            // The loop above passes vacuously on a package whose bodies pair with nothing, so
+            // one real corpus pair is named here: `.fsi` first, at the `.fs`'s own position.
+            test "Vesper.Core (clr): prim-types-min is compiled as one two-halved unit" {
+                let paths = unitPaths (unitsOf (manifestOf "clr" "Vesper.Core"))
+
+                Expect.equal
+                    (List.head paths)
+                    ("prim-types-min.fsi", "prim-types-min.clr.fs")
+                    "the first body of the package carries its contract"
+
+                Expect.isEmpty (paths |> List.filter (fun (s, _) -> s = "")) "every Vesper.Core body answers a contract"
+            }
+        ]
