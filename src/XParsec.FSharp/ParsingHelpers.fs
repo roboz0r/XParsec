@@ -1313,6 +1313,21 @@ module Parsing =
             reader.State <- savedState
             e
 
+    /// Like `withContextAt`, but reads the offside column off an already-parsed token rather
+    /// than being told it. A virtual token has no column of its own, so it throws.
+    let withContextAtToken
+        (ctx: OffsideContext)
+        (anchor: SyntaxToken)
+        innerParser
+        (reader: Reader<PositionedToken, ParseState, _>)
+        =
+        let indent =
+            match anchor.Index with
+            | TokenIndex.Regular iT -> ParseState.getIndent reader.State iT
+            | TokenIndex.Virtual -> failwithf "Attempted to set indent context with a virtual token %A" anchor
+
+        withContextAt ctx indent anchor.PositionedToken innerParser reader
+
     /// Record field separator: accepts a real ';' or emits a virtual separator when the next
     /// token is at the same indent as the enclosing SeqBlock context (spec §15.1.5: $sep insertion).
     let pRecordFieldSep: FSParser<SyntaxToken> =

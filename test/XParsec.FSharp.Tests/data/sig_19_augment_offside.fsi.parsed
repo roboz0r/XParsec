@@ -1,0 +1,142 @@
+module                 'module'          KWModule            tok=   0  pos=   0
+                       'Offside'         Identifier          tok=   2  pos=   7
+Module:
+  module               'module'          KWModule            tok=   5  pos=  16
+  ident                'Siblings'        Identifier          tok=   7  pos=  23
+  =                    '='               OpEquality          tok=   9  pos=  32
+  begin                <virt>            KWBegin             tok=virt  pos=  38
+    Type:
+      type             'type'            KWType              tok=  12  pos=  38
+      TypeSig.Record:
+        TypeName       'Shown'           Identifier          tok=  14  pos=  43
+        =              '='               OpEquality          tok=  16  pos=  49
+        {              '{'               KWLBrace            tok=  18  pos=  51
+          Field:
+            ident      'value'           Identifier          tok=  20  pos=  53
+            :          ':'               OpColon             tok=  21  pos=  58
+            NamedType:
+              Ident    'int'             Identifier          tok=  23  pos=  60
+        }              '}'               KWRBrace            tok=  25  pos=  64
+    Val:
+      val              'val'             KWVal               tok=  32  pos= 155
+      Ident            'shown'           Identifier          tok=  34  pos= 159
+      :                ':'               OpColon             tok=  35  pos= 164
+      NamedType:
+        Ident          'int'             Identifier          tok=  37  pos= 166
+      ->               '->'              OpArrowRight        tok=  39  pos= 170
+      NamedType:
+        Ident          'int'             Identifier          tok=  41  pos= 173
+    Val:
+      val              'val'             KWVal               tok=  45  pos= 182
+      Ident            'named'           Identifier          tok=  47  pos= 186
+      :                ':'               OpColon             tok=  48  pos= 191
+      arg              'x'               Identifier          tok=  50  pos= 193
+      :                ':'               OpColon             tok=  51  pos= 194
+      NamedType:
+        Ident          'int'             Identifier          tok=  53  pos= 196
+      ->               '->'              OpArrowRight        tok=  55  pos= 200
+      NamedType:
+        Ident          'int'             Identifier          tok=  57  pos= 203
+    Val:
+      [<               '[<'              KWLAttrBracket      tok=  61  pos= 212
+      NamedType:
+        Ident          'CompiledNa...'   Identifier          tok=  62  pos= 214
+      ParenBlock       '('               KWLParen            tok=  63  pos= 226
+        StringLiteral  '"'               StringOpen          tok=  64  pos= 227
+        Parts:
+          Text         'Attributed'      StringFragment      tok=  65  pos= 228
+                       '"'               StringClose         tok=  66  pos= 238
+                       ')'               KWRParen            tok=  67  pos= 239
+      >]               '>]'              KWRAttrBracket      tok=  68  pos= 240
+      val              'val'             KWVal               tok=  71  pos= 247
+      Ident            'attributed'      Identifier          tok=  73  pos= 251
+      :                ':'               OpColon             tok=  74  pos= 261
+      NamedType:
+        Ident          'int'             Identifier          tok=  76  pos= 263
+      ->               '->'              OpArrowRight        tok=  78  pos= 267
+      NamedType:
+        Ident          'int'             Identifier          tok=  80  pos= 270
+  end                  <virt>            KWEnd               tok=virt  pos= 275
+Module:
+  module               'module'          KWModule            tok=  83  pos= 275
+  ident                'Members'         Identifier          tok=  85  pos= 282
+  =                    '='               OpEquality          tok=  87  pos= 290
+  begin                <virt>            KWBegin             tok=virt  pos= 296
+    Type:
+      type             'type'            KWType              tok=  90  pos= 296
+      TypeSig.Record:
+        TypeName       'Augmented'       Identifier          tok=  92  pos= 301
+        =              '='               OpEquality          tok=  94  pos= 311
+        {              '{'               KWLBrace            tok=  97  pos= 321
+          Field:
+            ident      'value'           Identifier          tok=  99  pos= 323
+            :          ':'               OpColon             tok= 100  pos= 328
+            NamedType:
+              Ident    'int'             Identifier          tok= 102  pos= 330
+        }              '}'               KWRBrace            tok= 104  pos= 334
+        with           <virt>            KWWith              tok=virt  pos= 409
+          Member:
+            member     'member'          KWMember            tok= 110  pos= 409
+            Ident      'Doubled'         Identifier          tok= 112  pos= 416
+            :          ':'               OpColon             tok= 113  pos= 423
+            NamedType:
+              Ident    'int'             Identifier          tok= 115  pos= 425
+          Member:
+            member     'member'          KWMember            tok= 118  pos= 441
+            Ident      'Indented'        Identifier          tok= 120  pos= 448
+            :          ':'               OpColon             tok= 121  pos= 456
+            NamedType:
+              Ident    'int'             Identifier          tok= 123  pos= 458
+          StaticMember:
+            static     'static'          KWStatic            tok= 126  pos= 470
+            member     'member'          KWMember            tok= 128  pos= 477
+            Ident      'Make'            Identifier          tok= 130  pos= 484
+            :          ':'               OpColon             tok= 131  pos= 488
+            NamedType:
+              Ident    'int'             Identifier          tok= 133  pos= 490
+            ->         '->'              OpArrowRight        tok= 135  pos= 494
+            NamedType:
+              Ident    'Augmented'       Identifier          tok= 137  pos= 497
+        end            <virt>            KWEnd               tok=virt  pos= 512
+    Val:
+      val              'val'             KWVal               tok= 141  pos= 512
+      Ident            'make'            Identifier          tok= 143  pos= 516
+      :                ':'               OpColon             tok= 144  pos= 520
+      NamedType:
+        Ident          'int'             Identifier          tok= 146  pos= 522
+      ->               '->'              OpArrowRight        tok= 148  pos= 526
+      NamedType:
+        Ident          'Augmented'       Identifier          tok= 150  pos= 529
+  end                  <virt>            KWEnd               tok=virt  pos= 540
+Module:
+  module               'module'          KWModule            tok= 153  pos= 540
+  ident                'Cases'           Identifier          tok= 155  pos= 547
+  =                    '='               OpEquality          tok= 157  pos= 553
+  begin                <virt>            KWBegin             tok=virt  pos= 559
+    Type:
+      type             'type'            KWType              tok= 160  pos= 559
+      TypeSig.Union:
+        TypeName       'Tagged'          Identifier          tok= 162  pos= 564
+        =              '='               OpEquality          tok= 164  pos= 571
+          Case:
+            Ident      'A'               Identifier          tok= 169  pos= 583
+          Case:
+            Ident      'B'               Identifier          tok= 174  pos= 595
+        with           <virt>            KWWith              tok=virt  pos= 606
+          Member:
+            member     'member'          KWMember            tok= 178  pos= 606
+            Ident      'Tag'             Identifier          tok= 180  pos= 613
+            :          ':'               OpColon             tok= 181  pos= 616
+            NamedType:
+              Ident    'int'             Identifier          tok= 183  pos= 618
+        end            <virt>            KWEnd               tok=virt  pos= 627
+    Val:
+      val              'val'             KWVal               tok= 187  pos= 627
+      Ident            'tag'             Identifier          tok= 189  pos= 631
+      :                ':'               OpColon             tok= 190  pos= 634
+      NamedType:
+        Ident          'Tagged'          Identifier          tok= 192  pos= 636
+      ->               '->'              OpArrowRight        tok= 194  pos= 643
+      NamedType:
+        Ident          'int'             Identifier          tok= 196  pos= 646
+  end                  <virt>            KWEnd               tok=virt  pos= 650

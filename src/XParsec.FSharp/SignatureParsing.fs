@@ -255,17 +255,21 @@ module TypeExtensionElementsSignature =
 
     /// Light-syntax variant: synthesises a virtual `with` when member tokens follow
     /// without an explicit `with` keyword (e.g. record/union augmentations in light mode).
-    let parseLight: FSParser<TypeExtensionElementsSignature<SyntaxToken>> =
+    let parseLightAt (anchor: SyntaxToken) : FSParser<TypeExtensionElementsSignature<SyntaxToken>> =
+        // Without an explicit `with` there is no new block, so `anchor` (the first token of
+        // the representation), `{` / `|` / the abbreviated type is the offside line.
+        // An explicit `with` opens its own block instead, floored by the enclosing context.
         parser {
             let! withTok = nextSyntaxTokenVirtualIfNot Token.KWWith
-            let! elems = withContext OffsideContext.WithAugment (many1 TypeSignatureElement.parse)
+            let! elems = withContextAtToken OffsideContext.WithAugment anchor (many1 TypeSignatureElement.parse)
             let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
             return TypeExtensionElementsSignature.TypeExtensionElementsSignature(withTok, elems, endTok)
         }
 
     /// The optional trailing `with …` augmentation (explicit `parse` or light-syntax
-    /// `parseLight`) shared by the extern / record / union signature surfaces.
-    let parseOpt = opt (choiceL [ parse; parseLight ] "Type Extension")
+    /// `parseLightAt`) shared by the extern / record / union signature surfaces.
+    let parseOptAt (anchor: SyntaxToken) =
+        opt (choiceL [ parse; parseLightAt anchor ] "Type Extension")
 
 // TypeSignature: top-level dispatch mirroring TypeDefn.parseBody minus class
 // preamble / primary constructor / measure-retry. The leading `type` (or `and`)
@@ -410,7 +414,7 @@ module TypeSignature =
                                 "external class/interface tag"
                         )
 
-                    let! members = TypeExtensionElementsSignature.parseOpt
+                    let! members = TypeExtensionElementsSignature.parseOptAt next
 
                     return TypeSignature.Extern(typeName, equals, ext, kindTag, members)
 
@@ -428,7 +432,7 @@ module TypeSignature =
                     let! fields = many1 pRecordField
                     let! rBrace = pRBrace
 
-                    let! ext = TypeExtensionElementsSignature.parseOpt
+                    let! ext = TypeExtensionElementsSignature.parseOptAt next
 
                     return TypeSignature.Record(typeName, equals, lBrace, fields, rBrace, ext)
 
@@ -442,7 +446,7 @@ module TypeSignature =
                                 }
                                 parser {
                                     let! cases, _bars = UnionTypeCases.parse
-                                    let! ext = TypeExtensionElementsSignature.parseOpt
+                                    let! ext = TypeExtensionElementsSignature.parseOptAt next
                                     return TypeSignature.Union(typeName, equals, cases, ext)
                                 }
                             ]
