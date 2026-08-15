@@ -111,17 +111,20 @@ marker over that list, never a source of its own. So nothing moved.
 
 ## Why NOT also merge the rest
 
-- **`sig-only` is not derivable.** With one list, "`foo.fsi` present and `foo.fs` absent" is
-  visible — but that is exactly what the content-based split already computes. `sig-only`'s
-  job is to *outrank* that split: it says "these `val`s have no bodies here and that is
-  intended" for a case the content check would otherwise report. That intent has no
-  spelling in the file list.
+- **`sig-only` is not derivable — but it should not exist. SUPERSEDED (2026-08-15, user
+  decision).** With one list, "`foo.fsi` present and `foo.fs` absent" is visible — but that is
+  exactly what the content-based split already computes. `sig-only`'s job is to *outrank* that
+  split, and that intent has no spelling in the file list. All true, and beside the point: the
+  right move is to give each exempted contract an implementation rather than a better-spelled
+  exemption. See [retire-sig-only-plan](retire-sig-only-plan.md). Nothing below about merging
+  `files` + `impl` depends on this.
 - **`runtime` is not a source.** It is never parsed and is excluded from the hash's source
   inputs on purpose. Folding it in would make an asset edit look like a source edit.
 
-The natural follow-on — moving `sig-only` from a separate list to a per-entry marker, so the
-exemption sits next to the file it exempts — is a **separate** change and needs the TOML
-reader to accept inline tables in the array. Not bundled here.
+The follow-on this once proposed — moving `sig-only` to a per-entry inline-table marker — is
+**dropped**: it is the right granularity for the wrong thing. A per-file marker cannot express
+a contract that mixes intrinsic and ordinary declarations, and the exemption should be
+retired rather than relocated.
 
 ## Design
 

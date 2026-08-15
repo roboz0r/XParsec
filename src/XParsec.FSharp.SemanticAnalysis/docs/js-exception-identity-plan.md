@@ -44,6 +44,32 @@ Two things make it more than mechanical:
   `Symbol.for("vesper.equality")` as a cross-realm-safe registry key. A `Symbol.for` brand check
   beats `instanceof` and is precedented here.
 
+## Do the `.fsi` hierarchy now; the body is blocked (2026-08-15)
+
+From the `sig-only` discussion — see [retire-sig-only-plan](retire-sig-only-plan.md).
+
+- **The roster is not really an exemption.** `JsExternalMembers.exnReprOf`
+  (`JsExternalMembers.fs:106-139`) walks `FrozenBaseType` to the first type carrying an
+  intrinsic repr, so `new FormatException("x")` already emits `new Error("x")`
+  (`EmitJs.fs:217-232`). The roster HAS a target representation; conformance's check is
+  syntactic and one level deep and cannot see it. `sig-only` here is a conformance gap.
+- **Fix the declared hierarchy now — it is free.** The climb is depth-capped at 16, so a
+  BCL-shaped chain (`ArgumentNullException : ArgumentException : exn`) still lands on `Error`
+  and today's output is byte-identical. The decision gets recorded and checked while it costs
+  nothing; the eventual lowering becomes transcription rather than design.
+- **The body is blocked twice.** `EmitJsTypes.fs:313-316` hard-fails on ANY `inherit` clause
+  on the JS target, so a BCL-shaped `exceptions.js.fs` is unemittable until class inheritance
+  exists — and `TryWith` still has no emit arm on either backend, so nothing can observe the
+  difference regardless.
+- **Only three of the six are exercised.** `ExceptionTests.fs` covers
+  `InvalidOperationException`, `ArgumentException` and `NotSupportedException`;
+  `ArgumentNullException`, `IndexOutOfRangeException` and `FormatException` are referenced
+  nowhere else in the repo. `ExceptionTests.fs:103-109` pins the erasure as INTENDED
+  (`Expect.isFalse (src.Contains "ArgumentException")`), so that assertion is what the
+  nominal lowering has to change.
+- Note also that every constructor argument past the first is silently dropped
+  (`EmitJs.fs:225-230`), which matters for `ArgumentNullException(paramName, message)`.
+
 ## What it will NOT fix
 
 Identity is restored only for exceptions *we* throw. A host-originated `TypeError` has no Vesper
