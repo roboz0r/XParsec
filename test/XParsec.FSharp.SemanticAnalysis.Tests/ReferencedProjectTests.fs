@@ -136,7 +136,7 @@ let tests =
                                                                      Platform = IntrinsicPlatform.Repr platform
                                                                  }
                                                         }) ->
-                    Expect.equal (SymbolKey.Type canon) (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform
@@ -186,11 +186,11 @@ let tests =
                 // `IntrinsicInterface`; a generic carries its arity in both `Canon` and `Platform`.
                 let provider, _ = builtProvider.Value
 
-                let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
+                let expectCapability (lookup: string) (canonKey: TypeKey) (platformExpected: string) =
                     match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
-                            (SymbolKey.Type iface.Canon)
+                            iface.Canon
                             canonKey
                             (sprintf "%s canon is the identity of its `.fsi` type, arity included" lookup)
 
@@ -218,12 +218,12 @@ let tests =
 
                 expectCapability
                     "Vesper.Collections.enumerator`1"
-                    (SymbolKeyOps.typeKey "Vesper.Collections" ("enumerator`1"))
+                    (SymbolKeyOps.typeKeyOf "Vesper.Collections" "enumerator`1")
                     "System.Collections.Generic.IEnumerator`1"
 
                 expectCapability
                     "Vesper.Collections.seq`1"
-                    (SymbolKeyOps.typeKey "Vesper.Collections" ("seq`1"))
+                    (SymbolKeyOps.typeKeyOf "Vesper.Collections" "seq`1")
                     "System.Collections.Generic.IEnumerable`1"
 
                 // `enumerator` inherits `disposable`, so the `use` / for-in disposability scan
@@ -234,7 +234,7 @@ let tests =
                 with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames =
-                        iface.Interfaces |> EqArray.map (fun i -> SymbolKeyOps.qualifiedName i.Key)
+                        iface.Interfaces |> EqArray.map (fun i -> SymbolKeyOps.typeMetaName i.Key)
 
                     Expect.isTrue
                         (ifaceNames |> EqArray.exists (fun n -> n.Contains "disposable"))
@@ -396,7 +396,7 @@ let tests =
                 match ctx.Bindings.TypeVar.TryGetValue(NodeKey.ofSource rIdx NodeKind.PatIdent) with
                 | ValueSome tv ->
                     match Unification.zonk ctx.Store (TyVar tv) with
-                    | TyConst(k, _) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
+                    | TyConst(k, _) when SymbolKeyOps.typeSimpleName k = DisplayName "int" -> ()
                     | other -> failtestf "Expected r : int, got %A" other
                 | ValueNone -> failtest "no TypeVar for r"
             }

@@ -41,7 +41,7 @@ let private collect () : Collected =
         if fts.Add ft then
             match ft with
             | FTConst(key, args) ->
-                visitSym key
+                visitTypeKey key
                 EqArray.iter visitFt args
             | FTFun(a, b) ->
                 visitFt a
@@ -70,6 +70,10 @@ let private collect () : Collected =
             | FTLocalTypar _ -> ()
             | FTUnknown _ -> ()
 
+    and visitTypeKey (tk: TypeKey) =
+        sks.Add(SymbolKey.Type tk) |> ignore
+        tks.Add tk |> ignore
+
     and visitSym (sk: SymbolKey) =
         sks.Add sk |> ignore
 
@@ -93,7 +97,7 @@ let private collect () : Collected =
             sites.Add d.Site |> ignore
 
         for k in file.IntrinsicReprKeys.Keys do
-            visitSym k
+            visitTypeKey k
 
         for k in file.Accessibility.Keys do
             visitSym k
@@ -173,9 +177,9 @@ let private collect () : Collected =
             TyparArity = 0
         }
 
-    let ftInt = FTConst(SymbolKey.Type tkInt, EqArray.empty)
-    let ftString = FTConst(SymbolKey.Type tkString, EqArray.empty)
-    let ftArray = FTConst(SymbolKey.Type tkArray, EqArray.singleton ftInt)
+    let ftInt = FTConst(tkInt, EqArray.empty)
+    let ftString = FTConst(tkString, EqArray.empty)
+    let ftArray = FTConst(tkArray, EqArray.singleton ftInt)
     let ftLitStr = FTLiteral(LiteralConst.String "GET")
     let ftLitInt = FTLiteral(LiteralConst.Int 42L)
     let ftRecord = FTRecord(tkList, EqArray.singleton ftInt)

@@ -116,7 +116,7 @@ type ConditionalRow =
 /// `EqSet` so `A|B` and `B|A` intern to one row, insertion order keeping the declared order.
 [<RequireQualifiedAccess>]
 type TypeRow =
-    | Const of key: SymbolId * args: EqArray<TypeId>
+    | Const of key: TypeKeyId * args: EqArray<TypeId>
     | Fun of arg: TypeId * result: TypeId
     | Tuple of items: EqArray<TypeId>
     | Record of key: TypeKeyId * args: EqArray<TypeId>
@@ -314,7 +314,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     and frozenType (t: FrozenType) : TypeId =
         types.Intern(
             match t with
-            | FTConst(key, xs) -> TypeRow.Const(symbolKey key, args xs)
+            | FTConst(key, xs) -> TypeRow.Const(typeKey key, args xs)
             | FTFun(arg, result) -> TypeRow.Fun(frozenType arg, frozenType result)
             | FTTuple items -> TypeRow.Tuple(args items)
             | FTRecord(key, xs) -> TypeRow.Record(typeKey key, args xs)
@@ -519,7 +519,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
             i
             (fun () ->
                 match rows.Types.[i] with
-                | TypeRow.Const(key, xs) -> FTConst(symbolKey key, args xs)
+                | TypeRow.Const(key, xs) -> FTConst(typeKey key, args xs)
                 | TypeRow.Fun(arg, result) -> FTFun(frozenType arg, frozenType result)
                 | TypeRow.Tuple items -> FTTuple(args items)
                 | TypeRow.Record(key, xs) -> FTRecord(typeKey key, args xs)

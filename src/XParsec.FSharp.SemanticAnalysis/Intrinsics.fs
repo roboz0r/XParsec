@@ -5,16 +5,16 @@ open XParsec.FSharp.Lexer
 
 module internal IntrinsicResolve =
 
-    let private intrinsicCanon (shape: ExternalTypeShape) : SymbolKey voption =
+    let private intrinsicCanon (shape: ExternalTypeShape) : TypeKey voption =
         match shape with
-        | ExternalTypeShape.Intrinsic { Id = { Canon = c } } -> ValueSome(SymbolKey.Type c)
+        | ExternalTypeShape.Intrinsic { Id = { Canon = c } } -> ValueSome c
         | _ -> ValueNone
 
     let tryResolveIntrinsicKey
         (provider: IExternalSymbolResolver)
-        (intrinsicKeys: Dictionary<string, SymbolKey>)
+        (intrinsicKeys: Dictionary<string, TypeKey>)
         (name: string)
-        : SymbolKey option =
+        : TypeKey option =
         match intrinsicKeys.TryGetValue name with
         | true, k -> Some k
         | _ ->
@@ -24,7 +24,7 @@ module internal IntrinsicResolve =
 
     let tryResolveIntrinsicType
         (provider: IExternalSymbolResolver)
-        (intrinsicKeys: Dictionary<string, SymbolKey>)
+        (intrinsicKeys: Dictionary<string, TypeKey>)
         (name: string)
         : SemType option =
         tryResolveIntrinsicKey provider intrinsicKeys name
@@ -33,13 +33,13 @@ module internal IntrinsicResolve =
 /// `int`/`string`/`bool`/… resolved from the `prim-types-*` contract. Each member resolves
 /// on first access: a self-host file's own intrinsics are registered only after this is built.
 type IntrinsicSet(tryResolve: string -> SemType option) =
-    let cache = Dictionary<SymbolKey, SemType>()
+    let cache = Dictionary<TypeKey, SemType>()
 
-    let get (canon: SymbolKey) : SemType =
+    let get (canon: TypeKey) : SemType =
         match cache.TryGetValue canon with
         | true, t -> t
         | _ ->
-            let name = SymbolKeyOps.intrinsicName canon
+            let name = canon.Name
 
             match tryResolve name with
             | Some t ->

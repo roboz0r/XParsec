@@ -40,9 +40,9 @@ let private widgetShape (ifaceKey: TypeKey) =
 /// Key-INDEXED channels, because name-indexed ones derive their keys with
 /// `qualifiedTypeKeyOf` and so cannot express an `InModule` identity at all.
 let private providerFor (ifaceKey: TypeKey) : IExternalSymbolProvider =
-    let shapes = Dictionary<SymbolKey, ExternalTypeShape>()
-    shapes.[SymbolKey.Type widgetKey] <- widgetShape ifaceKey
-    shapes.[SymbolKey.Type ifaceKey] <- ifaceShape
+    let shapes = Dictionary<TypeKey, ExternalTypeShape>()
+    shapes.[widgetKey] <- widgetShape ifaceKey
+    shapes.[ifaceKey] <- ifaceShape
 
     let byName = Dictionary<string, TypeKey>()
     byName.[SymbolKeyOps.typeMetaName widgetKey] <- widgetKey
@@ -67,10 +67,7 @@ let private ctxFor (ifaceKey: TypeKey) : PassContext =
 // `SemType.TyClass`, never `TestHelpers`' shadow: that shim mints its key with
 // `qualifiedTypeKeyOf`, the very re-cut these tests exist to distinguish.
 let private upcastsTo (ifaceKey: TypeKey) (tgtKey: TypeKey) : bool =
-    UnificationEngineCore.tryUpcastWitness
-        (ctxFor ifaceKey)
-        (SemType.TyClass(widgetKey, EqArray.empty))
-        (SymbolKey.Type tgtKey)
+    UnificationEngineCore.tryUpcastWitness (ctxFor ifaceKey) (SemType.TyClass(widgetKey, EqArray.empty)) tgtKey
     |> ValueOption.isSome
 
 let private upcastsToIface (ifaceKey: TypeKey) : bool = upcastsTo ifaceKey ifaceKey

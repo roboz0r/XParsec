@@ -324,7 +324,7 @@ module internal UnificationInferResolve =
             let key = candidate.TypeKey
 
             let fieldShapes =
-                match ctx.Provider.TryLookupType(SymbolKey.Type key) with
+                match ctx.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record(fields = fs)) -> fs
                 | _ -> EqArray.empty
 
@@ -384,7 +384,7 @@ module internal UnificationInferResolve =
         (ctx: PassContext)
         (key: NodeKey)
         (li: LongIdent<SyntaxToken>)
-        : (SymbolKey * SyntaxToken) voption =
+        : (TypeKey * SyntaxToken) voption =
         let lastTok = li.Idents.[li.Idents.Length - 1]
 
         match ctx.Resolution.ExternalStaticQualifier.TryGetValue key with
@@ -397,7 +397,7 @@ module internal UnificationInferResolve =
     let inferExternalStaticMember
         (ctx: PassContext)
         (key: NodeKey)
-        (declTypeKey: SymbolKey)
+        (declTypeKey: TypeKey)
         (typeArgs: SemType list)
         (memberTok: SyntaxToken)
         : SemType =
@@ -424,7 +424,7 @@ module internal UnificationInferResolve =
             errorTy
                 ctx
                 memberTok
-                (Kind.NoMember(SymbolKeyOps.qualifiedName declTypeKey, MemberNoun.AccessibleMember, memberName))
+                (Kind.NoMember(SymbolKeyOps.typeMetaName declTypeKey, MemberNoun.AccessibleMember, memberName))
 
     /// If `qualifier` is an external generic type name used as a static-access qualifier
     /// (`EqualityComparer<int>` in `EqualityComparer<int>.Default`), its declaring type's
@@ -432,7 +432,7 @@ module internal UnificationInferResolve =
     let tryExternalTypeQualifier
         (ctx: PassContext)
         (qualifier: Expr<SyntaxToken>)
-        : (SymbolKey * Type<SyntaxToken> list) voption =
+        : (TypeKey * Type<SyntaxToken> list) voption =
         // The qualifier as written: a single-segment name parses as `Expr.Ident`
         // (`EqualityComparer<int>`), a dotted one as a `LongIdent`.
         match qualifier with
@@ -465,10 +465,7 @@ module internal UnificationInferResolve =
     /// A folded-LongIdent external STATIC member reference (`System.String.Concat`), as its
     /// declaring type's stamped `SymbolKey` + member token. An anchor that is a local
     /// binding (an `r.X.Y` field chain) is excluded.
-    let tryResolveExternalStaticMemberRef
-        (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
-        : (SymbolKey * SyntaxToken) voption =
+    let tryResolveExternalStaticMemberRef (ctx: PassContext) (e: Expr<SyntaxToken>) : (TypeKey * SyntaxToken) voption =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length >= 2

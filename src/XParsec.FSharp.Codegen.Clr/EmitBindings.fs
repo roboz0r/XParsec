@@ -130,8 +130,7 @@ module EmitBindings =
             // Locality decides the call shape in both disposal paths: a type emitted into
             // this assembly is disposed through its OWN `Dispose`, never a `MemberRef`.
             let isLocalType (key: TypeKey) =
-                env.Classes.ContainsKey(SymbolKey.Type key)
-                || env.Unions.ContainsKey(SymbolKey.Type key)
+                env.Classes.ContainsKey key || env.Unions.ContainsKey key
 
             let isLocalBoundVar =
                 match TastLower.objArgShape varTy with

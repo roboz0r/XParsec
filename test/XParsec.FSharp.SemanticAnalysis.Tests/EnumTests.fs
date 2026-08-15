@@ -18,7 +18,7 @@ let private enumCases (tast: TastFile) =
     | EqList [ TDecl.Type { Kind = TTypeKindG.Enum cases } ] -> cases
     | other -> failwithf "expected a single enum TDecl.Type, got %A" other
 
-let private underlying (input: string) : SymbolKey voption =
+let private underlying (input: string) : TypeKey voption =
     analyse input |> enumCases |> TEnumCases.underlyingTypeKey
 
 let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors

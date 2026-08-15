@@ -79,7 +79,7 @@ module Inline =
         | TyClass(k, _)
         | TyUnion(k, _)
         | TyRecord(k, _) -> ValueSome k
-        | TyConst(SymbolKey.Type k, _) -> ValueSome k
+        | TyConst(k, _) -> ValueSome k
         | _ -> ValueNone
 
     /// Build the typar-substituting mapper for one inline expansion. Typars are pinned by the

@@ -48,7 +48,7 @@ module internal UnificationTranslate =
         let unmodelled =
             match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
             | ValueSome(TypeRefVerdict.ExternalType symKey) ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
+                match ctx.Provider.TryLookupType symKey with
                 | ValueSome(ExternalTypeShape.Unmodelled(reason = r)) -> ValueSome r
                 | _ -> ValueNone
             | _ -> ValueNone
@@ -131,7 +131,7 @@ module internal UnificationTranslate =
                     "NameResolution stamping gap: dotted type reference '%s' carries no verdict — a stamping walk missed this syntax position"
                     name
             | ValueSome(TypeRefVerdict.ExternalType stamped) ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type stamped) with
+                match ctx.Provider.TryLookupType stamped with
                 | ValueNone ->
                     failwithf
                         "External identity round-trip broken: dotted type reference '%s' resolved to %s, but the store view cannot serve that key — NameResolution's mint and the store disagree"
@@ -471,7 +471,7 @@ module internal UnificationTranslate =
         // A referenced intrinsic (`exn = (# "System.Exception" #)`) is NON-transparent: its
         // identity is the shape's canon `TyConst` (`Vesper.exn`) whatever base/ctor surface it
         // carries, which is what keeps `exn.Message` routing to the platform type's members.
-        | ExternalTypeShape.Intrinsic s -> Some(TyConst(SymbolKey.Type s.Id.Canon, translatedArgs))
+        | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
         | ExternalTypeShape.Class _ -> Some(externalClassTy ctx symKey translatedArgs)
         // A capability interface (`disposable`) is a `TyClass` CONSTRAINT; the axis holds no
         // interface canons, so its identity is the resolved key directly.
@@ -496,7 +496,7 @@ module internal UnificationTranslate =
     and tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
         let arity = translatedArgs.Length
 
-        match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
+        match ctx.Provider.TryLookupType symKey with
         | ValueSome shape when shape.TyparArity = arity ->
             match buildExternalTy ctx symKey shape translatedArgs with
             | Some ty -> ValueSome ty

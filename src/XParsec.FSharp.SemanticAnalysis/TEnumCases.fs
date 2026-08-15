@@ -44,7 +44,7 @@ module TEnumCases =
 
     /// The underlying primitive TYPE: all-numeric → the first explicit width if any,
     /// else `int`; all-string → `string`; mixed → `obj`; no resolved case → `ValueNone`.
-    let underlyingTypeKey (cases: EqArray<TEnumCaseG<'tok>>) : SymbolKey voption =
+    let underlyingTypeKey (cases: EqArray<TEnumCaseG<'tok>>) : TypeKey voption =
         match classify cases with
         | ValueNone -> ValueNone
         | ValueSome TEnumVariant.String -> ValueSome RuntimeNames.stringKey
@@ -67,7 +67,7 @@ module TEnumCases =
     /// the message cannot name a type the enum was not given.
     let private widthDisplayName (v: TConstValue) : string =
         let (DisplayName n) =
-            SymbolKeyOps.simpleName (RuntimeNames.intWidthKey (integralWidth v))
+            SymbolKeyOps.typeSimpleName (RuntimeNames.intWidthKey (integralWidth v))
 
         n
 

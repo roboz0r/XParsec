@@ -255,7 +255,7 @@ module internal UnificationInferApp =
                         |> PrintfSpec.resolveExternalSlots (fun name ->
                             // The sink slot names (`System.IO.TextWriter`, …) are FIXED and fully
                             // qualified, so the type resolves by KEY, not an opens-aware lookup.
-                            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
+                            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf name 0) with
                             | ValueSome(ExternalTypeShape.Class info) when info.TyparArity = 0 ->
                                 ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOf name 0, EqArray.empty))
                             | _ -> ValueNone
@@ -369,7 +369,7 @@ module internal UnificationInferApp =
                                             // `ToString` is overloaded (`StringBuilder.ToString(int,
                                             // int)`); pick the parameterless override.
                                             let toString =
-                                                ctx.Provider.TryLookupMembers(SymbolKey.Type scratchKey, "ToString")
+                                                ctx.Provider.TryLookupMembers(scratchKey, "ToString")
                                                 |> EqArray.tryFind (fun m -> m.Key.ArgSig.Length = 0)
 
                                             match toString with

@@ -90,9 +90,8 @@ module internal UnificationInferCtor =
                 // Fall through to the external-class path: `new System.Exception(msg)`. The
                 // symbol provider owns the ctor catalogue under `.ctor`, and `clsKey` came from
                 // the already-resolved ctor `TyClass`, so construct by key directly.
-                match ctx.Provider.TryLookupType(SymbolKey.Type clsKey) with
-                | ValueSome(ExternalTypeShape.Class _) ->
-                    inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args ctorTy argExpr
+                match ctx.Provider.TryLookupType clsKey with
+                | ValueSome(ExternalTypeShape.Class _) -> inferExternalCtorOn infer ctx node clsKey args ctorTy argExpr
                 | _ ->
                     ctx.Report(node.Tok, Kind.UnknownNominalType(NominalKind.Class, SymbolKeyOps.typeMetaName clsKey))
 
@@ -108,19 +107,18 @@ module internal UnificationInferCtor =
                 | ValueSome typeRef ->
                     match ctx.Resolution.TypeRefVerdicts.TryGetValue typeRef.Site.Key with
                     | ValueSome(TypeRefVerdict.ExternalType symKey) ->
-                        match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
+                        match ctx.Provider.TryLookupType symKey with
                         | ValueSome(ExternalTypeShape.Class _) -> ValueSome symKey
                         | _ -> ValueNone
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
 
             match stampedClassKey with
-            | ValueSome declTypeKey ->
-                inferExternalCtorOn infer ctx node (SymbolKey.Type declTypeKey) tyArgs ctorTy argExpr
+            | ValueSome declTypeKey -> inferExternalCtorOn infer ctx node declTypeKey tyArgs ctorTy argExpr
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
                 | ValueSome(struct (_, surface)) ->
-                    let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
+                    let (DisplayName shown) = SymbolKeyOps.typeSimpleName canonKey
 
                     match
                         inferIntrinsicClassCtorCall
@@ -151,13 +149,13 @@ module internal UnificationInferCtor =
         (infer: Infer)
         (ctx: PassContext)
         (node: NodeSite)
-        (declTypeKey: SymbolKey)
+        (declTypeKey: TypeKey)
         (args: EqArray<SemType>)
         (ctorTy: SemType)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
         let ctors = ctx.Provider.TryLookupMembers(declTypeKey, ".ctor")
-        let name = SymbolKeyOps.qualifiedName declTypeKey
+        let name = SymbolKeyOps.typeMetaName declTypeKey
 
         let argTy = infer ctx argExpr
         let typeArgs = EqArray.toArray args
@@ -215,15 +213,13 @@ module internal UnificationInferCtor =
             // name. A non-class function declines to the caller's fallback rather than erroring.
             match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr fn) with
             | ValueSome declTypeKey ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type declTypeKey) with
+                match ctx.Provider.TryLookupType declTypeKey with
                 | ValueSome(ExternalTypeShape.Class _) ->
                     // `externalClassTy` mints a canon `TyConst` for a platform repr, else the
                     // external `TyClass`.
                     let ctorTy = externalClassTy ctx declTypeKey EqArray.empty
 
-                    ValueSome(
-                        inferExternalCtorOn infer ctx node (SymbolKey.Type declTypeKey) EqArray.empty ctorTy args.[0]
-                    )
+                    ValueSome(inferExternalCtorOn infer ctx node declTypeKey EqArray.empty ctorTy args.[0])
                 | _ -> ValueNone
             | ValueNone -> ValueNone
 
@@ -262,7 +258,7 @@ module internal UnificationInferCtor =
 
                     match tryExternalTypeOfKey ctx symKey explicit with
                     | ValueSome(TyClass(clsKey, args) as ctorTy) ->
-                        ValueSome(inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args ctorTy argExpr)
+                        ValueSome(inferExternalCtorOn infer ctx node clsKey args ctorTy argExpr)
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
         | _ -> ValueNone

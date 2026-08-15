@@ -135,7 +135,7 @@ module internal ElaborateObjArgs =
         | _ ->
             match Unification.zonk ctx.Store recordTy with
             | TyRecord(key, args) ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type key) with
+                match ctx.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record(fields = fieldShapes)) ->
                     match fieldShapes |> EqArray.tryFind (fun f -> f.Name = fieldName) with
                     | ValueSome f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen (args.AsSpan().ToArray()))

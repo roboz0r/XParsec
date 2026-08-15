@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 type ClrProvider
     (
         ctx: MetadataContext,
-        reprs: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, string>,
+        reprs: System.Collections.Generic.IReadOnlyDictionary<TypeKey, string>,
         references: Map<string, System.Reflection.AssemblyName>,
         symbols: IExternalSymbolProvider
     ) =
@@ -142,7 +142,7 @@ type ClrProvider
             match env.UserTypes.TryGetValue key with
             | true, h -> h
             | false, _ ->
-                match env.ExternalClassRef(SymbolKey.Type key) with
+                match env.ExternalClassRef(key) with
                 | ValueSome tref -> tref
                 | ValueNone -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
@@ -267,8 +267,7 @@ type ClrProvider
 
     member _.StructuralFormatSignature() : BlobBuilder = recipes.StructuralFormatSignature()
 
-    member _.ExternalParameterlessBaseCtor(key: SymbolKey) : EntityHandle voption =
-        ext.ExternalParameterlessBaseCtor(key)
+    member _.ExternalParameterlessBaseCtor(key: TypeKey) : EntityHandle voption = ext.ExternalParameterlessBaseCtor(key)
 
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
@@ -334,7 +333,7 @@ type ClrProvider
                 // A referenced-package union case (`Some` / `None`): `call` the emitted static
                 // case factory `<caseName>(fields…) : Union<…>` on the instantiated `TypeSpec`,
                 // its fields already on the stack in declaration order.
-                match ext.ExternalUnionFactory(SymbolKey.Type key, caseName, tyArgs) with
+                match ext.ExternalUnionFactory(key, caseName, tyArgs) with
                 | ValueSome(handle, argCount) ->
                     ValueSome
                         {
@@ -360,11 +359,11 @@ type ClrProvider
         member _.TryEmitRecordCons(key, tyArgs, _fieldNames) =
             let zonkedArgs = tyArgs
 
-            match ext.ExternalRecordCtor(SymbolKey.Type key, zonkedArgs) with
+            match ext.ExternalRecordCtor(key, zonkedArgs) with
             | ValueNone -> ValueNone
             | ValueSome handle ->
                 let argCount =
-                    match env.ExternalRecordShape(SymbolKey.Type key, List.length zonkedArgs) with
+                    match env.ExternalRecordShape(key, List.length zonkedArgs) with
                     | ValueSome(fields, _) -> fields.Length
                     | ValueNone -> 0
 
@@ -387,7 +386,7 @@ type ClrProvider
                 | "Cons" -> ValueSome(recipes.EmitVesperListTagField elem, 1)
                 | _ -> ValueNone
             else
-                ext.ExternalUnionTag(SymbolKey.Type key, tyArgs, caseName)
+                ext.ExternalUnionTag(key, tyArgs, caseName)
 
         member _.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex) =
             if RuntimeNames.isVesperListKey key then
@@ -403,7 +402,7 @@ type ClrProvider
                 | "Cons", 1 -> ValueSome(recipes.EmitVesperListConsField(elem, 1), FTUnion(key, EqArray.ofList tyArgs))
                 | _ -> ValueNone
             else
-                ext.ExternalUnionCaseField(SymbolKey.Type key, tyArgs, caseName, fieldIndex)
+                ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

@@ -188,7 +188,7 @@ let mapVariantTests =
 
     let witnessVariance (v: Variance) (t: FrozenType) : FrozenType voption =
         match t with
-        | FTConst(key, args) when args.Length = 0 && SymbolKeyOps.simpleName key = DisplayName "M" ->
+        | FTConst(key, args) when args.Length = 0 && SymbolKeyOps.typeSimpleName key = DisplayName "M" ->
             let name =
                 match v with
                 | Variance.Co -> "co"

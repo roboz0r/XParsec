@@ -34,7 +34,7 @@ module EmitConstruct =
         let localClass =
             match ty with
             | FTClass(k, _) ->
-                match env.Classes.TryGetValue(SymbolKey.Type k) with
+                match env.Classes.TryGetValue k with
                 | true, c -> ValueSome(k, c)
                 | _ -> ValueNone
             | _ -> ValueNone
@@ -93,7 +93,7 @@ module EmitConstruct =
                     fun () ->
                         match ty with
                         | FTClass(ctorKey, _) ->
-                            match env.Provider.TryEmitCtor(SymbolKey.Type ctorKey, chosenCtor, tyArgs, argTypes) with
+                            match env.Provider.TryEmitCtor(ctorKey, chosenCtor, tyArgs, argTypes) with
                             | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                             | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
                         // `new exn "boom"` types as the canon `FTConst`, not a class:
@@ -122,7 +122,7 @@ module EmitConstruct =
 
         let key, tyArgs = nominalShape "RecordCons" ty
 
-        match env.Records.TryGetValue(SymbolKey.Type key) with
+        match env.Records.TryGetValue key with
         | true, r ->
             let srcMap = Map.ofSeq srcFields
 
@@ -161,7 +161,7 @@ module EmitConstruct =
         // the override if there is one, else `ldloc; ldfld` the saved source, then `newobj`.
         let key, tyArgs = nominalShape "RecordClone" ty
 
-        match env.Records.TryGetValue(SymbolKey.Type key) with
+        match env.Records.TryGetValue key with
         | true, r ->
             let overrideMap = Map.ofSeq overrides
             let srcSlot = b.Local ty
@@ -203,7 +203,7 @@ module EmitConstruct =
         for a in args do
             recur env b a
 
-        match env.Unions.TryGetValue(SymbolKey.Type key) with
+        match env.Unions.TryGetValue key with
         | true, u ->
             // Our own emitted union: `call` the case's static factory, the fields already
             // on the stack in declaration order.

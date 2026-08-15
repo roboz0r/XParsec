@@ -83,11 +83,11 @@ type IPlatformFacts =
 type IExternalSymbolStore =
     /// A type declaration's body by resolved key; `ValueNone` for an unknown key or a body
     /// shape the provider doesn't model.
-    abstract TryLookupType: key: SymbolKey -> ExternalTypeShape voption
+    abstract TryLookupType: key: TypeKey -> ExternalTypeShape voption
 
     /// ALL overloads of a member by name: the candidate set the application-site overload
     /// resolver picks from. Empty from providers that don't model members.
-    abstract TryLookupMembers: key: SymbolKey * memberName: string -> EqArray<ExternalMember>
+    abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
 
     /// A member by resolved `MemberKey`: the channel a MEMBER splice site reaches an
     /// `InlineBody` through. BY KEY: a by-name lookup collapses an overload set to one pick
@@ -96,7 +96,7 @@ type IExternalSymbolStore =
 
     /// The TS index signature(s) `{ [k: K]: V }`: the seam `x.[k]` / `x.[k] <- v` goes
     /// through, `(key, value)` templates over the DECLARING typars. Both kinds may be present.
-    abstract TryLookupIndexSignature: key: SymbolKey -> (FrozenType * FrozenType) list
+    abstract TryLookupIndexSignature: key: TypeKey -> (FrozenType * FrozenType) list
 
     /// A value/free-function symbol by resolved key: the channel a VALUE splice site
     /// reaches an `InlineBody` through.
@@ -123,7 +123,7 @@ module IExternalSymbolStoreExtensions =
 
         /// The HEAD of the name's overload set, so the store's own ordering decides which:
         /// most-params first from IL metadata, declaration order elsewhere.
-        member this.TryLookupMember(key: SymbolKey, memberName: string) : ExternalMember voption =
+        member this.TryLookupMember(key: TypeKey, memberName: string) : ExternalMember voption =
             match this.TryLookupMembers(key, memberName) with
             | EqEmpty -> ValueNone
             | ms -> ValueSome ms.[0]
@@ -152,14 +152,14 @@ type CodegenOpenSignature =
 /// The CODEGEN-facing view: only what emission needs to mint references, never the
 /// inference surface. Every channel is key-addressed and NONE returns an overload set.
 type ICodegenSymbols =
-    abstract TryLookupType: key: SymbolKey -> ExternalTypeShape voption
+    abstract TryLookupType: key: TypeKey -> ExternalTypeShape voption
     /// The exact member the front end resolved, by the `MemberKey` it stamped, with no
     /// overload re-pick.
     abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
     /// Select the `.ctor` a `new` emits: by the exact `MemberKey` the front end recorded
     /// when it has one, telling `ArgumentException(string, string)` from
     /// `(string, Exception)`; else the sole ctor of `arity` params.
-    abstract TryLookupCtor: declKey: SymbolKey * chosen: SymbolKey voption * arity: int -> ExternalMember voption
+    abstract TryLookupCtor: declKey: TypeKey * chosen: SymbolKey voption * arity: int -> ExternalMember voption
     /// Rebase a capability member onto its true base declarer: `enumerator.MoveNext` is
     /// declared on the non-generic `IEnumerator`, and a member-ref parented on the derived
     /// interface would `MissingMethodException`.
@@ -168,7 +168,7 @@ type ICodegenSymbols =
     abstract TryLookupOpenSignature: key: SymbolKey -> CodegenOpenSignature voption
     /// The platform spelling emission mints a primitive reference through: `int` →
     /// `"System.Int32"`. `ValueNone` for a canon with no repr on the compiling target.
-    abstract TryPlatformRepr: canon: SymbolKey -> string voption
+    abstract TryPlatformRepr: canon: TypeKey -> string voption
     /// Does the compiling target lay this type out as a VALUE? Already SETTLED: the target's
     /// layout, else what the declaration asked for. `ValueNone` when neither states one.
     abstract IsValueType: key: TypeKey -> bool voption
@@ -242,7 +242,7 @@ module ExternalSymbols =
     /// than the one that minted the key.
     let tryIntrinsicClass
         (provider: IExternalSymbolStore)
-        (canon: SymbolKey)
+        (canon: TypeKey)
         : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         provider.TryLookupType canon |> ValueOption.bind intrinsicClassOf
 

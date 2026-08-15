@@ -9,39 +9,33 @@ module CodegenSymbols =
     /// A provider may key a generic type BARE (`Vesper.Option`, contract layer) or
     /// arity-suffixed (`Vesper.Option`1`, metadata layer): probe the key as-is, then a
     /// name-equal arity-0 key, which renders bare.
-    let private reconciledLookup (probe: SymbolKey -> 'a voption) (key: SymbolKey) : 'a voption =
+    let private reconciledLookup (probe: TypeKey -> 'a voption) (key: TypeKey) : 'a voption =
         match probe key with
         | ValueSome _ as hit -> hit
         | ValueNone ->
-            let qual = SymbolKeyOps.qualifiedName key
+            let qual = SymbolKeyOps.typeMetaName key
             let bare = SymbolKeyOps.bareName qual
 
             if bare = qual then
                 ValueNone
             else
-                probe (SymbolKeyOps.qualifiedTypeKey bare 0)
+                probe (SymbolKeyOps.qualifiedTypeKeyOf bare 0)
 
     /// The shape a resolved `SymbolKey` names, over either registration convention.
-    let lookupTypeByKey (symbols: ICodegenSymbols) (key: SymbolKey) : ExternalTypeShape voption =
+    let lookupTypeByKey (symbols: ICodegenSymbols) (key: TypeKey) : ExternalTypeShape voption =
         reconciledLookup symbols.TryLookupType key
 
     /// The settled layout of a REFERENCED type, over either registration convention:
     /// `Unanswered` for a non-type key, and for a name this compilation emits itself.
-    let externalLayout (symbols: ICodegenSymbols) (key: SymbolKey) : TypeLayout =
-        let settled (k: SymbolKey) =
-            match k with
-            | SymbolKey.Type t -> symbols.IsValueType t
-            | _ -> ValueNone
+    let externalLayout (symbols: ICodegenSymbols) (key: TypeKey) : TypeLayout =
+        reconciledLookup symbols.IsValueType key |> TypeLayout.ofAnswer
 
-        reconciledLookup settled key |> TypeLayout.ofAnswer
-
-    /// `false` is the floor: a `VALUETYPE`/`CLASS` tag is emitted for a non-type key and for
-    /// an unanswered type alike.
-    let isValueType (symbols: ICodegenSymbols) (key: SymbolKey) : bool =
+    /// `false` is the floor: a `VALUETYPE`/`CLASS` tag is emitted for an unanswered type.
+    let isValueType (symbols: ICodegenSymbols) (key: TypeKey) : bool =
         externalLayout symbols key = TypeLayout.Value
 
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
-        let storeShape (k: SymbolKey) : ExternalTypeShape voption = provider.TryLookupType k
+        let storeShape (k: TypeKey) : ExternalTypeShape voption = provider.TryLookupType k
 
         { new ICodegenSymbols with
             member _.TryLookupType key = provider.TryLookupType key
@@ -72,10 +66,10 @@ module CodegenSymbols =
                                        Name = memberName
                                        Kind = kind
                                    } ->
-                    match reconciledLookup storeShape (SymbolKey.Type declKey) with
+                    match reconciledLookup storeShape declKey with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                         let members =
-                            provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey platform 0, memberName)
+                            provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf platform 0, memberName)
 
                         let declaredOn (m: ExternalMember) = SymbolKeyOps.typeMetaName m.Key.Decl
 
@@ -115,9 +109,7 @@ module CodegenSymbols =
             member _.IsValueType key =
                 match provider.IsValueType key with
                 | ValueSome _ as settled -> settled
-                | ValueNone ->
-                    provider.TryLookupType(SymbolKey.Type key)
-                    |> ValueOption.bind ExternalSymbols.declaredValueType
+                | ValueNone -> provider.TryLookupType key |> ValueOption.bind ExternalSymbols.declaredValueType
 
             member _.Platform = provider.Platform
         }

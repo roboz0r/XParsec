@@ -472,13 +472,13 @@ module NameResolutionScope =
                                             } when info.TyparArity = 0 ->
                                     ctx.Resolution.ExternalStaticQualifier.Set(
                                         CstKeys.ofExpr e,
-                                        SymbolKeyOps.externalTypeKey info.Origin compiled 0
+                                        SymbolKeyOps.externalTypeKeyOf info.Origin compiled 0
                                     )
                                 | ValueSome {
                                                 ProbedTyparArity = 0
                                                 Shape = ExternalTypeShape.Intrinsic { Id = { Canon = canon } }
                                             } when canon.TyparArity = 0 ->
-                                    ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr e, SymbolKey.Type canon)
+                                    ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr e, canon)
                                 | _ -> ()
 
                         // An external UNION or RECORD qualifier has no static fields, so an
@@ -573,8 +573,7 @@ module NameResolutionScope =
                     ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr expr, key)
 
                     match hit.Shape with
-                    | ExternalTypeShape.Class _ ->
-                        ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr expr, SymbolKey.Type key)
+                    | ExternalTypeShape.Class _ -> ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr expr, key)
                     | _ -> ()
                 | _ -> ()
             | _ -> ()

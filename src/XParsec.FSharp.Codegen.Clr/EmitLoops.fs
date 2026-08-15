@@ -46,7 +46,7 @@ module EmitLoops =
         (memberName: string)
         : EntityHandle =
         let iface =
-            match env.Interfaces.TryGetValue(SymbolKey.Type ifaceKey) with
+            match env.Interfaces.TryGetValue ifaceKey with
             | true, i -> i
             | false, _ -> failwithf "EmitLoops: constrained for-in on unregistered interface '%A'" ifaceKey
 

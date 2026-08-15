@@ -43,7 +43,7 @@ let tests =
                                                   _,
                                                   _),
                                      true,
-                                     _) ] when SymbolKeyOps.simpleName key = DisplayName "int" ->
+                                     _) ] when SymbolKeyOps.typeSimpleName key = DisplayName "int" ->
                     Expect.equal clauses.Length 3 "three when-clauses, in source order"
 
                     if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then

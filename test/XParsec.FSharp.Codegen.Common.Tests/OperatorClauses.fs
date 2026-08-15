@@ -129,7 +129,7 @@ module OperatorSurfaceParity =
                     match entry.Platform with
                     | IntrinsicPlatform.Repr _ ->
                         match provider.TryLookupMember(entry.Canon, compiled) with
-                        | ValueSome m when m.IsStatic -> yield SymbolKeyOps.intrinsicName entry.Canon
+                        | ValueSome m when m.IsStatic -> yield entry.Canon.Name
                         | _ -> ()
                     | IntrinsicPlatform.Unsupported _ -> ()
             ]

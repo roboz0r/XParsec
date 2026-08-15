@@ -97,7 +97,7 @@ let tests =
                                                                          Canon = canon
                                                                          Platform = IntrinsicPlatform.Repr platform
                                                                      }
-                                                            }) -> SymbolKey.Type canon, platform
+                                                            }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
                 let intCanon, intPlat = facesOf "Vesper.int"
@@ -112,10 +112,7 @@ let tests =
                 Expect.equal intPlat "number" "int platform name repoints to JS `number`"
                 Expect.equal floatPlat "number" "float platform name repoints to JS `number`"
 
-                Expect.notEqual
-                    (SymbolKeyOps.intrinsicName intCanon)
-                    intPlat
-                    "the two names genuinely diverge on JS (identity ≠ runtime repr)"
+                Expect.notEqual intCanon.Name intPlat "the two names genuinely diverge on JS (identity ≠ runtime repr)"
             }
 
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
@@ -129,7 +126,7 @@ let tests =
                                                                          Canon = canon
                                                                          Platform = IntrinsicPlatform.Repr platform
                                                                      }
-                                                            }) -> SymbolKey.Type canon, platform
+                                                            }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
                 Expect.equal (facesOf "Vesper.unit") (RuntimeNames.unitKey, "undefined") "unit -> undefined on JS"

@@ -43,7 +43,7 @@ module UnificationInferOverload =
     /// unconditionally. Read-only w.r.t. the shared graph; no hierarchy walk enters here.
     let rec private matchTypes
         (store: TypeStore)
-        (canon: SymbolKey -> SymbolKey)
+        (canon: TypeKey -> TypeKey)
         (binds: TrialBindings)
         (a: SemType)
         (b: SemType)
@@ -71,14 +71,14 @@ module UnificationInferOverload =
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
         | TyClass(n1, xs), TyClass(n2, ys) ->
-            (n1 = n2 || canon (SymbolKey.Type n1) = canon (SymbolKey.Type n2))
+            (n1 = n2 || canon n1 = canon n2)
             && EqArray.forall2 (matchTypes store canon binds) xs ys
         | _ -> false
 
     /// A method typar binds on first sight and must agree thereafter.
     and private matchMethodTypar
         (store: TypeStore)
-        (canon: SymbolKey -> SymbolKey)
+        (canon: TypeKey -> TypeKey)
         (binds: TrialBindings)
         (i: int)
         (other: SemType)
@@ -94,7 +94,7 @@ module UnificationInferOverload =
     /// recurse; unseen ⇒ record it. Two vars already unified in the graph need no new binding.
     and private matchVar
         (store: TypeStore)
-        (canon: SymbolKey -> SymbolKey)
+        (canon: TypeKey -> TypeKey)
         (binds: TrialBindings)
         (tv: TyVarId)
         (other: SemType)
@@ -437,10 +437,10 @@ module UnificationInferOverload =
     let showParams (ctx: PassContext) (ps: SemType list) : string =
         let one (t: SemType) =
             match zonk ctx.Store t with
-            | TyConst(k, _) -> let (DisplayName n) = SymbolKeyOps.simpleName k in n
+            | TyConst(k, _) -> let (DisplayName n) = SymbolKeyOps.typeSimpleName k in n
             | TyClass(k, _)
             | TyRecord(k, _)
-            | TyUnion(k, _) -> let (DisplayName n) = SymbolKeyOps.simpleName (SymbolKey.Type k) in n
+            | TyUnion(k, _) -> let (DisplayName n) = SymbolKeyOps.typeSimpleName k in n
             | _ -> "_"
 
         ps |> List.map one |> String.concat ", "

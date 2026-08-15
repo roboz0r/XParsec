@@ -80,12 +80,12 @@ let tests =
             test "a structural field registers as a Property member of the right type" {
                 let tn = typeNameOf "pt1"
 
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey tn 0, "x") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf tn 0, "x") with
                 | ValueSome m ->
                     Expect.isTrue m.Storage.IsValueMember "a structural field must be a value (property) member"
 
                     match m.Signature.Return with
-                    | FTConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "int" -> ()
+                    | FTConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "int" -> ()
                     | other -> failtestf "field 'x' should carry its int type, got %A" other
                 | ValueNone -> failtestf "field 'x' did not resolve on '%s'" tn
             }
@@ -98,7 +98,7 @@ let tests =
                 let outer = typeNameOf "nested"
                 // The outer `.pt` Property carries the INNER structural nominal as its type.
                 let innerName =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey outer 0, "pt") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf outer 0, "pt") with
                     | ValueSome m ->
                         match m.Signature.Return with
                         | FTClass(key, _) -> SymbolKeyOps.typeMetaName key
@@ -106,7 +106,7 @@ let tests =
                     | ValueNone -> failtestf "'.pt' did not resolve on '%s'" outer
 
                 // The inner nominal is also registered, so its own `.x` resolves.
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey innerName 0, "x") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf innerName 0, "x") with
                 | ValueSome m -> Expect.isTrue m.Storage.IsValueMember "inner '.x' must be a property member"
                 | ValueNone -> failtestf "inner field 'x' did not resolve on '%s'" innerName
 

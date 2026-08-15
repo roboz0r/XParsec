@@ -75,7 +75,7 @@ let private memberDeclName (key: SymbolKey) : string =
 /// `:?>`). Nominal types render as their name; structural ones approximate.
 let rec private tyName (t: SemType) : string =
     match t with
-    | TyConst(key, _) -> shownName key
+    | TyConst(key, _) -> shownTypeName key
     | TyVar _ -> "_"
     | TyFun(a, b) -> tyName a + " -> " + tyName b
     | TyTuple ts -> [ for t in ts -> tyName t ] |> String.concat " * "
@@ -455,12 +455,12 @@ type private Renderer() =
             push (shownName key)
 
         | TExpr.StaticFieldGet(declKey, name, _, _) ->
-            push (shownName declKey)
+            push (shownTypeName declKey)
             push "."
             push name
 
         | TExpr.StaticFieldSet(declKey, name, value, _, _) ->
-            push (shownName declKey)
+            push (shownTypeName declKey)
             push "."
             push name
             push " <- "
@@ -671,7 +671,7 @@ type private Renderer() =
         | TPat.Null _ -> push "null"
         | TPat.EnumCase(enumKey, caseName, _, _) ->
             // Renders identically to the `E.C1` expression form (`StaticFieldGet`).
-            push (shownName enumKey)
+            push (shownTypeName enumKey)
             push "."
             push caseName
         | TPat.Or(alts, _, _) ->
@@ -696,7 +696,7 @@ type private Renderer() =
         | TDecl.Type td ->
             let rec tyStr t =
                 match t with
-                | TyConst(key, _) -> shownName key
+                | TyConst(key, _) -> shownTypeName key
                 | TyVar _ -> "_"
                 | TyFun(a, b) -> tyStr a + " -> " + tyStr b
                 | TyTuple ts -> [ for t in ts -> tyStr t ] |> String.concat " * "

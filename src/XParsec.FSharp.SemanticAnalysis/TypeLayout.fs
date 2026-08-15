@@ -65,14 +65,12 @@ module TypeLayout =
 
     /// A literal is laid out as the base primitive it erases to.
     let private literalShape (v: LiteralConst) : LayoutShape =
-        match RuntimeNames.literalBaseKey v with
-        | SymbolKey.Type key -> LayoutShape.Primitive key
-        | _ -> LayoutShape.Opaque
+        LayoutShape.Primitive(RuntimeNames.literalBaseKey v)
 
     /// Through the union-find Link chain, so a bound `TyVar` reaches the shape it stands for.
     let shapeOf (store: TypeStore) (t: SemType) : LayoutShape =
         match UnionFind.zonkShallow store t with
-        | TyConst(SymbolKey.Type key, _) -> LayoutShape.Primitive key
+        | TyConst(key, _) -> LayoutShape.Primitive key
         | TyRecord(key, _)
         | TyClass(key, _) -> LayoutShape.Nominal key
         | TyEnum key -> LayoutShape.Enum key
@@ -84,7 +82,6 @@ module TypeLayout =
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> LayoutShape.Unevaluated
-        | TyConst _
         | TyVar _
         | TyTypar _
         | TyUnknown _ -> LayoutShape.Opaque
@@ -92,7 +89,7 @@ module TypeLayout =
     /// The same projection over the frozen image, arm for arm.
     let shapeOfFrozen (t: FrozenType) : LayoutShape =
         match t with
-        | FTConst(SymbolKey.Type key, _) -> LayoutShape.Primitive key
+        | FTConst(key, _) -> LayoutShape.Primitive key
         | FTRecord(key, _)
         | FTClass(key, _) -> LayoutShape.Nominal key
         | FTEnum key -> LayoutShape.Enum key
@@ -104,7 +101,6 @@ module TypeLayout =
         | FTKeyOf _
         | FTIndexedAccess _
         | FTConditional _ -> LayoutShape.Unevaluated
-        | FTConst _
         | FTTypar _
         | FTLocalTypar _
         | FTUnknown _ -> LayoutShape.Opaque
@@ -137,7 +133,7 @@ module TypeLayout =
             |> ValueOption.map (fun info -> info.IsValueType)
         )
         |> ValueOption.orElseWith (fun () ->
-            ctx.Provider.TryLookupType(SymbolKey.Type key)
+            ctx.Provider.TryLookupType key
             |> ValueOption.bind ExternalSymbols.declaredValueType
         )
         |> ofAnswer

@@ -62,13 +62,13 @@ type internal GenericClassShape =
 module internal ClrSinkKeys =
 
     /// The printf writer sink (`fprintf`).
-    let textWriter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName
+    let textWriter: TypeKey = RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName
 
     /// The `Vesper.Printf` write-through format handler, a printf recipe's handler local.
-    let formatter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.formatterTypeName
+    let formatter: TypeKey = RuntimeNames.opaqueKey RuntimeNames.formatterTypeName
 
     /// The `System.HashCode` accumulator local of a synthesised `GetHashCode`.
-    let hashCode: SymbolKey = RuntimeNames.opaqueKey "System.HashCode"
+    let hashCode: TypeKey = RuntimeNames.opaqueKey "System.HashCode"
 
 /// Reference identities resolve by SIMPLE NAME: `references` wins; `FSharp.Core` / `System.Runtime`
 /// / `System.Console` fall back to the host-loaded copy; the `Vesper.*` are required. Every ref is
@@ -76,7 +76,7 @@ module internal ClrSinkKeys =
 type internal ClrEnv
     (
         ctx: MetadataContext,
-        reprs: IReadOnlyDictionary<SymbolKey, string>,
+        reprs: IReadOnlyDictionary<TypeKey, string>,
         references: Map<string, System.Reflection.AssemblyName>,
         symbols: ICodegenSymbols
     ) =
@@ -415,10 +415,10 @@ type internal ClrEnv
 
     // A provider may key a generic type bare (`Vesper.Option`, contract layer) or arity-suffixed
     // (`Vesper.Option`1`, metadata layer); this reconciles the two registration conventions.
-    let lookupTypeByKey (key: SymbolKey) : ExternalTypeShape voption =
+    let lookupTypeByKey (key: TypeKey) : ExternalTypeShape voption =
         CodegenSymbols.lookupTypeByKey symbols key
 
-    let lookupClassShape (key: SymbolKey) : ExternalClassShape voption =
+    let lookupClassShape (key: TypeKey) : ExternalClassShape voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
         | _ -> ValueNone
@@ -431,17 +431,17 @@ type internal ClrEnv
         | ModuleContainer.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", m.Name))
         | ModuleContainer.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, m.Name))
 
-    let rec externalClassRef (key: SymbolKey) : EntityHandle voption =
+    let rec externalClassRef (key: TypeKey) : EntityHandle voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
             // A canonically-authored capability interface (`interface disposable`) has no emitted
             // type of its own, so re-resolve through its platform interface and the `InterfaceImpl`
             // binds the real BCL one (`System.IDisposable`). That shape is a plain `Class`: one hop.
-            externalClassRef (SymbolKeyOps.qualifiedTypeKey platform 0)
+            externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf platform 0)
         | _ ->
 
-            match key, lookupClassShape key with
-            | SymbolKey.Type t, ValueSome info ->
+            match lookupClassShape key with
+            | ValueSome info ->
                 let asm = externalAsmRef info.Origin.Home
 
                 // A nested type (`List`1+Enumerator`) chains through the enclosing type's `TypeRef`
@@ -458,43 +458,41 @@ type internal ClrEnv
                         // bare namespace-scoped ref would drop `m` and fail to bind.
                         toEntity (ctx.TypeRef(externalModuleRef info.Origin m, "", SymbolKeyOps.typeSegmentName t))
 
-                ValueSome(typeRefOf t)
+                ValueSome(typeRefOf key)
             | _ -> ValueNone
 
-    /// Referenced-assembly record shape by `SymbolKey` + arity.
-    let externalRecordShape (key: SymbolKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
+    /// Referenced-assembly record shape by key + arity.
+    let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.Record(a, fields, origin, _)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(fields, origin)
         | _ -> ValueNone
 
-    let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * EqArray<ExternalFieldShape>) voption =
-        // Any non-type key gives `ValueNone`, never a fabricated
-        // `(ns = "", name = <whole dotted name>)` ref that only fails at load.
-        match key, externalRecordShape key arity with
-        | SymbolKey.Type t, ValueSome(fields, origin) ->
+    let externalRecordRef (key: TypeKey) (arity: int) : (EntityHandle * EqArray<ExternalFieldShape>) voption =
+        match externalRecordShape key arity with
+        | ValueSome(fields, origin) ->
             // A record is never a CLR nested type, so the namespace + `` `n ``-suffixed name come
             // straight off the key's own containment chain.
-            let simple = SymbolKeyOps.typeSegmentName t
+            let simple = SymbolKeyOps.typeSegmentName key
 
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, t.Namespace.Dotted, simple)), fields)
-        | _ -> ValueNone
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, key.Namespace.Dotted, simple)), fields)
+        | ValueNone -> ValueNone
 
-    /// Referenced-assembly union shape by `SymbolKey` + arity, for cross-package case
+    /// Referenced-assembly union shape by key + arity, for cross-package case
     /// construction (`Some` / `None`).
-    let externalUnionShape (key: SymbolKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
+    let externalUnionShape (key: TypeKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 
-    let externalUnionRef (key: SymbolKey) (arity: int) : (EntityHandle * EqArray<ExternalCaseShape>) voption =
-        match key, externalUnionShape key arity with
-        | SymbolKey.Type t, ValueSome(cases, origin) ->
-            let simple = SymbolKeyOps.typeSegmentName t
+    let externalUnionRef (key: TypeKey) (arity: int) : (EntityHandle * EqArray<ExternalCaseShape>) voption =
+        match externalUnionShape key arity with
+        | ValueSome(cases, origin) ->
+            let simple = SymbolKeyOps.typeSegmentName key
 
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, t.Namespace.Dotted, simple)), cases)
-        | _ -> ValueNone
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, key.Namespace.Dotted, simple)), cases)
+        | ValueNone -> ValueNone
 
     // `ValueNone` ⇒ off: a `FTTypar(Method, i)` encodes to the method's own `!!i`. `ValueSome d`
     // ⇒ inside a closure's own emission, where the enclosing class's typars hold the closure's
@@ -515,7 +513,7 @@ type internal ClrEnv
     /// A Vesper primitive's canon `SymbolKey` → its IL representation string, single-sourced
     /// from the `.fs` `(# … #)`: this file's OWN intrinsics first, then the dependency
     /// closure's. Keyed by the canon KEY, never by short name.
-    member _.TryPrimitiveRepr(key: SymbolKey) : string option =
+    member _.TryPrimitiveRepr(key: TypeKey) : string option =
         match reprs.TryGetValue key with
         | true, repr -> Some repr
         | _ ->

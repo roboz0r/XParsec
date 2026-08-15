@@ -177,7 +177,7 @@ module NameResolutionTypeRegistration =
     /// REFERENCED assembly already answers for is refused because equal keys would let the unifier
     /// unify two different types. A shape homed under `AssemblyName` is this file's own, waived.
     let private diagnoseExternalClaim (ctx: PassContext) (declTok: SyntaxToken) (key: TypeKey) : unit =
-        match ctx.Provider.TryLookupType(SymbolKey.Type key) with
+        match ctx.Provider.TryLookupType key with
         | ValueNone -> ()
         | ValueSome shape ->
             match externalClaimant shape with
@@ -347,7 +347,7 @@ module NameResolutionTypeRegistration =
                     // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as
                     // `Vesper.Collections.seq` at arity 1, each equal to the contract's canon key.
                     if kind = TypeDeclKind.IntrinsicRepr then
-                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyArity c.Namespace name arity
+                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyOfArity c.Namespace name arity
 
                     ValueSome claimed
 

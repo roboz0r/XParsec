@@ -226,14 +226,14 @@ type UnionTypeInfo
 /// identity: this is not a nominal registration.
 [<Sealed>]
 type IntrinsicAbbrevInfo
-    (name: string, typeParams: EqArray<string * TyVarId>, declSite: NodeSite, key: TypeKey, selfKey: SymbolKey) =
+    (name: string, typeParams: EqArray<string * TyVarId>, declSite: NodeSite, key: TypeKey, selfKey: TypeKey) =
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     /// The abbrev's INTRINSIC identity key (contract namespace, arity-suffixed): the key a
     /// use site resolves the abbrev name to, and what `MkSelfType` returns. Distinct from
     /// `Key`, the container-homed local nominal claim.
-    member val SelfKey: SymbolKey = selfKey
+    member val SelfKey: TypeKey = selfKey
     member val TypeParams = typeParams
     member val DeclSite = declSite
     member val Members: TypeMemberInfo[] = [||] with get, set

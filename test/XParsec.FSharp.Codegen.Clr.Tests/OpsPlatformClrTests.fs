@@ -50,7 +50,7 @@ let tests =
                                                                      Platform = IntrinsicPlatform.Repr platform
                                                                  }
                                                         }) ->
-                    Expect.equal (SymbolKey.Type canon) (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"
                     Expect.equal platform "System.Int32" "int platform name on CLR is the BCL repr"
 
                     Expect.notEqual canon.Name platform "the two names diverge on CLR too (identity ≠ runtime repr)"

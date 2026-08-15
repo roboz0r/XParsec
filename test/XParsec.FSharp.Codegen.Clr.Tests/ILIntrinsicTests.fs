@@ -30,7 +30,7 @@ let tests =
                                                   _,
                                                   _),
                                      true,
-                                     _) ] when SymbolKeyOps.simpleName key = DisplayName "bool" ->
+                                     _) ] when SymbolKeyOps.typeSimpleName key = DisplayName "bool" ->
                     match args with
                     | EqList [ TExpr.Var _; TExpr.Var _ ] -> ()
                     | other -> failtestf "expected two Var operands, got %A" other

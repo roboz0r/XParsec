@@ -273,7 +273,7 @@ let testProviderResolves (path: string) =
                         $"synthetic grouping type '{synthName}' should resolve"
 
                     let overloads =
-                        prov.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey synthName 0, name)
+                        prov.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf synthName 0, name)
 
                     Expect.equal
                         overloads.Length
@@ -345,7 +345,7 @@ let testProviderResolves (path: string) =
                 | _ -> ()
 
                 for m in members do
-                    let resolved = prov.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey name 0, m.Name)
+                    let resolved = prov.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf name 0, m.Name)
                     Expect.isGreaterThan resolved.Length 0 $"member '{name}.{m.Name}' should resolve"
 
                     // Overload identity: a method with N call signatures

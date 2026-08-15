@@ -145,7 +145,7 @@ module UnificationInfer =
         // `FrozenInterfaces` or a union's `interface <ty>` impls. An external RECORD carries
         // none, so a disposable external record resolves only via its own `Dispose` below.
         let externalInterfaces () : SemType[] =
-            match ctx.Provider.TryLookupType(SymbolKey.Type declKey) with
+            match ctx.Provider.TryLookupType declKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
             | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
@@ -168,7 +168,7 @@ module UnificationInfer =
         // Fallback for an external non-`IDisposable` ref struct: its own pattern
         // `Dispose()`, which can't be reached through a boxed interface slot.
         | ValueNone ->
-            match ctx.Provider.TryLookupMember(SymbolKey.Type declKey, "Dispose") with
+            match ctx.Provider.TryLookupMember(declKey, "Dispose") with
             | ValueSome m when not m.IsStatic && not m.IsValueMember ->
                 ValueSome(Disposal.ViaOwnMember(SymbolKey.Member m.Key))
             | _ -> ValueNone

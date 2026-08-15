@@ -306,13 +306,13 @@ module EmitTypes =
             /// handle that is the `initobj` operand.
             ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
             ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            Unions: Dictionary<SymbolKey, EmittedUnion>
-            Records: Dictionary<SymbolKey, EmittedRecord>
-            Classes: Dictionary<SymbolKey, EmittedClass>
-            Interfaces: Dictionary<SymbolKey, EmittedInterface>
+            Unions: Dictionary<TypeKey, EmittedUnion>
+            Records: Dictionary<TypeKey, EmittedRecord>
+            Classes: Dictionary<TypeKey, EmittedClass>
+            Interfaces: Dictionary<TypeKey, EmittedInterface>
             /// Enums emitted into this assembly, by nominal `SymbolKey`. A
             /// `StaticFieldGet` / `EnumCase` resolves a case's literal field here.
-            Enums: Dictionary<SymbolKey, EmittedEnum>
+            Enums: Dictionary<TypeKey, EmittedEnum>
             StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
             /// Module-level value bindings → their emitted `public static` field, so a
             /// module value resolves the same way in any method, `.ctor` or `.cctor`.
@@ -343,13 +343,13 @@ module EmitTypes =
             Args: Dictionary<BoundVarId, int>
             SelfKey: BoundVarId voption
             CaptureFields: Dictionary<BoundVarId, EntityHandle>
-            Unions: Dictionary<SymbolKey, EmittedUnion>
-            Records: Dictionary<SymbolKey, EmittedRecord>
-            Classes: Dictionary<SymbolKey, EmittedClass>
-            Interfaces: Dictionary<SymbolKey, EmittedInterface>
+            Unions: Dictionary<TypeKey, EmittedUnion>
+            Records: Dictionary<TypeKey, EmittedRecord>
+            Classes: Dictionary<TypeKey, EmittedClass>
+            Interfaces: Dictionary<TypeKey, EmittedInterface>
             /// Enums emitted into this assembly, so a `StaticFieldGet` / `EnumCase` in any
             /// body resolves a case's field here.
-            Enums: Dictionary<SymbolKey, EmittedEnum>
+            Enums: Dictionary<TypeKey, EmittedEnum>
             StaticMethods: Dictionary<BoundVarId, StaticMethodRef>
             /// Module-level values, each lowered to a `public static` field on its module
             /// class and resolved here by bound variable → field handle (`ldsfld`).

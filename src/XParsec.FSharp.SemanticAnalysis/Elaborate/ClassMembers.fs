@@ -56,8 +56,8 @@ module internal ElaborateClassMembers =
                 ClassPreamble.lets info.StaticPreamble
                 |> Array.map (fun l -> l.DeclKey, l.Name)
                 |> Map.ofArray
-            MkGet = fun name ty tok -> TExpr.StaticFieldGet(info.Key, name, ty, tok)
-            MkSet = fun name rhs ty tok -> TExpr.StaticFieldSet(info.Key, name, rhs, ty, tok)
+            MkGet = fun name ty tok -> TExpr.StaticFieldGet(info.TypeKey, name, ty, tok)
+            MkSet = fun name rhs ty tok -> TExpr.StaticFieldSet(info.TypeKey, name, rhs, ty, tok)
         }
 
     /// Primary-ctor params AND instance-`let` bound variables share ONE map: an instance `let` is a

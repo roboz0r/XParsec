@@ -91,21 +91,23 @@ module Codegen =
 
         let pool = TastPoolBuilder.openOver tast
 
-        let ctx =
-            EmitJsContext.WalkCtx.create
+        let imports = JsImports.createIn project.Package runtimeAssets
+
+        let inputs =
+            EmitJsContext.EmissionInputs.create
                 resolver
                 pool
                 contract.Provider
-                (JsImports.createIn project.Package runtimeAssets)
+                imports
                 (match project.Kind with
                  | Library -> true
                  | Script -> false)
 
-        let program = EmitJs.buildProgram ctx
+        let program = EmitJs.buildProgram inputs
         let result = JsPrint.print program
         let jsFile = jsFileName project
 
-        let runtimeModules = JsImports.assets ctx.Imports
+        let runtimeModules = JsImports.assets imports
 
         // The header occupies generated line 0, so every mapping shifts down one.
         let header =
@@ -132,7 +134,7 @@ module Codegen =
                         Content = src.Content
                     }
 
-                let sources = consuming :: JsMapSources.MapSources.published ctx.MapSources
+                let sources = consuming :: JsMapSources.MapSources.published inputs.MapSources
 
                 JsSourceMap.build jsFile sources mappings
             )
@@ -149,7 +151,7 @@ module Codegen =
                 | Some _, Some path -> Some(path + ".map")
                 | _ -> None
             RuntimeModules = runtimeModules
-            ImportedModules = JsImports.importedModules ctx.Imports
+            ImportedModules = JsImports.importedModules imports
             IsEmpty = List.isEmpty program.Body
         }
 

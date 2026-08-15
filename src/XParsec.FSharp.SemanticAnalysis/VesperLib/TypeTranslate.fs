@@ -385,7 +385,7 @@ module VesperLibTypeTranslate =
         // An intrinsic's nominal identity is the canon `FTConst`. Read the canon stored on
         // the matched shape rather than re-deriving it by name, because re-minting would hardcode
         // the `Vesper` namespace and diverge for any non-Vesper-homed intrinsic.
-        | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(SymbolKey.Type ishape.Id.Canon, EqArray.empty)
+        | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(ishape.Id.Canon, EqArray.empty)
         | ValueSome(ExternalTypeShape.Unmodelled(reason = r)) -> raise (BodylessExternalShape(compiled, r))
         | ValueNone ->
             failwithf

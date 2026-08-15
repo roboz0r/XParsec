@@ -302,7 +302,7 @@ module TastPoolBuilder =
     /// This file's OWN intrinsic-repr type declarations. A backend reads it to tell a
     /// declaration of a PLATFORM REPRESENTATION, which already exists on the target, from one
     /// it must emit.
-    let intrinsicReprKeys (b: PoolBuilder) : IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo> =
+    let intrinsicReprKeys (b: PoolBuilder) : IReadOnlyDictionary<TypeKey, IntrinsicReprInfo> =
         b.Base.Residue.IntrinsicReprKeys
 
     /// This file's OWN `[<Global>]` bindings. The target already owns the thing declared, so

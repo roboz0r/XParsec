@@ -55,7 +55,7 @@ type TPatG<'ty, 'tok, 'id> =
     /// `| E.C1`. Refutable, binds nothing. Carries the case IDENTITY (`enumKey` +
     /// `caseName`), not the literal, which lives on the frozen enum's case table. `ty` is
     /// the enum nominal, unified with the scrutinee.
-    | EnumCase of enumKey: SymbolKey * caseName: string * ty: 'ty * tok: 'tok
+    | EnumCase of enumKey: TypeKey * caseName: string * ty: 'ty * tok: 'tok
     /// `p1 | p2 | … | pn`, `alts` having ≥ 2 entries, nested source `|`s flattened into one
     /// level here. Matches iff some alternative does (left-to-right, first wins), and binds
     /// nothing, because an alternative that binds is rejected at elaboration.
@@ -241,11 +241,11 @@ type TExprG<'ty, 'tok, 'id> =
     /// Read of a class-level `static let` backing field: `ldsfld` against the class's
     /// private static field, no method call (a static PROPERTY is a `StaticPropertyGet`).
     /// `declKey` is the declaring class's `TypeKey`, because `MemberKind` has no `Field` case.
-    | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: 'ty * tok: 'tok
+    | StaticFieldGet of declKey: TypeKey * fieldName: string * ty: 'ty * tok: 'tok
     /// Store (`x <- e`) to a class-level `static let mutable` backing field: `stsfld`,
     /// the store analogue of `StaticFieldGet`. `ty` is the FIELD's type; the store itself
     /// results in unit.
-    | StaticFieldSet of declKey: SymbolKey * fieldName: string * value: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
+    | StaticFieldSet of declKey: TypeKey * fieldName: string * value: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
     /// Member access on an EXTERNAL type. `objArg` is `ValueNone` for a static member
     /// (`EqualityComparer<int>.Default`), `ValueSome` for an instance one; `storage` splits
     /// field (`ldfld`) from property (`call get_X`) from method. `M(a, b)` widths `[2]`, `M a b` `[1; 1]`.

@@ -59,8 +59,8 @@ module EmitResolve =
     let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match nominal with
         | FTClass(classKey, classArgs) ->
-            match env.Classes.TryGetValue(SymbolKey.Type classKey) with
-            | true, cls -> pickInterfaceWitness (SymbolKey.Type ifaceKey) (classArgs.AsSpan().ToArray()) cls.Interfaces
+            match env.Classes.TryGetValue classKey with
+            | true, cls -> pickInterfaceWitness ifaceKey (classArgs.AsSpan().ToArray()) cls.Interfaces
             | false, _ -> ValueNone
         | _ -> ValueNone
 
@@ -70,16 +70,16 @@ module EmitResolve =
     /// only when these identities are equal.
     let private tyCtorOf (t: FrozenType) : string =
         match t with
-        | FTConst(k, _) -> SymbolKeyOps.qualifiedName k
+        | FTConst(k, _) -> SymbolKeyOps.typeMetaName k
         | FTClass(k, _)
         | FTUnion(k, _)
         | FTRecord(k, _)
         | FTEnum k -> SymbolKeyOps.typeMetaName k
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
-        | FTOr _ -> SymbolKeyOps.qualifiedName RuntimeNames.objKey
+        | FTOr _ -> SymbolKeyOps.typeMetaName RuntimeNames.objKey
         // A literal erases to its base primitive, so match on that instead.
-        | FTLiteral v -> SymbolKeyOps.qualifiedName (RuntimeNames.literalBaseKey v)
+        | FTLiteral v -> SymbolKeyOps.typeMetaName (RuntimeNames.literalBaseKey v)
         | FTKeyOf _
         | FTIndexedAccess _
         | FTConditional _ ->
@@ -151,19 +151,19 @@ module EmitResolve =
                 m
             | false, _ -> failwithf "Emit: %s '%A' has no emitted member '%s'" kindLabel key name
 
-        match env.Unions.TryGetValue(SymbolKey.Type key) with
+        match env.Unions.TryGetValue key with
         | true, u -> fromMembers "union" u.Typars u.Members
         | false, _ ->
-            match env.Classes.TryGetValue(SymbolKey.Type key) with
+            match env.Classes.TryGetValue key with
             | true, c -> fromMembers "class" c.Typars c.Members
             | false, _ ->
-                match env.Records.TryGetValue(SymbolKey.Type key) with
+                match env.Records.TryGetValue key with
                 | true, r -> fromMembers "record" r.Typars r.Members
                 | false, _ ->
                     // An interface-typed object argument (`(x :> IFace).M()`) resolves to
                     // the abstract slot, dispatched `callvirt` (an interface is not a value
                     // type). Same member-table shape as a class.
-                    match env.Interfaces.TryGetValue(SymbolKey.Type key) with
+                    match env.Interfaces.TryGetValue key with
                     | true, iface -> fromMembers "interface" iface.Typars iface.Members
                     | false, _ -> failwithf "Emit: no emitted type carrying members for object argument '%A'" key
 
@@ -235,7 +235,7 @@ module EmitResolve =
                 with _ ->
                     declaringTypars
 
-        match env.Unions.TryGetValue(SymbolKey.Type key) with
+        match env.Unions.TryGetValue key with
         | true, u ->
             match u.Members.TryGetValue name with
             | true, candidates ->
@@ -247,7 +247,7 @@ module EmitResolve =
                     failwithf "Emit: generic-union static augmentation member '%A.%s' is out of scope (R2)" key name
             | false, _ -> failwithf "Emit: union '%A' has no emitted static member '%s'" key name
         | false, _ ->
-            match env.Classes.TryGetValue(SymbolKey.Type key) with
+            match env.Classes.TryGetValue key with
             | true, c ->
                 match c.Members.TryGetValue name with
                 | true, candidates ->
@@ -266,7 +266,7 @@ module EmitResolve =
     /// Resolve a class `static let` backing field to its `ldsfld`/`stsfld` handle. The stored
     /// handle is the field's `Def` token for a mono class, a `MemberRef` on the open
     /// self-`TypeSpec` (`Set\`1<!0>::empty`) for a generic one, so this is a direct read.
-    let resolveStaticField (env: EmitEnv) (declKey: SymbolKey) (name: string) : EntityHandle =
+    let resolveStaticField (env: EmitEnv) (declKey: TypeKey) (name: string) : EntityHandle =
         match env.Classes.TryGetValue declKey with
         | true, c ->
             match c.StaticFields.TryGetValue name with
@@ -298,7 +298,7 @@ module EmitResolve =
     /// The IL load of an enum case used as a value (`E.A` / `| E.A`). A NUMERIC enum value IS
     /// its integer at runtime and its `literal` field is metadata-only, so this pushes the
     /// constant; a string/mixed case is a real `static initonly` field, so this `ldsfld`s it.
-    let tryResolveEnumCaseLoad (env: EmitEnv) (declKey: SymbolKey) (name: string) : ILInstr voption =
+    let tryResolveEnumCaseLoad (env: EmitEnv) (declKey: TypeKey) (name: string) : ILInstr voption =
         match env.Enums.TryGetValue declKey with
         | true, e ->
             match e.Repr with
@@ -318,14 +318,14 @@ module EmitResolve =
     let resolveRecordField (env: EmitEnv) (objArgTy: FrozenType) (fieldName: string) : EntityHandle =
         let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) objArgTy
 
-        match env.Records.TryGetValue(SymbolKey.Type key) with
+        match env.Records.TryGetValue key with
         | true, r ->
             match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
             | Some(_, h, _) ->
                 memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember(RecordMember.Field fieldName)) h
             | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
         | false, _ ->
-            match env.Classes.TryGetValue(SymbolKey.Type key) with
+            match env.Classes.TryGetValue key with
             | true, c ->
                 // Primary-ctor backing fields first, then explicit `val` instance fields.
                 match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
@@ -335,6 +335,6 @@ module EmitResolve =
             | false, _ ->
                 let qualName = SymbolKeyOps.typeMetaName key
 
-                match env.Provider.TryResolveExternalRecordField(SymbolKey.Type key, tyArgs, fieldName) with
+                match env.Provider.TryResolveExternalRecordField(key, tyArgs, fieldName) with
                 | ValueSome(handle, _) -> handle
                 | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" qualName

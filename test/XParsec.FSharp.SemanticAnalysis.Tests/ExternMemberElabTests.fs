@@ -60,7 +60,7 @@ let tests =
 
                             // Self-type is the INTRINSIC type, not a TyClass.
                             match m.ThisTy with
-                            | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "widget" -> ()
+                            | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "widget" -> ()
                             | other -> failtestf "member ThisTy is not `TyConst widget`: %A" other
 
                             match m.Body with
@@ -104,7 +104,7 @@ let tests =
                 | None -> failtestf "no widget member self-type key found, decls: %A" tast.Decls
                 | Some sk ->
                     Expect.notEqual
-                        (SymbolKeyOps.qualifiedName sk)
+                        (SymbolKeyOps.typeMetaName sk)
                         "Vesper.widget"
                         "self-type key is not the Vesper twin"
 
@@ -143,7 +143,7 @@ let tests =
 
                 match addWTy with
                 | Some(TyFun(TyConst _, TyFun(TyConst _, TyConst(k, _)))) ->
-                    Expect.equal (SymbolKeyOps.simpleName k) (DisplayName "widget") "addW returns widget"
+                    Expect.equal (SymbolKeyOps.typeSimpleName k) (DisplayName "widget") "addW returns widget"
                 | Some other -> failtestf "addW is not `widget -> widget -> widget`: %A" other
                 | None -> failtestf "no `addW` let decl found, decls: %A" tast.Decls
             }

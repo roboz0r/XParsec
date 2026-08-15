@@ -55,7 +55,7 @@ module LocalMemberKeys =
         : SymbolKey voption =
         // Best-by-arity single: the fallback for a site that cannot supply ground operands.
         let singular () =
-            match ctx.Provider.TryLookupMember(SymbolKey.Type declKey, memberName) with
+            match ctx.Provider.TryLookupMember(declKey, memberName) with
             | ValueSome em -> ValueSome(SymbolKey.Member em.Key)
             | ValueNone -> ValueNone
 
@@ -66,7 +66,7 @@ module LocalMemberKeys =
                 UnificationInferOverload.frozenUserMemberKey ctx.Store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member
             )
         | ValueNone ->
-            match ctx.Provider.TryLookupMembers(SymbolKey.Type declKey, memberName) with
+            match ctx.Provider.TryLookupMembers(declKey, memberName) with
             // A provider that models this member only singularly (or not at all).
             | EqEmpty -> singular ()
             | EqOne only -> ValueSome(SymbolKey.Member only.Key)

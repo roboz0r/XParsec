@@ -54,8 +54,8 @@ let tests =
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] when
-                        SymbolKeyOps.simpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                         ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,

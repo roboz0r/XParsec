@@ -160,7 +160,7 @@ type PassContextResolution =
         TypeRefVerdicts: SideTable<TypeRefVerdict>
         /// A static-access qualifier's external type key: the PREFIX of a folded `Expr.LongIdent`
         /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` target.
-        ExternalStaticQualifier: SideTable<SymbolKey>
+        ExternalStaticQualifier: SideTable<TypeKey>
         /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
         /// RECORD: such a type bears no static fields, so an unresolved last segment is a real miss.
         ExternalUnionRecordQualifier: SideTable<SymbolKey>
@@ -291,9 +291,9 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val Intrinsics =
         IntrinsicSet(fun name -> IntrinsicResolve.tryResolveIntrinsicType provider types.IntrinsicKeys name) with get
 
-    /// Per-file memo of nominal `SymbolKey` → canonical intrinsic key; without it the composite
+    /// Per-file memo of nominal key → canonical intrinsic key; without it the composite
     /// provider is round-tripped per node. A non-intrinsic key caches its own identity.
-    member val IntrinsicCanonCache = Dictionary<SymbolKey, SymbolKey>() with get
+    member val IntrinsicCanonCache = Dictionary<TypeKey, TypeKey>() with get
 
     /// The intrinsic axis this file analyses under: its OWN `(# … #)` declarations shadowing
     /// the provider's, per canon, so a local `int` hides the provider's `int` and leaves its
@@ -417,7 +417,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// this compilation (`Vesper.List`'s own sources) or carried by the reference set.
     member _.ConsListInScope: bool =
         (TypeRegistry.tryUnionByKey types RuntimeNames.vesperListKey).IsSome
-        || (provider.TryLookupType(SymbolKey.Type RuntimeNames.vesperListKey)).IsSome
+        || (provider.TryLookupType RuntimeNames.vesperListKey).IsSome
 
     /// `x?name` sites, swept once inference has settled: a `Root` that zonks to a concrete
     /// non-`dynamic` type is an implicit escape and warns unless `DynamicEscapeSuppressed`.

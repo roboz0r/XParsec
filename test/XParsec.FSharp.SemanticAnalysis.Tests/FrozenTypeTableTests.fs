@@ -88,14 +88,9 @@ let private samples: FrozenType list =
         intTy
         stringTy
         FTConst(RuntimeNames.arrayKey 1, EqArray.singleton intTy)
-        // The key cluster's three sorts, each in `FTConst` type-constructor position.
-        FTConst(SymbolKey.Type nestedKey, EqArray.empty)
-        FTConst(SymbolKey.Binding bindingKey, EqArray.empty)
-        FTConst(SymbolKey.Binding moduleBindingKey, EqArray.empty)
-        FTConst(SymbolKey.Member(memberKeyOf MemberKind.Method [ intTy; stringTy ]), EqArray.empty)
-        FTConst(SymbolKey.Member(memberKeyOf MemberKind.Property []), EqArray.empty)
-        FTConst(SymbolKey.Member(memberKeyOf (MemberKind.InterfaceMethod ifaceKey) [ intTy ]), EqArray.empty)
-        FTConst(SymbolKey.Member(memberKeyOf (MemberKind.ExplicitInterfaceImpl ifaceKey) []), EqArray.empty)
+        // An `FTConst` type constructor is a nominal TYPE; `keySamples` carries the binding
+        // and member sorts, which reach the wire through a symbol reference instead.
+        FTConst(nestedKey, EqArray.empty)
         FTFun(intTy, FTFun(stringTy, intTy))
         FTTuple(EqArray.ofList [ intTy; stringTy; FTTypar(TyparAxis.Declaring, 0) ])
         FTRecord(boxKey, EqArray.singleton (FTTypar(TyparAxis.Declaring, 0)))
@@ -131,6 +126,8 @@ let private keySamples: SymbolKey list =
         SymbolKey.Binding bindingKey
         SymbolKey.Binding moduleBindingKey
         SymbolKey.Member(memberKeyOf MemberKind.Method [ intTy; stringTy ])
+        SymbolKey.Member(memberKeyOf MemberKind.Property [])
+        SymbolKey.Member(memberKeyOf (MemberKind.ExplicitInterfaceImpl ifaceKey) [])
         SymbolKey.Member(memberKeyOf (MemberKind.InterfaceMethod ifaceKey) [ intTy ])
     ]
 
@@ -349,9 +346,13 @@ let tests =
 
             // The samples reach the key cluster only through `FTConst` type constructors and
             // nominal keys, so a table that stopped interning one would pass everything above.
+            // Both corpora, because a binding / member key reaches the tables only through
+            // `InternSymbol`: an `FTConst` type constructor is a nominal TYPE.
             test "the samples populate every key table" {
-                let _, table = internedSamples ()
-                let rows = table.Rows
+                let builder = FrozenTypeTableBuilder()
+                samples |> List.iter (builder.Intern >> ignore)
+                keySamples |> List.iter (builder.InternSymbol >> ignore)
+                let rows = builder.Rows
                 Expect.isGreaterThan rows.Strings.Length 0 "strings"
                 Expect.isGreaterThan rows.Namespaces.Length 0 "namespaces"
                 Expect.isGreaterThan rows.Modules.Length 0 "modules"

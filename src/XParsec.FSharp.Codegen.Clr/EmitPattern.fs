@@ -88,10 +88,10 @@ module EmitPattern =
     /// The `[<Struct>]` a type EMITTED HERE asked for. Unanswered for a referenced name, which
     /// the provider holds instead; the two sets are disjoint.
     let private declaredHere (env: EmitEnv) (key: TypeKey) : TypeLayout =
-        match env.Classes.TryGetValue(SymbolKey.Type key) with
+        match env.Classes.TryGetValue key with
         | true, c -> TypeLayout.ofValueness c.IsValueType
         | false, _ ->
-            match env.Records.TryGetValue(SymbolKey.Type key) with
+            match env.Records.TryGetValue key with
             | true, r -> TypeLayout.ofValueness r.IsValueType
             | false, _ -> TypeLayout.Unanswered
 
@@ -99,7 +99,7 @@ module EmitPattern =
     /// HERE still has its `[<Struct>]` as an open request.
     let private oracle (env: EmitEnv) : LayoutOracle =
         {
-            Settled = fun key -> env.Provider.ExternalLayout(SymbolKey.Type key)
+            Settled = fun key -> env.Provider.ExternalLayout(key)
             Declared = declaredHere env
             Platform = env.Provider.Platform
         }
@@ -204,7 +204,7 @@ module EmitPattern =
             // from the union emitted here or from the provider's refs for one in a
             // referenced package (`match o with Some x -> …`).
             let tagRef, tagValue, fieldRef =
-                match env.Unions.TryGetValue(SymbolKey.Type key) with
+                match env.Unions.TryGetValue key with
                 | true, u ->
                     let c = u.Cases.[caseName]
 
@@ -255,7 +255,7 @@ module EmitPattern =
             // only its sub-patterns can branch to `nextLabel`.
             let key, tyArgs = nominalShape "record pattern" ty
 
-            match env.Records.TryGetValue(SymbolKey.Type key) with
+            match env.Records.TryGetValue key with
             | true, r ->
                 for (fieldName, subPat) in fields do
                     match TastAccessor.patKind subPat with

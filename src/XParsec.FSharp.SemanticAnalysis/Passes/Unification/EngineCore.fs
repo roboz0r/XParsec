@@ -335,14 +335,6 @@ module UnificationEngineCore =
         else
             None
 
-    /// `funSlotArityOfArgs` for a KIND-BLIND caller: one holding the canonicalised key
-    /// `subtypeNominalOf` surfaces, whose domain includes keys of every kind. A non-type
-    /// key cannot be an interface, so it is no `Fun` slot.
-    let funSlotArityOfSymbol (tyCtor: SymbolKey) (genericArity: int) : int option =
-        match tyCtor with
-        | SymbolKey.Type t -> funSlotArityOfArgs t genericArity
-        | _ -> None
-
     /// Peel `k` domains off the `TyFun(a, b)` chain into the `k+1` types
     /// `[dom0; …; dom_{k-1}; residualCodomain]` aligned to a `Fun`(k+1)`'s type args, or
     /// `None` if the chain is too short. The residual codomain is returned WHOLE.
@@ -362,12 +354,12 @@ module UnificationEngineCore =
     /// Fold a capability interface's two nominal keys to the canonical one: its BCL platform
     /// key (`System.Collections.Generic.IEnumerable\`1`) and its canonical key
     /// (`Vesper.Collections.seq`). Any other key passes through.
-    let capabilityCanonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+    let capabilityCanonKey (ctx: PassContext) (key: TypeKey) : TypeKey =
         let caps = ctx.CapabilityIds
 
-        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
+        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : TypeKey voption =
             match cap with
-            | ValueSome c when c.Matches key -> ValueSome(SymbolKey.Type(ValueOption.defaultValue c.Key c.CanonKey))
+            | ValueSome c when c.Matches key -> ValueSome(ValueOption.defaultValue c.Key c.CanonKey)
             | _ -> ValueNone
 
         match pick caps.Enumerable with
@@ -393,12 +385,12 @@ module UnificationEngineCore =
     /// The mirror fold, to a capability's PLATFORM key
     /// (`Vesper.Collections.enumerator\`1` → `System.Collections.Generic.IEnumerator\`1`).
     /// MEMBER LOOKUP only: the canonical shape carries no member table, the platform's does.
-    let capabilityPlatformKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+    let capabilityPlatformKey (ctx: PassContext) (key: TypeKey) : TypeKey =
         let caps = ctx.CapabilityIds
 
-        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
+        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : TypeKey voption =
             match cap with
-            | ValueSome c when c.Matches key -> ValueSome(SymbolKey.Type c.Key)
+            | ValueSome c when c.Matches key -> ValueSome c.Key
             | _ -> ValueNone
 
         match pick caps.Enumerable with
@@ -424,12 +416,12 @@ module UnificationEngineCore =
     /// Do two nominal keys denote the same type, reconciling a capability's two names? For
     /// key-EQUALITY seams only, never inside the base/interface-chain LOOKUPS: rewriting a
     /// BCL platform key there erases its own bases (`IEnumerator\`1 :> IEnumerator`).
-    let sameNominalKey (ctx: PassContext) (k1: SymbolKey) (k2: SymbolKey) : bool =
+    let sameNominalKey (ctx: PassContext) (k1: TypeKey) (k2: TypeKey) : bool =
         k1 = k2 || capabilityCanonKey ctx k1 = capabilityCanonKey ctx k2
 
     // Canonical nominal IDENTITY for subtype comparison: the platform-INVARIANT front-end
     // `SymbolKey` (`Vesper.int`, `Vesper.exn`), answered BY KEY, never by projected name.
-    let private canonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+    let private canonKey (ctx: PassContext) (key: TypeKey) : TypeKey =
         match ctx.IntrinsicCanonCache.TryGetValue key with
         | true, canon -> canon
         | _ ->
@@ -438,7 +430,7 @@ module UnificationEngineCore =
                     key
                 else
                     match ctx.Provider.TryLookupType key with
-                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> SymbolKey.Type canon
+                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> canon
                     | _ -> key
 
             ctx.IntrinsicCanonCache.[key] <- canon
@@ -447,44 +439,44 @@ module UnificationEngineCore =
     /// The PLATFORM name of an intrinsic: the runtime repr its `(# "…" #)` binding records
     /// (`"string"` ⇒ `"System.String"` on CLR). Falls back to the key's own identity name for
     /// a non-intrinsic, or an intrinsic with no repr on the compiling target (`decimal` on JS).
-    let intrinsicPlatformName (ctx: PassContext) (key: SymbolKey) : string =
+    let intrinsicPlatformName (ctx: PassContext) (key: TypeKey) : string =
         match IntrinsicTypeMap.tryPlatformRepr key ctx.IntrinsicTypeMap.Value with
         | ValueSome platform -> platform
-        | ValueNone -> SymbolKeyOps.intrinsicName key
+        | ValueNone -> key.Name
 
     /// The external `(SymbolKey, typeArgs)` surfaces a provider member lookup keys on, MOST
     /// SPECIFIC FIRST: an intrinsic `TyConst` publishes its own contract surface, then the
     /// platform type's (`"hello".TryCopyTo` reaching `System.String`). Empty for a local class.
-    let externalSurfaceKeys (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) list =
+    let externalSurfaceKeys (ctx: PassContext) (ty: SemType) : struct (TypeKey * EqArray<SemType>) list =
         match resolveStep ctx.Store ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-            [ struct (SymbolKey.Type clsKey, typeArgs) ]
+            [ struct (clsKey, typeArgs) ]
         // A structural constructor (`'T []` / `byref`) reprs as the IL artefact `"!0[]"`, which
         // is not a nominal surface. Its own contract key is the only one to look a member up
         // on, and is where the array declares `Item` and `Length`.
         | TyStructuralCtor & TyConst(key, typeArgs) -> [ struct (key, typeArgs) ]
         | TyConst(key, typeArgs) ->
-            let name = SymbolKeyOps.intrinsicName key
+            let name = key.Name
             let platformQual = intrinsicPlatformName ctx key
 
             [
                 struct (key, typeArgs)
 
                 if platformQual <> name then
-                    struct (SymbolKeyOps.qualifiedTypeKey platformQual 0, typeArgs)
+                    struct (SymbolKeyOps.qualifiedTypeKeyOf platformQual 0, typeArgs)
             ]
         | _ -> []
 
     // Surface a nominal `(canonKey, args)` for the comparison, covering `TyConst` (so the
     // `exn` bound participates) as well as `TyClass`. The canonical intrinsic identity, so
     // two spellings of one intrinsic compare equal by `=`.
-    let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
+    let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
         match resolveStep ctx.Store ty with
-        | TyClass(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
+        | TyClass(n, args) -> ValueSome(struct (canonKey ctx n, args))
         // A named DU or record enters the walk too, so its `interface … with` impls admit
         // a `:>` exactly like a class's. (Anonymous `TyOr` unions resolve structurally.)
-        | TyUnion(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
-        | TyRecord(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
+        | TyUnion(n, args) -> ValueSome(struct (canonKey ctx n, args))
+        | TyRecord(n, args) -> ValueSome(struct (canonKey ctx n, args))
         | TyConst(key, args) -> ValueSome(struct (canonKey ctx key, args))
         | _ -> ValueNone
 
@@ -500,7 +492,7 @@ module UnificationEngineCore =
     let private subtypeParentOf
         (ctx: PassContext)
         (localKey: TypeKey voption)
-        (key: SymbolKey)
+        (key: TypeKey)
         (args: EqArray<SemType>)
         : SemType voption =
         let localInfo =
@@ -529,7 +521,7 @@ module UnificationEngineCore =
     let private subtypeInterfacesOf
         (ctx: PassContext)
         (localKey: TypeKey voption)
-        (key: SymbolKey)
+        (key: TypeKey)
         (args: EqArray<SemType>)
         : SemType list =
         let localHost =
@@ -560,10 +552,10 @@ module UnificationEngineCore =
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose canonical
     /// nominal identity is `tgtKey`, returning that supertype's type args. Reflexive: `src`
     /// itself when its canon key is `tgtKey`. Read-only.
-    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtKey: SymbolKey) : EqArray<SemType> voption =
+    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtKey: TypeKey) : EqArray<SemType> voption =
         // An interface supertype is itself walked for its own bases: `C : B`, `B : A<int>`
         // reaches `A` only THROUGH `B`.
-        let rec walk (seen: HashSet<SymbolKey>) (cur: SemType) : EqArray<SemType> voption =
+        let rec walk (seen: HashSet<TypeKey>) (cur: SemType) : EqArray<SemType> voption =
             match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
             | ValueSome(struct (s, sa)) ->
@@ -591,7 +583,7 @@ module UnificationEngineCore =
                         | ValueSome parentInstance -> walk seen parentInstance
                         | ValueNone -> ValueNone
 
-        walk (HashSet<SymbolKey>()) src
+        walk (HashSet<TypeKey>()) src
 
     /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `objArgTy`, paired
     /// with the supertype's args as reached from it (`[int]` for a `Child :
@@ -616,7 +608,7 @@ module UnificationEngineCore =
                     | ValueNone -> ()
                 ]
 
-        let seen = HashSet<SymbolKey>()
+        let seen = HashSet<TypeKey>()
 
         let rec walk (frontier: Fifo<SemType>) : struct (ExternalMember * EqArray<SemType>) voption =
             match Fifo.tryDequeue frontier with
@@ -639,7 +631,7 @@ module UnificationEngineCore =
     let rec shown (store: TypeStore) (t: SemType) : string =
         match UnionFind.zonkShallow store t with
         | TyConst(key, _) ->
-            let (DisplayName name) = SymbolKeyOps.simpleName key
+            let (DisplayName name) = SymbolKeyOps.typeSimpleName key
             name
         | TyEnum key -> SymbolKeyOps.typeMetaName key
         | TyClass(k, _)

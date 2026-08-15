@@ -203,7 +203,7 @@ module FrozenCodecRows =
         match row with
         | TypeRow.Const(key, args) ->
             w.Write 0uy
-            writeSymbolId w key
+            writeTypeKeyId w key
             writeTypeIds w args
         | TypeRow.Fun(arg, result) ->
             w.Write 1uy
@@ -263,7 +263,7 @@ module FrozenCodecRows =
     let private readTypeRow (r: FrozenReader) : TypeRow =
         match r.ReadByte() with
         | 0uy ->
-            let key = readSymbolId r
+            let key = readTypeKeyId r
             let args = readTypeIds r
             TypeRow.Const(key, args)
         | 1uy ->

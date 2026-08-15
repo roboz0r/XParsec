@@ -513,7 +513,7 @@ module Unification =
                 enterLevel ctx
 
                 try
-                    let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
+                    let (DisplayName shown) = SymbolKeyOps.typeSimpleName canonKey
 
                     match
                         UnificationInferCtor.inferIntrinsicClassCtorCall
@@ -555,7 +555,7 @@ module Unification =
 
             // A capability interface (`disposable`) is an `IntrinsicInterface`, not a `Class`,
             // but conforms identically off its member surface.
-            match ctx.Provider.TryLookupType(SymbolKey.Type ifaceKey) with
+            match ctx.Provider.TryLookupType ifaceKey with
             | ValueSome(ExternalSymbols.ExternalMembers ifaceMembers) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 
@@ -642,7 +642,7 @@ module Unification =
             [
                 for impl in info.InterfaceImpls do
                     match impl.Resolved with
-                    | ValueSome(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType(SymbolKey.Type key)
+                    | ValueSome(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType key
                     | _ -> ()
             ]
 
@@ -657,10 +657,10 @@ module Unification =
             else
                 let seen = Set.add bare seen
 
-                match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
+                match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf name 0) with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     (seen, shape.FrozenInterfaces)
-                    ||> EqArray.fold (fun acc i -> closeOver acc (SymbolKeyOps.qualifiedName i.Key))
+                    ||> EqArray.fold (fun acc i -> closeOver acc (SymbolKeyOps.typeMetaName i.Key))
                 | _ -> seen
 
         let capabilityInterfaces =
@@ -714,7 +714,7 @@ module Unification =
             let isInterface =
                 match resolved with
                 | TyClass(ifaceKey, _) ->
-                    match ctx.Provider.TryLookupType(SymbolKey.Type ifaceKey) with
+                    match ctx.Provider.TryLookupType ifaceKey with
                     | ValueSome shape -> ExternalSymbols.isInterfaceShape shape
                     // A project-local interface has no external-provider entry, so its
                     // interface-ness is read off the registered `ClassTypeInfo`.

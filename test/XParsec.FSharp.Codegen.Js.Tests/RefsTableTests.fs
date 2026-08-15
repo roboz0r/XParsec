@@ -69,10 +69,7 @@ let tests =
 
                         Expect.equal args.Length 1 "Box<string> applies one type arg"
 
-                        match
-                            (stackTsMany [ manifestB; manifestA ] :> IExternalSymbolStore)
-                                .TryLookupType(SymbolKey.Type key)
-                        with
+                        match (stackTsMany [ manifestB; manifestA ] :> IExternalSymbolStore).TryLookupType key with
                         | ValueSome(ExternalTypeShape.Class info) ->
                             Expect.equal
                                 info.Origin.Home.AssemblyOption

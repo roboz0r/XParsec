@@ -72,17 +72,17 @@ type PassContextTypes =
         /// from `type int = (# "System.Int32" #)`, plus the `class`-tag verdict. NOT
         /// transparent like `Abbreviation`: a use resolves to `TyConst key`, not the RHS.
         /// Key-addressed because a key projected back to a name loses its arity.
-        IntrinsicReprKeys: Dictionary<SymbolKey, IntrinsicReprInfo>
+        IntrinsicReprKeys: Dictionary<TypeKey, IntrinsicReprInfo>
         /// This file's own intrinsics: bare declared name → `SymbolKey` qualified by the
         /// declaring `namespace`. The VALUE carries the arity, the table key does not. THE
         /// name → key index for intrinsics: every other intrinsic table is key-addressed, so
         /// a name is resolved here once and the key travels from there.
-        IntrinsicKeys: Dictionary<string, SymbolKey>
+        IntrinsicKeys: Dictionary<string, TypeKey>
         /// Inline intrinsic-abbrevs carrying `with member …` augmentations
         /// (`type widget = (# "object" #) with member …`), keyed by the abbrev's CANON key, which
         /// is the namespace-homed identity a use site's `TyConst` carries, not its container-homed
         /// nominal claim. A name reaches it only through `IntrinsicKeys`.
-        IntrinsicAbbrevHost: Dictionary<SymbolKey, IntrinsicAbbrevInfo>
+        IntrinsicAbbrevHost: Dictionary<TypeKey, IntrinsicAbbrevInfo>
         /// Reverse index: record short name (NO arity suffix, as written) → the `TypeKey`s
         /// claiming it. A bare name yields a *candidate set*, never one entry.
         RecordNames: Dictionary<string, ResizeArray<TypeKey>>
@@ -141,14 +141,14 @@ module TypeRegistry =
     /// stamped at registration. Deliberately WITHOUT a by-name mint fallback: registration
     /// stamps every `IntrinsicRepr` claim, so a miss means the caller is asking about a name
     /// that never claimed one, and a minted `Vesper`-homed arity-0 key would match nothing.
-    let intrinsicKeyOf (types: PassContextTypes) (name: string) : SymbolKey =
+    let intrinsicKeyOf (types: PassContextTypes) (name: string) : TypeKey =
         match types.IntrinsicKeys.TryGetValue name with
         | true, k -> k
         | _ -> failwithf "Internal error: intrinsic '%s' has no stamped identity key" name
 
     /// `intrinsicKeyOf` for a caller that does not know whether `name` names a local
     /// intrinsic at all: the lookup arm of the name → key index.
-    let tryIntrinsicKeyOf (types: PassContextTypes) (name: string) : SymbolKey voption =
+    let tryIntrinsicKeyOf (types: PassContextTypes) (name: string) : TypeKey voption =
         match types.IntrinsicKeys.TryGetValue name with
         | true, k -> ValueSome k
         | _ -> ValueNone

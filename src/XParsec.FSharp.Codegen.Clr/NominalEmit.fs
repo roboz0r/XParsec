@@ -23,7 +23,7 @@ module internal NominalEmit =
         /// A non-generic external base (`inherit exn` → `System.Exception`): `tref` is
         /// the `extends` token; `key` is the PLATFORM key that mints the chained
         /// base `.ctor`.
-        | ExternalBase of key: SymbolKey * tref: EntityHandle
+        | ExternalBase of key: TypeKey * tref: EntityHandle
         /// A non-generic project-local base: `extends` its `TypeDefinition` token.
         | LocalMono of key: TypeKey
         /// A generic parent (`Box<int>`), or any non-`FTClass` base: `extends` a
@@ -95,7 +95,7 @@ module internal NominalEmit =
                     }
             )
 
-            asm.Unions.[td.Key] <-
+            asm.Unions.[td.TypeKey] <-
                 {
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
@@ -105,7 +105,7 @@ module internal NominalEmit =
                 }
 
         | NominalEmissionInput.Record(fields, _, isStruct) ->
-            asm.Records.[td.Key] <-
+            asm.Records.[td.TypeKey] <-
                 {
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
@@ -167,7 +167,7 @@ module internal NominalEmit =
                     let (_, _, h) = List.head secondaryCtorHandles
                     h
 
-            asm.Classes.[td.Key] <-
+            asm.Classes.[td.TypeKey] <-
                 {
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
@@ -355,8 +355,8 @@ module internal NominalEmit =
                 match baseType with
                 | ValueNone -> BaseShape.NoBase
                 | ValueSome(FTClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
-                    match icodegen.ExternalClassTypeRef(SymbolKey.Type baseKey) with
-                    | ValueSome tref -> BaseShape.ExternalBase(SymbolKey.Type baseKey, tref)
+                    match icodegen.ExternalClassTypeRef(baseKey) with
+                    | ValueSome tref -> BaseShape.ExternalBase(baseKey, tref)
                     | ValueNone -> BaseShape.LocalMono baseKey
                 // An intrinsic-class parent (`inherit exn`) arrives as the canon
                 // `FTConst`, not an `FTClass`, so resolve it to its platform class
@@ -431,7 +431,7 @@ module internal NominalEmit =
                         | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
                     let baseCtorHandle =
-                        match classes.TryGetValue(SymbolKey.Type baseKey) with
+                        match classes.TryGetValue baseKey with
                         | true, bc when List.isEmpty bc.Typars -> bc.Ctor
                         | true, _ ->
                             icodegen.UserGenericMemberRef(
@@ -493,7 +493,7 @@ module internal NominalEmit =
             // which is load-bearing:
             // `static let a = f()` / `static do g a` / `static let b = h()`.
             if not (List.isEmpty cd.StaticPreamble) then
-                let staticFields = classes.[td.Key].StaticFields
+                let staticFields = classes.[td.TypeKey].StaticFields
 
                 let cctorSteps =
                     [
@@ -667,7 +667,7 @@ module internal NominalEmit =
         let structuralFields () : (EntityHandle * FrozenType) list =
             match input with
             | NominalEmissionInput.Union(cases, _) ->
-                let emitted = unions.[td.Key]
+                let emitted = unions.[td.TypeKey]
 
                 [
                     for c in cases do
@@ -679,13 +679,13 @@ module internal NominalEmit =
                 ]
             | NominalEmissionInput.Record _ ->
                 [
-                    for (name, h, fty) in records.[td.Key].Fields ->
+                    for (name, h, fty) in records.[td.TypeKey].Fields ->
                         selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field name)) h, fty
                 ]
             | NominalEmissionInput.Class _ -> []
 
         let tagFieldRef () =
-            selfMemberRef (UserMemberKind.UnionMember UnionMember.Tag) unions.[td.Key].TagField
+            selfMemberRef (UserMemberKind.UnionMember UnionMember.Tag) unions.[td.TypeKey].TagField
 
         let bodyOf ir =
             Cil.buildBody encodeLocals bodyStream (IlIr.lower ir)
@@ -839,7 +839,7 @@ module internal NominalEmit =
             let formatIr =
                 match input with
                 | NominalEmissionInput.Union(cases, _) ->
-                    let emitted = unions.[td.Key]
+                    let emitted = unions.[td.TypeKey]
 
                     let formatCases =
                         [
@@ -877,7 +877,7 @@ module internal NominalEmit =
                             BoxToken = icodegen.TypeToken
                             Fields =
                                 [
-                                    for (name, h, fty) in records.[td.Key].Fields ->
+                                    for (name, h, fty) in records.[td.TypeKey].Fields ->
                                         name,
                                         selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field name)) h,
                                         fty

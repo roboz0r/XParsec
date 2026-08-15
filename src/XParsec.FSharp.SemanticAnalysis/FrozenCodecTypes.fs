@@ -69,6 +69,32 @@ module FrozenCodecTypes =
 
         d :> System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>
 
+    /// `writeSymbolDict` over the narrow key, for a table only nominal TYPES address.
+    let writeTypeKeyDict
+        (w: FrozenWriter)
+        (writeVal: FrozenWriter -> 'v -> unit)
+        (d: System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>)
+        =
+        w.Write d.Count
+
+        for KeyValue(k, v) in d do
+            writeTypeKeyRef w k
+            writeVal w v
+
+    let readTypeKeyDict
+        (r: FrozenReader)
+        (readVal: FrozenReader -> 'v)
+        : System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v> =
+        let n = r.ReadInt32()
+        let d = System.Collections.Generic.Dictionary<TypeKey, 'v>(n)
+
+        for _ in 1..n do
+            let k = readTypeKeyRef r
+            let v = readVal r
+            d.[k] <- v
+
+        d :> System.Collections.Generic.IReadOnlyDictionary<TypeKey, 'v>
+
     /// The membership-only twin of `writeSymbolDict`, a `SymbolKey` set with no payload.
     let writeSymbolSet (w: FrozenWriter) (s: System.Collections.Generic.IReadOnlySet<SymbolKey>) =
         w.Write s.Count

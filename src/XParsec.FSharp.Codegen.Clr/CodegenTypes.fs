@@ -38,7 +38,7 @@ module internal CapabilityCoSlots =
             for iface in interfaces do
                 match iface with
                 | FTClass(key, _) ->
-                    match CodegenSymbols.lookupTypeByKey symbols (SymbolKey.Type key) with
+                    match CodegenSymbols.lookupTypeByKey symbols key with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                         for slot in ofPlatformInterface platform -> iface, slot
                     | _ -> ()
@@ -122,7 +122,7 @@ type internal ClassDecl =
 type internal EnumDecl =
     {
         Decl: TastAccessor.TypeDecl
-        Underlying: SymbolKey
+        Underlying: TypeKey
         Cases: (string * TConstValue) list
     }
 

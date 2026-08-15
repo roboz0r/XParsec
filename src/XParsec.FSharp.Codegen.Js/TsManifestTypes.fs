@@ -290,7 +290,7 @@ module internal TsManifestTranslate =
     /// the identities' own names, so this cannot name a type that does not exist.
     let private manifestSpellableExtras: Set<string> =
         [ RuntimeNames.undefinedKey; RuntimeNames.bigintKey ]
-        |> Seq.map SymbolKeyOps.intrinsicName
+        |> Seq.map (fun k -> k.Name)
         |> Set.ofSeq
 
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =

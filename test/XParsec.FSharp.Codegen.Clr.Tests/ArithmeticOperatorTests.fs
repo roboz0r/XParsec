@@ -327,7 +327,7 @@ let tests =
             test "the int intrinsic publishes op_Addition through the real Vesper.Core contract" {
                 let provider = ClrSymbolProviders.buildContract defaultPackages
 
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Vesper.int" 0, "op_Addition") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "Vesper.int" 0, "op_Addition") with
                 | ValueSome m -> Expect.isTrue m.IsStatic "the declared operator witness is static"
                 | ValueNone ->
                     failtest "Vesper.int declares `static member (+)` but the contract publishes no op_Addition"

@@ -57,7 +57,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         /// This file's OWN intrinsics: the `SymbolKey` of a `type x = (# "…" #)` abbrev →
         /// its target representation. Keyed by identity: a name cannot say WHICH `int` it means.
-        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
+        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>
         /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
         /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
@@ -146,8 +146,8 @@ module TSpecializationG =
 [<RequireQualifiedAccess>]
 module TastFileG =
     let private dictEqual
-        (a: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
-        (b: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
+        (a: System.Collections.Generic.IReadOnlyDictionary<'k, 'v>)
+        (b: System.Collections.Generic.IReadOnlyDictionary<'k, 'v>)
         : bool =
         a.Count = b.Count
         && a

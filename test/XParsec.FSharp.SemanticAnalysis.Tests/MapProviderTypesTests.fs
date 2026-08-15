@@ -176,10 +176,7 @@ let tests =
 
                 let iface = info.FrozenInterfaces.[0]
 
-                Expect.equal
-                    iface.Key
-                    (SymbolKey.Type(SymbolKeyOps.qualifiedTypeKeyOf "I" 1))
-                    "interface identity preserved"
+                Expect.equal iface.Key (SymbolKeyOps.qualifiedTypeKeyOf "I" 1) "interface identity preserved"
 
                 Expect.equal (EqArray.toArray iface.Args) [| witness Variance.Inv |] "interface arg root is inv"
             }
@@ -206,7 +203,7 @@ let tests =
 
                     Expect.equal
                         ifaces.[0].Key
-                        (SymbolKey.Type(SymbolKeyOps.qualifiedTypeKeyOf "J" 1))
+                        (SymbolKeyOps.qualifiedTypeKeyOf "J" 1)
                         "union interface identity preserved"
 
                     Expect.equal
@@ -217,7 +214,7 @@ let tests =
             }
 
             test "the member channels (single + overloads) map identically to the class member" {
-                match wrapped.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Cls" 0, "m") with
+                match wrapped.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "Cls" 0, "m") with
                 | ValueSome m ->
                     Expect.equal
                         (ExternalSignature.tupledParameters m.Signature)
@@ -227,7 +224,7 @@ let tests =
                     Expect.equal m.Signature.Return (witness Variance.Co) "single: Return co"
                 | ValueNone -> failtest "member should resolve"
 
-                let all = wrapped.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Cls" 0, "m")
+                let all = wrapped.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf "Cls" 0, "m")
                 Expect.equal all.Length 1 "one overload"
 
                 Expect.equal

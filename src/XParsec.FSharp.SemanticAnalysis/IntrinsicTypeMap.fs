@@ -6,7 +6,7 @@ open System.Collections.Generic
 /// One intrinsic declaration: the `.fsi` identity and the repr its target's `.fs` binds.
 type IntrinsicReprEntry =
     {
-        Canon: SymbolKey
+        Canon: TypeKey
         Platform: IntrinsicPlatform
     }
 
@@ -20,8 +20,8 @@ type IntrinsicTypeMap =
             Entries: EqArray<IntrinsicReprEntry>
             // Indexes over `Entries`, excluded from equality: a `Dictionary` compares by
             // reference. Read-only after construction.
-            ByCanon: Dictionary<SymbolKey, IntrinsicPlatform>
-            ByPlatform: Dictionary<string, EqArray<SymbolKey>>
+            ByCanon: Dictionary<TypeKey, IntrinsicPlatform>
+            ByPlatform: Dictionary<string, EqArray<TypeKey>>
         }
 
     override this.Equals(o: obj) : bool =
@@ -39,12 +39,11 @@ module IntrinsicTypeMap =
 
     /// A canon whose platform spelling IS its own name (JS `string` → `"string"`) reconciles
     /// nothing: a reader of that name already holds the canon.
-    let private isSelfRepr (canon: SymbolKey) (platform: string) : bool =
-        platform = SymbolKeyOps.intrinsicName canon
+    let private isSelfRepr (canon: TypeKey) (platform: string) : bool = platform = canon.Name
 
     /// Entries in precedence order, a canon's FIRST declaration winning.
     let ofSeq (entries: IntrinsicReprEntry seq) : IntrinsicTypeMap =
-        let byCanon = Dictionary<SymbolKey, IntrinsicPlatform>()
+        let byCanon = Dictionary<TypeKey, IntrinsicPlatform>()
         let kept = ResizeArray<IntrinsicReprEntry>()
 
         for entry in entries do
@@ -52,7 +51,7 @@ module IntrinsicTypeMap =
                 kept.Add entry
 
         // An `Unsupported` canon has no platform name to key under.
-        let buckets = Dictionary<string, ResizeArray<SymbolKey>>(StringComparer.Ordinal)
+        let buckets = Dictionary<string, ResizeArray<TypeKey>>(StringComparer.Ordinal)
 
         for entry in kept do
             match entry.Platform with
@@ -60,13 +59,13 @@ module IntrinsicTypeMap =
                 match buckets.TryGetValue platform with
                 | true, canons -> canons.Add entry.Canon
                 | _ ->
-                    let canons = ResizeArray<SymbolKey>()
+                    let canons = ResizeArray<TypeKey>()
                     canons.Add entry.Canon
                     buckets.[platform] <- canons
             | _ -> ()
 
         let byPlatform =
-            Dictionary<string, EqArray<SymbolKey>>(buckets.Count, StringComparer.Ordinal)
+            Dictionary<string, EqArray<TypeKey>>(buckets.Count, StringComparer.Ordinal)
 
         for KeyValue(platform, canons) in buckets do
             byPlatform.[platform] <- EqArray.ofResizeArray canons
@@ -86,28 +85,28 @@ module IntrinsicTypeMap =
     let isEmpty (map: IntrinsicTypeMap) : bool = map.Entries.IsEmpty
 
     /// The repr `canon` is declared with, `Unsupported` included.
-    let tryRepr (canon: SymbolKey) (map: IntrinsicTypeMap) : IntrinsicPlatform voption =
+    let tryRepr (canon: TypeKey) (map: IntrinsicTypeMap) : IntrinsicPlatform voption =
         match map.ByCanon.TryGetValue canon with
         | true, platform -> ValueSome platform
         | _ -> ValueNone
 
     /// The platform spelling `canon` binds on the compiling target: `int` → `"System.Int32"`.
     /// `ValueNone` for a canon declared unsupported there, or not declared at all.
-    let tryPlatformRepr (canon: SymbolKey) (map: IntrinsicTypeMap) : string voption =
+    let tryPlatformRepr (canon: TypeKey) (map: IntrinsicTypeMap) : string voption =
         match map.ByCanon.TryGetValue canon with
         | true, IntrinsicPlatform.Repr platform -> ValueSome platform
         | _ -> ValueNone
 
     /// Every canon `platform` stands for, nearest declaration first: `"number"` →
     /// `[int; float; float32]` on JS.
-    let canonsOf (platform: string) (map: IntrinsicTypeMap) : EqArray<SymbolKey> =
+    let canonsOf (platform: string) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
         match map.ByPlatform.TryGetValue platform with
         | true, canons -> canons
         | _ -> EqArray.empty
 
     /// The canon `platform` reconciles to: `"System.Exception"` → `exn`. The LEADING canon
     /// where a repr names several.
-    let tryCanon (platform: string) (map: IntrinsicTypeMap) : SymbolKey voption =
+    let tryCanon (platform: string) (map: IntrinsicTypeMap) : TypeKey voption =
         match map.ByPlatform.TryGetValue platform with
         | true, canons when not canons.IsEmpty -> ValueSome canons.[0]
         | _ -> ValueNone
@@ -115,7 +114,7 @@ module IntrinsicTypeMap =
     /// The canons sharing `canon`'s repr, `canon` included: JS `int` → `[int; float; float32]`.
     /// Empty for a canon whose repr is its own name, which stands for nothing but itself, so
     /// JS `char` and `string` both repr'ing `"string"` are NOT a family.
-    let familyOf (canon: SymbolKey) (map: IntrinsicTypeMap) : EqArray<SymbolKey> =
+    let familyOf (canon: TypeKey) (map: IntrinsicTypeMap) : EqArray<TypeKey> =
         match tryPlatformRepr canon map with
         | ValueSome platform when not (isSelfRepr canon platform) -> canonsOf platform map
         | _ -> EqArray.empty
@@ -129,7 +128,7 @@ module IntrinsicTypeMap =
         else ofSeq (Seq.append near.Entries far.Entries)
 
     /// The axis a file's own `(# … #)` bindings declare.
-    let ofReprKeys (reprKeys: IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>) : IntrinsicTypeMap =
+    let ofReprKeys (reprKeys: IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>) : IntrinsicTypeMap =
         ofSeq (
             seq {
                 for KeyValue(canon, repr) in reprKeys ->
@@ -150,6 +149,6 @@ module IntrinsicTypeMap =
                 | IntrinsicPlatform.Repr platform -> platform
                 | IntrinsicPlatform.Unsupported target -> "!" + target
 
-            SymbolKeyOps.qualifiedName entry.Canon + "=" + platform
+            SymbolKeyOps.typeMetaName entry.Canon + "=" + platform
         )
         |> String.concat ";"

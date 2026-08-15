@@ -61,7 +61,7 @@ module UnificationEngine =
         | ClassChain of key: TypeKey * args: EqArray<SemType>
         /// An *external* class/interface (`System.Collections.IEqualityComparer`): its
         /// member resolves through the provider, addressed by the resolved `key`.
-        | ExternalClass of key: SymbolKey * args: EqArray<SemType>
+        | ExternalClass of key: TypeKey * args: EqArray<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
         match tryResolveNominal ctx.Store linkTarget with
@@ -82,7 +82,7 @@ module UnificationEngine =
             if TypeRegistry.containsClassKey ctx.Types key then
                 DotSource.ClassChain(key, args)
             else
-                DotSource.ExternalClass(SymbolKey.Type key, args)
+                DotSource.ExternalClass(key, args)
         | ValueSome(NominalKind.Union, key, args) ->
             let (DisplayName name) = SymbolKeyOps.typeSimpleName key
 
@@ -107,7 +107,7 @@ module UnificationEngine =
     let private primitiveDeclares
         (ctx: PassContext)
         (cap: RuntimeNames.CapabilityIdentity voption)
-        (key: SymbolKey)
+        (key: TypeKey)
         : bool =
         match ctx.Provider.TryLookupType key with
         | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
@@ -170,7 +170,7 @@ module UnificationEngine =
     let private tryStructuralWiden (ctx: PassContext) (actual: SemType) (expected: SemType) : bool =
         match resolveStep ctx.Store expected with
         | TyClass(ikey, iargs) ->
-            match ctx.Provider.TryLookupType(SymbolKey.Type ikey) with
+            match ctx.Provider.TryLookupType ikey with
             | ValueSome(ExternalSymbols.ExternalInterfaceMembers ifaceMembers) ->
                 match resolveStep ctx.Store actual with
                 | TyRecord(rkey, rargs) ->
@@ -233,10 +233,7 @@ module UnificationEngine =
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         // A capability interface reaches `unify` under EITHER of its two names (a BCL
         // `IEnumerable\`1` met by a declared `seq`), so `n1 = n2` fails on the same type.
-        | TyClass(n1, a1), TyClass(n2, a2) when
-            sameNominalKey ctx (SymbolKey.Type n1) (SymbolKey.Type n2)
-            && a1.Length = a2.Length
-            ->
+        | TyClass(n1, a1), TyClass(n2, a2) when sameNominalKey ctx n1 n2 && a1.Length = a2.Length ->
             unifyArgs ctx tok a1 a2
         // An enum is a DISTINCT nominal, never structurally its underlying type, so
         // `let n: int = E.C1` is a genuine type error.
@@ -420,12 +417,12 @@ module UnificationEngine =
                     | _ ->
                         ctx.Report(
                             d.Use.Tok,
-                            Kind.NoMember(SymbolKeyOps.qualifiedName key, MemberNoun.InstanceMember, d.MemberName)
+                            Kind.NoMember(SymbolKeyOps.typeMetaName key, MemberNoun.InstanceMember, d.MemberName)
                         )
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = no answer, fall through to structural / deferred handling.
-    and private primitiveSupports (ctx: PassContext) (kind: SemanticConstraintKind) (key: SymbolKey) : bool voption =
+    and private primitiveSupports (ctx: PassContext) (kind: SemanticConstraintKind) (key: TypeKey) : bool voption =
         // By KEY, not by name: a user type merely spelled `int` in its own namespace reaches
         // no contract shape, so it declares no capability.
         match kind with
@@ -511,7 +508,7 @@ module UnificationEngine =
                 else
                     Violated
             | ValueNone ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type classKey) with
+                match ctx.Provider.TryLookupType classKey with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     if shape.Flags.Declared.AllowNullLiteral then
                         Satisfied
@@ -681,7 +678,7 @@ module UnificationEngine =
                 | SemanticConstraintKind.Coercion target ->
                     match subtypeNominalOf ctx (zonk ctx.Store target), resolveStep ctx.Store linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
-                        funSlotArityOfSymbol tname targs.Length |> Option.isSome
+                        funSlotArityOfArgs tname targs.Length |> Option.isSome
                         ->
                         match peelFunDomains ctx.Store (targs.Length - 1) a b with
                         | Some tys -> tys |> List.iteri (fun i s -> unify ctx tok s targs.[i])
@@ -721,7 +718,7 @@ module UnificationEngine =
 
     and private tryDeclaredIntrinsicMember
         (ctx: PassContext)
-        (key: SymbolKey)
+        (key: TypeKey)
         (args: EqArray<SemType>)
         (memberName: string)
         : SemType voption =
@@ -784,7 +781,7 @@ module UnificationEngine =
                             ctx.Store.Srtp.Solve b
                             unifySrtpAgainst ctx tok candTy b
                         | ValueNone ->
-                            let primName = SymbolKeyOps.intrinsicName primKey
+                            let primName = primKey.Name
 
                             ctx.Report(tok, Kind.NoMember(primName, MemberNoun.BuiltInStaticMember, b.MemberName))
 
@@ -806,7 +803,7 @@ module UnificationEngine =
                         | ValueNone ->
                             // Not project-local: a consumer dispatching `s + t` on an
                             // `.fsi`-imported type reaches here.
-                            match ctx.Provider.TryLookupMember(SymbolKey.Type classKey, b.MemberName) with
+                            match ctx.Provider.TryLookupMember(classKey, b.MemberName) with
                             | ValueSome m when m.IsStatic ->
                                 let candTy = ExternalSymbols.openSignature m (EqArray.toArray classArgs)
 

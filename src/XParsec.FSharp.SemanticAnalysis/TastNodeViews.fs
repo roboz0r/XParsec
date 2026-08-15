@@ -171,14 +171,14 @@ module TastNodeViews =
     /// The scalar payload of a `StaticFieldGet` node: the declaring class key and the
     /// backing-field name.
     [<Struct>]
-    type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
+    type StaticFieldGetView = { Key: TypeKey; FieldName: string }
 
     /// The scalar payload of a `StaticFieldSet` node: the declaring class key and the
     /// backing-field name; `Value` is the sole `exprChildren` entry.
     [<Struct>]
     type StaticFieldSetView =
         {
-            Key: SymbolKey
+            Key: TypeKey
             FieldName: string
             Value: ExprId
         }
@@ -258,8 +258,7 @@ module TastNodeViews =
 
     /// The scalar payload of an `EnumCase` pattern: the case's enum-key / case-name identity.
     [<Struct>]
-    type EnumCasePatView =
-        { EnumKey: SymbolKey; CaseName: string }
+    type EnumCasePatView = { EnumKey: TypeKey; CaseName: string }
 
     /// The payload of a `Let` decl. `IsInline` is whether the binding expands per call site;
     /// `Ty` is the binding's declared type, distinct from the type of `Value` for a

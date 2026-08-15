@@ -55,7 +55,7 @@ let membersOf (ctx: VesperLib.ExtractCtx) (compiledSuffix: string) : ExternalMem
 
 /// The `interface <ty>` impls a PRIMITIVE declares. Empty for a source that binds only a
 /// representation, which is indistinguishable here from a primitive that declares none.
-let declaredInterfaces (p: IExternalSymbolStore) (key: SymbolKey) : EqArray<FrozenInterface> =
+let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : EqArray<FrozenInterface> =
     match p.TryLookupType key with
     | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface.Interfaces
     | _ -> EqArray.empty
@@ -108,10 +108,10 @@ let tests =
                 let assertWidgetIntToInt (label: string) (ty: SemType) =
                     match ty with
                     | TyFun(TyUnion("Dep.Widget`1", args), TyConst(k, _)) when
-                        args.Length = 1 && SymbolKeyOps.simpleName k = DisplayName "int"
+                        args.Length = 1 && SymbolKeyOps.typeSimpleName k = DisplayName "int"
                         ->
                         match args.[0] with
-                        | TyConst(k, _) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
+                        | TyConst(k, _) when SymbolKeyOps.typeSimpleName k = DisplayName "int" -> ()
                         | other -> failtestf "%s: expected Dep.Widget<int>, got arg %A" label other
                     | other ->
                         failtestf "%s: expected (Dep.Widget<int> -> int) with a TyUnion result, got %A" label other
@@ -140,7 +140,7 @@ let tests =
                         (Seq.toList ctx.Symbols.Keys)
                 | ValueSome ty ->
                     match ty with
-                    | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.simpleName k = DisplayName "int" ->
+                    | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.typeSimpleName k = DisplayName "int" ->
                         Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
@@ -391,7 +391,7 @@ let tests =
                 match found with
                 | ValueSome(TyFun(TyEnum key, TyConst(intKey, _))) ->
                     Expect.equal key.Name "Colour" "the param is the enum's own nominal"
-                    Expect.equal (SymbolKeyOps.simpleName intKey) (DisplayName "int") "the return type still bakes"
+                    Expect.equal (SymbolKeyOps.typeSimpleName intKey) (DisplayName "int") "the return type still bakes"
                 | ValueSome other -> failtestf "expected (Colour -> int) with a TyEnum param, got %A" other
                 | ValueNone -> failtestf "val 'paint' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
             }
@@ -447,17 +447,14 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     match shape.FrozenInterfaces with
                     | EqOne iface ->
-                        match iface.Key with
-                        | SymbolKey.Type key ->
-                            Expect.equal key.Name "IBox" "the IBox interface is published"
+                        Expect.equal iface.Key.Name "IBox" "the IBox interface is published"
 
-                            // `IBox` is declared inside `module M`, so it publishes a module-held
-                            // identity. Its rendering `App.M+IBox`1` re-cuts to a CLR-NESTED key,
-                            // which is a different type and resolves to nothing.
-                            match key.Container with
-                            | TypeContainer.InModule m -> Expect.equal m.Name "M" "IBox is held by module M"
-                            | other -> failtestf "expected a module-held interface identity; got %A" other
-                        | other -> failtestf "expected IBox to publish a type identity; got %A" other
+                        // `IBox` is declared inside `module M`, so it publishes a module-held
+                        // identity. Its rendering `App.M+IBox`1` re-cuts to a CLR-NESTED key,
+                        // which is a different type and resolves to nothing.
+                        match iface.Key.Container with
+                        | TypeContainer.InModule m -> Expect.equal m.Name "M" "IBox is held by module M"
+                        | other -> failtestf "expected a module-held interface identity; got %A" other
 
                         Expect.equal iface.Args.Length 1 "IBox<'T> carries one type arg"
 
@@ -495,10 +492,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
                     match surface.Interfaces with
                     | EqOne iface ->
-                        match iface.Key with
-                        | SymbolKey.Type key -> Expect.equal key.Name "IBar" "the IBar interface is published"
-                        | other -> failtestf "expected IBar to publish a type identity; got %A" other
-
+                        Expect.equal iface.Key.Name "IBar" "the IBar interface is published"
                         Expect.equal iface.Args.Length 1 "IBar<'T> carries one type arg"
 
                         match iface.Args.[0] with
@@ -661,7 +655,7 @@ let tests =
                             |> List.map (fun ft ->
                                 match ft with
                                 | FTConst(k, _) ->
-                                    let (DisplayName name) = SymbolKeyOps.simpleName k
+                                    let (DisplayName name) = SymbolKeyOps.typeSimpleName k
                                     name
                                 | other -> failtestf "expected FTConst members in objnull union; got %A" other
                             )
@@ -704,7 +698,7 @@ let tests =
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Dispose") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Dispose") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
             }
@@ -824,7 +818,7 @@ let tests =
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.IntrinsicInterface iface ->
                     Expect.equal
-                        (SymbolKey.Type iface.Canon)
+                        iface.Canon
                         (RuntimeNames.primitiveKey "disposable")
                         "IntrinsicInterface canon is the contract-sourced qualified identity (`namespace Vesper`)"
 
@@ -837,7 +831,7 @@ let tests =
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 // The member surface survived alongside the platform name.
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Dispose") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Dispose") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
@@ -889,7 +883,7 @@ let tests =
                 // `Intrinsic` shape carries no member slots.
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "M") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "M") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "concrete member surface `M` was dropped when the Intrinsic shape was restored"
             }
@@ -916,7 +910,7 @@ let tests =
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match provider.TryLookupType(SymbolKey.Type key) with
+                match provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record _) -> ()
                 | ValueSome other -> failtestf "the key answered, but with the wrong shape: %A" other
                 | ValueNone -> failtest "the contract store must be addressable by the module-held type's key"
@@ -995,7 +989,7 @@ let tests =
                 let store = TypeStore()
 
                 match ExternalSymbols.instantiateSymbol store sym 0 with
-                | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.simpleName k = DisplayName "bool" ->
+                | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.typeSimpleName k = DisplayName "bool" ->
                     Expect.isTrue
                         (store.Constraints.Items(UnionFind.find store a)
                          |> List.exists (fun c -> c.Kind = SemanticConstraintKind.Equality))
@@ -1216,7 +1210,7 @@ let tests =
             test "the cons-list's declared indexer publishes under the name a use site resolves" {
                 // `list.fsi` declares `member Item: index: int -> 'T with get`, and
                 // `x.[i]` resolves an indexer by the `get_Item` name only.
-                let listKey = SymbolKey.Type RuntimeNames.vesperListKey
+                let listKey = RuntimeNames.vesperListKey
 
                 match realProvider.Value.TryLookupMembers(listKey, "get_Item") with
                 | EqOne m ->
@@ -1273,7 +1267,7 @@ let tests =
 
                 for anchor in [ RuntimeNames.equatableKey; RuntimeNames.comparableKey ] do
                     Expect.isTrue
-                        (declared |> EqArray.exists (fun iface -> iface.Key = SymbolKey.Type anchor))
+                        (declared |> EqArray.exists (fun iface -> iface.Key = anchor))
                         (sprintf
                             "`int` does not declare `%s`; it declares %A"
                             (SymbolKeyOps.typeMetaName anchor)
@@ -1288,9 +1282,9 @@ let tests =
                 let intKey = RuntimeNames.intKey
 
                 let reprOnly =
-                    let shapes = System.Collections.Generic.Dictionary<SymbolKey, ExternalTypeShape>()
+                    let shapes = System.Collections.Generic.Dictionary<TypeKey, ExternalTypeShape>()
 
-                    let canon = SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.qualifiedName intKey) 0
+                    let canon = SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.typeMetaName intKey) 0
 
                     shapes.[intKey] <-
                         ExternalTypeShape.Intrinsic(
@@ -1312,7 +1306,7 @@ let tests =
 
                 Expect.isTrue
                     (declaredInterfaces composed intKey
-                     |> EqArray.exists (fun iface -> iface.Key = SymbolKey.Type RuntimeNames.equatableKey))
+                     |> EqArray.exists (fun iface -> iface.Key = RuntimeNames.equatableKey))
                     "the contract's `equatable<int>` survives a source that binds only a repr"
             }
         ]

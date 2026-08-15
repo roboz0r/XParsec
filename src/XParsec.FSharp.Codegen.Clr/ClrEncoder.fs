@@ -29,7 +29,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let eVesperList1 = env.EVesperList1
 
     /// Single-sourced primitive repr, as an active pattern over an `FTConst` canon key.
-    let (|PrimitiveRepr|_|) (key: SymbolKey) = env.TryPrimitiveRepr key
+    let (|PrimitiveRepr|_|) (key: TypeKey) = env.TryPrimitiveRepr key
 
     // `ValueTuple`n` handle bundles, cached by element-type list. Unlike `ctx.TypeRef` (which
     // dedups its rows), `ctx.TypeSpec` / `ctx.MemberRef` add a fresh metadata row per call, so
@@ -42,17 +42,17 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalClass|_|) (t: FrozenType) =
         match t with
         | FTClass(key, args) ->
-            match externalClassRef (SymbolKey.Type key) with
+            match externalClassRef key with
             // A struct external type (`List`1+Enumerator`) must encode as a
             // `VALUETYPE` element; every reference type stays `false`.
-            | ValueSome tref -> Some(tref, externalIsValueType (SymbolKey.Type key), args)
+            | ValueSome tref -> Some(tref, externalIsValueType key, args)
             | ValueNone -> None
         | _ -> None
 
     let (|ExternalRecord|_|) (t: FrozenType) =
         match t with
         | FTRecord(key, args) ->
-            match externalRecordRef (SymbolKey.Type key, args.Length) with
+            match externalRecordRef (key, args.Length) with
             | ValueSome(tref, _) -> Some(tref, args)
             | ValueNone -> None
         | _ -> None
@@ -60,7 +60,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let (|ExternalUnion|_|) (t: FrozenType) =
         match t with
         | FTUnion(key, args) ->
-            match externalUnionRef (SymbolKey.Type key, args.Length) with
+            match externalUnionRef (key, args.Length) with
             | ValueSome(tref, _) -> Some(tref, args)
             | ValueNone -> None
         | _ -> None
@@ -260,7 +260,7 @@ type internal ClrEncoder(env: ClrEnv) =
             else
                 // An intrinsic whose repr is a BCL TYPE, not a primitive: `exn` →
                 // `System.Exception`. A generic repr spells its own `` `N ``, hence arity 0.
-                let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
+                let platformKey = SymbolKeyOps.qualifiedTypeKeyOf repr 0
 
                 match externalClassRef platformKey with
                 // The repr's OWN value-ness: a struct encoded as `class X` only dies at JIT time.
@@ -271,7 +271,7 @@ type internal ClrEncoder(env: ClrEnv) =
                     for a in args do
                         encodeType (g.AddArgument()) a
                 | ValueNone ->
-                    let (DisplayName name) = SymbolKeyOps.simpleName key
+                    let (DisplayName name) = SymbolKeyOps.typeSimpleName key
                     failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 

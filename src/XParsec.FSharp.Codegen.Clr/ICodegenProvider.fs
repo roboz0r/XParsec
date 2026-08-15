@@ -219,7 +219,7 @@ type ICodegenProvider =
     /// recorded it, selecting that exact same-arity overload by identity; `ValueNone` falls
     /// back to the first arity match. `tyArgs` instantiate the constructed type.
     abstract TryEmitCtor:
-        key: SymbolKey * chosen: SymbolKey voption * tyArgs: FrozenType list * argTypes: FrozenType list ->
+        key: TypeKey * chosen: SymbolKey voption * tyArgs: FrozenType list * argTypes: FrozenType list ->
             CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values are already
@@ -246,7 +246,7 @@ type ICodegenProvider =
     /// `tyArgs`, plus the field's declared type after the record's typar substitution
     /// (`'T` ⇒ `tyArgs.[i]`). `ValueNone` ⇒ unknown record, or unknown field on a known one.
     abstract TryResolveExternalRecordField:
-        key: SymbolKey * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
+        key: TypeKey * tyArgs: FrozenType list * fieldName: string -> (EntityHandle * FrozenType) voption
 
     /// The `_tag : int` discriminator field `MemberRef` on a *referenced-package* union,
     /// instantiated at `tyArgs`, plus `caseName`'s tag value (its zero-based index in
@@ -318,17 +318,17 @@ type ICodegenProvider =
     /// `MemberRef` for the parameterless `.ctor()` of a HERITABLE external base class
     /// (`type X = (# class "System.Attribute" #)`) — what a derived primary `.ctor` chains
     /// to instead of `System.Object::.ctor`. Minted off the `TypeRef`: it may be `protected`.
-    abstract ExternalParameterlessBaseCtor: key: SymbolKey -> EntityHandle voption
+    abstract ExternalParameterlessBaseCtor: key: TypeKey -> EntityHandle voption
 
     /// The raw external `TypeRef` for `key` (a heritable external base class), the token a
     /// derived type's `extends` column names. `ValueNone` ⇒ `key` is not an external class.
-    abstract ExternalClassTypeRef: key: SymbolKey -> EntityHandle voption
+    abstract ExternalClassTypeRef: key: TypeKey -> EntityHandle voption
 
     /// Resolve an intrinsic-CLASS `inherit` parent to its platform external key
     /// (`System.Exception`) plus its raw `TypeRef`, the derived type's `extends` token.
     /// Such a parent is an `FTConst` canon (`exn`) whose platform repr is a heritable
     /// BCL reference class.
-    abstract IntrinsicClassBase: canon: SymbolKey -> struct (SymbolKey * EntityHandle) voption
+    abstract IntrinsicClassBase: canon: TypeKey -> struct (TypeKey * EntityHandle) voption
 
     abstract ObjectType: EntityHandle
 
@@ -344,7 +344,7 @@ type ICodegenProvider =
     /// `Unanswered` where the referenced set is silent, so a caller holding its own declarations
     /// can take over. It reads the store the front end typed against, which is what keeps the
     /// two ends from classifying a type differently.
-    abstract ExternalLayout: key: SymbolKey -> TypeLayout
+    abstract ExternalLayout: key: TypeKey -> TypeLayout
 
     /// The RAW target facts, unmerged with any declaration.
     abstract Platform: IPlatformFacts voption

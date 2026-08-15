@@ -29,7 +29,7 @@ let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diag
 /// carries no home, so the physical location has to be read back off the shape the
 /// provider resolves for that key.
 let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : string option =
-    match (provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type decl) with
+    match (provider :> IExternalSymbolStore).TryLookupType decl with
     | ValueSome(ExternalTypeShape.Class info) ->
         match info.Origin.Home.AssemblyOption with
         | ValueSome a -> Some a
@@ -70,14 +70,14 @@ let tests =
                             _) ->
                     match Unification.zonk ctx.Store ghTy with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.simpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                         ->
                         ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
                     match Unification.zonk ctx.Store resultTy with
-                    | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "int" -> ()
+                    | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     match ghKey with
@@ -114,7 +114,7 @@ let tests =
                             args.Length = 1
                             && (
                                 match args.[0] with
-                                | TyConst(key, _) -> SymbolKeyOps.simpleName key = DisplayName "int"
+                                | TyConst(key, _) -> SymbolKeyOps.typeSimpleName key = DisplayName "int"
                                 | _ -> false
                             )
                             ->
@@ -145,7 +145,7 @@ let tests =
                 let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let expected =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
                     | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 
@@ -198,14 +198,14 @@ let tests =
                                       _)) ->
                     match Unification.zonk ctx.Store ghTy with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.simpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                         ->
                         ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
                     match Unification.zonk ctx.Store resultTy with
-                    | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "int" -> ()
+                    | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     match ghKey with
@@ -245,7 +245,7 @@ let tests =
                 let provider = ClrSymbolProviders.build [ vesperCorePackage ]
 
                 let expected =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
                     | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 

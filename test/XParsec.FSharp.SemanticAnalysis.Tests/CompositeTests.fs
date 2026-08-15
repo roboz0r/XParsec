@@ -72,7 +72,7 @@ let private valueTag (provider: IExternalSymbolProvider) (name: string) : string
     | ValueSome sym ->
         match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
         | TyConst(key, _) ->
-            let (DisplayName name) = SymbolKeyOps.simpleName key
+            let (DisplayName name) = SymbolKeyOps.typeSimpleName key
             ValueSome name
         | _ -> ValueNone
     | ValueNone -> ValueNone
@@ -112,7 +112,7 @@ let tests =
                 Expect.isTrue (composed.TryLookupType "nope" |> ValueOption.isNone) "type miss"
 
                 Expect.isTrue
-                    (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "nope" 0, "nope")
+                    (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "nope" 0, "nope")
                      |> ValueOption.isNone)
                     "member miss"
             }
@@ -127,7 +127,7 @@ let tests =
                     Expect.equal info.Origin.Namespace.Dotted "a" "type: a wins"
                 | other -> failtestf "expected Class shape from a, got %A" other
 
-                match composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "shared" 0, "shared") with
+                match composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "shared" 0, "shared") with
                 | ValueSome m -> Expect.equal m.Origin.Namespace.Dotted "a" "member: a wins"
                 | ValueNone -> failtest "expected member from a"
             }
@@ -139,7 +139,7 @@ let tests =
                 Expect.isTrue (composed.TryLookupType "anything" |> ValueOption.isNone) "type miss"
 
                 Expect.isTrue
-                    (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "anything" 0, "x")
+                    (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "anything" 0, "x")
                      |> ValueOption.isNone)
                     "member miss"
             }

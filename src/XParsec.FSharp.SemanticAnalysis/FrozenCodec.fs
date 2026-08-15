@@ -201,11 +201,11 @@ module FrozenCodec =
             writeSymbolRef w key
         | ExprPayload.StaticFieldGet p ->
             w.Write 29uy
-            writeSymbolRef w p.DeclKey
+            writeTypeKeyRef w p.DeclKey
             w.Write p.FieldName
         | ExprPayload.StaticFieldSet p ->
             w.Write 30uy
-            writeSymbolRef w p.DeclKey
+            writeTypeKeyRef w p.DeclKey
             w.Write p.FieldName
         | ExprPayload.ExternalMember p ->
             w.Write 31uy
@@ -296,7 +296,7 @@ module FrozenCodec =
         | 27uy -> ExprPayload.StaticMethodCall(readSymbolRef r)
         | 28uy -> ExprPayload.StaticPropertyGet(readSymbolRef r)
         | 29uy ->
-            let declKey = readSymbolRef r
+            let declKey = readTypeKeyRef r
             let fieldName = r.ReadString()
 
             ExprPayload.StaticFieldGet
@@ -305,7 +305,7 @@ module FrozenCodec =
                     FieldName = fieldName
                 |}
         | 30uy ->
-            let declKey = readSymbolRef r
+            let declKey = readTypeKeyRef r
             let fieldName = r.ReadString()
 
             ExprPayload.StaticFieldSet
@@ -392,7 +392,7 @@ module FrozenCodec =
             writeTypeRef w testTy
         | PatPayload.EnumCase p ->
             w.Write 9uy
-            writeSymbolRef w p.EnumKey
+            writeTypeKeyRef w p.EnumKey
             w.Write p.CaseName
 
     let private readPatPayload (r: FrozenReader) : PatPayload =
@@ -407,7 +407,7 @@ module FrozenCodec =
         | 7uy -> PatPayload.Union(r.ReadString())
         | 8uy -> PatPayload.TypeTestAs(readTypeRef r)
         | 9uy ->
-            let enumKey = readSymbolRef r
+            let enumKey = readTypeKeyRef r
             let caseName = r.ReadString()
 
             PatPayload.EnumCase
@@ -443,13 +443,13 @@ module FrozenCodec =
     /// The un-pooled fields, verbatim, because none of them is a tree.
     let private writeResidue (w: FrozenWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
-        writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
+        writeTypeKeyDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
         writeSymbolSet w res.GlobalValueKeys
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: FrozenReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
-        let intrinsicReprKeys = readSymbolDict r readIntrinsicReprInfo
+        let intrinsicReprKeys = readTypeKeyDict r readIntrinsicReprInfo
         let globalValueKeys = readSymbolSet r
         let accessibility = readSymbolDict r readAccessibility
 

@@ -11,7 +11,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 /// The array's member-contract key: the same key the member-access lookup, the consumer
 /// contract and the inline-body store all pass to `TryLookupMember`.
-let private arrayMemberKey: SymbolKey = RuntimeNames.arrayKey 1
+let private arrayMemberKey: TypeKey = RuntimeNames.arrayKey 1
 
 [<Tests>]
 let tests =

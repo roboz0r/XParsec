@@ -178,7 +178,7 @@ module FrozenTypeBridge =
     /// The impl in `ifaces` whose identity is `target`, with its args realised at THIS object
     /// argument: `FTTypar(Declaring,i) := declArgs.[i]`.
     let pickInterfaceWitness
-        (target: SymbolKey)
+        (target: TypeKey)
         (declArgs: FrozenType[])
         (ifaces: FrozenInterface seq)
         : EqArray<FrozenType> voption =

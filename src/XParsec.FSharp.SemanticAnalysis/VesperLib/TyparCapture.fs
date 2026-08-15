@@ -256,7 +256,7 @@ module VesperLibTyparCapture =
                     | ExternalTypeShape.Intrinsic { Id = id } ->
                         Some
                             {
-                                Canon = SymbolKey.Type id.Canon
+                                Canon = id.Canon
                                 Platform = id.Platform
                             }
                     | _ -> None
@@ -265,11 +265,11 @@ module VesperLibTyparCapture =
 
             // The type channels, addressed by identity rather than by a rendering of one,
             // because that is what answers a module-held type's key, which no written name spells.
-            let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
-            let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
+            let shapesByKey = Dictionary<TypeKey, ExternalTypeShape>()
+            let membersByKey = Dictionary<TypeKey, ResizeArray<ExternalMember>>()
 
             for KeyValue(compiled, typeKey) in ctx.TypeKeys do
-                let key = SymbolKey.Type typeKey
+                let key = typeKey
 
                 match ctx.TypeShapes.TryGetValue compiled with
                 | true, shape -> shapesByKey.[key] <- shape

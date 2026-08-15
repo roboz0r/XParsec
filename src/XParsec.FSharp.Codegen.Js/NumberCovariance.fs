@@ -12,7 +12,7 @@ module NumberCovariance =
 
     /// How `float` is SPELLED in the assertion below, taken off its own identity so the message
     /// cannot name a type other than the one that was checked.
-    let private floatCanonName = SymbolKeyOps.intrinsicName RuntimeNames.floatKey
+    let private floatCanonName = RuntimeNames.floatKey.Name
 
     let wrap (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         match IntrinsicTypeMap.tryRepr RuntimeNames.floatKey inner.IntrinsicTypeMap with

@@ -195,11 +195,11 @@ module RuntimeNames =
 
     /// The identity + type args a REALISED interface denotes. A `TyConst` counts: that is how
     /// an intrinsic interface (`seq<'T>` on JS) realises.
-    let interfaceNominal (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
+    let interfaceNominal (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
         match ty with
         | TyClass(k, args)
         | TyUnion(k, args)
-        | TyRecord(k, args) -> ValueSome(struct (SymbolKey.Type k, args))
+        | TyRecord(k, args) -> ValueSome(struct (k, args))
         | TyConst(k, args) -> ValueSome(struct (k, args))
         | _ -> ValueNone
 
@@ -233,11 +233,11 @@ module RuntimeNames =
 
     /// Taken verbatim at ARITY 0; a generic intrinsic (`seq`) is minted from the contract
     /// instead.
-    let primitiveKey (name: string) : SymbolKey =
-        SymbolKeyOps.typeKey intrinsicNamespace name
+    let primitiveKey (name: string) : TypeKey =
+        SymbolKeyOps.typeKeyOf intrinsicNamespace name
 
     /// For a name that is NOT a registered intrinsic.
-    let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey "" name
+    let opaqueKey (name: string) : TypeKey = SymbolKeyOps.typeKeyOf "" name
 
     let private intrinsicContainer: TypeContainer =
         TypeContainer.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
@@ -247,55 +247,53 @@ module RuntimeNames =
     /// identity names (`"[]"`, `"[,]"`, …) are unbounded. Namespace and arity are compared
     /// too, confining the name test to keys already established to be intrinsics. A
     /// classification with FIXED membership names its keys instead.
-    let isIntrinsicKeyWhere (nameSatisfies: string -> bool) (k: SymbolKey) : bool =
-        match k with
-        | SymbolKey.Type t -> t.TyparArity = 0 && t.Container = intrinsicContainer && nameSatisfies t.Name
-        | _ -> false
+    let isIntrinsicKeyWhere (nameSatisfies: string -> bool) (k: TypeKey) : bool =
+        k.TyparArity = 0 && k.Container = intrinsicContainer && nameSatisfies k.Name
 
     /// An array of any rank or a managed by-ref, compared as an IDENTITY so a user type named
     /// `byref` in its own namespace cannot claim the dedicated backend path these ride.
-    let isStructuralConstructorKey (k: SymbolKey) : bool =
+    let isStructuralConstructorKey (k: TypeKey) : bool =
         isIntrinsicKeyWhere SymbolKeyOps.isStructuralConstructorName k
 
-    let unitKey: SymbolKey = primitiveKey "unit"
-    let boolKey: SymbolKey = primitiveKey "bool"
-    let charKey: SymbolKey = primitiveKey "char"
-    let stringKey: SymbolKey = primitiveKey "string"
-    let objKey: SymbolKey = primitiveKey objAbbrevName
-    let exnKey: SymbolKey = primitiveKey "exn"
-    let voidptrKey: SymbolKey = primitiveKey "voidptr"
-    let sbyteKey: SymbolKey = primitiveKey "sbyte"
-    let byteKey: SymbolKey = primitiveKey "byte"
-    let int16Key: SymbolKey = primitiveKey "int16"
-    let uint16Key: SymbolKey = primitiveKey "uint16"
-    let intKey: SymbolKey = primitiveKey "int"
-    let uint32Key: SymbolKey = primitiveKey "uint32"
-    let int64Key: SymbolKey = primitiveKey "int64"
-    let uint64Key: SymbolKey = primitiveKey "uint64"
-    let nativeintKey: SymbolKey = primitiveKey "nativeint"
-    let unativeintKey: SymbolKey = primitiveKey "unativeint"
-    let floatKey: SymbolKey = primitiveKey "float"
+    let unitKey: TypeKey = primitiveKey "unit"
+    let boolKey: TypeKey = primitiveKey "bool"
+    let charKey: TypeKey = primitiveKey "char"
+    let stringKey: TypeKey = primitiveKey "string"
+    let objKey: TypeKey = primitiveKey objAbbrevName
+    let exnKey: TypeKey = primitiveKey "exn"
+    let voidptrKey: TypeKey = primitiveKey "voidptr"
+    let sbyteKey: TypeKey = primitiveKey "sbyte"
+    let byteKey: TypeKey = primitiveKey "byte"
+    let int16Key: TypeKey = primitiveKey "int16"
+    let uint16Key: TypeKey = primitiveKey "uint16"
+    let intKey: TypeKey = primitiveKey "int"
+    let uint32Key: TypeKey = primitiveKey "uint32"
+    let int64Key: TypeKey = primitiveKey "int64"
+    let uint64Key: TypeKey = primitiveKey "uint64"
+    let nativeintKey: TypeKey = primitiveKey "nativeint"
+    let unativeintKey: TypeKey = primitiveKey "unativeint"
+    let floatKey: TypeKey = primitiveKey "float"
     /// JS shares `number` between this and `float`, so the key is the only carrier of the width.
-    let float32Key: SymbolKey = primitiveKey "float32"
-    let decimalKey: SymbolKey = primitiveKey "decimal"
+    let float32Key: TypeKey = primitiveKey "float32"
+    let decimalKey: TypeKey = primitiveKey "decimal"
     /// The arbitrary-precision integer (CLR `System.Numerics.BigInteger`, JS `bigint`),
     /// the type a `NumBigInteger*` literal token pins to. Outside `numericKeys`: it is not
     /// a fixed-width scalar, so none of the width-driven classifications admit it.
-    let bigintKey: SymbolKey = primitiveKey "bigint"
-    let undefinedKey: SymbolKey = primitiveKey undefinedTypeName
-    let byrefKey: SymbolKey = primitiveKey SymbolKeyOps.byrefName
+    let bigintKey: TypeKey = primitiveKey "bigint"
+    let undefinedKey: TypeKey = primitiveKey undefinedTypeName
+    let byrefKey: TypeKey = primitiveKey SymbolKeyOps.byrefName
 
     let arrayTypeKey (rank: int) : TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace (SymbolKeyOps.arrayName rank)
 
-    let arrayKey (rank: int) : SymbolKey = SymbolKey.Type(arrayTypeKey rank)
+    let arrayKey (rank: int) : TypeKey = arrayTypeKey rank
 
-    let dynamicKey: SymbolKey = primitiveKey "dynamic"
+    let dynamicKey: TypeKey = primitiveKey "dynamic"
 
     /// The IDENTITY of the base primitive a structural literal erases to, so every erasing
     /// consumer shares one identity rather than re-minting a name. Lives here rather than on
     /// `LiteralConst`: the DU compiles before the intrinsic identities do.
-    let literalBaseKey (v: LiteralConst) : SymbolKey =
+    let literalBaseKey (v: LiteralConst) : TypeKey =
         match v with
         | LiteralConst.String _ -> stringKey
         | LiteralConst.Int _ -> intKey
@@ -303,7 +301,7 @@ module RuntimeNames =
     /// THE width → type projection: the elaborator gives an enum its underlying type by it,
     /// `freeze` types an integral constant by it, and the CLR backend types the constant it
     /// loads by it, so a constant's width and the type it freezes at cannot disagree.
-    let intWidthKey (w: IntWidth) : SymbolKey =
+    let intWidthKey (w: IntWidth) : TypeKey =
         match w with
         | IntWidth.SByte -> sbyteKey
         | IntWidth.Byte -> byteKey
@@ -326,14 +324,14 @@ module RuntimeNames =
     /// Membership over a FIXED set of intrinsic identities, resolved once into a hash set.
     /// `HashSet` and not `Set`: a `SymbolKey` carries `EqArray`s, which are `NoComparison`
     /// by design. Bind the result at module level, because the set is built per call.
-    let isKeyIn (keys: SymbolKey seq) : SymbolKey -> bool =
+    let isKeyIn (keys: TypeKey seq) : TypeKey -> bool =
         let set = HashSet(keys)
         set.Contains
 
     /// The built-in NUMERIC identities, in canonical spelling. The ALIASES (`int32`,
     /// `single`, `double`, …) have no key because they never reach one: an alias is expanded
     /// during name resolution, so a type arriving as a key has already dealiased.
-    let numericKeys: SymbolKey list =
+    let numericKeys: TypeKey list =
         [
             sbyteKey
             byteKey
@@ -353,7 +351,7 @@ module RuntimeNames =
     /// The non-numeric built-in primitive identities. `objnull` is deliberately absent: it is
     /// the `obj | null` union, and must EXPAND to `FTOr [obj; null]` rather than dealias to
     /// bare `obj`.
-    let referencePrimitiveKeys: SymbolKey list =
+    let referencePrimitiveKeys: TypeKey list =
         [ boolKey; charKey; stringKey; unitKey; objKey; voidptrKey; exnKey ]
 
     /// The ALIAS spellings of the numeric primitives: the ones with no key of their own
@@ -367,18 +365,18 @@ module RuntimeNames =
     /// identity exists for it: a source-written annotation, a TS manifest's bare reference.
     let numericTypeNames: Set<string> =
         numericKeys
-        |> Seq.map SymbolKeyOps.intrinsicName
+        |> Seq.map (fun k -> k.Name)
         |> Seq.append numericAliasNames
         |> Set.ofSeq
 
     /// The name-axis projection of `referencePrimitiveKeys`; see `numericTypeNames`. No
     /// aliases, because each of these is spelled one way.
     let referencePrimitiveNames: Set<string> =
-        referencePrimitiveKeys |> Seq.map SymbolKeyOps.intrinsicName |> Set.ofSeq
+        referencePrimitiveKeys |> Seq.map (fun k -> k.Name) |> Set.ofSeq
 
     /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
     /// and its identity is the bare name.
-    let nullKey: SymbolKey = opaqueKey nullTypeName
+    let nullKey: TypeKey = opaqueKey nullTypeName
 
 [<AutoOpen>]
 module IntrinsicTypePatterns =
@@ -438,11 +436,11 @@ module IntrinsicTypePatterns =
         | _ -> None
 
     /// A key onto the platform-repr string axis: refuses any key with a declaring namespace.
-    let (|PlatformName|_|) (k: SymbolKey) : string option =
-        match k with
-        | SymbolKey.Type t when t.TyparArity = 0 && t.Container = TypeContainer.InNamespace NamespaceKey.Global ->
-            Some t.Name
-        | _ -> None
+    let (|PlatformName|_|) (k: TypeKey) : string option =
+        if k.TyparArity = 0 && k.Container = TypeContainer.InNamespace NamespaceKey.Global then
+            Some k.Name
+        else
+            None
 
     let (|FTUnit|_|) (ft: FrozenType) =
         match ft with

@@ -250,7 +250,7 @@ module internal UnificationInferExternalCall =
                                 sprintf
                                     "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
                                     memberName
-                                    (SymbolKeyOps.qualifiedName declTypeKey)
+                                    (SymbolKeyOps.typeMetaName declTypeKey)
                             ))
                     )
 

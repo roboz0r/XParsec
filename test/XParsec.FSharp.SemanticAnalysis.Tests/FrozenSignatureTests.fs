@@ -116,7 +116,7 @@ let tests =
                 let provider = FrozenSignature.toSignatures origin frozen
                 let store = provider :> IExternalSymbolStore
 
-                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Box")) with
+                match store.TryLookupType(typeKeyOf frozen "Box") with
                 | ValueSome(ExternalTypeShape.Record(1, fields, origin, isValueType)) ->
                     Expect.equal (fields |> EqArray.map (fun f -> f.Name)) (EqArray.ofSeq [ "value" ]) "Box field names"
                     Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
@@ -125,12 +125,12 @@ let tests =
 
                 // Value-ness decides `when 'a : struct` in a CONSUMING unit, which reads only
                 // this shape, so the `[<Struct>]` has to survive the freeze.
-                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Point")) with
+                match store.TryLookupType(typeKeyOf frozen "Point") with
                 | ValueSome(ExternalTypeShape.Record(isValueType = isValueType)) ->
                     Expect.isTrue isValueType "a [<Struct>] record projects as a value layout"
                 | other -> failtestf "Point did not project as a Record: %A" other
 
-                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Opt")) with
+                match store.TryLookupType(typeKeyOf frozen "Opt") with
                 | ValueSome(ExternalTypeShape.Union(1, cases, _, origin)) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Name))
@@ -163,7 +163,7 @@ let tests =
             test "augmentation members project on the store view" {
                 let origin, frozen = freezeWithOrigin projectionSrc
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
-                let widgetKey = SymbolKey.Type(typeKeyOf frozen "Widget")
+                let widgetKey = typeKeyOf frozen "Widget"
 
                 let memberName = membersOfType frozen "Widget" |> List.head |> (fun m -> m.Name)
 
@@ -403,7 +403,7 @@ module M =
                 let origin, frozen = freezeWithOrigin src
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
-                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Direction")) with
+                match store.TryLookupType(typeKeyOf frozen "Direction") with
                 | ValueSome(ExternalTypeShape.Enum(cases, origin)) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Name))
@@ -433,7 +433,7 @@ module M =
                 let origin, frozen = freezeWithOrigin src
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
-                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Mode")) with
+                match store.TryLookupType(typeKeyOf frozen "Mode") with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
                     Expect.equal
                         (cases |> EqArray.map (fun c -> c.Value))

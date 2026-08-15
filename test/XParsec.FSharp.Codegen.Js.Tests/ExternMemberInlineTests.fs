@@ -241,18 +241,18 @@ let tests =
                                         TExprG.ILIntrinsic _,
                                         FTFun(FTConst(k2, _), FTConst(k3, _)),
                                         _) when
-                            SymbolKeyOps.simpleName k1 = DisplayName "int"
-                            && SymbolKeyOps.simpleName k2 = DisplayName "int"
-                            && SymbolKeyOps.simpleName k3 = DisplayName "int"
+                            SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                            && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
+                            && SymbolKeyOps.typeSimpleName k3 = DisplayName "int"
                             ->
                             ()
                         | other -> failtestf "expected inner `fun x -> (# … #)`, got %A" other
 
                         match declTy with
                         | FTFun(FTConst(k1, _), FTFun(FTConst(k2, _), FTConst(k3, _))) when
-                            SymbolKeyOps.simpleName k1 = DisplayName "widget"
-                            && SymbolKeyOps.simpleName k2 = DisplayName "int"
-                            && SymbolKeyOps.simpleName k3 = DisplayName "int"
+                            SymbolKeyOps.typeSimpleName k1 = DisplayName "widget"
+                            && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
+                            && SymbolKeyOps.typeSimpleName k3 = DisplayName "int"
                             ->
                             ()
                         | other -> failtestf "declTy is not `widget -> int -> int`: %A" other
@@ -275,11 +275,11 @@ let tests =
                     | TDeclG.Let(_,
                                  TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k0, _), _), TExprG.ILIntrinsic _, _, _),
                                  true,
-                                 declTy) when SymbolKeyOps.simpleName k0 = DisplayName "int" ->
+                                 declTy) when SymbolKeyOps.typeSimpleName k0 = DisplayName "int" ->
                         match declTy with
                         | FTFun(FTConst(k1, _), FTConst(k2, _)) when
-                            SymbolKeyOps.simpleName k1 = DisplayName "int"
-                            && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                            SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                            && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                             ->
                             ()
                         | other -> failtestf "static declTy is not `int -> int`: %A" other
@@ -317,7 +317,7 @@ let tests =
                 let provider, key = widgetContract ()
 
                 let mem =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Poke") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Poke") with
                     | ValueSome m -> m
                     | ValueNone -> failtest "TryLookupMember(widget, Poke) missing — member capture failed"
 
@@ -340,7 +340,7 @@ let tests =
                         | _ -> ValueNone
                     )
 
-                match served.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Poke") with
+                match served.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Poke") with
                 | ValueSome m ->
                     Expect.isTrue m.InlineBody.IsSome "the member entry carries its inline body — the key AGREES"
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed through the inline-body fold"
@@ -353,7 +353,7 @@ let tests =
                 let provider, key =
                     widgetContractOf "    member inline Poke : int -> int\n    member inline Poke : string -> int\n"
 
-                let declKey = SymbolKeyOps.qualifiedTypeKey key 0
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOf key 0
 
                 let overloads = provider.TryLookupMembers(declKey, "Poke")
                 Expect.equal overloads.Length 2 "both `Poke` overloads are published"
@@ -426,7 +426,7 @@ let tests =
                 TestHelpers.expectMemberKeyHalvesAgree
                     widgetFixtureContract.Value
                     [ widgetPackage ]
-                    (SymbolKeyOps.qualifiedTypeKey "Widgets.slot" 1)
+                    (SymbolKeyOps.qualifiedTypeKeyOf "Widgets.slot" 1)
                     [ "get_Item"; "set_Item" ]
             }
 
@@ -437,7 +437,7 @@ let tests =
                 TestHelpers.expectMemberKeyHalvesAgree
                     widgetFixtureContract.Value
                     [ widgetPackage ]
-                    (SymbolKeyOps.qualifiedTypeKey "Widgets.widget" 0)
+                    (SymbolKeyOps.qualifiedTypeKeyOf "Widgets.widget" 0)
                     [ "Poke3" ]
             }
 
@@ -584,7 +584,7 @@ let tests =
                 | Some(_, body) ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _), _, _, _), true, _) when
-                        SymbolKeyOps.simpleName key = DisplayName "widget"
+                        SymbolKeyOps.typeSimpleName key = DisplayName "widget"
                         ->
                         ()
                     | other -> failtestf "expected a `this : widget`-first inline lambda, got %A" other

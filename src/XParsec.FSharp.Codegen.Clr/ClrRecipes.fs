@@ -222,9 +222,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | FTClass(rKey, rArgs)
         | FTUnion(rKey, rArgs)
         | FTRecord(rKey, rArgs) ->
-            match env.LookupTypeByKey(SymbolKey.Type rKey) with
+            match env.LookupTypeByKey(rKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
-                pickInterfaceWitness (SymbolKey.Type ifaceKey) (rArgs.AsSpan().ToArray()) shape.FrozenInterfaces
+                pickInterfaceWitness ifaceKey (rArgs.AsSpan().ToArray()) shape.FrozenInterfaces
             | _ -> ValueNone
         | _ -> ValueNone
 

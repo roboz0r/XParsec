@@ -91,7 +91,7 @@ let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 let expectMemberKeyHalvesAgree
     (contract: SymbolProviders.Contract)
     (implPackages: string list)
-    (declKey: SymbolKey)
+    (declKey: TypeKey)
     (members: string list)
     : unit =
     // The named packages alone, NOT their `depends-on` closure: the assertion is about the
@@ -119,7 +119,7 @@ let expectMemberKeyHalvesAgree
             implBodies
             |> List.filter (fun mb ->
                 match mb.Key with
-                | SymbolKey.Member mk -> SymbolKey.Type mk.Decl = declKey && mk.Name = memberName
+                | SymbolKey.Member mk -> mk.Decl = declKey && mk.Name = memberName
                 | _ -> false
             )
         with
@@ -394,16 +394,16 @@ let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic
 let errorText (ds: Diagnostic list) : string =
     ds |> List.map (fun d -> d.Message) |> String.concat "\n"
 
-/// A `WalkCtx` matching production wiring: a real resolver over the source (its token table
-/// AND its line starts, since an anchor is an index into the former), and all lowering tables
-/// empty for `buildProgram` to fill. `exportTopLevel` selects script (`false`) vs library.
-let private jsWalkCtx
+/// The emission inputs matching production wiring: a real resolver over the source (its token
+/// table AND its line starts, since an anchor is an index into the former). `exportTopLevel`
+/// selects script (`false`) vs library.
+let private jsEmissionInputs
     (contract: SymbolProviders.Contract)
     (runtime: Map<string, JsRuntimeModule>)
     (exportTopLevel: bool)
     (input: string)
     (frozen: FrozenPools)
-    : EmitJsContext.WalkCtx =
+    : EmitJsContext.EmissionInputs =
     let resolver: EmitJsContext.Resolver =
         match Lexing.lexString input with
         | Result.Ok lexed ->
@@ -415,7 +415,7 @@ let private jsWalkCtx
                 }
         | Result.Error _ -> ValueNone
 
-    EmitJsContext.WalkCtx.create
+    EmitJsContext.EmissionInputs.create
         resolver
         (TastPoolBuilder.openOver frozen)
         contract.Provider
@@ -432,8 +432,8 @@ let emitWith
     (input: string)
     : string =
     let frozen = frozenImplJs contract.Provider input
-    let ctx = jsWalkCtx contract runtime exportTopLevel input frozen
-    (JsPrint.print (EmitJs.buildProgram ctx)).Source
+    let inputs = jsEmissionInputs contract runtime exportTopLevel input frozen
+    (JsPrint.print (EmitJs.buildProgram inputs)).Source
 
 /// Write `files` to a tmp dir, run the first under Node, and require the trimmed stdout to
 /// EXACTLY equal `expected`. When `node` is absent the exec check is SKIPPED; the caller's

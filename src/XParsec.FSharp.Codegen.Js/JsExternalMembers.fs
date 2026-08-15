@@ -54,7 +54,7 @@ module JsExternalMembers =
     /// THE `key -> home` oracle: a `SymbolKey` carries no home, so the only answer is what the
     /// provider stamped on the RESOLVED SHAPE. Consulted PAST the local/external verdict, so
     /// an unstamped home fails loudly rather than emitting a dangling reference.
-    let homeOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : JsHome =
+    let homeOf (provider: IExternalSymbolProvider) (key: TypeKey) (what: string) : JsHome =
         match provider.TryLookupType key with
         | ValueSome(ExternalTypeShape.Union(_, _, _, o))
         | ValueSome(ExternalTypeShape.Record(origin = o))
@@ -65,7 +65,7 @@ module JsExternalMembers =
 
     /// The ONE lookup the flags accessor and the dispatch classifier both project.
     let private classShapeOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassShape voption =
-        match provider.TryLookupType(SymbolKey.Type declKey) with
+        match provider.TryLookupType declKey with
         | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape
         | _ -> ValueNone
 
@@ -110,7 +110,7 @@ module JsExternalMembers =
             match ft with
             | FTClass(key, _)
             | FTUnion(key, _)
-            | FTRecord(key, _) -> provider.TryLookupType(SymbolKey.Type key)
+            | FTRecord(key, _) -> provider.TryLookupType key
             // An intrinsic's canon key is a nominal identity, so ask by KEY as the arms above do.
             | FTConst(key, _) -> provider.TryLookupType key
             | _ -> ValueNone
@@ -288,7 +288,7 @@ module JsExternalMembers =
             SymbolKeyOps.valueKey (ModuleContainer.InNamespace declKey.Namespace) memberName
 
         let home =
-            homeOf provider (SymbolKey.Type declKey) (sprintf "erased grouping member '%s'" memberName)
+            homeOf provider declKey (sprintf "erased grouping member '%s'" memberName)
 
         // `form` is the group's import shape, stamped on the grouping type's flags.
         let valueRef =
@@ -318,8 +318,7 @@ module JsExternalMembers =
         let (DisplayName declName) = SymbolKeyOps.typeSimpleName declKey
         let exportName = mangledName declName isStatic isProperty memberName
 
-        let home =
-            homeOf provider (SymbolKey.Type declKey) (sprintf "external member '%s'" memberName)
+        let home = homeOf provider declKey (sprintf "external member '%s'" memberName)
 
         let local = JsImports.addMemberRef imports home exportName
 

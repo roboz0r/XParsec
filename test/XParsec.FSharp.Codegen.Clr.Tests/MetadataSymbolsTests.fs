@@ -74,7 +74,7 @@ let tests =
                         ExternalSymbols.instantiateInterfaces info [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                         |> Array.choose (fun ty ->
                             match RuntimeNames.interfaceNominal ty with
-                            | ValueSome(struct (k, _)) -> Some(SymbolKeyOps.qualifiedName k)
+                            | ValueSome(struct (k, _)) -> Some(SymbolKeyOps.typeMetaName k)
                             | ValueNone -> None
                         )
                         |> Set.ofArray
@@ -118,7 +118,7 @@ let tests =
             }
 
             test "Default resolves as a static property typed EqualityComparer<'T>" {
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "Default") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "Default") with
                 | ValueSome m ->
                     Expect.isTrue m.IsStatic "Default is static"
                     Expect.equal m.Storage MemberStorage.Property "Default is a property"
@@ -141,7 +141,7 @@ let tests =
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = DisplayName "int"
+                            | TyConst(k, _) -> SymbolKeyOps.typeSimpleName k = DisplayName "int"
                             | _ -> false
                         )
                         ->
@@ -151,7 +151,7 @@ let tests =
             }
 
             test "GetHashCode resolves as an instance method typed 'T -> int" {
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
                 | ValueSome m ->
                     Expect.isFalse m.IsStatic "GetHashCode(T) is an instance method"
                     Expect.equal m.Storage MemberStorage.Method "a method, not a property"
@@ -165,8 +165,8 @@ let tests =
                             0
                     with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.simpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                         ->
                         ()
                     | other -> failtestf "expected int -> int, got %A" other
@@ -176,13 +176,13 @@ let tests =
             test "String.Empty resolves as a genuine static FIELD (not a property)" {
                 // `Storage = Field` so emission lowers it to `ldsfld`: `String` has no
                 // `get_Empty`, so a property lowering would `MissingMethodException`.
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "System.String" 0, "Empty") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf "System.String" 0, "Empty") with
                 | ValueSome m ->
                     Expect.equal m.Storage MemberStorage.Field "Empty is a field"
                     Expect.isTrue m.IsStatic "Empty is static"
 
                     match ExternalSymbols.instantiateSignature (TypeStore()) m [||] 0 with
-                    | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "string" -> ()
+                    | TyConst(key, _) when SymbolKeyOps.typeSimpleName key = DisplayName "string" -> ()
                     | other -> failtestf "Empty should be typed string, got %A" other
                 | ValueNone -> failtest "String.Empty did not resolve as a field"
             }
@@ -197,7 +197,7 @@ let tests =
 
                     // Interfaces: `IEnumerable<int>` once `'T := int` is substituted.
                     let enumerableKey =
-                        SymbolKeyOps.qualifiedTypeKey "System.Collections.Generic.IEnumerable`1" 1
+                        SymbolKeyOps.qualifiedTypeKeyOf "System.Collections.Generic.IEnumerable`1" 1
 
                     match
                         ExternalSymbols.instantiateInterfaces info intArg
@@ -219,7 +219,7 @@ let tests =
                     // canonicalizes the subtype roots.
                     match ExternalSymbols.instantiateBaseType info intArg with
                     | ValueSome(TyConst(k, _)) ->
-                        Expect.equal (SymbolKeyOps.qualifiedName k) "Vesper.obj" "List bases on the canon obj root"
+                        Expect.equal (SymbolKeyOps.typeMetaName k) "Vesper.obj" "List bases on the canon obj root"
                     | other -> failtestf "expected List base = canon obj, got %A" other
 
                     // The declaring typar resolves and any method typar freshens.
@@ -243,7 +243,7 @@ let tests =
 
                     Expect.equal
                         (provider.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf)
-                        (provider.TryLookupType(SymbolKey.Type key))
+                        (provider.TryLookupType key)
                         "the by-name and by-key views answer the same type"
                 | ValueNone -> failtestf "expected %s to resolve" eqComparer
             }

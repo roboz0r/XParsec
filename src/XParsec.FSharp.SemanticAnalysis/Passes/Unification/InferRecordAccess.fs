@@ -26,7 +26,7 @@ module internal UnificationInferRecordAccess =
         (ctx: PassContext)
         (memberName: string)
         (ty: SemType)
-        : struct (SymbolKey * EqArray<SemType> * ExternalMember) voption =
+        : struct (TypeKey * EqArray<SemType> * ExternalMember) voption =
         let onSurface (struct (declKey, args)) =
             match ctx.Provider.TryLookupMember(declKey, memberName) with
             | ValueSome m -> Some(struct (declKey, args, m))
@@ -51,7 +51,7 @@ module internal UnificationInferRecordAccess =
     let private pickSurface
         (ctx: PassContext)
         (objArgTy: SemType)
-        (f: SymbolKey -> SemType[] -> 'a voption)
+        (f: TypeKey -> SemType[] -> 'a voption)
         : 'a voption =
         let rec go surfaces =
             match surfaces with
@@ -221,7 +221,7 @@ module internal UnificationInferRecordAccess =
                             // The interface is external, so the member resolves through the
                             // provider. The object argument stays a typar (it never grounds to the
                             // interface), so this stamps `TyparInterfaceCall`, not `ExternalAccess`.
-                            match ctx.Provider.TryLookupMember(SymbolKey.Type ifaceKey, memberName) with
+                            match ctx.Provider.TryLookupMember(ifaceKey, memberName) with
                             | ValueSome m when not m.IsStatic ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome(ExternalSymbols.openSignature m (ifaceArgs.AsSpan().ToArray()))
@@ -271,7 +271,7 @@ module internal UnificationInferRecordAccess =
                 // Not project-local, so the record is the provider's (a prior file, or a referenced package).
                 let recQual = SymbolKeyOps.typeMetaName recKey
 
-                match ctx.Provider.TryLookupType(SymbolKey.Type recKey) with
+                match ctx.Provider.TryLookupType recKey with
                 | ValueSome(ExternalTypeShape.Record(fields = fieldShapes)) ->
                     match fieldShapes |> EqArray.tryFind (fun f -> f.Name = memberName) with
                     | ValueSome fieldShape ->
@@ -282,7 +282,7 @@ module internal UnificationInferRecordAccess =
                     | ValueNone ->
                         // An external record also carries augmentation members. This IS a
                         // member, so stamping `ExternalAccess` is correct here.
-                        match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
+                        match ctx.Provider.TryLookupMember(recKey, memberName) with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
                         | _ -> errorTy ctx memberTok (Kind.NoMember(recQual, MemberNoun.FieldOrMember, memberName))
                 | _ ->
@@ -311,7 +311,7 @@ module internal UnificationInferRecordAccess =
                 // `TyClass("…EqualityComparer\`1", [int])` from a prior static access).
                 let clsQual = SymbolKeyOps.typeMetaName clsKey
 
-                match ctx.Provider.TryLookupMember(SymbolKey.Type clsKey, memberName) with
+                match ctx.Provider.TryLookupMember(clsKey, memberName) with
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
 
@@ -325,10 +325,10 @@ module internal UnificationInferRecordAccess =
                         // An object argument typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`) is an
                         // `IntrinsicInterface`: it names a platform type but carries no member
                         // table, so retry there. A non-capability key comes back unchanged.
-                        let platformKey = capabilityPlatformKey ctx (SymbolKey.Type clsKey)
+                        let platformKey = capabilityPlatformKey ctx clsKey
 
                         match
-                            (if platformKey = SymbolKey.Type clsKey then
+                            (if platformKey = clsKey then
                                  ValueNone
                              else
                                  ctx.Provider.TryLookupMember(platformKey, memberName))
@@ -340,7 +340,7 @@ module internal UnificationInferRecordAccess =
                             // the NAMESPACE; the owning package is a fact of a shape, and none resolved.
                             let clsNs = clsKey.Namespace.Dotted
 
-                            match ctx.Provider.TryLookupType(SymbolKey.Type clsKey), clsNs with
+                            match ctx.Provider.TryLookupType clsKey, clsNs with
                             | ValueNone, ns when ns <> "" ->
                                 errorTy
                                     ctx
@@ -363,12 +363,12 @@ module internal UnificationInferRecordAccess =
                 // `IsSome`/`IsNone`/`Value` augmentation members the contract provider publishes).
                 let unionQual = SymbolKeyOps.typeMetaName unionKey
 
-                match ctx.Provider.TryLookupMember(SymbolKey.Type unionKey, memberName) with
+                match ctx.Provider.TryLookupMember(unionKey, memberName) with
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.
-                    match ctx.Provider.TryLookupType(SymbolKey.Type unionKey) with
+                    match ctx.Provider.TryLookupType unionKey with
                     | ValueSome(ExternalTypeShape.Union _) ->
                         errorTy ctx memberTok (Kind.NoMember(unionQual, MemberNoun.InstanceMember, memberName))
                     | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Union, unionQual))
@@ -416,7 +416,7 @@ module internal UnificationInferRecordAccess =
                 errorTy
                     ctx
                     memberTok
-                    (Kind.NoMember(SymbolKeyOps.qualifiedName declKey, MemberNoun.InstanceMember, memberName))
+                    (Kind.NoMember(SymbolKeyOps.typeMetaName declKey, MemberNoun.InstanceMember, memberName))
         | _ ->
             errorTy
                 ctx
@@ -460,7 +460,7 @@ module internal UnificationInferRecordAccess =
         : SemType voption =
         // An indexer on an external object argument is its declared `get_Item` accessor:
         // resolve it through the provider, record `ExternalAccess`, and return the ELEMENT type.
-        let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) : SemType voption =
+        let resolveExternalIndexer (declKey: TypeKey) (clsArgs: SemType[]) : SemType voption =
             match ctx.Provider.TryLookupMember(declKey, AccessorNames.itemGetter) with
             | ValueSome m when not m.IsStatic ->
                 let memberSig = ExternalSymbols.openSignature m clsArgs
@@ -488,7 +488,7 @@ module internal UnificationInferRecordAccess =
         // An index-signature object argument (`{ [k: K]: V }`) reads through the `GetIndex`
         // intrinsic, whose `$0[$1]` bracket form IS the accessor, so no `get_Item` exists.
         // `GetIndex`'s scheme `'T -> 'K -> 'V` has three INDEPENDENT typars.
-        let tryIndexSignature (declKey: SymbolKey) (clsArgs: SemType[]) : SemType voption =
+        let tryIndexSignature (declKey: TypeKey) (clsArgs: SemType[]) : SemType voption =
             match ctx.Provider.TryLookupIndexSignature declKey with
             | [] -> ValueNone
             | entries ->
@@ -575,7 +575,7 @@ module internal UnificationInferRecordAccess =
         : unit =
         // An EXTERNAL `set_Item`, recorded under the ASSIGNMENT's own key so Elaborate emits
         // the call. Two .NET parameters, so the accessor takes ONE tupled argument.
-        let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) : unit voption =
+        let resolveExternalIndexer (declKey: TypeKey) (clsArgs: SemType[]) : unit voption =
             match ctx.Provider.TryLookupMember(declKey, AccessorNames.itemSetter) with
             | ValueSome m when not m.IsStatic ->
                 let memberSig = ExternalSymbols.openSignature m clsArgs
@@ -588,7 +588,7 @@ module internal UnificationInferRecordAccess =
         // An index-signature object argument has no `set_Item` to call: the `$0[$1] = $2`
         // bracket IS its accessor, so the write stamps the intrinsic the body splices by. The
         // LHS read pinned the key/value types off the same signature, so none is needed here.
-        let tryIndexSignature (declKey: SymbolKey) (_: SemType[]) : unit voption =
+        let tryIndexSignature (declKey: TypeKey) (_: SemType[]) : unit voption =
             match ctx.Provider.TryLookupIndexSignature declKey with
             | [] -> ValueNone
             | _ ->

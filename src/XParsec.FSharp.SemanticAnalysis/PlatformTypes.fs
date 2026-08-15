@@ -17,7 +17,7 @@ module PlatformTypes =
     /// The target that binds no representation for `key`, or `ValueNone` when the compiling
     /// target represents it. A capability interface (`disposable` …) is never an `Intrinsic`
     /// and has no value representation, so matching only `Intrinsic` is right, not a gap.
-    let private unsupportedOn (ctx: PassContext) (key: SymbolKey) : string voption =
+    let private unsupportedOn (ctx: PassContext) (key: TypeKey) : string voption =
         match ctx.Provider.TryLookupType key with
         // The identity axis is one pattern, so a scalar and a heritable primitive match alike.
         | ValueSome(ExternalTypeShape.Intrinsic {
@@ -34,13 +34,7 @@ module PlatformTypes =
             match ty with
             | TyConst(key, args) ->
                 match unsupportedOn ctx key with
-                | ValueSome target ->
-                    acc.Add
-                        {
-                            TypeName = SymbolKeyOps.intrinsicName key
-                            Target = target
-                        }
-                    |> ignore
+                | ValueSome target -> acc.Add { TypeName = key.Name; Target = target } |> ignore
                 | ValueNone -> ()
 
                 for a in args do

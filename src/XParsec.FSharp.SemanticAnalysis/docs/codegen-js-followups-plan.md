@@ -86,20 +86,19 @@ and the sentence would still need writing, the refactor was the wrong shape.
 `ExternalRecords` and `Unions`+`ExternalUnions` pairs, so six fields are four and the
 fall-back is `tryFind` rather than a sentence. `resolveExternalRecord` / `resolveExternalUnion`
 became the private `externalRecord` / `externalUnion`, provider-only functions that no longer
-cache — the table does that — and are baked into the value at `WalkCtx.create`; `buildProgram`
-supplies the collected local half through `withLocal`.
+cache — the table does that. `create` takes the collected local half, so the table is whole
+when it is minted; the `importedAs` both external resolvers share mints the imported name and
+home once.
 
 `tryLocal` is the second operation: `Members.typeName` mangles off a name only a locally
 emitted declaration has, and must not resolve an import to answer.
 
-All four tables are now keyed by `TypeKey`. `nominalKey` returns one instead of widening;
-`collectTypes` writes `td.TypeKey`; `enumCaseAccess` and `staticFieldRef` take one. The two
-`SymbolKey.Type key` wrappings at the table reads are gone. Three call sites narrow instead,
-through a new `SymbolKeyOps.asTypeKey` beside `asMemberKey`, because the TAST's
-`StaticFieldGetView.Key` / `StaticFieldSetView.Key` / `EnumCasePatView.EnumKey` are still
-`SymbolKey` — always `SymbolKey.Type`, and narrowing them is a `SemanticAnalysis` +
-`Codegen.Clr` change out of scope here. Worth a Part C entry: the CLR backend wraps the same
-keys at its own `env.Enums` / `env.Classes` reads.
+All four tables are now keyed by `TypeKey`, and so is everything upstream of them: `FTConst` /
+`TyConst` carry a `TypeKey` like their `FTClass` / `FTRecord` siblings, the `RuntimeNames`
+primitive identities are `TypeKey`s, `TryLookupType` / `TryLookupMembers` /
+`TryLookupIndexSignature` take one, and the `StaticFieldGet` / `StaticFieldSet` / `EnumCase`
+TAST payloads carry one. That took `SymbolKey.Type` wrappings across `src` from 165 to 24 and
+left no narrowing cast anywhere: the codec writes the narrow key through `writeTypeKeyRef`.
 
 ## B2. `EmitJs`'s `ExprShape.New` arm — DONE
 
@@ -116,14 +115,15 @@ takes just the leading argument — a fact about the emission, not about the cla
 ## B3. `PartitionedMembers` ↔ `emitCapabilityMethods` state one mapping twice — DONE
 
 Landed with B7 as one type, since `MemberSlot` is a field of B7's row.
-`MemberSlot = Named | Iterator | Protocol of registryKey | Dispose | Free` makes
-`PartitionedMembers` a single `(MemberSlot * TypeMember) list`; `emitCapabilityMethods` became
-`emitClassMethods`, one comprehension matching the slot. `emitAttachedMethod`,
+`MemberSlot = Named | Iterator | Protocol of registryKey | Dispose` makes `PartitionedMembers`
+`{ Slotted: (MemberSlot * TypeMember) list; Free: TypeMember list }`; `emitCapabilityMethods`
+became `emitClassMethods`, one comprehension matching the slot. `emitAttachedMethod`,
 `emitDisposeMethod` and `emitProtocolMethod` — the three wrappers that attracted both
 fabricated claims — are gone, and with them the prose that restated the partition.
 
-`Free` is a slot rather than a list beside the slots: it is the only case with no class method,
-so `emitClassMethods` skips it and `collectTypes` enrols it as a top-level function.
+Every case of `MemberSlot` IS a class dispatch slot, so `JsCapability.Slot` cannot spell a
+non-slot, and neither consumer filters: `emitClassMethods` reads `Slotted`, `collectTypes`
+reads `Free`.
 
 Emitted method ORDER changed as a fall-out: a class body is now in source order, not grouped
 attached-then-iterator-then-protocol-then-disposer. Inert in JS. The committed
@@ -163,13 +163,15 @@ implemented shape → call lowering: four fields per row, in prose, that two cod
 off and restate.
 
 The `JsCapability` DU is gone. A `JsCapability` RECORD replaced it —
-`{ Anchor: CapabilityIds -> CapabilityIdentity voption; Slot: MemberSlot; Lowering }` — and the
-five values are one `capabilities` list. Three matches over the old DU (the anchor if-chain,
-the partition's slot routing, the call lowering) became a `List.tryFind` over the rows and two
-field reads. `tryCapabilitySlot` is `tryCapabilityLowering`: "slot" now names `MemberSlot`.
+`{ Anchor: CapabilityIds -> CapabilityIdentity voption; Slot: MemberSlot }` — and the five
+values are one `capabilities` array. Three matches over the old DU (the anchor if-chain, the
+partition's slot routing, the call lowering) became a scan of the rows and one field read.
+`tryCapabilitySlot` is `tryCapabilityLowering`: "slot" now names `MemberSlot`.
 
-`Anchor` is a selector rather than an identity, so the table is a static value and reading it
-allocates nothing per member access.
+A call's lowering is NOT a second column: it must reach the slot an impl was emitted into, so
+`loweringFor : MemberSlot -> CapabilityLowering voption` derives it and an incoherent pairing
+is unspellable. `Anchor` is a selector, so the table is a static value; `capabilityOf` scans it
+with an index rather than a predicate closure, allocating nothing per member access.
 
 Adding a capability is one row. There is nowhere for the ASCII table to come back to.
 
@@ -182,9 +184,10 @@ plus the inputs — so a digest folded from other inputs is unspellable and the 
 fold it from THESE `inputs` is gone. The triplicated `buildContractWithRefs` call became a
 private `contractFor`, so a compilation resolves its contract one way.
 
-`compileCached` prepares inline, as it folded the digest inline before; a multi-file caller
-prepares once and pays for the closure read and the contract build once between them, where
-before it paid for the contract per file.
+`compileCached` prepares inline, as it folded the digest inline before, and is `prepare`'s only
+caller today: the multi-file driver that would prepare once and share it across files does not
+exist yet. The type earns its place on the invariant alone — the mismatch it made unspellable —
+not on a throughput win anything currently collects.
 
 ---
 
@@ -205,14 +208,6 @@ at independently in the other backend**, and also defended by a comment claiming
 counts cannot diverge. A1's `TailParams` is trampoline-shaped and JS-local, so it does not
 reach that call site: the CLR half still wants a value in **`Codegen.Common`** pairing the
 groups with the flat vector. See `codegen-clr-followups-plan.md` A1/B1.
-
-## The static-field / enum-case TAST views are over-wide — SemanticAnalysis + both backends
-
-Fallen out of B1. `StaticFieldGetView.Key`, `StaticFieldSetView.Key` and
-`EnumCasePatView.EnumKey` are `SymbolKey`, and every producer builds `SymbolKey.Type`. The JS
-backend now narrows at three call sites; `Codegen.Clr` wraps at each `env.Enums` /
-`env.Classes` read instead. Narrowing the three views to `TypeKey` deletes both, but touches
-`TastNodeViews`, `FrozenCodec` and the CLR backend, so it belongs to a pass that owns all three.
 
 ## Diagnostic STRINGS carry the H19 causal hedge — one decision, three projects
 

@@ -240,12 +240,12 @@ type ExprPayload =
     | StaticPropertyGet of SymbolKey
     | StaticFieldGet of
         {|
-            DeclKey: SymbolKey
+            DeclKey: TypeKey
             FieldName: string
         |}
     | StaticFieldSet of
         {|
-            DeclKey: SymbolKey
+            DeclKey: TypeKey
             FieldName: string
         |}
     | ExternalMember of
@@ -490,11 +490,7 @@ type PatPayload =
     /// The tested-against type `T` of `:? T as x` (the `isinst` operand, distinct from the
     /// scrutinee type in `PatTys`); the bound inner `as`-pattern is the sole child.
     | TypeTestAs of testTy: FrozenType
-    | EnumCase of
-        {|
-            EnumKey: SymbolKey
-            CaseName: string
-        |}
+    | EnumCase of {| EnumKey: TypeKey; CaseName: string |}
 
 [<RequireQualifiedAccess>]
 module PatPayload =

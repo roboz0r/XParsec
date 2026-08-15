@@ -33,7 +33,7 @@ and [<RequireQualifiedAccess>] SymbolKey =
 and FrozenType =
     /// An argless primitive (`FTConst(RuntimeNames.intKey, [])`) or a generic intrinsic
     /// forwarding its args (`'T[]` ≡ `FTConst(RuntimeNames.arrayKey 1, [elem])`).
-    | FTConst of key: SymbolKey * args: EqArray<FrozenType>
+    | FTConst of key: TypeKey * args: EqArray<FrozenType>
     | FTFun of arg: FrozenType * result: FrozenType
     | FTTuple of items: EqArray<FrozenType>
     | FTRecord of key: TypeKey * args: EqArray<FrozenType>
@@ -97,22 +97,21 @@ type FrozenInterface =
             /// Kept whole, because realising the reference keeps its nominal FLAVOUR: an
             /// `FTUnion` realises as a `TyUnion`, not a `TyClass`.
             Ref: FrozenType
-            RefKey: SymbolKey
+            RefKey: TypeKey
             RefArgs: EqArray<FrozenType>
         }
 
     /// The reference as a type, to realise at a use site.
     member this.Frozen: FrozenType = this.Ref
 
-    /// A `SymbolKey`, because an intrinsic interface (`seq<'T>` on JS) freezes as `FTConst`.
-    member this.Key: SymbolKey = this.RefKey
+    member this.Key: TypeKey = this.RefKey
 
     member this.Args: EqArray<FrozenType> = this.RefArgs
 
     static member OfClass(key: TypeKey, args: EqArray<FrozenType>) : FrozenInterface =
         {
             Ref = FTClass(key, args)
-            RefKey = SymbolKey.Type key
+            RefKey = key
             RefArgs = args
         }
 
@@ -121,13 +120,9 @@ type FrozenInterface =
         match ft with
         | FTClass(k, args)
         | FTUnion(k, args)
-        | FTRecord(k, args) ->
-            ValueSome
-                {
-                    Ref = ft
-                    RefKey = SymbolKey.Type k
-                    RefArgs = args
-                }
+        | FTRecord(k, args)
+        // An intrinsic interface (`seq<'T>` on JS) freezes as `FTConst`, and its key is as
+        // nominal as the other three.
         | FTConst(k, args) -> ValueSome { Ref = ft; RefKey = k; RefArgs = args }
         | _ -> ValueNone
 
@@ -154,7 +149,7 @@ type SemType =
     | TyVar of TyVarId
     /// An argless primitive (`TyConst(RuntimeNames.intKey, [])`) or a generic intrinsic
     /// forwarding its args (`'T[]` ≡ `TyConst(RuntimeNames.arrayKey 1, [elem])`).
-    | TyConst of key: SymbolKey * args: EqArray<SemType>
+    | TyConst of key: TypeKey * args: EqArray<SemType>
     | TyFun of arg: SemType * result: SemType
     | TyTuple of items: EqArray<SemType>
     /// Field types are not stored inline, so look up the record's shape via `key`, and its

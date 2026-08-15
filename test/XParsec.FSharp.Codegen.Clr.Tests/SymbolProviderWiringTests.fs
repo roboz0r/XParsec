@@ -52,7 +52,7 @@ let tests =
                                                                      Platform = IntrinsicPlatform.Repr platform
                                                                  }
                                                         }) ->
-                    Expect.equal (SymbolKey.Type canon) (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform

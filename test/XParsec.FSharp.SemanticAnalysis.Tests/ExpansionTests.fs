@@ -345,7 +345,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match declType tast with
-                | TyFun(_, TyConst(k, _)) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
+                | TyFun(_, TyConst(k, _)) when SymbolKeyOps.typeSimpleName k = DisplayName "int" -> ()
                 | other -> failtestf "expected 'a -> int, got %A" other
             }
 
@@ -355,8 +355,8 @@ let tests =
 
                 match declType tast with
                 | TyFun(_, TyFun(TyConst(k1, _), TyConst(k2, _))) when
-                    SymbolKeyOps.simpleName k1 = DisplayName "int"
-                    && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                    SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                    && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                     ->
                     ()
                 | other -> failtestf "expected 'a -> int -> int, got %A" other
@@ -391,11 +391,11 @@ let tests =
                 // First element stays polymorphic — only second is constrained.
                 match declType tast with
                 | TyFun(TyTuple args, TyConst(k, _)) when
-                    SymbolKeyOps.simpleName k = DisplayName "int"
+                    SymbolKeyOps.typeSimpleName k = DisplayName "int"
                     && args.Length = 2
                     && (
                         match args.[1] with
-                        | TyConst(k, _) -> SymbolKeyOps.simpleName k = DisplayName "int"
+                        | TyConst(k, _) -> SymbolKeyOps.typeSimpleName k = DisplayName "int"
                         | _ -> false
                     )
                     ->

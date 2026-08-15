@@ -276,7 +276,7 @@ let tests =
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
                                _) when
                     [ k1; k2; k3; k4 ]
-                    |> List.forall (fun k -> SymbolKeyOps.simpleName k = DisplayName "int")
+                    |> List.forall (fun k -> SymbolKeyOps.typeSimpleName k = DisplayName "int")
                     ->
                     ()
                 | other -> failtestf "expected fully-int `fun x -> x`, got %A" other
@@ -297,7 +297,7 @@ let tests =
 
                     match again with
                     | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
-                        SymbolKeyOps.simpleName k = DisplayName "bool"
+                        SymbolKeyOps.typeSimpleName k = DisplayName "bool"
                         ->
                         ()
                     | other -> failtestf "second expansion at bool failed: %A" other
@@ -323,8 +323,8 @@ let tests =
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
                                TDecl.Expression(e, _) ] when
-                        SymbolKeyOps.simpleName k1 = DisplayName "int"
-                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                        SymbolKeyOps.typeSimpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.typeSimpleName k2 = DisplayName "int"
                         ->
                         e
                     | _ -> failtestf "unexpected shape: %A" tast.Decls
@@ -364,7 +364,7 @@ let tests =
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
                                _) when
                     [ k1; k2; k3; k4 ]
-                    |> List.forall (fun k -> SymbolKeyOps.simpleName k = DisplayName "int")
+                    |> List.forall (fun k -> SymbolKeyOps.typeSimpleName k = DisplayName "int")
                     ->
                     ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other

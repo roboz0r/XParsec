@@ -57,7 +57,7 @@ type internal Assembler
     // repeated across files is the same declaration and last-wins is safe. Platform repr
     // only, because `extends` comes off the frozen base type.
     let intrinsicReprKeys =
-        let d = Dictionary<SymbolKey, string>()
+        let d = Dictionary<TypeKey, string>()
 
         for tast in tasts do
             for kv in tast.Residue.IntrinsicReprKeys do
@@ -104,11 +104,11 @@ type internal Assembler
 
     // Shared across files, keyed by nominal `SymbolKey`: a call in one file's body
     // resolves a type or member defined in another through these.
-    let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
-    let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
-    let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
-    let enums = Dictionary<SymbolKey, Emit.EmittedEnum>()
-    let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
+    let unions = Dictionary<TypeKey, Emit.EmittedUnion>()
+    let records = Dictionary<TypeKey, Emit.EmittedRecord>()
+    let classes = Dictionary<TypeKey, Emit.EmittedClass>()
+    let enums = Dictionary<TypeKey, Emit.EmittedEnum>()
+    let interfaces = Dictionary<TypeKey, Emit.EmittedInterface>()
 
     // A module value's verdict-rewritten field-slot type, keyed by the same `SymbolKey`
     // `FieldKey.ModuleValue` carries. This is the one per-file datum the shared field pass
@@ -252,7 +252,7 @@ type internal Assembler
             for (caseName, v) in ed.Cases do
                 caseValues.[caseName] <- v
 
-            enums.[ed.Decl.Key] <-
+            enums.[ed.Decl.TypeKey] <-
                 {
                     Repr = Emit.EmittedEnumRepr.NumericEnum caseValues
                 }
@@ -383,7 +383,7 @@ type internal Assembler
 
             let backingField = toEntity fieldDefHandles.[FieldKey.EnumBackingField sed.Decl.Key]
 
-            enums.[sed.Decl.Key] <-
+            enums.[sed.Decl.TypeKey] <-
                 {
                     Repr = Emit.EmittedEnumRepr.StructEnum(sed.IsMixed, backingField, caseFields, caseLits)
                 }
@@ -634,7 +634,7 @@ type internal Assembler
                 )
             )
 
-            interfaces.[td.Key] <-
+            interfaces.[td.TypeKey] <-
                 {
                     Name = td.Name
                     Typars = EqArray.toList td.TypeParams
@@ -660,7 +660,7 @@ type internal Assembler
             // The registry's case → literal map feeds the `| E.A` pattern's field
             // equality, not the `.cctor`, whose literals come off `sed.Cases`.
             let backingField, caseFields =
-                match enums.[td.Key].Repr with
+                match enums.[td.TypeKey].Repr with
                 | Emit.EmittedEnumRepr.StructEnum(_, bf, cf, _) -> bf, cf
                 | other -> failwithf "Emit: struct enum '%A' has a non-struct repr %A" td.Key other
 

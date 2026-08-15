@@ -43,7 +43,7 @@ module internal ElaborateExpr =
         // static fields on the enum type, so this lowers to `StaticFieldGet`; the
         // case's underlying literal stays on the frozen `TTypeKind.Enum` case table.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(li & EnumCaseAccess ctx ty enumKey)) ->
-            TExpr.StaticFieldGet(SymbolKey.Type enumKey, ctx.NameOf li.Idents.[1], ty, tok)
+            TExpr.StaticFieldGet(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Expr.New(typ = t; expr = argExpr) -> translateNew ctx key t argExpr ty tok
         // Class-name-as-function application: `Point(3, 4)` parses as
         // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.

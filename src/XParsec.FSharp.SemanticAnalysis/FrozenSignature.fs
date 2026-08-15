@@ -50,8 +50,8 @@ module FrozenSignature =
 
         // Type channels are addressed by the minted IDENTITY (a module-held type's `InModule`
         // key is a chain no source name spells); the by-name index is rendered from it.
-        let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
-        let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
+        let shapesByKey = Dictionary<TypeKey, ExternalTypeShape>()
+        let membersByKey = Dictionary<TypeKey, ResizeArray<ExternalMember>>()
         let typesByName = Dictionary<string, TypeKey>(System.StringComparer.Ordinal)
 
         let unionCaseIndex =
@@ -196,7 +196,7 @@ module FrozenSignature =
                 | TypeContainer.InType _ -> ()
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
-                    shapesByKey.[key] <- shape
+                    shapesByKey.[typeKey] <- shape
                     // First declaration wins on a compiled-name collision.
                     let name = SymbolKeyOps.typeMetaName typeKey
 
@@ -204,7 +204,7 @@ module FrozenSignature =
                         typesByName.[name] <- typeKey
 
                     match members with
-                    | ValueSome ms when ms.Count > 0 -> membersByKey.[key] <- ms
+                    | ValueSome ms when ms.Count > 0 -> membersByKey.[typeKey] <- ms
                     | _ -> ()
 
                 let registerCases (cases: Frozen.TUnionCase seq) (caseShapes: EqArray<ExternalCaseShape>) =
@@ -395,43 +395,40 @@ module FrozenSignature =
         // --- intrinsic / primitive type shapes ----------------------------------------
         // An intrinsic-repr primitive (`type int = (# "System.Int32" #)`) is kept OUT of
         // `Decls`, so the loop above never sees it: it is published from `IntrinsicReprKeys`.
-        for KeyValue(key, repr) in frozen.Residue.IntrinsicReprKeys do
-            match key with
-            | SymbolKey.Type typeKey ->
-                // A HERITABLE `(# class … #)` primitive (`obj` / `exn`) also carries a class
-                // surface, so a later file's `inherit` resolves it. The surface is EMPTY here:
-                // the impl `.fs` binds the repr and declares no parent and no interfaces.
-                let shape =
-                    if repr.Heritable then
-                        ExternalTypeShape.Intrinsic
-                            {
-                                Id =
+        for KeyValue(typeKey, repr) in frozen.Residue.IntrinsicReprKeys do
+            // A HERITABLE `(# class … #)` primitive (`obj` / `exn`) also carries a class
+            // surface, so a later file's `inherit` resolves it. The surface is EMPTY here:
+            // the impl `.fs` binds the repr and declares no parent and no interfaces.
+            let shape =
+                if repr.Heritable then
+                    ExternalTypeShape.Intrinsic
+                        {
+                            Id =
+                                {
+                                    Canon = typeKey
+                                    TyparArity = typeKey.TyparArity
+                                    Platform = IntrinsicPlatform.Repr repr.Platform
+                                }
+                            Class =
+                                ValueSome
                                     {
-                                        Canon = typeKey
-                                        TyparArity = typeKey.TyparArity
-                                        Platform = IntrinsicPlatform.Repr repr.Platform
+                                        Heritable = true
+                                        BaseType = ValueNone
+                                        Interfaces = EqArray.empty
+                                        Members = EqArray.empty
                                     }
-                                Class =
-                                    ValueSome
-                                        {
-                                            Heritable = true
-                                            BaseType = ValueNone
-                                            Interfaces = EqArray.empty
-                                            Members = EqArray.empty
-                                        }
-                            }
-                    else
-                        ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
-                        )
+                        }
+                else
+                    ExternalTypeShape.Intrinsic(
+                        IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
+                    )
 
-                shapesByKey.[key] <- shape
+            shapesByKey.[typeKey] <- shape
 
-                let name = SymbolKeyOps.typeMetaName typeKey
+            let name = SymbolKeyOps.typeMetaName typeKey
 
-                if not (typesByName.ContainsKey name) then
-                    typesByName.[name] <- typeKey
-            | _ -> ()
+            if not (typesByName.ContainsKey name) then
+                typesByName.[name] <- typeKey
 
         let intrinsics = IntrinsicTypeMap.ofReprKeys frozen.Residue.IntrinsicReprKeys
 

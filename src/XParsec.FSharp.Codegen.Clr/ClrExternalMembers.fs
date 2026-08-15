@@ -28,7 +28,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let recoverOpenTypars declTyparArity methodTyparArity (openT: FrozenType) (instT: FrozenType) =
         enc.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
 
-    let externalTypeSpec (key: SymbolKey) tref instArgs =
+    let externalTypeSpec (key: TypeKey) tref instArgs =
         enc.ExternalTypeSpec(tref, env.ExternalIsValueType key, instArgs)
 
     let typeSpecOf ty = enc.TypeSpecOf ty
@@ -138,12 +138,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 match env.UserTypes.TryGetValue declKey with
                 | true, localHandle -> localHandle
                 | _ ->
-                    match externalClassRef (SymbolKey.Type declKey) with
+                    match externalClassRef declKey with
                     | ValueSome t -> t
                     | ValueNone ->
                         failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-            let parent = externalTypeSpec (SymbolKey.Type declKey) tref (declArgs)
+            let parent = externalTypeSpec declKey tref (declArgs)
 
             let handle =
                 methodSpec
@@ -235,12 +235,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     let declArgs, _ = recoverOpenTypars declTyparArity 0 openFieldTy memberTy
 
                     let tref =
-                        match externalClassRef (SymbolKey.Type declKey) with
+                        match externalClassRef declKey with
                         | ValueSome t -> t
                         | ValueNone ->
                             failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-                    externalTypeSpec (SymbolKey.Type declKey) tref declArgs
+                    externalTypeSpec declKey tref declArgs
 
             let s = BlobBuilder()
             encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
@@ -251,7 +251,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint the `MemberRef` for a referenced-assembly record's `.ctor`, instantiated at `args`.
     /// Parameter types are the declared fields in their *open* typar form.
-    let externalRecordCtor (key: SymbolKey) (args: FrozenType list) : EntityHandle voption =
+    let externalRecordCtor (key: TypeKey) (args: FrozenType list) : EntityHandle voption =
         let arity = List.length args
 
         match externalRecordRef key arity with
@@ -279,12 +279,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the `MemberRef` for a referenced-assembly union's case factory, the static
     /// `<caseName>(fields…) : Union<…>` the union emitter writes, over open markers so the
     /// signature matches. Returns handle + field count; `ValueNone` ⇒ unknown union or case.
-    let externalUnionFactory
-        (key: SymbolKey)
-        (caseName: string)
-        (args: FrozenType list)
-        : (EntityHandle * int) voption =
-        let fullName = SymbolKeyOps.qualifiedName key
+    let externalUnionFactory (key: TypeKey) (caseName: string) (args: FrozenType list) : (EntityHandle * int) voption =
+        let fullName = SymbolKeyOps.typeMetaName key
         let arity = List.length args
 
         match externalUnionRef key arity with
@@ -321,7 +317,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the `_tag : int` field `MemberRef` on a referenced-package union at `args`, with
     /// `caseName`'s discriminator, its zero-based index in declaration order, as the union
     /// emitter assigns them. `ValueNone` ⇒ unknown union or case.
-    let externalUnionTag (key: SymbolKey) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
+    let externalUnionTag (key: TypeKey) (args: FrozenType list) (caseName: string) : (EntityHandle * int) voption =
         let arity = List.length args
 
         match externalUnionRef key arity with
@@ -339,7 +335,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// referenced-package union at `args` (the slot a cross-package `match … Some x` reads),
     /// with that field's type after the use-site substitution. `ValueNone` ⇒ unknown case/index.
     let externalUnionCaseField
-        (key: SymbolKey)
+        (key: TypeKey)
         (args: FrozenType list)
         (caseName: string)
         (fieldIndex: int)
@@ -369,7 +365,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// overload is the `MemberKey` the front end recorded on `TExpr.New`, so
     /// `ArgumentException(string, string)` and `(string, Exception)` are told apart.
     let externalCtor
-        (key: SymbolKey)
+        (key: TypeKey)
         (chosen: SymbolKey voption)
         (tyArgs: FrozenType list)
         (argTypes: FrozenType list)
@@ -412,7 +408,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the `MemberRef` for one named field on a referenced-assembly record at `args`, with
     /// its declared type after the use-site substitution, which a `FieldGet` encodes next.
     let externalRecordField
-        (key: SymbolKey)
+        (key: TypeKey)
         (args: FrozenType list)
         (fieldName: string)
         : (EntityHandle * FrozenType) voption =
@@ -438,7 +434,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the parameterless `.ctor()` `MemberRef` of a heritable external base class
     /// (`System.Attribute`), directly off the `TypeRef`: a base ctor is often `protected` and
     /// not surfaced, yet `call`ing it from a subclass ctor is legal.
-    let externalParameterlessBaseCtor (key: SymbolKey) : EntityHandle voption =
+    let externalParameterlessBaseCtor (key: TypeKey) : EntityHandle voption =
         match externalClassRef key with
         | ValueNone -> ValueNone
         | ValueSome tref ->
@@ -456,12 +452,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// plus the raw `TypeRef` the derived type's `extends` names. Only a `(# class "…" #)`
     /// primitive is heritable, so a value-repr intrinsic (`int`) never matches, even though
     /// it carries a surface of its own once it declares an `interface`.
-    member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
+    member _.IntrinsicClassBase(canon: TypeKey) : struct (TypeKey * EntityHandle) voption =
         match env.LookupTypeByKey canon |> ValueOption.bind ExternalSymbols.intrinsicClassOf with
         | ValueSome(struct ({
                                 Platform = IntrinsicPlatform.Repr repr
                             }, _)) ->
-            let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
+            let platformKey = SymbolKeyOps.qualifiedTypeKeyOf repr 0
 
             match externalClassRef platformKey with
             | ValueSome tref -> ValueSome(struct (platformKey, tref))

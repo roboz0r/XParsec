@@ -176,7 +176,7 @@ module internal UnificationInferControlFlow =
     let rec private describeUnionMember (store: TypeStore) (m: SemType) : string =
         match resolveStep store m with
         | TyConst(key, args) when args.IsEmpty ->
-            let (DisplayName shown) = SymbolKeyOps.simpleName key
+            let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
             shown
         | TyOr inner ->
             inner.Members
@@ -366,7 +366,7 @@ module internal UnificationInferControlFlow =
             // instantiation (`List<'T>.Enumerator` over the source's `'T`).
             match ExternalSymbols.openSignature ge srcArgs with
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type enumKey) with
+                match ctx.Provider.TryLookupType enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
                     match probeExternalEnumerator ctx enumShape (enumArgsEq.AsSpan().ToArray()) with
                     | ValueSome probe ->
@@ -424,7 +424,7 @@ module internal UnificationInferControlFlow =
                     // `E` is not project-local: keep the local `GetEnumerator`, but read
                     // `MoveNext` / `Current` / `Dispose` off `E`'s external shape.
                     | ValueNone ->
-                        match ctx.Provider.TryLookupType(SymbolKey.Type enumKey) with
+                        match ctx.Provider.TryLookupType enumKey with
                         | ValueSome(ExternalTypeShape.Class enumShape) ->
                             probeExternalEnumerator ctx enumShape (enumArgs.AsSpan().ToArray())
                             |> ValueOption.map (fun probe ->
@@ -556,7 +556,7 @@ module internal UnificationInferControlFlow =
         | TyClass(nameKey, args) when RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
-            match ctx.Provider.TryLookupType(SymbolKey.Type nameKey) with
+            match ctx.Provider.TryLookupType nameKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 let argArr = args.AsSpan().ToArray()
 
@@ -579,7 +579,7 @@ module internal UnificationInferControlFlow =
         // Its declared `interface seq<'T>` impl is matched against the enumerable
         // capability as in the class arm, giving the boxing `Interface` enumerator.
         | TyUnion(nameKey, args) ->
-            match ctx.Provider.TryLookupType(SymbolKey.Type nameKey) with
+            match ctx.Provider.TryLookupType nameKey with
             | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _)) ->
                 let argArr = args.AsSpan().ToArray()
 

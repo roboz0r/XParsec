@@ -114,7 +114,7 @@ module EmitMember =
         // in `env.Interfaces`; an external one (`'T :> Vesper.Fun<int,int>`) is not registered
         // locally, so its slot is minted against the interface's instantiated `TypeSpec`.
         let slotHandle =
-            match env.Interfaces.TryGetValue(SymbolKey.Type ifaceKey) with
+            match env.Interfaces.TryGetValue ifaceKey with
             | true, iface ->
                 let m =
                     match iface.Members.TryGetValue name with
@@ -300,8 +300,7 @@ module EmitMember =
         // (`Vesper.Set`'s `op_Addition`) reaches here as a LOCAL-shaped `StaticMethodCall`, so
         // route the external case out rather than let the local resolve fail on it.
         let isLocal =
-            let declKey =
-                SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitMember: static member call" key)
+            let declKey = SymbolKeyOps.declTypeKeyOf "EmitMember: static member call" key
 
             env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
 

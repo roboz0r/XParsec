@@ -1430,7 +1430,7 @@ type prim = extern with
 
                 match (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.prim" with
                 | ValueSome(struct (typeKey, _)) ->
-                    match all.[0].View.TryLookupMember(SymbolKey.Type typeKey, "Poke") with
+                    match all.[0].View.TryLookupMember(typeKey, "Poke") with
                     | ValueSome m -> Expect.isTrue m.InlineBody.IsSome "the published member carries its body"
                     | ValueNone -> failtest "Poke did not publish"
                 | ValueNone -> failtest "prim did not publish"

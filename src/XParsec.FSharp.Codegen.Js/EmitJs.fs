@@ -264,17 +264,15 @@ module EmitJs =
         // being the enum. Any other key is a `static let` backing field, `ClassName.field`.
         | ExprShape.StaticFieldGet ->
             let sfg = TastAccessor.exprStaticFieldGet e
-            let declKey = SymbolKeyOps.asTypeKey "EmitJs: static field" sfg.Key
 
             match TastAccessor.exprTy e with
-            | FTEnum _ -> enumCaseAccess ctx declKey sfg.FieldName loc
-            | _ -> staticFieldRef ctx declKey sfg.FieldName loc
+            | FTEnum _ -> enumCaseAccess ctx sfg.Key sfg.FieldName loc
+            | _ -> staticFieldRef ctx sfg.Key sfg.FieldName loc
 
         // `x <- v` on a `static let mutable` backing field → `(ClassName.field = v)`.
         | ExprShape.StaticFieldSet ->
             let sfs = TastAccessor.exprStaticFieldSet e
-            let declKey = SymbolKeyOps.asTypeKey "EmitJs: static field" sfs.Key
-            JsExpr.Assign(staticFieldRef ctx declKey sfs.FieldName loc, buildExpr ctx sfs.Value, loc)
+            JsExpr.Assign(staticFieldRef ctx sfs.Key sfs.FieldName loc, buildExpr ctx sfs.Value, loc)
 
         | ExprShape.StaticMethodCall ->
             applyArgs
@@ -831,61 +829,35 @@ module EmitJs =
 
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first, as
     /// classes are not hoisted; lowering the rest drops `let inline` templates and `type` decls.
-    let buildProgram (ctx0: WalkCtx) : JsProgram =
+    let buildProgram (inputs: EmissionInputs) : JsProgram =
         // The specialization graph splices HERE, before anything reads a decl: an edge left
         // standing in a member body would reach the emit router with no body to emit.
         let expansion =
-            InlineExpand.expand ctx0.Pool (TastAccessor.roots ctx0.Pool |> List.ofArray)
+            InlineExpand.expand inputs.Pool (TastAccessor.roots inputs.Pool |> List.ofArray)
 
-        let moduleMembers = TastPoolBuilder.moduleMembers ctx0.Pool
-
-        let declaredSymbol (d: TastAccessor.DeclId) : SymbolKey voption =
-            match TastAccessor.declKind d with
-            | DeclShape.Type -> ValueSome (TastAccessor.declType d).Key
-            | DeclShape.Let ->
-                match (TastAccessor.declLet d).Pattern with
-                | TastAccessor.PNamed b ->
-                    match moduleMembers.TryGetValue b with
-                    | true, info -> ValueSome info.Key
-                    | _ -> ValueNone
-                | _ -> ValueNone
-            | DeclShape.Expression -> ValueNone
+        let moduleMembers = TastPoolBuilder.moduleMembers inputs.Pool
 
         // Declared to be the TARGET'S OWN: `type x = (# "repr" #)` names a platform
         // representation (`int` IS `number`) and `[<Global>]` a target global (`undefined`).
         // Neither can emit a definition, and each reference emits the front end's splice.
-        let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys ctx0.Pool
-        let globals = TastPoolBuilder.globalValueKeys ctx0.Pool
+        let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys inputs.Pool
+        let globals = TastPoolBuilder.globalValueKeys inputs.Pool
 
-        let decls =
-            expansion.Decls
-            |> List.filter (fun d ->
-                match declaredSymbol d with
-                | ValueSome key -> not (intrinsicReprs.ContainsKey key || globals.Contains key)
-                | ValueNone -> true
-            )
+        let declaresTargetsOwn (d: TastAccessor.DeclId) : bool =
+            match TastAccessor.declKind d with
+            | DeclShape.Type -> intrinsicReprs.ContainsKey (TastAccessor.declType d).TypeKey
+            | DeclShape.Let ->
+                match (TastAccessor.declLet d).Pattern with
+                | TastAccessor.PNamed b ->
+                    match moduleMembers.TryGetValue b with
+                    | true, info -> globals.Contains info.Key
+                    | _ -> false
+                | _ -> false
+            | DeclShape.Expression -> false
 
-        // Where each spliced node was WRITTEN, plus the authorship chain those origins are keyed
-        // along. The walk keeps deriving nodes, so it takes that relation over unfinished.
-        let reached = System.Collections.Generic.HashSet<OriginPath>()
+        let decls = expansion.Decls |> List.filter (declaresTargetsOwn >> not)
 
-        for KeyValue(node, origin) in expansion.Origins do
-            ctx0.NodeOrigins.[node] <- origin
-            reached.Add origin.File.Path |> ignore
-
-        InlineExpand.Derivation.absorb ctx0.Derivation expansion.Derived
-
-        // The producer files this program reached get a slot in the map's `sources[]`. It walks
-        // the RETENTION, which yields in path order, keeping what the expansion named but not
-        // the expansion's dictionary order, so two builds of one program publish the same map.
-        match ctx0.Resolver with
-        | ValueNone -> ()
-        | ValueSome r ->
-            for src in OriginSources.toList r.Origins do
-                if reached.Contains src.File.Path then
-                    MapSources.publish src ctx0.MapSources
-
-        let collected = collectTypes ctx0.Capabilities ctx0.ExportTopLevel decls
+        let collected = collectTypes inputs.Capabilities inputs.ExportTopLevel decls
 
         let lowered = TastLower.lower decls
 
@@ -911,15 +883,27 @@ module EmitJs =
                 | _ -> ()
             | _ -> ()
 
-        let ctx =
-            { ctx0 with
-                Records = LocalThenExternal.withLocal collected.Records ctx0.Records
-                Unions = LocalThenExternal.withLocal collected.Unions ctx0.Unions
-                Classes = collected.Classes
-                Enums = collected.Enums
-                CompiledFns = compiledFns
-                LocalInterfaces = localInterfaces
-            }
+        let ctx = WalkCtx.create inputs collected compiledFns localInterfaces
+
+        // Where each spliced node was WRITTEN, plus the authorship chain those origins are keyed
+        // along. The walk keeps deriving nodes, so it takes that relation over unfinished.
+        let reached = System.Collections.Generic.HashSet<OriginPath>()
+
+        for KeyValue(node, origin) in expansion.Origins do
+            ctx.NodeOrigins.[node] <- origin
+            reached.Add origin.File.Path |> ignore
+
+        InlineExpand.Derivation.absorb ctx.Derivation expansion.Derived
+
+        // The producer files this program reached get a slot in the map's `sources[]`. It walks
+        // the RETENTION, which yields in path order, keeping what the expansion named but not
+        // the expansion's dictionary order, so two builds of one program publish the same map.
+        match ctx.Resolver with
+        | ValueNone -> ()
+        | ValueSome r ->
+            for src in OriginSources.toList r.Origins do
+                if reached.Contains src.File.Path then
+                    MapSources.publish src ctx.MapSources
 
         // Class decls (with their attached instance methods) are built now, because their method
         // bodies need the full ctx, unlike record/union decls, which carry no bodies.

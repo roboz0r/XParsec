@@ -656,8 +656,8 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with
-        member this.TryLookupType(key: SymbolKey) =
-            this.LookupTypeByName(SymbolKeyOps.qualifiedName key)
+        member this.TryLookupType(key: TypeKey) =
+            this.LookupTypeByName(SymbolKeyOps.typeMetaName key)
 
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(
@@ -675,7 +675,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             this.LookupMembersByName(
                 ExternalMemberName.ofKeyed
                     {
-                        DeclaringType = SymbolKey.Type key.Decl
+                        DeclaringType = key.Decl
                         Name = key.Name
                     }
             )
@@ -704,7 +704,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags.IsValueType
                 | _ -> ValueNone
 
-            match IntrinsicTypeMap.tryRepr (SymbolKey.Type key) intrinsics with
+            match IntrinsicTypeMap.tryRepr key intrinsics with
             | ValueSome(IntrinsicPlatform.Repr repr) -> reflected repr
             | ValueSome(IntrinsicPlatform.Unsupported _) -> ValueNone
             | ValueNone -> reflected (SymbolKeyOps.typeMetaName key)

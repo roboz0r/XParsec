@@ -36,15 +36,12 @@ module EmitJsContext =
         }
 
     module LocalThenExternal =
-        let create (resolve: TypeKey -> 'Info voption) : LocalThenExternal<'Info> =
+        let create (local: Dictionary<TypeKey, 'Info>) (resolve: TypeKey -> 'Info voption) : LocalThenExternal<'Info> =
             {
-                Local = Dictionary()
+                Local = local
                 External = Dictionary()
                 Resolve = resolve
             }
-
-        let withLocal (local: Dictionary<TypeKey, 'Info>) (table: LocalThenExternal<'Info>) : LocalThenExternal<'Info> =
-            { table with Local = local }
 
         /// Local first, then the provider, whose answer is cached.
         let tryFind (table: LocalThenExternal<'Info>) (key: TypeKey) : 'Info voption =
@@ -66,38 +63,36 @@ module EmitJsContext =
             | true, info -> ValueSome info
             | _ -> ValueNone
 
+    /// The name and import home an external nominal is reached through: the key's simple name,
+    /// because a JS name carries no generic arity, and the module its origin stamps.
+    let private importedAs (kind: string) (key: TypeKey) (origin: SymbolOrigin) : struct (string * JsHome) =
+        let (DisplayName name) = SymbolKeyOps.typeSimpleName key
+        struct (name, JsHome.ofOrigin (sprintf "external %s '%s' (key %A)" kind name key) origin.Home)
+
     /// An external record's class is NOT re-emitted locally, but imported from the record's
     /// home module at each construction site.
     let private externalRecord (provider: IExternalSymbolProvider) (key: TypeKey) : JsRecordInfo voption =
-        match provider.TryLookupType(SymbolKey.Type key) with
+        match provider.TryLookupType key with
         | ValueSome(ExternalTypeShape.Record(_, fields, origin, _)) ->
-            // The class identifier a record is imported under is its name: JS names
-            // carry no generic arity.
-            let (DisplayName name) = SymbolKeyOps.typeSimpleName key
+            let struct (name, home) = importedAs "record" key origin
 
             ValueSome
                 {
                     Name = name
                     Fields = [ for f in fields -> f.Name ]
-                    Home = ValueSome(JsHome.ofOrigin (sprintf "external record '%s' (key %A)" name key) origin.Home)
+                    Home = ValueSome home
                 }
         | _ -> ValueNone
 
     /// An external union's case classes are NOT re-emitted locally, but imported from its home
     /// module at each `UnionCons` site.
     let private externalUnion (provider: IExternalSymbolProvider) (key: TypeKey) : JsUnionInfo voption =
-        match provider.TryLookupType(SymbolKey.Type key) with
+        match provider.TryLookupType key with
         | ValueSome(ExternalTypeShape.Union(_, cases, _, origin)) ->
-            // The JS class/factory identifiers this union's cases are imported under are
-            // mangled off its name: JS names carry no generic arity.
-            let (DisplayName baseName) = SymbolKeyOps.typeSimpleName key
-
-            let home =
-                JsHome.ofOrigin (sprintf "external union '%s' (key %A)" baseName key) origin.Home
-                |> ValueSome
+            let struct (baseName, home) = importedAs "union" key origin
 
             let info, _ =
-                buildUnionInfo home baseName [ for c in cases -> c.Name, EqArray.toList c.FieldNames ]
+                buildUnionInfo (ValueSome home) baseName [ for c in cases -> c.Name, EqArray.toList c.FieldNames ]
 
             ValueSome info
         | _ -> ValueNone
@@ -140,36 +135,69 @@ module EmitJsContext =
             /// is in this set lowers to `objArg.<member>(args)`, not the free type-prefixed
             /// `<Type>__<member>`. `CallVia` cannot say: an interface-TYPED object argument is `Self`.
             LocalInterfaces: HashSet<TypeKey>
-            /// Depends only on the provider, not the file, so it is resolved at construction
-            /// and is never a placeholder.
             Capabilities: RuntimeNames.CapabilityIds
         }
 
-    module WalkCtx =
-        /// The file-derived tables start empty; the walk fills them once it has the file.
+    /// What an emission is handed, before the file's own declarations are collected. The
+    /// collection needs `Capabilities` and `ExportTopLevel`, which is why they live here and
+    /// not only on the `WalkCtx` the collected tables then complete.
+    type EmissionInputs =
+        {
+            Resolver: Resolver
+            Pool: PoolBuilder
+            Provider: IExternalSymbolProvider
+            Imports: JsImports
+            /// The producer files this emission publishes. Driver-owned shared mutable state,
+            /// like `Pool` and `Imports`: the driver reads it back to build the map.
+            MapSources: MapSources
+            ExportTopLevel: bool
+            /// Depends only on the provider, not the file, so it is resolved once, here.
+            Capabilities: RuntimeNames.CapabilityIds
+        }
+
+    module EmissionInputs =
         let create
             (resolver: Resolver)
             (pool: PoolBuilder)
             (provider: IExternalSymbolProvider)
             (imports: JsImports)
             (exportTopLevel: bool)
-            : WalkCtx =
+            : EmissionInputs =
             {
                 Resolver = resolver
-                NodeOrigins = Dictionary()
-                Derivation = InlineExpand.Derivation.create ()
-                MapSources = MapSources.create ()
                 Pool = pool
-                Records = LocalThenExternal.create (externalRecord provider)
-                Unions = LocalThenExternal.create (externalUnion provider)
-                Classes = Dictionary()
-                Enums = Dictionary()
                 Provider = provider
                 Imports = imports
+                MapSources = MapSources.create ()
                 ExportTopLevel = exportTopLevel
-                CompiledFns = Dictionary()
-                LocalInterfaces = HashSet()
                 Capabilities = ExternalSymbols.resolveCapabilities provider
+            }
+
+    module WalkCtx =
+        /// Every table arrives filled, so no field of a `WalkCtx` is ever a placeholder.
+        /// `NodeOrigins` and `Derivation` are the walk's own state, which it keeps appending to.
+        let create
+            (inputs: EmissionInputs)
+            (collected: EmitJsTypes.CollectedTypes)
+            (compiledFns: Dictionary<BoundVarId, CompiledFns.CompiledFn>)
+            (localInterfaces: HashSet<TypeKey>)
+            : WalkCtx =
+            {
+                Resolver = inputs.Resolver
+                NodeOrigins = Dictionary()
+                Derivation = InlineExpand.Derivation.create ()
+                MapSources = inputs.MapSources
+                Pool = inputs.Pool
+                Records = LocalThenExternal.create collected.Records (externalRecord inputs.Provider)
+                Unions = LocalThenExternal.create collected.Unions (externalUnion inputs.Provider)
+                Classes = collected.Classes
+                Enums = collected.Enums
+                Provider = inputs.Provider
+                Imports = inputs.Imports
+                ExportTopLevel = inputs.ExportTopLevel
+                CompiledFns = compiledFns
+                LocalInterfaces = localInterfaces
+                Capabilities = inputs.Capabilities
             }
 
     /// Where a node lands in the source it was WRITTEN in, for the map. Takes the NODE, not its
@@ -368,7 +396,7 @@ module EmitJsContext =
             // An EXTERNAL (TS-manifest) enum: its object map lives in the home module the TS
             // extractor produced, so `import { E }` and read `E.Ci`, which is what `tsc` emits.
             let home =
-                JsExternalMembers.homeOf ctx.Provider (SymbolKey.Type enumKey) (sprintf "enum case '%s'" caseName)
+                JsExternalMembers.homeOf ctx.Provider enumKey (sprintf "enum case '%s'" caseName)
 
             // The enum object is imported under the name `tsc` exports it as.
             let (DisplayName enumName) = SymbolKeyOps.typeSimpleName enumKey
@@ -531,8 +559,8 @@ module EmitJsContext =
         // `===` is value equality for the numbers and strings a case can hold.
         | PatShape.EnumCase ->
             let ec = TastAccessor.patEnumCase pat
-            let enumKey = SymbolKeyOps.asTypeKey "EmitJs: enum-case pattern" ec.EnumKey
-            Some(JsExpr.Binary("===", access, enumCaseAccess ctx enumKey ec.CaseName ValueNone, ValueNone)), []
+
+            Some(JsExpr.Binary("===", access, enumCaseAccess ctx ec.EnumKey ec.CaseName ValueNone, ValueNone)), []
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | PatShape.Null -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
         // `p1 | … | pn`: the arm matches iff SOME alternative matches. An alternative that binds

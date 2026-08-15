@@ -55,8 +55,8 @@ type private CountingProvider(name: string) =
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with
-        member this.TryLookupType(key: SymbolKey) =
-            this.TypeByName(SymbolKeyOps.qualifiedName key)
+        member this.TryLookupType(key: TypeKey) =
+            this.TypeByName(SymbolKeyOps.typeMetaName key)
 
         member _.TryLookupMembers(_, _) = EqArray.empty
 
@@ -97,7 +97,7 @@ let tests =
                     match ExternalSymbols.instantiateSymbol (TypeStore()) s 0 with
                     | TyConst(key, _) ->
                         Expect.equal
-                            (SymbolKeyOps.simpleName key)
+                            (SymbolKeyOps.typeSimpleName key)
                             (DisplayName "tag")
                             "the inner symbol's payload survives"
                     | other -> failtestf "unexpected realised type %A" other

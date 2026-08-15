@@ -124,7 +124,7 @@ type FrozenFileResidue =
         // Qualified: `XParsec.FSharp.Parser` is opened here and declares its own
         // `Diagnostic`, which the bare name would bind to.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
-        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
+        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<TypeKey, IntrinsicReprInfo>
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
     }

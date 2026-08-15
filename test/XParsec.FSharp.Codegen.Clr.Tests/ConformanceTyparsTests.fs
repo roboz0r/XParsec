@@ -147,7 +147,7 @@ let tests =
                     ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage; vesperPrintfPackage ]
 
                 let appendFormatted =
-                    contract.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Vesper.Formatter" 0, "AppendFormatted")
+                    contract.TryLookupMembers(SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Formatter" 0, "AppendFormatted")
 
                 Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
 

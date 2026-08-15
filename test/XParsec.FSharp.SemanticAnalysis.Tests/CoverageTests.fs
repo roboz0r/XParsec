@@ -890,7 +890,7 @@ let tests =
 
                     match getBody with
                     | TExpr.StaticFieldGet(declKey, name, _, _) ->
-                        Expect.equal (SymbolKeyOps.simpleName declKey) (DisplayName "C") "static-field class"
+                        Expect.equal (SymbolKeyOps.typeSimpleName declKey) (DisplayName "C") "static-field class"
                         Expect.equal name "x" "static-field name"
                     | other -> failtestf "expected StaticFieldGet body, got %A" other
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
@@ -1172,8 +1172,8 @@ let tests =
                 match declType tast with
                 | TyFun(TyConst(a, aArgs), TyConst(b, bArgs)) ->
                     Expect.isTrue (aArgs.IsEmpty && bArgs.IsEmpty) "bigint is nullary"
-                    Expect.equal (SymbolKeyOps.simpleName a) (DisplayName "bigint") "param : bigint"
-                    Expect.equal (SymbolKeyOps.simpleName b) (DisplayName "bigint") "result : bigint"
+                    Expect.equal (SymbolKeyOps.typeSimpleName a) (DisplayName "bigint") "param : bigint"
+                    Expect.equal (SymbolKeyOps.typeSimpleName b) (DisplayName "bigint") "result : bigint"
                 | other -> failtestf "expected bigint -> bigint, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -1210,7 +1210,7 @@ let tests =
                     | SymbolKey.Member mk when mk.ArgSig.Length = 1 ->
                         match mk.ArgSig.[0] with
                         | FTConst(sk, _) ->
-                            let (DisplayName n) = SymbolKeyOps.simpleName sk
+                            let (DisplayName n) = SymbolKeyOps.typeSimpleName sk
                             Some n
                         | _ -> None
                     | _ -> None
@@ -1239,7 +1239,7 @@ let tests =
                     match mk.ArgSig.[0] with
                     | FTConst(sk, _) ->
                         Expect.equal
-                            (SymbolKeyOps.simpleName sk)
+                            (SymbolKeyOps.typeSimpleName sk)
                             (DisplayName "int")
                             "arg type is the declared int, not a placeholder"
                     | other -> failtestf "expected an FTConst int arg type, got %A" other
@@ -1260,7 +1260,7 @@ let tests =
 
                     match mk.ArgSig |> EqArray.toList with
                     | [ FTConst(sk, _) ] ->
-                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg type is the declared int"
+                        Expect.equal (SymbolKeyOps.typeSimpleName sk) (DisplayName "int") "arg type is the declared int"
                     | other -> failtestf "expected a single FTConst int arg type, got %A" other
                 | other -> failtestf "expected a single StaticMethodCall member key, got %A" other
 
@@ -1281,7 +1281,7 @@ let tests =
 
                     match mk.ArgSig |> EqArray.toList with
                     | [ FTConst(sk, _) ] ->
-                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg type is the declared int"
+                        Expect.equal (SymbolKeyOps.typeSimpleName sk) (DisplayName "int") "arg type is the declared int"
                     | other -> failtestf "expected a single FTConst int arg type, got %A" other
                 | other -> failtestf "expected a single interface MethodCall member key, got %A" other
 

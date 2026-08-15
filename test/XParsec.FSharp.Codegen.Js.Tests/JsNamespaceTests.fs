@@ -165,7 +165,7 @@ let tests =
                             "Js.Widget"
                             "the homed ref must mint under the Js namespace (globalLibHomes), not bare Widget"
 
-                        match (es2015Provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type key) with
+                        match (es2015Provider :> IExternalSymbolStore).TryLookupType key with
                         | ValueSome(ExternalTypeShape.Class info) ->
                             Expect.equal
                                 info.Origin.Home.AssemblyOption

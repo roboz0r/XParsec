@@ -6,10 +6,7 @@ open System.Collections.Generic
 /// Addresses a member by NAME, so it reaches the whole overload set; `MemberKey` addresses
 /// one overload by identity.
 type KeyedMemberName =
-    {
-        DeclaringType: SymbolKey
-        Name: string
-    }
+    { DeclaringType: TypeKey; Name: string }
 
 /// `KeyedMemberName` with the declaring type RENDERED: the address a by-name member index
 /// is keyed on.
@@ -24,7 +21,7 @@ module ExternalMemberName =
 
     let ofKeyed (key: KeyedMemberName) : ExternalMemberName =
         {
-            DeclaringType = SymbolKeyOps.qualifiedName key.DeclaringType
+            DeclaringType = SymbolKeyOps.typeMetaName key.DeclaringType
             Name = key.Name
         }
 
@@ -67,10 +64,10 @@ module ExternalSymbolProviders =
     /// `TypeContainer.InModule`, whose rendering is not what the source writes.
     type KeyIndexedChannels =
         {
-            ShapesByKey: IReadOnlyDictionary<SymbolKey, ExternalTypeShape>
+            ShapesByKey: IReadOnlyDictionary<TypeKey, ExternalTypeShape>
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
             /// scan and the by-key selection both depend on that order.
-            MembersByKey: IReadOnlyDictionary<SymbolKey, ResizeArray<ExternalMember>>
+            MembersByKey: IReadOnlyDictionary<TypeKey, ResizeArray<ExternalMember>>
             /// Written type name -> registered identity.
             ResolveTypeName: string -> TypeKey voption
             TryLookup: string -> ExternalSymbol voption
@@ -101,7 +98,7 @@ module ExternalSymbolProviders =
             Named: NamedChannels
             /// Identity + shape from one read. Derived by both builders, never supplied.
             TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
-            TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
+            TypeShapeByKey: TypeKey -> ExternalTypeShape voption
             TypeMembersByKey: KeyedMemberName -> EqArray<ExternalMember>
         }
 
@@ -114,12 +111,12 @@ module ExternalSymbolProviders =
                     fun name ->
                         channels.TryLookupType name
                         |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
-                TypeShapeByKey = fun key -> channels.TryLookupType(SymbolKeyOps.qualifiedName key)
+                TypeShapeByKey = fun key -> channels.TryLookupType(SymbolKeyOps.typeMetaName key)
                 TypeMembersByKey = ExternalMemberName.ofKeyed >> channels.TryLookupMembers
             }
 
         let ofKeyIndexes (channels: KeyIndexedChannels) : KeyedChannels =
-            let shapeByKey (key: SymbolKey) : ExternalTypeShape voption =
+            let shapeByKey (key: TypeKey) : ExternalTypeShape voption =
                 match channels.ShapesByKey.TryGetValue key with
                 | true, shape -> ValueSome shape
                 | _ -> ValueNone
@@ -147,9 +144,7 @@ module ExternalSymbolProviders =
                 TypeByName =
                     fun name ->
                         match channels.ResolveTypeName name with
-                        | ValueSome key ->
-                            shapeByKey (SymbolKey.Type key)
-                            |> ValueOption.map (fun shape -> struct (key, shape))
+                        | ValueSome key -> shapeByKey key |> ValueOption.map (fun shape -> struct (key, shape))
                         | ValueNone -> ValueNone
                 TypeShapeByKey = shapeByKey
                 TypeMembersByKey = membersNamed
@@ -167,7 +162,7 @@ module ExternalSymbolProviders =
               member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
           interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) = channels.TypeShapeByKey key
+              member _.TryLookupType(key: TypeKey) = channels.TypeShapeByKey key
 
               member _.TryLookupMembers(key, memberName) =
                   channels.TypeMembersByKey
@@ -182,13 +177,13 @@ module ExternalSymbolProviders =
               member _.TryLookupMemberByKey(key: MemberKey) =
                   channels.TypeMembersByKey
                       {
-                          DeclaringType = SymbolKey.Type key.Decl
+                          DeclaringType = key.Decl
                           Name = key.Name
                       }
                   |> ExternalSymbols.memberByKey key
 
               member _.TryLookupIndexSignature key =
-                  named.TryLookupIndexSignature(SymbolKeyOps.qualifiedName key)
+                  named.TryLookupIndexSignature(SymbolKeyOps.typeMetaName key)
 
               // A `BindingKey`'s rendering `.`-joins its containment chain, which is how a
               // binding is WRITTEN, so it round-trips through the name index. A TYPE's does not:
@@ -227,16 +222,16 @@ module ExternalSymbolProviders =
         abstract AmbientOpenPrefixes: string list
         default _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
 
-        abstract TryLookupTypeByKey: key: SymbolKey -> ExternalTypeShape voption
+        abstract TryLookupTypeByKey: key: TypeKey -> ExternalTypeShape voption
         default _.TryLookupTypeByKey key = inner.TryLookupType key
 
-        abstract TryLookupMembers: key: SymbolKey * memberName: string -> EqArray<ExternalMember>
+        abstract TryLookupMembers: key: TypeKey * memberName: string -> EqArray<ExternalMember>
         default _.TryLookupMembers(key, memberName) = inner.TryLookupMembers(key, memberName)
 
         abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
         default _.TryLookupMemberByKey key = inner.TryLookupMemberByKey key
 
-        abstract TryLookupIndexSignature: key: SymbolKey -> (FrozenType * FrozenType) list
+        abstract TryLookupIndexSignature: key: TypeKey -> (FrozenType * FrozenType) list
         default _.TryLookupIndexSignature key = inner.TryLookupIndexSignature key
 
         abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
@@ -258,10 +253,10 @@ module ExternalSymbolProviders =
             member this.AmbientOpenPrefixes = this.AmbientOpenPrefixes
 
         interface IExternalSymbolStore with
-            member this.TryLookupType(key: SymbolKey) = this.TryLookupTypeByKey key
+            member this.TryLookupType(key: TypeKey) = this.TryLookupTypeByKey key
             member this.TryLookupMembers(key, memberName) = this.TryLookupMembers(key, memberName)
             member this.TryLookupMemberByKey(key: MemberKey) = this.TryLookupMemberByKey key
-            member this.TryLookupIndexSignature(key: SymbolKey) = this.TryLookupIndexSignature key
+            member this.TryLookupIndexSignature(key: TypeKey) = this.TryLookupIndexSignature key
             member this.TryLookupByKey key = this.TryLookupByKey key
             member this.IntrinsicTypeMap = this.IntrinsicTypeMap
             member this.Platform = this.Platform
@@ -298,7 +293,7 @@ module ExternalSymbolProviders =
 
             result
 
-        let foldIntrinsicSurface (key: SymbolKey) (hit: ExternalTypeShape) : ExternalTypeShape =
+        let foldIntrinsicSurface (key: TypeKey) (hit: ExternalTypeShape) : ExternalTypeShape =
             match hit with
             | ExternalTypeShape.Intrinsic shape ->
                 let mutable surface = shape.Class
@@ -370,7 +365,7 @@ module ExternalSymbolProviders =
               member _.TryLookupType(name: string) =
                   firstHit (fun s -> s.TryLookupType name)
                   |> ValueOption.map (fun (struct (key, shape)) ->
-                      struct (key, stampType (foldIntrinsicSurface (SymbolKey.Type key) shape))
+                      struct (key, stampType (foldIntrinsicSurface key shape))
                   )
 
               member _.TryLookupUnionCase caseName =
@@ -390,7 +385,7 @@ module ExternalSymbolProviders =
 
               member _.AmbientOpenPrefixes = ambient
           interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) =
+              member _.TryLookupType(key: TypeKey) =
                   firstHit (fun s -> s.TryLookupType key)
                   |> ValueOption.map (foldIntrinsicSurface key >> stampType)
 
@@ -413,7 +408,7 @@ module ExternalSymbolProviders =
 
               // First source with a non-empty index signature wins. The `(key, value)`
               // templates are origin-independent, so nothing is re-stamped.
-              member _.TryLookupIndexSignature(key: SymbolKey) =
+              member _.TryLookupIndexSignature(key: TypeKey) =
                   let mutable result = []
                   let mutable i = 0
 
@@ -555,7 +550,7 @@ module ExternalSymbolProviders =
 
             // An index KEY is a contravariant position (the supplied index), the VALUE a
             // covariant read.
-            override _.TryLookupIndexSignature(key: SymbolKey) =
+            override _.TryLookupIndexSignature(key: TypeKey) =
                 inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
 
             override _.TryLookupByKey key =
@@ -604,14 +599,14 @@ module ExternalSymbolProviders =
         let typesByName =
             ConcurrentDictionary<string, struct (TypeKey * ExternalTypeShape) voption>()
 
-        let typesByKey = ConcurrentDictionary<SymbolKey, ExternalTypeShape voption>()
+        let typesByKey = ConcurrentDictionary<TypeKey, ExternalTypeShape voption>()
 
         let memberSets =
-            ConcurrentDictionary<struct (SymbolKey * string), EqArray<ExternalMember>>()
+            ConcurrentDictionary<struct (TypeKey * string), EqArray<ExternalMember>>()
 
         let membersByKey = ConcurrentDictionary<MemberKey, ExternalMember voption>()
 
-        let indexSigs = ConcurrentDictionary<SymbolKey, (FrozenType * FrozenType) list>()
+        let indexSigs = ConcurrentDictionary<TypeKey, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
 
         let recordsByField =
@@ -656,7 +651,7 @@ module ExternalSymbolProviders =
             override _.TryLookupMemberByKey(key: MemberKey) =
                 membersByKey.GetOrAdd(key, (fun k -> inner.TryLookupMemberByKey k))
 
-            override _.TryLookupIndexSignature(key: SymbolKey) =
+            override _.TryLookupIndexSignature(key: TypeKey) =
                 indexSigs.GetOrAdd(key, (fun k -> inner.TryLookupIndexSignature k))
 
             override _.TryLookupByKey key =
