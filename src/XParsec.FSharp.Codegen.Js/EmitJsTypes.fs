@@ -76,8 +76,14 @@ module EmitJsTypes =
 
     // ---- Member partition ----------------------------------------------------
 
-    /// A nominal type's members, each paired with the slot it is emitted into, in source order.
-    type PartitionedMembers = (MemberSlot * TastAccessor.TypeMember) list
+    /// A nominal type's members split by where they are emitted: `Slotted` into the class body,
+    /// each with its dispatch slot; `Free` as a top-level `<Type>__M = (this$) => (a) => …` that
+    /// call sites lower to instead, so an unused member tree-shakes away. Both in source order.
+    type PartitionedMembers =
+        {
+            Slotted: (MemberSlot * TastAccessor.TypeMember) list
+            Free: TastAccessor.TypeMember list
+        }
 
     /// A class's instance `let`/`do` preamble. `ThisKey` is the bound variable its entries read
     /// their siblings through, so the emitted ctor must alias that name to JS `this`.
@@ -146,6 +152,7 @@ module EmitJsTypes =
         (members: EqArray<TastAccessor.TypeMember>)
         : PartitionedMembers =
         let slotted = ResizeArray<MemberSlot * TastAccessor.TypeMember>()
+        let free = ResizeArray<TastAccessor.TypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
         // Only a `Named` slot spends a name, so only it consults `claimed`.
@@ -189,9 +196,12 @@ module EmitJsTypes =
                     typeName
                     m.Name
             else
-                slotted.Add(MemberSlot.Free, m)
+                free.Add m
 
-        List.ofSeq slotted
+        {
+            Slotted = List.ofSeq slotted
+            Free = List.ofSeq free
+        }
 
     /// Collect the file's nominal `type` decls, in source order. Takes the UN-lowered
     /// decls: lowering discards every `type` decl, so nothing survives it to read.
@@ -222,10 +232,8 @@ module EmitJsTypes =
             : PartitionedMembers =
             let parts = partitionClassMembers caps typeName interfaces declMembers
 
-            for (slot, m) in parts do
-                match slot with
-                | MemberSlot.Free -> members.Add(typeName, m)
-                | _ -> ()
+            for m in parts.Free do
+                members.Add(typeName, m)
 
             parts
 

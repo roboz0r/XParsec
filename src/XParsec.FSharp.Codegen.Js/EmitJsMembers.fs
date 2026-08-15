@@ -104,20 +104,19 @@ module EmitJsMembers =
         // A member function is an arrow value, never reassigned → always `const`.
         topLevelBinding ctx false name init
 
-    /// The class body of a partitioned member set. A `Free` member has no class slot: it
-    /// emits as a top-level function instead.
+    /// The class body of a partitioned member set; its `Free` members become top-level
+    /// functions via `emitMemberFn` instead.
     let emitClassMethods
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (p: PartitionedMembers)
         : JsClassMethod list =
         [
-            for (slot, m) in p do
+            for (slot, m) in p.Slotted ->
                 match slot with
-                | MemberSlot.Named -> yield emitPlainMethod buildExpr ctx (JsMethodKey.Named m.Name) m
-                | MemberSlot.Iterator -> yield emitIteratorMethod buildExpr ctx m
+                | MemberSlot.Named -> emitPlainMethod buildExpr ctx (JsMethodKey.Named m.Name) m
+                | MemberSlot.Iterator -> emitIteratorMethod buildExpr ctx m
                 | MemberSlot.Protocol registryKey ->
-                    yield emitPlainMethod buildExpr ctx (JsMethodKey.Computed(registrySymbol registryKey)) m
-                | MemberSlot.Dispose -> yield emitPlainMethod buildExpr ctx (JsMethodKey.Computed symbolDispose) m
-                | MemberSlot.Free -> ()
+                    emitPlainMethod buildExpr ctx (JsMethodKey.Computed(registrySymbol registryKey)) m
+                | MemberSlot.Dispose -> emitPlainMethod buildExpr ctx (JsMethodKey.Computed symbolDispose) m
         ]

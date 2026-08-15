@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// in source; a JS anchor is a dispatch SYMBOL, so it lives here in the backend.
 module EmitJsCapabilities =
 
-    /// The dispatch slot a member's body is emitted into.
+    /// The class dispatch slot a member's body is emitted into.
     [<RequireQualifiedAccess>]
     type MemberSlot =
         /// `M(a) { … }`, called as `x.M(a)`.
@@ -19,24 +19,19 @@ module EmitJsCapabilities =
         | Protocol of registryKey: string
         /// `[Symbol.dispose]() { … }`, which `use` calls.
         | Dispose
-        /// No class slot: a top-level `<Type>__M = (this$) => (a) => …` that call sites lower
-        /// to instead, so an unused member tree-shakes away.
-        | Free
 
     /// How a call through a capability member lowers. `imports` and the member name are the
     /// anchor's own inputs; the object argument and location come from the call site.
     type CapabilityLowering = JsImports -> string -> JsExpr -> JsLoc voption -> JsExpr
 
-    /// One language capability: the front-end interface it is anchored to, the slot an IMPL of
-    /// it takes, and how a CALL through it lowers.
+    /// One language capability: the front-end interface it is anchored to, and the slot an IMPL
+    /// of it takes. A CALL's lowering follows from the slot, so the two cannot disagree.
     [<NoEquality; NoComparison>]
     type JsCapability =
         {
             /// Reads this capability's identity out of the provider-resolved set.
             Anchor: RuntimeNames.CapabilityIds -> RuntimeNames.CapabilityIdentity voption
             Slot: MemberSlot
-            /// `ValueNone` → a call keeps the ordinary external-member lowering.
-            Lowering: CapabilityLowering voption
         }
 
     // ---- The JS anchors ------------------------------------------------------
@@ -77,59 +72,67 @@ module EmitJsCapabilities =
 
     // ---- The capability table ------------------------------------------------
 
-    let private capabilities: JsCapability list =
-        [
+    let private capabilities: JsCapability[] =
+        [|
             // `seq<'T>`
             {
                 Anchor = fun caps -> caps.Enumerable
                 Slot = MemberSlot.Iterator
-                Lowering =
-                    ValueSome(fun imports _ objArg loc ->
-                        let adapter =
-                            JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
-
-                        JsExpr.Call(adapter, [ objArg ], loc)
-                    )
             }
             // `enumerator<'T>`, the one capability still on a NAME slot: its dispatch is the
             // plain pair `e.MoveNext()` / `e.Current()`, not a symbol method.
             {
                 Anchor = fun caps -> caps.Enumerator
                 Slot = MemberSlot.Named
-                Lowering =
-                    ValueSome(fun _ memberName objArg loc -> JsExternalMembers.attachedCall objArg memberName [] loc)
             }
             // `disposable`
             {
                 Anchor = fun caps -> caps.Disposable
                 Slot = MemberSlot.Dispose
-                Lowering = ValueSome(fun _ _ objArg loc -> disposeSlotCall objArg loc)
             }
-            // `equatable<'T>` and `comparable<'T>`. `=` reaches both through structural equality,
-            // never a member call, so neither lowers a call of its own.
+            // `equatable<'T>` and `comparable<'T>`
             {
                 Anchor = fun caps -> caps.Equatable
                 Slot = MemberSlot.Protocol equalityRegistryKey
-                Lowering = ValueNone
             }
             {
                 Anchor = fun caps -> caps.Comparable
                 Slot = MemberSlot.Protocol comparisonRegistryKey
-                Lowering = ValueNone
             }
-        ]
+        |]
 
     /// Capability identity is resolved through the provider, so a provider-less compile
     /// recognises nothing: every anchor is `ValueNone` and no row matches.
     let capabilityOf (caps: RuntimeNames.CapabilityIds) (key: TypeKey) : JsCapability voption =
-        let anchored (c: JsCapability) =
-            RuntimeNames.matchesKey (c.Anchor caps) key
+        let mutable hit = ValueNone
+        let mutable i = 0
 
-        match List.tryFind anchored capabilities with
-        | Some c -> ValueSome c
-        | None -> ValueNone
+        while hit.IsNone && i < capabilities.Length do
+            if RuntimeNames.matchesKey (capabilities.[i].Anchor caps) key then
+                hit <- ValueSome capabilities.[i]
+
+            i <- i + 1
+
+        hit
 
     // ---- The CONSUMER side ---------------------------------------------------
+
+    /// How a call REACHES `slot`, which is the same slot an impl of it was emitted into.
+    /// `ValueNone` → the ordinary external-member lowering: `=` reaches equality and
+    /// comparison through structural equality, never a member call.
+    let private loweringFor (slot: MemberSlot) : CapabilityLowering voption =
+        match slot with
+        | MemberSlot.Named ->
+            ValueSome(fun _ memberName objArg loc -> JsExternalMembers.attachedCall objArg memberName [] loc)
+        | MemberSlot.Iterator ->
+            ValueSome(fun imports _ objArg loc ->
+                let adapter =
+                    JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
+
+                JsExpr.Call(adapter, [ objArg ], loc)
+            )
+        | MemberSlot.Dispose -> ValueSome(fun _ _ objArg loc -> disposeSlotCall objArg loc)
+        | MemberSlot.Protocol _ -> ValueNone
 
     /// Name-blind: every routed member takes `unit`, so an applied call and a bare property
     /// read emit the same node.
@@ -140,7 +143,7 @@ module EmitJsCapabilities =
         (memberName: string)
         : (JsExpr -> JsLoc voption -> JsExpr) voption =
         capabilityOf caps declKey
-        |> ValueOption.bind (fun c -> c.Lowering)
+        |> ValueOption.bind (fun c -> loweringFor c.Slot)
         |> ValueOption.map (fun lower -> lower imports memberName)
 
     /// An un-applied capability-member VALUE read: an interface property compiles to a zero-arg

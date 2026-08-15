@@ -432,6 +432,10 @@ The three identical `buildContractWithRefs` calls became a private `contractFor`
 `prepare` and `compileAssembly` resolve a contract one way. `compile` and `compileAssembly` do
 not prepare: neither keys a cache, and folding a digest reads the whole dependency closure.
 
+`compileCached` is `prepare`'s only caller today, and prepares inline. What the type buys is
+the unspellable mismatch; the multi-file driver that would amortise one `prepare` across files
+is not written yet, so no throughput claim is being collected on.
+
 ## B20. A CLR-repr classifier, not a `bool` over three answers
 
 *Half landed with A15 (2026-08-13): `TypeLayout.shapeOfFrozen` enumerates every `FrozenType`
