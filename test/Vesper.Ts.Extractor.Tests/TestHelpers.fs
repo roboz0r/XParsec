@@ -461,6 +461,65 @@ let extractorJs =
             Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Ts.Extractor", "dist", "Program.js")
         )
 
+let private distDir =
+    lazy Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Ts.Extractor", "dist"))
+
+/// The `.fs` Fable compiles into `dist`: the extractor's own, plus each referenced project's.
+/// `dist` holds one subdirectory per reference, named for it, so the set follows the
+/// references rather than being restated here. `obj`/`bin` are MSBuild's, not Fable's inputs.
+let private fableSources () : string list =
+    let srcDir = Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src"))
+
+    let projectDirs =
+        [
+            yield Path.Combine(srcDir, "Vesper.Ts.Extractor")
+
+            for d in Directory.GetDirectories distDir.Value do
+                let referenced = Path.Combine(srcDir, Path.GetFileName d)
+
+                if Directory.Exists referenced then
+                    yield referenced
+        ]
+
+    [
+        for dir in projectDirs do
+            for f in Directory.EnumerateFiles(dir, "*.fs", SearchOption.AllDirectories) do
+                let rel = Path.GetRelativePath(srcDir, f).Replace('\\', '/')
+
+                if not (rel.Contains "/obj/" || rel.Contains "/bin/") then
+                    yield f
+    ]
+
+/// Sources newer than the last Fable RUN. `project_cracked.json` is rewritten by every run,
+/// including one that emits nothing because no content changed — timing against the emitted
+/// `.js` instead would leave an alarm that re-running Fable could not clear.
+let private staleSources =
+    lazy
+        (let builtAt =
+            Seq.append
+                (Directory.EnumerateFiles(distDir.Value, "project_cracked.json", SearchOption.AllDirectories))
+                (Directory.EnumerateFiles(distDir.Value, "*.js", SearchOption.AllDirectories))
+            |> Seq.map File.GetLastWriteTimeUtc
+            |> Seq.fold max DateTime.MinValue
+
+         fableSources ()
+         |> List.filter (fun f -> File.GetLastWriteTimeUtc f > builtAt)
+         |> List.map Path.GetFileName)
+
+/// `dist` is gitignored, so a tree can hold one compiled from sources it no longer has: the
+/// extractor then runs, and its drift arrives as golden mismatches that read like a
+/// regression. SKIP when it was never built (CI has no `dist`), FAIL when it is behind.
+let requireExtractorBuilt () =
+    if not (File.Exists extractorJs.Value) then
+        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+
+    match staleSources.Value with
+    | [] -> ()
+    | stale ->
+        failtestf
+            "extractor dist predates %s — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+            (String.concat ", " stale)
+
 let private goldenOf (dtsPath: string) =
     dtsPath.Substring(0, dtsPath.Length - ".d.ts".Length) + ".manifest.json"
 
@@ -469,8 +528,7 @@ let private goldenOf (dtsPath: string) =
 /// extractor isn't built or `node` is unavailable. `UPDATE_SNAPSHOTS=1` rewrites
 /// the golden from the extractor's output (the extractor is the source of truth).
 let testExtractorMatchesGolden (dtsPath: string) =
-    if not (File.Exists extractorJs.Value) then
-        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+    requireExtractorBuilt ()
 
     let packageName = Path.GetFileName(Path.GetDirectoryName dtsPath)
     let golden = goldenOf dtsPath
@@ -518,8 +576,7 @@ let testExtractorMatchesGolden (dtsPath: string) =
 /// synthetic-entry + module resolver pull the cross-file `.d.ts` closure. Same
 /// skip/refresh semantics as the single-file path.
 let testExtractorMatchesGoldenPackage (pkgDir: string) =
-    if not (File.Exists extractorJs.Value) then
-        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+    requireExtractorBuilt ()
 
     let packageName = Path.GetFileName pkgDir
     let specifier = "./" + packageName
@@ -569,8 +626,7 @@ let testExtractorMatchesGoldenPackage (pkgDir: string) =
 /// declarations) and assert its output equals `globals/globals.manifest.json`. Same
 /// skip/refresh semantics as the single-file path.
 let testExtractorMatchesGoldenGlobals () =
-    if not (File.Exists extractorJs.Value) then
-        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+    requireExtractorBuilt ()
 
     let inputs = globalsDtsFiles.Value
 
@@ -626,8 +682,7 @@ let testExtractorMatchesGoldenGlobals () =
 /// per-module home + the cross-module ref. Same skip/refresh semantics as the other
 /// goldens; `UPDATE_SNAPSHOTS=1` rewrites the goldens from the extractor's output.
 let testExtractorMatchesGoldenAmbientModules () =
-    if not (File.Exists extractorJs.Value) then
-        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+    requireExtractorBuilt ()
 
     let inputs = ambientModulesDtsFiles.Value
 
@@ -710,8 +765,7 @@ let testExtractorMatchesGoldenAmbientModules () =
 /// `UPDATE_SNAPSHOTS=1` (re)generates the vendored manifest from the real lib. This is
 /// the sole producer of the burndown manifest the diagnostics contract asserts.
 let testExtractorMatchesGoldenLibGlobals () =
-    if not (File.Exists extractorJs.Value) then
-        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+    requireExtractorBuilt ()
 
     let inputs = es2015LibFiles.Value
 
