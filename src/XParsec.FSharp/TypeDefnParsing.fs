@@ -1233,13 +1233,20 @@ module TypeExtensionElements =
 
     /// Light-syntax variant: synthesizes a virtual 'with' when member tokens follow
     /// without an explicit 'with' keyword (e.g. record/union augmentations in light mode).
-    let parseLight: Parser<TypeExtensionElements<SyntaxToken>, _, _, _> =
+    let parseLight (anchor: SyntaxToken) : Parser<TypeExtensionElements<SyntaxToken>, _, _, _> =
+        // Without an explicit `with` there is no new block, so `anchor` (the first token of
+        // the representation), `{` / `|` / the abbreviated type is the offside line.
+        // An explicit `with` opens its own block instead, floored by the enclosing context.
         parser {
             let! withTok = nextSyntaxTokenVirtualIfNot Token.KWWith
-            let! elems = withContext OffsideContext.WithAugment (many1 TypeDefnElement.parse)
+            let! elems = withContextAtToken OffsideContext.WithAugment anchor (many1 TypeDefnElement.parse)
             let! endTok = nextSyntaxTokenVirtualIfNot Token.KWEnd
             return TypeExtensionElements.TypeExtensionElements(withTok, elems, endTok)
         }
+
+    /// The optional trailing augmentation (explicit `parse` or light-syntax `parseLight`).
+    let parseOptAt (anchor: SyntaxToken) =
+        opt (choiceL [ parse; parseLight anchor ] "Type Extension")
 
 [<RequireQualifiedAccess>]
 module DelegateSig =
@@ -1337,6 +1344,8 @@ module TypeDefn =
                 // dangling '*' only appears when tuple parsing partially succeeded then
                 // backtracked mid-element (e.g. 'kg * (meter / ...)'), since a completed
                 // tuple consumes the '*' separators.
+                let! anchor = peekNextSyntaxToken
+
                 let! t =
                     choice
                         [
@@ -1367,8 +1376,7 @@ module TypeDefn =
                         DiagnosticCode.MissingType
                         (missingOrSkipped Type<SyntaxToken>.Missing Type<SyntaxToken>.SkipsTokens)
 
-                let! ext =
-                    opt (choiceL [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ] "Type Extension")
+                let! ext = TypeExtensionElements.parseOptAt anchor
 
                 return TypeDefn.Abbrev(typeName, equals, t, ext)
         }
@@ -1466,8 +1474,7 @@ module TypeDefn =
                     let! fields = many1 pRecordField
                     let! rBrace = pRBrace
 
-                    let! ext =
-                        opt (choiceL [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ] "Type Extension")
+                    let! ext = TypeExtensionElements.parseOptAt next
 
                     return TypeDefn.Record(typeName, equals, lBrace, fields, rBrace, ext)
 
@@ -1491,14 +1498,7 @@ module TypeDefn =
                                     }
                                     parser {
                                         let! cases, bars = UnionTypeCases.parse
-
-                                        let! ext =
-                                            opt (
-                                                choiceL
-                                                    [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
-                                                    "Type Extension"
-                                            )
-
+                                        let! ext = TypeExtensionElements.parseOptAt next
                                         return TypeDefn.Union(typeName, equals, cases, bars, ext)
                                     }
                                 ]
@@ -1522,13 +1522,7 @@ module TypeDefn =
                                         // Single nullary case without '|' is a type abbreviation, not a DU
                                         return! fail errSingleNullaryUnionCaseIsAbbrev
                                     | _ ->
-                                        let! ext =
-                                            opt (
-                                                choiceL
-                                                    [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
-                                                    "Type Extension"
-                                            )
-
+                                        let! ext = TypeExtensionElements.parseOptAt next
                                         return TypeDefn.Union(typeName, equals, cases, bars, ext)
                                 }
                                 parseAbbrevOrImplicitClass typeName primaryConstr asDefn equals
@@ -1575,15 +1569,9 @@ module ExceptionDefn =
                     [
                         // Full: exception Foo of int with members
                         parser {
+                            let! anchor = peekNextSyntaxToken
                             let! caseData = UnionTypeCaseData.parseNary
-
-                            let! ext =
-                                opt (
-                                    choiceL
-                                        [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
-                                        "Type Extension"
-                                )
-
+                            let! ext = TypeExtensionElements.parseOptAt anchor
                             return ExceptionDefn.Full(attrs, exTok, caseData, ext)
                         }
                         // Abbreviation: exception Foo = Other.Exception
@@ -1595,14 +1583,9 @@ module ExceptionDefn =
                         }
                         // Nullary: exception Foo
                         parser {
+                            let! anchor = peekNextSyntaxToken
                             let! ident = pIdent
-
-                            let! ext =
-                                opt (
-                                    choiceL
-                                        [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ]
-                                        "Type Extension"
-                                )
+                            let! ext = TypeExtensionElements.parseOptAt anchor
 
                             return
                                 ExceptionDefn.Full(attrs, exTok, UnionTypeCaseData.Nullary(IdentOrOp.Ident ident), ext)

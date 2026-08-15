@@ -192,7 +192,7 @@ let tests =
             test "every arity of an overloaded record gets its augmentation members" {
                 let ctx =
                     analyse
-                        "type R<'a> = { A: 'a }\n\n    member this.GetA = this.A\n\ntype R<'a, 'b> = { A2: 'a; B: 'b }\n\n    member this.GetB = this.B"
+                        "type R<'a> =\n    { A: 'a }\n\n    member this.GetA = this.A\n\ntype R<'a, 'b> =\n    { A2: 'a; B: 'b }\n\n    member this.GetB = this.B"
 
                 for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
                     match TypeRegistry.tryRecordArity ctx.Types UseSite.unbounded "R" arity with
