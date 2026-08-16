@@ -464,3 +464,24 @@ Runnable before step 1 if preferred; it is listed last only because it is the le
   declarations in the global namespace with no module chain, and the signature walk mirrors it
   so a pair's halves agree. `VesperLib` honoured the chain, so the package path and the
   in-assembly path disagreed; no contract is written that way, and no test covered it.
+- **A bodied signature's `inherit` clause crashes the pass on a name it already diagnosed.**
+  `SignatureResolution/Members.fs` narrows `FrozenBaseType` to `FrozenNominal` through
+  ``OfFrozen "an `inherit` clause"``, which `failwithf`s on anything that does not name a type
+  constructor. An undefined name reaches it as one: `Unification/Translate.fs:65-69` reports
+  `UndefinedType` and returns `TyUnknown`, and `freezeOver` carries that to `FTUnknown`. So the
+  base type faults where the interface list beside it — same walk, same freeze, `TryOfFrozen` —
+  drops silently, and a diagnosed source error becomes a compiler crash rather than a message.
+  Settle whether the base type should degrade like the interfaces do, or whether an unresolved
+  `inherit` should be a hard error raised as a diagnostic before the freeze ever sees it. The
+  narrowing itself is wanted; only its behaviour on the diagnosed path is open. This is the
+  recheck the code's own TODO deferred to the `.fsi` rebase, now answered: step 4 did NOT close
+  it. See [inherit-interface-plan](inherit-interface-plan.md) for the neighbouring `inherit`
+  defect.
+- **The later-file resolution test lost its unresolved-name half.** `SignatureResolutionTests`'s
+  "a signature naming a type declared in a LATER file does not resolve" now asserts only that
+  `b.fsi` publishes its own type; the rewrite in step 4 dropped the check that `a.fsi`'s val
+  survives carrying `TyUnknown` for the name it could not see. The within-file case
+  ("a signature naming an out-of-scope type is reported, and the val still publishes") does
+  assert the carried name, so the RETENTION rule itself is covered — what is not is that
+  crossing a FILE boundary obeys it, which is the whole point of that fixture.
+  Restore it against `symbolOf r "needsB"` and `instantiateSymbol`.
