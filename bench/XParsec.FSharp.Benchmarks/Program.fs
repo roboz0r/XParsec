@@ -35,14 +35,14 @@ let private runTraceChild (size: Fixtures.FixtureSize) (iterations: int) =
 
     // Warm-up so JIT / tiered compilation settles before the trace window.
     for _ in 1..5 do
-        let reader = Reader.ofLexed lexed Set.empty
+        let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
         FSharpAst.parse reader |> ignore
 
     printfn "TRACE_BEGIN size=%A iterations=%d" size iterations
     let sw = Stopwatch.StartNew()
 
     for i in 1..iterations do
-        let reader = Reader.ofLexed lexed Set.empty
+        let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
         FSharpAst.parse reader |> ignore
 
         if i % 50 = 0 then

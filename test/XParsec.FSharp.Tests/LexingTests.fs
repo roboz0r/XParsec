@@ -12,11 +12,71 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 
 
+let private lexOrFail (source: string) =
+    match lexString source with
+    | Ok lexed -> lexed
+    | Error e -> failtestf "Lexing failed: %A" e
+
 [<Tests>]
 let tests =
     testList
         "LexingTests"
         [
+            testList
+                "MentionedDefines"
+                [
+                    test "A source without #if mentions nothing" {
+                        let lexed = lexOrFail "let x = 1"
+
+                        Expect.isEmpty lexed.MentionedDefines "No #if line, so no symbol to mention"
+
+                        Expect.equal
+                            (lexed.WithDefines(set [ "DEBUG"; "FABLE_COMPILER" ]))
+                            (lexed.WithDefines Set.empty)
+                            "Neither symbol appears, so neither reaches the parse"
+                    }
+
+                    test "Every symbol on a #if line is mentioned" {
+                        let lexed = lexOrFail "#if A || B && !C\n1\n#endif\n"
+
+                        Expect.equal lexed.MentionedDefines (set [ "A"; "B"; "C" ]) "All three are terms"
+                    }
+
+                    test "A symbol only reachable through a skipped branch is mentioned" {
+                        // `#if B` sits inside a branch that is never active, so a parse-time
+                        // collection would never read it.
+                        let lexed = lexOrFail "#if A\n#if B\n1\n#endif\n#endif\n"
+
+                        Expect.equal lexed.MentionedDefines (set [ "A"; "B" ]) "Lexing sees the whole file"
+
+                        Expect.notEqual
+                            (lexed.WithDefines(set [ "B" ]))
+                            (lexed.WithDefines Set.empty)
+                            "B is mentioned, so defining it is a different parse"
+                    }
+
+                    test "A symbol the file never names is dropped" {
+                        let lexed = lexOrFail "#if A\n1\n#endif\n"
+
+                        Expect.equal
+                            (lexed.WithDefines(set [ "A"; "Z" ]))
+                            (lexed.WithDefines(set [ "A" ]))
+                            "Z is not mentioned, so it cannot change this parse"
+                    }
+
+                    test "A comment on the #if line names no symbol" {
+                        let lexed = lexOrFail "#if A //B\n1\n#endif\n"
+
+                        Expect.equal lexed.MentionedDefines (set [ "A" ]) "B is comment text"
+                    }
+
+                    test "A #if inside a block comment names no symbol" {
+                        let lexed = lexOrFail "(*\n#if A\n*)\n"
+
+                        Expect.isEmpty lexed.MentionedDefines "The directive's tokens are flagged in-comment"
+                    }
+                ]
+
             test "Index" {
 
                 let snippet =

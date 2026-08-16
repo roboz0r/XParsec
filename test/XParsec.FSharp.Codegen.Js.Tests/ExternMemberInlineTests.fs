@@ -33,7 +33,7 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeK
     let input = "namespace Widgets\n\ntype widget = extern with\n" + members
 
     let parsed =
-        match ParseChain.parseSignature input with
+        match ParseChain.parseSignature Set.empty input with
         | Result.Ok p -> p
         | Result.Error f -> failwithf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
 

@@ -19,7 +19,7 @@ type Probe =
     }
 
 let analyse (provider: IExternalSymbolProvider) (input: string) : Probe =
-    match ParseChain.parseUnrecovered input with
+    match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed ->
         let ctx, regions, _ =

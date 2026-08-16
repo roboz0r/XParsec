@@ -116,8 +116,9 @@ module IfExpr =
             nextSyntaxIfToken
             >>= fun token ->
                 match token.Token with
+                // The lexer emits `Token.Identifier` for identifiers and keywords on
+                // an #if directive line.
                 | Token.Identifier -> preturn (IfExpr.Term token)
-                | t when t.IsKeyword -> preturn (IfExpr.Term token)
                 | _ -> fail errNotValidIfTerm
 
         static let ifDirectiveParser: Parser<_, _, _, 'Input> =

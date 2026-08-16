@@ -96,6 +96,7 @@ type FrozenCodecBenchmarks() =
             ReferenceAssemblies = []
             Packages = [ packageDir "Vesper.Set" ]
             SelfPackage = None
+            CompilationDefines = Set.empty
         }
 
     /// `keyInputs` already folded — what `FileKey` keys against, and what a driver holds for

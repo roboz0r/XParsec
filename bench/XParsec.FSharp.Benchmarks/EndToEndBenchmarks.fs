@@ -37,7 +37,7 @@ type EndToEndBenchmarks() =
         match Lexing.lexString source with
         | Error _ -> false
         | Ok lexed ->
-            let reader = Reader.ofLexed lexed Set.empty
+            let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
 
             match FSharpAst.parse reader with
             | Ok _ -> true

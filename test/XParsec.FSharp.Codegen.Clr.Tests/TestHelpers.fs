@@ -107,7 +107,7 @@ let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
 /// parses only because recovery patched it raises here, as it does in the driver, rather
 /// than being analysed as though it had been written that way.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match ParseChain.parseUnrecovered input with
+    match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 

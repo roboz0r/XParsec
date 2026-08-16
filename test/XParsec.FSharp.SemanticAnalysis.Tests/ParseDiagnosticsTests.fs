@@ -19,7 +19,7 @@ let private unclosedParen = "let f () = (1 + 2\n"
 let private mismatchedClose = "let r = {| x = 1 }\n"
 
 let private parsed (source: string) : ParseChain.ParsedFile =
-    match ParseChain.parse source with
+    match ParseChain.parse Set.empty source with
     | Ok p -> p
     | Error f -> failtestf "expected a recovered parse, not a failure: %A" f.Diagnostics
 
@@ -160,7 +160,7 @@ let tests =
                     | Result.Error e -> failtestf "lex failed: %A" e
 
                 let recovered =
-                    match ParseChain.parse source with
+                    match ParseChain.parse Set.empty source with
                     | Ok p -> p.Diagnostics
                     | Error f -> f.Diagnostics
 

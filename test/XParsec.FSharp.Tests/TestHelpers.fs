@@ -268,7 +268,8 @@ let private testParseFileWithParser
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok lexed ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed definedSymbols
+            let reader =
+                XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines definedSymbols)
 
             match parseFn reader with
             | Error e ->
@@ -432,7 +433,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
             }
 
         let reader =
-            XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed Set.empty traceCallback
+            XParsec.FSharp.Parser.Reader.ofParseInputWithTracing (lexed.WithDefines Set.empty) traceCallback
 
         let mutable taskResult = Unchecked.defaultof<_>
 
@@ -541,7 +542,7 @@ let private tryParseCorpusFileWith
             System.Threading.Thread(
                 System.Threading.ThreadStart(fun () ->
                     try
-                        let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed Set.empty
+                        let reader = XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines Set.empty)
 
                         match parseFn reader with
                         | Error e ->

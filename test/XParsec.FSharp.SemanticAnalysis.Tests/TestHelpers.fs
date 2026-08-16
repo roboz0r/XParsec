@@ -97,7 +97,7 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 /// Raises on failure, and also on a parse that only succeeded because recovery patched a
 /// hole — `parseRecoveredFile` is the one that accepts a patched tree.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match ParseChain.parseUnrecovered input with
+    match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
@@ -105,7 +105,7 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
 /// patched, and what analysis makes of it is the point of the test. Fails if the source
 /// stops needing recovery.
 let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match ParseChain.parse input with
+    match ParseChain.parse Set.empty input with
     | Result.Error f -> failwithf "parse failed: %A" (f.Diagnostics |> List.map (fun d -> d.Message))
     | Result.Ok parsed ->
         match parsed.Diagnostics with
@@ -123,7 +123,7 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
     match Lexing.lexString input with
     | Result.Error e -> failwithf "lex failed: %A" e
     | Result.Ok lexed ->
-        let reader = Reader.ofLexed lexed Set.empty
+        let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
 
         match FSharpAst.parseSignature reader with
         | Result.Error e -> failwithf "parse failed: %A" e

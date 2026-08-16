@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Js
 /// parses only because RECOVERY patched it raises here. `Result.Error` is qualified because
 /// `open …SemanticAnalysis` brings `Severity.Error` into scope, shadowing it.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match ParseChain.parseUnrecovered input with
+    match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 

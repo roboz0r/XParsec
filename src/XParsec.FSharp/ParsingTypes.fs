@@ -348,7 +348,7 @@ and [<CustomEquality; NoComparison>] ParseState =
         Lexed: Lexed
         Context: Offside list
         Diagnostics: Diagnostic list
-        DefinedSymbols: Set<string>
+        ActiveDefines: ActiveDefines
         IndentationMode: Syntax
         mutable LastLine: int<line> // ok to be mutable since it's only used as a guess
         // ReprocessOpAfterTypeDeclaration: bool
@@ -520,12 +520,12 @@ module ParseState =
         if not (isNull state.Trace) then
             action state.Trace
 
-    let createWithTracing (lexed: Lexed) definedSymbols (trace: TraceCallback) =
+    let createWithTracing (input: ParseInput) (trace: TraceCallback) =
         {
-            Lexed = lexed
+            Lexed = input.Lexed
             Context = []
             Diagnostics = []
-            DefinedSymbols = definedSymbols
+            ActiveDefines = input.ActiveDefines
             IndentationMode = Syntax.Light
             LastLine = 0<line>
             // ReprocessOpAfterTypeDeclaration = false
@@ -537,12 +537,12 @@ module ParseState =
             Trace = trace
         }
 
-    let create (lexed: Lexed) definedSymbols =
+    let create (input: ParseInput) =
         {
-            Lexed = lexed
+            Lexed = input.Lexed
             Context = []
             Diagnostics = []
-            DefinedSymbols = definedSymbols
+            ActiveDefines = input.ActiveDefines
             IndentationMode = Syntax.Light
             LastLine = 0<line>
             CharsConsumedAfterTypeParams = 0
@@ -726,7 +726,7 @@ module ParseState =
 
     let isDefined (state: ParseState) (symbolToken: SyntaxToken) =
         let symbol = tokenString symbolToken state
-        state.DefinedSymbols.Contains(symbol)
+        state.ActiveDefines.Contains(symbol)
 
     /// Check if a warning number is suppressed at a given line.
     let isWarningSuppressed (warningNumber: int) (line: int<line>) (state: ParseState) =
@@ -790,14 +790,10 @@ type WriterTraceCallback(lexed: Lexed, writer: System.IO.TextWriter) =
 
 [<RequireQualifiedAccess>]
 module Reader =
-    let ofLexed (lexed: Lexed) (definedSymbols: Set<string>) : Reader<_, ParseState, _> =
-        let initialState = ParseState.create lexed definedSymbols
-        Reader((lexed.Tokens.AsReadableArray()), initialState, 0)
+    let ofParseInput (input: ParseInput) : Reader<_, ParseState, _> =
+        let initialState = ParseState.create input
+        Reader((input.Lexed.Tokens.AsReadableArray()), initialState, 0)
 
-    let ofLexedWithTracing
-        (lexed: Lexed)
-        (definedSymbols: Set<string>)
-        (trace: TraceCallback)
-        : Reader<_, ParseState, _> =
-        let initialState = ParseState.createWithTracing lexed definedSymbols trace
-        Reader((lexed.Tokens.AsReadableArray()), initialState, 0)
+    let ofParseInputWithTracing (input: ParseInput) (trace: TraceCallback) : Reader<_, ParseState, _> =
+        let initialState = ParseState.createWithTracing input trace
+        Reader((input.Lexed.Tokens.AsReadableArray()), initialState, 0)

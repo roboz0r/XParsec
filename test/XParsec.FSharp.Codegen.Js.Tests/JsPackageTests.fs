@@ -16,7 +16,9 @@ let private packageName = "Test.Pkg"
 /// Compile `units` as one JS package through the production driver, failing the test on
 /// any front-end diagnostic (anchored to its own file, as the driver reports it).
 let private compileUnits (units: AssemblyFiles.SourceUnit list) : JsPackage =
-    match JsDriver.compileAssemblyWith jsContract.Value packageName (List.map AssemblyFiles.parseUnit units) with
+    match
+        JsDriver.compileAssemblyWith jsContract.Value packageName (List.map (AssemblyFiles.parseUnit Set.empty) units)
+    with
     | Ok pkg -> pkg
     | Error diags ->
         failtestf
@@ -212,7 +214,10 @@ type IShape =
                     |> List.map AssemblyFiles.SourceUnit.ofImplementation
 
                 match
-                    JsDriver.compileAssemblyWith jsContract.Value packageName (List.map AssemblyFiles.parseUnit files)
+                    JsDriver.compileAssemblyWith
+                        jsContract.Value
+                        packageName
+                        (List.map (AssemblyFiles.parseUnit Set.empty) files)
                 with
                 | Ok _ -> failtest "the collision must be refused"
                 | Error diags ->

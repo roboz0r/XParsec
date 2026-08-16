@@ -134,7 +134,7 @@ let tracingTests =
                         }
 
                     let reader =
-                        XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed Set.empty traceCallback
+                        XParsec.FSharp.Parser.Reader.ofParseInputWithTracing (lexed.WithDefines Set.empty) traceCallback
 
                     match XParsec.FSharp.Parser.FSharpAst.parse reader with
                     | Error e ->
@@ -152,7 +152,7 @@ let tracingTests =
                 match XParsec.FSharp.Lexer.Lexing.lexString input with
                 | Error e -> failtestf "Lexing failed: %A" e
                 | Ok lexed ->
-                    let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed Set.empty
+                    let reader = XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines Set.empty)
 
                     // Should parse successfully with default (no-op) tracing
                     match XParsec.FSharp.Parser.FSharpAst.parse reader with
@@ -196,7 +196,8 @@ let testSlicedParsing (filePath: string) =
             match XParsec.FSharp.Lexer.Lexing.lexString slice with
             | Error _ -> () // Skip lexer failures (incomplete strings, etc.)
             | Ok slicedLexed ->
-                let reader = XParsec.FSharp.Parser.Reader.ofLexed slicedLexed Set.empty
+                let reader =
+                    XParsec.FSharp.Parser.Reader.ofParseInput (slicedLexed.WithDefines Set.empty)
 
                 try
                     match XParsec.FSharp.Parser.FSharpAst.parse reader with

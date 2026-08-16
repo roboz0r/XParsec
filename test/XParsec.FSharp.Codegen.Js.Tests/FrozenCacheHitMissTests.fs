@@ -24,6 +24,7 @@ let private conformanceDigest =
             ReferenceAssemblies = []
             Packages = []
             SelfPackage = None
+            CompilationDefines = Set.empty
         }
 
 /// The cache key a driver would assemble for a source file with no dependencies: the query

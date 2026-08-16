@@ -114,6 +114,9 @@ module Hashing =
             /// signature presents that package's own primitives (`System.String` ->
             /// `Vesper.string`). `None` for a compilation that declares no primitives.
             SelfPackage: string option
+            /// The symbols the front end resolves every file's `#if` directives against. Two
+            /// compilations that differ here parse the same text into different trees.
+            CompilationDefines: Set<string>
         }
 
     /// A folded `CompilationInputs`, the per-compilation half of every file's cache key, paid
@@ -133,6 +136,13 @@ module Hashing =
         // deduplicated, so a package named BOTH as self and as a reference would collapse.
         appendPresence hasher inputs.SelfPackage.IsSome
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes(defaultArg inputs.SelfPackage ""))
+
+        // Counted, so the boundary with the next field does not depend on the element count.
+        // `Set` iterates sorted, so the fold does not depend on how the caller built it.
+        hasher.Append(ReadOnlySpan(BitConverter.GetBytes inputs.CompilationDefines.Count))
+
+        for symbol in inputs.CompilationDefines do
+            appendLengthPrefixed hasher (Encoding.UTF8.GetBytes symbol)
 
         for path in inputs.ReferenceAssemblies do
             let info = FileInfo path

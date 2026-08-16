@@ -45,7 +45,7 @@ let resolveFsiWith
     (input: string)
     : Resolved =
     let parsed =
-        match ParseChain.parseSignature input with
+        match ParseChain.parseSignature Set.empty input with
         | Result.Error f -> failtestf "parse failed in %s: %A" relative [ for d in f.Diagnostics -> d.Message ]
         | Result.Ok p -> p
 

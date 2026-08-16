@@ -73,6 +73,7 @@ let private compilation: Hashing.CompilationInputs =
         ReferenceAssemblies = []
         Packages = []
         SelfPackage = None
+        CompilationDefines = Set.empty
     }
 
 /// Held fixed wherever a test gates a COMPILATION determinant, so a moved key can only be
@@ -342,6 +343,28 @@ let tests =
                         File.WriteAllText(Path.Combine(root, "Pkg", "contract.fsi"), "type b = extern\n")
 
                         Expect.notEqual before (keyUnder inputs) "the self package's contents are a determinant"
+                    }
+
+                    test "the compilation defines change the key" {
+                        // The defines pick which `#if` branch every file parses, so two
+                        // compilations that disagree here freeze different trees.
+                        let withDebug =
+                            { compilation with
+                                CompilationDefines = set [ "DEBUG" ]
+                            }
+
+                        Expect.notEqual
+                            (keyUnder withDebug)
+                            (keyUnder compilation)
+                            "a defined symbol is a determinant of the parse"
+
+                        Expect.notEqual
+                            (keyUnder withDebug)
+                            (keyUnder
+                                { compilation with
+                                    CompilationDefines = set [ "TRACE" ]
+                                })
+                            "and so is WHICH symbol is defined"
                     }
 
                     test "the home assembly changes the key" {

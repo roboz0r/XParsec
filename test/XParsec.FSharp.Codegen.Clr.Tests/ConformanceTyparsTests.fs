@@ -67,6 +67,7 @@ let tests =
                             Target = Target.Clr
                         }
                         (ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) [])
+                        Set.empty
                         units
 
                 let contract = ClrSymbolProviders.buildContract [ vesperCorePackage ]

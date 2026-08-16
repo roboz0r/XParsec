@@ -126,10 +126,12 @@ module PackageSource =
             }
 
         let signatures =
-            manifest.Files |> List.map (read Half.Signature ParseChain.parseSignature)
+            manifest.Files
+            |> List.map (read Half.Signature (ParseChain.parseSignature Set.empty))
 
         let implementations =
-            manifest.Impl |> List.map (read Half.Implementation ParseChain.parse)
+            manifest.Impl
+            |> List.map (read Half.Implementation (ParseChain.parse Set.empty))
 
         // The pairing, taken once and handed to both sides. A later entry wins a key clash.
         let key = ReferencedProject.pairingKey manifest

@@ -32,11 +32,11 @@ module ConcatProbe =
 
         coreUnits
         @ [
-            AssemblyFiles.parseUnit (
-                AssemblyFiles.SourceUnit.ofImplementation (
+            AssemblyFiles.parseUnit
+                Set.empty
+                (AssemblyFiles.SourceUnit.ofImplementation (
                     AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource
-                )
-            )
+                ))
         ]
 
     /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's

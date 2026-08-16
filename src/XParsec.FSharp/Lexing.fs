@@ -13,6 +13,17 @@ type token
 [<Measure>]
 type line
 
+/// The subset of compilation symbols referenced by a file's `#if` directives.
+/// If two compilations share this exact subset, they will parse the file identically.
+[<Struct>]
+type ActiveDefines =
+    private
+    | ActiveDefines of symbols: Set<string>
+
+    member this.Contains(symbol: string) =
+        let (ActiveDefines symbols) = this
+        symbols.Contains symbol
+
 [<CustomEquality; NoComparison>]
 type Lexed =
     {
@@ -21,6 +32,9 @@ type Lexed =
         Input: string
         Tokens: ReadableArrayM<PositionedToken, token>
         LineStarts: ReadableArrayM<int<token>, line>
+        /// Every symbol referenced by a `#if` directive in this file, including directives
+        /// inside branches that are never active.
+        MentionedDefines: Set<string>
     }
 
     /// Lexing is a total function of `Input` and `lexString` is the only way to build one, so
@@ -35,10 +49,12 @@ type Lexed =
 
     override this.GetHashCode() = this.Input.GetHashCode()
 
-    /// So a generic caller — a `HashSet`, a `Dictionary` key, `EqualityComparer<_>.Default` —
-    /// reaches the typed comparison rather than boxing through the `obj` override.
     interface IEquatable<Lexed> with
         member this.Equals(that) = this.Equals that
+
+    /// Creates a `ParseInput` by taking the intersection of `compilationDefines` and `MentionedDefines`
+    member this.WithDefines(compilationDefines: Set<string>) =
+        ParseInput(this, ActiveDefines(Set.intersect compilationDefines this.MentionedDefines))
 
     member this.FirstTokenOnLine(lineIndex: int<line>) =
         if lineIndex < 0<_> || int lineIndex >= this.LineStarts.Length then
@@ -186,6 +202,18 @@ type Lexed =
         else
             this.GetTokenString(i)
 
+and [<NoComparison>] ParseInput =
+    private
+    | ParseInput of lexed: Lexed * activeDefines: ActiveDefines
+
+    member this.Lexed =
+        let (ParseInput(lexed, _)) = this
+        lexed
+
+    member this.ActiveDefines =
+        let (ParseInput(_, activeDefines)) = this
+        activeDefines
+
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
 
@@ -273,6 +301,7 @@ type LexBuilder =
         mutable IsInOCamlBlockComment: bool
         mutable LastTokenWasNewLine: int<token> voption
         LineStarts: ReadableArrayBuilder<int<token>> // indices of tokens that start lines
+        mutable MentionedDefines: Set<string>
     }
 
 open XParsec
@@ -346,6 +375,7 @@ module LexBuilder =
             Input = state.Source
             Tokens = tokens
             LineStarts = lineStarts
+            MentionedDefines = state.MentionedDefines
         }
 
     let init (input: string) =
@@ -362,6 +392,7 @@ module LexBuilder =
                 IsInOCamlBlockComment = false
                 LastTokenWasNewLine = ValueNone
                 LineStarts = ReadableArrayBuilder(lineCapacity)
+                MentionedDefines = Set.empty
             }
 
         x.LineStarts.Add(0<_>) // The first line starts at the beginning of the file
@@ -527,6 +558,16 @@ module LexBuilder =
 
     let inline append token pos ctxOp (state: LexBuilder) =
         appendI token (int pos.Index) ctxOp state
+
+    /// Appends a `#if` directive's symbol and records the name
+    let appendDefine (symbol: string) pos (state: LexBuilder) =
+        let state = append Token.Identifier pos CtxOp.NoOp state
+        let appended = state.Tokens[state.Tokens.Count - 1]
+
+        if not appended.InComment then
+            state.MentionedDefines <- Set.add symbol state.MentionedDefines
+
+        state
 
 
 [<AutoOpen>]
@@ -1164,14 +1205,17 @@ module Lexing =
                     )
             }
 
+        /// Collects the symbol during lexing, which covers `#if` directives in branches
+        /// the parser skips without reading.
+        let private pDefineToken =
+            parser {
+                let! pos = getPosition
+                let! symbol = pIdentifier
+                do! updateUserState (LexBuilder.appendDefine symbol pos)
+            }
+
         let pIdentifierOrOther =
-            choiceL
-                [
-                    pLineCommentToken
-                    pToken pIdentifier Token.Identifier
-                    pToken pid Token.OtherUnlexed
-                ]
-                "#if Identifier or keyword"
+            choiceL [ pLineCommentToken; pDefineToken; pToken pid Token.OtherUnlexed ] "#if identifier"
 
         let pAnd =
             choiceL

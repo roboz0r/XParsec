@@ -14,6 +14,7 @@ type ClrCompilation =
         Packages: string list
         ReferenceAssemblies: string list
         SelfPackage: string option
+        CompilationDefines: Set<string>
     }
 
 /// A `ClrCompilation` resolved ONCE for reuse across its files: the digest half of every file's
@@ -32,12 +33,18 @@ module ClrCompilation =
 
     /// References packages, defines no primitives of its own. The shape to reach for unless
     /// compiling a package that declares `extern` types.
-    let consumer (project: ProjectInfo) (packages: string list) (referenceAssemblies: string list) : ClrCompilation =
+    let consumer
+        (project: ProjectInfo)
+        (packages: string list)
+        (referenceAssemblies: string list)
+        compilationDefines
+        : ClrCompilation =
         {
             Project = project
             Packages = packages
             ReferenceAssemblies = referenceAssemblies
             SelfPackage = None
+            CompilationDefines = compilationDefines
         }
 
 /// The production CLR driver: parse → analyse → gate → emit against an EXPLICIT reference
@@ -69,7 +76,7 @@ module ClrDriver =
         match contractFor inputs |> Result.mapError unanchored with
         | Error contractErrors -> Error contractErrors
         | Ok contract ->
-            match ParseChain.parseUnrecovered source with
+            match ParseChain.parseUnrecovered inputs.CompilationDefines source with
             | Error diagnostics -> Error diagnostics
             | Ok parsed ->
                 let provider = contract.Provider
@@ -98,6 +105,7 @@ module ClrDriver =
                 ReferenceAssemblies = inputs.ReferenceAssemblies
                 Packages = inputs.Packages
                 SelfPackage = inputs.SelfPackage
+                CompilationDefines = inputs.CompilationDefines
             }
 
     /// Resolve a compilation's per-file-invariant work: the digest and the contract provider,
@@ -138,7 +146,7 @@ module ClrDriver =
                 store
                 key
                 (fun () ->
-                    match ParseChain.parseUnrecovered source with
+                    match ParseChain.parseUnrecovered inputs.CompilationDefines source with
                     | Error diagnostics -> Error diagnostics
                     | Ok parsed ->
                         let tast =
@@ -208,7 +216,7 @@ module ClrDriver =
                 inputs.ReferenceAssemblies
                 contract.Provider
                 inputs.Project
-                (List.map AssemblyFiles.parseUnit units)
+                (List.map (AssemblyFiles.parseUnit inputs.CompilationDefines) units)
         )
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is

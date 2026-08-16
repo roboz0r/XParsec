@@ -39,7 +39,8 @@ let private testParseFileWithParser
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok lexed ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed definedSymbols
+            let reader =
+                XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines definedSymbols)
 
             match parseFn reader with
             | Error e ->

@@ -67,7 +67,8 @@ module ParseChain =
     /// The front-end parse chain, lex → reader → AST: a bare-expression `ScriptFragment`
     /// wraps as an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s
     /// (never exceptions). The parser's recovery diagnostics ride out on BOTH arms.
-    let parse (source: string) : Result<ParsedFile, ParseFailure> =
+    /// `compilationDefines` are the symbols the file's `#if` directives resolve against.
+    let parse (compilationDefines: Set<string>) (source: string) : Result<ParsedFile, ParseFailure> =
         match Lexing.lexString source with
         | Result.Error e ->
             Error
@@ -77,7 +78,7 @@ module ParseChain =
                     Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
                 }
         | Result.Ok lexed ->
-            let reader = Reader.ofLexed lexed Set.empty
+            let reader = Reader.ofParseInput (lexed.WithDefines compilationDefines)
 
             let failed (kind: Kind) =
                 Error
@@ -111,7 +112,7 @@ module ParseChain =
         }
 
     /// `parse` for a `.fsi`. A signature file has no bare-expression form to wrap.
-    let parseSignature (source: string) : Result<ParsedSignature, ParseFailure> =
+    let parseSignature (compilationDefines: Set<string>) (source: string) : Result<ParsedSignature, ParseFailure> =
         match Lexing.lexString source with
         | Result.Error e ->
             Error
@@ -120,7 +121,7 @@ module ParseChain =
                     Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
                 }
         | Result.Ok lexed ->
-            let reader = Reader.ofLexed lexed Set.empty
+            let reader = Reader.ofParseInput (lexed.WithDefines compilationDefines)
 
             let failed (kind: Kind) =
                 Error
@@ -143,8 +144,8 @@ module ParseChain =
     /// `parse`, refusing a tree the parser had to PATCH: every inserted delimiter and every
     /// `Expr.Missing` is a hole the source did not fill, so a recovered parse is not a
     /// compilable one.
-    let parseUnrecovered (source: string) : Result<ParsedFile, Diagnostic list> =
-        match parse source with
+    let parseUnrecovered (compilationDefines: Set<string>) (source: string) : Result<ParsedFile, Diagnostic list> =
+        match parse compilationDefines source with
         | Error f -> Error f.Diagnostics
         | Ok parsed ->
             match parsed.Diagnostics with

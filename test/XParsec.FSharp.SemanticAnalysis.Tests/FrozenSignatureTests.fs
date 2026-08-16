@@ -295,7 +295,7 @@ module M =
                 // Resolve the `.fsi` against the SAME provider the implementation was frozen
                 // over, so both sides mint one `int` identity.
                 let sigSurface =
-                    match ParseChain.parseSignature sigSrc with
+                    match ParseChain.parseSignature Set.empty sigSrc with
                     | Result.Error f -> failtestf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
                     | Result.Ok parsed ->
                         Passes.SignatureResolution.resolveFile

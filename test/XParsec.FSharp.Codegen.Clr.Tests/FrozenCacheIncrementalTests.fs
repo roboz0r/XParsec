@@ -28,7 +28,7 @@ let private referenceAssemblies () : string list =
     | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e
 
 let private inputsWith (manifests: string list) (name: string) : ClrCompilation =
-    ClrCompilation.consumer (ProjectInfo.defaults name) manifests (referenceAssemblies ())
+    ClrCompilation.consumer (ProjectInfo.defaults name) manifests (referenceAssemblies ()) Set.empty
 
 /// Structural, not raw bytes: a fresh MVID per compile makes identical source emit different
 /// PE bytes run-to-run.

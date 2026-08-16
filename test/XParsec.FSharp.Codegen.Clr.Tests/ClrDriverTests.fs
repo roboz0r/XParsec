@@ -44,7 +44,7 @@ let tests =
                     }
 
                 let inputs =
-                    ClrCompilation.consumer project [ vesperCorePackage ] referenceAssemblies
+                    ClrCompilation.consumer project [ vesperCorePackage ] referenceAssemblies Set.empty
 
                 let artifact =
                     match ClrDriver.compileApp inputs "System.Console.WriteLine \"hello\"" with
@@ -81,6 +81,7 @@ let tests =
                         (match RefPack.resolve "net8.0" with
                          | Result.Ok dlls -> dlls
                          | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e)
+                        Set.empty
 
                 // `1 + "x"`: an int/string operand mismatch the front end rejects.
                 match ClrDriver.compile inputs "let x = 1 + \"x\"" with

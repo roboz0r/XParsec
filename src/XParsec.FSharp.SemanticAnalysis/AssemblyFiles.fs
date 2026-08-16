@@ -166,8 +166,8 @@ module AssemblyFiles =
     /// fails the unit, and a signature failing that way fails it whole — it says nothing
     /// trustworthy about what its companion publishes, so falling back on the implementation's
     /// own inferred surface would publish more than the unit ever claimed.
-    let parseUnit (unit: SourceUnit) : Result<ParsedUnit, UnparsedFile> =
-        match ParseChain.parse unit.Implementation.Text with
+    let parseUnit compilationDefines (unit: SourceUnit) : Result<ParsedUnit, UnparsedFile> =
+        match ParseChain.parse compilationDefines unit.Implementation.Text with
         | Error f ->
             Error
                 {
@@ -189,7 +189,7 @@ module AssemblyFiles =
                         Signature = ValueNone
                     }
             | ValueSome signature ->
-                match ParseChain.parseSignature signature.Text with
+                match ParseChain.parseSignature compilationDefines signature.Text with
                 | Error f -> Error { Id = signature.Id; Failure = f }
                 | Ok parsed ->
                     Ok
@@ -402,18 +402,20 @@ module AssemblyFiles =
         (analyse: AnalyseFile)
         (assembly: CompilingAssembly)
         (external: IExternalSymbolProvider)
+        compilationDefines
         (units: SourceUnit list)
         : Result<FrozenFile, UnparsedFile> list =
-        analyseParsedWith analyse assembly external (List.map parseUnit units)
+        analyseParsedWith analyse assembly external (List.map (parseUnit compilationDefines) units)
 
     /// Analyse a multi-file assembly through the default package/FSharp.Core front end.
     /// The self-host one is reached by passing it to `analyseAssemblyWith` directly.
     let analyseAssembly
         (assembly: CompilingAssembly)
         (external: IExternalSymbolProvider)
+        compilationDefines
         (units: SourceUnit list)
         : Result<FrozenFile, UnparsedFile> list =
-        analyseAssemblyWith Pipeline.analyseFor assembly external units
+        analyseAssemblyWith Pipeline.analyseFor assembly external compilationDefines units
 
     /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so nothing
     /// resolves a token index against it and they render at line 1, col 1. A POSITIONED
