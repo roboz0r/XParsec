@@ -42,14 +42,73 @@ Doable, but you pay it everywhere for value you only need at codegen.
 At the IL-emission boundary, each parameter of arrow type at a generic
 method becomes a fresh `<TF> where TF : Fun<a, b>` in the IL signature;
 every application of that parameter rewrites to a constrained
-`callvirt TF.Invoke`. Concrete (non-parameter) arrow types lower to a
-chosen impl — `FSharpFunc<a, b>` by default.
+`callvirt TF.Invoke`. Concrete (non-parameter) function types lower to
+`Vesper.Fun<a, b>` itself.
 
 This is where the alias lives. The TAST node `TExpr.App` is the trigger:
 its `fn` is either (a) a `TExpr.External` or `TExpr.Var` referring to a
 generic typar, in which case the call goes through the Fun constraint,
 or (b) a concrete value, in which case the call goes through the
 chosen impl directly.
+
+#### Blocker: the synthesised typar is contract-visible
+
+This lowering is **not** a private codegen decision, and that is what has kept
+it unimplemented. A consumer derives a callee's IL shape from the parsed
+*source contract*, never from the callee's metadata:
+
+- `ReferencedProject` resolves a package to `manifest.<target>.toml` and parses
+  its `[core]` `.fsi` files into the symbol provider.
+- `CodegenSymbols.TryLookupOpenSignature:85-103` builds `CodegenOpenSignature`
+  from that symbol's `Scheme` and `Constraints`.
+- `ClrRecipes.fs:322-356` mints the `MethodSpec` from the resulting
+  `MethodTyparArity` + `Constraints`.
+
+Nothing reads the referenced PE. So a backend that privately synthesised `TF`
+would emit `map<TF,'T,'U,…>(TF, …)` while every consumer computed arity and
+parameter types from `('a -> 'b) -> …` and minted a `MemberRef` blob for a
+method that does not exist — a missing-method fault at run time, not a
+compile error. That is the worst available failure shape for what is supposed
+to be a representation choice.
+
+Reading the PE instead is closed by design, not omission: the contract is
+deliberately target-neutral ([publishing-format-plan](publishing-format-plan.md))
+because a JS target has no PE to read.
+
+The case that already works proves the rule. `StructSeqTests:1031` compiles a
+driver against the separately built `Vesper.Seq` package and its source lambdas
+stay value-structs across the boundary — because `struct-seq.fsi:73-76`
+*declares* `'TFunc :> Fun<'T,'U>`. The constrained form is in the contract, so
+both sides derive the same shape with no shared secret. That is the entire
+reason the hand-written form exists.
+
+Nothing else is missing. `matchInstantiationPartial` + `solvePhantomTypars`
+recover the instantiation, `constrained. callvirt` dispatch works, the closure
+structs are emitted. The lowering is blocked purely on being an ABI change.
+
+##### Routes
+
+1. **Assembly-internal only** — apply it to functions appearing in no `.fsi`,
+   where producer and consumer are the same compilation and there is no
+   contract to disagree with. Unblocked today, and it covers user code, which
+   is where the closure allocations are. **This is the subset to build first.**
+2. **A published canonicalisation rule** — the `.fsi` keeps `('a -> 'b)` and
+   both sides apply an identical derivation. Acceptable in principle, but it
+   makes the rule part of the package format: versioned with it, and binding on
+   every backend that reads a contract. **Wants deliberate design before anyone
+   attempts it**, not an incremental slide out of route 1.
+3. **Read the referenced PE.** Rejected — it contradicts the target-neutral
+   contract.
+
+Two restrictions survive whichever route is taken, because they are properties
+of the target rather than of the contract:
+
+- A virtual / abstract / interface member cannot gain typars; an override's
+  signature must match its slot's generic arity exactly.
+- A function used as a first-class value has no typar to instantiate.
+
+Both fall back to the interface representation, which under §Retype by
+substitution costs one `box` and nothing else.
 
 ## Landed shape: value-struct in the constrained slot, heap elsewhere
 
@@ -100,6 +159,156 @@ the boundaries — is the remaining pass. Today value-structs are reached only t
 the constrained-slot path above; a closure stored or passed as a plain `Fun<_,_>`
 interface value still heaps. The .NET 9 `allows ref struct` story is later still — see
 §Region / ref-struct extension.
+
+## Retype by substitution
+
+### The invariant
+
+Two representations carry a function value: the concrete closure type (`<closure>$N`, a
+value-struct where the slot admits one) and `Vesper.Fun`k`` itself. **Both are correct.**
+Lowering to the interface is not a failure mode — it is what a slot that cannot hold the
+concrete type asks for, and there are slots that genuinely cannot: a parameter declared
+`f: 'a -> 'b` rather than `'TF :> Fun<'a,'b>`, a stored field of function type, a return
+position (§Return positions), a value that must outlive the frame that minted it.
+
+So the contract is:
+
+> Choosing between the two representations is a **representation** decision and never a
+> semantic one. Widening a value-struct closure to `Fun`k`` costs one `box` and nothing
+> else. It must never produce a diagnostic, a `failwith`, a wrong instantiation, or a
+> confusion between two function values that happen to share a frozen type.
+
+Today the third clause does not hold. `ClosureVerdictRewrite.record` throws on
+`zip s1 s2` — two same-typed arguments bound to different closures — and the throw is a
+property of how the substitution is derived, not of the shape being unsupportable.
+
+### Why the current shape cannot hold it
+
+The type checker accepts a structural `TyFun(a,b)` as a subtype of `Fun<a,b>`
+(`Passes/Unification/Subsume.fs:205-211`, `Engine.fs:694`), so `map f src` freezes as
+`MapSeq<…, (int -> int), …>`. That type is legal; it just spells the boxing
+representation. The concrete closure is known only at the call site, and three separate
+sites now re-derive it, each its own way:
+
+| site | how it recovers the closure | exact? |
+| --- | --- | --- |
+| `EmitCall.fs:93-105` (external callee) | rebuilds a synthetic curried type from actual argument types, substituting by node | yes |
+| `EmitCall.fs:166-176` (project-local static fn) | overrides `instArr` slots by node | yes |
+| `ClosureVerdictRewrite` (module-value slot + `App` result types) | typar POSITION (`FunVerdict.ResultTyparPos`) plus a lockstep old/new nominal diff walk | no |
+
+The first two are exact because they key on the argument node. The third re-derives, by
+structurally matching types the callee's scheme already determined, a fact the other two
+had exactly — which is what forces `nestedSubst`, `recordNominalDiff`, and the collision
+`failwithf`. `EmitCall.fs:90-92` names the root in as many words: the instantiation "is
+stale once an argument became a value-struct closure."
+
+One fact, three derivations, two of which agree. The fix is to stop deriving it and make
+the expression's own type true.
+
+### The pass
+
+One bottom-up walk computing a **representation type** `R(e)` per node, replacing
+`ClosureVerdictRewrite` entirely.
+
+- **`Lambda` with a value-struct verdict** — `R` is its `<closure>$N` type, straight out
+  of `closureValueTypeByNode`. This is the only place a new type is introduced; every
+  other rule propagates.
+- **`App` chain** — peel with `collectAppChain`, take the callee's declared scheme, and
+  run the instantiation the emitters already run: `TastLower.matchInstantiationPartial`
+  over the declared parameter types against the arguments' `R`, then
+  `TastLower.solvePhantomTypars` for the bound-only typars. `R(app)` is the declared
+  result under that instantiation. Scheme sources: `plan.StaticFns` (`Params`,
+  `ResultTy`, `Constraints`, `plan.StaticFnTypars`) for a project-local static fn;
+  `symbols.TryLookupOpenSignature` (`Signature`, `MethodTyparArity`, `Constraints`) for
+  an external one; the declared ctor / member signature for a construction or member
+  call.
+- **`Var` of a retyped binding** — that binding's `R`.
+- **`FieldGet`** — the field's declared type instantiated by `R(objArg)`'s arguments, the
+  operation `Assembler.enumeratorOf` already performs via `substituteDeclaring`. `h.F`
+  needs no association list: `val F: 'TFunc` under `R(h) = MapSeq<…, <closure>$0, …>`
+  *is* the struct.
+- **Everything else** — its own type with children's `R` substituted.
+
+`ResultTyparPos` then has no reader: the position a `'TFunc` occupies falls out of the
+callee's declared result. `FunVerdict` keeps only `Arity`, which discovery needs to peel
+a flat closure.
+
+The one new primitive is a method-axis substituter — `FTTypar(Method, i)` under a
+recovered instantiation — as the sibling of `FrozenTypeBridge.substituteDeclaring:166`,
+which walks the declaring axis and rejects a method typar outright. Nothing else in the
+codebase substitutes the method axis into a frozen template today; the emitters go
+straight from `matchInstantiationPartial` to a `MethodSpec` without ever forming the
+substituted result type, which is exactly the intermediate this pass needs and they
+discard. Going the other way, `ClosureVerdictRewrite`'s argument-vector rewriting
+(`TastLower.Nominal`, `tryNominal`, `ofNominal`, `mapFrozenArgs`) loses its only readers
+and is deleted with the file.
+
+### Widening
+
+A value-struct `R` meeting a slot whose instantiated declared type is the interface —
+a plain `Fun<_,_>` parameter, a function-typed field, a return position, any slot the
+matcher did not resolve to a `Fun`-bounded typar — gets an explicit `Upcast` node to the
+interface type, and `R` at that boundary is the interface.
+
+This reuses the convention already in place: widening is a TAST `Upcast` inserted
+upstream, and `EmitIntrinsic.buildUpcast:134-145` boxes a value-type source. No new
+coercion path, no emitter special case, and the `box` becomes visible in the TAST where
+a test can assert on it.
+
+The multi-source case needs no rule at all. In `zip s1 s2` each argument is matched
+against its **own** declared parameter, so two closures sharing a frozen type land in
+different typars and cannot collide. `record`'s `failwithf` has no analogue and is
+deleted rather than downgraded to a diagnostic.
+
+### Ordering and node identity
+
+The pass runs where `ClosureVerdictRewrite.build` runs today
+(`Assembler.buildPrelude:292-298`), because the field pass at `:321` needs module-value
+slot types. Every input is available there: `closureValueTypeByNode` is minted at
+`:232-241`, `plan.StaticFns` is read at `:202`, and `TryLookupOpenSignature` is a symbol
+lookup needing no `EmitContext`. A module value's slot type stops being a computed
+rewrite and becomes `R` of its initialiser.
+
+Two ordering facts constrain the implementation:
+
+1. **Cross-file schemes.** Preludes run for every file before any `completeFile`
+   (`Assembler.fs:316`, `:447`), and `staticMethods` is assembled per-file at `:393-406`.
+   A call into a sibling file's static fn needs that file's scheme, so the scheme table
+   must be collected across all files' `plan.StaticFns` in a first phase, before any
+   file's retype runs.
+2. **Node-keyed side tables.** `TastAccessor.retype` / `retypeWithChildren`
+   (`:1007-1013`) append pool rows, so a retyped node gets a fresh `ExprId` while
+   `FunVerdicts`, `ClosureValueTypeByNode`, `ClosureByNode`, `CtorHandleByNode`, and
+   `CachedClosureFieldByNode` are all node-keyed. Today's `rw` re-authors only the
+   affected spine precisely to avoid invalidating them. This pass retypes more nodes, so
+   it must **return the remapped tables alongside the retyped tree** — it is the only
+   code that knows the old→new correspondence, and a consumer that re-derives it will
+   disagree with it. Keeping the spine-only discipline instead is possible but re-imports
+   the constraint that made the current file fragile.
+
+The deeper answer to (2) is a closure key that does not move under retyping, which would
+also let the pass run without ordering ceremony. Out of scope here; noted because every
+future rewriting pass in the backend pays this same tax.
+
+### What this does not do
+
+It does not lower a declared `'a -> 'b` parameter into a fresh `'TF :> Fun<'a,'b>` method
+typar. That is §Codegen layer's contract, unimplemented because it is an ABI change rather
+than a codegen one — see §Blocker: the synthesised typar is contract-visible. The only
+constrained slots in the system are hand-written in library source
+(`src/Vesper.Seq/struct-seq.clr.fs:107` for `map`, `:113` for `fold`), and
+`ClrEncoder.fs:83` encodes `FTFun(a,b)` directly as `class Vesper.Fun`2<a,b>`. This pass
+makes the representation of a function value follow its slot correctly and cheaply; it
+does not add slots that admit the concrete type.
+
+### Test obligations
+
+The `StructSeqTests` pipeline cases must hold with no change in expected IL: multi-map
+chain (`:977`), three-map chain (`:989`), nested temp (`:919`), and external combinators
+(`:1028`) all keep asserting `constrained.` in the fold loop and no `box`. New: a
+multi-source combinator (`zip s1 s2`) compiles and runs — that program throws today — and
+a case pinning that a closure passed to a plain `Fun<_,_>` parameter emits exactly one
+`box` and no diagnostic.
 
 ## What this does to the canonical sample
 
