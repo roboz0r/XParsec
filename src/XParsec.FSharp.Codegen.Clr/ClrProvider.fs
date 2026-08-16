@@ -410,6 +410,9 @@ type ClrProvider
         member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
             enc.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
 
+        member _.TryRecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
+            enc.TryRecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
+
         member _.TryEmitInvoke(funcTy) =
             match funcTy with
             | FTFun _ as ft -> ValueSome(recipes.EmitInvoke ft)

@@ -43,6 +43,19 @@ module EmitResolve =
         let instT = curriedFun argTys resultTy
         env.Provider.RecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
 
+    /// The same recovery for a caller carrying a fallback: `ValueNone` when a typar surfaces
+    /// in no parameter and no result.
+    let tryRecoverMemberInst
+        (env: EmitEnv)
+        (m: EmittedMember)
+        (declTyparArity: int)
+        (argTys: FrozenType list)
+        (resultTy: FrozenType)
+        : (FrozenType list * FrozenType list) voption =
+        let openT = curriedFun m.ParamTys m.RetTy
+        let instT = curriedFun argTys resultTy
+        env.Provider.TryRecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
+
     /// Pick the interface template a project-local class implements matching `ifaceKey`,
     /// instantiated at THIS object argument (`FTTypar(Declaring, i) := classArgs.[i]`).
     /// Direct-declared interfaces only, not those of base classes or transitive interfaces.
@@ -191,6 +204,39 @@ module EmitResolve =
             env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
+    /// Where a static member's DECLARING instantiation comes from at a call site, in
+    /// precedence order.
+    type private DeclaringInstantiation =
+        /// The result IS the declaring nominal (`Set<int>.Empty : Set<int>`), which names it.
+        | FromResultTy of FrozenType list
+        /// Matched out of the member's open signature against the call's types.
+        | FromSignature of FrozenType list
+        /// Nothing at the call site mentions the typars, so the declaring `!0…` stand in.
+        | OpenDeclaring
+
+    /// The declaring type's instantiation at THIS call site: a static member on a generic
+    /// class compiles to a `MemberRef` on the class `TypeSpec`, so a hardcoded declaring `!0`
+    /// mints `Set\`1<!0>::Empty`, an open typar with no owner, and the JIT throws
+    /// `BadImageFormatException`.
+    let private declaringInstantiation
+        (env: EmitEnv)
+        (key: TypeKey)
+        (typarCount: int)
+        (argTys: FrozenType list)
+        (resultTy: FrozenType)
+        (m: EmittedMember)
+        : DeclaringInstantiation =
+        match FrozenNominal.TryOfFrozen resultTy with
+        | ValueSome r when r.Key = key && r.Args.Length = typarCount -> FromResultTy(EqArray.toList r.Args)
+        | _ ->
+            match typarCount with
+            | 0 -> OpenDeclaring
+            | n ->
+                match tryRecoverMemberInst env m n argTys resultTy with
+                | ValueSome(declaringArgs, _) -> FromSignature declaringArgs
+                // `Box<'T>.Describe (x: 'T) : int` called from a concrete context.
+                | ValueNone -> OpenDeclaring
+
     /// The static-member equivalent; `argTys` (empty for a property get) and `resultTy` recover
     /// the instantiation. A GENERIC union fails loudly below rather than mint a malformed `Def`
     /// call: a static member's typars aren't tied to the type's via `this`, so they stay open.
@@ -206,26 +252,13 @@ module EmitResolve =
             let mk = SymbolKeyOps.asMemberKey "Emit: static member call" memberKey
             mk.Decl, mk.Name
 
-        // The declaring type's instantiation at THIS call site: a static member on a generic
-        // class compiles to a `MemberRef` on the class `TypeSpec`, so a hardcoded declaring `!0`
-        // mints `Set\`1<!0>::Empty`, an open typar with no owner, and the JIT throws
-        // `BadImageFormatException`.
         let instantiationFor (typars: 'a list) (m: EmittedMember) : FrozenType list =
-            let declaringTypars =
-                [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
+            let typarCount = List.length typars
 
-            match FrozenNominal.TryOfFrozen resultTy with
-            | ValueSome r when r.Key = key && r.Args.Length = List.length typars -> EqArray.toList r.Args
-            | _ when List.isEmpty typars -> declaringTypars
-            | _ ->
-                // `recoverMemberInst` throws when the typar surfaces nowhere in the signature
-                // (`Box<'T>.Describe (x: 'T) : int` called from a concrete context). The bare
-                // declaring typars are the last resort.
-                try
-                    let declaringArgs, _ = recoverMemberInst env m (List.length typars) argTys resultTy
-                    declaringArgs
-                with _ ->
-                    declaringTypars
+            match declaringInstantiation env key typarCount argTys resultTy m with
+            | FromResultTy args
+            | FromSignature args -> args
+            | OpenDeclaring -> [ for i in 0 .. typarCount - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
         match env.Unions.TryGetValue key with
         | true, u ->

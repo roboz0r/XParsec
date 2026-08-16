@@ -79,13 +79,15 @@ does not emit a static augmentation member on a generic union.
 `EmitLoops`'s five `Rung-3` / `Wall A` comment labels are gone — that file has now been
 swept.
 
-## A6. `instantiationFor` swallows every exception
+## A6. `instantiationFor` swallows every exception — **DONE (2026-08-15)**
 
-Its `try … with _ -> declaringTypars` is meant to catch one unrecoverable-slot failure from
-`recoverMemberInst`. It catches everything, so a genuine encoder bug degrades silently into a
+Its `try … with _ -> declaringTypars` was meant to catch one unrecoverable-slot failure from
+`recoverMemberInst`. It caught everything, so a genuine encoder bug degraded silently into a
 wrong-but-plausible instantiation rather than failing.
 
-Narrow the handler to the intended failure.
+Landed with B2, by deleting the handler rather than narrowing it: the one caller with a
+fallback now takes the `try`-shaped recovery, which answers `ValueNone` for an unrecovered
+slot, so an exception from anywhere else propagates.
 
 ## A7. An arity over-count wants a regression test, not a comment
 
@@ -250,12 +252,16 @@ Deleted with it: `StaticFn`'s two-field `Params` / `Groups` doc pair, `StaticMet
 second `flatArgCount` element, `Assembler`'s three lines on why the two counts differ, and the
 `TrampolineParams` sentence saying the two are "carried together".
 
-## B2. `DeclaringInstantiation` — `EmitResolve.instantiationFor`
+## B2. `DeclaringInstantiation` — `EmitResolve.instantiationFor` — **DONE (2026-08-15)**
 
-A 3-way precedence (result type constructor → signature recovery → bare declaring typars) expressed
-as a `match` plus a `try/with`, with a comment at each step. A classifier returning the DU
-makes precedence a total match and deletes both blocks. Pairs with A6: narrowing the handler
-and naming the outcomes is one change.
+The 3-way precedence (result type constructor → signature recovery → bare declaring typars) was a
+`match` plus a `try/with`, with a comment at each step. `declaringInstantiation` now returns
+`FromResultTy | FromSignature | OpenDeclaring`, so the one call site is a total match and only
+the `OpenDeclaring` arm mints the bare typars.
+
+Landed with A6: `fillOpenTyparSlots` carries the structural matching, and the strict
+`RecoverOpenTypars` (which keeps its per-axis, per-index failure message) and the new
+`TryRecoverOpenTypars` are the two ways of reading its slots. The `try/with` went with it.
 
 ## B3. `ExternalParent` — `EmitResolve.externalInstanceMemberRef`
 

@@ -274,15 +274,16 @@ type internal ClrEncoder(env: ClrEnv) =
                     failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
-    /// Recover both open-typar axes by structurally matching a member's OPEN signature template
-    /// (carrying `FTTypar(axis, i)` nodes) against its INSTANTIATED, already-ground use-site type.
-    /// Returns `(declaringArgs, methodArgs)`, index-keyed; first occurrence wins.
-    let recoverOpenTypars
+    /// Fill both open-typar axes' slots by structurally matching a member's OPEN signature
+    /// template (carrying `FTTypar(axis, i)` nodes) against its INSTANTIATED, already-ground
+    /// use-site type. Index-keyed; first occurrence wins. A slot stays `ValueNone` when its
+    /// typar surfaces nowhere in the signature.
+    let fillOpenTyparSlots
         (declTyparArity: int)
         (methodTyparArity: int)
         (openT: FrozenType)
         (instT: FrozenType)
-        : FrozenType list * FrozenType list =
+        : FrozenType voption[] * FrozenType voption[] =
         let decl = Array.create declTyparArity ValueNone
         let meth = Array.create methodTyparArity ValueNone
 
@@ -296,12 +297,22 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 if i >= 0 && i < slot.Length && slot.[i].IsNone then
                     slot.[i] <- ValueSome a
-            // Pairwise descent under a shared type constructor: a mismatch declines silently
-            // (no recovery from that subtree), and `collect` below fails loud on any slot
-            // left empty.
+            // Pairwise descent under a shared type constructor: a mismatch declines silently,
+            // leaving that subtree's slots empty for the caller to answer for.
             | d -> FrozenType.iterChildren2 go d a
 
         go openT instT
+        decl, meth
+
+    /// Recover both open-typar axes; every slot must be filled, so an unrecoverable typar
+    /// throws. Returns `(declaringArgs, methodArgs)`.
+    let recoverOpenTypars
+        (declTyparArity: int)
+        (methodTyparArity: int)
+        (openT: FrozenType)
+        (instT: FrozenType)
+        : FrozenType list * FrozenType list =
+        let decl, meth = fillOpenTyparSlots declTyparArity methodTyparArity openT instT
 
         let collect (name: string) (slots: FrozenType voption[]) =
             [
@@ -318,6 +329,27 @@ type internal ClrEncoder(env: ClrEnv) =
             ]
 
         collect "declaring" decl, collect "method" meth
+
+    /// The same recovery for a caller carrying a fallback: `ValueNone` when any typar of
+    /// either axis surfaces in no parameter and no result (`Box<'T>.Describe (x: 'T) : int`
+    /// called from a concrete context), so the failure is an answer rather than an exception.
+    let tryRecoverOpenTypars
+        (declTyparArity: int)
+        (methodTyparArity: int)
+        (openT: FrozenType)
+        (instT: FrozenType)
+        : (FrozenType list * FrozenType list) voption =
+        let decl, meth = fillOpenTyparSlots declTyparArity methodTyparArity openT instT
+
+        let collect (slots: FrozenType voption[]) =
+            if slots |> Array.forall ValueOption.isSome then
+                ValueSome [ for s in slots -> s.Value ]
+            else
+                ValueNone
+
+        match collect decl, collect meth with
+        | ValueSome declaringArgs, ValueSome methodArgs -> ValueSome(declaringArgs, methodArgs)
+        | _ -> ValueNone
 
     /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec` instantiation when
     /// generic (`EqualityComparer`1<int>`). A struct declaring type (`Span`1<char>`, a struct
@@ -362,6 +394,9 @@ type internal ClrEncoder(env: ClrEnv) =
 
     member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
         recoverOpenTypars declTyparArity methodTyparArity openT instT
+
+    member _.TryRecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
+        tryRecoverOpenTypars declTyparArity methodTyparArity openT instT
 
     member _.MethodSpec(handle, args) = methodSpec handle args
 

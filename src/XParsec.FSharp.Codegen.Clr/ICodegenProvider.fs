@@ -272,6 +272,12 @@ type ICodegenProvider =
         declTyparArity: int * methodTyparArity: int * openT: FrozenType * instT: FrozenType ->
             FrozenType list * FrozenType list
 
+    /// The same recovery for a caller carrying a fallback: `ValueNone` when a typar surfaces
+    /// in no parameter and no result, rather than failing.
+    abstract TryRecoverOpenTypars:
+        declTyparArity: int * methodTyparArity: int * openT: FrozenType * instT: FrozenType ->
+            (FrozenType list * FrozenType list) voption
+
     /// `Vesper.Fun\`2::Invoke` — apply a function *value* of type `funcTy` to one argument.
     /// Object argument and argument are both already on the stack (object arg beneath),
     /// so the recipe's arity is `Flat 2`.
