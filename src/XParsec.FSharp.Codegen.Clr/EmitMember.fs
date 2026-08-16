@@ -60,7 +60,7 @@ module EmitMember =
         (objArgTy: FrozenType)
         (handle: EntityHandle)
         (args: EqArray<TastAccessor.ExprId>)
-        (returnsUnit: bool)
+        (result: CallResult)
         : unit =
         let isStructSelf =
             match via, objArgTy with
@@ -78,16 +78,11 @@ module EmitMember =
 
         let operands = 1 + args.Length
 
-        // A `unit`-returning instance method is emitted `void`: it pushes nothing, so the call
-        // declares 0 results and a `unit` value is reified afterward for the consumer.
-        let resultCount = if returnsUnit then 0 else 1
-
         match via, objArgTy with
-        | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, resultCount))
-        | _ -> b.Add(ILInstr.Call(handle, operands, resultCount))
+        | CallVia.Self, FTClass _ when not isStructSelf -> b.Add(ILInstr.Callvirt(handle, operands, result.Pushes))
+        | _ -> b.Add(ILInstr.Call(handle, operands, result.Pushes))
 
-        if returnsUnit then
-            EmitTypes.buildUnitValue env b
+        CallResult.reify env b result
 
     /// A member access through an interface-constrained typar (`x : 'T when 'T :> IFace`). The
     /// object argument is an `FTTypar`, not a nominal, so the slot comes off the key's declaring
@@ -141,13 +136,7 @@ module EmitMember =
 
                 env.Provider.ExternalMemberRefOn(key, ifaceTy, false, false, memberTy)
 
-        // A `unit`-returning instance method is emitted `void`.
-        let returnsUnit =
-            match ty with
-            | FTUnit -> true
-            | _ -> false
-
-        let resultCount = if returnsUnit then 0 else 1
+        let result = CallResult.ofReturnTy ty
         let operands = 1 + args.Length
 
         // `constrained.` needs a managed pointer for both struct and class typars.
@@ -157,10 +146,9 @@ module EmitMember =
             recur env b a
 
         b.Add(ILInstr.Constrained(env.Provider.TypeToken objArgTy))
-        b.Add(ILInstr.Callvirt(slotHandle, operands, resultCount))
+        b.Add(ILInstr.Callvirt(slotHandle, operands, result.Pushes))
 
-        if returnsUnit then
-            EmitTypes.buildUnitValue env b
+        CallResult.reify env b result
 
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldGet e
@@ -219,8 +207,8 @@ module EmitMember =
             // member metadata is unused and there are no overload args to match.
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
             let handle, _ = resolveInstanceMember env objArgNominal memberName []
-            // A property get is never `unit`-returning, so it always yields a value.
-            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle EqArray.empty false
+            // A property get is never `unit`-returning.
+            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle EqArray.empty CallResult.Value
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
@@ -250,13 +238,7 @@ module EmitMember =
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
-            // A `unit`-returning instance method is emitted `void`, so it declares 0 results.
-            let returnsUnit =
-                match ty with
-                | FTUnit -> true
-                | _ -> false
-
-            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle args returnsUnit
+            emitInstanceMember recur env b via objArg objArgNominal.Frozen handle args (CallResult.ofReturnTy ty)
 
     let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e
@@ -318,19 +300,11 @@ module EmitMember =
         for a in args do
             recur env b a
 
-        // A `unit`-returning static member is emitted `void`, and the external member-ref
-        // encoder maps a `unit` return to `void` too, so the `call` declares 0 results and a
-        // value-position consumer reifies a `unit` afterward.
-        let returnsUnit =
-            match ty with
-            | FTUnit -> true
-            | _ -> false
-
-        let resultCount = if returnsUnit then 0 else 1
-        b.Add(ILInstr.Call(handle, args.Length, resultCount))
-
-        if returnsUnit then
-            EmitTypes.buildUnitValue env b
+        // An external member-ref encodes a `unit` return as `void` too, so the declared type
+        // answers for the local and the external handle alike.
+        let result = CallResult.ofReturnTy ty
+        b.Add(ILInstr.Call(handle, args.Length, result.Pushes))
+        CallResult.reify env b result
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprExternalMember e

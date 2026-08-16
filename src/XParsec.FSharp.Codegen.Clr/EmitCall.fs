@@ -200,13 +200,9 @@ module EmitCall =
 
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
-            // A `unit`-returning static fn is emitted `void`: the `call` declares 0
-            // results, so reify a `unit` for a value-position consumer.
-            let resultCount = if sm.ReturnsVoid then 0 else 1
-            b.Add(ILInstr.Call(callHandle, List.length flatActualTys, resultCount))
-
-            if sm.ReturnsVoid then
-                EmitTypes.buildUnitValue env b
+            let result = CallResult.ofReturnsVoid sm.ReturnsVoid
+            b.Add(ILInstr.Call(callHandle, List.length flatActualTys, result.Pushes))
+            CallResult.reify env b result
 
             foldInvoke recur env b sm.ResultTy rest
 
@@ -261,20 +257,15 @@ module EmitCall =
             // `memberTy` with one `->` peeled per group consumed.
             let resultTy = TastLower.peelFunDomains widths.Length memberTy |> snd
 
-            // An F# `unit` return is a .NET **void** method and must declare 0 results, or the
-            // statement discard underflows on a phantom value. `resultTy` cannot answer this:
-            // `M: 'a -> 'a` at `'a = unit` still returns `!0`, so it must be the DECLARED one.
-            let returnsVoid = env.Provider.ExternalMemberReturnsVoid key
-
-            let resultCount = if returnsVoid then 0 else 1
+            // The DECLARED `void`-ness, which `resultTy` cannot answer.
+            let result = CallResult.ofReturnsVoid (env.Provider.ExternalMemberReturnsVoid key)
 
             if isStatic || objArgIsStruct then
-                b.Add(ILInstr.Call(handle, total, resultCount))
+                b.Add(ILInstr.Call(handle, total, result.Pushes))
             else
-                b.Add(ILInstr.Callvirt(handle, total, resultCount))
+                b.Add(ILInstr.Callvirt(handle, total, result.Pushes))
 
-            if returnsVoid then
-                EmitTypes.buildUnitValue env b
+            CallResult.reify env b result
 
             foldInvoke recur env b resultTy plan.Residual
 

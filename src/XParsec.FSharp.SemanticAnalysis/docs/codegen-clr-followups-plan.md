@@ -274,11 +274,23 @@ The one surviving line is the `declKey = rKey` gate's WHY — an inherited membe
 a base, whose instantiation the object argument's own args do not give — which is a fact about
 the guard, not about where the parent comes from.
 
-## B4. `CallResult` — the `unit` → `void` mapping, restated at four sites
+## B4. `CallResult` — the `unit` → `void` mapping, restated at four sites — **DONE (2026-08-16)**
 
-`emitInstanceMember`, `emitConstrainedInterfaceCall`, `buildMethodCall` and
-`buildStaticMethodCall` each recompute `returnsUnit` / `resultCount` and each carry a line
-saying what it means. One value carries both and deletes all four.
+`EmitTypes.CallResult` is `Void | Value`: `Pushes` is what the call instruction declares (named
+after `ILInstr.Call`'s own field) and `reify` emits the `()` a `void` call did not push, so the
+count and the reification can no longer be decided apart. `ofReturnTy` takes the verdict off a
+declared return type; `ofReturnsVoid` off an external member's metadata, and carries the reason
+that shape exists (`M: 'a -> 'a` at `'a = unit` still returns `!0`).
+
+`emitInstanceMember` takes one in place of its `returnsUnit: bool`, which also makes
+`buildPropertyGet`'s bare `false` argument read as `CallResult.Value`. All four comment lines
+are gone.
+
+Two `EmitCall` sites — the static-fn `call` and the external-member call — restated the same
+mapping and now take the same value, so the rule is spelled once for the backend. The external
+one keeps a one-line WHY for reading `void`-ness off metadata rather than off `resultTy`.
+`buildStaticMethodCall` keeps the fact that an external member-ref encodes a `unit` return as
+`void` too, which is why one verdict serves both its handles.
 
 ## B5. A named record for `EmitCall`'s argument triple
 

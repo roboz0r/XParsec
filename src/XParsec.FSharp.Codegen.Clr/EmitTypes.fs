@@ -430,3 +430,37 @@ module EmitTypes =
         b.Add(ILInstr.Ldloca slot)
         b.Add(ILInstr.Initobj(env.Provider.TypeToken(FTConst(RuntimeNames.unitKey, EqArray.empty))))
         b.Add(ILInstr.Ldloc slot)
+
+    /// What a call leaves on the stack.
+    [<RequireQualifiedAccess>]
+    type CallResult =
+        /// An F# `unit` return is emitted .NET `void`, so the call pushes nothing and `()`
+        /// is reified after it for a value-position consumer.
+        | Void
+        | Value
+
+        /// The instruction's push count.
+        member this.Pushes =
+            match this with
+            | CallResult.Void -> 0
+            | CallResult.Value -> 1
+
+    [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+    module CallResult =
+
+        /// The verdict off a member's declared return type.
+        let ofReturnTy (ty: FrozenType) : CallResult =
+            match ty with
+            | FTUnit -> CallResult.Void
+            | _ -> CallResult.Value
+
+        /// The verdict for a member whose `void`-ness is read off metadata instead: `M: 'a ->
+        /// 'a` at `'a = unit` still returns `!0`, so the applied type cannot answer.
+        let ofReturnsVoid (returnsVoid: bool) : CallResult =
+            if returnsVoid then CallResult.Void else CallResult.Value
+
+        /// Emit whatever the call did not push.
+        let reify (env: EmitEnv) (b: IlBuilder) (result: CallResult) : unit =
+            match result with
+            | CallResult.Void -> buildUnitValue env b
+            | CallResult.Value -> ()
