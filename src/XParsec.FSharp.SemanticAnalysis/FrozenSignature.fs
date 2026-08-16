@@ -2,7 +2,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 // In-memory projection of a FROZEN implementation file to the surface it publishes, a file's
 // *implicit signature*, so file N+1 resolves file N's exports by NAME with no DLL emitted.
-// Keeps INTERNAL-or-better, where the `.fsi` contract extractor keeps public-only.
+// Keeps INTERNAL-or-better, as a resolved `.fsi` does: the cross-assembly public-only cut
+// belongs to the consumer, not to publication.
 //
 // SIGNATURES only: the splice templates are collected separately and layered on, so a `.fsi`
 // can replace what a file publishes without taking its inline bodies with it.
@@ -372,8 +373,6 @@ module FrozenSignature =
 
             PublishedSurfaceBuilder.addShape surface typeKey shape
             PublishedSurfaceBuilder.addTypeName surface typeKey
-
-        surface.Intrinsics <- IntrinsicTypeMap.ofReprKeys frozen.Residue.IntrinsicReprKeys
 
         // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in the SAME
         // namespace reaches these types through its own header, not here.

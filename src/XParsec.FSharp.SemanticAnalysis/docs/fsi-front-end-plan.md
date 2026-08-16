@@ -1,8 +1,8 @@
 # One front end for `.fsi`
 
-**Status (2026-08-15): revised.** Spun out of the `sig-only` discussion — this is the
-enabler the other three plans depend on. Delete when it lands
-(`feedback_plan_docs_ephemeral`).
+**Status (2026-08-16): steps 1-4 landed; step 5 is independent and outstanding.** Spun out of
+the `sig-only` discussion — this is the enabler the other three plans depend on. Delete when
+step 5 lands (`feedback_plan_docs_ephemeral`).
 
 Landing one step per session, in the order below. Each step names its own exit condition
 and leaves the tree green; nothing here is meant to be handed to a subagent as bulk work.
@@ -47,17 +47,19 @@ signature's side tables cannot be read against the implementation's. The two hal
 
 ## Correction: `AttributeDecode` is NOT the `.fsi` extractor's wart
 
-`AttributeDecode.fs:6-7` claims the cause:
+`AttributeDecode.fs`'s header used to claim the cause:
 
 > Class-shaping attributes match on the long-ident's LAST SEGMENT, not on a resolved
 > `TypeKey`: the `.fsi` extractor caller has no resolver.
 
-That is false as a diagnosis. The **implementation** side calls it too, with a resolver in
+That was false as a diagnosis. The **implementation** side calls it too, with a resolver in
 hand: `TypeRegistration.fs:237` (`IsValueType`), `:559` and `:702`
-(`RequireQualifiedAccess`), and `MemberRegistration.fs:523`. Only `VesperLib.fs:49` is the
-extractor. So short-name matching for `Struct` / `Sealed` / `IsByRefLike` /
-`RequireQualifiedAccess` / `AllowNullLiteral` is an independent wart on both sides, and
-merging the front ends does not delete it — it only removes its excuse.
+(`RequireQualifiedAccess`), and `MemberRegistration.fs:523`. So short-name matching for
+`Struct` / `Sealed` / `IsByRefLike` / `RequireQualifiedAccess` / `AllowNullLiteral` is an
+independent wart on both sides, and merging the front ends did not delete it — it only removed
+its excuse, and step 4 rewrote the header to say what the file does rather than why. Step 4
+also moved `tryCompiledName` / `hasModuleSuffix` / `isAutoOpen` in, since they are the same
+short-name matching and had no other home once `VesperLib` went.
 
 It also is not free to delete. `RuntimeNames.fs:109-121` gives key-based resolution ten
 attributes, and of the five above only `AllowNullLiteral` is among them — the only one the
@@ -374,25 +376,64 @@ type declares), and `SignatureResolution.fs` (publication, groups, vals, the wal
 Whole suite green; three tests added, for the drop report, the surface value, and the `(# … #)`
 signature binding.
 
-### 4. The package caller becomes a per-file fold
+### 4. The package caller becomes a per-file fold — LANDED
 
-Convert `buildProviderWith` (`ReferencedProject.fs:384`) to fold each `.fsi` over the
-provider stack — its dependencies plus the package's own earlier files — matching what
-`analyseAssemblyWith` does over `.fs` units (`AssemblyFiles.fs:412-417`).
+`PackageProviders.buildProviderWith` folds each `.fsi` over the provider stack — its
+dependencies plus the package's own earlier files, nearest first — exactly as
+`analyseAssemblyWith` does over `.fs` units. `VesperLib.fs`, `VesperLib/TypeTranslate.fs` and
+`VesperLib/TyparCapture.fs` are gone; `VesperLib/Manifest.fs` survives as `PackageSource.fs`,
+the one reader that turns a manifest-named path into a parsed tree.
 
-This removes three forward-reference tolerances that the shared-`ExtractCtx` design allowed:
-the whole-file nominal-name pre-scan and the scope-wide `collectOpens`
-(`VesperLib.fs:1519-1544`), and cross-file visibility within a package. Top-down is the
-correct semantics (`feedback_no_forward_references`), so contracts that relied on any of the
-three get fixed as they surface — **stop and report if that turns out to be more than minor
-reordering.**
+**The provider half of `ReferencedProject` had to move.** Everything the front end needs sits
+below `PassContext` in compile order, and `Hashing` / `ConformancePass` / `PackageUnits` sit
+above it — but every one of those reads MANIFESTS only. So the split is by what a caller
+wants: `ReferencedProject` resolves, parses and orders manifests where it always did, and
+`PackageProviders` (after `AssemblyFiles`, whose `fileSource` / `anchorDiagnostics` it shares)
+turns them into providers.
 
-Then delete `VesperLib.fs`, `VesperLib/TypeTranslate.fs`, `VesperLib/TyparCapture.fs`, and
-with them `TypeTranslate.fs:165,170`'s short-name `AutoOpen` / `RequireQualifiedAccess`
-matching. `SignatureExtractorTests` / `ReferencedProjectTests` are rewritten against the new
-front end here.
+`buildProviderWith` takes a dependency PROVIDER rather than a name→shape function and a prefix
+list, because that is what a `PassContext` resolves against. `BuiltPackage.Diagnostics` became
+`AnchoredDiagnostic list`: what used to be file-level parse failures is now everything the
+front end reports, positioned in the file that reported it.
 
-**Exit:** whole corpus green with one front end.
+**The prelude is a source.** Every contract is written against `RuntimeNames.preludeNamespaces`,
+and the extractor served that with a name-keyed short-name index rather than a scope. The fold
+puts a prefix-only provider at the floor instead, so a `.fsi` in `namespace Vesper.Collections`
+names `unit` exactly as a consumer of the package would.
+
+**Attribute reads outlived their module.** `tryCompiledName`, `hasModuleSuffix` and `isAutoOpen`
+are short-name attribute matching, so they moved to `AttributeDecode` and take `nameOf` like
+everything else there. That file's header claimed the `.fsi` extractor as the reason for
+short-name matching; the reason is gone and the matching is not, which §"Correction" above
+already recorded.
+
+**Three defects the package corpus caught, all of them upstream of this step:**
+
+- A CAPABILITY (`extern interface`) claimed `TypeDeclKind.IntrinsicRepr`, so its own file
+  kinded it `TyConst` while every consumer read the published shape and kinded it `TyClass`.
+  It now claims a CLASS: a capability is a nominal interface that only CARRIES a platform
+  spelling. The repr decides the SHAPE (`IntrinsicInterface` with one, a plain interface
+  `Class` without — which is what the JS build's canon-only capabilities are) and nothing else,
+  so `bindExternRepr` no longer files a capability under an intrinsic identity it does not have.
+- `IntrinsicTypeMap` was filled from every repr the file bound, which put capability interfaces
+  on the intrinsic axis. It is now DERIVED in `PublishedSurface.ofBuilder` from the published
+  `Intrinsic` shapes, so no producer can put one there. `PublishedSurfaceBuilder` lost the field.
+- A union's `interface seq<'T>` was TRANSLATED outside its declaring typars, so `'T` froze to
+  the unfreezable hole. `freezeInterfaces` now establishes the scope itself rather than
+  trusting its caller to.
+
+**Three fixture packages were under-declared.** `int` is Vesper.Core's, and a contract now
+resolves only what its own `depends-on` closure declares; the extractor's short-name index hid
+that. Each names the dependency now. A `depends-on` entry names a SIBLING package directory, so
+a fixture that does not live beside `src/` spells the way there — see
+[the follow-up below](#follow-ups-not-in-this-plan).
+
+`SignatureExtractorTests` is `SignatureResolutionTests`, rewritten against `SignatureResolution.run`
+and the surface it publishes. Two fixtures changed meaning rather than shape: the `[<RequireQualifiedAccess>]`
+one now reads the flag off the published case index (there is no `RqaTypes` side table), and the
+`ValRepr` one moved off a whole-file `module TestC` (see the module-chain follow-up below).
+
+Whole corpus green: 1409 + 1527 + 695 + the rest.
 
 ### 5. Delete the attribute name lists (independent of 1-4)
 
@@ -409,10 +450,17 @@ Runnable before step 1 if preferred; it is listed last only because it is the le
   cross-assembly boundary.
 - Conformance over two `PublishedSurface`s instead of two CSTs, and the folding-vs-structural
   decision for attribute arguments.
-- **`Vesper.List`'s contract names a type its package cannot resolve.** `list.fsi`'s
+- **`Vesper.List`'s contract names two types its package cannot resolve.** `list.fsi`'s
   `GetSlice` writes `int option` while the manifest depends on `Vesper.Core` alone, so the
-  member is dropped. Either the dependency is missing or the member does not belong in that
-  contract; both halves of the compiler now agree it is unresolvable, which is new information.
+  member is dropped; and `type ResizeArray<'T> = System.Collections.Generic.List<'T>` names a
+  BCL type no `.fsi` declares, so the abbreviation's body is unresolvable on the contract path
+  and resolves only once a backend's platform metadata is in scope. Either the dependency is
+  missing or the declaration does not belong in that contract.
+- **`Vesper.Printf`'s `Formatter` constructors name `TextWriter` / `StringBuilder`**, the same
+  BCL-only case as `ResizeArray` above, and are dropped from the contract for the same reason.
+- **A `depends-on` entry can only name a SIBLING directory**, so a package outside `src/`
+  cannot name `Vesper.Core` without spelling a `../..` path — which three test fixtures now do.
+  The search path a caller's package set implies would be the upstream fix.
 - **`module A.B.C` as a whole FILE loses its module.** `CstModuleTree.walkImpl` homes such a file's
   declarations in the global namespace with no module chain, and the signature walk mirrors it
   so a pair's halves agree. `VesperLib` honoured the chain, so the package path and the

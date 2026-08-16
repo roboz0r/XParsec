@@ -49,9 +49,18 @@ let private producerFs =
         ]
 
 /// `name` is omitted so it defaults to the directory name (`loadManifest` requires
-/// the two match); the consumer references the producer DLL by that same name.
+/// the two match); the consumer references the producer DLL by that same name. `int` is
+/// Vesper.Core's, and a contract resolves only what its own dependencies declare — a
+/// `depends-on` entry names a SIBLING package directory, and this one lives under `tmp/`.
 let private producerManifestToml =
-    String.concat "\n" [ "[core]"; "files = [\"producer.fsi\"]"; "impl = [\"producer.fs\"]" ]
+    String.concat
+        "\n"
+        [
+            "[core]"
+            "depends-on = [\"../src/Vesper.Core\"]"
+            "files = [\"producer.fsi\"]"
+            "impl = [\"producer.fs\"]"
+        ]
 
 /// `tmp/EscapeProducer/` — the directory name IS the producer package / assembly
 /// name (so the `.fsi`-recorded home assembly matches the emitted DLL's identity).

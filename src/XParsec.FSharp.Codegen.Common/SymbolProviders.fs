@@ -10,7 +10,7 @@ module SymbolProviders =
     /// Layer-2 FACTORY over the intrinsic axis composed from the layer-1 providers, which is
     /// what `type int = (# "System.Int32" #)` declares, both directions. A factory, not a
     /// fixed list, so that axis can seed it.
-    type PlatformMetadataFactory = ReferencedProject.PlatformMetadataFactory
+    type PlatformMetadataFactory = PackageProviders.PlatformMetadataFactory
 
     /// A package's manifest for the compiling target, as resolved from its directory.
     type ManifestPath = ReferencedProject.ManifestPath
@@ -41,7 +41,7 @@ module SymbolProviders =
         (target: string)
         (packageDirs: string list)
         : IExternalSymbolProvider =
-        ReferencedProject.composeContract platformMetadata (ReferencedProject.resolveAll target packageDirs)
+        PackageProviders.composeContract platformMetadata (ReferencedProject.resolveAll target packageDirs)
 
     /// One pass over a manifest set's splice sources: the templates published, and the
     /// producer file each was declared in.
@@ -60,9 +60,9 @@ module SymbolProviders =
 
         for manifest in manifests do
             for rel in manifest.Impl do
-                let file = VesperLib.libFile manifest.Name manifest.Dir rel
+                let file = PackageSource.locate manifest.Name manifest.Dir rel
 
-                match VesperLib.parseFileFull file with
+                match PackageSource.parse file with
                 | Result.Error _ -> ()
                 | Result.Ok parsed ->
                     let origin = Hashing.originSource parsed.File parsed.Lexed
@@ -181,7 +181,7 @@ module SymbolProviders =
                         (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
 
                          let provider =
-                             ReferencedProject.composeOrdered platformMetadata ordered transitiveDeps
+                             PackageProviders.composeOrdered platformMetadata ordered transitiveDeps
 
                          let collected = inlineBodies provider ordered
 

@@ -2,10 +2,8 @@
 # `(# … #)`-bodied member on an intrinsic/`extern` type. It proves the member-inline
 # SPLICE end-to-end: the `.fsi` is the consumer-side contract (an `extern` host +
 # `Poke` member), and the `.js.fs` companion is the body source whose member body the
-# codegen inline-body loader keys under the finalized member key. No `depends-on`: the
-# only external it names is the primitive `int`, resolved through whatever provider stack
-# the package is loaded into (the test stacks it ahead of `jsManifests`, which carry
-# Vesper.Core). Modeled on `src/Vesper.Core` / `src/Vesper.List`.
+# codegen inline-body loader keys under the finalized member key. Modeled on
+# `src/Vesper.Core` / `src/Vesper.List`.
 
 # NAMESPACED: `widget.fsi` declares `namespace Widgets`, so the compiled name is
 # `Widgets.widget`. The member-inline store keys the lifted body by the QUALIFIED name
@@ -16,6 +14,11 @@
 [core]
 name = "widget"
 description = "Test fixture: a `(# … #)`-bodied member (`Poke`) on an `extern` type."
+
+# `int` is Vesper.Core's, and a contract resolves only what its own dependencies declare.
+# A `depends-on` entry names a SIBLING package directory; this fixture does not live beside
+# `src/`, so it spells the way there.
+depends-on = ["../../../src/Vesper.Core"]
 
 # The front-end symbol contract: `widget` with `Poke`, and `gadget` with `Bump`.
 files = [

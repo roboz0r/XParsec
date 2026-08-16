@@ -93,18 +93,15 @@
     <Compile Include="IntrinsicTypeMap.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="ExternalSymbolProviders.fs" />
-    <!-- Ahead of both producers that fill it: the `.fsi` extractor below and the frozen-file
-         projection further down. -->
+    <!-- Ahead of both producers that fill it: the frozen-file projection and the `.fsi`
+         front end, both further down. -->
     <Compile Include="PublishedSurface.fs" />
     <!-- After the symbol data model it projects, and independent of everything below: an
          open method signature is a function of an `ExternalSymbol` alone. -->
     <Compile Include="OpenSignature.fs" />
     <Compile Include="BuiltinTypes.fs" />
-    <Compile Include="VesperLib\Manifest.fs" />
-    <Compile Include="VesperLib\TyparCapture.fs" />
-    <Compile Include="VesperLib\TypeTranslate.fs" />
+    <Compile Include="PackageSource.fs" />
     <Compile Include="ModuleRules.fs" />
-    <Compile Include="VesperLib.fs" />
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="Hashing.fs" />
     <Compile Include="FrozenCache.fs" />
@@ -191,6 +188,9 @@
     <Compile Include="Passes\SignatureResolution.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="AssemblyFiles.fs" />
+    <!-- After the `.fsi` front end and the per-file anchoring it shares with an assembly's
+         units: a package is that same fold over the files a manifest lists. -->
+    <Compile Include="PackageProviders.fs" />
     <Compile Include="PackageUnits.fs" />
   </ItemGroup>
   <ItemGroup>

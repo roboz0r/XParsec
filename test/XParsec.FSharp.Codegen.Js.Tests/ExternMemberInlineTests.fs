@@ -28,47 +28,45 @@ let private nowhereSource: OriginSource =
     }
 
 /// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
-/// `members`. Returns the provider and the resolved shape key.
-let private widgetContractOf (members: string) : IExternalSymbolProvider * string =
-    let ctx = VesperLib.ExtractCtx.empty Target.Js
-    ctx.IntrinsicReprs.["widget"] <- "object"
-
+/// `members`. Returns the provider and the identity the contract published it under.
+let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeKey =
     let input = "namespace Widgets\n\ntype widget = extern with\n" + members
 
-    let lexed =
-        match Lexing.lexString input with
-        | Result.Ok l -> l
-        | Result.Error e -> failwithf "lex failed: %A" e
+    let parsed =
+        match Pipeline.parseSignature input with
+        | Result.Ok p -> p
+        | Result.Error f -> failwithf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
 
-    let ast =
-        let reader = Reader.ofLexed lexed Set.empty
+    let ctx =
+        PassContext(
+            TestHelpers.jsProvider.Value,
+            AssemblyFiles.fileSource "Widgets" (AssemblyFileId.ofRelative "widget.fsi") parsed.Lexed
+        )
 
-        match FSharpAst.parseSignature reader with
-        | Result.Ok a -> a
-        | Result.Error e -> failwithf "parse failed: %A" e
+    ctx.AssemblyName <- "Widgets"
 
-    let parsed: VesperLibManifest.ParsedFile =
-        {
-            File =
-                {
-                    BucketName = "Widgets"
-                    Relative = AssemblyFileId.ofRelative "widget.fsi"
-                }
-            Lexed = lexed
-            Ast = ast
-        }
+    // The repr the paired `.fs` would bind: `widget` is a JS `object`.
+    let reprs = System.Collections.Generic.Dictionary<string, string>()
+    reprs.["widget"] <- "object"
 
-    VesperLib.extractSymbols ctx parsed
+    let surface =
+        Passes.SignatureResolution.run ctx { Target = Target.Js; Reprs = reprs } parsed.File
 
     let key =
-        match ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget") with
-        | Some k -> k
-        | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+        surface.ShapesByKey
+        |> Seq.tryPick (fun (e: SurfaceEntry<TypeKey, ExternalTypeShape>) ->
+            if (SymbolKeyOps.typeMetaName e.Key).EndsWith "widget" then
+                Some e.Key
+            else
+                None
+        )
 
-    VesperLib.ExtractCtx.toProvider ctx, key
+    match key with
+    | Some k -> PublishedSurface.toProvider surface, k
+    | None -> failtestf "widget published no shape"
 
 /// The single-member contract: `member inline Poke : int -> int`.
-let private widgetContract () : IExternalSymbolProvider * string =
+let private widgetContract () : IExternalSymbolProvider * TypeKey =
     widgetContractOf "    member inline Poke : int -> int\n"
 
 let private ftInt: FrozenType = toFrozen BuiltinTypes.tyInt
@@ -317,7 +315,7 @@ let tests =
                 let provider, key = widgetContract ()
 
                 let mem =
-                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Poke") with
+                    match provider.TryLookupMember(key, "Poke") with
                     | ValueSome m -> m
                     | ValueNone -> failtest "TryLookupMember(widget, Poke) missing — member capture failed"
 
@@ -340,7 +338,7 @@ let tests =
                         | _ -> ValueNone
                     )
 
-                match served.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Poke") with
+                match served.TryLookupMember(key, "Poke") with
                 | ValueSome m ->
                     Expect.isTrue m.InlineBody.IsSome "the member entry carries its inline body — the key AGREES"
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed through the inline-body fold"
@@ -353,7 +351,7 @@ let tests =
                 let provider, key =
                     widgetContractOf "    member inline Poke : int -> int\n    member inline Poke : string -> int\n"
 
-                let declKey = SymbolKeyOps.qualifiedTypeKeyOf key 0
+                let declKey = key
 
                 let overloads = provider.TryLookupMembers(declKey, "Poke")
                 Expect.equal overloads.Length 2 "both `Poke` overloads are published"

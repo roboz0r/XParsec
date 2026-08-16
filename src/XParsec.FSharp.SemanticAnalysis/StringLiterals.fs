@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 
 // String-literal folding primitives shared by the enum-case value projection and the
 // Elaborate constant parsers. Takes the token → text read as a function, so it sits ahead of
-// the `.fsi` package extractor as well as the passes.
+// every pass that needs it.
 
 module internal StringLiterals =
 

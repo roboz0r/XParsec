@@ -254,17 +254,20 @@ module SignatureResolution =
             | ValueSome(ExternKind.Class _) -> ExternForm.HeritableClass
             | _ -> ExternForm.Scalar
 
-    /// The repr the paired implementation binds for this `extern`, FILED on the intrinsic's
-    /// own key so a use site resolves the name to it. WHICH spelling is the implementation's
+    /// The repr the paired implementation binds for this `extern`. A PRIMITIVE's is FILED on
+    /// the intrinsic's own key so a use site resolves the name to it; a capability's is not,
+    /// because a capability is a nominal interface that only CARRIES a platform spelling and
+    /// has no intrinsic identity to file under. WHICH spelling is the implementation's
     /// business, so a target that binds none still publishes the type, marked unsupported.
-    let private bindExternRepr (sctx: SigCtx) (id: TypeIdentity) (heritable: bool) : IntrinsicPlatform =
+    let private bindExternRepr (sctx: SigCtx) (id: TypeIdentity) (form: ExternForm) : IntrinsicPlatform =
         match sctx.Inputs.Reprs.TryGetValue id.Name with
         | true, repr ->
-            sctx.Pass.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name] <-
-                {
-                    Platform = repr
-                    Heritable = heritable
-                }
+            if form <> ExternForm.Capability then
+                sctx.Pass.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name] <-
+                    {
+                        Platform = repr
+                        Heritable = form = ExternForm.HeritableClass
+                    }
 
             IntrinsicPlatform.Repr repr
         | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
@@ -316,77 +319,94 @@ module SignatureResolution =
                 ]
         | IntrinsicPlatform.Unsupported _ -> EqArray.empty
 
-    /// The shape an `extern` with a member surface publishes: one per form, since a capability
-    /// serves its members through the shape and the other two do not.
-    let private publishExternSurface
+    /// The shape a CAPABILITY publishes: it IS the interface, canon'd on its own identity,
+    /// with the platform spelling beside it where the target binds one. Nominal either way —
+    /// a use site kinds it `TyClass` from the shape, which is why it claims a class.
+    let private publishCapability
         (sctx: SigCtx)
         (id: TypeIdentity)
-        (canon: TypeKey)
-        (form: ExternForm)
         (platform: IntrinsicPlatform)
-        (surface: BodiedSurface)
+        (surface: BodiedSurface voption)
         : unit =
-        let identity =
-            {
-                Canon = canon
-                TyparArity = id.TyparArity
-                Platform = platform
-            }
+        let shape =
+            match surface with
+            | ValueSome s -> s.Shape
+            | ValueNone -> ExternalClassShape.basic (id.TyparArity, true, SymbolOrigin.Empty)
 
-        match form, platform with
-        | ExternForm.Capability, IntrinsicPlatform.Repr repr ->
+        match platform with
+        | IntrinsicPlatform.Repr repr ->
             publishShape
                 sctx
                 id.Key
                 (ExternalTypeShape.IntrinsicInterface
                     {
-                        Canon = canon
+                        Canon = id.Key
                         TyparArity = id.TyparArity
                         Platform = repr
-                        Members = EqArray.ofList surface.Members
-                        Interfaces = surface.Shape.FrozenInterfaces
+                        Members = shape.Members
+                        Interfaces = shape.FrozenInterfaces
                         Origin = SymbolOrigin.Empty
                     })
-        // A capability this target supplies no spelling for is nothing a use site can reach,
-        // so it degrades to the bare scalar every unsupported `extern` publishes.
-        | ExternForm.Capability, IntrinsicPlatform.Unsupported _ ->
+        // CANON-ONLY: the same interface, reachable by its own name alone.
+        | IntrinsicPlatform.Unsupported _ -> publishShape sctx id.Key (ExternalTypeShape.Class shape)
+
+    /// The shape a PRIMITIVE `extern` publishes. `surface` is absent where the declaration has
+    /// no `with` block, and a heritable primitive still needs the shape to record that a later
+    /// `inherit` may name it.
+    let private publishExternPrimitive
+        (sctx: SigCtx)
+        (id: TypeIdentity)
+        (heritable: bool)
+        (platform: IntrinsicPlatform)
+        (surface: BodiedSurface voption)
+        : unit =
+        let canon = TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name
+
+        match surface with
+        // A member-less `extern class` (`Attribute`) declares no surface but is still
+        // heritable, and only the shape carries that.
+        | ValueNone ->
             publishShape
                 sctx
                 id.Key
-                (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, id.TyparArity, platform)))
-        | ExternForm.HeritableClass, _ ->
+                (ExternalTypeShape.Intrinsic(
+                    if heritable then
+                        IntrinsicShape.HeritableClass(canon, id.TyparArity, platform)
+                    else
+                        IntrinsicShape.Scalar(canon, id.TyparArity, platform)
+                ))
+        | ValueSome surface ->
             publishShape
                 sctx
                 id.Key
                 (ExternalTypeShape.Intrinsic
                     {
-                        Id = identity
+                        Id =
+                            {
+                                Canon = canon
+                                TyparArity = id.TyparArity
+                                Platform = platform
+                            }
                         Class =
-                            ValueSome
-                                {
-                                    Heritable = true
-                                    BaseType = surface.Shape.FrozenBaseType
-                                    Interfaces = surface.Shape.FrozenInterfaces
-                                    Members = platformCtors platform surface.Members
-                                }
-                    })
-        // An untagged `extern with member …` is a SCALAR whose members ride their own table,
-        // not the shape; its declared interfaces do.
-        | ExternForm.Scalar, _ ->
-            publishShape
-                sctx
-                id.Key
-                (ExternalTypeShape.Intrinsic
-                    {
-                        Id = identity
-                        Class =
-                            ValueSome
-                                {
-                                    Heritable = false
-                                    BaseType = ValueNone
-                                    Interfaces = surface.Shape.FrozenInterfaces
-                                    Members = EqArray.empty
-                                }
+                            ValueSome(
+                                if heritable then
+                                    {
+                                        Heritable = true
+                                        BaseType = surface.Shape.FrozenBaseType
+                                        Interfaces = surface.Shape.FrozenInterfaces
+                                        Members = platformCtors platform surface.Members
+                                    }
+                                else
+                                    // An untagged `extern with member …` is a SCALAR whose
+                                    // members ride their own table, not the shape; its
+                                    // declared interfaces do.
+                                    {
+                                        Heritable = false
+                                        BaseType = ValueNone
+                                        Interfaces = surface.Shape.FrozenInterfaces
+                                        Members = EqArray.empty
+                                    }
+                            )
                     })
 
     let private publishExtern
@@ -397,30 +417,28 @@ module SignatureResolution =
         (members: TypeExtensionElementsSignature<SyntaxToken> voption)
         : unit =
         let ctx = sctx.Pass
-        let canon = TypeRegistry.intrinsicKeyOf ctx.Types id.Name
         let form = ExternForm.ofKindTag kindTag
-        let platform = bindExternRepr sctx id (form = ExternForm.HeritableClass)
+        let platform = bindExternRepr sctx id form
 
-        match members with
-        | ValueSome(TypeExtensionElementsSignature(elements = elems)) when not elems.IsEmpty ->
-            requireInlineExternMembers ctx id elems
+        let declared =
+            match members with
+            | ValueSome(TypeExtensionElementsSignature(elements = elems)) when not elems.IsEmpty -> ValueSome elems
+            | _ -> ValueNone
 
-            let surface =
+        match declared with
+        | ValueSome elems -> requireInlineExternMembers ctx id elems
+        | ValueNone -> ()
+
+        let surface =
+            declared
+            |> ValueOption.map (fun elems ->
                 publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn (form = ExternForm.Capability) elems)
+            )
 
-            publishExternSurface sctx id canon form platform surface
-        | _ ->
-            // A member-less `extern class` (`Attribute`) declares no surface but is still
-            // heritable, and only the shape carries that.
-            publishShape
-                sctx
-                id.Key
-                (ExternalTypeShape.Intrinsic(
-                    match form with
-                    | ExternForm.HeritableClass -> IntrinsicShape.HeritableClass(canon, id.TyparArity, platform)
-                    | ExternForm.Capability
-                    | ExternForm.Scalar -> IntrinsicShape.Scalar(canon, id.TyparArity, platform)
-                ))
+        match form with
+        | ExternForm.Capability -> publishCapability sctx id platform surface
+        | ExternForm.HeritableClass -> publishExternPrimitive sctx id true platform surface
+        | ExternForm.Scalar -> publishExternPrimitive sctx id false platform surface
 
     // --- class-like ------------------------------------------------------------------------
 
@@ -585,7 +603,7 @@ module SignatureResolution =
 
         if isPublished access then
             let compiledName =
-                match VesperLibTypeTranslate.tryCompiledName ctx.Lexed attrs with
+                match AttributeDecode.tryCompiledName ctx.NameOf attrs with
                 | ValueSome n -> ValueSome n
                 | ValueNone -> OperatorNames.ofDeclaredName ctx.NameOf ident
 
@@ -719,5 +737,4 @@ module SignatureResolution =
             | ModuleSignatureElement.Missing
             | ModuleSignatureElement.SkipsTokens _ -> ()
 
-        surface.Intrinsics <- IntrinsicTypeMap.ofReprKeys ctx.Types.IntrinsicReprKeys
         PublishedSurface.ofBuilder surface

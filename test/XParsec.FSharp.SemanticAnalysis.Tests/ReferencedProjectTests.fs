@@ -11,7 +11,9 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// `src/Vesper.Core`, found by walking up from the test assembly.
 let private vesperCorePackage =
-    let testDir = Path.GetDirectoryName(typeof<VesperLib.LibFile>.Assembly.Location)
+    let testDir =
+        Path.GetDirectoryName(typeof<PackageSource.ManifestFile>.Assembly.Location)
+
     let mutable dir = DirectoryInfo testDir
     let mutable found = None
 
@@ -89,7 +91,7 @@ let private writeSyntheticPackageWithType
 
 let private builtProvider =
     lazy
-        (match ReferencedProject.buildProvider vesperCoreManifest with
+        (match PackageProviders.buildProvider vesperCoreManifest with
          | Result.Error e -> failwithf "buildProvider failed: %s" e
          | Result.Ok(provider, diags) -> provider, diags)
 
@@ -98,7 +100,7 @@ let private builtProvider =
 let private builtProviderJs =
     lazy
         (let bp =
-            ReferencedProject.buildProviderWith (fun _ -> ValueNone) [] (loadOrFail vesperCoreJsManifest)
+            PackageProviders.buildProviderWith ExternalSymbolProviders.nullProvider (loadOrFail vesperCoreJsManifest)
 
          bp.Provider, bp.Diagnostics)
 
@@ -118,9 +120,17 @@ let tests =
                     Expect.equal (List.head m.Files) "prim-types-min.fsi" "compile order: prim-types-min first"
             }
 
-            test "every listed .fsi parses (no file-level diagnostics)" {
+            // Every contract file goes through the same front end an in-assembly `.fsi` does,
+            // so anything it could not resolve is reported rather than silently unpublished.
+            test "every listed .fsi resolves clean" {
                 let _, diags = builtProvider.Value
-                Expect.isEmpty diags (sprintf "expected clean parse, got: %A" diags)
+
+                let rendered =
+                    [
+                        for d in diags -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message
+                    ]
+
+                Expect.isEmpty rendered (sprintf "expected a clean contract, got: %A" rendered)
             }
 
             test "int resolves (qualified) as an Intrinsic shape carrying its `.fs` repr" {
@@ -582,7 +592,7 @@ let tests =
 
                         let caught =
                             try
-                                ReferencedProject.composeContract ReferencedProject.noPlatformMetadata [ a; b ]
+                                PackageProviders.composeContract PackageProviders.noPlatformMetadata [ a; b ]
                                 |> ignore
 
                                 None
@@ -603,7 +613,7 @@ let tests =
                         let a =
                             writeSyntheticPackageWithType "SoloPkg" "Solo" "type Thing =\n    | A\n    | B"
 
-                        ReferencedProject.composeContract ReferencedProject.noPlatformMetadata [ a ]
+                        PackageProviders.composeContract PackageProviders.noPlatformMetadata [ a ]
                         |> ignore
                     }
 

@@ -5,9 +5,11 @@ open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-module VesperLibManifest =
+/// A source file a package manifest NAMES, read off disk and parsed. The one reader for
+/// both halves: a `.fsi` is parsed as a signature, everything else as an implementation.
+module PackageSource =
 
-    type LibFile =
+    type ManifestFile =
         {
             Path: OriginPath
             /// Where this build found the file. Not part of the identity: two invocations
@@ -16,7 +18,7 @@ module VesperLibManifest =
         }
 
     /// The file a manifest of `bucketName` names as `relative`, mounted at `dir`.
-    let libFile (bucketName: string) (dir: string) (relative: string) : LibFile =
+    let locate (bucketName: string) (dir: string) (relative: string) : ManifestFile =
         {
             Path =
                 {
@@ -40,7 +42,7 @@ module VesperLibManifest =
     // the parser's own initialisers sit on paths a pure-signature run may never touch.
     do ObjectConstruction.init ()
 
-    let parseFileFull (file: LibFile) : Result<ParsedFile, string> =
+    let parse (file: ManifestFile) : Result<ParsedFile, string> =
         let input = File.ReadAllText file.Absolute
 
         match Lexing.lexString input with

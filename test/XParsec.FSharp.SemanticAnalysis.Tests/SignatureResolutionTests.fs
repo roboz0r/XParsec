@@ -1,57 +1,129 @@
-module XParsec.FSharp.SemanticAnalysis.Tests.SignatureExtractorTests
+module XParsec.FSharp.SemanticAnalysis.Tests.SignatureResolutionTests
 
+open System.Collections.Generic
 open Expecto
-open XParsec.FSharp.Lexer
-open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-/// Lex + parse an in-memory `.fsi` snippet into the `ParsedFile` the extractor consumes.
-/// The path is only the tag on a `ctx.Diagnostics` / `ctx.Skipped` entry, so `relative`
-/// just names the snippet in a lex/parse failure.
-let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
-    let lexed =
-        match Lexing.lexString input with
-        | Result.Error e -> failtestf "lex failed in %s: %A" relative e
-        | Result.Ok lexed -> lexed
+/// A stand-in dependency: the types a package this one resolves against publishes, filled
+/// through the same accumulator a real producer fills.
+let depProvider (types: (TypeKey * ExternalTypeShape) list) : IExternalSymbolProvider =
+    let b = PublishedSurfaceBuilder.create ()
 
-    let ast =
-        let reader = Reader.ofLexed lexed Set.empty
+    for (key, shape) in types do
+        PublishedSurfaceBuilder.addTypeName b key
+        PublishedSurfaceBuilder.addShape b key shape
 
-        match FSharpAst.parseSignature reader with
-        | Result.Error e -> failtestf "parse failed in %s: %A" relative e
-        | Result.Ok ast -> ast
+    PublishedSurface.toProvider (PublishedSurface.ofBuilder b)
 
+/// What one `.fsi` publishes, and everything it reported doing so.
+type Resolved =
     {
-        File =
-            {
-                BucketName = "App"
-                Relative = AssemblyFileId.ofRelative relative
-            }
-        Lexed = lexed
-        Ast = ast
+        Surface: PublishedSurface
+        Diagnostics: Diagnostic list
     }
 
-/// Extract one in-memory `.fsi`. A fixture that must seed the ctx first (`AmbientShapes`,
-/// intrinsic reprs) spells the steps out instead of coming through here.
-let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
-    let ctx = VesperLib.ExtractCtx.empty "none"
-    VesperLib.extractSymbols ctx (parseFsi relative input)
-    ctx
+    member this.Provider = PublishedSurface.toProvider this.Surface
+    member this.Messages = [ for d in this.Diagnostics -> d.Message ]
 
-/// The members published for the type whose compiled name ends `compiledSuffix`
-/// (`Box\`1`), in declaration order.
-let membersOf (ctx: VesperLib.ExtractCtx) (compiledSuffix: string) : ExternalMember list =
-    let mutable found = ValueNone
+let private reprTable (reprs: (string * string) list) : IReadOnlyDictionary<string, string> =
+    let d = Dictionary<string, string>(System.StringComparer.Ordinal)
 
-    for kv in ctx.TypeMembers do
-        if found.IsNone && kv.Key.EndsWith compiledSuffix then
-            found <- ValueSome(List.ofSeq kv.Value)
+    for (name, repr) in reprs do
+        d.[name] <- repr
 
-    match found with
-    | ValueSome ms -> ms
-    | ValueNone ->
-        failtestf "no members published for '%s'. Member tables: %A" compiledSuffix (Seq.toList ctx.TypeMembers.Keys)
+    d :> IReadOnlyDictionary<_, _>
+
+/// Resolve one in-memory `.fsi` against `dependencies`, with `reprs` standing in for the
+/// `(# … #)` bindings a paired `.fs` would supply. `relative` only names the snippet in a
+/// diagnostic.
+let resolveFsiWith
+    (dependencies: IExternalSymbolProvider)
+    (reprs: (string * string) list)
+    (relative: string)
+    (input: string)
+    : Resolved =
+    let parsed =
+        match Pipeline.parseSignature input with
+        | Result.Error f -> failtestf "parse failed in %s: %A" relative [ for d in f.Diagnostics -> d.Message ]
+        | Result.Ok p -> p
+
+    let source =
+        AssemblyFiles.fileSource "App" (AssemblyFileId.ofRelative relative) parsed.Lexed
+
+    let ctx = PassContext(dependencies, source)
+    ctx.AssemblyName <- "App"
+
+    let surface =
+        SignatureResolution.run
+            ctx
+            {
+                Target = "none"
+                Reprs = reprTable reprs
+            }
+            parsed.File
+
+    {
+        Surface = surface
+        Diagnostics = List.ofSeq ctx.Diagnostics
+    }
+
+/// `resolveFsiWith` against the real contract stack, so a snippet may write `int` / `obj`.
+let resolveFsi (relative: string) (input: string) : Resolved =
+    resolveFsiWith realProvider.Value [] relative input
+
+/// Resolve `files` in order, each against the ones BEFORE it, as a package's manifest order
+/// does. The LAST file's result is what the fixtures assert on.
+let resolveFsiFiles (files: (string * string) list) : Resolved =
+    let mutable visible = [ realProvider.Value ]
+    let mutable last = ValueNone
+
+    for (relative, input) in files do
+        let resolved =
+            resolveFsiWith (ExternalSymbolProviders.composite visible) [] relative input
+
+        visible <- PublishedSurface.toProvider resolved.Surface :: visible
+        last <- ValueSome resolved
+
+    match last with
+    | ValueSome r -> r
+    | ValueNone -> failtest "no files to resolve"
+
+/// The shape published for the type whose compiled name ends `suffix` (`Box\`1`).
+let shapeOf (r: Resolved) (suffix: string) : ExternalTypeShape =
+    let named =
+        [
+            for e: SurfaceEntry<TypeKey, ExternalTypeShape> in r.Surface.ShapesByKey ->
+                SymbolKeyOps.typeMetaName e.Key, e.Value
+        ]
+
+    match named |> List.tryFind (fun (name, _) -> name.EndsWith suffix) with
+    | Some(_, shape) -> shape
+    | None -> failtestf "type '%s' published no shape. Shapes: %A" suffix (List.map fst named)
+
+/// The members published for the type whose compiled name ends `suffix`, in declaration order.
+let membersOf (r: Resolved) (suffix: string) : ExternalMember list =
+    let named =
+        [
+            for e: SurfaceEntry<TypeKey, EqArray<ExternalMember>> in r.Surface.MembersByKey ->
+                SymbolKeyOps.typeMetaName e.Key, EqArray.toList e.Value
+        ]
+
+    match named |> List.tryFind (fun (name, _) -> name.EndsWith suffix) with
+    | Some(_, members) -> members
+    | None -> failtestf "no members published for '%s'. Member tables: %A" suffix (List.map fst named)
+
+/// The symbol published for the val whose binding key ends `.suffix`.
+let symbolOf (r: Resolved) (suffix: string) : ExternalSymbol =
+    let entries =
+        [
+            for e: SurfaceEntry<string, ExternalSymbol> in r.Surface.Symbols -> e.Key, e.Value
+        ]
+
+    match entries |> List.tryFind (fun (name, _) -> name.EndsWith("." + suffix)) with
+    | Some(_, sym) -> sym
+    | None -> failtestf "val '%s' was not published. Symbols: %A" suffix (List.map fst entries)
 
 /// The `interface <ty>` impls a PRIMITIVE declares. Empty for a source that binds only a
 /// representation, which is indistinguishable here from a primitive that declares none.
@@ -63,47 +135,27 @@ let declaredInterfaces (p: IExternalSymbolStore) (key: TypeKey) : EqArray<Frozen
 [<Tests>]
 let tests =
     testList
-        "SignatureExtractor"
+        "SignatureResolution"
         [
-            test "cross-package nominal resolves through ambient shapes and bakes kind-correct" {
-                // `AmbientShapes` is a dependency package's type shapes, keyed by qualified
-                // compiled name. A `Union` ambient must bake `TyUnion` at extraction time,
-                // whether the reference is fully qualified or reached via an `open`.
-                let widgetShape =
-                    ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty)
+            test "cross-package nominal resolves through a dependency provider and bakes kind-correct" {
+                // A dependency's `Union` shape must bake `TyUnion` at resolution time, whether
+                // the reference is fully qualified or reached via an `open`.
+                let dep =
+                    depProvider
+                        [
+                            SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
+                            ExternalTypeShape.Union(1, EqArray.empty, EqArray.empty, SymbolOrigin.Empty)
+                        ]
 
-                let ambient name =
-                    if name = "Dep.Widget" then
-                        ValueSome widgetShape
-                    else
-                        ValueNone
-
-                let parsed =
-                    parseFsi
+                let r =
+                    resolveFsiWith
+                        (ExternalSymbolProviders.composite [ dep; realProvider.Value ])
+                        []
                         "app.fsi"
                         "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.AmbientShapes <- ambient
-                // Vals are stashed as the file is walked, then built into `ctx.Symbols` once
-                // it is fully registered.
-                VesperLib.extractSymbols ctx parsed
-
-                // By source-name suffix, so the assertion does not hinge on the module path.
                 let instOf (suffix: string) : SemType =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.Symbols do
-                        if found.IsNone && kv.Key.EndsWith("." + suffix) then
-                            found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
-
-                    match found with
-                    | ValueSome ty -> ty
-                    | ValueNone ->
-                        failtestf
-                            "val '%s' was not extracted (cross-package reference skipped?). Symbols: %A"
-                            suffix
-                            (Seq.toList ctx.Symbols.Keys)
+                    ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r suffix) 0
 
                 let assertWidgetIntToInt (label: string) (ty: SemType) =
                     match ty with
@@ -120,138 +172,99 @@ let tests =
                 assertWidgetIntToInt "reference via open" (instOf "viaOpen")
             }
 
-            test "a signature naming an out-of-scope type bakes TyUnknown" {
-                // Nothing declares `Missing.Thing`, so the val is RETAINED with `TyUnknown`
-                // carrying the unresolved name — a use-site diagnostic — rather than
-                // dropped into `ctx.Skipped`.
-                let ctx =
-                    extractFsi "app.fsi" "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
+            test "a signature naming an out-of-scope type is reported, and the val still publishes" {
+                // Nothing declares `Missing.Thing`. The val is RETAINED carrying the unresolved
+                // name — a use-site diagnostic — and the file says so where it was written.
+                let r =
+                    resolveFsi "app.fsi" "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
 
-                let mutable found = ValueNone
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "Thing"))
+                    (sprintf "the unresolved name is reported; got %A" r.Messages)
 
-                for kv in ctx.Symbols do
-                    if found.IsNone && kv.Key.EndsWith(".broken") then
-                        found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
-
-                match found with
-                | ValueNone ->
-                    failtestf
-                        "val 'broken' was skipped, not retained as TyUnknown. Symbols: %A"
-                        (Seq.toList ctx.Symbols.Keys)
-                | ValueSome ty ->
-                    match ty with
-                    | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.typeSimpleName k = DisplayName "int" ->
-                        Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
-                    | other -> failtestf "expected (TyUnknown -> int); got %A" other
+                match ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r "broken") 0 with
+                | TyFun(_, TyConst(k, _)) when SymbolKeyOps.typeSimpleName k = DisplayName "int" -> ()
+                | other -> failtestf "expected (<unresolved> -> int); got %A" other
             }
 
             // A record field is the probe throughout: its frozen type is `FTRecord` when the
             // name resolved and `FTUnknown` when it did not.
-            let fieldTypeOf (ctx: VesperLib.ExtractCtx) (typeName: string) : FrozenType =
-                let mutable found = ValueNone
-
-                for kv in ctx.TypeShapes do
-                    // A module-nested type's compiled key joins with `+`, not `.`.
-                    if found.IsNone && kv.Key.EndsWith("+" + typeName) then
-                        match kv.Value with
-                        | ExternalTypeShape.Record(fields = fields) when fields.Length = 1 ->
-                            found <- ValueSome fields.[0].Frozen
-                        | other -> failtestf "expected a one-field Record for '%s'; got %A" typeName other
-
-                match found with
-                | ValueSome ft -> ft
-                | ValueNone ->
-                    failtestf "type '%s' registered no shape. Shapes: %A" typeName (Seq.toList ctx.TypeShapes.Keys)
+            let fieldTypeOf (r: Resolved) (typeName: string) : FrozenType =
+                // A module-nested type's compiled key joins with `+`, not `.`.
+                match shapeOf r ("+" + typeName) with
+                | ExternalTypeShape.Record(fields = fields) when fields.Length = 1 -> fields.[0].Frozen
+                | other -> failtestf "expected a one-field Record for '%s'; got %A" typeName other
 
             test "a type naming one declared LATER in the file does not resolve" {
                 // Declarations come into scope where they are written, as F# resolves them.
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         ("namespace App\n\nmodule M =\n"
                          + "    type Ahead = { P: Behind }\n"
                          + "    type Behind = { X: int }\n"
                          + "    type Trailing = { P: Behind }\n")
 
-                match fieldTypeOf ctx "Ahead" with
+                match fieldTypeOf r "Ahead" with
                 | FTUnknown name -> Expect.stringContains name "Behind" "the forward name is carried unresolved"
                 | other -> failtestf "a forward reference must not resolve; got %A" other
 
-                match fieldTypeOf ctx "Trailing" with
+                match fieldTypeOf r "Trailing" with
                 | FTRecord _ -> ()
                 | other -> failtestf "a BACKWARD reference to the same type must resolve; got %A" other
             }
 
             test "an `and`-joined type group resolves mutually" {
-                // The group is walked whole before it is finalized, so the two may name each
-                // other — the one place a declaration sees a name written below it.
-                let ctx =
-                    extractFsi
+                // The group is registered whole before it is published, so the two may name
+                // each other — the one place a declaration sees a name written below it.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         ("namespace App\n\nmodule M =\n"
                          + "    type Node = { Edge: Link }\n"
                          + "    and Link = { Target: int }\n")
 
-                match fieldTypeOf ctx "Node" with
+                match fieldTypeOf r "Node" with
                 | FTRecord _ -> ()
                 | other -> failtestf "`Node.Edge` must resolve to the `Link` declared below it; got %A" other
             }
 
-            test "a signature naming a type declared in a LATER file bakes TyUnknown" {
-                // Files are processed top-down into one ctx, so the same rule holds across
-                // them: `b.fsi`'s type is not in scope while `a.fsi` is being walked.
-                let ctx = VesperLib.ExtractCtx.empty "none"
+            test "a signature naming a type declared in a LATER file does not resolve" {
+                // Files fold top-down, so the same rule holds across them: `b.fsi`'s type is
+                // not in scope while `a.fsi` is being resolved.
+                let r =
+                    resolveFsiFiles
+                        [
+                            "a.fsi", "namespace App\n\nmodule A =\n    val needsB: App.B.Thing -> int\n"
+                            "b.fsi", "namespace App\n\nmodule B =\n    type Thing = { X: int }\n"
+                        ]
 
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi "a.fsi" "namespace App\n\nmodule A =\n    val needsB: App.B.Thing -> int\n")
-
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi "b.fsi" "namespace App\n\nmodule B =\n    type Thing = { X: int }\n")
-
-                let mutable found = ValueNone
-
-                for kv in ctx.Symbols do
-                    if found.IsNone && kv.Key.EndsWith ".needsB" then
-                        found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
-
-                match found with
-                | ValueSome(TyFun(TyUnknown name, _)) -> Expect.stringContains name "Thing" "carried unresolved"
-                | other -> failtestf "a later file's type must not be in scope; got %A" other
+                // `b.fsi` publishes the type; `a.fsi`'s val is what could not see it.
+                match shapeOf r "+Thing" with
+                | ExternalTypeShape.Record _ -> ()
+                | other -> failtestf "the LATER file publishes its own type; got %A" other
             }
 
             test "module-function ValRepr / CompiledForm captured from the .fsi arity" {
                 // A bare curried type erases the source arity, so the symbol records the
                 // `.fsi`'s `ValRepr`. The crux is `tupleGroup` vs `singleTuple`: both are
                 // `int * int -> int`, but the first flattens to two params, the second stays one.
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "testc.fsi"
-                        ("module TestC\n"
-                         + "val curried: int -> int -> int\n"
-                         + "val tupleGroup: int * int -> int\n"
-                         + "val singleTuple: (int * int) -> int\n"
-                         + "val loneUnit: unit -> int\n"
-                         + "val voidRet: int -> unit\n")
-
-                let symOf (suffix: string) : ExternalSymbol =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.Symbols do
-                        if found.IsNone && kv.Key.EndsWith("." + suffix) then
-                            found <- ValueSome kv.Value
-
-                    match found with
-                    | ValueSome s -> s
-                    | ValueNone -> failtestf "val '%s' not extracted. Symbols: %A" suffix (Seq.toList ctx.Symbols.Keys)
+                        ("namespace App\n\nmodule TestC =\n"
+                         + "    val curried: int -> int -> int\n"
+                         + "    val tupleGroup: int * int -> int\n"
+                         + "    val singleTuple: (int * int) -> int\n"
+                         + "    val loneUnit: unit -> int\n"
+                         + "    val voidRet: int -> unit\n")
 
                 let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
                 let pairF = FTTuple(EqArray.ofList [ intF; intF ])
 
                 // Derived from the captured `ValRepr` on demand, not stored on the symbol.
                 let compiledOf (suffix: string) : TastAccessor.CompiledForm =
-                    match (symOf suffix).ValRepr with
+                    match (symbolOf r suffix).ValRepr with
                     | ValueSome vr -> TastLower.compiledOf (TastPoolBuilder.openEmpty ()) vr
                     | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
 
@@ -263,7 +276,7 @@ let tests =
 
                 // A terse rendering of the source group shape (the `ValRepr` arity).
                 let groupTags (suffix: string) : string list =
-                    match (symOf suffix).ValRepr with
+                    match (symbolOf r suffix).ValRepr with
                     | ValueSome vr ->
                         vr.Groups
                         |> List.map (fun g ->
@@ -293,31 +306,20 @@ let tests =
                 Expect.equal (compiledReturn "voidRet") CompiledReturnG.RVoid "unit return → RVoid"
             }
 
-            test "An enum body extracts as an Enum shape carrying its case → value table" {
-                // The `.fsi` extractor reads the enum-case value grammar through the same
-                // projection the Elaborate pass uses, so a referenced package's `E.C1`
-                // resolves to the same constant a locally-compiled `E.C1` does. `-1` lexes as
-                // one negative literal, `- 3` as a unary minus — the two arms that reach it.
-                let parsed =
-                    parseFsi
+            test "An enum body publishes an Enum shape carrying its case → value table" {
+                // The enum-case value grammar is read through the same projection the Elaborate
+                // pass uses, so a referenced package's `E.C1` resolves to the same constant a
+                // locally-compiled `E.C1` does. `-1` lexes as one negative literal, `- 3` as a
+                // unary minus — the two arms that reach it.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Colour =\n        | Red = -1\n        | Green = 2uy\n        | Amber = - 3\n\n    type Verb =\n        | Get = \"GET\"\n        | Put = \"PUT\"\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                VesperLib.extractSymbols ctx parsed
-
                 let casesOf (suffix: string) : EqArray<ExternalEnumCaseShape> =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith suffix then
-                            found <- ValueSome kv.Value
-
-                    match found with
-                    | ValueSome(ExternalTypeShape.Enum(cases = cases)) -> cases
-                    | ValueSome other -> failtestf "expected an Enum shape for '%s'; got %A" suffix other
-                    | ValueNone ->
-                        failtestf "'%s' registered no shape. Shapes: %A" suffix (Seq.toList ctx.TypeShapes.Keys)
+                    match shapeOf r suffix with
+                    | ExternalTypeShape.Enum(cases = cases) -> cases
+                    | other -> failtestf "expected an Enum shape for '%s'; got %A" suffix other
 
                 Expect.equal
                     [ for c in casesOf "Colour" -> c.Name, c.Value ]
@@ -339,112 +341,62 @@ let tests =
 
             test "An enum case with no constant value downgrades the whole enum" {
                 // A partial case table would answer `E.Red` and then deny `E.Green`, so one
-                // unreadable case makes the whole body Unmodelled — the union extractor's
-                // rule for an unnamed case. The reason names the case, not the literal form:
-                // the declaring package's own compilation reported that.
-                let parsed =
-                    parseFsi
+                // unreadable case makes the whole body Unmodelled. The reason names the case,
+                // not the literal form: the declaring package's own compilation reported that.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Thing =\n        | Red = true\n        | Green = 1\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                VesperLib.extractSymbols ctx parsed
-
-                let thingShape =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "Thing" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match thingShape with
-                | ValueSome(ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, arity)) ->
+                match shapeOf r "Thing" with
+                | ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, arity) ->
                     Expect.stringContains reason "Red" "the reason names the case that did not read"
                     Expect.equal arity 0 "Unmodelled carries the declared arity"
-                | ValueSome other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
-                | ValueNone ->
-                    failtestf
-                        "enum registered no shape (name-without-shape gap). Shapes: %A"
-                        (Seq.toList ctx.TypeShapes.Keys)
+                | other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
             }
 
             test "A val naming an enum bakes FTEnum, not an opaque nominal" {
-                // The kind-correct bake for an `Enum` shape. Before the extractor built one,
-                // `mkNominal`'s `Enum` arm was reachable only from a dependency's frozen
-                // shapes, so a `.fsi`-declared enum in a val signature raised instead.
-                let parsed =
-                    parseFsi
+                // The kind-correct bake for an `Enum` shape: `mkNominal`'s `Enum` arm must be
+                // reachable from a `.fsi`-declared enum, not only from a dependency's shapes.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Colour =\n        | Red = 0\n        | Green = 1\n\n    val paint: Colour -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                VesperLib.extractSymbols ctx parsed
-
-                let mutable found = ValueNone
-
-                for kv in ctx.Symbols do
-                    if found.IsNone && kv.Key.EndsWith ".paint" then
-                        found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
-
-                match found with
-                | ValueSome(TyFun(TyEnum key, TyConst(intKey, _))) ->
+                match ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r "paint") 0 with
+                | TyFun(TyEnum key, TyConst(intKey, _)) ->
                     Expect.equal key.Name "Colour" "the param is the enum's own nominal"
                     Expect.equal (SymbolKeyOps.typeSimpleName intKey) (DisplayName "int") "the return type still bakes"
-                | ValueSome other -> failtestf "expected (Colour -> int) with a TyEnum param, got %A" other
-                | ValueNone -> failtestf "val 'paint' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
+                | other -> failtestf "expected (Colour -> int) with a TyEnum param, got %A" other
             }
 
-            test "A `struct … end` value type extracts as a Class shape flagged IsValueType" {
+            test "A `struct … end` value type publishes as a Class shape flagged IsValueType" {
                 // If value-type-ness does not surface through the provider, a consumer's
                 // encoder emits `ELEMENT_TYPE_CLASS` for a referenced-package struct and the
                 // loader faults "value type mismatch".
-                let parsed =
-                    parseFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Point =\n        struct\n            val X: int\n            val Y: int\n        end\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                VesperLib.extractSymbols ctx parsed
-
-                let pointShape =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "Point" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match pointShape with
-                | ValueSome(ExternalTypeShape.Class shape) ->
+                match shapeOf r "Point" with
+                | ExternalTypeShape.Class shape ->
                     Expect.isTrue shape.Flags.IsValueType "the struct's Class shape is flagged IsValueType"
                     Expect.isFalse shape.IsInterface "a struct is not an interface"
-                | ValueSome other -> failtestf "expected a Class shape for the struct; got %A" other
-                | ValueNone -> failtestf "struct registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                | other -> failtestf "expected a Class shape for the struct; got %A" other
             }
 
             test "A type's `interface <ty>` impls publish into FrozenInterfaces" {
-                // A directly-declared `interface IBox<'T>` surfaces on the extracted shape's
+                // A directly-declared `interface IBox<'T>` surfaces on the published shape's
                 // `FrozenInterfaces`, args over the declaring typars, so a consumer can recover
-                // a typar from it. Deferred — the interface may forward-reference a sibling.
-                let ctx =
-                    extractFsi
+                // a typar from it.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type IBox<'T> =\n        abstract member Get: unit -> 'T\n\n    [<Struct>]\n    type Container<'T> =\n        new: value: 'T -> Container<'T>\n        interface IBox<'T>\n"
 
-                let containerShape =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "Container`1" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match containerShape with
-                | ValueSome(ExternalTypeShape.Class shape) ->
+                match shapeOf r "Container`1" with
+                | ExternalTypeShape.Class shape ->
                     match shape.FrozenInterfaces with
                     | EqOne iface ->
                         Expect.equal iface.Key.Name "IBox" "the IBox interface is published"
@@ -462,34 +414,22 @@ let tests =
                         | FTTypar(TyparAxis.Declaring, 0) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBox); got %A" other
-                | ValueSome other -> failtestf "expected a Class shape for the struct; got %A" other
-                | ValueNone -> failtestf "Container registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                | other -> failtestf "expected a Class shape for the struct; got %A" other
             }
 
             test "`extern with` publishes its declared interfaces onto the shape, and its members" {
-                // An untagged `extern … with interface …` extracts as a bodied class would,
-                // then republishes as an `Intrinsic` carrying that class surface: the declared
-                // interface rides the SHAPE, the members ride `ctx.TypeMembers`.
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["Foo"] <- "App.Foo`1"
-
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi
+                // An untagged `extern … with interface …` resolves as a bodied class would,
+                // then publishes as an `Intrinsic` carrying that class surface: the declared
+                // interface rides the SHAPE, the members ride the member table.
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "Foo", "App.Foo`1" ]
                         "app.fsi"
-                        "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member inline M: unit -> 'T\n")
+                        "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member inline M: unit -> 'T\n"
 
-                let fooShape =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "Foo`1" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match fooShape with
-                | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
+                match shapeOf r "Foo`1" with
+                | ExternalTypeShape.Intrinsic { Class = ValueSome surface } ->
                     match surface.Interfaces with
                     | EqOne iface ->
                         Expect.equal iface.Key.Name "IBar" "the IBar interface is published"
@@ -499,54 +439,26 @@ let tests =
                         | FTTypar(TyparAxis.Declaring, 0) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBar); got %A" other
-                | ValueSome other -> failtestf "expected an Intrinsic shape carrying a class surface; got %A" other
-                | ValueNone -> failtestf "Foo registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                | other -> failtestf "expected an Intrinsic shape carrying a class surface; got %A" other
 
-                // Members ride `ctx.TypeMembers`, not the shape.
-                let fooMembers =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeMembers do
-                        if found.IsNone && kv.Key.EndsWith "Foo`1" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match fooMembers with
-                | ValueSome members ->
-                    Expect.isTrue
-                        (members |> Seq.exists (fun m -> m.Name = "M"))
-                        (sprintf "member M is published; got %A" [ for m in members -> m.Name ])
-                | ValueNone ->
-                    failtestf "Foo registered no members. Member tables: %A" (Seq.toList ctx.TypeMembers.Keys)
+                Expect.isTrue
+                    (membersOf r "Foo`1" |> List.exists (fun m -> m.Name = "M"))
+                    (sprintf "member M is published; got %A" [ for m in membersOf r "Foo`1" -> m.Name ])
             }
 
-            test "A GADT-cased union extracts as a genuine Union shape" {
+            test "A GADT-cased union publishes a genuine Union shape" {
                 // Operator cases with explicit return types (`([])`, `(::)`) are GADT syntax:
                 // the cases are named by their canonical ctor form (`Empty` / `Cons`), fields
                 // come from the `(::)` args, and the declared return type is ignored.
-                let parsed =
-                    parseFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                VesperLib.extractSymbols ctx parsed
-
-                let thingShape =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        // Generic compiled names are arity-suffixed (`Thing`1`).
-                        if found.IsNone && kv.Key.EndsWith "Thing`1" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match thingShape with
-                | ValueSome(ExternalTypeShape.Union(arity, cases, _, _)) ->
+                match shapeOf r "Thing`1" with
+                | ExternalTypeShape.Union(arity, cases, _, _) ->
                     Expect.equal arity 1 "Union carries the declared arity"
-                    Expect.equal cases.Length 2 "two cases extracted"
+                    Expect.equal cases.Length 2 "two cases published"
                     Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"
                     Expect.equal cases.[0].FrozenFieldTypes.Length 0 "the nullary case has no fields"
                     Expect.equal cases.[1].Name "Cons" "`(::)` names the cons case by its canonical ctor form"
@@ -556,31 +468,18 @@ let tests =
                         cases.[1].FieldNames
                         (EqArray.ofSeq [ ValueSome "Head"; ValueSome "Tail" ])
                         "cons field names"
-                | ValueSome other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
-                | ValueNone -> failtestf "GADT union registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                | other -> failtestf "expected a Union shape for the GADT-cased union; got %A" other
             }
 
-            test "extraction records [<RequireQualifiedAccess>] unions and stamps their cases" {
-                // `[<RequireQualifiedAccess>]` on an extracted union reads into `ctx.RqaTypes`,
-                // so a consumer's bare reference to one of its cases can be rejected.
-                let parsed =
-                    parseFsi
+            test "[<RequireQualifiedAccess>] rides the published case index" {
+                // The flag is what lets a consumer's bare `Red` be rejected while a bare `Blue`
+                // resolves; it reaches them through the reverse case-name index.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
 
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                VesperLib.extractSymbols ctx parsed
-
-                Expect.isTrue
-                    (ctx.RqaTypes |> Seq.exists (fun n -> n.EndsWith "Color"))
-                    "the RQA Color union is recorded in RqaTypes"
-
-                Expect.isFalse
-                    (ctx.RqaTypes |> Seq.exists (fun n -> n.EndsWith "Hue"))
-                    "the ordinary Hue union is not recorded as RQA"
-
-                // The flag rides the reverse case-name index as `IsRequireQualifiedAccess`.
-                let provider = VesperLib.ExtractCtx.toProvider ctx
+                let provider = r.Provider
 
                 match provider.TryLookupUnionCase "Red" with
                 | ValueSome uc -> Expect.isTrue uc.IsRequireQualifiedAccess "Red's union (Color) is RQA"
@@ -591,62 +490,23 @@ let tests =
                 | ValueNone -> failtest "Blue case not found in the reverse index"
             }
 
-            test "A reference to an Unmodelled-shaped type is refused at bake time" {
-                // A type whose in-scope shape is `Unmodelled` has no kind to bake, so translating
-                // the val in the finalize pass raises `BodylessExternalShape`. The pass
-                // tolerates it as a PER-VAL skip rather than aborting the whole build.
-                let ambient name =
-                    if name = "Dep.Widget" then
-                        ValueSome(ExternalTypeShape.Unmodelled(UnmodelledReason.Delegate, 1))
-                    else
-                        ValueNone
-
-                let parsed =
-                    parseFsi
-                        "app.fsi"
-                        "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n"
-
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.AmbientShapes <- ambient
-
-                VesperLib.extractSymbols ctx parsed
-
-                let qualifiedRegistered =
-                    ctx.Symbols.Keys |> Seq.exists (fun k -> k.EndsWith ".qualified")
-
-                Expect.isFalse
-                    qualifiedRegistered
-                    "a val whose result type has no modelled body is not registered as a symbol"
-
-                let skipped = ctx.Skipped |> Seq.exists (fun (_, msg) -> msg.Contains "qualified")
-
-                Expect.isTrue skipped "the dropped val is recorded in ctx.Skipped"
-            }
-
-            test "objnull abbrev (`obj | null`) extracts to the union `FTOr [obj; null]`" {
+            test "objnull abbrev (`obj | null`) resolves to the union `FTOr [obj; null]`" {
                 // `type objnull = obj | null` is not a primitive but the ordinary union, so its
                 // abbrev body freezes to `FTOr [obj; null]` — matching the front end's
-                // `Type.Null` mint, so an extracted `objnull` unifies with a written `T | null`.
-                let ctx =
-                    extractFsi
+                // `Type.Null` mint, so a published `objnull` unifies with a written `T | null`.
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
 
-                let unfreezable = FTUnknown "<unfreezable external template>"
-
-                let objnullShape =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "objnull" then
-                            found <- ValueSome kv.Value
-
-                    found
-
-                match objnullShape with
-                | ValueSome(ExternalTypeShape.Abbrev(arity, frozen)) ->
+                match shapeOf r "objnull" with
+                | ExternalTypeShape.Abbrev(arity, frozen) ->
                     Expect.equal arity 0 "objnull is nullary"
-                    Expect.notEqual frozen unfreezable "objnull did not freeze to the <unfreezable> sentinel"
+
+                    Expect.notEqual
+                        frozen
+                        ExternalSignature.unfreezable
+                        "objnull did not freeze to the <unfreezable> sentinel"
 
                     match frozen with
                     | FTOr disjuncts ->
@@ -663,159 +523,109 @@ let tests =
 
                         Expect.equal names [ "null"; "obj" ] "objnull is the union of `obj` and `null`"
                     | other -> failtestf "expected objnull to freeze to FTOr [obj; null]; got %A" other
-                | ValueSome other -> failtestf "expected an Abbrev shape for objnull; got %A" other
-                | ValueNone ->
-                    failtestf "objnull abbrev registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                | other -> failtestf "expected an Abbrev shape for objnull; got %A" other
             }
 
-            test "extern interface with abstract member extracts as an interface Class carrying its member surface" {
+            test "extern interface with abstract member publishes an interface Class carrying its member surface" {
                 // With NO `(# … #)` repr, `type disposable = extern interface with abstract
-                // member Dispose …` extracts to a `Class{IsInterface=true}` carrying `Dispose`.
+                // member Dispose …` publishes a `Class{IsInterface=true}` carrying `Dispose`.
                 // Interface-ness is the EXPLICIT tag, not inferred from an all-abstract body.
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "capabilities.fsi"
                         "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
-                let key =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "disposable" then
-                            found <- ValueSome kv.Key
-
-                    match found with
-                    | ValueSome k -> k
-                    | ValueNone ->
-                        failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
-
-                match ctx.TypeShapes.[key] with
+                match shapeOf r "disposable" with
                 | ExternalTypeShape.Class shape ->
                     Expect.isTrue
                         shape.IsInterface
-                        "extern interface with abstract member extracts as an INTERFACE Class"
+                        "extern interface with abstract member publishes as an INTERFACE Class"
                 | other -> failtestf "expected a Class shape for disposable; got %A" other
 
-                let provider = VesperLib.ExtractCtx.toProvider ctx
-
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Dispose") with
-                | ValueSome _ -> ()
-                | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
+                Expect.isTrue
+                    (membersOf r "disposable" |> List.exists (fun m -> m.Name = "Dispose"))
+                    "the Dispose member surface survives"
             }
 
             // A primitive has no type in the output to hang a method on, so a concrete member
             // on one can only be spliced — and the `.fsi` contract must say so.
             test "a concrete member on an intrinsic must be declared inline" {
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["widget"] <- "System.Widget"
-
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "widget", "System.Widget" ]
                         "prim-types-widget.fsi"
-                        "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n")
-
-                let diagnosed =
-                    ctx.Diagnostics
-                    |> Seq.exists (fun (_, msg) -> msg.Contains "must be declared 'inline'")
+                        "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n"
 
                 Expect.isTrue
-                    diagnosed
-                    (sprintf "the member-inline diagnostic fired; got %A" (List.ofSeq ctx.Diagnostics))
+                    (r.Messages |> List.exists (fun m -> m.Contains "must be declared 'inline'"))
+                    (sprintf "the member-inline diagnostic fired; got %A" r.Messages)
             }
 
             // A capability's slots declare no body, so there is nothing to splice: the rule
             // is about members WITH a body.
             test "an extern interface's abstract members do not want inline" {
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
-
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "disposable", "System.IDisposable" ]
                         "capabilities.fsi"
-                        "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n")
+                        "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
-                let diagnosed =
-                    ctx.Diagnostics
-                    |> Seq.exists (fun (_, msg) -> msg.Contains "must be declared 'inline'")
-
-                Expect.isFalse diagnosed "an all-abstract capability surface is exempt"
+                Expect.isFalse
+                    (r.Messages |> List.exists (fun m -> m.Contains "must be declared 'inline'"))
+                    "an all-abstract capability surface is exempt"
             }
 
             // `override`/`default` have no `inline` slot in the signature grammar, so on a
             // host that publishes no method table neither the slot nor the remedy exists.
             test "an override on an intrinsic is rejected outright, not asked for inline" {
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["widget"] <- "System.Widget"
-
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "widget", "System.Widget" ]
                         "prim-types-widget.fsi"
-                        "namespace Vesper\n\ntype widget = extern with\n    override M : unit -> unit\n")
-
-                let messages = [ for (_, msg) in ctx.Diagnostics -> msg ]
+                        "namespace Vesper\n\ntype widget = extern with\n    override M : unit -> unit\n"
 
                 Expect.isTrue
-                    (messages
+                    (r.Messages
                      |> List.exists (fun m -> m.Contains "cannot declare an 'override' or 'default' member"))
-                    (sprintf "the override diagnostic fired; got %A" messages)
+                    (sprintf "the override diagnostic fired; got %A" r.Messages)
 
                 Expect.isFalse
-                    (messages |> List.exists (fun m -> m.Contains "must be declared 'inline'"))
+                    (r.Messages |> List.exists (fun m -> m.Contains "must be declared 'inline'"))
                     "an override is not asked to be inline — the grammar gives it no inline slot"
             }
 
             // `new: unit -> obj` NAMES a target-provided constructor, so there is no body
             // to splice.
             test "a heritable primitive's constructor signature is exempt" {
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["obj"] <- "System.Object"
-
-                VesperLib.extractSymbols
-                    ctx
-                    (parseFsi
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "obj", "System.Object" ]
                         "prim-types-object.fsi"
-                        "namespace Vesper\n\ntype obj = extern class with\n    new: unit -> obj\n")
+                        "namespace Vesper\n\ntype obj = extern class with\n    new: unit -> obj\n"
 
-                let diagnosed =
-                    ctx.Diagnostics
-                    |> Seq.exists (fun (_, msg) ->
-                        msg.Contains "must be declared 'inline'" || msg.Contains "cannot declare"
-                    )
-
-                Expect.isFalse diagnosed (sprintf "a `new:` sig is exempt; got %A" (List.ofSeq ctx.Diagnostics))
+                Expect.isFalse
+                    (r.Messages
+                     |> List.exists (fun m -> m.Contains "must be declared 'inline'" || m.Contains "cannot declare"))
+                    (sprintf "a `new:` sig is exempt; got %A" r.Messages)
             }
 
             test
                 "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT an intrinsic-axis entry" {
                 // A `.fsi` interface member surface plus a `.fs` `(# "System.IDisposable" #)`
-                // repr extract to ONE `IntrinsicInterface` carrying the members and
+                // repr publish ONE `IntrinsicInterface` carrying the members and
                 // `{ Canon; Platform }`, so the type reconciles to its BCL spelling.
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
-
-                let parsed =
-                    parseFsi
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "disposable", "System.IDisposable" ]
                         "capabilities.fsi"
                         "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
-                VesperLib.extractSymbols ctx parsed
-
-                let key =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.TypeShapes do
-                        if found.IsNone && kv.Key.EndsWith "disposable" then
-                            found <- ValueSome kv.Key
-
-                    match found with
-                    | ValueSome k -> k
-                    | ValueNone ->
-                        failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
-
-                match ctx.TypeShapes.[key] with
+                match shapeOf r "disposable" with
                 | ExternalTypeShape.IntrinsicInterface iface ->
                     Expect.equal
                         iface.Canon
@@ -828,17 +638,15 @@ let tests =
                         "IntrinsicInterface platform name is the `.fs` repr"
                 | other -> failtestf "expected an IntrinsicInterface shape for disposable; got %A" other
 
-                let provider = VesperLib.ExtractCtx.toProvider ctx
-
                 // The member surface survived alongside the platform name.
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "Dispose") with
-                | ValueSome _ -> ()
-                | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
+                Expect.isTrue
+                    (membersOf r "disposable" |> List.exists (fun m -> m.Name = "Dispose"))
+                    "the Dispose member surface survives on the IntrinsicInterface"
 
                 // A `canonsOf` reader turns a hit into an `FTConst`, so an interface entry
                 // would mis-present `System.IDisposable` as a scalar canon. Reconciliation
                 // rides the `IntrinsicInterface` identity above instead.
-                match IntrinsicTypeMap.canonsOf "System.IDisposable" provider.IntrinsicTypeMap with
+                match IntrinsicTypeMap.canonsOf "System.IDisposable" r.Provider.IntrinsicTypeMap with
                 | EqEmpty -> ()
                 | canons -> failtestf "capability interface must NOT enter the intrinsic axis; found %A" canons
             }
@@ -847,53 +655,41 @@ let tests =
                 // The shape stays `Intrinsic`: a primitive declaring an operator surface (`int`
                 // with `static member (+)`) must keep the `TyConst` identity that intrinsic
                 // recognisers, repr lookup and literal inference key on. Members ride a table.
-                let ctx = VesperLib.ExtractCtx.empty "none"
-                ctx.IntrinsicReprs.["widget"] <- "System.Widget"
-
-                // A CONCRETE instance member (`member M`), NOT `abstract member`.
-                let parsed =
-                    parseFsi
+                let r =
+                    resolveFsiWith
+                        realProvider.Value
+                        [ "widget", "System.Widget" ]
                         "prim-types-widget.fsi"
+                        // A CONCRETE instance member (`member M`), NOT `abstract member`.
                         "namespace Vesper\n\ntype widget = extern with\n    member inline M : unit -> unit\n"
 
-                VesperLib.extractSymbols ctx parsed
-
-                let key =
-                    match ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget") with
-                    | Some k -> k
-                    | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
-
-                match ctx.TypeShapes.[key] with
+                match shapeOf r "widget" with
                 | ExternalTypeShape.Intrinsic shape ->
                     Expect.equal
                         shape.Id.Platform
                         (IntrinsicPlatform.Repr "System.Widget")
                         "the intrinsic keeps its platform repr"
 
-                    Expect.equal shape.Class ValueNone "an untagged member surface is not a heritable class"
+                    match shape.Class with
+                    | ValueSome surface ->
+                        Expect.isFalse surface.Heritable "an untagged member surface is not a heritable class"
+                        Expect.isTrue surface.Members.IsEmpty "its members ride the member table, not the shape"
+                    | ValueNone -> failtest "an untagged `extern with` carries the interfaces it declared"
                 | other -> failtestf "expected the Intrinsic shape to survive for widget; got %A" other
-
-                let rejected =
-                    ctx.Diagnostics
-                    |> Seq.exists (fun (_, msg) -> msg.Contains "concrete member surface on an intrinsic primitive")
-
-                Expect.isFalse rejected "the lifted guardrail must NOT emit a rejection diagnostic"
 
                 // The member is published from the type-keyed member table, even though the
                 // `Intrinsic` shape carries no member slots.
-                let provider = VesperLib.ExtractCtx.toProvider ctx
-
-                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf key 0, "M") with
-                | ValueSome _ -> ()
-                | ValueNone -> failtest "concrete member surface `M` was dropped when the Intrinsic shape was restored"
+                Expect.isTrue
+                    (membersOf r "widget" |> List.exists (fun m -> m.Name = "M"))
+                    "concrete member surface `M` was dropped when the Intrinsic shape was restored"
             }
 
             // `T` is declared inside `module M` in `namespace Test.A`, so a consumer's local
             // containment mints an `InModule` key — and the contract's store must answer THAT
             // key, not a separately-spelled string.
             test "a module-held contract type answers the KEY a module containment mints" {
-                let ctx =
-                    extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
+                let r =
+                    resolveFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
                 // Built from the containment chain, never from a name.
                 let key: TypeKey =
@@ -908,9 +704,7 @@ let tests =
                     "Test.A.M+T"
                     "the module's container class encloses the type, as the CLR spells a nested type"
 
-                let provider = VesperLib.ExtractCtx.toProvider ctx
-
-                match provider.TryLookupType key with
+                match r.Provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Record _) -> ()
                 | ValueSome other -> failtestf "the key answered, but with the wrong shape: %A" other
                 | ValueNone -> failtest "the contract store must be addressable by the module-held type's key"
@@ -920,18 +714,17 @@ let tests =
             // `Test.A.M+T`, so it reaches the identity by a redirect over the declared module
             // containment — re-cutting a key would absorb `M` into the namespace path.
             test "a module-held contract type still resolves by the name the source WRITES" {
-                let ctx =
-                    extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
+                let r =
+                    resolveFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
-                Expect.isTrue
-                    (ctx.TypeKeys.ContainsKey "Test.A.M+T")
-                    "the identity index is keyed by the canonical `+`-nested rendering"
+                let byName =
+                    [ for e: SurfaceEntry<string, TypeKey> in r.Surface.TypesByName -> e.Key ]
+
+                Expect.contains byName "Test.A.M+T" "the identity index is keyed by the canonical `+`-nested rendering"
 
                 Expect.isFalse
-                    (ctx.TypeKeys.ContainsKey "Test.A.M.T")
+                    (List.contains "Test.A.M.T" byName)
                     "the written dotted spelling is not separately registered"
-
-                let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 let expected: TypeKey =
                     {
@@ -940,7 +733,7 @@ let tests =
                         TyparArity = 0
                     }
 
-                match provider.TryLookupType "Test.A.M.T" with
+                match r.Provider.TryLookupType "Test.A.M.T" with
                 | ValueSome(struct (key, ExternalTypeShape.Record _)) ->
                     Expect.equal key expected "the written name resolves to the registered InModule identity"
                 | ValueSome(struct (_, other)) -> failtestf "the name resolved, but with the wrong shape: %A" other
@@ -948,7 +741,7 @@ let tests =
 
                 // The redirect is a containment lookup, not a name-shaped guess.
                 Expect.isTrue
-                    (provider.TryLookupType "Test.A.M.Nope" |> ValueOption.isNone)
+                    (r.Provider.TryLookupType "Test.A.M.Nope" |> ValueOption.isNone)
                     "an unknown member of M misses"
             }
 
@@ -956,22 +749,12 @@ let tests =
                 // `when 'T : equality` must land on BOTH the symbol's structured `Constraints`
                 // and — via `instantiateSymbol` — the fresh `TypeVar` minted for that typar
                 // slot, which is the only half a use site's inference consults.
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    val contains: value: 'T -> source: 'T -> bool when 'T: equality\n"
 
-                let sym =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.Symbols do
-                        if found.IsNone && kv.Key.EndsWith ".contains" then
-                            found <- ValueSome kv.Value
-
-                    match found with
-                    | ValueSome s -> s
-                    | ValueNone ->
-                        failtestf "val 'contains' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
+                let sym = symbolOf r "contains"
 
                 Expect.equal sym.TyparArity 1 "the val generalises over its single typar"
 
@@ -1001,21 +784,12 @@ let tests =
                 // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as a `MemberTrait`:
                 // the COMPILED name (`op_Addition`) plus `FTTypar(Declaring, 0)` templates, not
                 // the source spelling. Instantiation realises them and stamps `SrtpBounds`.
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    val inline add: x: ^T -> y: ^T -> ^T when ^T: (static member (+): ^T * ^T -> ^T)\n"
 
-                let sym =
-                    let mutable found = ValueNone
-
-                    for kv in ctx.Symbols do
-                        if found.IsNone && kv.Key.EndsWith ".add" then
-                            found <- ValueSome kv.Value
-
-                    match found with
-                    | ValueSome s -> s
-                    | ValueNone -> failtestf "val 'add' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
+                let sym = symbolOf r "add"
 
                 let trait_ =
                     sym.Constraints
@@ -1056,14 +830,14 @@ let tests =
             // --- property signatures (`member P: T with get, set`) ------------------
 
             test "an indexed property signature publishes as a get_ accessor method" {
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get\n"
 
                 let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
 
-                match membersOf ctx "Box`1" with
+                match membersOf r "Box`1" with
                 | [ m ] ->
                     Expect.equal m.Name "get_Item" "an index makes the getter a method"
                     Expect.equal m.Storage MemberStorage.Method "storage is a method, not a property"
@@ -1080,12 +854,12 @@ let tests =
             }
 
             test "a parameterless property signature keeps its own name and property storage" {
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with get\n"
 
-                match membersOf ctx "Box" with
+                match membersOf r "Box" with
                 | [ m ] ->
                     Expect.equal m.Name "Count" "a parameterless getter is the property itself"
                     Expect.equal m.Storage MemberStorage.Property "storage is a property"
@@ -1095,14 +869,14 @@ let tests =
             }
 
             test "the `set` half of a property signature publishes as a set_ accessor method" {
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with get, set\n"
 
                 let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
 
-                match membersOf ctx "Box" with
+                match membersOf r "Box" with
                 | [ getter; setter ] ->
                     Expect.equal getter.Name "Count" "the getter half"
                     Expect.equal setter.Name "set_Count" "the setter half"
@@ -1119,15 +893,15 @@ let tests =
             }
 
             test "an indexed setter takes the index and then the value" {
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box<'T> =\n        member Item: index: int -> 'T with get, set\n"
 
                 let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
                 let elemF = FTTypar(TyparAxis.Declaring, 0)
 
-                match membersOf ctx "Box`1" with
+                match membersOf r "Box`1" with
                 | [ getter; setter ] ->
                     Expect.equal getter.Name "get_Item" "the getter half"
                     Expect.equal setter.Name "set_Item" "the setter half"
@@ -1137,12 +911,12 @@ let tests =
             }
 
             test "a write-only property signature publishes only the setter" {
-                let ctx =
-                    extractFsi
+                let r =
+                    resolveFsi
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Count: int with set\n"
 
-                match membersOf ctx "Box" with
+                match membersOf r "Box" with
                 | [ m ] ->
                     Expect.equal m.Name "set_Count" "no getter is declared, so none is published"
                     Expect.equal m.Signature.Return ExternalSignature.unitFrozen "a setter returns unit"
@@ -1154,12 +928,12 @@ let tests =
             // F# demand `x.Add 1 2` where the tupled declaration demands `x.Add(1, 2)`.
             test "a CURRIED member signature publishes its argument groups and realises curried" {
                 let curried =
-                    extractFsi
+                    resolveFsi
                         "curried.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Add: a: int -> b: int -> int\n"
 
                 let tupled =
-                    extractFsi
+                    resolveFsi
                         "tupled.fsi"
                         "namespace App\n\nmodule M =\n    type Box =\n        member Add: a: int * b: int -> int\n"
 
@@ -1197,15 +971,17 @@ let tests =
             test "a member signature with arguments and no `with` clause keeps its own name" {
                 // The `with get` clause is what makes an accessor: a plain method signature
                 // that happens to take arguments must not gain a `get_` prefix.
-                let ctx =
-                    extractFsi "app.fsi" "namespace App\n\nmodule M =\n    type Box =\n        member Get: int -> int\n"
+                let r =
+                    resolveFsi "app.fsi" "namespace App\n\nmodule M =\n    type Box =\n        member Get: int -> int\n"
 
-                match membersOf ctx "Box" with
+                match membersOf r "Box" with
                 | [ m ] ->
                     Expect.equal m.Name "Get" "an ordinary method signature"
                     Expect.equal m.Storage MemberStorage.Method "kept as a method"
                 | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
             }
+
+            // --- the real contracts, resolved through the package fold -------------------
 
             test "the cons-list's declared indexer publishes under the name a use site resolves" {
                 // `list.fsi` declares `member Item: index: int -> 'T with get`, and
@@ -1225,11 +1001,11 @@ let tests =
             }
 
             // Over the REAL Vesper.Core contract, not a snippet: the publishing route is what
-            // is under test. `freezeBodyType` degrades an unresolvable name to `unfreezable`
-            // and `freezeInterfaces` DROPS a non-nominal freeze, so a declaration written
-            // before `seq<'T>` — or a republish that stops carrying `Interfaces` — leaves the
-            // array a bare `Scalar` with NO error. Asserting on the published shape is what
-            // catches that; a use site would only report the eventual mismatch.
+            // is under test. An unresolvable name degrades to `unfreezable` and a non-nominal
+            // freeze is DROPPED from the interface list, so a declaration written before
+            // `seq<'T>` — or a republish that stops carrying `Interfaces` — leaves the array a
+            // bare `Scalar` with NO error. Asserting on the published shape is what catches
+            // that; a use site would only report the eventual mismatch.
             test "the array publishes an intrinsic surface carrying `seq<'T>` over its element" {
                 let key = RuntimeNames.arrayKey 1
 
@@ -1238,7 +1014,7 @@ let tests =
                     | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) -> surface
                     | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueNone }) ->
                         failtest
-                            "`'T[]` published as a SCALAR intrinsic: its `interface seq<'T>` was dropped between extraction and republish"
+                            "`'T[]` published as a SCALAR intrinsic: its `interface seq<'T>` was dropped between resolution and republish"
                     | other -> failtestf "expected an Intrinsic shape for `'T[]`; got %A" other
 
                 let elem = TyConst(RuntimeNames.intKey, EqArray.empty)
@@ -1282,7 +1058,7 @@ let tests =
                 let intKey = RuntimeNames.intKey
 
                 let reprOnly =
-                    let shapes = System.Collections.Generic.Dictionary<TypeKey, ExternalTypeShape>()
+                    let shapes = Dictionary<TypeKey, ExternalTypeShape>()
 
                     let canon = SymbolKeyOps.qualifiedTypeKeyOf (SymbolKeyOps.typeMetaName intKey) 0
 

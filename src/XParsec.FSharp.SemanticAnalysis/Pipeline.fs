@@ -97,8 +97,9 @@ module Pipeline =
                 parsed (ImplementationFile.AnonymousModule elems)
             | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
 
-    /// A parsed SIGNATURE file. No pass runs over one — it is read by the contract extractor,
-    /// which walks the CST — so this carries the tree and the token table and nothing else.
+    /// A parsed SIGNATURE file: the tree the `.fsi` front end walks, and the token table every
+    /// `SyntaxToken` in it indexes into. The two are a matched pair and neither is useful
+    /// alone.
     type ParsedSignature =
         {
             Lexed: Lexed

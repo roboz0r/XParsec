@@ -90,7 +90,8 @@ Where to look when you're hunting for something:
 | The output TAST + its walkers / converters | [`Tast.fs`](Tast.fs), [`TastWalk.fs`](TastWalk.fs), [`TastConvert.fs`](TastConvert.fs) |
 | Type-definition registry (records, unions, classes, enums) | [`TypeRegistry.fs`](TypeRegistry.fs), [`TypeInfos.fs`](TypeInfos.fs) |
 | How we learn about symbols we didn't compile | [`ExternalSymbols.fs`](ExternalSymbols.fs), [`ExternalSymbolProviders.fs`](ExternalSymbolProviders.fs) |
-| Extracting a package's symbols from its `.fsi` contract files | [`VesperLib.fs`](VesperLib.fs), [`VesperLib/`](VesperLib/) |
+| Resolving a `.fsi` into the surface it publishes | [`Passes/SignatureResolution.fs`](Passes/SignatureResolution.fs), [`PublishedSurface.fs`](PublishedSurface.fs) |
+| A referenced package's manifest, and the provider its contracts compose into | [`ReferencedProject.fs`](ReferencedProject.fs), [`PackageProviders.fs`](PackageProviders.fs) |
 | Where `int` / `string` get their identity (contract-sourced, never hardcoded) | [`Intrinsics.fs`](Intrinsics.fs) |
 | `inline` expansion | [`Inline.fs`](Inline.fs), [`Passes/InlineExpansion.fs`](Passes/InlineExpansion.fs) |
 | `.fsi` ↔ `.fs` conformance for a package | [`Conformance.fs`](Conformance.fs), [`ConformancePass.fs`](ConformancePass.fs) |
@@ -110,7 +111,7 @@ Start here, in order:
 
 Then, per subsystem, as you need them: `du-architecture.md`,
 `records-architecture.md`, `printf-architecture.md`,
-`package-type-extraction-architecture.md`, `core-lib-architecture.md`,
+`package-type-resolution-architecture.md`, `core-lib-architecture.md`,
 `dynamic-typing-design.md`.
 
 The original spec is [`semantic-analysis.md`](../../semantic-analysis.md) at the

@@ -285,10 +285,16 @@ module SignatureResolutionMembers =
         : EqArray<FrozenInterface> =
         let env = typarEnv ctx (TyparOwner.Type declTypars)
 
+        // Translated UNDER the declaring typars, not merely frozen over them: `interface
+        // seq<'T>` names `'T`, and one resolved outside their scope is a fresh variable that
+        // freezes to a hole no consumer can fill.
+        let translated =
+            underTypars ctx declTypars EqArray.empty (fun () -> [ for t in types -> translateType ctx t ])
+
         EqArray.ofList
             [
-                for t in types do
-                    match FrozenInterface.TryOfFrozen(freezeOver ctx env (translateType ctx t)) with
+                for ty in translated do
+                    match FrozenInterface.TryOfFrozen(freezeOver ctx env ty) with
                     | ValueSome i -> i
                     | ValueNone -> ()
             ]

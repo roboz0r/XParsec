@@ -252,7 +252,7 @@ let tests =
             }
 
             // --- parity oracle: projected ExternalSymbol ≡ the .fsi-extracted one -------
-            // The projection reads a frozen `.fs`, the extractor the matching `.fsi`; for one
+            // The projection reads a frozen `.fs`, the front end the matching `.fsi`; for one
             // signature the two must agree on typar arity, scheme, and `ValRepr` grouping.
 
             test "projected symbols agree with the .fsi-extracted ones (schemesAgree oracle)" {
@@ -292,39 +292,34 @@ module M =
                 let origin, frozen = freezeWithOrigin implSrc
                 let store = FrozenSignature.toSignatures origin frozen :> IExternalSymbolStore
 
-                // Extract the `.fsi`, canonicalizing primitives through the SAME provider
-                // the front end used, so both sides mint one `int` identity.
-                let sigLexed, sigAst =
-                    match Lexing.lexString sigSrc with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed ->
-                        let reader = Reader.ofLexed lexed Set.empty
+                // Resolve the `.fsi` against the SAME provider the implementation was frozen
+                // over, so both sides mint one `int` identity.
+                let sigSurface =
+                    match Pipeline.parseSignature sigSrc with
+                    | Result.Error f -> failtestf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
+                    | Result.Ok parsed ->
+                        let ctx =
+                            PassContext(
+                                realProvider.Value,
+                                AssemblyFiles.fileSource "P" (AssemblyFileId.ofRelative "p.fsi") parsed.Lexed
+                            )
 
-                        match FSharpAst.parseSignature reader with
-                        | Result.Error e -> failtestf "parse failed: %A" e
-                        | Result.Ok ast -> lexed, ast
+                        ctx.AssemblyName <- "P"
 
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
+                        Passes.SignatureResolution.run
+                            ctx
                             {
-                                BucketName = "P"
-                                Relative = AssemblyFileId.ofRelative "p.fsi"
+                                Target = "none"
+                                Reprs = System.Collections.Generic.Dictionary()
                             }
-                        Lexed = sigLexed
-                        Ast = sigAst
-                    }
-
-                let ectx = VesperLib.ExtractCtx.empty "none"
-                ectx.AmbientShapes <- (fun n -> realProvider.Value.TryLookupType n |> ExternalSymbols.typeShapeOf)
-                VesperLib.extractSymbols ectx parsed
+                            parsed.File
 
                 let fsiSymbolBySuffix (name: string) : ExternalSymbol option =
                     let mutable found = None
 
-                    for kv in ectx.Symbols do
-                        if found.IsNone && kv.Key.EndsWith("." + name) then
-                            found <- Some kv.Value
+                    for entry: SurfaceEntry<string, ExternalSymbol> in sigSurface.Symbols do
+                        if found.IsNone && entry.Key.EndsWith("." + name) then
+                            found <- Some entry.Value
 
                     found
 

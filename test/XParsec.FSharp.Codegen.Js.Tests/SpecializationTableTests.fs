@@ -99,13 +99,15 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
         let write (name: string) (text: string) =
             System.IO.File.WriteAllText(System.IO.Path.Combine(dir, name), text)
 
-        // No `depends-on`: it resolves package names against sibling directories of the package
-        // itself, and this one lives beside no library. The manifest list supplies Vesper.Core.
+        // `int` is Vesper.Core's, and a contract resolves only what its own dependencies
+        // declare. A `depends-on` entry names a SIBLING package directory; this one lives
+        // under `tmp/`, so it spells the way to `src/`.
         write
             "manifest.js.toml"
             """[core]
 name = "Cycle.Probe"
 description = "Inline bodies that call themselves, for the acyclicity check."
+depends-on = ["../src/Vesper.Core"]
 files = ["probe.fsi"]
 impl = ["probe.fs"]
 """

@@ -488,7 +488,12 @@ module NameResolutionTypeRegistration =
             | SigDecl.Union _ -> ValueSome TypeDeclKind.Union
             | SigDecl.Enum _ -> ValueSome TypeDeclKind.Enum
             | SigDecl.Abbrev _ -> ValueSome TypeDeclKind.Abbreviation
-            | SigDecl.IntrinsicAbbrev _
+            | SigDecl.IntrinsicAbbrev _ -> ValueSome TypeDeclKind.IntrinsicRepr
+            // A CAPABILITY (`extern interface`) is a nominal interface that merely carries a
+            // platform spelling, and a use site resolving it through the published shape kinds
+            // it that way whether the target binds one or not. The other two `extern` forms
+            // are primitives.
+            | SigDecl.Extern(kindTag = ValueSome(ExternKind.Interface _)) -> ValueSome TypeDeclKind.Class
             | SigDecl.Extern _ -> ValueSome TypeDeclKind.IntrinsicRepr
             | SigDecl.ClassLike _
             | SigDecl.Opaque _ -> ValueSome TypeDeclKind.Class

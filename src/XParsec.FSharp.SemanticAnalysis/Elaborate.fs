@@ -126,12 +126,12 @@ module Elaborate =
 
                 ctx.GenericFnSchemes.Set(boundVar, constraints)
 
-    /// `[<CompiledName>]`, else the source name. Matches the contract extractor, so a
-    /// consumer resolving `Set.empty` to `SetModule.Empty` finds the method this emits.
+    /// `[<CompiledName>]`, else the source name. The same reading a `.fsi` publishes under, so
+    /// a consumer resolving `Set.empty` to `SetModule.Empty` finds the method this emits.
     let private emittedNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
         MemberNames.ofBinding ctx b
         |> ValueOption.map (fun m ->
-            match VesperLibTypeTranslate.tryCompiledName ctx.Lexed b.attributes with
+            match AttributeDecode.tryCompiledName ctx.NameOf b.attributes with
             | ValueSome cn -> cn
             | ValueNone -> m.Name
         )

@@ -21,8 +21,8 @@ type internal EnumCaseRejection =
     /// `| A = 1 + 1`, `| A = B`: not a literal at all.
     | NotConstant
 
-// `| C = v` → the case's compile-time literal. The `.fsi` package extractor and the Elaborate
-// pass both read this grammar; reading it twice would let the two drift.
+// `| C = v` → the case's compile-time literal. The `.fsi` front end and the Elaborate pass
+// both read this grammar; reading it twice would let the two drift.
 
 module internal EnumCaseValues =
 

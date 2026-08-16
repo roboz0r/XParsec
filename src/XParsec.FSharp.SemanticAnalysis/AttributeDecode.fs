@@ -3,8 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// Class-shaping attributes match on the long-ident's LAST SEGMENT, not on a resolved
-// `TypeKey`: the `.fsi` extractor caller has no resolver.
+// Attributes matched on the long-ident's LAST SEGMENT rather than on a resolved `TypeKey`.
+// A written `Struct` and a written `MyOwn.Struct` are indistinguishable here.
 
 module AttributeDecode =
 
@@ -40,11 +40,115 @@ module AttributeDecode =
             }
 
     /// `Microsoft.FSharp.Core.StructuralEquality` → `StructuralEquality`.
-    /// `ValueNone` for anything that is not a plain named type.
+    /// `ValueNone` for anything that is not a named type.
     let attributeShortName (nameOf: SyntaxToken -> string) (typ: Type<SyntaxToken>) : string voption =
+        let lastOf (li: LongIdent<SyntaxToken>) =
+            match li.Idents.Length with
+            | 0 -> ValueNone
+            | n -> ValueSome(nameOf li.Idents.[n - 1])
+
         match typ with
-        | Type.NamedType li when li.Idents.Length > 0 -> ValueSome(nameOf li.Idents.[li.Idents.Length - 1])
+        | Type.NamedType li -> lastOf li
+        | Type.GenericType(longIdent = li) -> lastOf li
         | _ -> ValueNone
+
+    let private constructedType (construction: ObjectConstruction<SyntaxToken>) : Type<SyntaxToken> =
+        match construction with
+        | ObjectConstruction(typ = t)
+        | InterfaceConstruction(typ = t) -> t
+
+    /// The construction of the first attribute written as `name`, with or without the
+    /// `Attribute` suffix; `ValueNone` when none is.
+    let private findAttribute
+        (nameOf: SyntaxToken -> string)
+        (attrs: Attributes<SyntaxToken> voption)
+        (name: string)
+        : ObjectConstruction<SyntaxToken> voption =
+        let mutable found = ValueNone
+
+        match attrs with
+        | ValueNone -> ()
+        | ValueSome sets ->
+            for AttributeSet(attributes = entries) in sets do
+                for Attribute(construction = construction), _sep in entries do
+                    if found.IsNone then
+                        match attributeShortName nameOf (constructedType construction) with
+                        | ValueSome n when n = name || n = name + "Attribute" -> found <- ValueSome construction
+                        | _ -> ()
+
+        found
+
+    let private constructionExpr (oc: ObjectConstruction<SyntaxToken>) : Expr<SyntaxToken> voption =
+        match oc with
+        | ObjectConstruction(_, e) -> ValueSome e
+        | InterfaceConstruction _ -> ValueNone
+
+    let rec private stripParens (e: Expr<SyntaxToken>) =
+        match e with
+        | Expr.EnclosedBlock(_, inner, _) -> stripParens inner
+        | _ -> e
+
+    /// Text of a parsed string-literal expression. Ignores expression holes and other
+    /// interpolation artefacts: a compiled-name argument is never interpolated.
+    let private stringExprText
+        (nameOf: SyntaxToken -> string)
+        (parts: System.Collections.Immutable.ImmutableArray<StringPart<SyntaxToken>>)
+        : string =
+        let sb = System.Text.StringBuilder()
+
+        for p in parts do
+            match p with
+            // Source-level text, escapes and all: decoding them is the lexer's job and
+            // an attribute argument never needs it.
+            | StringPart.Text tok
+            | StringPart.EscapeSequence tok -> sb.Append(nameOf tok) |> ignore
+            | _ -> ()
+
+        sb.ToString()
+
+    /// The name `[<CompiledName("Foo")>]` gives a declaration, which is what a consumer of
+    /// the assembly writes.
+    let tryCompiledName (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : string voption =
+        match findAttribute nameOf attrs "CompiledName" |> ValueOption.bind constructionExpr with
+        | ValueNone -> ValueNone
+        | ValueSome argExpr ->
+            match stripParens argExpr with
+            | Expr.String(_, parts, _) ->
+                match stringExprText nameOf parts with
+                | "" -> ValueNone
+                | s -> ValueSome s
+            | Expr.Const(Constant.Literal tok) ->
+                match (nameOf tok).Trim([| '"' |]) with
+                | "" -> ValueNone
+                | s -> ValueSome s
+            | _ -> ValueNone
+
+    /// True iff the attributes carry
+    /// `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]`, which
+    /// pins a module's compiled name to `<name>Module`.
+    let hasModuleSuffix (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        match
+            findAttribute nameOf attrs "CompilationRepresentation"
+            |> ValueOption.bind constructionExpr
+        with
+        | ValueNone -> false
+        | ValueSome argExpr ->
+            let shortName (li: LongIdent<SyntaxToken>) =
+                match li.Idents.Length with
+                | 0 -> ""
+                | n -> nameOf li.Idents.[n - 1]
+
+            // The flags are an enum this compiler does not fold, so the written name of the
+            // one flag that matters is what is read.
+            match stripParens argExpr with
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li)
+            | Expr.DotLookup(_, _, LongIdentOrOp.LongIdent li) -> shortName li = "ModuleSuffix"
+            | _ -> false
+
+    /// True iff the module-level attributes carry `[<AutoOpen>]`, so its members are in
+    /// scope unqualified for a consumer.
+    let isAutoOpen (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        (findAttribute nameOf attrs "AutoOpen").IsSome
 
     /// An unrecognised attribute is silently ignored; the flags are independent.
     let decodeClassAttributes

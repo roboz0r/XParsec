@@ -13,7 +13,7 @@ names the root manifests it wants and the resolver pulls in the transitive
 
 Two neighbouring docs own the parts this one deliberately does not: how a
 contract's signatures become fully-kinded `SemType`s is
-[package-type-extraction-architecture](package-type-extraction-architecture.md);
+[package-type-resolution-architecture](package-type-resolution-architecture.md);
 `Vesper.Printf`'s internals are [printf-architecture](printf-architecture.md).
 
 ## A package is a directory with one manifest per target
@@ -313,9 +313,9 @@ are `ReferencedProjectTests.fs`'s `buildClosure` list (`:490`).
 
 ## Cross-references
 
-- [package-type-extraction-architecture](package-type-extraction-architecture.md) —
-  how a contract `.fsi`'s signatures become kinded `SemType`s: ambient shapes, the
-  dependency-scoped extraction, `TyUnknown`.
+- [package-type-resolution-architecture](package-type-resolution-architecture.md) —
+  how a contract `.fsi`'s signatures become kinded `SemType`s: the per-file fold, the
+  dependency-scoped visibility, `TyUnknown`.
 - [printf-architecture](printf-architecture.md) — `Vesper.Printf`'s internals; the
   first sibling `Vesper.*` library to depend on `Vesper.Core`.
 - [publishing-format-plan](publishing-format-plan.md) — what a package's compiled

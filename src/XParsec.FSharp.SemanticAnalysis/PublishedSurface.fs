@@ -24,7 +24,6 @@ type PublishedSurfaceBuilder =
         RecordFields: Dictionary<string, ResizeArray<ExternalRecordCandidate>>
         /// Values, keyed as a binding key renders: `.`-joined.
         Symbols: Dictionary<string, ExternalSymbol>
-        mutable Intrinsics: IntrinsicTypeMap
         /// Prefixes a consumer resolves through with no `open` of its own.
         mutable AmbientOpenPrefixes: string list
     }
@@ -41,7 +40,6 @@ module PublishedSurfaceBuilder =
             UnionCases = Dictionary(StringComparer.Ordinal)
             RecordFields = Dictionary(StringComparer.Ordinal)
             Symbols = Dictionary(StringComparer.Ordinal)
-            Intrinsics = IntrinsicTypeMap.empty
             AmbientOpenPrefixes = []
         }
 
@@ -125,6 +123,8 @@ type PublishedSurface =
         RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
         /// Values, keyed as a binding key renders: `.`-joined.
         Symbols: EqArray<SurfaceEntry<string, ExternalSymbol>>
+        /// Derived from the `Intrinsic` shapes above, never filled: a CAPABILITY interface
+        /// carries its platform name on its own identity and must stay OFF this axis.
         Intrinsics: IntrinsicTypeMap
         /// Prefixes a consumer resolves through with no `open` of its own, in SEARCH order:
         /// the one table that is not key-ordered.
@@ -152,8 +152,10 @@ module PublishedSurface =
     /// Copy the builder's tables into the value. A producer that keeps writing to the builder
     /// afterwards no longer changes what it published.
     let ofBuilder (b: PublishedSurfaceBuilder) : PublishedSurface =
+        let shapes = byTypeKey b.ShapesByKey
+
         {
-            ShapesByKey = byTypeKey b.ShapesByKey
+            ShapesByKey = shapes
             MembersByKey =
                 b.MembersByKey
                 |> Seq.map (fun (KeyValue(k, ms)) -> k, EqArray.ofResizeArray ms)
@@ -166,7 +168,19 @@ module PublishedSurface =
                 |> Seq.map (fun (KeyValue(k, cs)) -> k, EqArray.ofResizeArray cs)
                 |> ordered id
             Symbols = byName b.Symbols
-            Intrinsics = b.Intrinsics
+            Intrinsics =
+                IntrinsicTypeMap.ofSeq (
+                    seq {
+                        for entry in shapes do
+                            match entry.Value with
+                            | ExternalTypeShape.Intrinsic { Id = id } ->
+                                {
+                                    Canon = id.Canon
+                                    Platform = id.Platform
+                                }
+                            | _ -> ()
+                    }
+                )
             AmbientOpenPrefixes = EqArray.ofList b.AmbientOpenPrefixes
         }
 

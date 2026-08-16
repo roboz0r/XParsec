@@ -24,7 +24,7 @@ let realProvider: Lazy<IExternalSymbolProvider> =
     lazy
         [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
         |> List.map (srcManifest "clr")
-        |> ReferencedProject.composeContract ReferencedProject.noPlatformMetadata
+        |> PackageProviders.composeContract PackageProviders.noPlatformMetadata
 
 // Shadow the nominal `SemType` constructors so a test writes `TyUnion("X", args)` rather
 // than minting a `SymbolKey`; the active patterns below project a key back to a name.

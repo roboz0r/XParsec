@@ -18,7 +18,10 @@ module ModuleRules =
     /// nominal type in the same file is also called `Foo`, or when
     /// `[<CompilationRepresentation(ModuleSuffix)>]` pins the suffix.
     let compiledModuleNameOf (r: ModuleNaming) (attrs: Attributes<SyntaxToken> voption) (name: string) : string =
-        if r.IsNominalTypeName name || VesperLibTypeTranslate.hasModuleSuffix r.Lexed attrs then
+        if
+            r.IsNominalTypeName name
+            || AttributeDecode.hasModuleSuffix (SyntaxToken.nameIn r.Lexed) attrs
+        then
             name + "Module"
         else
             name
@@ -56,7 +59,7 @@ module ModuleRules =
         for md in c.Modules do
             container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container (compiledModuleName r md))
 
-            if VesperLibTypeTranslate.isAutoOpen r.Lexed md.Attributes then
+            if AttributeDecode.isAutoOpen (SyntaxToken.nameIn r.Lexed) md.Attributes then
                 prefixes.Add(SymbolKeyOps.containerFullName container)
 
         List.ofSeq prefixes

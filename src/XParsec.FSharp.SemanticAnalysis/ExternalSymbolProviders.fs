@@ -342,7 +342,7 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Unmodelled _ -> shape
 
-        // An extractor records a declaring union with `SymbolOrigin.Empty`, so a case
+        // A published surface records a declaring union with `SymbolOrigin.Empty`, so a case
         // reverse-looked-up off it must be re-homed to agree with its union's shape.
         let stampUnionCase =
             match stampHome with
