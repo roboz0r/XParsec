@@ -28,7 +28,8 @@ module EmitJs =
             let ident = JsExpr.Identifier(boundVarName (TastAccessor.exprVarNaming e), loc)
 
             match ctx.CompiledFns.TryGetValue k with
-            | true, cf when JsFlatFns.needsAdapter cf.Groups -> JsFlatFns.curryAdapter ctx.Pool ident cf.Groups loc
+            | true, cf when JsFlatFns.needsAdapter cf.Params.Groups ->
+                JsFlatFns.curryAdapter ctx.Pool ident cf.Params.Groups loc
             | _ -> ident
 
         // An external module function, imported from its package's JS runtime module. Its
@@ -124,7 +125,7 @@ module EmitJs =
                         let k = TastAccessor.exprVarBoundVar fn
 
                         match ctx.CompiledFns.TryGetValue k with
-                        | true, cf -> ValueSome(identAt (boundVarNameOf ctx.Pool k), cf.Groups)
+                        | true, cf -> ValueSome(identAt (boundVarNameOf ctx.Pool k), cf.Params.Groups)
                         | _ -> ValueNone
                     | ExprShape.External ->
                         let ext = TastAccessor.exprExternal fn
@@ -537,7 +538,7 @@ module EmitJs =
             let flatArgs, spills =
                 match ps with
                 | TrampolineParams.Unary _ -> [ for a in args -> buildExpr ctx a ], []
-                | TrampolineParams.Flat(groups, _) -> JsFlatFns.flattenGroupArgs ctx.Pool (buildExpr ctx) groups args
+                | TrampolineParams.Flat ps -> JsFlatFns.flattenGroupArgs ctx.Pool (buildExpr ctx) ps.Groups args
 
             // `_tc<i>` temporaries: evaluate every new argument before any write-back, so a
             // self-call arg mentioning a parameter reads its pre-iteration value.
@@ -600,9 +601,10 @@ module EmitJs =
         (cf: CompiledFns.CompiledFn)
         (loc: JsLoc voption)
         : JsExpr =
-        let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Pool p ]
-        let ps = TrampolineParams.Flat(cf.Groups, names)
-        JsExpr.Arrow(names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
+        let ps =
+            TrampolineParams.Flat(CompiledFns.FlatParams.map (JsFlatFns.paramNameOf ctx.Pool) cf.Params)
+
+        JsExpr.Arrow(ps.Names, trampolineOrExpr ctx (ValueSome k) ps cf.Body, loc)
 
     /// `objArg.<member>` for a call dispatched through a local interface slot. The member
     /// resolves to the attached method emitted on the object argument's class, under its JS name.

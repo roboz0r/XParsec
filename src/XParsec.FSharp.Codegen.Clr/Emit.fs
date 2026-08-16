@@ -128,12 +128,13 @@ module Emit =
     let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
-        fn.Params |> List.iteri (fun i p -> args.[p.Slot] <- i)
+        let flatParams = fn.Params.Flat
+        flatParams |> List.iteri (fun i p -> args.[p.Slot] <- i)
         let env = EmitEnv.ofContext ctx args
 
         // A destructuring tuple parameter: its `ldarg.i` holds the `ValueTuple`n`;
         // spill it to a local and `bindPattern` the leaves out of it.
-        fn.Params
+        flatParams
         |> List.iteri (fun i p ->
             match p.Pat with
             | Some pat ->

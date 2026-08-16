@@ -396,14 +396,9 @@ type internal Assembler
             staticMethods.[fn.Key] <-
                 {
                     Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
-                    // The flat CLR arg count; the argument split uses `Groups.Length`,
-                    // which can be smaller, because a tupled group is one application
-                    // carrying N params.
-                    ParamArity = List.length fn.Params
-                    Groups = fn.Groups
+                    Params = fn.Params |> CompiledFns.FlatParams.map (fun p -> p.Ty)
                     ResultTy = fn.ResultTy
                     Typars = plan.StaticFnTypars.[fn.Key]
-                    ParamTys = fn.Params |> List.map (fun p -> p.Ty)
                     ReturnsVoid = fn.ReturnsVoid
                     // The frozen typar bounds, from which the call site solves the
                     // phantom method-typar slots no parameter or result mentions.
@@ -859,7 +854,7 @@ type internal Assembler
             let bodyOffset =
                 Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticMethod emitCtx fn))
 
-            let paramTys = fn.Params |> List.map (fun p -> p.Ty)
+            let paramTys = fn.Params.Flat |> List.map (fun p -> p.Ty)
 
             // A `unit`-returning module function encodes genuine CLR `void`.
             let signature =
@@ -874,7 +869,7 @@ type internal Assembler
                 {
                     Signature = signature
                     BodyOffset = bodyOffset
-                    ParamNames = argNames (List.length fn.Params)
+                    ParamNames = argNames fn.Params.FlatCount
                     MethodTypars = [ for i in 0 .. typarCount - 1 -> sprintf "T%d" i ]
                 }
             )

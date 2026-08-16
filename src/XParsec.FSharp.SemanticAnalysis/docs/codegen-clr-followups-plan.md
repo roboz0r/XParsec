@@ -15,27 +15,19 @@ should be a type. One entry appears in both, because the type fixes the defect.
 
 # Part A — code defects
 
-## A1. A source-group index is used against the flat parameter list
+## A1. A source-group index is used against the flat parameter list — **DONE (2026-08-15)**
 
-**`EmitCall`, in the value-struct closure typar override.** `leading` is built with
-`List.splitAt (List.length sm.Groups)`, so it holds ONE ELEMENT PER SOURCE GROUP — the
-flattening helper's own doc says so. The override then iterates it with `List.iteri` and
-indexes `sm.ParamTys.[i]`, which is the FLAT parameter list.
+**`EmitCall`, in the value-struct closure typar override.** `leading` held one element per
+SOURCE group and the override indexed `sm.ParamTys.[i]`, the FLAT parameter list, so for any
+callee with a tupled group ahead of the closure argument the closure's struct type went into
+the wrong typar slot: `!TF` stayed the function type, which encodes to the `Fun\`2` INTERFACE.
+The `if i < List.length sm.ParamTys` guard only kept it in range. The comment that justified
+the indexing claimed a discovery gate on all-`GSimple` callees; no such gate existed.
 
-For any callee with a tupled group ahead of the closure argument the two disagree, and the
-closure's struct type is written into the wrong typar slot. The `if i < List.length
-sm.ParamTys` guard prevents only an out-of-range crash; within range it silently writes the
-wrong slot, which is worse than skipping.
-
-The comment that justified the indexing claimed "the discovery gate runs only on all-`GSimple`
-callees". No such gate exists: `ClosureVerdictRewrite`, which populates
-`ClosureValueTypeByNode`, contains no occurrence of `GSimple`, `Groups`, `ParamTys` or
-`arity`. Deleted rather than reinstated.
-
-**This is the second instance of the same confusion, one per backend** — the `Codegen.Js`
-trampoline detects on the source-group count and rewrites on the flat count. Both had a
-comment asserting the two cannot diverge. That makes the `FlatParams` type (B1) a
-`Codegen.Common` concern, not a JS one.
+Landed with B1: `StaticMethodRef` carries one `FlatParams<FrozenType>`, and the override zips
+`leading` against `Params.ByGroup`, so each group hands over its own flat slots and there is no
+index to get wrong. `data/TupledGroupBeforeLambdaValueStruct.fs` + the `StructSeq` suite pin
+it — under the old indexing that program is an `InvalidProgramException`, not merely a box.
 
 ## A2. `TryEmitRecordCons`'s `fieldNames` parameter is dead
 
@@ -239,14 +231,24 @@ merits, so nothing was renamed.)
 
 Each entry names the comment it deletes; that naming is the acceptance test.
 
-## B1. `FlatParams` — shared, and it belongs in `Codegen.Common`
+## B1. `FlatParams` — shared, and it belongs in `Codegen.Common` — **DONE (2026-08-15)**
 
-A value carrying the source groups and the flat parameter names together, so a group count
-cannot be passed where a flat count is meant.
+`CompiledFns.FlatParams<'T>` holds one segment per SOURCE group — the group and the flat slots
+it expands to — with a private representation and `ofSegments` as its only constructor.
+`Groups` / `GroupCount` / `Flat` / `FlatCount` / `ByGroup` are all read off it, so there is no
+loose pair of counts to swap. Generic in the slot payload, which is what lets one type serve
+both backends: `FlatParams<StaticParam>` on `CompiledFn` and `StaticFn`,
+`FlatParams<FrozenType>` on `StaticMethodRef` and `CallArity.Grouped`, `FlatParams<string>` on
+the JS trampoline.
 
-Registered first as a `Codegen.Js` item, where it deletes three lines on the trampoline's
-`arity` and fixes the trampoline defect. **A1 shows the CLR backend has the same bug
-independently**, which moves the type below both backends rather than inside either.
+The segmentation rule is spelled once per payload, in `TastLower`: `compiledSegments` (which
+`compiledOf` now flattens) and `groupTypeSegments` (which `flattenGroupShape` now flattens).
+A backend cannot re-derive a width.
+
+Deleted with it: `StaticFn`'s two-field `Params` / `Groups` doc pair, `StaticMethodRef`'s
+`ParamArity` (which had no reader) alongside `Groups` / `ParamTys`, `CallArity.Grouped`'s
+second `flatArgCount` element, `Assembler`'s three lines on why the two counts differ, and the
+`TrampolineParams` sentence saying the two are "carried together".
 
 ## B2. `DeclaringInstantiation` — `EmitResolve.instantiationFor`
 

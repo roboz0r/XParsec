@@ -312,10 +312,9 @@ module EmitClosures =
                         SymbolKey = em.SymbolKey
                         Name = em.Name
                         ModuleClass = em.ModuleClass
-                        Params = []
                         // A generic module VALUE reaches codegen as a bare `Var`, so it has
                         // no source groups and never returns `void`.
-                        Groups = []
+                        Params = CompiledFns.FlatParams.ofSegments []
                         Body = value
                         ResultTy = ty
                         ReturnsVoid = false
@@ -403,7 +402,7 @@ module EmitClosures =
 
         for f in fns do
             if eligible.Contains f.Key then
-                arity.[f.Key] <- List.length f.Groups
+                arity.[f.Key] <- f.Params.GroupCount
 
         if arity.Count = 0 then
             decls
@@ -492,7 +491,7 @@ module EmitClosures =
                         // keys count as bound. A simple/unit param binds its own `Slot`; a
                         // tuple param binds each variable the pattern names.
                         let paramBound =
-                            c.Params
+                            c.Params.Flat
                             |> List.collect (fun p ->
                                 match p.Pat with
                                 | Some pat -> patKeys pat
@@ -547,7 +546,6 @@ module EmitClosures =
                             Name = em.Name
                             ModuleClass = em.ModuleClass
                             Params = c.Params
-                            Groups = c.Groups
                             Body = c.Body
                             ResultTy = c.ResultTy
                             ReturnsVoid = c.ReturnsVoid
@@ -570,7 +568,7 @@ module EmitClosures =
                     maxIx <- i
             | t -> FrozenType.iterChildren go t
 
-        for p in fn.Params do
+        for p in fn.Params.Flat do
             go p.Ty
 
         go fn.ResultTy

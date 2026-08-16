@@ -148,7 +148,7 @@ module TastLower =
     type CompiledReturn = TastAccessor.CompiledReturn
     type CompiledForm = TastAccessor.CompiledForm
 
-    let private isUnitFrozen (t: FrozenType) : bool =
+    let isUnitFrozen (t: FrozenType) : bool =
         match t with
         | FTUnit -> true
         | _ -> false
@@ -201,15 +201,16 @@ module TastLower =
                | _ -> false
            )
 
-    /// The flatten rule over TYPES, given each group's parameter type: a lone `()` group
-    /// erases to nothing, a tuple group expands to its `FTTuple` elements (one level
-    /// only), every other group contributes its one type.
-    let flattenGroupShape (groups: ArgGroup list) (groupParamTys: FrozenType list) : FrozenType list =
+    /// The flatten rule over TYPES, given each group's parameter type, kept as the segment
+    /// each group contributes: a lone `()` group nothing, a tuple group its `FTTuple`
+    /// elements (one level only), every other group its one type.
+    let groupTypeSegments (groups: ArgGroup list) (groupParamTys: FrozenType list) : (ArgGroup * FrozenType list) list =
         if isLoneUnitGroup groups then
-            []
+            [ for g in groups -> g, [] ]
         else
             List.zip groups groupParamTys
-            |> List.collect (fun (g, pt) ->
+            |> List.map (fun (g, pt) ->
+                g,
                 match g with
                 | ArgGroupG.GUnit _
                 | ArgGroupG.GSimple _ -> [ pt ]
@@ -218,6 +219,10 @@ module TastLower =
                     | FTTuple xs -> EqArray.toList xs
                     | _ -> [ pt ]
             )
+
+    /// Every segment in source order, so `a -> b * c -> r` ⟶ `[a; b; c]`.
+    let flattenGroupShape (groups: ArgGroup list) (groupParamTys: FrozenType list) : FrozenType list =
+        groupTypeSegments groups groupParamTys |> List.collect snd
 
     /// Peel a curried `Lambda` chain into its source `ArgGroup`s and the residual body.
     /// Only the two node-handle READERS are supplied here; the grouping rule is shared.
@@ -297,10 +302,10 @@ module TastLower =
                 Pat = Some p
             }
 
-    /// Derive the flat `CompiledForm` from a source `ValRepr`: tuple flattening one level;
-    /// a LONE unit group erases to zero params (one among others stays a param); a unit
-    /// result becomes `RVoid`. `pool` is where a `GUnit`'s placeholder slot is minted.
-    let compiledOf (pool: PoolBuilder) (vr: ValRepr) : CompiledForm =
+    /// The compiled parameters of a source `ValRepr`, kept as the segment each SOURCE group
+    /// expands to: tuple flattening one level, a LONE unit group to nothing (one among
+    /// others stays a param). `pool` is where a `GUnit`'s placeholder slot is minted.
+    let compiledSegments (pool: PoolBuilder) (vr: ValRepr) : (ArgGroup * StaticParam list) list =
         let flattenGroup (g: ArgGroup) : StaticParam list =
             match g with
             | ArgGroupG.GUnit ty ->
@@ -317,14 +322,15 @@ module TastLower =
                 | PatShape.Tuple -> [ for it in TastAccessor.patChildren pat -> flattenTupleItem it ]
                 | other -> failwithf "peelValRepr: GTuple must carry a tuple pattern, not %A" other
 
-        let ps =
-            if isLoneUnitGroup vr.Groups then
-                []
-            else
-                vr.Groups |> List.collect flattenGroup
+        if isLoneUnitGroup vr.Groups then
+            [ for g in vr.Groups -> g, [] ]
+        else
+            [ for g in vr.Groups -> g, flattenGroup g ]
 
+    /// The flat `CompiledForm`: every segment in source order, and a unit result as `RVoid`.
+    let compiledOf (pool: PoolBuilder) (vr: ValRepr) : CompiledForm =
         {
-            Params = ps
+            Params = compiledSegments pool vr |> List.collect snd
             Return =
                 (if isUnitFrozen vr.ResultTy then
                      CompiledReturnG.RVoid

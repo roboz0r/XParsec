@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection.Metadata
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 module EmitTypes =
 
@@ -230,14 +231,11 @@ module EmitTypes =
             /// static method on the `Foo` module class. `None` ⇒ the anonymous "Program"
             /// module class.
             ModuleClass: ModuleClassKey option
-            /// The flat, tuple-expanded, lone-unit-erased parameters: one CLR `ldarg` slot
-            /// each, so `Params.Length` is the emitted method's parameter count, NOT the
-            /// number of source applications a call collapses (that is `Groups.Length`).
-            Params: StaticParam list
-            /// The SOURCE curried/tupled groups: `Groups.Length` applications make a
-            /// saturated call, and a tuple group's one argument flattens to N pushed values.
-            /// The flat signature cannot tell tupled `f(int,int)` from one `(int*int)` param.
-            Groups: TastAccessor.ArgGroup list
+            /// The SOURCE groups and the flat, tuple-expanded, lone-unit-erased parameters
+            /// they expand to: one CLR `ldarg` slot per flat parameter. The flat signature
+            /// cannot tell tupled `f(int,int)` from one `(int*int)` param, which is why the
+            /// groups travel with it.
+            Params: CompiledFns.FlatParams<StaticParam>
             Body: TastAccessor.ExprId
             ResultTy: FrozenType
             /// `true` when the source result type is `unit`: the method emits as genuine
@@ -266,22 +264,18 @@ module EmitTypes =
 
     /// Emission handle + shape of a static-method function, resolved before any body is
     /// built (the `MethodDefinition` handle is predicted from row order). A call site
-    /// `call`s `Handle` with the first `ParamArity` args, then `Invoke`s any remainder.
+    /// consumes one argument per source group, `call`s `Handle` with the flat values those
+    /// flatten to, then `Invoke`s any remainder.
     type StaticMethodRef =
         {
             Handle: EntityHandle
-            /// The flat CLR parameter count — the `call` instruction's argument count.
-            /// Tuple flattening can push it past the number of source applications a call
-            /// collapses, which is `Groups.Length`.
-            ParamArity: int
-            /// The SOURCE groups, mirroring `StaticFn.Groups`.
-            Groups: TastAccessor.ArgGroup list
+            /// The source groups and the flat CLR parameter types, mirroring `StaticFn.Params`.
+            Params: CompiledFns.FlatParams<FrozenType>
             ResultTy: FrozenType
             /// `0` ⇒ monomorphic, a plain `call`. Otherwise the call site recovers the
-            /// instantiation by matching `ParamTys`, whose leaves are
+            /// instantiation by matching the flat parameter types, whose leaves are
             /// `FTTypar(TyparAxis.Method, i)`, against the actual argument types.
             Typars: int
-            ParamTys: FrozenType list
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool

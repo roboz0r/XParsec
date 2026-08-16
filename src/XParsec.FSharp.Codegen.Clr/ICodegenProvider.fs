@@ -2,6 +2,7 @@
 
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// A call's argument arity — how many applied arguments it consumes, and how many CLR
 /// values that flattens to. The two diverge only for a callee carrying a SOURCE grouping:
@@ -11,17 +12,16 @@ type CallArity =
     /// Argument count = flat pop count: every argument pushes one value (an instance
     /// call's count includes the object argument).
     | Flat of argCount: int
-    /// The callee's SOURCE grouping drives the split: the walker consumes
-    /// `groups.Length` arguments and flattens each to its pushed CLR values;
-    /// `flatArgCount` is the resulting flat pop count.
-    | Grouped of groups: TastAccessor.ArgGroup list * flatArgCount: int
+    /// The callee's SOURCE grouping drives the split: the walker consumes one argument per
+    /// group and flattens each to its pushed CLR values.
+    | Grouped of CompiledFns.FlatParams<FrozenType>
 
     /// The number of CLR values the `call` actually pops. The applied-argument count
-    /// is this for `Flat`, but `groups.Length` for `Grouped`.
+    /// is this for `Flat`, but the group count for `Grouped`.
     member this.FlatArgCount =
         match this with
         | Flat n -> n
-        | Grouped(_, n) -> n
+        | Grouped ps -> ps.FlatCount
 
 /// How to emit a resolved call once its arguments are on the stack. `Emit` performs the
 /// call itself: a `call` / `callvirt` against a metadata handle, or a bare intrinsic

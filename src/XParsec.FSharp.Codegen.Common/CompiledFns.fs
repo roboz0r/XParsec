@@ -7,14 +7,45 @@ open XParsec.FSharp.SemanticAnalysis
 /// value-use never suppresses the flat form; it ADDS a curried bridge alongside it.
 module CompiledFns =
 
-    /// One top-level module function's compiled form. `Groups.Length` is the source
-    /// applications a saturated call consumes; `Params` is the flat parameter vector —
-    /// a tuple group expands to N, a lone unit group erases to 0, so the lengths differ.
+    /// A function's SOURCE groups and the FLAT vector they expand to, held as one segment per
+    /// group: a tuple group spans several slots, a lone `()` group none. Both views are read
+    /// off the segments, so a group count cannot stand in for a flat one.
+    [<NoEquality; NoComparison>]
+    type FlatParams<'T> =
+        private
+            {
+                Segments: (TastAccessor.ArgGroup * 'T list) list
+            }
+
+        /// The source groups: a saturated call applies one argument to each.
+        member this.Groups = [ for (g, _) in this.Segments -> g ]
+        /// The applications a saturated call consumes.
+        member this.GroupCount = List.length this.Segments
+        /// The compiled parameter vector, in emitted order.
+        member this.Flat = this.Segments |> List.collect snd
+        /// The emitted parameter count.
+        member this.FlatCount = List.sumBy (fun (_, xs) -> List.length xs) this.Segments
+        /// Each source group with the flat slots it expands to, in source order.
+        member this.ByGroup = this.Segments
+
+    [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+    module FlatParams =
+
+        /// The segments must be a flattening of the groups they carry — `TastLower`'s
+        /// `compiledSegments` / `groupTypeSegments` are what produce one.
+        let ofSegments (segments: (TastAccessor.ArgGroup * 'T list) list) : FlatParams<'T> = { Segments = segments }
+
+        /// Re-read every slot, keeping the grouping: compiled params → their types, names.
+        let map (f: 'a -> 'b) (ps: FlatParams<'a>) : FlatParams<'b> =
+            {
+                Segments = [ for (g, xs) in ps.ByGroup -> g, List.map f xs ]
+            }
+
+    /// One top-level module function's compiled form.
     type CompiledFn =
         {
             Key: BoundVarId
-            Groups: TastAccessor.ArgGroup list
-            Params: TastLower.StaticParam list
+            Params: FlatParams<TastLower.StaticParam>
             Body: TastAccessor.ExprId
             ResultTy: FrozenType
             /// `true` when `ResultTy` is `unit` — CLR `void` / JS no return value.
@@ -104,23 +135,17 @@ module CompiledFns =
 
                             let vr: TastLower.ValRepr =
                                 {
-                                    Typars = 0 // `compiledOf` reads only `Groups` / `ResultTy`
+                                    Typars = 0 // the segmentation reads `Groups` alone
                                     Groups = groups
                                     ResultTy = resultTy
                                 }
 
-                            let cf = TastLower.compiledOf lv.Value.Pool vr
-
                             {
                                 Key = k
-                                Groups = groups
-                                Params = cf.Params
+                                Params = FlatParams.ofSegments (TastLower.compiledSegments lv.Value.Pool vr)
                                 Body = body
                                 ResultTy = resultTy
-                                ReturnsVoid =
-                                    match cf.Return with
-                                    | CompiledReturnG.RVoid -> true
-                                    | CompiledReturnG.RValue _ -> false
+                                ReturnsVoid = TastLower.isUnitFrozen resultTy
                             }
                         | [], _ -> ()
                     | _ -> ()

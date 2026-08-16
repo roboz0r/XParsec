@@ -234,25 +234,23 @@ module JsEmitHelpers =
         | [] -> failwith "EmitJs: nestUnaryArrows on an empty parameter list"
 
     /// The parameters a `while (true)` trampoline writes back to. `Arity` is the applications
-    /// a saturated tail self-call consumes and `Names` the parameters it assigns; the two are
-    /// carried together because a tuple group makes `Names` the longer of them.
+    /// a saturated tail self-call consumes and `Names` the parameters it assigns.
     [<RequireQualifiedAccess>]
     type TrampolineParams =
         /// Nested unary arrows: one parameter per application.
         | Unary of names: string list
-        /// One flat arrow: `groups` flattened, so a tuple group spans several of `names` and
-        /// a lone unit group none.
-        | Flat of groups: TastAccessor.ArgGroup list * names: string list
+        /// One flat arrow over the compiled parameters.
+        | Flat of CompiledFns.FlatParams<string>
 
         member this.Arity =
             match this with
             | Unary names -> List.length names
-            | Flat(groups, _) -> List.length groups
+            | Flat ps -> ps.GroupCount
 
         member this.Names =
             match this with
-            | Unary names
-            | Flat(_, names) -> names
+            | Unary names -> names
+            | Flat ps -> ps.Flat
 
     let (|TailSelfCall|_|)
         (selfKey: BoundVarId)

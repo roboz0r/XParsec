@@ -267,6 +267,27 @@ let structSeqTests =
                     "no top-level method contains a `box` (non-allocating capturing value-struct dispatch)"
             }
 
+            // A tupled group AHEAD of the closure slot: the lambda is source group 1 but flat
+            // parameter 2, so instantiating `!TF` off the group index picks `b: int` and the
+            // closure lands on the `Fun`2` interface (a box) instead of its own struct.
+            test "a value-struct closure behind a tupled group instantiates its own struct" {
+                let tast, artifact = compileSourceData "TupledGroupBeforeLambdaValueStruct"
+
+                Expect.isEmpty tast.Diagnostics (sprintf "tupled-group-before-lambda diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "applyAfterPair (20, 21) (fun x -> x + 1) = 42"
+
+                let ils = peMethodsIlWhere bytes "Program" (fun _ -> true)
+                let anyBox = ils |> Array.exists (fun il -> Array.contains 0x8Cuy il)
+                Expect.isFalse anyBox "no top-level method boxes the value-struct closure"
+
+                let anyNewobj = ils |> Array.exists (fun il -> Array.contains 0x73uy il)
+                Expect.isFalse anyNewobj "no top-level method newobjs the value-struct closure (0x73)"
+            }
+
             // The arity-2 analog: a saturated `fun x y -> x + y` at a
             // `'TF :> Fun<int,int,int>` slot peels to ONE value-struct closure with a single
             // flat `Invoke(a,b)`, and no nested inner closure for the second parameter.

@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// Call / constructor / format recipes (`printfn`, function `Invoke`, list `Cons`/`Empty`, `List.fold`, the
 /// `Vesper.Formatter` write-through handler) plus the synthesised structural equality / comparison
@@ -259,7 +260,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // The flat parameter vector and the void decision come from the SOURCE `ValRepr`
             // groups (tuple-flatten, lone-`unit`-erase); the TYPES come from peeling the open
             // template. Without a `ValRepr`, fall back to the all-curried shape.
-            let flatParamTys, openRetTy, returnsVoid, recipeGroups =
+            let flatParamTys, openRetTy, returnsVoid, recipeParams =
                 match openSig.ValRepr with
                 | ValueSome vr ->
                     let groups = vr.Groups
@@ -273,7 +274,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                             n
                             (List.length groupParamTys)
 
-                    TastLower.flattenGroupShape groups groupParamTys, retTy, isUnitReturn retTy, ValueSome groups
+                    let ps =
+                        CompiledFns.FlatParams.ofSegments (TastLower.groupTypeSegments groups groupParamTys)
+
+                    ps.Flat, retTy, isUnitReturn retTy, ValueSome ps
                 | ValueNone ->
                     let ps, r = uncurryFrozen openSig.Signature
                     ps, r, isUnitReturn r, ValueNone
@@ -352,8 +356,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     methodSpec callBase methodArgs
 
             let arity =
-                match recipeGroups with
-                | ValueSome groups -> CallArity.Grouped(groups, List.length flatParamTys)
+                match recipeParams with
+                | ValueSome ps -> CallArity.Grouped ps
                 | ValueNone -> CallArity.Flat(List.length flatParamTys)
 
             callBaseOpt

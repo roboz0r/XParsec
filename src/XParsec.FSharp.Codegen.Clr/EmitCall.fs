@@ -115,9 +115,9 @@ module EmitCall =
                 // `Flat` carries an already-flat count and pushes one-to-one.
                 let leading, rest =
                     match recipe.Arity with
-                    | CallArity.Grouped(groups, _) ->
-                        let leading, rest = List.splitAt (List.length groups) appArgs
-                        flattenGroupPushes recur env b groups leading |> ignore
+                    | CallArity.Grouped ps ->
+                        let leading, rest = List.splitAt ps.GroupCount appArgs
+                        flattenGroupPushes recur env b ps.Groups leading |> ignore
                         leading, rest
                     | CallArity.Flat argCount ->
                         let leading, rest = List.splitAt argCount appArgs
@@ -148,8 +148,8 @@ module EmitCall =
             // A top-level function emitted as a static method: `call` it with one
             // argument per SOURCE group, then `Invoke` the result with any remainder.
             let sm = env.StaticMethods.[k]
-            let leading, rest = List.splitAt (List.length sm.Groups) appArgs
-            let flatActualTys = flattenGroupPushes recur env b sm.Groups leading
+            let leading, rest = List.splitAt sm.Params.GroupCount appArgs
+            let flatActualTys = flattenGroupPushes recur env b sm.Params.Groups leading
 
             let callHandle =
                 if sm.Typars = 0 then
@@ -161,25 +161,26 @@ module EmitCall =
                     // result too.
                     let defTys, actualTys =
                         match rest with
-                        | [] -> sm.ParamTys @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
-                        | _ -> sm.ParamTys, flatActualTys
+                        | [] -> sm.Params.Flat @ [ sm.ResultTy ], flatActualTys @ [ typeOfExpr e ]
+                        | _ -> sm.Params.Flat, flatActualTys
 
                     let instArr = matchInstantiationPartial sm.Typars defTys actualTys
 
                     // A value-struct closure argument in a constrained `'TF :> Fun<_,_>`
                     // slot must instantiate `!TF` with the closure's own struct, not the
                     // function type, because that encodes to the `Fun\`2` INTERFACE and boxes.
-                    leading
-                    |> List.iteri (fun i (arg, _, _) ->
-                        match env.ClosureValueTypeByNode.TryGetValue arg with
-                        | true, closureFt ->
-                            if i < List.length sm.ParamTys then
-                                match sm.ParamTys.[i] with
-                                | FTTypar(TyparAxis.Method, idx) when idx >= 0 && idx < instArr.Length ->
-                                    instArr.[idx] <- ValueSome closureFt
-                                | _ -> ()
-                        | false, _ -> ()
-                    )
+                    // A closure fills a whole group, so its group's one flat slot is the typar.
+                    List.iter2
+                        (fun (arg, _, _) (_, slotTys) ->
+                            match env.ClosureValueTypeByNode.TryGetValue arg, slotTys with
+                            | (true, closureFt), [ FTTypar(TyparAxis.Method, idx) ] when
+                                idx >= 0 && idx < instArr.Length
+                                ->
+                                instArr.[idx] <- ValueSome closureFt
+                            | _ -> ()
+                        )
+                        leading
+                        sm.Params.ByGroup
 
                     // A phantom typar, one in no parameter and no result like `fold`'s
                     // enumerator `'E` in `'S :> IStructSeq<'T,'E>`, survives matching as
