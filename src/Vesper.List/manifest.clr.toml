@@ -4,11 +4,14 @@ description = "The immutable cons-list type and the List module."
 
 # Tracks what `list.fs` needs to BUILD, not every type the contract names: `GetSlice`
 # in `list.fsi` names `int option` but has no impl here.
-depends-on = ["Vesper.Core"]
+depends-on = ["../Vesper.Core"]
 
-# Contract `.fsi` files in compile order.
+# Signature files in compile order.
 files = [
     "list.fsi",
+    # A transparent abbreviation for a BCL type. Needs no `sig-only` exemption: every
+    # declaration in it is an abbreviation, which the content split accepts on its own.
+    "list-bcl.clr.fsi",
 ]
 
 # The verbatim `[]`/`::` cons-list, no inline IL and no BCL name, so the js manifest names

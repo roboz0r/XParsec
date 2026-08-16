@@ -1,14 +1,12 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
-open System.IO
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-/// Layer 1 of the symbol-resolution stack: each referenced package's `[core] files` `.fsi`
-/// contracts RESOLVED, one at a time, through the same front end an in-assembly `.fsi` goes
-/// through, and composed into one provider. A symbol's namespace is its FILE's `namespace`
-/// header.
+/// Layer 1 of the symbol-resolution stack: each referenced package's `[core] files` signature
+/// files RESOLVED one at a time, through the front end an in-assembly `.fsi` goes through, and
+/// composed into one provider. A symbol's namespace is its FILE's `namespace` header.
 module PackageProviders =
 
     /// One built package. `DeclaredTypeNames` are the qualified compiled names of the NOMINAL
@@ -21,20 +19,16 @@ module PackageProviders =
             DeclaredTypeNames: string list
         }
 
-    /// The intrinsic reprs the package's `.fs` bodies bind (`type exn = (# "System.Exception" #)`),
-    /// short name ⇒ repr. Read for the WHOLE package before any `.fsi` is resolved, so the
-    /// `extern` arm of a contract that commits `type exn = extern` picks `IntrinsicPlatform.Repr`
-    /// over `Unsupported`.
-    let private implementationReprs (manifest: ReferencedProject.Manifest) : Dictionary<string, string> =
+    /// Short name ⇒ intrinsic repr, read off the signature file's PAIRED implementation
+    /// (`type exn = (# "System.Exception" #)`), so `type exn = extern` picks `Repr` over
+    /// `Unsupported`. A signature this target ships no implementation for stays unsupported.
+    let private companionReprs (entry: PackageSource.SignatureEntry) : Dictionary<string, string> =
         let reprs = Dictionary<string, string>(System.StringComparer.Ordinal)
 
-        for rel in manifest.Impl do
-            let abs = Path.Combine(manifest.Dir, rel)
-
-            if File.Exists abs then
-                match Pipeline.parse (File.ReadAllText abs) with
-                | Error _ -> ()
-                | Ok parsed -> IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn parsed.Lexed) parsed.File
+        match entry.Companion with
+        | ValueSome { Outcome = Ok implementation } ->
+            IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn implementation.Lexed) implementation.File
+        | _ -> ()
 
         reprs
 
@@ -56,58 +50,67 @@ module PackageProviders =
         ]
 
     /// The language prelude as a SOURCE: it resolves nothing, and publishes the prefixes every
-    /// contract is written against, so a `.fsi` in `namespace Vesper.Collections` names `unit`
-    /// exactly as a consumer of the package would. Fixed, not manifest-declared.
+    /// signature file is written against, so a `.fsi` in `namespace Vesper.Collections` names
+    /// `unit` exactly as a consumer of the package would. Fixed, not manifest-declared.
     let private prelude =
         ExternalSymbolProviders.stack ValueNone RuntimeNames.preludeNamespaces []
 
-    /// Resolve each contract `.fsi` in `files` order against `dependencies` plus the package's
-    /// OWN earlier files, nearest first — the same fold an assembly's units go through. A file
-    /// that fails to parse yields a diagnostic and contributes nothing, not an aborted build.
-    let buildProviderWith
-        (dependencies: IExternalSymbolProvider)
-        (manifest: ReferencedProject.Manifest)
-        : BuiltPackage =
-        let inputs: SignatureResolutionContext.SignatureInputs =
-            {
-                Target = manifest.Target
-                Reprs = implementationReprs manifest
-            }
+    /// What a path the read could not deliver reads as, anchored. The parser's own findings
+    /// carry positions in the text; the rest have no place in any file to point at.
+    let private faultDiagnostics
+        (packageName: string)
+        (file: PackageSource.ReadFile<'Tree>)
+        (fault: PackageSource.FileFault)
+        : AssemblyFiles.AnchoredDiagnostic list =
+        let failure = PackageSource.FileFault.toFailure packageName file.Relative fault
 
+        match failure.Lexed with
+        | ValueSome lexed ->
+            AssemblyFiles.anchorDiagnostics (AssemblyFiles.fileSource packageName file.Id lexed) failure.Diagnostics
+        | ValueNone -> AssemblyFiles.unpositionedDiagnostics file.Id failure.Diagnostics
+
+    /// Resolve each signature file in `files` order against `dependencies` plus the package's
+    /// OWN earlier files, nearest first, which is the fold an assembly's units go through. A file
+    /// the read could not deliver yields a diagnostic and contributes nothing.
+    let buildProviderWith (dependencies: IExternalSymbolProvider) (pkg: PackageSource.ParsedPackage) : BuiltPackage =
+        let manifest = pkg.Manifest
         let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
+
         // The package's own files, NEAREST first: what it publishes, and the top of the
         // visibility stack each later file resolves through, over the dependencies.
         let mutable own: IExternalSymbolProvider list = []
         let surfaces = ResizeArray<PublishedSurface>()
 
-        for rel in manifest.Files do
-            let id = AssemblyFileId.ofPathUnder manifest.Dir rel
-
-            match Pipeline.parseSignature (File.ReadAllText(Path.Combine(manifest.Dir, rel))) with
-            | Error failure ->
-                match failure.Lexed with
-                | ValueSome lexed ->
-                    diagnostics.AddRange(
-                        AssemblyFiles.anchorDiagnostics
-                            (AssemblyFiles.fileSource manifest.Name id lexed)
-                            failure.Diagnostics
-                    )
-                | ValueNone -> diagnostics.AddRange(AssemblyFiles.unpositionedDiagnostics id failure.Diagnostics)
+        for entry in pkg.Signatures do
+            match entry.Signature.Outcome with
+            | Error fault -> diagnostics.AddRange(faultDiagnostics manifest.Name entry.Signature fault)
             | Ok parsed ->
-                let source = AssemblyFiles.fileSource manifest.Name id parsed.Lexed
+                let source = AssemblyFiles.fileSource manifest.Name entry.Signature.Id parsed.Lexed
 
-                let ctx =
-                    PassContext(ExternalSymbolProviders.composite (own @ [ dependencies; prelude ]), source)
+                let surface, resolutionDiagnostics =
+                    SignatureResolution.resolveFile
+                        (ExternalSymbolProviders.composite (own @ [ dependencies; prelude ]))
+                        source
+                        {
+                            Assembly = manifest.Name
+                            Target = manifest.Target
+                            Reprs = companionReprs entry
+                        }
+                        parsed.File
 
-                ctx.AssemblyName <- manifest.Name
-
-                let surface = SignatureResolution.run ctx inputs parsed.File
                 surfaces.Add surface
                 own <- PublishedSurface.toProvider surface :: own
 
                 diagnostics.AddRange(
-                    AssemblyFiles.anchorDiagnostics source (parsed.Diagnostics @ List.ofSeq ctx.Diagnostics)
+                    AssemblyFiles.anchorDiagnostics source (parsed.Diagnostics @ resolutionDiagnostics)
                 )
+
+        // An implementation file's fault, reported from the list that NAMES it: off the pairing
+        // a companion's would appear twice, and one with no signature file not at all.
+        for entry in pkg.Implementations do
+            match entry.Implementation.Outcome with
+            | Error fault -> diagnostics.AddRange(faultDiagnostics manifest.Name entry.Implementation fault)
+            | Ok _ -> ()
 
         // What a consumer resolves through: this package's `[<AutoOpen>]` modules (most
         // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude.
@@ -139,7 +142,9 @@ module PackageProviders =
         : Result<IExternalSymbolProvider * AssemblyFiles.AnchoredDiagnostic list, string> =
         ReferencedProject.loadManifest mp
         |> Result.map (fun manifest ->
-            let bp = buildProviderWith ExternalSymbolProviders.nullProvider manifest
+            let bp =
+                buildProviderWith ExternalSymbolProviders.nullProvider (PackageSource.readPackage manifest)
+
             bp.Provider, bp.Diagnostics
         )
 
@@ -148,21 +153,30 @@ module PackageProviders =
     /// its JS-native stubs here.
     type PlatformMetadataFactory = IntrinsicTypeMap -> IExternalSymbolProvider list
 
-    /// No layer-2: the layer-1 `.fsi` contracts alone, for an in-assembly caller that
-    /// resolves no platform metadata.
+    /// No layer-2: the layer-1 contracts alone, for an in-assembly caller that needs no
+    /// platform metadata.
     let noPlatformMetadata: PlatformMetadataFactory = fun _ -> []
+
+    /// One package set composed: the provider a consumer resolves through, and everything
+    /// resolving the contracts found.
+    type ComposedContract =
+        {
+            Provider: IExternalSymbolProvider
+            Diagnostics: AssemblyFiles.AnchoredDiagnostic list
+        }
 
     /// Compose layer-1 providers in dependency (topological) order ahead of `platformMetadata`.
     /// Each package resolves against its transitive `depends-on` closure, so a cross-package
     /// nominal type constructor kinds at bake time.
     let composeOrdered
         (platformMetadata: PlatformMetadataFactory)
-        (orderedManifests: ReferencedProject.Manifest list)
+        (orderedPackages: PackageSource.ParsedPackage list)
         (transitiveDeps: ReferencedProject.ManifestPath -> ReferencedProject.ManifestPath list)
-        : IExternalSymbolProvider =
+        : ComposedContract =
         // `byPath` indexes each built provider by its manifest, so a package's dependency
         // providers resolve in O(closure).
         let built = ResizeArray<IExternalSymbolProvider>()
+        let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
 
         let byPath =
             Dictionary<ReferencedProject.ManifestPath, IExternalSymbolProvider>(HashIdentity.Structural)
@@ -172,7 +186,9 @@ module PackageProviders =
         // CS0433-equivalent. The overlap with the platform metadata is diagnosed downstream.
         let seenTypeHomes = Dictionary<string, string>(System.StringComparer.Ordinal)
 
-        for manifest in orderedManifests do
+        for pkg in orderedPackages do
+            let manifest = pkg.Manifest
+
             let depProviders =
                 transitiveDeps manifest.Path
                 |> List.choose (fun dep ->
@@ -189,21 +205,21 @@ module PackageProviders =
                     @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics depProviders)
                 )
 
-            let bp = buildProviderWith depComposite manifest
+            let bp = buildProviderWith depComposite pkg
+            diagnostics.AddRange bp.Diagnostics
 
             for typeName in bp.DeclaredTypeNames do
                 match seenTypeHomes.TryGetValue typeName with
-                | true, otherHome when otherHome <> bp.HomeAssembly ->
-                    failwithf
-                        "The type '%s' exists in both '%s' and '%s'. A referenced package set must declare each type once; reference only one of the two packages."
-                        typeName
-                        otherHome
-                        bp.HomeAssembly
-                | true, _ ->
-                    failwithf
-                        "The type '%s' is declared twice by package '%s' — the referenced set contains two copies (or versions) of it. Reference the package once."
-                        typeName
-                        bp.HomeAssembly
+                | true, otherHome ->
+                    diagnostics.AddRange(
+                        AssemblyFiles.unpositionedDiagnostics
+                            (AssemblyFileId.ofRelative manifest.Name)
+                            [
+                                Diagnostic.nowhere (
+                                    Kind.PackageSet(PackageSetFault.DuplicateType(typeName, otherHome, bp.HomeAssembly))
+                                )
+                            ]
+                    )
                 | false, _ -> seenTypeHomes.[typeName] <- bp.HomeAssembly
 
             built.Add bp.Provider
@@ -213,16 +229,31 @@ module PackageProviders =
         // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
 
-        ExternalSymbolProviders.composite (
-            builtList @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics builtList)
-        )
+        {
+            Provider =
+                ExternalSymbolProviders.composite (
+                    builtList @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics builtList)
+                )
+            Diagnostics = List.ofSeq diagnostics
+        }
 
-    /// `composeOrdered` over a raw, unordered manifest set. A cycle or missing dependency is
-    /// a hard error. A caller that also needs the ordered list should order it itself.
+    /// A whole-set fault, raised before the set got as far as having a package or a file.
+    let private setFault (fault: PackageSetFault) : ComposedContract =
+        {
+            Provider = ExternalSymbolProviders.nullProvider
+            Diagnostics =
+                AssemblyFiles.unpositionedDiagnostics
+                    AssemblyFileId.nowhere
+                    [ Diagnostic.nowhere (Kind.PackageSet fault) ]
+        }
+
+    /// `composeOrdered` over a raw, unordered manifest set: the ordering is taken here and not
+    /// handed back.
     let composeContract
         (platformMetadata: PlatformMetadataFactory)
         (manifests: ReferencedProject.ManifestPath list)
-        : IExternalSymbolProvider =
+        : ComposedContract =
         match ReferencedProject.buildClosureWithDeps manifests with
-        | Ok(ordered, transitiveDeps) -> composeOrdered platformMetadata ordered transitiveDeps
-        | Error e -> failwithf "Failed to order referenced project manifests: %s" e
+        | Ok(ordered, transitiveDeps) ->
+            composeOrdered platformMetadata (List.map PackageSource.readPackage ordered) transitiveDeps
+        | Error e -> setFault (PackageSetFault.UnresolvedDependency e)

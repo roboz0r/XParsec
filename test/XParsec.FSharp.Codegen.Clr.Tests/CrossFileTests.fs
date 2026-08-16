@@ -20,7 +20,7 @@ let private compileUnits (asmName: string) (units: AssemblyFiles.SourceUnit list
 
     // Scoping is forward-only: each file sees the earlier ones through their projected views.
     // A parse or analysis error surfaces here, anchored to its own file.
-    match ClrDriver.compileAssemblyWith [] external project units with
+    match ClrDriver.compileAssemblyWith [] external project (List.map AssemblyFiles.parseUnit units) with
     | Ok artifact -> Codegen.toBytes artifact
     | Error diags -> failtestf "cross-file compile failed: %A" diags
 

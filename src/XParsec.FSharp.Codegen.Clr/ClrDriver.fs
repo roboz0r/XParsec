@@ -23,7 +23,9 @@ type PreparedCompilation =
         {
             Inputs: ClrCompilation
             Digest: Hashing.CompilationDigest
-            Provider: IExternalSymbolProvider
+            /// The reference set already GATED, so a compilation whose contracts failed to
+            /// resolve is refused for the whole run and not once per file.
+            Contract: Result<SymbolProviders.Contract, Diagnostic list>
         }
 
 module ClrCompilation =
@@ -49,27 +51,39 @@ module ClrDriver =
     let private blockingErrors (tast: FrozenPools) : Diagnostic list =
         Diagnostic.errors tast.Residue.Diagnostics
 
-    let private contractFor (inputs: ClrCompilation) : IExternalSymbolProvider =
-        ClrSymbolProviders.buildContractWithRefs inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
+    /// The compilation's reference set resolved, GATED on what resolving it found.
+    let private contractFor
+        (inputs: ClrCompilation)
+        : Result<SymbolProviders.Contract, AssemblyFiles.AnchoredDiagnostic list> =
+        ClrSymbolProviders.compilationContract inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
+        |> SymbolProviders.Contract.gate
+
+    /// A gate refusal as the FLAT diagnostics a single-file entry returns; the file each names
+    /// is in its own message, there being no compiling file to anchor it to.
+    let private unanchored (diagnostics: AssemblyFiles.AnchoredDiagnostic list) : Diagnostic list =
+        diagnostics |> List.map (fun d -> d.Diagnostic)
 
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
     /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
     let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
-        match Pipeline.parseUnrecovered source with
-        | Error diagnostics -> Error diagnostics
-        | Ok parsed ->
-            let provider = contractFor inputs
+        match contractFor inputs |> Result.mapError unanchored with
+        | Error contractErrors -> Error contractErrors
+        | Ok contract ->
+            match ParseChain.parseUnrecovered source with
+            | Error diagnostics -> Error diagnostics
+            | Ok parsed ->
+                let provider = contract.Provider
 
-            let tast =
-                Pipeline.analyseFor
-                    inputs.Project.AssemblyName
-                    provider
-                    (Hashing.originSourceOfText parsed.Lexed)
-                    parsed.File
+                let tast =
+                    Pipeline.analyseFor
+                        inputs.Project.AssemblyName
+                        provider
+                        (Hashing.originSourceOfText parsed.Lexed)
+                        parsed.File
 
-            match blockingErrors tast with
-            | [] -> Ok(Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast)
-            | errors -> Error errors
+                match blockingErrors tast with
+                | [] -> Ok(Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast)
+                | errors -> Error errors
 
     /// Everything a cached front end depends on EXCEPT one file's text. Fold it once per
     /// compilation: reading the reference closure costs what the front end a hit elides does.
@@ -89,7 +103,7 @@ module ClrDriver =
         {
             Inputs = inputs
             Digest = compilationDigest inputs
-            Provider = contractFor inputs
+            Contract = contractFor inputs |> Result.mapError unanchored
         }
 
     /// `compile` through the frozen-compile cache: a HIT skips parse + analyse + freeze, and an
@@ -102,38 +116,42 @@ module ClrDriver =
         : Result<ClrArtifact, Diagnostic list> =
         let inputs = prepared.Inputs
 
-        // The key covers the path the frozen tree's nodes name, so a hit cannot serve a tree
-        // anchored elsewhere.
-        let path = Hashing.textOriginPath source
+        match prepared.Contract with
+        | Error contractErrors -> Error contractErrors
+        | Ok contract ->
 
-        let key =
-            {
-                Query = QueryId.Freeze
-                CodeVersion = Cache.CodeVersion
-                Input = Hashing.fileInputHash path source prepared.Digest
-            }
+            // The key covers the path the frozen tree's nodes name, so a hit cannot serve a tree
+            // anchored elsewhere.
+            let path = Hashing.textOriginPath source
 
-        FrozenCache.freezeResult
-            store
-            key
-            (fun () ->
-                match Pipeline.parseUnrecovered source with
-                | Error diagnostics -> Error diagnostics
-                | Ok parsed ->
-                    let tast =
-                        Pipeline.analyseFor
-                            inputs.Project.AssemblyName
-                            prepared.Provider
-                            (Hashing.originSource path parsed.Lexed)
-                            parsed.File
+            let key =
+                {
+                    Query = QueryId.Freeze
+                    CodeVersion = Cache.CodeVersion
+                    Input = Hashing.fileInputHash path source prepared.Digest
+                }
 
-                    match blockingErrors tast with
-                    | [] -> Ok tast
-                    | errors -> Error errors
+            FrozenCache.freezeResult
+                store
+                key
+                (fun () ->
+                    match ParseChain.parseUnrecovered source with
+                    | Error diagnostics -> Error diagnostics
+                    | Ok parsed ->
+                        let tast =
+                            Pipeline.analyseFor
+                                inputs.Project.AssemblyName
+                                contract.Provider
+                                (Hashing.originSource path parsed.Lexed)
+                                parsed.File
+
+                        match blockingErrors tast with
+                        | [] -> Ok tast
+                        | errors -> Error errors
+                )
+            |> Result.map (fun frozen ->
+                Codegen.compileWithReferences inputs.ReferenceAssemblies contract.Provider inputs.Project frozen
             )
-        |> Result.map (fun frozen ->
-            Codegen.compileWithReferences inputs.ReferenceAssemblies prepared.Provider inputs.Project frozen
-        )
 
     /// `compileCachedWith` for a ONE-FILE compilation, preparing inline. Several files through
     /// this would re-read the whole dependency closure per file.
@@ -151,7 +169,7 @@ module ClrDriver =
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (units: AssemblyFiles.SourceUnit list)
+        (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let assembly: AssemblyFiles.CompilingAssembly =
             {
@@ -159,7 +177,7 @@ module ClrDriver =
                 Target = Target.Clr
             }
 
-        AssemblyFiles.analyseGated Pipeline.analyseFor assembly external units
+        AssemblyFiles.analyseGatedParsed Pipeline.analyseFor assembly external units
         |> Result.map (fun analysed ->
             // The visibility stack analysis composed, rebuilt: `external` is the floor and
             // `Files` is in file order, so each view pushes on top of the ones it may shadow.
@@ -178,7 +196,14 @@ module ClrDriver =
         (inputs: ClrCompilation)
         (units: AssemblyFiles.SourceUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        compileAssemblyWith inputs.ReferenceAssemblies (contractFor inputs) inputs.Project units
+        contractFor inputs
+        |> Result.bind (fun contract ->
+            compileAssemblyWith
+                inputs.ReferenceAssemblies
+                contract.Provider
+                inputs.Project
+                (List.map AssemblyFiles.parseUnit units)
+        )
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
     /// set. An in-memory compilation returns the artifact unwritten.

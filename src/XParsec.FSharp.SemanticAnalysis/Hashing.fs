@@ -151,17 +151,26 @@ module Hashing =
     let compilationDigest (inputs: CompilationInputs) : CompilationDigest =
         // A determinant on the SAME footing as a reference: its `.fs` companions carry the
         // `(# … #)` reprs, so editing one moves a BCL signature without touching any `.fsi`.
-        let roots =
+        let closure =
             ReferencedProject.resolveAll inputs.Target (inputs.Packages @ Option.toList inputs.SelfPackage)
+            |> Result.mapError (PackageSetFault.code >> DiagCode.render)
+            |> Result.bind (ReferencedProject.buildClosure >> Result.mapError (sprintf "closure:%s"))
 
-        // A package the closure cannot read is a determinant this fold would omit, and the
-        // omission would be served as a HIT. Refuse rather than key on a partial set.
-        let manifests =
-            match ReferencedProject.buildClosure roots with
-            | Ok ordered -> ordered
-            | Error e -> failwithf "compilationDigest: %s" e
+        // A package set that does not resolve is keyed on the FAULT, never on the subset that
+        // did resolve: keying on the subset would serve a good build's tree as a hit.
+        let determinants =
+            match closure with
+            | Ok manifests -> List.map dependencySignatureHash manifests
+            | Error tag ->
+                [
+                    inputHash
+                        "package-set-unresolved"
+                        [
+                            for text in tag :: inputs.Packages -> InputHash.ofBytes (Encoding.UTF8.GetBytes text)
+                        ]
+                ]
 
-        CompilationDigest(inputHash "" (environmentHash inputs :: List.map dependencySignatureHash manifests))
+        CompilationDigest(inputHash "" (environmentHash inputs :: determinants))
 
     /// A file's identity as ONE digest: handed to the SET-valued fold separately, the two
     /// fields would dedupe when they agree.

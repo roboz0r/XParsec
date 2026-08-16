@@ -81,7 +81,7 @@ module TastAccessor =
     let exprTy (e: ExprId) : FrozenType = TastPoolBuilder.exprTy e.Pool e.Id
 
     /// Where the node SITS: its token's index in the file's `Lexed`, or `Anchor.nowhere`
-    /// where no source spells it (a minted node, an `.fsi` contract's rebuilt pattern).
+    /// where no source spells it (a minted node, a contract's rebuilt pattern).
     let exprTok (e: ExprId) : Anchor = TastPoolBuilder.exprTok e.Pool e.Id
 
     /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT among

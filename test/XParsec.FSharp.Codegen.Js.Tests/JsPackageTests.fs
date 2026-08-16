@@ -16,7 +16,7 @@ let private packageName = "Test.Pkg"
 /// Compile `units` as one JS package through the production driver, failing the test on
 /// any front-end diagnostic (anchored to its own file, as the driver reports it).
 let private compileUnits (units: AssemblyFiles.SourceUnit list) : JsPackage =
-    match JsDriver.compileAssemblyWith jsContract.Value packageName units with
+    match JsDriver.compileAssemblyWith jsContract.Value packageName (List.map AssemblyFiles.parseUnit units) with
     | Ok pkg -> pkg
     | Error diags ->
         failtestf
@@ -174,8 +174,8 @@ module Use =
                     "the barrel re-exports every emitted module"
             }
 
-            // Most of a contract package's files are declaration-only and lower to no JS
-            // at all, so they get no `.mjs` rather than an empty one.
+            // Most of a declaration-heavy package's files lower to no JS at all, so they get
+            // no `.mjs` rather than an empty one.
             test "a file that emits nothing gets no module and is absent from the barrel" {
                 let interfacesOnly =
                     "\
@@ -211,7 +211,9 @@ type IShape =
                     ]
                     |> List.map AssemblyFiles.SourceUnit.ofImplementation
 
-                match JsDriver.compileAssemblyWith jsContract.Value packageName files with
+                match
+                    JsDriver.compileAssemblyWith jsContract.Value packageName (List.map AssemblyFiles.parseUnit files)
+                with
                 | Ok _ -> failtest "the collision must be refused"
                 | Error diags ->
                     Expect.equal
@@ -263,13 +265,13 @@ module Shim =
                     "an erased type reference costs no import"
             }
 
-            // The package this shape exists for: many contract files, no single one of
+            // The package this shape exists for: many signature files, no single one of
             // which could be "the package's module".
             test "Vesper.Core compiles as one package and its modules load under Node" {
                 let manifestPath =
                     match ReferencedProject.resolveManifest Target.Js vesperCorePackage with
                     | Result.Ok mp -> mp
-                    | Result.Error e -> failtestf "Vesper.Core manifest: %s" e
+                    | Result.Error e -> failtestf "Vesper.Core manifest: %s" (PackageSetFault.describe e)
 
                 let manifest =
                     match ReferencedProject.loadManifest manifestPath with

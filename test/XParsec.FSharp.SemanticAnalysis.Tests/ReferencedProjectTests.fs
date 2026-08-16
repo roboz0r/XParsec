@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// `src/Vesper.Core`, found by walking up from the test assembly.
 let private vesperCorePackage =
     let testDir =
-        Path.GetDirectoryName(typeof<PackageSource.ManifestFile>.Assembly.Location)
+        Path.GetDirectoryName(typeof<PackageSource.ParsedPackage>.Assembly.Location)
 
     let mutable dir = DirectoryInfo testDir
     let mutable found = None
@@ -39,7 +39,7 @@ let private vesperListPackage = Path.Combine(srcDir, "Vesper.List")
 let private resolveOrFail (target: string) (packageDir: string) : ReferencedProject.ManifestPath =
     match ReferencedProject.resolveManifest target packageDir with
     | Result.Ok mp -> mp
-    | Result.Error e -> failwithf "resolveManifest: %s" e
+    | Result.Error e -> failwithf "resolveManifest: %s" (PackageSetFault.describe e)
 
 /// Parse a resolved manifest, failing the test if it is malformed.
 let private loadOrFail (mp: ReferencedProject.ManifestPath) : ReferencedProject.Manifest =
@@ -74,7 +74,8 @@ let private writeManifest (name: string) (body: string) : ReferencedProject.Mani
 
 /// A synthetic package with no sources: `files = []` keeps it parse-valid with no `.fsi`.
 let private writeSyntheticManifest (name: string) (dependsOn: string list) : ReferencedProject.ManifestPath =
-    let deps = dependsOn |> List.map (sprintf "\"%s\"") |> String.concat ", "
+    // These fixtures are siblings under one synthetic `src/`, so each names `../<package>`.
+    let deps = dependsOn |> List.map (sprintf "\"../%s\"") |> String.concat ", "
     writeManifest name (sprintf "[core]\nname = \"%s\"\ndepends-on = [%s]\nfiles = []\n" name deps)
 
 /// Writes a synthetic package whose `contract.fsi` declares `fsiBody` under `ns` — for the
@@ -100,7 +101,9 @@ let private builtProvider =
 let private builtProviderJs =
     lazy
         (let bp =
-            PackageProviders.buildProviderWith ExternalSymbolProviders.nullProvider (loadOrFail vesperCoreJsManifest)
+            PackageProviders.buildProviderWith
+                ExternalSymbolProviders.nullProvider
+                (PackageSource.readPackage (loadOrFail vesperCoreJsManifest))
 
          bp.Provider, bp.Diagnostics)
 
@@ -120,7 +123,7 @@ let tests =
                     Expect.equal (List.head m.Files) "prim-types-min.fsi" "compile order: prim-types-min first"
             }
 
-            // Every contract file goes through the same front end an in-assembly `.fsi` does,
+            // Every signature file goes through the same front end an in-assembly `.fsi` does,
             // so anything it could not resolve is reported rather than silently unpublished.
             test "every listed .fsi resolves clean" {
                 let _, diags = builtProvider.Value
@@ -177,7 +180,7 @@ let tests =
                     | Result.Error e -> failtestf "lex failed: %A" e
                     | Result.Ok lexed -> lexed
 
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
 
                 Expect.equal ctx.Intrinsics.Int BuiltinTypes.tyInt "int"
                 Expect.equal ctx.Intrinsics.Int64 BuiltinTypes.tyInt64 "int64"
@@ -386,7 +389,7 @@ let tests =
 
                 let input = "let r = 1 + 2\nlet h = hash 5"
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -416,7 +419,7 @@ let tests =
             // the REJECTED direction is testable here; the accepted one needs a full provider.
             let analyseErrors (provider: IExternalSymbolProvider) (input: string) =
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -590,17 +593,21 @@ let tests =
                         let b =
                             writeSyntheticPackageWithType "DupPkgB" "Dup" "type Thing =\n    | C\n    | D"
 
-                        let caught =
-                            try
-                                PackageProviders.composeContract PackageProviders.noPlatformMetadata [ a; b ]
-                                |> ignore
+                        let composed =
+                            PackageProviders.composeContract PackageProviders.noPlatformMetadata [ a; b ]
 
-                                None
-                            with ex ->
-                                Some ex.Message
-
-                        match caught with
-                        | None -> failtest "expected a duplicate-type composition error, got none"
+                        match
+                            composed.Diagnostics
+                            |> List.tryPick (fun d ->
+                                match d.Diagnostic.Kind with
+                                | Kind.PackageSet(PackageSetFault.DuplicateType _) -> Some d.Diagnostic.Message
+                                | _ -> None
+                            )
+                        with
+                        | None ->
+                            failtestf
+                                "expected a duplicate-type diagnostic, got: %A"
+                                (composed.Diagnostics |> List.map (fun d -> d.Diagnostic.Message))
                         | Some m ->
                             Expect.stringContains m "Dup.Thing" "names the clashing type"
                             Expect.stringContains m "DupPkgA" "names the first home assembly"
@@ -613,12 +620,21 @@ let tests =
                         let a =
                             writeSyntheticPackageWithType "SoloPkg" "Solo" "type Thing =\n    | A\n    | B"
 
-                        PackageProviders.composeContract PackageProviders.noPlatformMetadata [ a ]
-                        |> ignore
+                        let composed =
+                            PackageProviders.composeContract PackageProviders.noPlatformMetadata [ a ]
+
+                        Expect.isEmpty
+                            (composed.Diagnostics
+                             |> List.filter (fun d ->
+                                 match d.Diagnostic.Kind with
+                                 | Kind.PackageSet _ -> true
+                                 | _ -> false
+                             ))
+                            "one package's own type is not a clash"
                     }
 
-                    // The directory name IS the package identity — `depends-on` resolves against
-                    // it — so a diverging `[core] name` is rejected at parse time.
+                    // The directory name IS the package identity, and the assembly name it emits
+                    // under, so a diverging `[core] name` is rejected at parse time.
                     test "a [core] name diverging from the directory name is rejected" {
                         // `writeSyntheticManifest` always matches name to directory, so this one
                         // is hand-written to diverge.
@@ -650,9 +666,13 @@ let tests =
 
                         match ReferencedProject.resolveManifest "js" dir with
                         | Result.Ok mp -> failtestf "expected no js manifest, got %A" mp.Path
+                        // The CASE, not its English: the fault is a value, so a test asserts on
+                        // what it says rather than on how it is worded.
                         | Result.Error e ->
-                            Expect.stringContains e "does not build for target" "the error says so plainly"
-                            Expect.stringContains e "ClrOnlyPkg" "and names the package"
+                            Expect.equal
+                                e
+                                (PackageSetFault.NoManifestForTarget("ClrOnlyPkg", "js"))
+                                "the fault names the package and the target"
                     }
                 ]
 
@@ -693,7 +713,7 @@ let tests =
                         Expect.equal
                             (ReferencedProject.pairingKey jsManifest "shim.js.fsi")
                             "shim"
-                            "a `.js.fsi` contract keys the same as its `.js.fs` body"
+                            "a `.js.fsi` signature file keys the same as its `.js.fs` body"
 
                         Expect.equal
                             (ReferencedProject.pairingKey jsManifest "ops.clr.fs")
@@ -738,7 +758,7 @@ let tests =
                             writeManifestFor
                                 "js"
                                 "NeedsJsDep"
-                                "[core]\nname = \"NeedsJsDep\"\ndepends-on = [\"DepOnlyJs\"]\nfiles = []\n"
+                                "[core]\nname = \"NeedsJsDep\"\ndepends-on = [\"../DepOnlyJs\"]\nfiles = []\n"
 
                         // The clr collection of the same package declares the SAME dependency, but
                         // the dependency ships no clr manifest, so a clr closure over it must fail.
@@ -746,7 +766,7 @@ let tests =
                             writeManifestFor
                                 "clr"
                                 "NeedsJsDep"
-                                "[core]\nname = \"NeedsJsDep\"\ndepends-on = [\"DepOnlyJs\"]\nfiles = []\n"
+                                "[core]\nname = \"NeedsJsDep\"\ndepends-on = [\"../DepOnlyJs\"]\nfiles = []\n"
 
                         match ReferencedProject.buildClosure [ dependent ] with
                         | Result.Error e -> failtestf "js closure failed: %s" e
@@ -789,7 +809,7 @@ let tests =
                         | Result.Error e -> Expect.stringContains e "inline-bodies" "the error names the retired key"
                     }
 
-                    // A `.fs` owes no contract, so there is nothing to exempt. The key erroring
+                    // A `.fs` owes no signature file, so there is nothing to exempt. The key erroring
                     // rather than being ignored is what tells a manifest still carrying it that
                     // the rule it waived no longer exists.
                     test "the retired `impl-only` key is rejected, not ignored" {
@@ -939,7 +959,7 @@ let tests =
                                 {|
                                     Package = "Vesper.Printf"
                                     List = "depends-on"
-                                    ClrOnly = [ "Vesper.List" ]
+                                    ClrOnly = [ "../Vesper.List" ]
                                     JsOnly = []
                                 |}
                                 // `formatter.fsi` names `TextWriter`/`StringBuilder`/`IsByRefLike`

@@ -11,7 +11,7 @@ open XParsec.FSharp.Parser
 
 module ConformancePass =
 
-    /// A `.fsi` contract paired with its `.fs` implementation, plus the conformance verdict.
+    /// A signature file paired with its implementation file, plus the conformance verdict.
     [<NoEquality; NoComparison>]
     type PairResult =
         {
@@ -24,7 +24,7 @@ module ConformancePass =
             Errors: Conformance.ConformanceError list
         }
 
-    /// The verdict for one `.fsi` contract in a package.
+    /// The verdict for one signature file in a package.
     [<RequireQualifiedAccess>]
     type PairOutcome =
         /// `.fsi` with a companion `.fs` in the impl set.
@@ -37,10 +37,10 @@ module ConformancePass =
         | Unrepresentable of sigFile: string * types: string list
         /// `.fsi` with no companion `.fs` for this target, whose every `val` the target's
         /// committed RUNTIME ASSET exports (`Vesper.Core.mjs`'s `structuralEquals`), so no
-        /// `.fs` is owed. Renaming an export drops the contract back to `SigOnly`.
+        /// `.fs` is owed. Renaming an export drops the signature file back to `SigOnly`.
         | RuntimeServed of sigFile: string * asset: string * values: string list
         /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
-        /// conformed. Per-contract, so one malformed file does not abort the package.
+        /// conformed. Per signature file, so one malformed file does not abort the package.
         | ParseFailed of sigFile: string * detail: string
 
     /// The conformance outcome for a whole package, derived from its manifest.
@@ -49,10 +49,10 @@ module ConformancePass =
         {
             /// Package / assembly simple name.
             Package: string
-            /// One outcome per `.fsi` contract, in manifest `files` order.
+            /// One outcome per signature file, in manifest `files` order.
             Pairs: PairOutcome list
             /// The `.fsi` files the manifest declares DELIBERATELY impl-free for this target
-            /// (`[core] sig-only`). A `SigOnly` contract in this set is an accepted
+            /// (`[core] sig-only`). A `SigOnly` signature file in this set is an accepted
             /// exemption; one outside it is the FS0240-style hard error.
             SigOnlyExemptions: Set<string>
         }
@@ -85,121 +85,102 @@ module ConformancePass =
             ]
         |> Set.remove ""
 
-    let private parseRel (name: string) (dir: string) (rel: string) : Result<PackageSource.ParsedFile, string> =
-        PackageSource.parse (PackageSource.locate name dir rel)
+    /// Why a manifest-named path yielded no tree, in the FAULT's own words.
+    let private faultDetail (package: string) (relative: string) (fault: PackageSource.FileFault) : string =
+        (PackageSource.FileFault.toFailure package relative fault).Diagnostics
+        |> List.map (fun d -> d.Message)
+        |> String.concat "; "
 
-    /// Conform every `.fsi` a package manifest names against its `.fs` companion.
-    /// `Error` ONLY when the package is wholly un-checkable, meaning a malformed/absent manifest;
-    /// a per-file parse failure becomes a `ParseFailed` verdict instead.
-    let checkManifest (mp: ReferencedProject.ManifestPath) : Result<PackageOutcome, string> =
-        match ReferencedProject.loadManifest mp with
-        | Error e -> Error e
-        | Ok m ->
-            let dir = m.Dir
+    /// Conform every signature file a package manifest names against its implementation
+    /// companion, over the package as READ: no F# source is re-read and no pairing re-taken, so
+    /// a file the read could not deliver becomes a `ParseFailed` verdict.
+    let check (pkg: PackageSource.ParsedPackage) : PackageOutcome =
+        let m = pkg.Manifest
+        let declaredSigOnly = m.SigOnly |> Set.ofList
 
-            // The impl candidate set: every `.fs` the manifest names. A `.fsi` pairs only
-            // with a `.fs` that is in it; a `.fs` matching no `.fsi` simply stays unpaired.
-            let implFiles = m.Impl |> List.distinct
+        // The committed runtime asset and the names it publishes, needed because a signature
+        // file may ship no `.fs` when its bodies live here. Only the FIRST asset counts.
+        let runtimeAsset =
+            match m.Runtime with
+            | rel :: _ ->
+                let abs = Path.Combine(m.Dir, rel)
 
-            let sigFiles = m.Files
-
-            let pairingKey = ReferencedProject.pairingKey m
-
-            // A later impl wins a key clash.
-            let implByKey = implFiles |> List.map (fun f -> pairingKey f, f) |> Map.ofList
-
-            let companionOf (fsiRel: string) : string option =
-                Map.tryFind (pairingKey fsiRel) implByKey
-
-            let declaredSigOnly = m.SigOnly |> Set.ofList
-
-            // The committed runtime asset and the names it publishes, needed because a
-            // contract may ship no `.fs` when its bodies live here. Only the FIRST asset counts.
-            let runtimeAsset =
-                match m.Runtime with
-                | rel :: _ ->
-                    let abs = Path.Combine(dir, rel)
-
-                    if File.Exists abs then
-                        Some(Path.GetFileName rel, exportedNames (File.ReadAllText abs))
-                    else
-                        None
-                | [] -> None
-
-            // A companion-less `.fsi`, split on its own CONTENT: it owes a `.fs` unless EVERY
-            // declaration is satisfied without one — an `extern` or transparent abbreviation
-            // always is, a `val` exactly when the committed runtime asset exports it.
-            let unpaired (fsiRel: string) : PairOutcome =
-                if declaredSigOnly.Contains fsiRel then
-                    // A manifest `sig-only` declaration outranks the content split.
-                    PairOutcome.SigOnly fsiRel
+                if File.Exists abs then
+                    Some(Path.GetFileName rel, exportedNames (File.ReadAllText abs))
                 else
-                    match parseRel m.Name dir fsiRel with
-                    | Error e -> PairOutcome.ParseFailed(fsiRel, e)
-                    | Ok {
-                             Ast = FSharpAst.SignatureFile sf
-                             Lexed = sigLexed
-                         } ->
-                        let decls = Conformance.summariseSig sigLexed sf
-                        let valNames = Conformance.summariseSigVals sigLexed sf
+                    None
+            | [] -> None
 
-                        let externs =
-                            decls
-                            |> List.choose (fun d -> if d.Shape.DemandsIntrinsic then Some d.Name else None)
+        // A companion-less `.fsi`, split on its own CONTENT: it owes a `.fs` unless EVERY
+        // declaration is satisfied without one, namely an `extern` or transparent abbreviation
+        // always, and a `val` exactly when the committed runtime asset exports it.
+        let unpaired (fsiRel: string) (signature: ParseChain.ParsedSignature) : PairOutcome =
+            let decls = Conformance.summariseSig signature.Lexed signature.File
+            let valNames = Conformance.summariseSigVals signature.Lexed signature.File
 
-                        let bodiless =
-                            decls
-                            |> List.forall (fun d -> d.Shape.DemandsIntrinsic || d.Shape = Conformance.SigShape.Abbrev)
+            let externs =
+                decls
+                |> List.choose (fun d -> if d.Shape.DemandsIntrinsic then Some d.Name else None)
 
-                        if not bodiless then
-                            PairOutcome.SigOnly fsiRel
-                        elif List.isEmpty decls && List.isEmpty valNames then
-                            // A contract that declares nothing states nothing.
-                            PairOutcome.SigOnly fsiRel
-                        elif List.isEmpty valNames then
-                            PairOutcome.Unrepresentable(fsiRel, externs)
-                        else
-                            match runtimeAsset with
-                            | Some(asset, exports) when valNames |> List.forall exports.Contains ->
-                                PairOutcome.RuntimeServed(fsiRel, asset, valNames)
-                            | _ -> PairOutcome.SigOnly fsiRel
-                    // Listed under `files`, which is the contract list, but not a signature.
-                    | Ok _ -> PairOutcome.ParseFailed(fsiRel, sprintf "'%s' is not a signature file" fsiRel)
+            let bodiless =
+                decls
+                |> List.forall (fun d -> d.Shape.DemandsIntrinsic || d.Shape = Conformance.SigShape.Abbrev)
 
-            let outcome (fsiRel: string) : PairOutcome =
-                match companionOf fsiRel with
-                | None -> unpaired fsiRel
-                | Some implRel ->
-                    match parseRel m.Name dir fsiRel, parseRel m.Name dir implRel with
-                    | Ok sigParsed, Ok implParsed ->
-                        // Narrowed ONCE: a manifest that lists a `.fs` under `files`, or a
-                        // `.fsi` under `impl`, has mispaired the two halves and is reported as
-                        // such rather than conformed as an empty surface.
-                        match sigParsed.Ast, implParsed.Ast with
-                        | FSharpAst.SignatureFile sf, FSharpAst.ImplementationFile impl ->
-                            let verdict = Conformance.checkUnit sigParsed.Lexed sf implParsed.Lexed impl
+            if not bodiless then
+                PairOutcome.SigOnly fsiRel
+            elif List.isEmpty decls && List.isEmpty valNames then
+                // A signature file that declares nothing states nothing.
+                PairOutcome.SigOnly fsiRel
+            elif List.isEmpty valNames then
+                PairOutcome.Unrepresentable(fsiRel, externs)
+            else
+                match runtimeAsset with
+                | Some(asset, exports) when valNames |> List.forall exports.Contains ->
+                    PairOutcome.RuntimeServed(fsiRel, asset, valNames)
+                | _ -> PairOutcome.SigOnly fsiRel
 
-                            PairOutcome.Paired
-                                {
-                                    SigFile = fsiRel
-                                    ImplFile = implRel
-                                    ModuleMismatch = verdict.ModuleMismatch
-                                    Errors = verdict.Errors
-                                }
-                        | FSharpAst.SignatureFile _, _ ->
-                            PairOutcome.ParseFailed(fsiRel, sprintf "'%s' is not an implementation file" implRel)
-                        | _ -> PairOutcome.ParseFailed(fsiRel, sprintf "'%s' is not a signature file" fsiRel)
-                    | Error e, _
-                    | _, Error e -> PairOutcome.ParseFailed(fsiRel, e)
+        let outcome (entry: PackageSource.SignatureEntry) : PairOutcome =
+            let fsiRel = entry.Signature.Relative
 
-            let pairs = sigFiles |> List.map outcome
+            match entry.Signature.Outcome with
+            | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name fsiRel fault)
+            | Ok signature ->
+                match entry.Companion with
+                | ValueSome companion ->
+                    match companion.Outcome with
+                    // Fails the PAIR: calling it a signature without an implementation would
+                    // blame the `.fsi` for the `.fs`'s defect.
+                    | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name companion.Relative fault)
+                    | Ok implementation ->
+                        let verdict =
+                            Conformance.checkUnit
+                                signature.Lexed
+                                signature.File
+                                implementation.Lexed
+                                implementation.File
 
-            Ok
-                {
-                    Package = m.Name
-                    Pairs = pairs
-                    SigOnlyExemptions = declaredSigOnly
-                }
+                        PairOutcome.Paired
+                            {
+                                SigFile = fsiRel
+                                ImplFile = companion.Relative
+                                ModuleMismatch = verdict.ModuleMismatch
+                                Errors = verdict.Errors
+                            }
+                // A manifest `sig-only` declaration outranks the content split.
+                | ValueNone when declaredSigOnly.Contains fsiRel -> PairOutcome.SigOnly fsiRel
+                | ValueNone -> unpaired fsiRel signature
+
+        {
+            Package = m.Name
+            Pairs = pkg.Signatures |> List.map outcome
+            SigOnlyExemptions = declaredSigOnly
+        }
+
+    /// `check` for a caller holding only the path. `Error` ONLY when the package is wholly
+    /// un-checkable, meaning a malformed or absent MANIFEST.
+    let checkManifest (mp: ReferencedProject.ManifestPath) : Result<PackageOutcome, string> =
+        ReferencedProject.loadManifest mp
+        |> Result.map (PackageSource.readPackage >> check)
 
     // ---- Enforcement: conformance findings become hard errors ------------------
 
@@ -210,7 +191,7 @@ module ConformancePass =
         let err (verdict: ConformanceVerdict) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
             Diagnostic.nowhere (Kind.Conformance(outcome.Package, verdict))
 
-        // The contract `.fsi` files that DID pair, the basis for catching a `sig-only`
+        // The signature files that DID pair, the basis for catching a `sig-only`
         // exemption naming a file that in fact has a companion `.fs`.
         let pairedSigs =
             set
@@ -224,7 +205,7 @@ module ConformancePass =
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
-        // `Unrepresentable` / `RuntimeServed` are only reached for a contract the manifest
+        // `Unrepresentable` / `RuntimeServed` are only reached for a signature file the manifest
         // does NOT declare `sig-only`, so neither can be a declared exemption's file.
         let sigOnlySigs =
             set

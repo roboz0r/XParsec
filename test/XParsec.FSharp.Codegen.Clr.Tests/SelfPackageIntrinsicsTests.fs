@@ -24,6 +24,7 @@ module ConcatProbe =
         let coreUnits =
             match
                 ReferencedProject.resolveManifest Target.Clr vesperCorePackage
+                |> Result.mapError PackageSetFault.describe
                 |> Result.bind PackageUnits.ofManifest
             with
             | Ok units -> units
@@ -31,17 +32,27 @@ module ConcatProbe =
 
         coreUnits
         @ [
-            AssemblyFiles.SourceUnit.ofImplementation (AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource)
+            AssemblyFiles.parseUnit (
+                AssemblyFiles.SourceUnit.ofImplementation (
+                    AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource
+                )
+            )
         ]
 
     /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's
     /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.
     let private compileProbeAsCore (selfManifest: string option) =
-        ClrDriver.compileAssemblyWith
-            []
-            (ClrSymbolProviders.buildContractForSelf selfManifest [])
-            (ProjectInfo.library "Vesper.Core")
-            (coreFilesPlusProbe ())
+        // GATED, so a contract that failed to resolve is reported as itself rather than as the
+        // missing-overload verdict this test is about.
+        ClrSymbolProviders.contractForSelf selfManifest []
+        |> SymbolProviders.Contract.gate
+        |> Result.bind (fun contract ->
+            ClrDriver.compileAssemblyWith
+                []
+                contract.Provider
+                (ProjectInfo.library "Vesper.Core")
+                (coreFilesPlusProbe ())
+        )
 
     [<Tests>]
     let tests =

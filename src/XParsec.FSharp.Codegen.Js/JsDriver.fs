@@ -102,7 +102,7 @@ module JsDriver =
     let compileAssemblyWith
         (contract: SymbolProviders.Contract)
         (packageName: string)
-        (units: AssemblyFiles.SourceUnit list)
+        (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         let assembly: AssemblyFiles.CompilingAssembly =
             {
@@ -110,7 +110,8 @@ module JsDriver =
                 Target = Target.Js
             }
 
-        AssemblyFiles.analyseGated Pipeline.analyseFor assembly contract.Provider units
+        SymbolProviders.Contract.gate contract
+        |> Result.bind (fun gated -> AssemblyFiles.analyseGatedParsed Pipeline.analyseFor assembly gated.Provider units)
         |> Result.bind (fun analysed ->
             // A spliced node reads only against its declaring file's own text, so the
             // assembly's own sources join the references' before any file is emitted.

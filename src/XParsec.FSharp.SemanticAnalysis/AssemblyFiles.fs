@@ -115,7 +115,7 @@ module AssemblyFiles =
     type UnparsedFile =
         {
             Id: AssemblyFileId
-            Failure: Pipeline.ParseFailure
+            Failure: ParseChain.ParseFailure
         }
 
     /// A diagnostic anchored to the file it came from: its source path plus a (line, col)
@@ -155,13 +155,14 @@ module AssemblyFiles =
 
     /// One parsed half of a unit: its tree, and the name within the assembly its own
     /// diagnostics anchor to, which no tree carries.
-    type private ParsedHalf<'tree> = { Id: AssemblyFileId; Parsed: 'tree }
+    type ParsedHalf<'tree> = { Id: AssemblyFileId; Parsed: 'tree }
 
-    /// Both of a unit's trees, parsed before either is analysed.
-    type private ParsedUnit =
+    /// Both of a unit's trees, parsed before either is analysed. Public so a caller that already
+    /// holds them, a package read once, can hand them over instead of text to parse again.
+    type ParsedUnit =
         {
-            Implementation: ParsedHalf<Pipeline.ParsedFile>
-            Signature: ParsedHalf<Pipeline.ParsedSignature> voption
+            Implementation: ParsedHalf<ParseChain.ParsedFile>
+            Signature: ParsedHalf<ParseChain.ParsedSignature> voption
         }
 
     /// Parse both halves, each as leniently as the other: a tree the parser had to RECOVER is
@@ -169,8 +170,8 @@ module AssemblyFiles =
     /// fails the unit, and a signature failing that way fails it whole — it says nothing
     /// trustworthy about what its companion publishes, so falling back on the implementation's
     /// own inferred surface would publish more than the unit ever claimed.
-    let private parseUnit (unit: SourceUnit) : Result<ParsedUnit, UnparsedFile> =
-        match Pipeline.parse unit.Implementation.Text with
+    let parseUnit (unit: SourceUnit) : Result<ParsedUnit, UnparsedFile> =
+        match ParseChain.parse unit.Implementation.Text with
         | Error f ->
             Error
                 {
@@ -192,7 +193,7 @@ module AssemblyFiles =
                         Signature = ValueNone
                     }
             | ValueSome signature ->
-                match Pipeline.parseSignature signature.Text with
+                match ParseChain.parseSignature signature.Text with
                 | Error f -> Error { Id = signature.Id; Failure = f }
                 | Ok parsed ->
                     Ok
@@ -219,21 +220,20 @@ module AssemblyFiles =
     let private signatureView
         (scope: SignatureScope)
         (source: OriginSource)
-        (parsed: Pipeline.ParsedSignature)
+        (parsed: ParseChain.ParsedSignature)
         : IExternalSymbolProvider * Diagnostic list =
-        let ctx = PassContext(scope.Visible, source)
-        ctx.AssemblyName <- scope.Assembly.Name
-
         // The `.fs` binds the reprs, so its pre-scan runs first and the `.fsi`'s
         // `type t = extern` picks a repr over `Unsupported`.
         let reprs = Dictionary<string, string>(System.StringComparer.Ordinal)
 
         IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn scope.ImplementationLexed) scope.Implementation
 
-        let published =
-            SignatureResolution.run
-                ctx
+        let published, diagnostics =
+            SignatureResolution.resolveFile
+                scope.Visible
+                source
                 {
+                    Assembly = scope.Assembly.Name
                     Target = scope.Assembly.Target
                     Reprs = reprs
                 }
@@ -243,15 +243,15 @@ module AssemblyFiles =
             (ValueSome(Origin.InFile scope.ImplementationPath))
             []
             [ PublishedSurface.toProvider published ],
-        List.ofSeq ctx.Diagnostics
+        diagnostics
 
     /// The implementation checked against what its signature publishes: the CST rule set a
     /// manifest-paired unit is held to as well, then typar ORDER over the two frozen surfaces.
     /// The typar half runs only here, because the package route freezes nothing to compare.
     let private conformanceDiagnostics
         (assembly: string)
-        (signature: ParsedHalf<Pipeline.ParsedSignature>)
-        (implementation: ParsedHalf<Pipeline.ParsedFile>)
+        (signature: ParsedHalf<ParseChain.ParsedSignature>)
+        (implementation: ParsedHalf<ParseChain.ParsedFile>)
         (published: IExternalSymbolProvider)
         (frozen: FrozenPools)
         : Diagnostic list =
@@ -297,9 +297,9 @@ module AssemblyFiles =
     let private analyseSignature
         (assembly: CompilingAssembly)
         (composed: IExternalSymbolProvider)
-        (implementation: ParsedHalf<Pipeline.ParsedFile>)
+        (implementation: ParsedHalf<ParseChain.ParsedFile>)
         (implementationPath: OriginPath)
-        (signature: ParsedHalf<Pipeline.ParsedSignature>)
+        (signature: ParsedHalf<ParseChain.ParsedSignature>)
         (frozen: FrozenPools)
         : IExternalSymbolProvider * FrozenSignatureFile =
         // Anchored to the signature's OWN token stream: its diagnostics index that text.
@@ -377,18 +377,18 @@ module AssemblyFiles =
     /// Analyse a multi-file assembly in manifest order through a chosen front end. Each file
     /// resolves the ones BEFORE it, composed nearest-first with the external surface last, so
     /// a name a nearer file re-declares shadows a farther one's.
-    let analyseAssemblyWith
+    let analyseParsedWith
         (analyse: AnalyseFile)
         (assembly: CompilingAssembly)
         (external: IExternalSymbolProvider)
-        (units: SourceUnit list)
+        (units: Result<ParsedUnit, UnparsedFile> list)
         : Result<FrozenFile, UnparsedFile> list =
         // The visibility STACK, nearest first, with the external surface as its floor.
         let mutable visible: IExternalSymbolProvider list = [ external ]
         let results = ResizeArray<Result<FrozenFile, UnparsedFile>>()
 
         for unit in units do
-            match parseUnit unit with
+            match unit with
             | Error e -> results.Add(Error e)
             | Ok parsed ->
                 let file =
@@ -399,6 +399,16 @@ module AssemblyFiles =
                 results.Add(Ok file)
 
         List.ofSeq results
+
+    /// `analyseParsedWith` for a caller holding raw TEXT, namely a driver or a test. One that
+    /// already parsed its units hands them over directly.
+    let analyseAssemblyWith
+        (analyse: AnalyseFile)
+        (assembly: CompilingAssembly)
+        (external: IExternalSymbolProvider)
+        (units: SourceUnit list)
+        : Result<FrozenFile, UnparsedFile> list =
+        analyseParsedWith analyse assembly external (List.map parseUnit units)
 
     /// Analyse a multi-file assembly through the default package/FSharp.Core front end.
     /// The self-host one is reached by passing it to `analyseAssemblyWith` directly.
@@ -425,7 +435,7 @@ module AssemblyFiles =
                     }
                 | positioned ->
                     failwithf
-                        "AssemblyFiles.unpositionedDiagnostics: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
+                        "internal error: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
                         path.Name
                         positioned
                         d.Message
@@ -496,16 +506,16 @@ module AssemblyFiles =
             Origins: OriginSources
         }
 
-    /// `analyseAssemblyWith`, GATED: every file must parse, and no analysed file may carry
+    /// `analyseParsedWith`, GATED: every file must have parsed, and no analysed file may carry
     /// an error-severity diagnostic. A parse failure is fatal for the whole assembly and is
     /// reported alone, because the files after it analysed against a truncated view.
-    let analyseGated
+    let analyseGatedParsed
         (analyse: AnalyseFile)
         (assembly: CompilingAssembly)
         (external: IExternalSymbolProvider)
-        (units: SourceUnit list)
+        (units: Result<ParsedUnit, UnparsedFile> list)
         : Result<AnalysedAssembly, AnchoredDiagnostic list> =
-        let results = analyseAssemblyWith analyse assembly external units
+        let results = analyseParsedWith analyse assembly external units
 
         let parseFailures =
             results

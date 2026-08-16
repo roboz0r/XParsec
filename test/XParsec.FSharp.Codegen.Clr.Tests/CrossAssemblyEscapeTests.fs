@@ -48,16 +48,15 @@ let private producerFs =
             "    let bumpTwice x = applyTwice addOne x"
         ]
 
-/// `name` is omitted so it defaults to the directory name (`loadManifest` requires
-/// the two match); the consumer references the producer DLL by that same name. `int` is
-/// Vesper.Core's, and a contract resolves only what its own dependencies declare — a
-/// `depends-on` entry names a SIBLING package directory, and this one lives under `tmp/`.
+/// `name` is omitted so it defaults to the directory name, which is what the consumer
+/// references the producer DLL by. `int` is Vesper.Core's, and a contract resolves only what its
+/// own dependencies declare, so this fixture under `tmp/` names the way back to `src/`.
 let private producerManifestToml =
     String.concat
         "\n"
         [
             "[core]"
-            "depends-on = [\"../src/Vesper.Core\"]"
+            "depends-on = [\"../../src/Vesper.Core\"]"
             "files = [\"producer.fsi\"]"
             "impl = [\"producer.fs\"]"
         ]

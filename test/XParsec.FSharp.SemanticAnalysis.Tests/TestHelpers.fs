@@ -15,7 +15,7 @@ let srcPackage (pkg: string) : string =
 let srcManifest (target: string) (pkg: string) : ReferencedProject.ManifestPath =
     match ReferencedProject.resolveManifest target (srcPackage pkg) with
     | Result.Ok mp -> mp
-    | Result.Error e -> failwithf "srcManifest: %s" e
+    | Result.Error e -> failwithf "srcManifest: %s" (PackageSetFault.describe e)
 
 /// The default contract stack for the SA front-end tests: real SRTP operators (`(+) : ^T
 /// -> ^T -> ^T`), the ordering operators, `hash`/`failwith`, the cons-list and the printf
@@ -25,6 +25,7 @@ let realProvider: Lazy<IExternalSymbolProvider> =
         [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
         |> List.map (srcManifest "clr")
         |> PackageProviders.composeContract PackageProviders.noPlatformMetadata
+        |> fun composed -> composed.Provider
 
 // Shadow the nominal `SemType` constructors so a test writes `TyUnion("X", args)` rather
 // than minting a `SymbolKey`; the active patterns below project a key back to a name.
@@ -96,7 +97,7 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 /// Raises on failure, and also on a parse that only succeeded because recovery patched a
 /// hole — `parseRecoveredFile` is the one that accepts a patched tree.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match Pipeline.parseUnrecovered input with
+    match ParseChain.parseUnrecovered input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
@@ -104,7 +105,7 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
 /// patched, and what analysis makes of it is the point of the test. Fails if the source
 /// stops needing recovery.
 let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match Pipeline.parse input with
+    match ParseChain.parse input with
     | Result.Error f -> failwithf "parse failed: %A" (f.Diagnostics |> List.map (fun d -> d.Message))
     | Result.Ok parsed ->
         match parsed.Diagnostics with
@@ -169,7 +170,7 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 /// `Passes.Unification.run` on the returned pair to continue into inference.
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+    let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file
     ctx, file

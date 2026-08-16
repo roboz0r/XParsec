@@ -16,6 +16,9 @@ module SignatureResolutionContext =
     [<NoEquality; NoComparison>]
     type SignatureInputs =
         {
+            /// The assembly this signature's published keys are homed in; `""` for a
+            /// front-end-only run that emits nothing.
+            Assembly: string
             /// The target being compiled, named on an `extern` this target binds no repr for.
             Target: string
             /// Short type name -> the platform repr the paired implementation binds. A

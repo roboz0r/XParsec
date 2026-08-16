@@ -38,7 +38,7 @@ module TastNodeViews =
         }
 
     /// The compiled-form cluster, its tuple-group / destructuring patterns held as handles,
-    /// whether those came from a file's own pool or from the standalone pool an `.fsi`
+    /// whether those came from a file's own pool or from the standalone pool a
     /// contract's patterns are minted into.
     type StaticParam = StaticParamG<FrozenType, PatId, BoundVarId>
     type ArgGroup = ArgGroupG<FrozenType, PatId, BoundVarId>

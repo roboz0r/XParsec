@@ -2,7 +2,7 @@
 name = "Vesper.Set"
 description = "The immutable AVL-tree set type and the Set module (FSharp.Core verbatim)."
 
-depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Array", "Vesper.Seq", "Vesper.Choice", "Vesper.Option", "Vesper.Comparison", "Vesper.Printf"]
+depends-on = ["../Vesper.Core", "../Vesper.List", "../Vesper.Array", "../Vesper.Seq", "../Vesper.Choice", "../Vesper.Option", "../Vesper.Comparison", "../Vesper.Printf"]
 
 # CLR-only, so there is no `manifest.js.toml` beside this one. `set.fsi` itself — not
 # merely the impl — names `System.Collections.IEnumerable` / `IStructuralEquatable`,

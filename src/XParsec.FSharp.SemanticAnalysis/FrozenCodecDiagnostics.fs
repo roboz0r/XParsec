@@ -212,6 +212,49 @@ module FrozenCodecDiagnostics =
             InternalBreak.NonAccessorInWithClause(propertyName, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown InternalBreak tag %d" b
 
+    let private writePackageSetFault (w: FrozenWriter) (f: PackageSetFault) =
+        match f with
+        | PackageSetFault.FileMissing(package, relative) ->
+            w.Write 0uy
+            w.Write package
+            w.Write relative
+        | PackageSetFault.FileWrongHalf(package, relative, expected) ->
+            w.Write 1uy
+            w.Write package
+            w.Write relative
+            w.Write expected
+        | PackageSetFault.NoManifestForTarget(packageDir, target) ->
+            w.Write 2uy
+            w.Write packageDir
+            w.Write target
+        | PackageSetFault.UnresolvedDependency detail ->
+            w.Write 3uy
+            w.Write detail
+        | PackageSetFault.DuplicateType(typeName, first, second) ->
+            w.Write 4uy
+            w.Write typeName
+            w.Write first
+            w.Write second
+
+    let private readPackageSetFault (r: FrozenReader) : PackageSetFault =
+        match r.ReadByte() with
+        | 0uy ->
+            let package = r.ReadString()
+            PackageSetFault.FileMissing(package, r.ReadString())
+        | 1uy ->
+            let package = r.ReadString()
+            let relative = r.ReadString()
+            PackageSetFault.FileWrongHalf(package, relative, r.ReadString())
+        | 2uy ->
+            let packageDir = r.ReadString()
+            PackageSetFault.NoManifestForTarget(packageDir, r.ReadString())
+        | 3uy -> PackageSetFault.UnresolvedDependency(r.ReadString())
+        | 4uy ->
+            let typeName = r.ReadString()
+            let first = r.ReadString()
+            PackageSetFault.DuplicateType(typeName, first, r.ReadString())
+        | b -> failwithf "FrozenCodec: unknown PackageSetFault tag %d" b
+
     let private writeKind (w: FrozenWriter) (k: Kind) =
         match k with
         | Kind.UndefinedType name ->
@@ -383,6 +426,9 @@ module FrozenCodecDiagnostics =
             w.Write binding
             writeStringList w via
         | Kind.AllowNullLiteralOnWrongKind -> w.Write 48uy
+        | Kind.PackageSet fault ->
+            w.Write 49uy
+            writePackageSetFault w fault
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -498,6 +544,7 @@ module FrozenCodecDiagnostics =
             let binding = r.ReadString()
             Kind.CyclicInline(binding, readStringList r)
         | 48uy -> Kind.AllowNullLiteralOnWrongKind
+        | 49uy -> Kind.PackageSet(readPackageSetFault r)
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

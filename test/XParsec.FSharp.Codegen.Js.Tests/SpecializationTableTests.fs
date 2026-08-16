@@ -29,7 +29,7 @@ type private Analysed =
 /// the same prefix, then flattens the table away and discards it.
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+    let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
@@ -100,14 +100,13 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
             System.IO.File.WriteAllText(System.IO.Path.Combine(dir, name), text)
 
         // `int` is Vesper.Core's, and a contract resolves only what its own dependencies
-        // declare. A `depends-on` entry names a SIBLING package directory; this one lives
-        // under `tmp/`, so it spells the way to `src/`.
+        // declare, so this fixture under `tmp/` names the way back to `src/`.
         write
             "manifest.js.toml"
             """[core]
 name = "Cycle.Probe"
 description = "Inline bodies that call themselves, for the acyclicity check."
-depends-on = ["../src/Vesper.Core"]
+depends-on = ["../../src/Vesper.Core"]
 files = ["probe.fsi"]
 impl = ["probe.fs"]
 """

@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Js
 /// parses only because RECOVERY patched it raises here. `Result.Error` is qualified because
 /// `open …SemanticAnalysis` brings `Severity.Error` into scope, shadowing it.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match Pipeline.parseUnrecovered input with
+    match ParseChain.parseUnrecovered input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
@@ -97,7 +97,9 @@ let expectMemberKeyHalvesAgree
     // The named packages alone, NOT their `depends-on` closure: the assertion is about the
     // halves one package's own `impl` publishes.
     let manifests =
-        ReferencedProject.resolveAll Target.Js implPackages
+        (match ReferencedProject.resolveAll Target.Js implPackages with
+         | Result.Ok resolved -> resolved
+         | Result.Error fault -> failtestf "resolveAll: %s" (PackageSetFault.describe fault))
         |> List.map (fun mp ->
             match ReferencedProject.loadManifest mp with
             | Result.Ok m -> m
@@ -105,7 +107,7 @@ let expectMemberKeyHalvesAgree
         )
 
     let implBodies =
-        (SymbolProviders.inlineBodies contract.Provider manifests).Bodies.Members
+        (SymbolProviders.inlineBodies contract.Provider (List.map PackageSource.readPackage manifests)).Bodies.Members
 
     for memberName in members do
         let contractKey =

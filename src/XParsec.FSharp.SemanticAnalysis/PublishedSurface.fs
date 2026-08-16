@@ -123,8 +123,9 @@ type PublishedSurface =
         RecordFields: EqArray<SurfaceEntry<string, EqArray<ExternalRecordCandidate>>>
         /// Values, keyed as a binding key renders: `.`-joined.
         Symbols: EqArray<SurfaceEntry<string, ExternalSymbol>>
-        /// Derived from the `Intrinsic` shapes above, never filled: a CAPABILITY interface
-        /// carries its platform name on its own identity and must stay OFF this axis.
+        /// Derived from the `Intrinsic` shapes above. The BUILDER has no such field, so a
+        /// producer cannot put a CAPABILITY interface here: it carries its platform name on
+        /// its own identity and must stay OFF this axis.
         Intrinsics: IntrinsicTypeMap
         /// Prefixes a consumer resolves through with no `open` of its own, in SEARCH order:
         /// the one table that is not key-ordered.

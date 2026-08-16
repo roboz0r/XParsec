@@ -3,9 +3,9 @@ name = "Vesper.Seq"
 description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
 # `Vesper.Array` is `toArray`'s: it returns `'T[]` and builds its buffer with
 # `Array.zeroCreate`.
-depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison", "Vesper.Array"]
+depends-on = ["../Vesper.Core", "../Vesper.List", "../Vesper.Comparison", "../Vesper.Array"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Signature files in compile order (one, today).
 files = [
     "seq.fsi",
 ]

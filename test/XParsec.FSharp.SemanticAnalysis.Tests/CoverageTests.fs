@@ -1315,7 +1315,7 @@ let tests =
                         [ ExternalSymbolProviders.ofNamedChannels stub; realProvider.Value ]
 
                 let lexed, file = parseFile "let _ = 0"
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
                 Passes.Desugar.run ctx file
                 Passes.NameResolution.run ctx file
                 Passes.Unification.run ctx file

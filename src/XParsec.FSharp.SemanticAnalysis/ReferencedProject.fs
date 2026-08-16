@@ -31,7 +31,7 @@ module ReferencedProject =
 
     /// The manifest `packageDir` publishes for `target`, absent when the package does not build
     /// for it. `src/Vesper.Core` + `"js"` ⇒ `src/Vesper.Core/manifest.js.toml`.
-    let resolveManifest (target: string) (packageDir: string) : Result<ManifestPath, string> =
+    let resolveManifest (target: string) (packageDir: string) : Result<ManifestPath, PackageSetFault> =
         let path = Path.Combine(packageDir, "manifest." + target + ".toml")
 
         if File.Exists path then
@@ -42,23 +42,24 @@ module ReferencedProject =
                 }
         else
             Error(
-                sprintf
-                    "Package '%s' does not build for target `%s`: no %s"
-                    (Path.GetFileName(Path.TrimEndingDirectorySeparator packageDir))
+                PackageSetFault.NoManifestForTarget(
+                    Path.GetFileName(Path.TrimEndingDirectorySeparator packageDir),
                     target
-                    (Path.GetFileName path)
+                )
             )
 
     /// Every package directory resolved against `target`. A package that does not build for it
-    /// is a hard error: dropping one silently would resolve, and CACHE, against a smaller
-    /// package set than the caller named.
-    let resolveAll (target: string) (packageDirs: string list) : ManifestPath list =
-        packageDirs
-        |> List.map (fun dir ->
-            match resolveManifest target dir with
-            | Ok mp -> mp
-            | Error e -> failwith e
-        )
+    /// is a REFUSAL, not a silent drop.
+    let resolveAll (target: string) (packageDirs: string list) : Result<ManifestPath list, PackageSetFault> =
+        let rec go acc dirs =
+            match dirs with
+            | [] -> Ok(List.rev acc)
+            | dir :: rest ->
+                match resolveManifest target dir with
+                | Ok mp -> go (mp :: acc) rest
+                | Error fault -> Error fault
+
+        go [] packageDirs
 
     /// A parsed package `manifest.<target>.toml`: one flat `[core]` table, each list already
     /// in compile order for this manifest's target. A package that builds for two targets
@@ -70,25 +71,25 @@ module ReferencedProject =
             /// Package / assembly simple name: `[core] name` when present, else
             /// the manifest's directory name (`src/Vesper.Core` ⇒ `"Vesper.Core"`).
             Name: string
-            /// Other packages this one depends on (`[core] depends-on`): the
-            /// package names whose DLLs/contracts must be built/referenced first.
+            /// Other packages this one depends on (`[core] depends-on`), each a path
+            /// RELATIVE TO THIS PACKAGE'S DIRECTORY (`"../Vesper.Core"`), because a package
+            /// outside `src/` must be able to name one inside it.
             DependsOn: string list
-            /// Contract `.fsi` files in compile order (`[core] files`).
+            /// Signature files in compile order (`[core] files`).
             Files: string list
             /// The `.fs` bodies compiled into the package DLL, and the splice sources those
             /// same bodies publish (`[core] impl`).
             Impl: string list
-            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`): a
-            /// front-end intrinsic lowered inline (`printf.fsi`), or a BCL-resolved contract
-            /// (`exceptions.fsi`). An impl-free `.fsi` NOT listed is a hard error. The
-            /// converse needs no list: a `.fs` owes no contract, as in F# itself.
+            /// Signature files that are DELIBERATELY impl-free (`[core] sig-only`): a
+            /// front-end intrinsic lowered inline (`printf.fsi`), or one whose declarations the
+            /// BCL resolves (`exceptions.fsi`).
             SigOnly: string list
             /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
         }
 
-        /// The target this manifest is the package's contract for, read off the file name
+        /// The target this manifest declares the package's file set for, read off the file name
         /// (`manifest.js.toml` ⇒ `"js"`).
         member this.Target = this.Path.Target
         /// The directory the manifest sits in, which every list entry is relative to.
@@ -176,7 +177,7 @@ module ReferencedProject =
                         | Some explicit when explicit <> dirName ->
                             Error(
                                 sprintf
-                                    "%s: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against"
+                                    "%s: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity, and the assembly name it emits under"
                                     path
                                     explicit
                                     dirName
@@ -202,12 +203,12 @@ module ReferencedProject =
         | Error e -> Error(sprintf "Manifest parse error (%s): %s" mp.Path e)
         | Ok doc -> parseManifest mp doc
 
-    /// Resolve a `depends-on` package name against the dependent's own target. A package's
-    /// directory name *is* its identity, so `"Vesper.Core"` named by a manifest in
-    /// `src/Vesper.List` resolves in `src/Vesper.Core`, at the same target.
-    let private dependencyManifest (dependent: ManifestPath) (dependencyName: string) : Result<ManifestPath, string> =
-        let srcDir = Path.GetDirectoryName dependent.PackageDir
-        resolveManifest dependent.Target (Path.Combine(srcDir, dependencyName))
+    /// Resolve a `depends-on` entry against the dependent's own DIRECTORY and target:
+    /// `"../Vesper.Core"` named by a manifest in `src/Vesper.List` resolves in `src/Vesper.Core`,
+    /// canonicalised, so two spellings of one package are one. The fault renders to prose here.
+    let private dependencyManifest (dependent: ManifestPath) (dependencyPath: string) : Result<ManifestPath, string> =
+        resolveManifest dependent.Target (Path.Combine(dependent.PackageDir, dependencyPath))
+        |> Result.mapError PackageSetFault.describe
 
     /// Close `rootManifests` over `[core] depends-on`: every reachable manifest PARSED, in
     /// **dependency order** (de-duplicated, stable over discovery order), plus each one's DIRECT

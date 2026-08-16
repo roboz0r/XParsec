@@ -41,14 +41,14 @@ let private writePackageFilesFor
 
     match ReferencedProject.resolveManifest target dir with
     | Result.Ok mp -> mp
-    | Result.Error e -> failwithf "resolveManifest: %s" e
+    | Result.Error e -> failwithf "resolveManifest: %s" (PackageSetFault.describe e)
 
 /// `writePackageFilesFor` at the target these fixtures are indifferent to — they hash a
 /// manifest's own file set, which no target reads differently.
 let private writePackageFiles (root: string) (pkg: string) (manifestBody: string) (files: (string * string) list) =
     writePackageFilesFor root pkg "none" manifestBody files
 
-/// A one-contract package: `contract.fsi` carrying `contract`, and nothing else.
+/// A one-signature-file package: `contract.fsi` carrying `contract`, and nothing else.
 let private writePackage (root: string) (pkg: string) (contract: string) : ReferencedProject.ManifestPath =
     writePackageFiles root pkg "[core]\nfiles = [\"contract.fsi\"]\n" [ "contract.fsi", contract ]
 
@@ -156,7 +156,7 @@ let tests =
             testList
                 "dependencySignatureHash over contract bytes"
                 [
-                    test "a changed contract .fsi changes the signature hash" {
+                    test "a changed signature file changes the signature hash" {
                         let root = freshRoot "contract-change"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
                         let before = signatureHash manifest
@@ -171,7 +171,7 @@ let tests =
                         let before = signatureHash manifest
                         File.WriteAllText(Path.Combine(root, "Pkg", "notes.txt"), "irrelevant\n")
                         let after = signatureHash manifest
-                        Expect.equal before after "only the listed contract files feed the hash"
+                        Expect.equal before after "only the listed signature files feed the hash"
                     }
 
                     test "dependencySignatureHash is deterministic" {
@@ -288,7 +288,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Root"
-                                "[core]\nfiles = [\"root.fsi\"]\ndepends-on = [\"Dep\"]\n"
+                                "[core]\nfiles = [\"root.fsi\"]\ndepends-on = [\"../Dep\"]\n"
                                 [ "root.fsi", "type r = extern\n" ]
 
                         let inputs =
@@ -423,7 +423,7 @@ let tests =
                     }
                 ]
 
-            // The contract `.fsi` set is NOT the whole determinant of a consumer's output: a
+            // The signature-file set is NOT the whole determinant of a consumer's output: a
             // dependency's inline bodies splice into the consumer's tree before it is frozen,
             // and the `.fs` companions decide what a primitive resolves to.
             testList

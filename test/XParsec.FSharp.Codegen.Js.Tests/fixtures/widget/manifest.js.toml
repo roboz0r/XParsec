@@ -1,6 +1,6 @@
 # widget — a minimal test-only fixture package that carries a concrete
 # `(# … #)`-bodied member on an intrinsic/`extern` type. It proves the member-inline
-# SPLICE end-to-end: the `.fsi` is the consumer-side contract (an `extern` host +
+# SPLICE end-to-end: the signature file declares the consumer-side contract (an `extern` host +
 # `Poke` member), and the `.js.fs` companion is the body source whose member body the
 # codegen inline-body loader keys under the finalized member key. Modeled on
 # `src/Vesper.Core` / `src/Vesper.List`.
@@ -16,9 +16,8 @@ name = "widget"
 description = "Test fixture: a `(# … #)`-bodied member (`Poke`) on an `extern` type."
 
 # `int` is Vesper.Core's, and a contract resolves only what its own dependencies declare.
-# A `depends-on` entry names a SIBLING package directory; this fixture does not live beside
-# `src/`, so it spells the way there.
-depends-on = ["../../../src/Vesper.Core"]
+# A `depends-on` entry is a path relative to THIS package's directory.
+depends-on = ["../../../../src/Vesper.Core"]
 
 # The front-end symbol contract: `widget` with `Poke`, and `gadget` with `Bump`.
 files = [

@@ -49,6 +49,12 @@ let private okArtifact (label: string) (result: Result<ClrArtifact, Diagnostic l
 let private printProgram (message: string) : string =
     sprintf "System.Console.WriteLine \"%s\"" message
 
+/// A fixture package's manifest. It `depends-on` the real `Vesper.Core` because its contract
+/// names `int`, which resolves through Vesper.Core and nowhere else. Forward slashes because a
+/// TOML basic string reads `\` as an escape.
+let private fixtureManifest (name: string) (lists: string) : string =
+    sprintf "[core]\nname = \"%s\"\ndepends-on = [\"%s\"]\n%s" name (vesperCorePackage.Replace('\\', '/')) lists
+
 [<Tests>]
 let tests =
     testList
@@ -108,7 +114,7 @@ let tests =
                 let fsiPath = Path.Combine(pkgDir, "extra.fsi")
                 let manifestPath = Path.Combine(pkgDir, "manifest.clr.toml")
 
-                File.WriteAllText(manifestPath, "[core]\nname = \"Extra\"\nfiles = [\"extra.fsi\"]\n")
+                File.WriteAllText(manifestPath, fixtureManifest "Extra" "files = [\"extra.fsi\"]\n")
 
                 let contract (marker: string) : string =
                     sprintf "namespace Extra\n\nmodule ExtraContract =\n\n    /// %s\n    val extraMarker: int\n" marker
@@ -150,7 +156,7 @@ let tests =
             }
 
             test "a changed dependency INLINE BODY misses" {
-                // An `impl` `.fs` is not contract (it is not in `files`), but its bodies are
+                // An `impl` `.fs` is not a signature file (it is not in `files`), but its bodies are
                 // SPLICED into the consumer before freeze, so its bytes are a compile
                 // determinant. Only the MISS, not the output, can witness the key moving.
                 let root = tmpDir "frozen-cache-inline-body-inval"
@@ -159,7 +165,7 @@ let tests =
                 let fsPath = Path.Combine(pkgDir, "ops.fs")
                 let manifestPath = Path.Combine(pkgDir, "manifest.clr.toml")
 
-                File.WriteAllText(manifestPath, "[core]\nname = \"Inl\"\nfiles = [\"inl.fsi\"]\nimpl = [\"ops.fs\"]\n")
+                File.WriteAllText(manifestPath, fixtureManifest "Inl" "files = [\"inl.fsi\"]\nimpl = [\"ops.fs\"]\n")
 
                 File.WriteAllText(
                     Path.Combine(pkgDir, "inl.fsi"),

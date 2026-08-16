@@ -295,24 +295,19 @@ module M =
                 // Resolve the `.fsi` against the SAME provider the implementation was frozen
                 // over, so both sides mint one `int` identity.
                 let sigSurface =
-                    match Pipeline.parseSignature sigSrc with
+                    match ParseChain.parseSignature sigSrc with
                     | Result.Error f -> failtestf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
                     | Result.Ok parsed ->
-                        let ctx =
-                            PassContext(
-                                realProvider.Value,
-                                AssemblyFiles.fileSource "P" (AssemblyFileId.ofRelative "p.fsi") parsed.Lexed
-                            )
-
-                        ctx.AssemblyName <- "P"
-
-                        Passes.SignatureResolution.run
-                            ctx
+                        Passes.SignatureResolution.resolveFile
+                            realProvider.Value
+                            (AssemblyFiles.fileSource "P" (AssemblyFileId.ofRelative "p.fsi") parsed.Lexed)
                             {
+                                Assembly = "P"
                                 Target = "none"
                                 Reprs = System.Collections.Generic.Dictionary()
                             }
                             parsed.File
+                        |> fst
 
                 let fsiSymbolBySuffix (name: string) : ExternalSymbol option =
                     let mutable found = None

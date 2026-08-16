@@ -369,7 +369,7 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
 
         match ReferencedProject.resolveManifest "js" dir with
         | Ok mp -> outcomeFor mp
-        | Error e -> failtestf "resolveManifest: %s" e
+        | Error e -> failtestf "resolveManifest: %s" (PackageSetFault.describe e)
     finally
         Directory.Delete(dir, true)
 
@@ -424,7 +424,11 @@ let jsPackageConformanceTests =
                 let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
 
                 Expect.equal (List.length errors) 1 "one hard error"
-                Expect.stringContains errors.Head "cell.fsi" "the FS0240-style error names the contract owing a body"
+
+                Expect.stringContains
+                    errors.Head
+                    "cell.fsi"
+                    "the FS0240-style error names the signature file owing a body"
             }
 
             test "js: an unrepresentable contract raises no hard error, and needs no exemption to" {
@@ -480,7 +484,7 @@ let jsPackageConformanceTests =
                     "Vesper.Comparison: the ordering runtime"
             }
 
-            test "js: rename the asset's export and the contract owes a `.fs` again" {
+            test "js: rename the asset's export and the signature file owes a `.fs` again" {
                 // The whole difference between the two runs is one identifier in the `.mjs`:
                 // the verdict is checked against the asset, not read off the `runtime` key.
                 let served = runtimeAssetOutcome "served"
@@ -499,7 +503,7 @@ let jsPackageConformanceTests =
                 let errors = ConformancePass.enforce renamed |> List.map (fun d -> d.Message)
 
                 Expect.equal (List.length errors) 1 "the contract is a hard error again"
-                Expect.stringContains errors.Head "served.fsi" "naming the contract whose export vanished"
+                Expect.stringContains errors.Head "served.fsi" "naming the signature file whose export vanished"
             }
 
             test "js: capabilities-compat.js.fsi is accepted as pure abbreviation, naming no extern" {
@@ -715,7 +719,7 @@ let enforcementTests =
 
                 Expect.equal (List.length errors) 2 "the parse failure does not mask the orphaned .fsi"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V244") "the parse-failure family"
-                Expect.stringContains errors.Head.Message "broken.fsi" "names the unparseable contract"
+                Expect.stringContains errors.Head.Message "broken.fsi" "names the unparseable signature file"
                 Expect.equal errors.[1].Code (DiagCode.Vesper "V240") "the sibling drift still surfaces"
             }
         ]
@@ -938,16 +942,24 @@ let memberTyparConformanceTests =
 
 /// Each unit as `(signature, implementation)` relative paths, the signature `""` when the
 /// body carries none.
-let private unitPaths (units: AssemblyFiles.SourceUnit list) : (string * string) list =
+let private unitPaths
+    (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
+    : (string * string) list =
     [
-        for u in units ->
-            (match u.Signature with
-             | ValueSome s -> s.Id.Name
-             | ValueNone -> ""),
-            u.Implementation.Id.Name
+        for u in units do
+            match u with
+            | Ok u ->
+                yield
+                    (match u.Signature with
+                     | ValueSome s -> s.Id.Name
+                     | ValueNone -> ""),
+                    u.Implementation.Id.Name
+            | Error e -> failtestf "the package read did not deliver %s" e.Id.Name
     ]
 
-let private unitsOf (mp: ReferencedProject.ManifestPath) : AssemblyFiles.SourceUnit list =
+let private unitsOf
+    (mp: ReferencedProject.ManifestPath)
+    : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
     match PackageUnits.ofManifest mp with
     | Ok units -> units
     | Error e ->
@@ -970,7 +982,7 @@ let packageUnitsTests =
                         let units = unitsOf manifestPath
 
                         Expect.equal
-                            (units |> List.map (fun u -> u.Implementation.Id.Name))
+                            (unitPaths units |> List.map snd)
                             manifest.Impl
                             "one unit per `impl` entry, in manifest order"
 

@@ -6,13 +6,13 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// Conformance of a `.fsi` contract against its `.fs` implementation, over the parsed
+// Conformance of a signature file against its implementation file, over the parsed
 // CSTs: every `type X = extern` is met by a `type X = (# "repr" #)` and vice versa, and
 // every other declared type and `val` is present on both sides. Presence, not signatures.
 
 module Conformance =
 
-    /// A type declaration as seen in the `.fsi` contract.
+    /// A type declaration as seen in the signature file.
     [<RequireQualifiedAccess>]
     type SigShape =
         /// `type X = extern` — a target capability with no Vesper representation.

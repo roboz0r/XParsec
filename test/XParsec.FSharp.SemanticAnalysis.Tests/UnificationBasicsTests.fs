@@ -160,7 +160,7 @@ let tests =
 
                 let input = "let y = broken"
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file

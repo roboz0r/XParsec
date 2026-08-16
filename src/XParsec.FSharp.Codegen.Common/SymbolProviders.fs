@@ -18,13 +18,9 @@ module SymbolProviders =
     /// A parsed package manifest.
     type Manifest = ReferencedProject.Manifest
 
-    /// Dependency-ordered manifests, PARSED, and each package's transitive `depends-on` closure.
-    let private orderedManifestsWithDeps
-        (manifests: ManifestPath list)
-        : Manifest list * (ManifestPath -> ManifestPath list) =
-        match ReferencedProject.buildClosureWithDeps manifests with
-        | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
-        | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
+    /// A whole-set fault as an unpositioned diagnostic, there being no file to anchor it to.
+    let private setFaultDiagnostics (fault: PackageSetFault) : AssemblyFiles.AnchoredDiagnostic list =
+        AssemblyFiles.unpositionedDiagnostics AssemblyFileId.nowhere [ Diagnostic.nowhere (Kind.PackageSet fault) ]
 
     /// The package stack for a compilation that IS a package: its declared references, then the
     /// package's OWN directory last. That `.fsi` route is the only channel a prior file's
@@ -40,8 +36,14 @@ module SymbolProviders =
         (platformMetadata: PlatformMetadataFactory)
         (target: string)
         (packageDirs: string list)
-        : IExternalSymbolProvider =
-        PackageProviders.composeContract platformMetadata (ReferencedProject.resolveAll target packageDirs)
+        : PackageProviders.ComposedContract =
+        match ReferencedProject.resolveAll target packageDirs with
+        | Result.Ok resolved -> PackageProviders.composeContract platformMetadata resolved
+        | Result.Error fault ->
+            {
+                Provider = ExternalSymbolProviders.nullProvider
+                Diagnostics = setFaultDiagnostics fault
+            }
 
     /// One pass over a manifest set's splice sources: the templates published, and the
     /// producer file each was declared in.
@@ -51,63 +53,69 @@ module SymbolProviders =
             Origins: OriginSources
         }
 
-    /// Load cross-package inline bodies from manifests' `impl` files, type-checked and
-    /// frozen once against `provider`. Manifest/decl order, so a later body wins a clash.
-    let inlineBodies (provider: IExternalSymbolProvider) (manifests: Manifest list) : CollectedInlineBodies =
+    /// Load cross-package inline bodies from the packages' implementation files as READ,
+    /// type-checked and frozen once against `provider`. Manifest/decl order, so a later body
+    /// wins a clash.
+    let inlineBodies
+        (provider: IExternalSymbolProvider)
+        (packages: PackageSource.ParsedPackage list)
+        : CollectedInlineBodies =
         let acc = ResizeArray<InlineBodies.KeyedInlineBody>()
         let memberAcc = ResizeArray<InlineBodies.KeyedInlineBody>()
         let mutable origins = OriginSources.empty
 
-        for manifest in manifests do
-            for rel in manifest.Impl do
-                let file = PackageSource.locate manifest.Name manifest.Dir rel
+        let collect
+            (manifest: ReferencedProject.Manifest)
+            (file: PackageSource.ReadFile<ParseChain.ParsedFile>)
+            (impl: ParseChain.ParsedFile)
+            =
+            let origin =
+                Hashing.originSource
+                    {
+                        BucketName = manifest.Name
+                        Relative = file.Id
+                    }
+                    impl.Lexed
 
-                match PackageSource.parse file with
-                | Result.Error _ -> ()
-                | Result.Ok parsed ->
-                    let origin = Hashing.originSource parsed.File parsed.Lexed
+            origins <- OriginSources.add origin origins
 
-                    origins <- OriginSources.add origin origins
+            // `manifest.Name` is the home assembly the published keys are rooted at, the same
+            // one the package's own symbols are stamped with, so a served key and a resolved
+            // one agree.
+            let ctx, sem =
+                Pipeline.analyseSemWithContextFor manifest.Name provider origin impl.File
 
-                    let implFile =
-                        match parsed.Ast with
-                        | FSharpAst.ImplementationFile f -> Some f
-                        | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
-                            Some(ImplementationFile.AnonymousModule elems)
-                        | _ -> None
+            // Freezing an errored tree prunes the failed declarations; pooling then
+            // trips on side-table entries that outlived them, blaming the file's FIRST
+            // binding. Errors alone are not fatal: an implementation file may name spare types.
+            let frozen =
+                try
+                    Freeze.run ctx sem
+                with e ->
+                    let pruned =
+                        match sem.Diagnostics |> Diagnostic.errors with
+                        | [] -> " (none — the fault is in the freeze itself)"
+                        | errors -> errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
 
-                    match implFile with
-                    | None -> ()
-                    | Some f ->
-                        // `manifest.Name` is the home assembly the published keys are rooted
-                        // at, the same one the package's own symbols are stamped with, so a
-                        // served key and a resolved one agree.
-                        let ctx, sem = Pipeline.analyseSemWithContextFor manifest.Name provider origin f
+                    failwithf
+                        "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
+                        manifest.Name
+                        file.Relative
+                        e.Message
+                        pruned
 
-                        // Freezing an errored tree prunes the failed declarations; pooling then
-                        // trips on side-table entries that outlived them, blaming the file's FIRST
-                        // binding. Errors alone are not fatal: a contract file may name spare types.
-                        let frozen =
-                            try
-                                Freeze.run ctx sem
-                            with e ->
-                                let pruned =
-                                    match sem.Diagnostics |> Diagnostic.errors with
-                                    | [] -> " (none — the fault is in the freeze itself)"
-                                    | errors ->
-                                        errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
+            let bodies = InlineBodies.collect origin frozen
 
-                                failwithf
-                                    "SymbolProviders: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
-                                    manifest.Name
-                                    rel
-                                    e.Message
-                                    pruned
+            acc.AddRange bodies.Values
+            memberAcc.AddRange bodies.Members
 
-                        let bodies = InlineBodies.collect origin frozen
-
-                        acc.AddRange bodies.Values
-                        memberAcc.AddRange bodies.Members
+        for pkg in packages do
+            for entry in pkg.Implementations do
+                match entry.Implementation.Outcome with
+                | Ok parsed -> collect pkg.Manifest entry.Implementation parsed
+                // A file the read could not deliver splices nothing. Its fault is reported by
+                // the provider build, which reads the same package value.
+                | Error _ -> ()
 
         {
             Bodies =
@@ -117,7 +125,6 @@ module SymbolProviders =
                 }
             Origins = origins
         }
-
 
     /// One manifest set's composed contract. A backend takes the WHOLE value: a provider from
     /// one manifest set beside an anchor domain from another resolves a served body's position
@@ -134,6 +141,9 @@ module SymbolProviders =
             /// The producer files the collected bodies were unpooled from, retained so their
             /// anchors stay readable. Re-parsing to recover them would give a second answer.
             Origins: OriginSources
+            /// What resolving the referenced contracts found: a manifest naming a file it has
+            /// not got, a declaration a contract could not publish.
+            Diagnostics: AssemblyFiles.AnchoredDiagnostic list
         }
 
     module Contract =
@@ -147,7 +157,19 @@ module SymbolProviders =
                 Provider = ExternalSymbolProviders.nullProvider
                 BodiesByName = Map.empty
                 Origins = OriginSources.empty
+                Diagnostics = []
             }
+
+        /// The contract, refused if resolving it failed. Ungated, a contract that publishes LESS
+        /// than its `.fsi` files say surfaces as an unresolved name in the CONSUMING file, which
+        /// blames the wrong file for it.
+        let gate (contract: Contract) : Result<Contract, AssemblyFiles.AnchoredDiagnostic list> =
+            match
+                contract.Diagnostics
+                |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error)
+            with
+            | [] -> Ok contract
+            | errors -> Error errors
 
     /// Cache keyed by resolved manifest set + target + metadata tag.
     let private contractCache =
@@ -161,47 +183,62 @@ module SymbolProviders =
         (target: string)
         (packageDirs: string list)
         : Contract =
-        let normalised = ReferencedProject.resolveAll target packageDirs
+        match ReferencedProject.resolveAll target packageDirs with
+        | Result.Error fault ->
+            { Contract.empty with
+                Diagnostics = setFaultDiagnostics fault
+            }
+        | Result.Ok normalised ->
 
-        // The tag distinguishes each backend's collection of one package set: they freeze
-        // different bodies over different platform metadata. The target is in the key in
-        // its own right because an EMPTY set contributes no path that could carry it.
-        let key =
-            cacheTag
-            + "|"
-            + target
-            + "|"
-            + (normalised |> List.map (fun m -> m.Path) |> String.concat ";")
+            // The tag distinguishes each backend's collection of one package set: they freeze
+            // different bodies over different platform metadata. The target is in the key in
+            // its own right because an EMPTY set contributes no path that could carry it.
+            let key =
+                cacheTag
+                + "|"
+                + target
+                + "|"
+                + (normalised |> List.map (fun m -> m.Path) |> String.concat ";")
 
-        contractCache
-            .GetOrAdd(
-                key,
-                fun _ ->
-                    lazy
-                        (let ordered, transitiveDeps = orderedManifestsWithDeps normalised
+            contractCache
+                .GetOrAdd(
+                    key,
+                    fun _ ->
+                        lazy
+                            (match ReferencedProject.buildClosureWithDeps normalised with
+                             | Result.Error e ->
+                                 { Contract.empty with
+                                     Diagnostics = setFaultDiagnostics (PackageSetFault.UnresolvedDependency e)
+                                 }
+                             | Result.Ok(ordered, transitiveDeps) ->
 
-                         let provider =
-                             PackageProviders.composeOrdered platformMetadata ordered transitiveDeps
+                                 // Read once: the contracts below resolve, and the bodies freeze,
+                                 // off these same trees.
+                                 let packages = ordered |> List.map PackageSource.readPackage
 
-                         let collected = inlineBodies provider ordered
+                                 let composed =
+                                     PackageProviders.composeOrdered platformMetadata packages transitiveDeps
 
-                         // A later body wins a clash (the list is in manifest/decl order).
-                         let byName =
-                             (Map.empty, collected.Bodies.Values)
-                             ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
+                                 let collected = inlineBodies composed.Provider packages
 
-                         let served =
-                             provider
-                             |> ExternalSymbolProviders.withInlineBodies (InlineBodies.index collected.Bodies)
+                                 // A later body wins a clash (the list is in manifest/decl order).
+                                 let byName =
+                                     (Map.empty, collected.Bodies.Values)
+                                     ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
 
-                         {
-                             RuntimeAssets = ReferencedProject.runtimeModules ordered
-                             Provider = served
-                             BodiesByName = byName
-                             Origins = collected.Origins
-                         })
-            )
-            .Value
+                                 let served =
+                                     composed.Provider
+                                     |> ExternalSymbolProviders.withInlineBodies (InlineBodies.index collected.Bodies)
+
+                                 {
+                                     RuntimeAssets = ReferencedProject.runtimeModules ordered
+                                     Provider = served
+                                     BodiesByName = byName
+                                     Origins = collected.Origins
+                                     Diagnostics = composed.Diagnostics
+                                 })
+                )
+                .Value
 
     /// `buildContractWith` over a FIXED provider list, wrapped as a constant factory: for a
     /// backend whose platform metadata reads nothing from the intrinsic axis.

@@ -45,20 +45,19 @@ let resolveFsiWith
     (input: string)
     : Resolved =
     let parsed =
-        match Pipeline.parseSignature input with
+        match ParseChain.parseSignature input with
         | Result.Error f -> failtestf "parse failed in %s: %A" relative [ for d in f.Diagnostics -> d.Message ]
         | Result.Ok p -> p
 
     let source =
         AssemblyFiles.fileSource "App" (AssemblyFileId.ofRelative relative) parsed.Lexed
 
-    let ctx = PassContext(dependencies, source)
-    ctx.AssemblyName <- "App"
-
-    let surface =
-        SignatureResolution.run
-            ctx
+    let surface, diagnostics =
+        SignatureResolution.resolveFile
+            dependencies
+            source
             {
+                Assembly = "App"
                 Target = "none"
                 Reprs = reprTable reprs
             }
@@ -66,7 +65,7 @@ let resolveFsiWith
 
     {
         Surface = surface
-        Diagnostics = List.ofSeq ctx.Diagnostics
+        Diagnostics = diagnostics
     }
 
 /// `resolveFsiWith` against the real contract stack, so a snippet may write `int` / `obj`.
@@ -547,8 +546,8 @@ let tests =
                     "the Dispose member surface survives"
             }
 
-            // A primitive has no type in the output to hang a method on, so a concrete member
-            // on one can only be spliced — and the `.fsi` contract must say so.
+            // A primitive has no type in the output to hang a method on, so a concrete member on
+            // one can only be spliced, which the signature file must say.
             test "a concrete member on an intrinsic must be declared inline" {
                 let r =
                     resolveFsiWith

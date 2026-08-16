@@ -55,7 +55,7 @@ module TastPoolBuilder =
         }
 
     /// A builder over no base at all, for nodes belonging to no frozen tree: an EXTERNAL
-    /// symbol's `ValRepr` patterns are minted from an `.fsi` contract and index into no file.
+    /// symbol's `ValRepr` patterns are minted from a contract and index into no file.
     let openEmpty () : PoolBuilder = openOver FrozenPools.empty
 
     // ── the stacked read surface: one accessor per column ───────────────────
@@ -100,7 +100,7 @@ module TastPoolBuilder =
         readExpr b id (fun p i -> p.Types.[p.ExprTys.[i]]) (fun r -> r.Ty)
 
     /// Where the node SITS: the index of the token that spells it, or `Anchor.nowhere` where
-    /// no source does (an overlay-minted node, an `.fsi` contract's rebuilt pattern).
+    /// no source does (an overlay-minted node, a contract's rebuilt pattern).
     let exprTok (b: PoolBuilder) (id: ExprPoolId) : Anchor =
         readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok)
 

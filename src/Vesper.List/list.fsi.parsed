@@ -282,285 +282,263 @@ namespace                  'namespace'       KWNamespace         tok=   0  pos= 
               Typar.Named:
                            ''T'              TypeParameter       tok= 529  pos=4743
           >                '>'               op_GreaterThan      tok= 530  pos=4745
-  Type:
-    type                   'type'            KWType              tok= 644  pos=5608
-    TypeSig.Abbrev:
-      TypeName             'ResizeArra...'   Identifier          tok= 646  pos=5613
-      TyparDefns:
-        <                  '<'               op_LessThan         tok= 647  pos=5624
-        Typar.Named:
-                           ''T'              TypeParameter       tok= 648  pos=5625
-        >                  '>'               op_GreaterThan      tok= 649  pos=5627
-      =                    '='               OpEquality          tok= 651  pos=5629
-        GenericType:
-          LongIdent:
-                           'System'          Identifier          tok= 653  pos=5631
-                           'Collection...'   Identifier          tok= 655  pos=5638
-                           'Generic'         Identifier          tok= 657  pos=5650
-                           'List'            Identifier          tok= 659  pos=5658
-          <                '<'               op_LessThan         tok= 660  pos=5662
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                           ''T'              TypeParameter       tok= 661  pos=5663
-          >                '>'               op_GreaterThan      tok= 662  pos=5665
   Module:
-    [<                     '[<'              KWLAttrBracket      tok= 669  pos=5707
+    [<                     '[<'              KWLAttrBracket      tok= 644  pos=5533
     NamedType:
-      Ident                'RequireQua...'   Identifier          tok= 670  pos=5709
-    >]                     '>]'              KWRAttrBracket      tok= 671  pos=5731
-    [<                     '[<'              KWLAttrBracket      tok= 674  pos=5738
+      Ident                'RequireQua...'   Identifier          tok= 645  pos=5535
+    >]                     '>]'              KWRAttrBracket      tok= 646  pos=5557
+    [<                     '[<'              KWLAttrBracket      tok= 649  pos=5564
     NamedType:
-      Ident                'Compilatio...'   Identifier          tok= 675  pos=5740
-    ParenBlock             '('               KWLParen            tok= 676  pos=5765
+      Ident                'Compilatio...'   Identifier          tok= 650  pos=5566
+    ParenBlock             '('               KWLParen            tok= 651  pos=5591
       LongIdentOrOp:
         LongIdent:
-                           'Compilatio...'   Identifier          tok= 677  pos=5766
-                           'ModuleSuff...'   Identifier          tok= 679  pos=5797
-                           ')'               KWRParen            tok= 680  pos=5809
-    >]                     '>]'              KWRAttrBracket      tok= 681  pos=5810
-    module                 'module'          KWModule            tok= 684  pos=5817
-    ident                  'List'            Identifier          tok= 686  pos=5824
-    =                      '='               OpEquality          tok= 688  pos=5829
-    begin                  <virt>            KWBegin             tok=virt  pos=5903
+                           'Compilatio...'   Identifier          tok= 652  pos=5592
+                           'ModuleSuff...'   Identifier          tok= 654  pos=5623
+                           ')'               KWRParen            tok= 655  pos=5635
+    >]                     '>]'              KWRAttrBracket      tok= 656  pos=5636
+    module                 'module'          KWModule            tok= 659  pos=5643
+    ident                  'List'            Identifier          tok= 661  pos=5650
+    =                      '='               OpEquality          tok= 663  pos=5655
+    begin                  <virt>            KWBegin             tok=virt  pos=5729
       Val:
-        val                'val'             KWVal               tok= 695  pos=5903
-        Ident              'fold'            Identifier          tok= 697  pos=5907
-        :                  ':'               OpColon             tok= 698  pos=5911
-        arg                'folder'          Identifier          tok= 700  pos=5913
-        :                  ':'               OpColon             tok= 701  pos=5919
-        ParenType          '('               KWLParen            tok= 703  pos=5921
+        val                'val'             KWVal               tok= 670  pos=5729
+        Ident              'fold'            Identifier          tok= 672  pos=5733
+        :                  ':'               OpColon             tok= 673  pos=5737
+        arg                'folder'          Identifier          tok= 675  pos=5739
+        :                  ':'               OpColon             tok= 676  pos=5745
+        ParenType          '('               KWLParen            tok= 678  pos=5747
           FunctionType:
             VarType:
               Typar.Named:
-                           ''State'          TypeParameter       tok= 704  pos=5922
-            ->             '->'              OpArrowRight        tok= 706  pos=5929
+                           ''State'          TypeParameter       tok= 679  pos=5748
+            ->             '->'              OpArrowRight        tok= 681  pos=5755
             FunctionType:
               VarType:
                 Typar.Named:
-                           ''T'              TypeParameter       tok= 708  pos=5932
-              ->           '->'              OpArrowRight        tok= 710  pos=5935
+                           ''T'              TypeParameter       tok= 683  pos=5758
+              ->           '->'              OpArrowRight        tok= 685  pos=5761
               VarType:
                 Typar.Named:
-                           ''State'          TypeParameter       tok= 712  pos=5938
-                           ')'               KWRParen            tok= 713  pos=5944
-        ->                 '->'              OpArrowRight        tok= 715  pos=5946
-        arg                'state'           Identifier          tok= 717  pos=5949
-        :                  ':'               OpColon             tok= 718  pos=5954
+                           ''State'          TypeParameter       tok= 687  pos=5764
+                           ')'               KWRParen            tok= 688  pos=5770
+        ->                 '->'              OpArrowRight        tok= 690  pos=5772
+        arg                'state'           Identifier          tok= 692  pos=5775
+        :                  ':'               OpColon             tok= 693  pos=5780
         VarType:
           Typar.Named:
-                           ''State'          TypeParameter       tok= 720  pos=5956
-        ->                 '->'              OpArrowRight        tok= 722  pos=5963
-        arg                'list'            Identifier          tok= 724  pos=5966
-        :                  ':'               OpColon             tok= 725  pos=5970
+                           ''State'          TypeParameter       tok= 695  pos=5782
+        ->                 '->'              OpArrowRight        tok= 697  pos=5789
+        arg                'list'            Identifier          tok= 699  pos=5792
+        :                  ':'               OpColon             tok= 700  pos=5796
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 727  pos=5972
-          Ident            'list'            Identifier          tok= 729  pos=5975
-        ->                 '->'              OpArrowRight        tok= 731  pos=5980
+                           ''T'              TypeParameter       tok= 702  pos=5798
+          Ident            'list'            Identifier          tok= 704  pos=5801
+        ->                 '->'              OpArrowRight        tok= 706  pos=5806
         VarType:
           Typar.Named:
-                           ''State'          TypeParameter       tok= 733  pos=5983
+                           ''State'          TypeParameter       tok= 708  pos=5809
       Val:
-        val                'val'             KWVal               tok= 740  pos=6069
-        Ident              'length'          Identifier          tok= 742  pos=6073
-        :                  ':'               OpColon             tok= 743  pos=6079
-        arg                'list'            Identifier          tok= 745  pos=6081
-        :                  ':'               OpColon             tok= 746  pos=6085
+        val                'val'             KWVal               tok= 715  pos=5895
+        Ident              'length'          Identifier          tok= 717  pos=5899
+        :                  ':'               OpColon             tok= 718  pos=5905
+        arg                'list'            Identifier          tok= 720  pos=5907
+        :                  ':'               OpColon             tok= 721  pos=5911
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 748  pos=6087
-          Ident            'list'            Identifier          tok= 750  pos=6090
-        ->                 '->'              OpArrowRight        tok= 752  pos=6095
+                           ''T'              TypeParameter       tok= 723  pos=5913
+          Ident            'list'            Identifier          tok= 725  pos=5916
+        ->                 '->'              OpArrowRight        tok= 727  pos=5921
         NamedType:
-          Ident            'int'             Identifier          tok= 754  pos=6098
+          Ident            'int'             Identifier          tok= 729  pos=5924
       Val:
-        val                'val'             KWVal               tok= 761  pos=6187
-        Ident              'isEmpty'         Identifier          tok= 763  pos=6191
-        :                  ':'               OpColon             tok= 764  pos=6198
-        arg                'list'            Identifier          tok= 766  pos=6200
-        :                  ':'               OpColon             tok= 767  pos=6204
+        val                'val'             KWVal               tok= 736  pos=6013
+        Ident              'isEmpty'         Identifier          tok= 738  pos=6017
+        :                  ':'               OpColon             tok= 739  pos=6024
+        arg                'list'            Identifier          tok= 741  pos=6026
+        :                  ':'               OpColon             tok= 742  pos=6030
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 769  pos=6206
-          Ident            'list'            Identifier          tok= 771  pos=6209
-        ->                 '->'              OpArrowRight        tok= 773  pos=6214
+                           ''T'              TypeParameter       tok= 744  pos=6032
+          Ident            'list'            Identifier          tok= 746  pos=6035
+        ->                 '->'              OpArrowRight        tok= 748  pos=6040
         NamedType:
-          Ident            'bool'            Identifier          tok= 775  pos=6217
+          Ident            'bool'            Identifier          tok= 750  pos=6043
       Val:
-        val                'val'             KWVal               tok= 782  pos=6313
-        Ident              'head'            Identifier          tok= 784  pos=6317
-        :                  ':'               OpColon             tok= 785  pos=6321
-        arg                'list'            Identifier          tok= 787  pos=6323
-        :                  ':'               OpColon             tok= 788  pos=6327
+        val                'val'             KWVal               tok= 757  pos=6139
+        Ident              'head'            Identifier          tok= 759  pos=6143
+        :                  ':'               OpColon             tok= 760  pos=6147
+        arg                'list'            Identifier          tok= 762  pos=6149
+        :                  ':'               OpColon             tok= 763  pos=6153
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 790  pos=6329
-          Ident            'list'            Identifier          tok= 792  pos=6332
-        ->                 '->'              OpArrowRight        tok= 794  pos=6337
+                           ''T'              TypeParameter       tok= 765  pos=6155
+          Ident            'list'            Identifier          tok= 767  pos=6158
+        ->                 '->'              OpArrowRight        tok= 769  pos=6163
         VarType:
           Typar.Named:
-                           ''T'              TypeParameter       tok= 796  pos=6340
+                           ''T'              TypeParameter       tok= 771  pos=6166
       Val:
-        val                'val'             KWVal               tok= 806  pos=6463
-        Ident              'tail'            Identifier          tok= 808  pos=6467
-        :                  ':'               OpColon             tok= 809  pos=6471
-        arg                'list'            Identifier          tok= 811  pos=6473
-        :                  ':'               OpColon             tok= 812  pos=6477
+        val                'val'             KWVal               tok= 781  pos=6289
+        Ident              'tail'            Identifier          tok= 783  pos=6293
+        :                  ':'               OpColon             tok= 784  pos=6297
+        arg                'list'            Identifier          tok= 786  pos=6299
+        :                  ':'               OpColon             tok= 787  pos=6303
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 814  pos=6479
-          Ident            'list'            Identifier          tok= 816  pos=6482
-        ->                 '->'              OpArrowRight        tok= 818  pos=6487
+                           ''T'              TypeParameter       tok= 789  pos=6305
+          Ident            'list'            Identifier          tok= 791  pos=6308
+        ->                 '->'              OpArrowRight        tok= 793  pos=6313
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 820  pos=6490
-          Ident            'list'            Identifier          tok= 822  pos=6493
+                           ''T'              TypeParameter       tok= 795  pos=6316
+          Ident            'list'            Identifier          tok= 797  pos=6319
       Val:
-        val                'val'             KWVal               tok= 829  pos=6595
-        Ident              'map'             Identifier          tok= 831  pos=6599
-        :                  ':'               OpColon             tok= 832  pos=6602
-        arg                'mapping'         Identifier          tok= 834  pos=6604
-        :                  ':'               OpColon             tok= 835  pos=6611
-        ParenType          '('               KWLParen            tok= 837  pos=6613
+        val                'val'             KWVal               tok= 804  pos=6421
+        Ident              'map'             Identifier          tok= 806  pos=6425
+        :                  ':'               OpColon             tok= 807  pos=6428
+        arg                'mapping'         Identifier          tok= 809  pos=6430
+        :                  ':'               OpColon             tok= 810  pos=6437
+        ParenType          '('               KWLParen            tok= 812  pos=6439
           FunctionType:
             VarType:
               Typar.Named:
-                           ''T'              TypeParameter       tok= 838  pos=6614
-            ->             '->'              OpArrowRight        tok= 840  pos=6617
+                           ''T'              TypeParameter       tok= 813  pos=6440
+            ->             '->'              OpArrowRight        tok= 815  pos=6443
             VarType:
               Typar.Named:
-                           ''U'              TypeParameter       tok= 842  pos=6620
-                           ')'               KWRParen            tok= 843  pos=6622
-        ->                 '->'              OpArrowRight        tok= 845  pos=6624
-        arg                'list'            Identifier          tok= 847  pos=6627
-        :                  ':'               OpColon             tok= 848  pos=6631
+                           ''U'              TypeParameter       tok= 817  pos=6446
+                           ')'               KWRParen            tok= 818  pos=6448
+        ->                 '->'              OpArrowRight        tok= 820  pos=6450
+        arg                'list'            Identifier          tok= 822  pos=6453
+        :                  ':'               OpColon             tok= 823  pos=6457
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 850  pos=6633
-          Ident            'list'            Identifier          tok= 852  pos=6636
-        ->                 '->'              OpArrowRight        tok= 854  pos=6641
+                           ''T'              TypeParameter       tok= 825  pos=6459
+          Ident            'list'            Identifier          tok= 827  pos=6462
+        ->                 '->'              OpArrowRight        tok= 829  pos=6467
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''U'              TypeParameter       tok= 856  pos=6644
-          Ident            'list'            Identifier          tok= 858  pos=6647
+                           ''U'              TypeParameter       tok= 831  pos=6470
+          Ident            'list'            Identifier          tok= 833  pos=6473
       Val:
-        val                'val'             KWVal               tok= 865  pos=6752
-        Ident              'filter'          Identifier          tok= 867  pos=6756
-        :                  ':'               OpColon             tok= 868  pos=6762
-        arg                'predicate'       Identifier          tok= 870  pos=6764
-        :                  ':'               OpColon             tok= 871  pos=6773
-        ParenType          '('               KWLParen            tok= 873  pos=6775
+        val                'val'             KWVal               tok= 840  pos=6578
+        Ident              'filter'          Identifier          tok= 842  pos=6582
+        :                  ':'               OpColon             tok= 843  pos=6588
+        arg                'predicate'       Identifier          tok= 845  pos=6590
+        :                  ':'               OpColon             tok= 846  pos=6599
+        ParenType          '('               KWLParen            tok= 848  pos=6601
           FunctionType:
             VarType:
               Typar.Named:
-                           ''T'              TypeParameter       tok= 874  pos=6776
-            ->             '->'              OpArrowRight        tok= 876  pos=6779
+                           ''T'              TypeParameter       tok= 849  pos=6602
+            ->             '->'              OpArrowRight        tok= 851  pos=6605
             NamedType:
-              Ident        'bool'            Identifier          tok= 878  pos=6782
-                           ')'               KWRParen            tok= 879  pos=6786
-        ->                 '->'              OpArrowRight        tok= 881  pos=6788
-        arg                'list'            Identifier          tok= 883  pos=6791
-        :                  ':'               OpColon             tok= 884  pos=6795
+              Ident        'bool'            Identifier          tok= 853  pos=6608
+                           ')'               KWRParen            tok= 854  pos=6612
+        ->                 '->'              OpArrowRight        tok= 856  pos=6614
+        arg                'list'            Identifier          tok= 858  pos=6617
+        :                  ':'               OpColon             tok= 859  pos=6621
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 886  pos=6797
-          Ident            'list'            Identifier          tok= 888  pos=6800
-        ->                 '->'              OpArrowRight        tok= 890  pos=6805
+                           ''T'              TypeParameter       tok= 861  pos=6623
+          Ident            'list'            Identifier          tok= 863  pos=6626
+        ->                 '->'              OpArrowRight        tok= 865  pos=6631
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 892  pos=6808
-          Ident            'list'            Identifier          tok= 894  pos=6811
+                           ''T'              TypeParameter       tok= 867  pos=6634
+          Ident            'list'            Identifier          tok= 869  pos=6637
       Val:
-        val                'val'             KWVal               tok= 901  pos=6920
-        Ident              'append'          Identifier          tok= 903  pos=6924
-        :                  ':'               OpColon             tok= 904  pos=6930
-        arg                'list1'           Identifier          tok= 906  pos=6932
-        :                  ':'               OpColon             tok= 907  pos=6937
+        val                'val'             KWVal               tok= 876  pos=6746
+        Ident              'append'          Identifier          tok= 878  pos=6750
+        :                  ':'               OpColon             tok= 879  pos=6756
+        arg                'list1'           Identifier          tok= 881  pos=6758
+        :                  ':'               OpColon             tok= 882  pos=6763
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 909  pos=6939
-          Ident            'list'            Identifier          tok= 911  pos=6942
-        ->                 '->'              OpArrowRight        tok= 913  pos=6947
-        arg                'list2'           Identifier          tok= 915  pos=6950
-        :                  ':'               OpColon             tok= 916  pos=6955
+                           ''T'              TypeParameter       tok= 884  pos=6765
+          Ident            'list'            Identifier          tok= 886  pos=6768
+        ->                 '->'              OpArrowRight        tok= 888  pos=6773
+        arg                'list2'           Identifier          tok= 890  pos=6776
+        :                  ':'               OpColon             tok= 891  pos=6781
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 918  pos=6957
-          Ident            'list'            Identifier          tok= 920  pos=6960
-        ->                 '->'              OpArrowRight        tok= 922  pos=6965
+                           ''T'              TypeParameter       tok= 893  pos=6783
+          Ident            'list'            Identifier          tok= 895  pos=6786
+        ->                 '->'              OpArrowRight        tok= 897  pos=6791
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 924  pos=6968
-          Ident            'list'            Identifier          tok= 926  pos=6971
+                           ''T'              TypeParameter       tok= 899  pos=6794
+          Ident            'list'            Identifier          tok= 901  pos=6797
       Val:
-        val                'val'             KWVal               tok= 933  pos=7061
-        Ident              'rev'             Identifier          tok= 935  pos=7065
-        :                  ':'               OpColon             tok= 936  pos=7068
-        arg                'list'            Identifier          tok= 938  pos=7070
-        :                  ':'               OpColon             tok= 939  pos=7074
+        val                'val'             KWVal               tok= 908  pos=6887
+        Ident              'rev'             Identifier          tok= 910  pos=6891
+        :                  ':'               OpColon             tok= 911  pos=6894
+        arg                'list'            Identifier          tok= 913  pos=6896
+        :                  ':'               OpColon             tok= 914  pos=6900
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 941  pos=7076
-          Ident            'list'            Identifier          tok= 943  pos=7079
-        ->                 '->'              OpArrowRight        tok= 945  pos=7084
+                           ''T'              TypeParameter       tok= 916  pos=6902
+          Ident            'list'            Identifier          tok= 918  pos=6905
+        ->                 '->'              OpArrowRight        tok= 920  pos=6910
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 947  pos=7087
-          Ident            'list'            Identifier          tok= 949  pos=7090
+                           ''T'              TypeParameter       tok= 922  pos=6913
+          Ident            'list'            Identifier          tok= 924  pos=6916
       Val:
-        val                'val'             KWVal               tok= 956  pos=7183
-        Ident              'ofSeq'           Identifier          tok= 958  pos=7187
-        :                  ':'               OpColon             tok= 959  pos=7192
-        arg                'source'          Identifier          tok= 961  pos=7194
-        :                  ':'               OpColon             tok= 962  pos=7200
+        val                'val'             KWVal               tok= 931  pos=7009
+        Ident              'ofSeq'           Identifier          tok= 933  pos=7013
+        :                  ':'               OpColon             tok= 934  pos=7018
+        arg                'source'          Identifier          tok= 936  pos=7020
+        :                  ':'               OpColon             tok= 937  pos=7026
         GenericType:
-          Ident            'seq'             Identifier          tok= 964  pos=7202
-          <                '<'               op_LessThan         tok= 965  pos=7205
+          Ident            'seq'             Identifier          tok= 939  pos=7028
+          <                '<'               op_LessThan         tok= 940  pos=7031
           TypeArg.Type:
             VarType:
               Typar.Named:
-                           ''T'              TypeParameter       tok= 966  pos=7206
-          >                '>'               op_GreaterThan      tok= 967  pos=7208
-        ->                 '->'              OpArrowRight        tok= 969  pos=7210
+                           ''T'              TypeParameter       tok= 941  pos=7032
+          >                '>'               op_GreaterThan      tok= 942  pos=7034
+        ->                 '->'              OpArrowRight        tok= 944  pos=7036
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 971  pos=7213
-          Ident            'list'            Identifier          tok= 973  pos=7216
+                           ''T'              TypeParameter       tok= 946  pos=7039
+          Ident            'list'            Identifier          tok= 948  pos=7042
       Val:
-        val                'val'             KWVal               tok= 980  pos=7291
-        Ident              'toSeq'           Identifier          tok= 982  pos=7295
-        :                  ':'               OpColon             tok= 983  pos=7300
-        arg                'list'            Identifier          tok= 985  pos=7302
-        :                  ':'               OpColon             tok= 986  pos=7306
+        val                'val'             KWVal               tok= 955  pos=7117
+        Ident              'toSeq'           Identifier          tok= 957  pos=7121
+        :                  ':'               OpColon             tok= 958  pos=7126
+        arg                'list'            Identifier          tok= 960  pos=7128
+        :                  ':'               OpColon             tok= 961  pos=7132
         SuffixedType:
           VarType:
             Typar.Named:
-                           ''T'              TypeParameter       tok= 988  pos=7308
-          Ident            'list'            Identifier          tok= 990  pos=7311
-        ->                 '->'              OpArrowRight        tok= 992  pos=7316
+                           ''T'              TypeParameter       tok= 963  pos=7134
+          Ident            'list'            Identifier          tok= 965  pos=7137
+        ->                 '->'              OpArrowRight        tok= 967  pos=7142
         GenericType:
-          Ident            'seq'             Identifier          tok= 994  pos=7319
-          <                '<'               op_LessThan         tok= 995  pos=7322
+          Ident            'seq'             Identifier          tok= 969  pos=7145
+          <                '<'               op_LessThan         tok= 970  pos=7148
           TypeArg.Type:
             VarType:
               Typar.Named:
-                           ''T'              TypeParameter       tok= 996  pos=7323
-          >                '>'               op_GreaterThan      tok= 997  pos=7325
-    end                    <virt>            KWEnd               tok=virt  pos=7327
+                           ''T'              TypeParameter       tok= 971  pos=7149
+          >                '>'               op_GreaterThan      tok= 972  pos=7151
+    end                    <virt>            KWEnd               tok=virt  pos=7153

@@ -254,6 +254,14 @@ module SignatureResolution =
             | ValueSome(ExternKind.Class _) -> ExternForm.HeritableClass
             | _ -> ExternForm.Scalar
 
+        /// A capability IS an interface, so its `inherit` clause is interface inheritance and
+        /// its members ride the shape. Both primitives are classes.
+        let isInterface (form: ExternForm) : bool =
+            match form with
+            | ExternForm.Capability -> true
+            | ExternForm.HeritableClass
+            | ExternForm.Scalar -> false
+
     /// The repr the paired implementation binds for this `extern`. A PRIMITIVE's is FILED on
     /// the intrinsic's own key so a use site resolves the name to it; a capability's is not,
     /// because a capability is a nominal interface that only CARRIES a platform spelling and
@@ -262,12 +270,17 @@ module SignatureResolution =
     let private bindExternRepr (sctx: SigCtx) (id: TypeIdentity) (form: ExternForm) : IntrinsicPlatform =
         match sctx.Inputs.Reprs.TryGetValue id.Name with
         | true, repr ->
-            if form <> ExternForm.Capability then
+            let fileOn (heritable: bool) =
                 sctx.Pass.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name] <-
                     {
                         Platform = repr
-                        Heritable = form = ExternForm.HeritableClass
+                        Heritable = heritable
                     }
+
+            match form with
+            | ExternForm.Capability -> ()
+            | ExternForm.HeritableClass -> fileOn true
+            | ExternForm.Scalar -> fileOn false
 
             IntrinsicPlatform.Repr repr
         | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
@@ -350,64 +363,67 @@ module SignatureResolution =
         // CANON-ONLY: the same interface, reachable by its own name alone.
         | IntrinsicPlatform.Unsupported _ -> publishShape sctx id.Key (ExternalTypeShape.Class shape)
 
-    /// The shape a PRIMITIVE `extern` publishes. `surface` is absent where the declaration has
-    /// no `with` block, and a heritable primitive still needs the shape to record that a later
-    /// `inherit` may name it.
+    /// A heritable primitive (`obj` / `exn`) ALWAYS carries a supertype surface: a later
+    /// `inherit` has nothing else to read its heritability off, which is why a member-less
+    /// `extern class` (`Attribute`) still gets one.
+    let private heritableSurface
+        (platform: IntrinsicPlatform)
+        (surface: BodiedSurface voption)
+        : IntrinsicClassSurface voption =
+        match surface with
+        | ValueNone ->
+            ValueSome
+                {
+                    Heritable = true
+                    BaseType = ValueNone
+                    Interfaces = EqArray.empty
+                    Members = EqArray.empty
+                }
+        | ValueSome s ->
+            ValueSome
+                {
+                    Heritable = true
+                    BaseType = s.Shape.FrozenBaseType
+                    Interfaces = s.Shape.FrozenInterfaces
+                    Members = platformCtors platform s.Members
+                }
+
+    /// A scalar carries one only where it DECLARES something. An untagged `extern with member …`
+    /// serves its members off their own table, not the shape; its `interface` clauses do land
+    /// here, and it inherits nothing.
+    let private scalarSurface (surface: BodiedSurface voption) : IntrinsicClassSurface voption =
+        match surface with
+        | ValueNone -> ValueNone
+        | ValueSome s ->
+            ValueSome
+                {
+                    Heritable = false
+                    BaseType = ValueNone
+                    Interfaces = s.Shape.FrozenInterfaces
+                    Members = EqArray.empty
+                }
+
+    /// The shape a PRIMITIVE `extern` publishes: its intrinsic identity, under which a use site
+    /// resolves the name, carrying whichever supertype surface its form declares.
     let private publishExternPrimitive
         (sctx: SigCtx)
         (id: TypeIdentity)
-        (heritable: bool)
         (platform: IntrinsicPlatform)
-        (surface: BodiedSurface voption)
+        (classSurface: IntrinsicClassSurface voption)
         : unit =
-        let canon = TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name
-
-        match surface with
-        // A member-less `extern class` (`Attribute`) declares no surface but is still
-        // heritable, and only the shape carries that.
-        | ValueNone ->
-            publishShape
-                sctx
-                id.Key
-                (ExternalTypeShape.Intrinsic(
-                    if heritable then
-                        IntrinsicShape.HeritableClass(canon, id.TyparArity, platform)
-                    else
-                        IntrinsicShape.Scalar(canon, id.TyparArity, platform)
-                ))
-        | ValueSome surface ->
-            publishShape
-                sctx
-                id.Key
-                (ExternalTypeShape.Intrinsic
-                    {
-                        Id =
-                            {
-                                Canon = canon
-                                TyparArity = id.TyparArity
-                                Platform = platform
-                            }
-                        Class =
-                            ValueSome(
-                                if heritable then
-                                    {
-                                        Heritable = true
-                                        BaseType = surface.Shape.FrozenBaseType
-                                        Interfaces = surface.Shape.FrozenInterfaces
-                                        Members = platformCtors platform surface.Members
-                                    }
-                                else
-                                    // An untagged `extern with member …` is a SCALAR whose
-                                    // members ride their own table, not the shape; its
-                                    // declared interfaces do.
-                                    {
-                                        Heritable = false
-                                        BaseType = ValueNone
-                                        Interfaces = surface.Shape.FrozenInterfaces
-                                        Members = EqArray.empty
-                                    }
-                            )
-                    })
+        publishShape
+            sctx
+            id.Key
+            (ExternalTypeShape.Intrinsic
+                {
+                    Id =
+                        {
+                            Canon = TypeRegistry.intrinsicKeyOf sctx.Pass.Types id.Name
+                            TyparArity = id.TyparArity
+                            Platform = platform
+                        }
+                    Class = classSurface
+                })
 
     let private publishExtern
         (sctx: SigCtx)
@@ -425,20 +441,18 @@ module SignatureResolution =
             | ValueSome(TypeExtensionElementsSignature(elements = elems)) when not elems.IsEmpty -> ValueSome elems
             | _ -> ValueNone
 
-        match declared with
-        | ValueSome elems -> requireInlineExternMembers ctx id elems
-        | ValueNone -> ()
-
         let surface =
             declared
             |> ValueOption.map (fun elems ->
-                publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn (form = ExternForm.Capability) elems)
+                requireInlineExternMembers ctx id elems
+
+                publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn (ExternForm.isInterface form) elems)
             )
 
         match form with
         | ExternForm.Capability -> publishCapability sctx id platform surface
-        | ExternForm.HeritableClass -> publishExternPrimitive sctx id true platform surface
-        | ExternForm.Scalar -> publishExternPrimitive sctx id false platform surface
+        | ExternForm.HeritableClass -> publishExternPrimitive sctx id platform (heritableSurface platform surface)
+        | ExternForm.Scalar -> publishExternPrimitive sctx id platform (scalarSurface surface)
 
     // --- class-like ------------------------------------------------------------------------
 
@@ -738,3 +752,16 @@ module SignatureResolution =
             | ModuleSignatureElement.SkipsTokens _ -> ()
 
         PublishedSurface.ofBuilder surface
+
+    /// `run` on a `PassContext` of the signature's own: `NodeKey` offsets are per-file, so a
+    /// `.fsi` never shares its companion's context, and the diagnostics come back here rather
+    /// than accumulating on a context the caller kept.
+    let resolveFile
+        (visible: IExternalSymbolProvider)
+        (source: OriginSource)
+        (inputs: SignatureInputs)
+        (file: SignatureFile<SyntaxToken>)
+        : PublishedSurface * Diagnostic list =
+        let ctx = PassContext(visible, source, inputs.Assembly)
+        let surface = run ctx inputs file
+        surface, List.ofSeq ctx.Diagnostics

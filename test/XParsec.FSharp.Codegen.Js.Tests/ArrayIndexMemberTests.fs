@@ -41,7 +41,7 @@ let tests =
                     | ValueSome m -> m
                     | ValueNone ->
                         failtestf
-                            "TryLookupMember(%A, get_Item) MISSED — the `prim-types-array.fsi` contract half is absent"
+                            "TryLookupMember(%A, get_Item) MISSED — the `prim-types-array.fsi` signature half is absent"
                             arrayMemberKey
 
                 Expect.isTrue

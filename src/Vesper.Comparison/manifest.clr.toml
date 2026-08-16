@@ -1,9 +1,9 @@
 [core]
 name = "Vesper.Comparison"
 description = "The ordering operators (< > <= >=)."
-depends-on = ["Vesper.Core"]
+depends-on = ["../Vesper.Core"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Signature files in compile order (one, today).
 files = [
     "comparison.fsi",
 ]

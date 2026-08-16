@@ -31,7 +31,7 @@ type Origin =
         | Origin.InAssembly a -> ValueSome a.Name
         | Origin.InFile f -> ValueSome f.BucketName
 
-    /// `ValueNone` wherever the producer knew only the assembly: a `.fsi` contract view or
+    /// `ValueNone` wherever the producer knew only the assembly: a contract view or
     /// a metadata scrape.
     member this.DeclaringFile: OriginPath voption =
         match this with

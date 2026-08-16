@@ -4,7 +4,7 @@ description = "printf / printfn / sprintf and the write-through format handler."
 # Vesper.Core for the language primitives (`string`, `uint`, `char[]`, the
 # arithmetic/equality operators); Vesper.List for the cons-list the CLR `%A` engine
 # uses as its `Doc` child lists and frame stack.
-depends-on = ["Vesper.Core", "Vesper.List"]
+depends-on = ["../Vesper.Core", "../Vesper.List"]
 
 # .fsi files in compile order: printf-format before printf, whose signatures reference
 # `PrintfFormat`; then structural-printer before formatter, mirroring the impl order.
@@ -17,7 +17,7 @@ files = [
     "formatter.fsi",
 ]
 
-# Contracts that are DELIBERATELY impl-free — the conformance pass accepts these and turns
+# Signature files that are DELIBERATELY impl-free — the conformance pass accepts these and turns
 # any OTHER `.fsi`-without-`.fs` into an FS0240 hard error. printf/printfn/sprintf are
 # lowered inline to `Formatter`/`Format` by the front end, so there is no `.fs` body;
 # `PrintfFormat` is still FSharp.Core's on the cold path.

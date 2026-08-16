@@ -554,9 +554,9 @@ type IntrinsicShape =
 
 module IntrinsicClassSurface =
 
-    /// Fold a farther source's surface onto a nearer one: an impl `.fs` view binds a
-    /// representation and publishes no surface, so the nearest source alone would answer
-    /// "declares nothing" ahead of the `.fsi` contract that prescribes it.
+    /// Fold a farther source's surface onto a nearer one: an implementation file's view binds a
+    /// representation without publishing a surface, so the nearest source alone would answer
+    /// "declares nothing" ahead of the contract that prescribes it.
     let merge
         (nearer: IntrinsicClassSurface voption)
         (farther: IntrinsicClassSurface voption)

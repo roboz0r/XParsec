@@ -27,30 +27,30 @@ let private nowhereSource: OriginSource =
             | Result.Error e -> failwithf "lex failed: %A" e
     }
 
-/// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
+/// A provider carrying a `widget` signature file whose `extern` intrinsic declares
 /// `members`. Returns the provider and the identity the contract published it under.
 let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeKey =
     let input = "namespace Widgets\n\ntype widget = extern with\n" + members
 
     let parsed =
-        match Pipeline.parseSignature input with
+        match ParseChain.parseSignature input with
         | Result.Ok p -> p
         | Result.Error f -> failwithf "parse failed: %A" [ for d in f.Diagnostics -> d.Message ]
-
-    let ctx =
-        PassContext(
-            TestHelpers.jsProvider.Value,
-            AssemblyFiles.fileSource "Widgets" (AssemblyFileId.ofRelative "widget.fsi") parsed.Lexed
-        )
-
-    ctx.AssemblyName <- "Widgets"
 
     // The repr the paired `.fs` would bind: `widget` is a JS `object`.
     let reprs = System.Collections.Generic.Dictionary<string, string>()
     reprs.["widget"] <- "object"
 
-    let surface =
-        Passes.SignatureResolution.run ctx { Target = Target.Js; Reprs = reprs } parsed.File
+    let surface, _ =
+        Passes.SignatureResolution.resolveFile
+            TestHelpers.jsProvider.Value
+            (AssemblyFiles.fileSource "Widgets" (AssemblyFileId.ofRelative "widget.fsi") parsed.Lexed)
+            {
+                Assembly = "Widgets"
+                Target = Target.Js
+                Reprs = reprs
+            }
+            parsed.File
 
     let key =
         surface.ShapesByKey
@@ -130,7 +130,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
 let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftInt
 
 // End-to-end SPLICE over the loadable `widget` fixture. `fixtures/widget/` carries BOTH the
-// `.fsi` contract AND its `.js.fs` bodies, so a lookup of `widget.Poke` closes on an inline
+// signature file AND its `.js.fs` bodies, so a lookup of `widget.Poke` closes on an inline
 // body from real elaboration; the `(# "object" #)` binding also makes the hosts intrinsic.
 
 /// The `fixtures/widget` package directory.

@@ -30,7 +30,7 @@ let tests =
 
                 Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
-                // The conformance contract DOES include `list.fsi`, so each module function
+                // The contract DOES cover what `list.fsi` declares, so each module function
                 // resolves to the declared scheme its inferred one is checked against.
                 let contract =
                     ClrSymbolProviders.buildContract [ vesperCorePackage; vesperListPackage ]

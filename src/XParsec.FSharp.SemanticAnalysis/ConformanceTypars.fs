@@ -106,7 +106,7 @@ module ConformanceTypars =
             |> List.distinct
         | None -> [ name ]
 
-    /// Check every generic module binding of a frozen `.fs` file against the `.fsi` contract
+    /// Check every generic module binding of a frozen implementation file against the contract
     /// `provider`, in source-declaration order. A binding the provider does not publish, or a
     /// monomorphic one, has no typar order to compare and is skipped.
     ///
@@ -202,8 +202,8 @@ module ConformanceTypars =
     let private extractedSigOf (m: ExternalMember) : FrozenType =
         memberSigOf m.IsValueMember (ExternalSignature.tupledParameters m.Signature) m.Signature.Return
 
-    /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against its
-    /// `.fsi` contract `provider`: conformance holds when one published overload of the
+    /// Check every generic (method-owned-typar) MEMBER of a frozen implementation file against
+    /// its contract `provider`: conformance holds when one published overload of the
     /// same name + method arity equals the inferred signature.
     let checkMembers (provider: IExternalSymbolProvider) (pools: FrozenPools) : MemberMismatch list =
         let pool = TastPoolBuilder.openOver pools

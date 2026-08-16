@@ -1,9 +1,9 @@
 [core]
 name = "Vesper.Result"
 description = "The result type and the Result module."
-depends-on = ["Vesper.Core"]
+depends-on = ["../Vesper.Core"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Signature files in compile order (one, today).
 files = [
     "result.fsi",
 ]

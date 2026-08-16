@@ -229,7 +229,7 @@ type CoreAccessIntrinsics =
 /// Single-threaded: the side tables, `Diagnostics` and `TypeVar` graph all mutate in place.
 /// Parallelism is per FILE, so one context each; only the provider crosses threads.
 [<Sealed>]
-type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
+type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemblyName: string) =
     // One file re-asks the same queries many times, each walking every composite layer.
     // Shadows the ctor arg, so every member below sees the memoised view.
     let provider = ExternalSymbolProviders.memoize provider
@@ -285,7 +285,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// The simple name of the assembly this file emits into; `""` where nothing is emitted.
     /// NOT part of any `SymbolKey`: nominal identity is the containment chain alone.
-    member val AssemblyName = "" with get, set
+    member val AssemblyName = assemblyName with get
     member _.Diagnostics = diagnostics
 
     /// Run `f` with everything it reports collected APART rather than appended, handed back

@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The `ClrSymbolProviders.build` composite is the one stack threaded through both phases,
 // and it has no mock backstop: operators, `hash`, `failwith`, printf and `List.fold` all
-// resolve from the `Vesper.*` `.fsi` contracts.
+// resolve from the `Vesper.*` signature files.
 
 [<Tests>]
 let tests =

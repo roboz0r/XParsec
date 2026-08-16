@@ -23,7 +23,7 @@ let packageDir (pkg: string) = Path.Combine(srcDir, pkg)
 
 let private loadManifest (pkg: string) =
     match ReferencedProject.resolveManifest Target.Clr (packageDir pkg) with
-    | Error e -> failwithf "SemanticAnalysisFixtures: cannot resolve '%s' manifest: %s" pkg e
+    | Error e -> failwithf "SemanticAnalysisFixtures: cannot resolve '%s' manifest: %s" pkg (PackageSetFault.describe e)
     | Ok mp ->
         match ReferencedProject.loadManifest mp with
         | Ok m -> m
@@ -38,16 +38,9 @@ type Stage =
         Files: AssemblyFiles.SourceFile list
     }
 
-/// Compose a contract provider from a set of package names — the SAME provider the CLR
-/// package build (`buildPackage`) uses: `ClrSymbolProviders.buildContract` supplies the
-/// .NET reflection (`dotnetMetadata`, over the host runtime) AND cross-package inline
-/// bodies. Both are load-bearing: Core's `(# "System.Int32" #)` reprs and Set's BCL-
-/// interface impls (`ICollection`/`IComparable`/…) do not resolve without the platform
-/// metadata, so a bare `composeContract noPlatformMetadata` leaves Core/Set analysing on
-/// the ERROR path, which is not a workload worth timing. `composeContract` resolves the
-/// transitive `depends-on` closure itself, so the DIRECT deps are enough (an empty list is
-/// the empty contract, Core's case). This is faithful because these are the CLR self-host
-/// sources; the JS backend would inject its own.
+/// A contract provider over a set of package names, WITH host .NET reflection: without it
+/// Core's `(# "System.Int32" #)` reprs and Set's `ICollection` impls do not resolve and the
+/// bench times the error path. The transitive closure is taken here, so pass DIRECT deps.
 let composeProvider (pkgs: string list) : IExternalSymbolProvider =
     pkgs |> List.map packageDir |> ClrSymbolProviders.buildContract
 

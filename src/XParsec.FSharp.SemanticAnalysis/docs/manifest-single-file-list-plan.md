@@ -1,172 +1,284 @@
-# Collapsing `files` + `impl` into one ordered list
+# One fold over one file list
 
-**Question (user, 2026-08-12):** should `manifest.<target>.toml` become just
-`files = [every .fs and .fsi, in compile order]`, dropping the other groups of files that
-get compiled?
+**Goal:** the expected dataflow of [fsi-front-end-plan](fsi-front-end-plan.md) §"Expected
+dataflow" encoded by ONE function every interested caller uses. Delete this doc when step 4
+lands (`feedback_plan_docs_ephemeral`).
 
-**Answer: yes for `files` + `impl`. No for `sig-only` / `runtime`** — those are not "groups
-of files that get compiled", they are a declaration of intent and an asset list, and neither
-is derivable from the merged order. The win is real but it is not the one it looks like from
-outside: it is not "fewer keys", it is **one ordering instead of two that can silently
-disagree**.
+**Status (2026-08-16):** the inputs are in place and the merge is blocked on the manifest
+format alone. Absorbs the remnants of `package-parse-once-plan.md`, which is deleted — its
+account of the remaining seam was misdiagnosed, see §"What this closes".
 
-**`impl-only` is gone (2026-08-15, user decision).** A `.fs` owes no contract, as in F#
-itself, so a body that pairs with no `.fsi` is simply unpaired — there is nothing left to
-declare. See below.
+## Where it stands: two folds implement one dataflow
 
-**The prerequisite has landed (2026-08-15); the merge itself is still a decision.** What the
-pairing found is recorded below — read it before merging, because it changes what
-justifications 1 and 3 are claiming.
+`PackageProviders.buildProviderWith` and `AssemblyFiles.analyseParsedWith` are the same fold.
+Both resolve each `.fsi` through `SignatureResolution.resolveFile` against a nearest-first
+stack of what the files before it published, and push the result. The package one stops after
+`resolveFile`; the compiling one goes on to analyse, freeze and conform the `.fs`.
 
-## What the five lists mean today
+Everything they differ in is one difference wearing four costumes:
 
-| key | contents | who reads it |
+| | compiling | referencing |
 | --- | --- | --- |
-| `files` | `.fsi` contracts, compile order | contract extraction, in order, into the package provider |
-| `impl` | `.fs` bodies, compile order | intrinsic-repr pre-scan (order-free); cross-package inline bodies (**order matters** — a later body wins a clash); conformance pairing (order-free, keyed by name); hashing |
-| `sig-only` | `.fsi` deliberately without a `.fs` | suppresses the content-based unpaired split |
-| `runtime` | JS assets | never parsed; deliberately excluded from `sourceInputs` |
+| home | `Origin.InFile implPath` | `Origin.InAssembly name` |
+| ambient prefixes | none | the package's `[<AutoOpen>]` |
+| analyse the `.fs` | yes | no |
+| an unsigned `.fs` publishes | the surface it infers | nothing |
 
-The compiled `SourceFile list` does **not** come from the manifest — a driver is handed it.
-So merging is a change to contract extraction and conformance, not to codegen input.
+The first two rows are already stated as one parameter in
+[fsi-front-end-plan](fsi-front-end-plan.md) §"Constraints the merged path must keep". The
+other two follow from it: across the boundary only what a `.fsi` declares crosses, which is
+what makes a referenced package readable without compiling it.
 
-## Why merge
+Compile order permits the merge outright — `AssemblyFiles.fs` already sees `PackageSource`,
+`SignatureResolution`, `Freeze` and `Pipeline`, and `PackageProviders` is after it.
 
-1. **The two orders can disagree, and in `Vesper.Core` they already do.** `fun-adapters` is
-   last in `files` (after `int-comparison`) but sixth-from-last in `impl` (before
-   `structural-format` and the operator files). Either one of those is wrong or the position
-   does not matter — the manifest cannot say which, and nothing checks. One list makes the
-   question unaskable.
-2. **Signature-ness is already encoded twice.** `parseFileFull` picks `parseSignature` vs
-   `parse` by `.EndsWith ".fsi"`, while ordering and pre-scan go by which list the entry is
-   in. Nothing stops `impl = ["foo.fsi"]`; the two encodings would then contradict, and the
-   extension wins in one place and the list in another.
-3. **The merged order is the order F# actually compiles in.** `a.fsi, a.fs, b.fsi, b.fs` is
-   expressible in one list and is not expressible in two. The current split can only say
-   "all contracts, then all bodies", which is not how the compiler under test orders a real
-   project. **Superseded by the prerequisite:** the package build compiles that interleave
-   today, off the pairing, with the two lists unchanged.
+## The blocker: one fold needs one order, and the manifest has two
 
-## Prerequisite — pair the `.fsi` halves into a real package build — **DONE**
+`[core] files` and `[core] impl` are independently ordered. Two folds can each be internally
+consistent over two orders; one fold must pick.
 
-`PackageUnits.ofOutcome` / `ofManifest` build the unit list off `ConformancePass.checkManifest`'s
-pairing, each `.fsi` riding its `.fs`'s unit at that `.fs`'s position in `impl` order.
-`TestHelpers.buildPackage`, `TestHelpers.vesperCoreDll`, `SelfPackageIntrinsicsTests` and the
-`JsPackageTests` corpus run all take it; `ConformanceTests`'s `PackageUnits` list pins the
-pairing per package per target, so a revert to `SourceUnit.ofImplementation` fails loudly.
+Checked across all 20 package manifests, the two orders agree everywhere **except**
+`Vesper.Core/manifest.clr.toml`, where `fun-adapters` is last in `files` (20th) and 16th in
+`impl`, before `structural-format`, `ops-platform`, `ops-std` and `int-comparison`.
 
-Two failures came out of it, one of each predicted kind:
+**That one conflict is free, and this is what the old plan could not say.** `fun-adapters.fsi`
+declares `Curried` / `Flattened` and an `[<AutoOpen>] module FunAdapters` over `Fun` alone, and
+nothing after it in either list names any of them — `structural-format.fsi`'s only hit on
+`flatten` is the English word in a doc comment. So its position does not matter, and the
+manifest's inability to say so is the defect rather than either ordering being wrong.
 
-- **A publication gap, not drift.** The `.fsi` extractor published a member-less
-  `type X = extern class` as a bare scalar, dropping the heritability the declaration states,
-  so `inherit Attribute()` in a later `Vesper.Core` file stopped resolving. Fixed at the
-  extractor (`IntrinsicShape.HeritableClass`); it was never specific to the paired build — a
-  consumer package inheriting a contract's `extern class` hit the same wall.
-- **Real drift.** `Vesper.Set`'s `SetModule.intersectMany` was inferring
-  `(Set<'T> * Set<'T>) -> Set<'T>` against a contract declaring `seq<Set<'T>> -> Set<'T>`,
-  because a project-local static member overloaded on arity resolves to its FIRST declaration:
-  `resolveMember`'s ranking is reached only for instance calls. The source is fixed; the
-  resolution gap is not, and is worth its own plan.
+Every other manifest has at most four entries per list with the shared keys in agreeing
+relative order, so the interleave is determined.
 
-### What it settles — and it weakens the case for merging
+## Merge rule
 
-- **Justification 3 no longer argues for one list.** `a.fsi, a.fs, b.fsi, b.fs` IS what the
-  pipeline now compiles, and a `SourceUnit` carries both halves, so the interleave is a
-  property of the unit rather than of the file list. A merged list would only be spelling out
-  an order the pairing already derives.
-- **Justification 1's disagreement is inert for the build.** The package build now reads
-  `impl` order alone — every `.fsi` sits at its `.fs`'s position — so `fun-adapters.fsi` being
-  last in `files` and sixth-from-last in `impl` costs the build nothing. `files` order still
-  sequences the CONSUMER-facing contract extraction in `ReferencedProject.buildProviderWith`,
-  which is a different list serving a different pass; that is the question left, and merging
-  would answer it by fiat rather than by test.
-- The CST check (`Conformance.checkUnit`) and the typar sweeps in
-  `AssemblyFiles.conformanceDiagnostics` now run on every package build, both targets, and are
-  clean on the corpus. `ConformanceTyparsTests`'s reversed-`(+)` mutation guard is still the
-  only thing separating "conforms" from "skipped" for the typar half; the CST half has no
-  equivalent guard.
+**`impl`-driven ordering is canonical (user, 2026-08-16).** The merged list is `impl` order,
+with each `.fsi` immediately before its companion `.fs`.
 
-## `impl-only` — REMOVED
+Once [retire-sig-only](retire-sig-only-plan.md) lands, every `.fsi` HAS a companion, so that
+rule is total and the merged list is fully determined by `impl` order. Until then it is
+canonical only for the paired spine, and a companion-less `.fsi` has no position in `impl` to
+be canonical about — which is the second reason to sequence that plan first.
 
-The two lists were never symmetric, and only one direction was ever a rule. A `.fsi` that
-names no body is F#'s own FS0240 — the surface is published and nothing answers it — so
-`sig-only` waives a real error. A `.fs` that answers no `.fsi` breaks nothing: the
-consumer-facing provider is built from `files` alone, so a contract-less body publishes
-NOTHING outside its package, and inline bodies are keyed by `SymbolKey`, so one the contract
-never declares is unreachable. `ImplWithoutContract` (V242) was therefore a house style rule
-wearing an error's clothes, and `UnknownImplOnly` (V243) was the bookkeeping that rule needed
-to stay honest. Both are gone with the key.
+- Every `.fs`-to-`.fs` relative order is preserved, so `SymbolProviders.inlineBodies`'s
+  later-body-wins is untouched. That is the one place the merged order is load-bearing beyond
+  readability, and it wants a test BEFORE the change, not after.
+- The package compile order is preserved exactly: it already reads `impl` order alone.
+- `fun-adapters.fsi` is the only entry that moves, earlier, in contract extraction only.
 
-What it cost to remove: one manifest declared it (`Vesper.Printf`'s JS `structural-printer.js.fs`,
-whose key collides with no contract), and the entry was ALREADY in `impl` — `impl-only` was a
-marker over that list, never a source of its own. So nothing moved.
+## Step 1: collapse `files` + `impl` into one ordered list
 
-- `ReferencedProject`: the `Manifest.ImplOnly` field, the `impl-only` key, its `coreKeys`
-  entry, its `sourceInputs` term. An `impl-only` key is now an unknown-key parse error, which
-  is what makes a stale manifest fail loudly instead of quietly losing its exemption.
-- `ConformancePass`: `PackageOutcome.ImplOnly` / `ImplOnlyDeclarations` and their `enforce`
-  arms. Every `.fs` is now a pairing candidate; one matching no contract stays unpaired.
-- `ConformanceVerdict`: `ImplWithoutContract` / `UnknownImplOnly` cases, with the wire tags
-  renumbered densely and `Cache.CodeVersion` bumped 30 → 31, since the encoding changed.
+Parse into a TYPED ordered list. A bare `string list` whose five consumers each re-derive the
+role by sniffing the extension trades two honest lists for one over-wide one
+(`feedback_overwide_types_are_string_keys`).
 
-## Why NOT also merge the rest
-
-- **`sig-only` is not derivable — but it should not exist. SUPERSEDED (2026-08-15, user
-  decision).** With one list, "`foo.fsi` present and `foo.fs` absent" is visible — but that is
-  exactly what the content-based split already computes. `sig-only`'s job is to *outrank* that
-  split, and that intent has no spelling in the file list. All true, and beside the point: the
-  right move is to give each exempted contract an implementation rather than a better-spelled
-  exemption. See [retire-sig-only-plan](retire-sig-only-plan.md). Nothing below about merging
-  `files` + `impl` depends on this.
-- **`runtime` is not a source.** It is never parsed and is excluded from the hash's source
-  inputs on purpose. Folding it in would make an asset edit look like a source edit.
-
-The follow-on this once proposed — moving `sig-only` to a per-entry inline-table marker — is
-**dropped**: it is the right granularity for the wrong thing. A per-file marker cannot express
-a contract that mixes intrinsic and ordinary declarations, and the exemption should be
-retired rather than relocated.
-
-## Design
-
-Parse ONCE into a typed ordered list. The thing to avoid is handing five consumers a bare
-`string list` that each re-derives the role by sniffing the extension — that trades two
-honest lists for one over-wide one.
+The role type already exists: `PackageSource.Half` (`Signature` / `Implementation`, with
+`Half.ofPath`). Reuse it rather than coining `ManifestRole`
+(`feedback_reuse_established_verb`) — which means moving `Half` up in compile order, above
+`ReferencedProject.fs`. **That move is owed anyway**: `PackageSetFault.FileWrongHalf` carries
+`expected: string` today only because `Half` is declared after `Diagnostics.fs`, so hoisting it
+above both lets the fault carry `expected: Half` and the codec write a byte. One move, two
+string keys deleted.
 
 ```fsharp
-[<RequireQualifiedAccess>]
-type ManifestRole =
-    | Contract        // .fsi
-    | Implementation  // .fs
-
-type ManifestFile = { Relative: string; Role: ManifestRole }
+type ManifestFile = { Relative: string; Half: Half }
 ```
 
 - `Manifest.Files : ManifestFile list` — the single ordered list.
-- `Manifest.Contracts` / `Manifest.Impls` — derived views, so each of today's consumers
-  changes by one line and the migration carries no behaviour.
-- An entry whose extension is neither `.fs` nor `.fsi` is a parse ERROR, matching how an
-  unknown `[core]` key is already treated: read as silence it would resolve a stale manifest
-  to a plausible wrong file set.
-- `impl` stays a recognised key for one release, parsed as `Implementation` entries appended
-  after `files`, so migration is not a flag day. Or drop it in one commit — there are only
-  10 packages and they are all in this repo. **Recommend the second**: a compatibility path
-  for an in-repo format nobody else consumes is the kind of moving piece worth not having.
+- An entry whose extension is neither `.fs` nor `.fsi` is a parse ERROR, as an unknown
+  `[core]` key already is: read as silence it resolves a stale manifest to a plausible wrong
+  file set.
+- Drop `impl` in one commit rather than run a compatibility path. Twenty manifests, all in
+  this repo, nobody else consuming the format — a migration flag day for that is a moving
+  piece worth not having.
+- `sig-only` and `runtime` stay. Neither is a group of files that gets compiled: `sig-only` is
+  a declaration of intent that OUTRANKS the content split and has no spelling in a file list,
+  and `runtime` is an asset list deliberately excluded from `sourceInputs` so an asset edit
+  does not read as a source edit. (`sig-only` should be retired rather than relocated — see
+  [retire-sig-only-plan](retire-sig-only-plan.md) — and nothing here depends on that.)
+- `sourceInputs` collapses to the file list: `sig-only` is enforced to be a subset of `files`
+  (`ConformanceVerdict.UnknownSigOnly`), and it is sorted before hashing, so nothing moves.
 
-## Cost
+**Inventory.** 19 manifests under `src/` (9 packages × 2 targets, plus CLR-only `Vesper.Set`)
+and `test/XParsec.FSharp.Codegen.Js.Tests/fixtures/widget/manifest.js.toml`. The synthetic
+manifests in `ReferencedProjectTests` are written at test time, not tracked.
+`test/Codegen.Conformance/manifest.toml` is NOT in this set — it is a `[[program]]` corpus with
+no `[core]` table, and the old plan was wrong to list it.
 
-- 19 manifests across 10 packages (`Vesper.Set` is CLR-only), plus
-  `test/Codegen.Conformance/manifest.toml`, the JS `widget` fixture, and the
-  `tmp/buildClosure-tests` fixtures.
-- `ReferencedProject.parseManifest` / `sourceInputs` / `pairingKey`; `Hashing` (the manifest
-  bytes are hashed, so every package hash changes once → one full rebuild);
-  `ConformancePass` (`m.Impl` → `m.Impls`); `ReferencedProject.buildProviderWith` (two
-  loops, both now filtered views); `SymbolProviders.inlineBodies`.
-- `ReferencedProjectTests` pins the parsed lists directly and will need updating.
+**Touched:** `ReferencedProject.parseManifest` / `coreKeys` / `sourceInputs`; `PackageSource.readPackage`;
+`ConformancePass` (`m.Impl`); `PackageProviders.buildProviderWith`; `SymbolProviders.inlineBodies`;
+`Hashing` (manifest bytes are hashed, so every package hash moves once → one full rebuild).
+`ReferencedProjectTests` pins `m.Files` / `m.Impl` directly (`:123`, `:701-704`, `:875`,
+`:917-924`) and needs updating.
 
-## Ordering caveat to preserve in the migration
+**Ride along with step 1**, because each touches the code this step is already rewriting and
+each is otherwise homeless:
 
-`SymbolProviders.inlineBodies` resolves a clash by "later body wins", over `manifest.Impl`
-order. A mechanical migration that keeps the relative order of `.fs` entries preserves this.
-Interleaving `.fsi` between them does not change any `.fs`-to-`.fs` relative order, so the
-rule is safe — but it is the one place where the merged order is load-bearing beyond
-readability, and it should get a test before the change, not after.
+- **Type `loadManifest` and `buildClosure`'s error channels** as `PackageSetFault` (a
+  `MalformedManifest of path * detail` case covers them). `resolveManifest` is already typed, so
+  callers currently DOWNGRADE it — `Result.mapError PackageSetFault.describe |> Result.bind
+  PackageUnits.ofManifest` appears three times in test helpers, paying to undo the improvement.
+  It also makes `Hashing.compilationDigest`'s comment true: it claims the key never folds
+  diagnostic WORDING, which the `buildClosure` arm violates today.
+- **`PackageUnits.ofManifest`'s nested `Result`** goes with that: its outer error is the one
+  channel that stayed stringly.
+- **Collapse the three `PackageSetFault` → diagnostics helpers** —
+  `PackageSource.FileFault.toFailure`'s inner `setFault`, `PackageProviders.setFault`, and
+  `SymbolProviders.setFaultDiagnostics` are one primitive spelled three ways. Put
+  `PackageSetFault -> AnchoredDiagnostic list` beside `unpositionedDiagnostics` and let the
+  others be one-liners over it.
+- **`PackageProviders`'s duplicate-type diagnostic** anchors to
+  `AssemblyFileId.ofRelative manifest.Name`, fabricating a file named after the package.
+  `AssemblyFileId.nowhere` is used fourteen lines below for the same kind of finding.
+
+**Exit:** whole corpus green, both targets, with no behaviour change other than
+`fun-adapters.fsi`'s position in contract extraction.
+
+## Sequencing: [retire-sig-only](retire-sig-only-plan.md) FIRST
+
+That plan's headline is now "make a signature file with no implementation file unrepresentable
+for analysis" (user, 2026-08-16). Landing it makes the pairing TOTAL, which collapses this
+plan's step 2 and simplifies its merge rule:
+
+- `Unit` is not a three-case DU. Every unit has an implementation and an optional signature,
+  which is what `AssemblyFiles.ParsedUnit` already IS — so step 2 becomes "the package route
+  uses `ParsedUnit`", not "widen `ParsedUnit`".
+- `impl`-driven ordering is canonical AND COMPLETE, not canonical for a spine with
+  companion-less entries positioned off `files`. The merged list is a mechanical interleave
+  with no exceptions.
+
+Doing the merge first would mean building a `SignatureOnly` case in order to delete it, and
+writing the spine/companion-less positioning rule in order to drop it. So this plan waits.
+
+**What it waits on**, from that plan's inventory of 15 bodiless signatures: four entries gated
+on other plans, two sentinel-repr bodies and two abbreviation bodies (all four gated on
+nothing), and three `.fsi` dropped from `manifest.js.toml` for types js does not have.
+
+**The long pole is the runtime-served pair, deferred by decision — the one class left without
+an answer.** If it stays open, do NOT stall here: proceed carrying `SignatureOnly` and delete
+the case when the pairing becomes total. A case with no inhabitants is cheaper to remove than a
+missing one is to add back.
+
+## Step 2: one unit type
+
+`readPackage` already computes the pairing and then splits it into two lists whose element
+types each make one half mandatory. Emit the pairing itself:
+
+```fsharp
+type Unit =
+    | Paired of signature: ReadFile<ParsedSignature> * implementation: ReadFile<ParsedFile>
+    | SignatureOnly of ReadFile<ParsedSignature>
+    | ImplementationOnly of ReadFile<ParsedFile>
+```
+
+`ParsedPackage.Units : Unit list` in merged-list order replaces `Signatures` / `Implementations`
+and the `Companion` fields on both. `AssemblyFiles.ParsedUnit` — which requires an
+implementation, and is why a `sig-only` `.fsi` is invisible to the compiling route today — is
+this type.
+
+`PackageUnits.ofPackage` disappears: it exists only to project one of the two lists back into
+a unit list.
+
+**Exit:** `ConformancePass.check`, `buildProviderWith` and `inlineBodies` each walk one list,
+and no consumer re-derives a pairing.
+
+## Step 3: one fold
+
+In `AssemblyFiles`, over `Unit list`, with the discriminator that made the four rows one:
+
+```fsharp
+/// Which side of the assembly boundary this fold publishes for.
+type Publication =
+    /// Compiling these units: each file homes in itself, the `.fs` is analysed and frozen,
+    /// and an unsigned `.fs` publishes the surface it infers.
+    | InAssembly of analyse: AnalyseFile
+    /// Reading them as a reference: every symbol homes in the assembly, the package's
+    /// `[<AutoOpen>]` prefixes are published, and only a `.fsi` crosses.
+    | AcrossAssemblies
+```
+
+`AnalyseFile` is reachable only on the compiling arm, so "referencing, but it analysed the
+bodies" is not a state that exists.
+
+Two things the fold makes one that are two spellings today: the intrinsic-repr pre-scan
+(`signatureView` reads `scope.Implementation`, `companionReprs` reads `entry.Companion` — the
+same `IntrinsicReprs.ofImplementationInto` call), and the prelude at the floor of the stack,
+which the package route appends explicitly and the compiling route inherits from `external`.
+The second is a real question the merge forces: an in-assembly `.fsi` compiled against an
+EMPTY reference set gets no prelude today, and a package `.fsi` always does. Settle it in the
+fold rather than leaving it to which caller you came through.
+
+**Exit:** `buildProviderWith` and `analyseParsedWith` are both call sites; neither holds a
+loop.
+
+## Step 4: the callers collapse onto it
+
+- `PackageProviders.buildProviderWith` → `AcrossAssemblies`.
+- `AssemblyFiles.analyseParsedWith` / `analyseGatedParsed` → `InAssembly`. With
+  `analyseGated` gone, the `Parsed` suffix distinguishes nothing and should go too.
+- `TestHelpers.buildPackage` reads the package ONCE and folds it twice — once compiling, once
+  as its own reference — off one `ParsedPackage`.
+
+**Ride along with step 4**, since it is already rewriting these callers:
+
+- **`ComposedContract` and `Contract`** are one idea at two layers, and only `Contract` has a
+  `gate` — which is why `SymbolProviders.buildWith` returns a value nobody can gate and
+  `ClrSymbolProviders.build` drops it. Fold `ComposedContract` into `Contract` with empty
+  bodies/origins. NOTE: this does NOT fall out of the fold merge on its own — `composeOrdered`
+  survives it and still returns its own type.
+- **`ClrDriver.unanchored`** flattens `AnchoredDiagnostic list` to `Diagnostic list`, discarding
+  path and line. Its comment says the file is in the message and there is nothing to anchor to;
+  that is true of `PackageSet` faults and false of the positioned signature-resolution errors
+  the gate also passes. Widen the single-file entry's error channel, or fold `path:line` into
+  the rendered message.
+
+**Exit:** the dataflow in [fsi-front-end-plan](fsi-front-end-plan.md) §"Expected dataflow" is
+one function, and `a.fsi, a.fs, b.fs, c.fsi, c.fs` is a list you can write in a manifest.
+
+## Independent of every step, and deliberately not scheduled
+
+- **`ParseChain.parse` and `parseSignature` are one function written twice** — identical lex →
+  reader → failure plumbing, differing only in which parser runs and which AST case is accepted.
+  `ParsedFile` and `ParsedSignature` are the same record with a different tree field. One
+  `Parsed<'Tree>` plus a `parseAs` collapses ~60 lines to ~30 and deletes a type, and the stack
+  already parameterises over exactly that axis (`ReadFile<'Tree>`, `ParsedHalf<'tree>`). Safe to
+  do at any point.
+
+**Do NOT fix these separately — the steps above delete them:**
+
+- `PackageSource.readPackage`'s two `Dictionary` fill loops (step 2 rewrites the function).
+- `bindExternRepr`'s `fileOn true` / `fileOn false`, which reintroduces the boolean blind
+  `publishExternPrimitive` removed (retire-sig-only's class A′ passes through
+  `SignatureResolution` anyway).
+
+## What this closes
+
+**The "reads a package set twice" seam, without a parse cache.** A compilation that both
+REFERENCES and COMPILES a package reads it once per entry point today. `package-parse-once-plan`
+diagnosed that as cache invalidation and pointed the next session at a parse cache keyed on the
+manifest. That was wrong: the cause is that neither fold can express a package's full file
+list, so a self-package build needs both routes over the same package. Steps 1-4 make it one
+read and one fold, and the cache question does not arise. Do not build the cache.
+
+**`sig-only` files invisible to the compiling route.** `list-bcl.clr.fsi` is unreachable when
+`Vesper.List` compiles and works only because `buildContractForSelf` sends the package down the
+other railway. Step 2 puts it in the list.
+
+`Hashing.dependencySignatureHash` stays deliberately outside all of this: it hashes contents and
+never parses, and it must cover the `sig-only` paths no consumer wants trees for.
+
+## Contract defects this made visible, still open
+
+Neither is a front-end bug — each is a declaration naming a type the target's contract does not
+publish, reported as a WARNING-severity `SignatureNotPublished` the drivers gate on:
+
+- `Vesper.Printf`'s `Formatter` constructors name `TextWriter` / `StringBuilder`.
+- `Vesper.List`'s `GetSlice` names `int option` — see [fsi-front-end-plan](fsi-front-end-plan.md).
+
+## Not in this plan
+
+- `AttributeDecode`'s short-name matching — [fsi-front-end-plan](fsi-front-end-plan.md) step 5.
+- Content-addressed memoization of `PublishedSurface`, and the `ValRepr` flat-grouping fix it
+  waits on.
+- Conformance over two `PublishedSurface`s rather than two CSTs.
+- Retiring `sig-only` — [retire-sig-only-plan](retire-sig-only-plan.md).

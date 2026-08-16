@@ -28,7 +28,7 @@ read once; the file name is the only place a manifest states which target it is 
 | `impl` | the `.fs` files compiled into the package DLL, and the splice sources they publish |
 | `sig-only` | `.fsi` files deliberately impl-free — an accepted conformance exemption |
 | `runtime` | hand-authored runtime *assets* (the JS `.mjs`) the backend ships beside its output |
-| `depends-on` | the other packages this one needs, **for this target** |
+| `depends-on` | the other packages this one needs, **for this target**, each a path relative to this package's directory |
 | `name` | **optional** — see below |
 
 A package that builds for both targets writes both files, and the shared entries are
@@ -41,15 +41,21 @@ depends on `Vesper.List` on the CLR, whose `%A` engine uses the cons-list as its
 `Doc` child lists and frame stack, and on Core alone on JS, whose `%A` engine is a
 free function.
 
-**The directory name is the package identity.** `[core] name` is optional —
-`Vesper.Core` and `Vesper.Printf` omit it entirely — and when
-present it is only *validated* to match the directory, never used as an independent
-identity. This matters because `depends-on "Vesper.Core"` resolves by *path*, to the
-sibling package's manifest **for the same target**: `src/Vesper.List/manifest.js.toml`
-reaches `src/Vesper.Core/manifest.js.toml`. Had an explicit `name` been allowed to
-diverge, a dependency would be resolved by directory but reported by `Name`, and a
-`depends-on` written against `Name` would silently miss. Parse-time rejection keeps
-the two identities from drifting.
+**The directory name is the package identity**, and the assembly name it emits under.
+`[core] name` is optional — `Vesper.Core` and `Vesper.Printf` omit it entirely — and
+when present it is only *validated* to match the directory, never used as an
+independent identity. Had an explicit `name` been allowed to diverge, a package would
+be resolved by directory but reported by `Name`, and the DLL a consumer references
+would not be the one its `AssemblyRef` names. Parse-time rejection keeps the two
+identities from drifting.
+
+**A `depends-on` entry is a PATH, relative to the depending package's own directory**,
+resolved to the dependency's manifest **for the same target**:
+`src/Vesper.List/manifest.js.toml` writes `"../Vesper.Core"` and reaches
+`src/Vesper.Core/manifest.js.toml`. A path rather than a bare name because a package
+that does not sit beside its dependency — a test fixture, anything outside `src/` —
+has no other way to reach it. The resolved path is canonicalised, so two spellings of
+one package are one package.
 
 A package that ships no `manifest.<target>.toml` does not build for that target, and
 naming it from a closure for that target is a hard error rather than an empty
@@ -196,9 +202,9 @@ one namespace" assumption is false here, and the conformance check and symbol
 provider must not rely on one.
 
 What *does* hold the line is the **composition-time duplicate sweep**
-(`ReferencedProject.fs:699-746`): a qualified type name declared twice across the
+(`PackageProviders.composeOrdered`): a qualified type name declared twice across the
 referenced set would resolve as a silent first-hit shadow — the loser's type minted
-with a correct key but unreachable by lookup — so composition refuses it outright, a
+with a correct key but unreachable by lookup — so composition refuses it, a
 CS0433-equivalent naming both homes. Any second sighting is a collision: one
 package never declares a key twice, so a repeat is either two peers sharing
 namespace + name or two copies of one package. Intrinsics and capability canons are
@@ -228,7 +234,7 @@ carries no `AssemblyRef` for it. Only the polymorphic family — dispatching thr
 The `.fsi` is the **target-agnostic contract** (`type int = extern`); the matching
 `.fs` is the **per-target binding** (`type int = (# "System.Int32" #)`).
 Resolution needs only the `.fsi` — an absent `.fs` is a codegen-side concern, not a
-resolution failure (`ReferencedProject.fs:6-16`).
+resolution failure.
 
 Per-target divergence is expressed by the manifest a build reads, not by a key
 inside one: `manifest.clr.toml` and `manifest.js.toml` each name the whole ordered
@@ -259,9 +265,10 @@ Three distinct companion patterns coexist, and the distinction is load-bearing:
 - **`comparison.js.fs`** — a whole-file per-target re-authoring, the only `impl`
   entry `Vesper.Comparison`'s JS manifest names.
 
-**Intrinsic reprs are extracted from the `.fs` before the `.fsi` is walked**
-(`buildProviderWith`, `ReferencedProject.fs:531-580`), because the `.fs` is the
-only place the repr lives — the `.fsi` commits `type exn = extern` and no repr.
+**Intrinsic reprs are read from a contract's PAIRED `.fs` before that `.fsi` is
+resolved** (`PackageProviders.buildProviderWith`), because the `.fs` is the only place
+the repr lives — the `.fsi` commits `type exn = extern` and no repr. The companion and
+no other file, which is what the in-assembly `.fsi` path reads too.
 There are two sources:
 
 - the **base** `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker*. Its presence
@@ -282,10 +289,10 @@ its single `.js.fs` is both marker and platform name.
 
 ## Resolving the graph
 
-`buildClosureWithDeps` (`ReferencedProject.fs:358`) closes a root manifest set over
+`ReferencedProject.buildClosureWithDeps` closes a root manifest set over
 `depends-on` and returns the manifest paths in **dependency order** plus each
-package's transitive closure; `buildClosure` (`:349`) is the ordered-paths-only
-projection. Both share the private `closeAndOrder` (`:265-345`), a post-order DFS
+package's transitive closure; `buildClosure` is the ordered-paths-only
+projection. Both share the private `closeAndOrder`, a post-order DFS
 over the discovery order with gray/black colouring. Properties that callers rely on:
 
 - **Dependency order**, always — each package appears after everything it depends
@@ -293,23 +300,27 @@ over the discovery order with gray/black colouring. Properties that callers rely
   already-built type shapes.
 - **Stable over discovery order** — an already-ordered input is returned unchanged,
   so composition is deterministic.
-- **A cycle is a hard error**, naming the package it runs through: contract
-  packages may not be mutually recursive. So is a `depends-on` naming a package
-  whose manifest is absent.
+- **A cycle is refused**, naming the package it runs through: contract packages may
+  not be mutually recursive. So is a `depends-on` whose manifest is absent. Both
+  come back as a `PackageSetFault` diagnostic, not an exception — the compilation is
+  over either way, and a caller that already gates on diagnostics should not also
+  have to catch.
 - Paths are normalised and de-duplicated, so `Vesper.Core` — named by every other
   package — is processed once.
 
-`composeOrdered` (`:675`) is the single dependency-order wiring shared by the
+`PackageProviders.composeOrdered` is the single dependency-order wiring shared by the
 codegen `SymbolProviders` stack and the in-assembly test fixtures; do not
-re-implement its ambient-shape loop at a call site. It is **tail-agnostic**: a
-backend injects its own metadata tail (BCL `MetadataSymbols` on CLR, the JS-native
-tail on JS) through the `MetaTailFactory` seam, and an in-assembly caller that
-needs no metadata passes `noMetaTail`. `composeContract` (`:762`) is the
-order-it-yourself convenience over a raw manifest set; `provider` (`:783`) is the
-per-path cached single-package entry point.
+re-implement its dependency loop at a call site. It is **layer-2-agnostic**: a
+backend injects its own platform metadata (BCL `MetadataSymbols` on CLR, the
+JS-native stubs on JS) through the `PlatformMetadataFactory` seam, and an in-assembly
+caller that needs none passes `noPlatformMetadata`. It hands back a
+`ComposedContract` — the provider AND everything resolving those contracts found,
+because a caller that drops the second gets a provider publishing less than the
+contracts say. `composeContract` is the order-it-yourself convenience over a raw
+manifest set; `buildProvider` is the single-package entry point.
 
 The tests for these properties — including the name-vs-directory rejection above —
-are `ReferencedProjectTests.fs`'s `buildClosure` list (`:490`).
+are in `ReferencedProjectTests.fs`.
 
 ## Cross-references
 

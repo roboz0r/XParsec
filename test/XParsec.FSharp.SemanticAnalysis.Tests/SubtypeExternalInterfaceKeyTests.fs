@@ -62,7 +62,7 @@ let private providerFor (ifaceKey: TypeKey) : IExternalSymbolProvider =
 
 let private ctxFor (ifaceKey: TypeKey) : PassContext =
     let lexed, _ = parseFile "let x = 1"
-    PassContext(providerFor ifaceKey, Hashing.originSourceOfText lexed)
+    PassContext(providerFor ifaceKey, Hashing.originSourceOfText lexed, "")
 
 // `SemType.TyClass`, never `TestHelpers`' shadow: that shim mints its key with
 // `qualifiedTypeKeyOf`, the very re-cut these tests exist to distinguish.

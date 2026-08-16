@@ -46,7 +46,7 @@ module ClrSymbolProviders =
 
     /// Layer-1 contract stack over the .NET metadata reader. Uncached.
     let build (packageDirs: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildWith dotnetMetadata Target.Clr packageDirs
+        (SymbolProviders.buildWith dotnetMetadata Target.Clr packageDirs).Provider
 
     /// Provider stack for a package set, including cross-package inline bodies.
     let buildContract (packageDirs: string list) : IExternalSymbolProvider =
@@ -84,15 +84,19 @@ module ClrSymbolProviders =
 
     /// `buildContract` for a compilation that IS a package, over the host TPA rather than
     /// an explicit reference set. `selfPackage` seeds the reader AND joins the resolution stack.
-    let buildContractForSelf (selfPackage: string option) (packageDirs: string list) : IExternalSymbolProvider =
+    let contractForSelf (selfPackage: string option) (packageDirs: string list) : SymbolProviders.Contract =
         let seed = selfIntrinsics selfPackage
 
-        (SymbolProviders.buildContractWith
+        SymbolProviders.buildContractWith
             ("dotnet" + seedTag seed)
             (seeded seed dotnetMetadata)
             Target.Clr
-            (SymbolProviders.selfStack selfPackage packageDirs))
-            .Provider
+            (SymbolProviders.selfStack selfPackage packageDirs)
+
+    /// `contractForSelf`'s provider with its diagnostics DROPPED: an introspection seam for a
+    /// test that reads what the stack resolves and compiles nothing.
+    let buildContractForSelf (selfPackage: string option) (packageDirs: string list) : IExternalSymbolProvider =
+        (contractForSelf selfPackage packageDirs).Provider
 
     /// An introspection seam for tests: raw cross-package inline bodies by source name. A
     /// simple name is not a resolution channel; production reads a body off its resolved entry.
@@ -100,9 +104,9 @@ module ClrSymbolProviders =
         (SymbolProviders.buildContractWith "dotnet" dotnetMetadata Target.Clr packageDirs).BodiesByName
 
     /// The cached contract for one compilation: an explicit reference set, seeded with the
-    /// compiling package's own intrinsic axis. Both halves are in the cache tag, the seed included,
-    /// because two packages compiling THEMSELVES with empty package lists would otherwise alias.
-    let private compilationContract
+    /// compiling package's own intrinsic axis. The seed is in the cache tag too, because two
+    /// packages compiling THEMSELVES with empty package lists would otherwise alias.
+    let compilationContract
         (selfPackage: string option)
         (dllPaths: string list)
         (packageDirs: string list)

@@ -1,9 +1,9 @@
 [core]
 name = "Vesper.Comparison"
 description = "The ordering operators (< > <= >=)."
-depends-on = ["Vesper.Core"]
+depends-on = ["../Vesper.Core"]
 
-# Contract `.fsi` files in compile order. `structuralCompare` is a JS runtime entry (the
+# Signature files in compile order. `structuralCompare` is a JS runtime entry (the
 # `< > <= >=` aggregate bases delegate to it for non-primitive operands, body in
 # `Vesper.Comparison.mjs`); it has no CLR `.fs` body, so the clr manifest does not name it.
 files = [

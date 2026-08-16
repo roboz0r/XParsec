@@ -34,9 +34,8 @@ replace `TypeTranslate.fs`'s `resolveTypeName` (`:176`) outright.
 `PassContext` built from the `.fsi`'s own `OriginSource`, can drive the real resolver with no
 pass running first.
 
-The two are a matched pair, not interchangeable: `Pipeline.ParsedSignature`
-(`Pipeline.fs:102-107`) carries the CST that gets walked and the `Lexed` every `SyntaxToken`
-in it indexes into. The context needs the `Lexed` because `NodeKey`s derive from token
+The two are a matched pair, not interchangeable: `ParseChain.ParsedSignature` carries the CST
+that gets walked and the `Lexed` every `SyntaxToken` in it indexes into. The context needs the `Lexed` because `NodeKey`s derive from token
 offsets and identifier text is read out of it. `analyseSignature` already mints that
 `OriginSource` (`AssemblyFiles.fs:329`), today only to anchor the signature's diagnostics.
 
@@ -231,12 +230,16 @@ checking that against fsc.
 ## Constraints the merged path must keep
 
 - **Pre-scan order.** Both callers extract intrinsic reprs from the `.fs` BEFORE the `.fsi`,
-  so `type t = extern` picks `IntrinsicPlatform.Repr` over `Unsupported`
-  (`AssemblyFiles.fs:235-237`, `ReferencedProject.fs:396-405`).
-- **Declared order within a package** (`ReferencedProject.fs:407-408`).
+  so `type t = extern` picks `IntrinsicPlatform.Repr` over `Unsupported` (`signatureView` and
+  `companionReprs`, which are the same read spelled twice).
+- **Declared order within a package.**
 - **Homing stays a parameter.** The in-assembly caller homes `Origin.InFile` and publishes no
   ambient prefixes; the package caller homes `Origin.InAssembly` and publishes its
-  `[<AutoOpen>]` prefixes (`ReferencedProject.fs:416-421`).
+  `[<AutoOpen>]` prefixes.
+
+All three are discharged by the single fold in
+[manifest-single-file-list-plan](manifest-single-file-list-plan.md), which is where the two
+callers become one.
 
 ## Steps
 
@@ -450,17 +453,13 @@ Runnable before step 1 if preferred; it is listed last only because it is the le
   cross-assembly boundary.
 - Conformance over two `PublishedSurface`s instead of two CSTs, and the folding-vs-structural
   decision for attribute arguments.
-- **`Vesper.List`'s contract names two types its package cannot resolve.** `list.fsi`'s
+- **`Vesper.List`'s `GetSlice` names a type its package cannot resolve.** `list.fsi`'s
   `GetSlice` writes `int option` while the manifest depends on `Vesper.Core` alone, so the
-  member is dropped; and `type ResizeArray<'T> = System.Collections.Generic.List<'T>` names a
-  BCL type no `.fsi` declares, so the abbreviation's body is unresolvable on the contract path
-  and resolves only once a backend's platform metadata is in scope. Either the dependency is
-  missing or the declaration does not belong in that contract.
+  member is dropped. Either the dependency is missing or the declaration does not belong in
+  that contract. (The `ResizeArray` half of this item is FIXED: it moved to `list-bcl.clr.fsi`,
+  a CLR-only signature file, because the RHS is a BCL type the js contract cannot name.)
 - **`Vesper.Printf`'s `Formatter` constructors name `TextWriter` / `StringBuilder`**, the same
   BCL-only case as `ResizeArray` above, and are dropped from the contract for the same reason.
-- **A `depends-on` entry can only name a SIBLING directory**, so a package outside `src/`
-  cannot name `Vesper.Core` without spelling a `../..` path — which three test fixtures now do.
-  The search path a caller's package set implies would be the upstream fix.
 - **`module A.B.C` as a whole FILE loses its module.** `CstModuleTree.walkImpl` homes such a file's
   declarations in the global namespace with no module chain, and the signature walk mirrors it
   so a pair's halves agree. `VesperLib` honoured the chain, so the package path and the

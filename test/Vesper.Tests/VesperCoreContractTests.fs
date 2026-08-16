@@ -1,12 +1,8 @@
 module Vesper.Tests.VesperCoreContractTests
 
-// Prove the Vesper.Core contract (`.fsi`) and implementation (`.fs`) files are
-// consumable by XParsec.FSharp.
-// Uses the golden-file machinery pointed at the real sources in
-// `src/Vesper.Core/`, so each `.parsed` snapshot lands next to its source. First
-// run creates the golden (test fails locally / skips on CI); review it (confirm
-// the declarations come out and there are no recovery diagnostics), commit it,
-// and every later run asserts the parse against it automatically.
+// Prove the Vesper.Core signature (`.fsi`) and implementation (`.fs`) files are consumable by
+// XParsec.FSharp. The golden-file machinery is pointed at the real sources in `src/Vesper.Core/`,
+// so each `.parsed` snapshot lands next to its source and the first run creates it.
 
 open System.IO
 
@@ -19,8 +15,8 @@ let private vesperPath (package: string) (fileName: string) =
 
 let private vesperCorePath (fileName: string) = vesperPath "Vesper.Core" fileName
 
-/// Contract `.fsi` files, in `manifest.clr.toml` compile order.
-let private contractFiles =
+/// Signature files. Not the whole of `manifest.clr.toml`'s `files`, nor in its order.
+let private signatureFiles =
     [
         "prim-types-min.fsi"
         "capabilities.fsi"
@@ -43,12 +39,8 @@ let private contractFiles =
         "int-comparison.fsi"
     ]
 
-/// Impl `.fs` files — our-backend target source, one companion per `prim-types-*`
-/// contract (each binds its extern types to `(# "..." #)` intrinsics).
-/// `ops-platform.clr.fs` carries the `hash` inline body the codegen inline-body
-/// loader reads. The cons-list (`list.fs`) moved to
-/// the standalone `Vesper.List` package (one package per type) — see
-/// `vesperListContractTests` below.
+/// Impl `.fs` files: each `prim-types-*` companion binds its extern types to `(# "..." #)`
+/// intrinsics, and `ops-platform.clr.fs` carries the `let inline hash` body a consumer splices.
 let private implFiles =
     [
         "prim-types-min.clr.fs"
@@ -76,7 +68,7 @@ let vesperCoreContractTests =
     testList
         "VesperCoreContract"
         [
-            for fileName in contractFiles do
+            for fileName in signatureFiles do
                 test $"Parsing {fileName}" { testParseSignatureFile (vesperCorePath fileName) }
 
             for fileName in implFiles do

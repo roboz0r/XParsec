@@ -1,9 +1,9 @@
 [core]
 name = "Vesper.Choice"
 description = "The Choice<'T1, 'T2> two-way disjoint union type."
-depends-on = ["Vesper.Core"]
+depends-on = ["../Vesper.Core"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Signature files in compile order (one, today).
 files = [
     "choice.fsi",
 ]

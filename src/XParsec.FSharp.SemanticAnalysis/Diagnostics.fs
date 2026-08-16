@@ -119,15 +119,15 @@ type TypeCycle =
 type ConformanceVerdict =
     /// A binding the contract declares that the implementation does not satisfy.
     | Unimplemented of sigFile: string * detail: string
-    /// A contract with no companion implementation, not declared `sig-only`.
+    /// A signature file with no companion implementation, not declared `sig-only`.
     | SigWithoutImpl of sigFile: string
     /// The paired files' leading module / namespace declarations disagree.
     | ModulePairingMismatch of sigFile: string * implFile: string * sigDecl: string * implDecl: string
     /// Declared `sig-only`, but a companion implementation exists.
     | StaleSigOnly of name: string
-    /// Declared `sig-only`, but no contract `.fsi` in the package has that name at all.
+    /// Declared `sig-only`, but no signature file in the package has that name at all.
     | UnknownSigOnly of name: string
-    /// The contract or its companion failed to parse, so that pair could not be conformed.
+    /// The signature file or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
     /// A declaration the signature makes that the front end could not MODEL, so the signature
     /// publishes LESS than it says: the declaration is absent for everything that reads it.
@@ -172,12 +172,62 @@ module ConformanceVerdict =
                 "'%s' is declared `sig-only` but a companion implementation exists — remove the stale exemption"
                 name
         | ConformanceVerdict.UnknownSigOnly name ->
-            sprintf "`sig-only` names '%s', which is not a contract `.fsi` in this package" name
+            sprintf "`sig-only` names '%s', which is not a signature file in this package" name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
         | ConformanceVerdict.SignatureNotPublished detail ->
             sprintf "the signature declares something this compiler cannot publish, so it is hidden: %s" detail
         | ConformanceVerdict.SignatureRejected detail -> sprintf "the signature declares %s" detail
+
+/// A fault in the PACKAGE SET a compilation was handed, rather than in any one file's text:
+/// a manifest naming a path it has not got, a `depends-on` that does not resolve, a type two
+/// referenced packages both declare.
+[<RequireQualifiedAccess>]
+type PackageSetFault =
+    /// A `[core]` list names a path that is not on disk.
+    | FileMissing of package: string * relative: string
+    /// A path is the other half: a `.fs` under `[core] files`, or a `.fsi` under `[core] impl`.
+    | FileWrongHalf of package: string * relative: string * expected: string
+    /// A package directory has no `manifest.<target>.toml` for the target compiled.
+    | NoManifestForTarget of packageDir: string * target: string
+    /// A `depends-on` entry that resolves to nothing, or a cycle in the closure.
+    | UnresolvedDependency of detail: string
+    /// One qualified type name declared by two packages of the referenced set: the CS0433
+    /// equivalent.
+    | DuplicateType of typeName: string * first: string * second: string
+
+[<RequireQualifiedAccess>]
+module PackageSetFault =
+
+    let code (f: PackageSetFault) : DiagCode =
+        match f with
+        | PackageSetFault.FileMissing _
+        | PackageSetFault.FileWrongHalf _ -> DiagCode.Vesper "V250"
+        | PackageSetFault.NoManifestForTarget _
+        | PackageSetFault.UnresolvedDependency _ -> DiagCode.Vesper "V251"
+        | PackageSetFault.DuplicateType _ -> DiagCode.Vesper "V252"
+
+    let describe (f: PackageSetFault) : string =
+        match f with
+        | PackageSetFault.FileMissing(package, relative) ->
+            sprintf "package '%s' names '%s', which is not on disk" package relative
+        | PackageSetFault.FileWrongHalf(package, relative, expected) ->
+            sprintf "package '%s' lists '%s' where %s is expected" package relative expected
+        | PackageSetFault.NoManifestForTarget(packageDir, target) ->
+            sprintf "package '%s' does not build for target `%s`: no manifest.%s.toml" packageDir target target
+        | PackageSetFault.UnresolvedDependency detail ->
+            sprintf "the referenced package set does not resolve: %s" detail
+        | PackageSetFault.DuplicateType(typeName, first, second) when first = second ->
+            sprintf
+                "the type '%s' is declared twice by package '%s' — the referenced set contains two copies (or versions) of it. Reference the package once."
+                typeName
+                first
+        | PackageSetFault.DuplicateType(typeName, first, second) ->
+            sprintf
+                "the type '%s' exists in both '%s' and '%s'. A referenced package set must declare each type once; reference only one of the two packages."
+                typeName
+                first
+                second
 
 /// A broken invariant INSIDE this compiler, never a verdict about the program: the source
 /// that provoked one may be perfectly correct. A diagnostic rather than a crash, so a break
@@ -340,6 +390,8 @@ type Kind =
     /// `assembly` is what the checked pair belongs to, which a package build spells with
     /// its manifest name and an assembly build with the name it compiles into.
     | Conformance of assembly: string * verdict: ConformanceVerdict
+    /// A fault in the package SET, which has no place in any file being compiled to point at.
+    | PackageSet of fault: PackageSetFault
     | LexFailure of detail: string
     | ParseFailure of detail: string
     /// A refusal by the DRIVER rather than a verdict about the code: a missing target
@@ -398,6 +450,7 @@ module Kind =
         | Kind.CyclicType(via = TypeCycle.Immediate) -> DiagCode.FSharp 954 // tcTypeDefinitionIsCyclicThroughInheritance
         // ── This compiler's own published families.
         | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
+        | Kind.PackageSet fault -> PackageSetFault.code fault
         | Kind.LexFailure _ -> DiagCode.Vesper "LEX"
         | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
         | Kind.Driver _ -> DiagCode.Vesper "DRV"
@@ -531,6 +584,7 @@ module Kind =
             sprintf "Type test of '%s' against unrelated type '%s' is always false" source target
         | Kind.RedundantDowncast ty -> sprintf "Downcast is redundant — the static type '%s' already matches" ty
         | Kind.Conformance(assembly, verdict) -> sprintf "%s: %s" assembly (ConformanceVerdict.describe verdict)
+        | Kind.PackageSet fault -> PackageSetFault.describe fault
         | Kind.LexFailure detail -> sprintf "lex error: %s" detail
         | Kind.ParseFailure detail -> sprintf "parse error: %s" detail
         | Kind.Driver message -> message
@@ -586,6 +640,7 @@ module Kind =
         | Kind.NotYetSupported _
         | Kind.IntrinsicNotInScope _
         | Kind.Conformance _
+        | Kind.PackageSet _
         | Kind.LexFailure _
         | Kind.ParseFailure _
         | Kind.Driver _

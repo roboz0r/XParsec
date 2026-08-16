@@ -15,7 +15,7 @@ let private analyse (input: string) =
 /// an empty context is never read.
 let private ctx0: PassContext =
     let lexed, _ = parseFile "module M"
-    PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
+    PassContext(realProvider.Value, Hashing.originSourceOfText lexed, "")
 
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input

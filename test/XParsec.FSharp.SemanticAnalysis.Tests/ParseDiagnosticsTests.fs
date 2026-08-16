@@ -18,17 +18,17 @@ let private unclosedParen = "let f () = (1 + 2\n"
 /// the close. Nothing is inserted.
 let private mismatchedClose = "let r = {| x = 1 }\n"
 
-let private parsed (source: string) : Pipeline.ParsedFile =
-    match Pipeline.parse source with
+let private parsed (source: string) : ParseChain.ParsedFile =
+    match ParseChain.parse source with
     | Ok p -> p
     | Error f -> failtestf "expected a recovered parse, not a failure: %A" f.Diagnostics
 
-let private ofKind (wanted: Kind -> bool) (what: string) (p: Pipeline.ParsedFile) : Diagnostic =
+let private ofKind (wanted: Kind -> bool) (what: string) (p: ParseChain.ParsedFile) : Diagnostic =
     match p.Diagnostics |> List.tryFind (fun d -> wanted d.Kind) with
     | Some d -> d
     | None -> failtestf "no %s diagnostic; got %A" what p.Diagnostics
 
-let private unclosedDelimiter (p: Pipeline.ParsedFile) : Diagnostic =
+let private unclosedDelimiter (p: ParseChain.ParsedFile) : Diagnostic =
     p
     |> ofKind
         (function
@@ -36,7 +36,7 @@ let private unclosedDelimiter (p: Pipeline.ParsedFile) : Diagnostic =
         | _ -> false)
         "unclosed delimiter"
 
-let private mismatchedDelimiter (p: Pipeline.ParsedFile) : Diagnostic =
+let private mismatchedDelimiter (p: ParseChain.ParsedFile) : Diagnostic =
     p
     |> ofKind
         (function
@@ -160,7 +160,7 @@ let tests =
                     | Result.Error e -> failtestf "lex failed: %A" e
 
                 let recovered =
-                    match Pipeline.parse source with
+                    match ParseChain.parse source with
                     | Ok p -> p.Diagnostics
                     | Error f -> f.Diagnostics
 

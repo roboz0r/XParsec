@@ -75,7 +75,7 @@ module JsModulePath =
 type JsHome =
     {
         Assembly: string
-        /// `ValueNone` wherever the producer knew only the assembly: a `.fsi` contract
+        /// `ValueNone` wherever the producer knew only the assembly: a contract
         /// view, a TS manifest, a codegen-synthesised runtime entry.
         DeclaringFile: OriginPath voption
     }

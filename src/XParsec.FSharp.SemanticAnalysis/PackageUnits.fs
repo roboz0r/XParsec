@@ -1,45 +1,58 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 // The units a PACKAGE compiles, as against the list a driver is handed: the manifest's `impl`
-// order, each body under the contract the conformance pass married it to. The pairing is
-// `checkManifest`'s, so a `sig-only` contract stays bodiless here without restating why.
+// order, each implementation file under the signature file the package READ married it to.
 
 module PackageUnits =
 
-    /// `.fs` relative path → the `.fsi` that publishes it, for the contracts that paired.
-    let private contractOfImpl (outcome: ConformancePass.PackageOutcome) : Map<string, string> =
-        Map.ofList
-            [
-                for p in outcome.Pairs do
-                    match p with
-                    | ConformancePass.PairOutcome.Paired r -> yield r.ImplFile, r.SigFile
-                    | ConformancePass.PairOutcome.SigOnly _
-                    | ConformancePass.PairOutcome.Unrepresentable _
-                    | ConformancePass.PairOutcome.RuntimeServed _
-                    | ConformancePass.PairOutcome.ParseFailed _ -> ()
-            ]
+    /// Every `[core] impl` implementation file as a compilation unit, in manifest order, under the
+    /// signature file the package paired it with. One with no signature file publishes the surface
+    /// it infers; one whose EITHER half arrived without a tree is `Error`, never a smaller unit.
+    let ofPackage
+        (pkg: PackageSource.ParsedPackage)
+        : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
+        let package = pkg.Manifest.Name
 
-    /// Every `impl` body as a compilation unit, in manifest order, under its contract. A body
-    /// with none publishes the surface it infers.
-    let ofOutcome
-        (manifest: ReferencedProject.Manifest)
-        (outcome: ConformancePass.PackageOutcome)
-        : AssemblyFiles.SourceUnit list =
-        let dir = manifest.Dir
-        let contracts = contractOfImpl outcome
+        let unread (file: PackageSource.ReadFile<'Tree>) (fault: PackageSource.FileFault) : AssemblyFiles.UnparsedFile =
+            {
+                Id = file.Id
+                Failure = PackageSource.FileFault.toFailure package file.Relative fault
+            }
+
+        let half (file: PackageSource.ReadFile<'Tree>) (parsed: 'Tree) : AssemblyFiles.ParsedHalf<'Tree> =
+            { Id = file.Id; Parsed = parsed }
 
         [
-            for implRel in manifest.Impl do
-                let implementation = AssemblyFiles.SourceFile.read dir implRel
+            for entry in pkg.Implementations do
+                match entry.Implementation.Outcome with
+                | Error fault -> yield Error(unread entry.Implementation fault)
+                | Ok parsedImplementation ->
+                    let implementation = half entry.Implementation parsedImplementation
 
-                match Map.tryFind implRel contracts with
-                | Some sigRel ->
-                    AssemblyFiles.SourceUnit.paired (AssemblyFiles.SourceFile.read dir sigRel) implementation
-                | None -> AssemblyFiles.SourceUnit.ofImplementation implementation
+                    match entry.Companion with
+                    | ValueNone ->
+                        yield
+                            Ok
+                                {
+                                    Implementation = implementation
+                                    Signature = ValueNone
+                                }
+                    | ValueSome companion ->
+                        match companion.Outcome with
+                        | Ok parsedSignature ->
+                            yield
+                                Ok
+                                    {
+                                        Implementation = implementation
+                                        Signature = ValueSome(half companion parsedSignature)
+                                    }
+                        | Error fault -> yield Error(unread companion fault)
         ]
 
-    /// `ofOutcome` for a caller holding only the path: it loads and conforms the package
-    /// itself. The verdicts are dropped, since `ConformancePass.enforce` is the caller's gate.
-    let ofManifest (mp: ReferencedProject.ManifestPath) : Result<AssemblyFiles.SourceUnit list, string> =
+    /// `ofPackage` for a caller holding only the path: it reads the package itself. Whether the
+    /// pairing conforms is the caller's own check.
+    let ofManifest
+        (mp: ReferencedProject.ManifestPath)
+        : Result<Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list, string> =
         ReferencedProject.loadManifest mp
-        |> Result.bind (fun m -> ConformancePass.checkManifest mp |> Result.map (ofOutcome m))
+        |> Result.map (PackageSource.readPackage >> ofPackage)

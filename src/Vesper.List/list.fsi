@@ -115,9 +115,6 @@ open System.Collections.Generic
         static member Create: [<System.Runtime.CompilerServices.ScopedRef>] items: ReadOnlySpan<'T> -> 'T list
 #endif
 
-    /// <summary>An abbreviation for the CLI type <see cref="T:System.Collections.Generic.List`1"/></summary>
-    type ResizeArray<'T> = System.Collections.Generic.List<'T>
-
     /// Operations over `'T list`.
     [<RequireQualifiedAccess>]
     [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

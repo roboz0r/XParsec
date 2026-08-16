@@ -99,7 +99,7 @@ let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
 /// parses only because recovery patched it raises here, as it does in the driver, rather
 /// than being analysed as though it had been written that way.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match Pipeline.parseUnrecovered input with
+    match ParseChain.parseUnrecovered input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
@@ -137,17 +137,33 @@ let srcPackage (pkg: string) : string =
 
 let vesperCorePackage: string = srcPackage "Vesper.Core"
 
+/// The last segment of a `depends-on` path (`"../Vesper.Core"` ⇒ `"Vesper.Core"`), which is how
+/// this harness keys packages under `src/`.
+let dependencyName (entry: string) : string =
+    IO.Path.GetFileName(IO.Path.TrimEndingDirectorySeparator entry)
+
 /// A multi-file driver's anchored diagnostics as `path: message`, one per line.
 let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
     diags
     |> List.map (fun d -> sprintf "%s: %s" d.Path.Name d.Diagnostic.Message)
     |> String.concat "\n"
 
+/// The self-package contract, GATED, so a test that miswires its packages fails with the
+/// contract error and not an unresolved name three files later.
+let private gatedContractForSelf
+    (label: string)
+    (selfPackage: string)
+    (packageDirs: string list)
+    : SymbolProviders.Contract =
+    match SymbolProviders.Contract.gate (ClrSymbolProviders.contractForSelf (Some selfPackage) packageDirs) with
+    | Ok contract -> contract
+    | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
+
 /// The `impl` files a package's CLR manifest lists, in manifest order, relative to the
 /// package directory.
 let manifestImplFiles (package: string) : string list =
     match ReferencedProject.resolveManifest Target.Clr package with
-    | Error e -> failwithf "manifestImplFiles %s: %s" package e
+    | Error e -> failwithf "manifestImplFiles %s: %s" package (PackageSetFault.describe e)
     | Ok mp ->
         match ReferencedProject.loadManifest mp with
         | Ok m -> m.Impl
@@ -171,6 +187,7 @@ let vesperCoreDll: Lazy<string> =
          let files =
              match
                  ReferencedProject.resolveManifest Target.Clr vesperCorePackage
+                 |> Result.mapError PackageSetFault.describe
                  |> Result.bind PackageUnits.ofManifest
              with
              | Ok units -> units
@@ -179,10 +196,10 @@ let vesperCoreDll: Lazy<string> =
          // Core defines its own primitives, so it references nothing and names ITSELF as
          // the self manifest. That seeds the platform metadata with its own `{ platform -> canon }`
          // axis, so a BCL signature presents `System.String` as `Vesper.string` here too.
-         let provider = ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) []
+         let contract = gatedContractForSelf "vesperCoreDll" vesperCorePackage []
 
          let artifact =
-             match ClrDriver.compileAssemblyWith [] provider project files with
+             match ClrDriver.compileAssemblyWith [] contract.Provider project files with
              | Ok artifact -> artifact
              | Error diags ->
                  failwithf "vesperCoreDll: %d analysis error(s):\n%s" (List.length diags) (anchoredDiagText diags)
@@ -228,7 +245,7 @@ let vesperComparisonPackage: string = srcPackage "Vesper.Comparison"
 /// `[<AutoOpen>] module Printf` contract.
 let vesperPrintfPackage: string = srcPackage "Vesper.Printf"
 
-/// The default contract stack. An operator emits from its `.fs` contract body, spliced
+/// The default contract stack. An operator emits from its `.fs` implementation body, spliced
 /// whether applied (`1 + 2`) or used as a value (`List.fold (+) 0 xs`, eta-reified first).
 let defaultPackages: string list =
     [
@@ -286,48 +303,49 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                 (let manifestPath =
                     match ReferencedProject.resolveManifest Target.Clr (srcPackage pkg) with
                     | Result.Ok mp -> mp
-                    | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
+                    | Result.Error e -> failwithf "buildPackage %s: %s" pkg (PackageSetFault.describe e)
 
                  let manifest =
                      match ReferencedProject.loadManifest manifestPath with
                      | Result.Ok m -> m
                      | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
 
-                 // `.fsi`↔`.fs` conformance gates the build: a contract binding with no
-                 // implementation and no manifest `sig-only` declaration is an error. Its
-                 // pairing is also what marries each body below to the contract it answers.
-                 let outcome =
-                     match ConformancePass.checkManifest manifestPath with
-                     | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
-                     | Result.Ok outcome ->
-                         match ConformancePass.enforce outcome with
-                         | [] -> outcome
-                         | ds ->
-                             failwithf
-                                 "buildPackage %s: %d conformance error(s):\n%s"
-                                 pkg
-                                 (List.length ds)
-                                 (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
+                 // Read ONCE: the conformance gate and the unit list below both work off these
+                 // trees, and off the pairing taken with them, so no file of the package is
+                 // parsed or paired twice.
+                 let parsedPackage = PackageSource.readPackage manifest
+
+                 // `.fsi`↔`.fs` conformance gates the build: a signature binding with no
+                 // implementation and no manifest `sig-only` declaration is an error.
+                 match ConformancePass.enforce (ConformancePass.check parsedPackage) with
+                 | [] -> ()
+                 | ds ->
+                     failwithf
+                         "buildPackage %s: %d conformance error(s):\n%s"
+                         pkg
+                         (List.length ds)
+                         (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
 
                  // Force each dependency's build first: that registers it in `packageAlc`,
                  // so this package resolves against it at load time. Its DLL goes to
                  // `References` (the emit-time AssemblyRef), its manifest to the provider.
-                 let depArtifacts =
-                     manifest.DependsOn |> List.map (fun d -> (buildPackage d).Value |> snd)
+                 let depNames = manifest.DependsOn |> List.map dependencyName
+
+                 let depArtifacts = depNames |> List.map (fun d -> (buildPackage d).Value |> snd)
 
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
-                 let depManifests = manifest.DependsOn |> List.map srcPackage
+                 let depManifests = depNames |> List.map srcPackage
 
                  // The package names ITSELF as self, so a BCL signature presents the primitives
                  // this compilation declares: `prim-types-string.clr.fs`'s `String.Concat(x, y)`
                  // takes two `Vesper.string`s and must still find the `(String, String)` overload.
-                 let provider =
-                     ClrSymbolProviders.buildContractForSelf (Some(srcPackage pkg)) depManifests
+                 let contract =
+                     gatedContractForSelf (sprintf "buildPackage %s" pkg) (srcPackage pkg) depManifests
 
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
                  // on any error-severity diagnostic instead of emitting a degraded DLL.
-                 let files = PackageUnits.ofOutcome manifest outcome
+                 let files = PackageUnits.ofPackage parsedPackage
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")
@@ -339,7 +357,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let artifact =
-                     match ClrDriver.compileAssemblyWith [] provider project files with
+                     match ClrDriver.compileAssemblyWith [] contract.Provider project files with
                      | Ok artifact -> artifact
                      | Error diags ->
                          failwithf
@@ -420,7 +438,7 @@ let private compileContract
     tast, artifact
 
 /// The default compile path: `int` / `hash` / the operators all resolve from the
-/// `Vesper.Core` `.fsi` contract.
+/// `Vesper.Core` contract.
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultPackages (ProjectInfo.defaults assemblyName) input
 
@@ -863,10 +881,11 @@ let private transitivePackages (roots: string list) : string list =
         if not (acc.Contains pkg) then
             match
                 ReferencedProject.resolveManifest Target.Clr (srcPackage pkg)
+                |> Result.mapError PackageSetFault.describe
                 |> Result.bind ReferencedProject.loadManifest
             with
             | Result.Ok m ->
-                m.DependsOn |> List.iter go
+                m.DependsOn |> List.map dependencyName |> List.iter go
 
                 if not (acc.Contains pkg) then
                     acc.Add pkg
