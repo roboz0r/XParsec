@@ -172,10 +172,24 @@ module EmitResolve =
                     | true, iface -> fromMembers "interface" iface.Typars iface.Members
                     | false, _ -> failwithf "Emit: no emitted type carrying members for object argument '%A'" key
 
-    /// Member handle for an instance access on an EXTERNAL (referenced-package) type. A
-    /// union/record object argument routes through `ExternalMemberRefOn`, reading the parent
-    /// `TypeSpec` off it, because `"Vesper.Option"` carries no `` `1 `` and its arity is
-    /// otherwise unrecoverable.
+    /// Where the parent `TypeSpec` of an external instance member ref comes from.
+    type private ExternalParent =
+        /// The object argument names it: `"Vesper.Option"` carries no `` `1 ``, and
+        /// `ResizeArray<int>`'s instantiation is not recoverable from `Count: int`.
+        | FromObjArg of FrozenType
+        /// Nothing at the site names the parent, so the open signature recovers it.
+        | RecoverFromSignature
+
+    /// The class arm is gated `declKey = rKey`: an INHERITED member is parented on a base,
+    /// whose instantiation the object argument's own args do not give.
+    let private externalParent (declKey: TypeKey) (objArgTy: FrozenType) : ExternalParent =
+        match objArgTy with
+        | FTUnion _
+        | FTRecord _ -> FromObjArg objArgTy
+        | FTClass(rKey, args) when args.Length > 0 && declKey = rKey -> FromObjArg objArgTy
+        | _ -> RecoverFromSignature
+
+    /// Member handle for an instance access on an EXTERNAL (referenced-package) type.
     let externalInstanceMemberRef
         (env: EmitEnv)
         (key: SymbolKey)
@@ -193,16 +207,9 @@ module EmitResolve =
 
         let declKey = SymbolKeyOps.declTypeKeyOf "Emit: external instance member" key
 
-        match objArgTy with
-        | FTUnion _
-        | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
-        // A generic external class object arg (`ResizeArray<int>`) carries its instantiation
-        // in its own args, which signature recovery cannot get from `Count: int`. Gated on
-        // declKey = rKey since the parent IS the object argument, and the instantiation would
-        // be wrong for an inherited member.
-        | FTClass(rKey, args) when args.Length > 0 && declKey = rKey ->
-            env.Provider.ExternalMemberRefOn(key, objArgTy, isProperty, false, memberTy)
-        | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
+        match externalParent declKey objArgTy with
+        | FromObjArg parent -> env.Provider.ExternalMemberRefOn(key, parent, isProperty, false, memberTy)
+        | RecoverFromSignature -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
     /// Where a static member's DECLARING instantiation comes from at a call site, in
     /// precedence order.

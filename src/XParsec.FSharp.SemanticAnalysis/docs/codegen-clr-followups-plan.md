@@ -263,11 +263,16 @@ Landed with A6: `fillOpenTyparSlots` carries the structural matching, and the st
 `RecoverOpenTypars` (which keeps its per-axis, per-index failure message) and the new
 `TryRecoverOpenTypars` are the two ways of reading its slots. The `try/with` went with it.
 
-## B3. `ExternalParent` — `EmitResolve.externalInstanceMemberRef`
+## B3. `ExternalParent` — `EmitResolve.externalInstanceMemberRef` — **DONE (2026-08-15)**
 
-Two 3-line comments exist only to say where the parent `TypeSpec` comes from per object-argument
-shape. `ExternalParent = FromObjArg of FrozenType | RecoverFromSignature`, computed once,
-deletes both.
+Two 3-line comments existed only to say where the parent `TypeSpec` comes from per
+object-argument shape. `ExternalParent = FromObjArg of FrozenType | RecoverFromSignature` is
+computed once by a private `externalParent`, and the call site is a total two-arm match that
+names neither shape. Both comments are gone; what each case means now sits on the case.
+
+The one surviving line is the `declKey = rKey` gate's WHY — an inherited member is parented on
+a base, whose instantiation the object argument's own args do not give — which is a fact about
+the guard, not about where the parent comes from.
 
 ## B4. `CallResult` — the `unit` → `void` mapping, restated at four sites
 
