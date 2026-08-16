@@ -75,7 +75,9 @@ module EmitResolve =
         | FTConditional _ ->
             failwithf "EmitResolve.tyCtorOf: unreachable carried type-level node reached the CLR backend: %A" t
         | FTTypar _ -> "!typar"
-        | FTUnknown n -> n
+        // No type, so nothing to match on: every untyped position ties with every other, and
+        // with no real type. The `!` prefix keeps it out of the qualified-name space above.
+        | FTUnknown _ -> "!unknown"
         // A body-local typar's identity is its `(scheme, index)` pair, so it matches only
         // itself. Unlike `FTTypar`, no overload can be generic in it.
         | FTLocalTypar(SchemeId scheme, i) -> "!local:" + string scheme + ":" + string i

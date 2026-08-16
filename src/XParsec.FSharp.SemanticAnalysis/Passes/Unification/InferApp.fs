@@ -440,7 +440,7 @@ module internal UnificationInferApp =
 
         let toTy = infer ctx toE
         unify ctx tok toTy ctx.Intrinsics.Int
-        TyUnknown "range"
+        TyUnknown UnknownReason.NoValueType
 
     and inferInfix
         (infer: Infer)

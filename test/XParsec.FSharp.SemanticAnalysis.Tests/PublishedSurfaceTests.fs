@@ -92,7 +92,12 @@ let tests =
                     let b = PublishedSurfaceBuilder.create ()
 
                     b.Symbols.["f"] <-
-                        { ExternalSymbols.scheme (SymbolKeyOps.inNamespace "Ns") "f" ExternalSignature.unfreezable 0 [] with
+                        { ExternalSymbols.scheme
+                              (SymbolKeyOps.inNamespace "Ns")
+                              "f"
+                              (ExternalSignature.unfreezable "test placeholder")
+                              0
+                              [] with
                             ValRepr = valRepr
                         }
 
@@ -101,7 +106,7 @@ let tests =
                 // `a * b -> r`: one group of width 2, which mints a tuple PATTERN into a
                 // standalone pool. A width-1 group mints a bound var, which is an integer.
                 let tupled () =
-                    let elem = ExternalSignature.unfreezable
+                    let elem = ExternalSignature.unfreezable "test placeholder"
                     let pair = FTTuple(EqArray.ofArray [| elem; elem |])
                     ValueSome(TastLower.externalValRepr 0 [ (2, pair) ] elem)
 

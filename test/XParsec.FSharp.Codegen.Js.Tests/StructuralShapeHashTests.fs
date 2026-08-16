@@ -71,12 +71,12 @@ let private schemeOf (name: string) : FrozenType =
     | ValueSome sym -> sym.Scheme
     | ValueNone -> failtestf "fixture variable '%s' did not resolve" name
 
-/// The `FTClass` qualified name for an object shape's erasing nominal, or the `FTUnknown`
-/// name for a fieldless fallback, so assertions read uniformly across both.
+/// `FTClass` where the object shape has members to resolve, `FTConst` where it has none: the
+/// erasing nominal's qualified name either way, so assertions read uniformly across both.
 let private identityOf (name: string) : string =
     match schemeOf name with
     | FTClass(key, _) -> "class:" + SymbolKeyOps.typeMetaName key
-    | FTUnknown n -> "unknown:" + n
+    | FTConst(key, _) -> "const:" + SymbolKeyOps.typeMetaName key
     | other -> failtestf "'%s' froze to an unexpected scheme %A" name other
 
 [<Tests>]
@@ -84,7 +84,7 @@ let tests =
     testList
         "StructuralShapeHash"
         [
-            test "an object shape freezes to a nominal FTClass, not an opaque FTUnknown" {
+            test "an object shape with members freezes to a nominal FTClass" {
                 match schemeOf "pXY" with
                 | FTClass _ -> ()
                 | other -> failtestf "an object shape must freeze to FTClass, got %A" other
@@ -120,11 +120,20 @@ let tests =
                 Expect.stringStarts (identityOf "pXY") "class:@struct." "an object shape homes under @struct"
             }
 
-            test "fieldless structural stays an opaque FTUnknown, no collapse" {
+            // A fieldless shape has no members to resolve, so it freezes opaque. It is still a
+            // TYPE with an identity: it homes under `@struct` and unifies only with itself.
+            test "fieldless structural freezes opaque, homed and distinct" {
                 let a = identityOf "fless1"
                 let b = identityOf "fless2"
-                Expect.stringStarts a "unknown:" "a fieldless structural stays opaque"
+                Expect.stringStarts a "const:@struct." "a fieldless structural homes under @struct"
                 Expect.notEqual b a "distinct fieldless forms must not collapse to one identity"
                 Expect.stringContains a "() => void" "the fieldless fallback carries the tsc-printed string"
+            }
+
+            // Being a type rather than an untyped position is what buys this: a ground type
+            // encodes into a signature and unifies, an `FTUnknown` does neither.
+            test "a fieldless structural is a ground type" {
+                for n in [ "fless1"; "fless2" ] do
+                    Expect.isTrue (FrozenTypeBridge.ftIsGround (schemeOf n)) (sprintf "'%s' is ground" n)
             }
         ]

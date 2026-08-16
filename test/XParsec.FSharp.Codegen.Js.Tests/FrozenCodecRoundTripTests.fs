@@ -259,7 +259,14 @@ let private collect () : Collected =
             FTTypar(TyparAxis.Declaring, 0)
             FTTypar(TyparAxis.Method, 3)
             FTLocalTypar(SchemeId 7, 2)
-            FTUnknown "?free-typar"
+            // One per `UnknownReason` case: the row shape differs per case, so a missing
+            // sample is a codec arm nothing round-trips.
+            FTUnknown(UnknownReason.UndefinedName "Missing.Thing")
+            FTUnknown(UnknownReason.UnfreezableExternal "'Widget' is a delegate type")
+            FTUnknown UnknownReason.UnresolvedTypar
+            FTUnknown UnknownReason.Deferred
+            FTUnknown UnknownReason.ArityMismatch
+            FTUnknown UnknownReason.NoValueType
             // Deeply nested: functions, tuples, sets and computations composed together.
             FTFun(
                 FTTuple(EqArray.ofList [ ftCond; ftArray ]),

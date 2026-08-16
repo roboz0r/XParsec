@@ -57,8 +57,9 @@ and FrozenType =
     /// Typar #`index` of a body-local `let`'s OWN generalized scheme (`let g = fun x -> x`
     /// inside a decl), not the enclosing method's. Equate only by the whole `(scheme, index)`.
     | FTLocalTypar of scheme: SchemeId * index: int
-    /// A nominal type constructor that resolved to no type shape, carried so `freeze` is total.
-    | FTUnknown of name: string
+    /// A position that resolved to no type shape, carried so `freeze` is total. `reason` says
+    /// which producer minted it, because only some of them blame the source.
+    | FTUnknown of reason: UnknownReason
 
     /// A one-disjunct set collapses to the bare disjunct; `MkUnion []` is `never` (bottom).
     static member MkUnion(disjuncts: FrozenType seq) : FrozenType =
@@ -197,9 +198,9 @@ type SemType =
     | TyKeyOf of ty: SemType
     | TyIndexedAccess of objTy: SemType * index: SemType
     | TyConditional of TyConditionalPayload
-    /// A nominal reference that resolved to no in-scope type shape. It unifies with nothing,
-    /// so one broken contract type doesn't cascade.
-    | TyUnknown of name: string
+    /// A position that resolved to no in-scope type shape. It unifies with nothing, so one
+    /// broken contract type doesn't cascade.
+    | TyUnknown of reason: UnknownReason
     /// An elaborated open type parameter. `freeze` rewrites every surviving `TyVar` to one, so
     /// afterwards no `TyVar` remains in any TAST `.ty` field.
     | TyTypar of axis: TyparAxis * index: int

@@ -214,20 +214,33 @@ module UnificationEngine =
         // instead of linking a var to an inert carrier.
         | FoldedCarrier ctx folded, _ -> unify ctx tok folded b
         | _, FoldedCarrier ctx folded -> unify ctx tok a folded
-        // An unresolved type constructor unifies with nothing: no Link, so one broken one can't
-        // cascade. A name this unit's source wrote was already blamed where it was written
-        // (`UndefinedTypeNames`); what reports here is a name a baked contract could not resolve.
-        | TyUnknown name, _
-        | _, TyUnknown name ->
-            if not (ctx.UndefinedTypeNames.Contains name) then
-                ctx.Report(
-                    tok,
-                    Kind.Message(
-                        sprintf
-                            "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
-                            name
+        // A position with no type unifies with nothing: no Link, so one broken one can't
+        // cascade. Only the two reasons a contract bakes report, and `ReportOnce` collapses
+        // each to ONE message per file, however many positions and uses meet it.
+        | TyUnknown reason, _
+        | _, TyUnknown reason ->
+            match reason with
+            // A name this unit's source wrote was already blamed where it was written
+            // (`UndefinedTypeNames`); what reports here is a name a baked contract could not
+            // resolve.
+            | UnknownReason.UndefinedName name ->
+                if not (ctx.UndefinedTypeNames.Contains name) then
+                    ctx.ReportOnce(
+                        tok,
+                        Kind.Message(
+                            sprintf
+                                "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
+                                name
+                        )
                     )
-                )
+            // A feature gap in this compiler's extractor, not a missing dependency, so it
+            // reports as `NotYetSupported`, the verdict an unmodelled annotation also gets.
+            | UnknownReason.UnfreezableExternal what ->
+                ctx.ReportOnce(tok, Kind.NotYetSupported(sprintf "%s, so its signature did not extract" what))
+            | UnknownReason.UnresolvedTypar
+            | UnknownReason.Deferred
+            | UnknownReason.ArityMismatch
+            | UnknownReason.NoValueType -> ()
         | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2

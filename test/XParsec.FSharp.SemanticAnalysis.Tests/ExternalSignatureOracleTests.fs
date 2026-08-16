@@ -47,7 +47,10 @@ let private declaringTemplates: (string * int * FrozenType * SemType) list =
         1,
         FTConst(RuntimeNames.arrayKey 1, EqArray.singleton (FTUnion(kUnion, EqArray.singleton (d 0)))),
         TyConst(RuntimeNames.arrayKey 1, EqArray.singleton (TyUnion(kUnion, EqArray.singleton groundArgs.[0])))
-        "unknown head", 0, FTUnknown "Unresolved.Head", TyUnknown "Unresolved.Head"
+        "unknown head",
+        0,
+        FTUnknown(UnknownReason.UndefinedName "Unresolved.Head"),
+        TyUnknown(UnknownReason.UndefinedName "Unresolved.Head")
     ]
 
 /// Slice `groundArgs` to the template's arity — the declaring substitution a use site

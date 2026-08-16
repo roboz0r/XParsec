@@ -338,6 +338,9 @@ module UnificationInferOverload =
         let declEnv = frozenAxisEnv store declTypars
         let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
 
+        // A metavar on NEITHER axis: not generic in anything the key can name. It goes into an
+        // argSig, which is a key, so every such position must freeze to the SAME value, or a
+        // half-inferred signature mints a different key per inference run.
         let onVar (v: SemType) : FrozenType =
             match v with
             | TyVar tv ->
@@ -348,8 +351,8 @@ module UnificationInferOverload =
                 | _ ->
                     match methodEnv.TryGetValue root.Id with
                     | true, j -> FTTypar(TyparAxis.Method, j)
-                    | _ -> FTUnknown ""
-            | _ -> FTUnknown ""
+                    | _ -> FTUnknown UnknownReason.UnresolvedTypar
+            | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         EqArray.ofList
             [
@@ -482,8 +485,8 @@ module UnificationInferOverload =
             | TyVar tv ->
                 match methodEnv.TryGetValue (UnionFind.find store tv).Id with
                 | true, j -> FTTypar(TyparAxis.Method, j)
-                | _ -> FTUnknown ""
-            | _ -> FTUnknown ""
+                | _ -> FTUnknown UnknownReason.UnresolvedTypar
+            | _ -> FTUnknown UnknownReason.UnresolvedTypar
 
         let atLevel = instantiateMember store (level.TypeParams, level.Args) m.Type
 

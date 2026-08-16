@@ -48,7 +48,7 @@ module ConformanceTypars =
         // so it is what the name shows: `'0`, `'1`, … rather than a source-invented `'a`.
         | FTTypar(_, index) -> sprintf "'%d" index
         | FTLocalTypar(_, index) -> sprintf "'local%d" index
-        | FTUnknown name -> name
+        | FTUnknown reason -> reason.Render
 
     /// A binding whose `.fs`-inferred generic scheme disagrees with its `.fsi`-declared
     /// one: a different typar COUNT or a different typar ORDER.

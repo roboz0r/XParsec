@@ -274,7 +274,7 @@ module EmitClosures =
                         }
             )
 
-    /// No leaked inference metavar (`FTUnknown`) and no body-local typar (`FTLocalTypar`);
+    /// No untyped position (`FTUnknown`) and no body-local typar (`FTLocalTypar`);
     /// neither is grounded, so neither encodes into a signature. A value carrying one is
     /// skipped, not an error, because `let f () = let g = fun x -> x in (g, g)` is a legal program.
     let rec private ftNoUnknown (t: FrozenType) : bool =

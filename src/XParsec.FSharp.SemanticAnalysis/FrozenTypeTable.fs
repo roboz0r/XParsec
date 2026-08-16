@@ -101,6 +101,16 @@ type LiteralRow =
     | String of StrId
     | Int of int64
 
+/// `UnknownReason` with its payloads interned.
+[<RequireQualifiedAccess>]
+type UnknownReasonRow =
+    | UndefinedName of name: StrId
+    | UnfreezableExternal of what: StrId
+    | UnresolvedTypar
+    | Deferred
+    | ArityMismatch
+    | NoValueType
+
 /// A record, not four positional fields: all four are `TypeId`, so a `WhenTrue`/`WhenFalse`
 /// swap would typecheck silently.
 type ConditionalRow =
@@ -130,7 +140,7 @@ type TypeRow =
     | Conditional of ConditionalRow
     | Typar of axis: TyparAxis * index: int
     | LocalTypar of scheme: SchemeId * index: int
-    | Unknown of name: StrId
+    | Unknown of reason: UnknownReasonRow
 
 /// The content hash rides as a heap string, re-parsed on materialisation: two entries drawn
 /// from one producer name the same text and so the same hex, and intern to one row.
@@ -311,6 +321,15 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
         | LiteralConst.String s -> LiteralRow.String(str s)
         | LiteralConst.Int n -> LiteralRow.Int n
 
+    and unknownReason (r: UnknownReason) : UnknownReasonRow =
+        match r with
+        | UnknownReason.UndefinedName name -> UnknownReasonRow.UndefinedName(str name)
+        | UnknownReason.UnfreezableExternal what -> UnknownReasonRow.UnfreezableExternal(str what)
+        | UnknownReason.UnresolvedTypar -> UnknownReasonRow.UnresolvedTypar
+        | UnknownReason.Deferred -> UnknownReasonRow.Deferred
+        | UnknownReason.ArityMismatch -> UnknownReasonRow.ArityMismatch
+        | UnknownReason.NoValueType -> UnknownReasonRow.NoValueType
+
     and frozenType (t: FrozenType) : TypeId =
         types.Intern(
             match t with
@@ -337,7 +356,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
                     }
             | FTTypar(axis, index) -> TypeRow.Typar(axis, index)
             | FTLocalTypar(scheme, index) -> TypeRow.LocalTypar(scheme, index)
-            | FTUnknown name -> TypeRow.Unknown(str name)
+            | FTUnknown reason -> TypeRow.Unknown(unknownReason reason)
         )
 
     /// Mints rows for whatever of `t` is new. Idempotent: the same type always answers with
@@ -510,6 +529,15 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
         | LiteralRow.String s -> LiteralConst.String(str s)
         | LiteralRow.Int n -> LiteralConst.Int n
 
+    and unknownReason (r: UnknownReasonRow) : UnknownReason =
+        match r with
+        | UnknownReasonRow.UndefinedName name -> UnknownReason.UndefinedName(str name)
+        | UnknownReasonRow.UnfreezableExternal what -> UnknownReason.UnfreezableExternal(str what)
+        | UnknownReasonRow.UnresolvedTypar -> UnknownReason.UnresolvedTypar
+        | UnknownReasonRow.Deferred -> UnknownReason.Deferred
+        | UnknownReasonRow.ArityMismatch -> UnknownReason.ArityMismatch
+        | UnknownReasonRow.NoValueType -> UnknownReason.NoValueType
+
     // Rebuilt DIRECTLY, never through a normalising constructor (one that flattens / dedupes
     // / collapses): the interned row is already canonical, and normalising here would make
     // the table's contents unrecoverable from their own ids.
@@ -540,7 +568,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                         }
                 | TypeRow.Typar(axis, index) -> FTTypar(axis, index)
                 | TypeRow.LocalTypar(scheme, index) -> FTLocalTypar(scheme, index)
-                | TypeRow.Unknown name -> FTUnknown(str name)
+                | TypeRow.Unknown reason -> FTUnknown(unknownReason reason)
             )
 
     /// The stored rows, which the codec writes; the materialised side is never serialized.

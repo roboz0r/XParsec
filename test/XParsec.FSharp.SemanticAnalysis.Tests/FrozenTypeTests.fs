@@ -30,7 +30,7 @@ let private sampleFrozenTypes: FrozenType list =
             FTTypar(TyparAxis.Declaring, 3)
             FTTypar(TyparAxis.Method, 0)
             FTTypar(TyparAxis.Method, 2)
-            FTUnknown "Unresolved.Head"
+            FTUnknown(UnknownReason.UndefinedName "Unresolved.Head")
             FTEnum kEnum
         ]
 
@@ -93,7 +93,11 @@ let private sampleFrozenTypes: FrozenType list =
                         EqArray.singleton (
                             FTClass(
                                 kClass,
-                                EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty); FTUnknown "X" ]
+                                EqArray.ofList
+                                    [
+                                        FTConst(RuntimeNames.intKey, EqArray.empty)
+                                        FTUnknown(UnknownReason.UndefinedName "X")
+                                    ]
                             )
                         )
                     )
@@ -343,7 +347,7 @@ let mapVariantTests =
                         FTConst(RuntimeNames.intKey, EqArray.empty)
                         FTTypar(TyparAxis.Method, 0)
                         FTLiteral(LiteralConst.String "GET")
-                        FTUnknown "X"
+                        FTUnknown(UnknownReason.UndefinedName "X")
                         FTEnum(SymbolKeyOps.qualifiedTypeKeyOf "Test.Colour" 0)
                     ] do
                     Expect.equal (run Variance.Co childless) childless (sprintf "unchanged: %A" childless)

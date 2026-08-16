@@ -158,13 +158,12 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 for a in args do
                     encodeType (g.AddArgument()) a
-        | FTUnknown name ->
-            // A nominal type constructor that resolved to no in-scope type shape during extraction. The
-            // front end refuses it at `unify` with a use-site diagnostic, so arriving here
-            // means that diagnostic did not fire.
+        | FTUnknown reason ->
+            // The two reasons a contract bakes are reported at `unify`; a value carrying any of
+            // the rest is skipped before emit. So nothing untyped reaches signature encoding.
             failwithf
-                "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
-                name
+                "ClrProvider: the untyped position %s reached signature encoding (the front end should have errored first)"
+                reason.Render
         | FTLocalTypar(scheme, i) ->
             // A typar of a body-local `let`'s own generalized scheme. It may reach the backend,
             // because it is phantom wherever a closure over it is `Vesper.Fun`-boxed, but not

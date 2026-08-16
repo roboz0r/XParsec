@@ -149,7 +149,7 @@ let tests =
                                             ExternalSymbols.monoFrozen
                                                 (SymbolKeyOps.inNamespace "")
                                                 "broken"
-                                                (FTUnknown "Missing.Thing")
+                                                (FTUnknown(UnknownReason.UndefinedName "Missing.Thing"))
                                         )
                                     else
                                         ValueNone
@@ -174,6 +174,45 @@ let tests =
                     (sprintf
                         "use-site TyUnknown diagnostic expected; diagnostics: %A"
                         (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.toList))
+            }
+
+            // Three uses of a two-position signature meet `unify` six times, and there is one
+            // thing to fix. The message must name the construct, because the sentinel carries
+            // no position back from the extraction that minted it.
+            test "an unfreezable signature reports once, naming the construct" {
+                let brokenProvider =
+                    ExternalSymbolProviders.ofNamedChannels
+                        { ExternalSymbolProviders.NamedChannels.empty with
+                            TryLookup =
+                                fun name ->
+                                    if name = "broken" then
+                                        let unfreezable = ExternalSignature.unfreezable "'Widget' is a delegate type"
+
+                                        ValueSome(
+                                            ExternalSymbols.monoFrozen
+                                                (SymbolKeyOps.inNamespace "")
+                                                "broken"
+                                                (FTFun(unfreezable, unfreezable))
+                                        )
+                                    else
+                                        ValueNone
+                        }
+
+                let provider =
+                    ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]
+
+                let lexed, file = parseFile "let a = broken 1\nlet b = broken 2\nlet c = broken 3"
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                let msgs = [ for d in ctx.Diagnostics -> d.Message ]
+
+                Expect.hasLength msgs 1 (sprintf "one diagnostic for the one broken contract, got %A" msgs)
+                Expect.stringContains msgs.[0] "'Widget' is a delegate type" "the phrase names the construct"
+                Expect.stringContains msgs.[0] "not yet supported" "a feature gap, not a missing package"
+                Expect.isFalse (msgs.[0].Contains "dependency missing") "not blamed on a missing dependency"
             }
 
             test "ident `true` types as bool via provider" {

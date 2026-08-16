@@ -31,7 +31,7 @@ module FrozenTypeBridge =
                     WhenFalse = go c.WhenFalse
                 }
         | TyTypar(axis, index) -> FTTypar(axis, index)
-        | TyUnknown name -> FTUnknown name
+        | TyUnknown reason -> FTUnknown reason
         | TyVar _ -> onVar ty
 
     let toFrozen (ty: SemType) : FrozenType =
@@ -72,7 +72,7 @@ module FrozenTypeBridge =
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTLocalTypar(scheme, k) -> localTypar scheme k
-        | FTUnknown name -> TyUnknown name
+        | FTUnknown reason -> TyUnknown reason
 
     /// The identity realisation: each DECLARED placeholder maps back to its own
     /// `TyTypar` marker. `FTLocalTypar` has no marker to map to, so it MINTS a fresh
@@ -102,7 +102,7 @@ module FrozenTypeBridge =
 
     /// Stands in for a body that can't be built at extraction time, because it may
     /// forward-reference a type registered later in the same package.
-    let deferredTemplate: FrozenType = FTUnknown "<deferred>"
+    let deferredTemplate: FrozenType = FTUnknown UnknownReason.Deferred
 
     let methodFreshener
         (store: TypeStore)
@@ -126,14 +126,14 @@ module FrozenTypeBridge =
 
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`, for a type-shape descriptor:
     /// record field, union-case field, interface arg, base type, abbreviation body.
-    /// An index past `declaringArgs` degrades to `TyUnknown "<arity-mismatch>"`.
+    /// An index past `declaringArgs` degrades to `TyUnknown UnknownReason.ArityMismatch`.
     let instantiateDeclaring (template: FrozenType) (declaringArgs: SemType[]) : SemType =
         instantiateWith
             (fun i ->
                 if i < declaringArgs.Length then
                     declaringArgs.[i]
                 else
-                    TyUnknown "<arity-mismatch>"
+                    TyUnknown UnknownReason.ArityMismatch
             )
             (fun j ->
                 failwithf
@@ -152,8 +152,7 @@ module FrozenTypeBridge =
             FTTypar(TyparAxis.Method, i - declaringTyparArity)
         | t -> FrozenType.mapChildren (reaxisMethodTypars declaringTyparArity) t
 
-    /// Fully ground: no open typar on either axis, no body-local typar, and no
-    /// `FTUnknown` (a leaked metavar the front end never resolved).
+    /// Fully ground: no open typar on either axis, no body-local typar, and no `FTUnknown`.
     let rec ftIsGround (t: FrozenType) : bool =
         match t with
         | FTTypar _
@@ -170,7 +169,7 @@ module FrozenTypeBridge =
             if i < declaringArgs.Length then
                 declaringArgs.[i]
             else
-                FTUnknown "<abbrev-arity-mismatch>"
+                FTUnknown UnknownReason.ArityMismatch
         | FTTypar(TyparAxis.Method, j) ->
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
         | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t

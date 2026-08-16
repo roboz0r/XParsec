@@ -96,7 +96,7 @@ let rec private tyName (t: SemType) : string =
         + tyName c.WhenTrue
         + " : "
         + tyName c.WhenFalse
-    | TyUnknown n -> "?" + n
+    | TyUnknown reason -> "?" + reason.Render
     | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
     | TyTypar(TyparAxis.Method, i) -> "!!" + string i
 
@@ -717,7 +717,7 @@ type private Renderer() =
                     + tyStr c.WhenTrue
                     + " : "
                     + tyStr c.WhenFalse
-                | TyUnknown n -> "?" + n
+                | TyUnknown reason -> "?" + reason.Render
                 | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
                 | TyTypar(TyparAxis.Method, i) -> "!!" + string i
 

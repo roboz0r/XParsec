@@ -114,7 +114,7 @@ let private samples: FrozenType list =
         FTTypar(TyparAxis.Method, 2)
         FTLocalTypar(SchemeId 0, 0)
         FTLocalTypar(SchemeId 1, 2)
-        FTUnknown "Unresolved.Head"
+        FTUnknown(UnknownReason.UndefinedName "Unresolved.Head")
     ]
 
 /// The keys interned in their own right — an `FTConst` type constructor is not the only way
@@ -211,7 +211,9 @@ let tests =
                 Expect.equal (samples |> List.map reopened.Intern) originals "every id survives re-admission"
 
                 // A payload type the columns never carried: it takes the NEXT row.
-                let fresh = FTKeyOf(FTFun(intTy, FTUnknown "payload-only"))
+                let fresh =
+                    FTKeyOf(FTFun(intTy, FTUnknown(UnknownReason.UndefinedName "payload-only")))
+
                 let freshId = reopened.Intern fresh
                 Expect.isFalse (List.contains freshId originals) "a new type takes a new row"
 

@@ -648,7 +648,7 @@ module UnificationEngineCore =
         | TyTuple _ -> "tuple"
         | TyOr ds -> ds.Disjuncts |> EqSet.toList |> List.map (shown store) |> String.concat " | "
         | TyLiteral v -> sprintf "%A" v
-        | TyUnknown name -> name
+        | TyUnknown reason -> reason.Render
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> "type expression"

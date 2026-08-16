@@ -39,10 +39,10 @@ module SignatureResolutionContext =
 
     /// A `SemType` the registry resolved, cut to the template a consumer instantiates. A
     /// `TyVar` that no typar env names is a hole the signature left open and no consumer can
-    /// fill, so it degrades to the unfreezable marker rather than faulting the file.
+    /// fill, so it degrades to an unresolved-typar marker rather than faulting the file.
     let freezeOver (ctx: PassContext) (env: (TyVarId * SemType) list) (ty: SemType) : FrozenType =
         FrozenTypeBridge.toFrozenWith
-            (fun _ -> ExternalSignature.unfreezable)
+            (fun _ -> FTUnknown UnknownReason.UnresolvedTypar)
             (ElaborateTypars.remapDeclTypars ctx.Store env ty)
 
     /// The declaring-axis env of a type's own typars: `'T` written anywhere in its structure

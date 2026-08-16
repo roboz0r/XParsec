@@ -453,6 +453,9 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
     /// Written type names already blamed, so one two passes both reach is blamed once.
     member val private undefinedTypeSites = HashSet<Site>() with get
 
+    /// Messages already reported by `ReportOnce`.
+    member val private reportedOnce = HashSet<string>() with get
+
     /// Per module-level `let inline` binding, keyed by its function-bound-variable `NodeKey` and
     /// positionally aligned to its curried parameters. Only non-default parameters register.
     member val InlineParamAttrs = Dictionary<NodeKey, EqArray<ParamAttrs>>() with get
@@ -545,6 +548,13 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
     /// Report `kind` at a `Site` the producer resolved itself, either `Site.Nowhere` or a span.
     member this.Report(site: Site, kind: Kind) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
+
+    /// Report `kind` at `tok` unless the same MESSAGE was already reported in this file. For a
+    /// defect a contract carries rather than a position owns: three uses of a broken signature
+    /// are one thing to fix, and `tok` is only where it was first noticed.
+    member this.ReportOnce(tok: SyntaxToken, kind: Kind) =
+        if this.reportedOnce.Add(Kind.message kind) then
+            this.Report(tok, kind)
 
     /// Blame the written type name at `site`: `name` does not resolve to a type, here or
     /// outside. `site` is what once-per-name counts over, so a parser-inserted name widens

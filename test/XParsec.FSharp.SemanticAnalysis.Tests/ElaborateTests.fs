@@ -1233,4 +1233,13 @@ let propertySetterTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.contains (writes tast).Calls "set_Q" "the write dispatches through the accessor method"
             }
+
+            // A range has no first-class value, so its result type is a sentinel that unifies
+            // with the binding's expected type. The sentinel must not be mistaken for a type
+            // name a contract failed to resolve.
+            test "a range in value position reports only that a range has no first-class value" {
+                let tast = analyse "let x = 1..10"
+                let kinds = tast.Diagnostics |> Seq.map (fun d -> d.Kind) |> Seq.toList
+                Expect.equal kinds [ Kind.RangeNotFirstClassValue ] "one diagnostic, the range one"
+            }
         ]

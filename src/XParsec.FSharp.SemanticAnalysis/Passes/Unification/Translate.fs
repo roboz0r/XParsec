@@ -66,7 +66,7 @@ module internal UnificationTranslate =
             // Blamed at the name's first token alone, because the long-ident span is not in
             // hand here.
             ctx.UndefinedType(Site.ofToken site.Tok, name)
-            TyUnknown name
+            TyUnknown(UnknownReason.UndefinedName name)
 
     /// Qualified measure names (`Microsoft.FSharp.SI.kg`) and measure typars (`'u`) yield an
     /// empty term plus a diagnostic, so the rest of inference continues without measure noise.

@@ -199,6 +199,29 @@ module FrozenCodecRows =
         | 1uy -> LiteralRow.Int(r.ReadInt64())
         | b -> failwithf "FrozenCodec: unknown LiteralRow tag %d" b
 
+    let private writeUnknownReasonRow (w: FrozenWriter) (v: UnknownReasonRow) =
+        match v with
+        | UnknownReasonRow.UndefinedName name ->
+            w.Write 0uy
+            writeStrId w name
+        | UnknownReasonRow.UnfreezableExternal what ->
+            w.Write 1uy
+            writeStrId w what
+        | UnknownReasonRow.UnresolvedTypar -> w.Write 2uy
+        | UnknownReasonRow.Deferred -> w.Write 3uy
+        | UnknownReasonRow.ArityMismatch -> w.Write 4uy
+        | UnknownReasonRow.NoValueType -> w.Write 5uy
+
+    let private readUnknownReasonRow (r: FrozenReader) : UnknownReasonRow =
+        match r.ReadByte() with
+        | 0uy -> UnknownReasonRow.UndefinedName(readStrId r)
+        | 1uy -> UnknownReasonRow.UnfreezableExternal(readStrId r)
+        | 2uy -> UnknownReasonRow.UnresolvedTypar
+        | 3uy -> UnknownReasonRow.Deferred
+        | 4uy -> UnknownReasonRow.ArityMismatch
+        | 5uy -> UnknownReasonRow.NoValueType
+        | b -> failwithf "FrozenCodec: unknown UnknownReasonRow tag %d" b
+
     let private writeTypeRow (w: FrozenWriter) (row: TypeRow) =
         match row with
         | TypeRow.Const(key, args) ->
@@ -254,9 +277,9 @@ module FrozenCodecRows =
             w.Write 13uy
             w.Write scheme
             w.Write index
-        | TypeRow.Unknown name ->
+        | TypeRow.Unknown reason ->
             w.Write 14uy
-            writeStrId w name
+            writeUnknownReasonRow w reason
 
     // Rebuilt case for case with NO normalisation, because the stored row is already the canonical
     // one the freeze interned. `Or` in particular keeps the stored member sequence verbatim.
@@ -312,7 +335,7 @@ module FrozenCodecRows =
             let scheme = r.ReadInt32()
             let index = r.ReadInt32()
             TypeRow.LocalTypar(SchemeId scheme, index)
-        | 14uy -> TypeRow.Unknown(readStrId r)
+        | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
         | b -> failwithf "FrozenCodec: unknown TypeRow tag %d" b
 
     let private writeOriginRow (w: FrozenWriter) (row: OriginRow) =

@@ -34,8 +34,9 @@ module internal UnificationInferLiterals =
         | Token.CharLiteral -> ctx.Intrinsics.Char
         | tok ->
 
-            let unknown () =
-                TyUnknown(sprintf "non-literal token %A in literal position" tok)
+            // No constant to carry, so no type either: a non-numeric token here, or below a
+            // suffix F# reserves. Elaborating the same token throws rather than reporting.
+            let unknown () = TyUnknown UnknownReason.NoValueType
 
             match NumericLiterals.numericKindOf tok with
             | ValueNone -> unknown ()

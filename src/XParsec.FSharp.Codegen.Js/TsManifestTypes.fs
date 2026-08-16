@@ -373,11 +373,14 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Dynamic -> FTConst(RuntimeNames.dynamicKey, EqArray.empty)
         // An anonymous shape freezes to a hash-keyed ERASING nominal: its members resolve and
         // lower to native `objArg.x` reads while NOTHING is emitted for the type. A bare
-        // `{ [k: K]: V }` counts, because its index is its content; with neither, it stays opaque.
+        // With no field and no index (`{ [k: K]: V }` counts, its index is its content) there
+        // are no members to resolve, so the same identity stands alone as an opaque const.
         | Schema.TypeRef.Structural(printed, fields, index) ->
+            let key = (structuralKey (structuralHash printed fields)).Key
+
             match fields, index with
-            | [], [] -> FTUnknown("structural:" + hashText (structuralHash printed fields))
-            | _ -> FTClass((structuralKey (structuralHash printed fields)).Key, EqArray.empty)
+            | [], [] -> FTConst(key, EqArray.empty)
+            | _ -> FTClass(key, EqArray.empty)
 
     let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 

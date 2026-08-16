@@ -182,7 +182,10 @@ let tests =
                     (sprintf "the unresolved name is reported; got %A" r.Messages)
 
                 match ExternalSymbols.instantiateSymbol (TypeStore()) (symbolOf r "broken") 0 with
-                | TyFun(_, TyConst(k, _)) when SymbolKeyOps.typeSimpleName k = DisplayName "int" -> ()
+                | TyFun(TyUnknown(UnknownReason.UndefinedName name), TyConst(k, _)) when
+                    SymbolKeyOps.typeSimpleName k = DisplayName "int"
+                    ->
+                    Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
                 | other -> failtestf "expected (<unresolved> -> int); got %A" other
             }
 
@@ -205,7 +208,8 @@ let tests =
                          + "    type Trailing = { P: Behind }\n")
 
                 match fieldTypeOf r "Ahead" with
-                | FTUnknown name -> Expect.stringContains name "Behind" "the forward name is carried unresolved"
+                | FTUnknown(UnknownReason.UndefinedName name) ->
+                    Expect.stringContains name "Behind" "the forward name is carried unresolved"
                 | other -> failtestf "a forward reference must not resolve; got %A" other
 
                 match fieldTypeOf r "Trailing" with
@@ -502,10 +506,10 @@ let tests =
                 | ExternalTypeShape.Abbrev(arity, frozen) ->
                     Expect.equal arity 0 "objnull is nullary"
 
-                    Expect.notEqual
-                        frozen
-                        ExternalSignature.unfreezable
-                        "objnull did not freeze to the <unfreezable> sentinel"
+                    match frozen with
+                    | FTUnknown(UnknownReason.UnfreezableExternal what) ->
+                        failtestf "objnull froze to the unfreezable sentinel (%s)" what
+                    | _ -> ()
 
                     match frozen with
                     | FTOr disjuncts ->

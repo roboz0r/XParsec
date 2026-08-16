@@ -189,6 +189,39 @@ type BoundVarId = | BoundVarId of int
 [<Struct>]
 type SpecializationId = | SpecializationId of int
 
+/// Why a type position carries no type shape, which is what makes `freeze` total. A reason
+/// minted while EXTRACTING a contract carries the text its diagnostic needs, because a later
+/// compilation reads that contract back with no source in hand; an in-process one carries none.
+[<RequireQualifiedAccess>]
+type UnknownReason =
+    /// A type name a source annotation or a contract wrote and nothing defined. The only case
+    /// the unifier's `UndefinedTypeNames` suppression applies to.
+    | UndefinedName of name: string
+    /// An external declaration whose body did not translate; `what` is the extractor's own
+    /// phrase for the construct it could not model.
+    | UnfreezableExternal of what: string
+    /// A metavar the front end never resolved.
+    | UnresolvedTypar
+    /// An extraction-time placeholder for a body that may forward-reference a type registered
+    /// later in the same package; filled before that pass ends.
+    | Deferred
+    /// A type argument index past the instantiation it was applied to.
+    | ArityMismatch
+    /// A construct with no first-class value: `1..10`, or a literal whose suffix F# reserves.
+    /// The range is blamed at elaboration, so unification stays silent.
+    | NoValueType
+
+    /// Display text only. Never an identity: `<deferred>` and `<arity-mismatch>` are not names
+    /// anything can be looked up by.
+    member this.Render: string =
+        match this with
+        | UndefinedName name -> name
+        | UnfreezableExternal what -> "<unfreezable: " + what + ">"
+        | UnresolvedTypar -> "?unresolved-typar"
+        | Deferred -> "<deferred>"
+        | ArityMismatch -> "<arity-mismatch>"
+        | NoValueType -> "<no-value-type>"
+
 /// The constant value a structural LITERAL type carries: `"GET"`, or an `Int` for a numeric
 /// literal union. External vocabulary ONLY, so inference never mints one; it subsumes to its
 /// base primitive, and the CLR backend encodes it as that base.

@@ -39,7 +39,7 @@ module Freeze =
                 // the same typar and must land on the same `FTLocalTypar`.
                 match schemes.TryGetValue((UnionFind.find store tv).Id) with
                 | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
-                | _ -> FTUnknown "?unresolved-typar"
+                | _ -> FTUnknown UnknownReason.UnresolvedTypar
             | _ -> failwithf "Freeze.freezeTy: `toFrozenWith` invoked the TyVar policy on a non-TyVar: %A" v
 
         // Deep-`zonk` first: elaboration leaves fields holding a `TyVar` root linked to a

@@ -215,7 +215,7 @@ module SignatureResolution =
             let body =
                 match info.Body with
                 | ValueSome ty -> freezeOver ctx env ty
-                | ValueNone -> ExternalSignature.unfreezable
+                | ValueNone -> ExternalSignature.unfreezable (sprintf "abbreviation '%s' has no body" id.Name)
 
             publishShape sctx id.Key (ExternalTypeShape.Abbrev(info.TypeParams.Length, body))
 

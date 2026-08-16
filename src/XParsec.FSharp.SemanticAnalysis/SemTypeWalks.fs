@@ -143,7 +143,7 @@ module FrozenType =
         | FTKeyOf _, FTKeyOf _ -> true
         | FTIndexedAccess _, FTIndexedAccess _ -> true
         | FTConditional _, FTConditional _ -> true
-        | FTUnknown n1, FTUnknown n2 -> n1 = n2
+        | FTUnknown r1, FTUnknown r2 -> r1 = r2
         // NOT a wildcard like `FTTypar`: no argument vector instantiates a local typar,
         // so it matches only the same `(scheme, index)` pair, not index alone.
         | FTLocalTypar(s1, i1), FTLocalTypar(s2, i2) -> s1 = s2 && i1 = i2

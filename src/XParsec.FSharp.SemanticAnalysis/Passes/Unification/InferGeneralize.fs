@@ -256,7 +256,7 @@ module internal UnificationInferGeneralize =
 
         // Dependent typars: a `Coercion` bound may name *further* typars that appear ONLY in
         // constraints (`'S :> IStructSeq<'T,'E>`, where `'E` is in no parameter/return position).
-        // Un-quantified they leak as un-ground `TyVar`s, degraded to `?unresolved-typar` at freeze.
+        // Un-quantified they leak as un-ground `TyVar`s, degraded at freeze to an `FTUnknown`.
         let mutable i = 0
 
         while i < quantified.Count do

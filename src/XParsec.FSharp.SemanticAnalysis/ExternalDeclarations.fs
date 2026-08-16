@@ -263,7 +263,11 @@ module ExternalSignature =
 
     let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 
-    let unfreezable = FTUnknown "<unfreezable external template>"
+    /// The body position an extractor could not translate. `what` must name the construct,
+    /// because it is all the use site is told: the contract is read back by a compilation with
+    /// neither this declaration nor this extractor's error in hand.
+    let unfreezable (what: string) : FrozenType =
+        FTUnknown(UnknownReason.UnfreezableExternal what)
 
     /// `[a; b]` ⟶ `a * b`, `[]` ⟶ `unit`: one argument group's .NET-tupled domain.
     let tupledParams (ps: EqArray<FrozenType>) : FrozenType =
