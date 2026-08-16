@@ -78,6 +78,21 @@ module OperatorNames =
         | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome OperatorData.OpNil
         | _ -> ofIdentOp nameOf idOp
 
+    /// The name a `val` / `member` signature DECLARES, plain or operator: `f` → `f`,
+    /// `(+)` → `op_Addition`, `(::)` → `op_ColonColon`, `([])` → `op_Nil`. `ValueNone` for an
+    /// active-pattern name, whose compiled form is not modelled.
+    let ofDeclaredName (nameOf: SyntaxToken -> string) (idOp: IdentOrOp<SyntaxToken>) : string voption =
+        match idOp with
+        | IdentOrOp.Ident tok -> ValueSome(nameOf tok)
+        // `::` has no `op_` member in expression position, so cons is named here rather
+        // than through the shared symbolic resolver.
+        | IdentOrOp.ParenOp(opName = OpName.SymbolicOp opTok) when opTok.Token = Token.KWColonColon ->
+            ValueSome OperatorData.OpColonColon
+        | IdentOrOp.ParenOp(opName = OpName.RangeOp(RangeOpName.DotDot _)) -> ValueSome OperatorData.OpRange
+        | IdentOrOp.ParenOp(opName = OpName.RangeOp(RangeOpName.DotDotDotDot _)) -> ValueSome OperatorData.OpRangeStep
+        | IdentOrOp.ParenOp(opName = OpName.ActivePatternOp _) -> ValueNone
+        | _ -> ofPatOp nameOf idOp
+
     /// `A.B.(+)` → `"A.B.op_Addition"`; an empty qualifier gives the bare
     /// `"op_Addition"`. `ValueNone` for a non-symbolic op segment.
     let qualifiedOpName

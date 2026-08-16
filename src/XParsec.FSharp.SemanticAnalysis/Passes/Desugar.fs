@@ -167,4 +167,4 @@ module Desugar =
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
-        walkElems walker (CstWalk.implFileElems file)
+        walkElems walker (CstModuleTree.implFileElems file)

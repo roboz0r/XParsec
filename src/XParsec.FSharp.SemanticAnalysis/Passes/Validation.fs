@@ -185,7 +185,7 @@ module Validation =
             if isRec then
                 checkScope elems
 
-        CstWalk.walkModuleTreeWith ctx.NameOf OpenScope.empty onScope file |> ignore
+        CstModuleTree.walkImplWith ctx.NameOf OpenScope.empty onScope file |> ignore
 
     /// A `use` binding requires a simple variable pattern: `use x = e`, `use x : T = e`,
     /// `use (x) = e`, `use _ = e`. A destructuring pattern is rejected because the bound
@@ -286,7 +286,7 @@ module Validation =
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let walker = mkWalker ctx
-        walkElems ctx walker (CstWalk.implFileElems file)
+        walkElems ctx walker (CstModuleTree.implFileElems file)
 
         checkUnresolvedDotAccesses ctx
         checkValueRestriction ctx

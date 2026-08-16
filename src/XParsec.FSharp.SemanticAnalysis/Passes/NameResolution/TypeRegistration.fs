@@ -92,10 +92,6 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// The compiled module name of `md`, under this file's `ModuleNaming`.
-    let compiledModuleName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
-        ModuleRules.compiledModuleName ctx.ModuleNaming md
-
     /// The container a TYPE declared in `c` sits in, under this file's `ModuleNaming`.
     let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer =
         ModuleRules.typeContainer ctx.ModuleNaming c
@@ -281,9 +277,73 @@ module NameResolutionTypeRegistration =
             | ValueSome t -> t.StartIndex
             | ValueNone -> 0
 
-    /// The nominal identity of ONE type declaration, whatever its kind. Every type in a
-    /// `type … and …` group is claimed before any detail registers, so `and`-joined recursion
-    /// needs no deferral.
+    /// The nominal identity ONE declaration claims, from the name it writes and the kind it
+    /// writes it for. Every type in a `type … and …` group is claimed before any detail
+    /// registers, so `and`-joined recursion needs no deferral.
+    let claimTypeName
+        (ctx: PassContext)
+        (c: DeclContainment<SyntaxToken>)
+        (visibleFrom: int)
+        (tn: TypeName<SyntaxToken>)
+        (kind: TypeDeclKind)
+        : TypeIdentity voption =
+        let (TypeName(ident = nameLi)) = tn
+
+        // A dotted / empty declared name claims nothing, so it never enters the group's
+        // working set and reaches no registrar.
+        if nameLi.Idents.Length <> 1 then
+            ValueNone
+        else
+
+            let declSite = NodeSite.ofToken NodeKind.DeclType nameLi.Idents.[0]
+            let name = ctx.NameOf declSite.Tok
+
+            // An enum is non-generic: it claims its name at arity 0 whatever typars were
+            // (illegally) written on it.
+            let arity =
+                match kind with
+                | TypeDeclKind.Enum -> 0
+                | _ -> arityOfTypeName ctx tn
+
+            // The module chain that HOLDS the declaration is part of its claim, and the
+            // container its key is minted from.
+            let container = localContainerChain ctx c
+
+            if TypeRegistry.isTypeClaimed ctx.Types container name arity then
+                ctx.Report(declSite.Tok, Kind.Message(sprintf "Duplicate type definition: %s" name))
+
+                // The first claimant keeps the name; this declaration registers nothing and
+                // no `SymbolKey` is minted for it.
+                ValueNone
+            else
+                // The external claim test must ask the provider, and the provider is
+                // addressed BY the key, so the mint sits below the local duplicate test.
+                // An externally-claimed name is diagnosed but still CLAIMED locally.
+                let key = stampLocalTypeKey ctx declSite container name arity
+
+                diagnoseExternalClaim ctx declSite.Tok key
+
+                let identity =
+                    {
+                        Name = name
+                        TyparArity = arity
+                        Container = container
+                        Kind = kind
+                        DeclSite = declSite
+                        Key = key
+                        VisibleFrom = visibleFrom
+                    }
+
+                TypeRegistry.claimType ctx.Types identity
+
+                // An intrinsic binding's identity is its qualified key: `type int = (# … #)`
+                // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as
+                // `Vesper.Collections.seq` at arity 1, each equal to the contract's canon key.
+                if kind = TypeDeclKind.IntrinsicRepr then
+                    ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyOfArity c.Namespace name arity
+
+                ValueSome identity
+
     let claimTypeIdentity
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -293,71 +353,14 @@ module NameResolutionTypeRegistration =
         match tryDeclaredTypeName td with
         | ValueNone -> ValueNone
         | ValueSome(tn, kind) ->
-            let (TypeName(ident = nameLi)) = tn
-
-            // A dotted / empty declared name claims nothing, so it never enters the group's
-            // working set and reaches no registrar.
-            if nameLi.Idents.Length <> 1 then
-                ValueNone
-            else
-
-                let declSite = NodeSite.ofToken NodeKind.DeclType nameLi.Idents.[0]
-                let name = ctx.NameOf declSite.Tok
-
-                // An enum is non-generic: it claims its name at arity 0 whatever typars were
-                // (illegally) written on it.
-                let arity =
-                    match kind with
-                    | TypeDeclKind.Enum -> 0
-                    | _ -> arityOfTypeName ctx tn
-
-                // The module chain that HOLDS the declaration is part of its claim, and the
-                // container its key is minted from.
-                let container = localContainerChain ctx c
-
-                if TypeRegistry.isTypeClaimed ctx.Types container name arity then
-                    ctx.Report(declSite.Tok, Kind.Message(sprintf "Duplicate type definition: %s" name))
-
-                    // The first claimant keeps the name; this declaration registers nothing and
-                    // no `SymbolKey` is minted for it.
-                    ValueNone
-                else
-                    // The external claim test must ask the provider, and the provider is
-                    // addressed BY the key, so the mint sits below the local duplicate test.
-                    // An externally-claimed name is diagnosed but still CLAIMED locally.
-                    let key = stampLocalTypeKey ctx declSite container name arity
-
-                    diagnoseExternalClaim ctx declSite.Tok key
-
-                    let claimed =
-                        {
-                            Identity =
-                                {
-                                    Name = name
-                                    TyparArity = arity
-                                    Container = container
-                                    Kind = kind
-                                    DeclSite = declSite
-                                    Key = key
-                                    VisibleFrom = visibleFrom
-                                }
-                            Defn = td
-                        }
-
-                    TypeRegistry.claimType ctx.Types claimed.Identity
-
-                    // An intrinsic binding's identity is its qualified key: `type int = (# … #)`
-                    // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as
-                    // `Vesper.Collections.seq` at arity 1, each equal to the contract's canon key.
-                    if kind = TypeDeclKind.IntrinsicRepr then
-                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyOfArity c.Namespace name arity
-
-                    ValueSome claimed
+            match claimTypeName ctx c visibleFrom tn kind with
+            | ValueSome identity -> ValueSome { Identity = identity; Defn = td }
+            | ValueNone -> ValueNone
 
     /// The visitor for every type NAME written at a DECLARING position. Classify each name
     /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
     /// that names neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
-    let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
+    let private classifyingTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
         // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
         // reference, so classification stops here, exactly where translation stops.
@@ -369,7 +372,7 @@ module NameResolutionTypeRegistration =
                 && isNumericCarrier (ctx.NameOf li.Idents.[0])
             | _ -> false
 
-        { CstWalk.identityTypeIter with
+        { CstTypeWalk.identityTypeIter with
             VisitType =
                 fun _ t ->
                     if isMeasuredCarrier t then
@@ -391,23 +394,215 @@ module NameResolutionTypeRegistration =
                         true
         }
 
+    /// The three bodied class-like spellings, which differ only in what the BODY means: a
+    /// `struct` is a value type, an `interface` is one whether or not its members say so, and
+    /// a bare body is an interface exactly when every member it holds is abstract.
+    [<RequireQualifiedAccess>]
+    type SigClassForm =
+        | Bodied
+        | Struct
+        | Interface
+
+    /// WHAT one type signature declares: the kind it claims its name for, and the syntax each
+    /// registrar below reads.
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type SigDecl =
+        | Record of
+            typeName: TypeName<SyntaxToken> *
+            fields: RecordFields<SyntaxToken> *
+            extensions: TypeExtensionElementsSignature<SyntaxToken> voption
+        | Union of
+            typeName: TypeName<SyntaxToken> *
+            cases: UnionTypeCases<SyntaxToken> *
+            extensions: TypeExtensionElementsSignature<SyntaxToken> voption
+        | Enum of typeName: TypeName<SyntaxToken> * cases: EnumTypeCases<SyntaxToken>
+        /// A transparent alias: `type t = u` renames `u` and declares nothing of its own.
+        | Abbrev of
+            typeName: TypeName<SyntaxToken> *
+            rhs: Type<SyntaxToken> *
+            extensions: TypeExtensionElementsSignature<SyntaxToken> voption
+        /// `type t = (# "…" #)`: a primitive BINDING rather than a rename. A signature
+        /// normally writes `extern` for this and leaves the repr to its implementation, but
+        /// the inline-IL spelling parses here too and claims what it claims in a `.fs`.
+        | IntrinsicAbbrev of
+            typeName: TypeName<SyntaxToken> *
+            rhs: Type<SyntaxToken> *
+            extensions: TypeExtensionElementsSignature<SyntaxToken> voption
+        /// `type t = extern`: the platform supplies the representation, and which spelling is
+        /// the paired implementation's business.
+        | Extern of
+            typeName: TypeName<SyntaxToken> *
+            kindTag: ExternKind<SyntaxToken> voption *
+            members: TypeExtensionElementsSignature<SyntaxToken> voption
+        | ClassLike of
+            typeName: TypeName<SyntaxToken> *
+            form: SigClassForm *
+            elements: TypeElementsSignature<SyntaxToken>
+        /// `type T`, with no body: opaque, and a reference to it needs the identity alone.
+        | Opaque of typeName: TypeName<SyntaxToken>
+        /// This compiler models no delegate, so it claims no type; its signature still writes
+        /// type names that must resolve.
+        | Delegate of typeName: TypeName<SyntaxToken> * signature: DelegateSig<SyntaxToken>
+        /// An augmentation of a type declared elsewhere: it claims no name of its own.
+        | TypeExtension of typeName: TypeName<SyntaxToken> * elements: TypeExtensionElementsSignature<SyntaxToken>
+
+    /// An `(# … #)` RHS reads as a primitive binding rather than an abbreviation, as the
+    /// implementation twin reads it.
+    let sigDeclOf (ts: TypeSignature<SyntaxToken>) : SigDecl =
+        match ts with
+        | TypeSignature.Record(typeName = tn; fields = fs; extensions = ext) -> SigDecl.Record(tn, fs, ext)
+        | TypeSignature.Union(typeName = tn; cases = cs; extensions = ext) -> SigDecl.Union(tn, cs, ext)
+        | TypeSignature.Enum(typeName = tn; cases = cs) -> SigDecl.Enum(tn, cs)
+        | TypeSignature.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
+            match rhs with
+            | Type.ILIntrinsic _ -> SigDecl.IntrinsicAbbrev(tn, rhs, ext)
+            | _ -> SigDecl.Abbrev(tn, rhs, ext)
+        | TypeSignature.Extern(typeName = tn; kindTag = tag; members = ms) -> SigDecl.Extern(tn, tag, ms)
+        | TypeSignature.Anon(typeName = tn; elements = els)
+        | TypeSignature.Class(typeName = tn; elements = els) -> SigDecl.ClassLike(tn, SigClassForm.Bodied, els)
+        | TypeSignature.Struct(typeName = tn; elements = els) -> SigDecl.ClassLike(tn, SigClassForm.Struct, els)
+        | TypeSignature.Interface(typeName = tn; elements = els) -> SigDecl.ClassLike(tn, SigClassForm.Interface, els)
+        | TypeSignature.AbstractType tn -> SigDecl.Opaque tn
+        | TypeSignature.Delegate(typeName = tn; signature = s) -> SigDecl.Delegate(tn, s)
+        | TypeSignature.TypeExtension(typeName = tn; elements = els) -> SigDecl.TypeExtension(tn, els)
+
+    module SigDecl =
+
+        let typeName (decl: SigDecl) : TypeName<SyntaxToken> =
+            match decl with
+            | SigDecl.Record(typeName = tn)
+            | SigDecl.Union(typeName = tn)
+            | SigDecl.Enum(typeName = tn)
+            | SigDecl.Abbrev(typeName = tn)
+            | SigDecl.IntrinsicAbbrev(typeName = tn)
+            | SigDecl.Extern(typeName = tn)
+            | SigDecl.ClassLike(typeName = tn)
+            | SigDecl.Opaque tn
+            | SigDecl.Delegate(typeName = tn)
+            | SigDecl.TypeExtension(typeName = tn) -> tn
+
+        /// The kind this declaration claims its name for; `ValueNone` where it claims none.
+        let claimedKind (decl: SigDecl) : TypeDeclKind voption =
+            match decl with
+            | SigDecl.Record _ -> ValueSome TypeDeclKind.Record
+            | SigDecl.Union _ -> ValueSome TypeDeclKind.Union
+            | SigDecl.Enum _ -> ValueSome TypeDeclKind.Enum
+            | SigDecl.Abbrev _ -> ValueSome TypeDeclKind.Abbreviation
+            | SigDecl.IntrinsicAbbrev _
+            | SigDecl.Extern _ -> ValueSome TypeDeclKind.IntrinsicRepr
+            | SigDecl.ClassLike _
+            | SigDecl.Opaque _ -> ValueSome TypeDeclKind.Class
+            | SigDecl.Delegate _
+            | SigDecl.TypeExtension _ -> ValueNone
+
+        /// The gap a claimless declaration publishes in place of a type, so a use site says
+        /// which form is missing rather than "no such type". Answers exactly where
+        /// `claimedKind` does not.
+        let unmodelledReason (decl: SigDecl) : UnmodelledReason voption =
+            match decl with
+            | SigDecl.Delegate _ -> ValueSome UnmodelledReason.Delegate
+            | SigDecl.TypeExtension _ -> ValueSome UnmodelledReason.TypeExtension
+            | SigDecl.Record _
+            | SigDecl.Union _
+            | SigDecl.Enum _
+            | SigDecl.Abbrev _
+            | SigDecl.IntrinsicAbbrev _
+            | SigDecl.Extern _
+            | SigDecl.ClassLike _
+            | SigDecl.Opaque _ -> ValueNone
+
+    let claimSigTypeIdentity
+        (ctx: PassContext)
+        (c: DeclContainment<SyntaxToken>)
+        (visibleFrom: int)
+        (decl: SigDecl)
+        : TypeIdentity voption =
+        match SigDecl.claimedKind decl with
+        | ValueNone -> ValueNone
+        | ValueSome kind -> claimTypeName ctx c visibleFrom (SigDecl.typeName decl) kind
+
+    /// The RECORD / UNION / CLASS-like short name one signature declaration writes, which is
+    /// what a `module` of the same name is renamed by.
+    let noteNominalSigTypeName (ctx: PassContext) (decl: SigDecl) : unit =
+        match SigDecl.claimedKind decl with
+        | ValueSome TypeDeclKind.Record
+        | ValueSome TypeDeclKind.Union
+        | ValueSome TypeDeclKind.Class ->
+            match tryDeclaredSimpleName ctx (SigDecl.typeName decl) with
+            | ValueSome name -> TypeRegistry.noteNominalTypeName ctx.Types name
+            | ValueNone -> ()
+        | ValueSome TypeDeclKind.Enum
+        | ValueSome TypeDeclKind.Abbreviation
+        | ValueSome TypeDeclKind.IntrinsicRepr
+        | ValueNone -> ()
+
+    /// Classify + stamp every type name ONE `.fsi` declaration's STRUCTURE writes: its header
+    /// constraints, its fields or cases, its base, its interfaces and its `val`s. A member
+    /// signature is NOT structure, and is classified with the member below.
+    let classifyDeclaredSigTypes (ctx: PassContext) (decl: SigDecl) : unit =
+        let it = classifyingTypeIter ctx
+
+        let extensions (ext: TypeExtensionElementsSignature<SyntaxToken> voption) =
+            match ext with
+            | ValueSome(TypeExtensionElementsSignature(elements = els)) ->
+                CstTypeWalk.iterTypeElementsSignatureStructure it els
+            | ValueNone -> ()
+
+        CstTypeWalk.iterTypeNameConstraints it (SigDecl.typeName decl)
+
+        match decl with
+        | SigDecl.Record(fields = fields; extensions = ext) ->
+            for RecordField(typ = t) in fields do
+                CstTypeWalk.iterType it t
+
+            extensions ext
+        | SigDecl.Union(cases = cases; extensions = ext) ->
+            for c in cases do
+                CstTypeWalk.iterTypeUnionCase it c
+
+            extensions ext
+        | SigDecl.Abbrev(rhs = rhs; extensions = ext)
+        | SigDecl.IntrinsicAbbrev(rhs = rhs; extensions = ext) ->
+            CstTypeWalk.iterType it rhs
+            extensions ext
+        | SigDecl.Extern(members = members) -> extensions members
+        | SigDecl.ClassLike(elements = els) -> CstTypeWalk.iterTypeElementsSignatureStructure it els
+        | SigDecl.TypeExtension(elements = TypeExtensionElementsSignature(elements = els)) ->
+            CstTypeWalk.iterTypeElementsSignatureStructure it els
+        | SigDecl.Delegate(signature = DelegateSig(sign = s)) -> CstTypeWalk.iterTypeUncurriedSig it s
+        // An enum case is a literal and an opaque type has no body: neither writes a type.
+        | SigDecl.Enum _
+        | SigDecl.Opaque _ -> ()
+
+    let classifyValSigTypes (ctx: PassContext) (vs: ValSig<SyntaxToken>) : unit =
+        CstTypeWalk.iterValSigTypes (classifyingTypeIter ctx) vs
+
+    /// Classify + stamp what ONE member signature writes. Held apart from the declaring
+    /// type's structure above: a member is published or dropped on its own.
+    let classifyCurriedSigTypes (ctx: PassContext) (cs: CurriedSig<SyntaxToken>) : unit =
+        CstTypeWalk.iterTypeCurriedSig (classifyingTypeIter ctx) cs
+
+    /// `classifyCurriedSigTypes` for a `new: … -> T` constructor signature.
+    let classifyUncurriedSigTypes (ctx: PassContext) (sign: UncurriedSig<SyntaxToken>) : unit =
+        CstTypeWalk.iterTypeUncurriedSig (classifyingTypeIter ctx) sign
+
     /// Classify + stamp every type name in ONE type definition's declared surface, under the
     /// scope in force at its group. The `inherit` clause is stamped but NOT diagnosed here: it
     /// resolves against the referent's registered DETAIL, so its verdict waits for group close.
     let classifyDeclaredTypes (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         let it = classifyingTypeIter ctx
 
-        CstWalk.iterTypeDefnTypes
+        CstTypeWalk.iterTypeDefnTypes
             it
             (NameResolutionScope.stampPatCasesWith ctx it)
-            (CstWalk.iterType (stampTypeIter ctx))
+            (CstTypeWalk.iterType (stampTypeIter ctx))
             td
 
     /// Carries `it` over a module-level term's body. It resolves NO value and introduces NO
     /// scope because the hooks below exist solely to reach the annotations on the patterns they bind
     /// (`fun (x: A) …`, a nested `let`'s pats, a `for`-in bound variable, a match arm's type test).
-    let private classifyingExprWalker (ctx: PassContext) (it: CstWalk.TypeIter) : CstWalk.ExprWalker<unit> =
-        let onType = CstWalk.iterType it
+    let private classifyingExprWalker (ctx: PassContext) (it: CstTypeWalk.TypeIter) : CstWalk.ExprWalker<unit> =
+        let onType = CstTypeWalk.iterType it
         let onPat = NameResolutionScope.stampPatCasesWith ctx it
 
         let onPats (ps: ImmutableArray<Pat<SyntaxToken>>) =
@@ -415,7 +610,7 @@ module NameResolutionTypeRegistration =
                 onPat p
 
         { CstWalk.identityExprWalker with
-            Visit = fun _ e -> CstWalk.iterExprEmbeddedTypes onType (CstWalk.iterTypeMemberSig it) e
+            Visit = fun _ e -> CstWalk.iterExprEmbeddedTypes onType (CstTypeWalk.iterTypeMemberSig it) e
             EnterFun =
                 fun env pats ->
                     onPats pats
@@ -454,7 +649,7 @@ module NameResolutionTypeRegistration =
                 NameResolutionScope.stampPatCasesWith ctx it p
 
             match b.returnType with
-            | ValueSome(ReturnType(typ = t)) -> CstWalk.iterType it t
+            | ValueSome(ReturnType(typ = t)) -> CstTypeWalk.iterType it t
             | ValueNone -> ()
 
             CstWalk.iterExpr walker () b.expr
@@ -774,24 +969,6 @@ module NameResolutionTypeRegistration =
         // recovers the SAME key the annotation path resolves to.
         ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
-    /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS:
-    /// `(# "System.Int32" #)` → `"System.Int32"`.
-    let private ilIntrinsicString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
-        let sb = System.Text.StringBuilder()
-        // TODO: raise diagnostics for unsupported parts (Expr, InvalidText).
-        for part in parts do
-            match part with
-            | StringPart.Text t
-            | StringPart.EscapeSequence t
-            | StringPart.FormatSpecifier t
-            | StringPart.EscapePercent t
-            | StringPart.VerbatimEscapeQuote t
-            | StringPart.OrphanFormatSpecifier t
-            | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
-            | StringPart.Expr _ -> ()
-
-        sb.ToString()
-
     /// Register a `type X = …` abbreviation. An `(# … #)` RHS is a primitive BINDING, not a
     /// transparent alias: it lands in `IntrinsicReprKeys` as canon key → IL string, so the
     /// name resolves to `TyConst key`. Only the ENTRY registers; the RHS is forced at GROUP
@@ -823,7 +1000,7 @@ module NameResolutionTypeRegistration =
 
         match rhs with
         | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
-            let repr = ilIntrinsicString ctx parts
+            let repr = IntrinsicReprs.ilString ctx.NameOf parts
             // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
             // never has to project it back to a name. The `class` tag rides the same entry:
             // heritability is a property of this repr.

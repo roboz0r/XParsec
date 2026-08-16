@@ -86,7 +86,7 @@ module FrozenCodecDiagnostics =
             w.Write 5uy
             w.Write sigFile
             w.Write detail
-        | ConformanceVerdict.SignatureNotExtracted detail ->
+        | ConformanceVerdict.SignatureNotPublished detail ->
             w.Write 6uy
             w.Write detail
         | ConformanceVerdict.SignatureRejected detail ->
@@ -109,7 +109,7 @@ module FrozenCodecDiagnostics =
         | 5uy ->
             let sigFile = r.ReadString()
             ConformanceVerdict.PairParseFailure(sigFile, r.ReadString())
-        | 6uy -> ConformanceVerdict.SignatureNotExtracted(r.ReadString())
+        | 6uy -> ConformanceVerdict.SignatureNotPublished(r.ReadString())
         | 7uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 

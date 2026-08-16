@@ -78,6 +78,7 @@
     <Compile Include="ModuleScopingTests.fs" />
     <Compile Include="ParseDiagnosticsTests.fs" />
     <Compile Include="DiagnosticCodeTests.fs" />
+    <Compile Include="PublishedSurfaceTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

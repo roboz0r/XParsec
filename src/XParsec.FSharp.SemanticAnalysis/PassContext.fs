@@ -246,6 +246,10 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     let mutable synthBoundVars = 0
 
+    // Fully qualified: a bare `Diagnostic` here would resolve to the parser's. Swappable so
+    // `Collecting` can divert a scope's output.
+    let mutable diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>()
+
     /// The STORE view (`SymbolKey → payload`), what a pass speaks once identity is resolved.
     /// Narrowed on purpose: a pass holding only this cannot reach a spelling lookup.
     member _.Provider: IExternalSymbolStore = provider
@@ -282,8 +286,24 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// The simple name of the assembly this file emits into; `""` where nothing is emitted.
     /// NOT part of any `SymbolKey`: nominal identity is the containment chain alone.
     member val AssemblyName = "" with get, set
-    // Fully qualified: a bare `Diagnostic` here would resolve to the parser's.
-    member val Diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>() with get
+    member _.Diagnostics = diagnostics
+
+    /// Run `f` with everything it reports collected APART rather than appended, handed back
+    /// beside its result. For a producer that may DISCARD what `f` was building: the reasons
+    /// belong to the discarded thing, so whether they reach the file is the caller's call.
+    member _.Collecting(f: unit -> 'a) : struct ('a * ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>) =
+        let outer = diagnostics
+        let scoped = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>()
+        diagnostics <- scoped
+
+        let result =
+            try
+                f ()
+            finally
+                diagnostics <- outer
+
+        struct (result, scoped)
+
     member val Types = types with get
 
     /// The primitive-intrinsic identities (`int`/`string`/…), each resolved lazily and cached:
@@ -463,7 +483,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// Enter a walked module element, advancing both ambient facts a by-name read speaks
     /// against: the `open`s in scope and the module chain.
-    member this.EnterElement(w: WalkedElem<SyntaxToken>) : unit =
+    member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
         this.Resolution.OpenScope <- w.Scope
         this.EnterContainment w.Containment |> ignore
 
@@ -490,10 +510,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
     /// Source text of `token`, a backtick-escaped identifier reading as the name it spells.
     /// Empty for virtual (synthesised) tokens.
-    member this.NameOf(token: SyntaxToken) : string =
-        match token.Index with
-        | TokenIndex.Regular iT -> this.Lexed.GetTokenName(iT)
-        | TokenIndex.Virtual -> ""
+    member this.NameOf(token: SyntaxToken) : string = SyntaxToken.nameIn this.Lexed token
 
     /// Record how the source writes `boundVar`. Idempotent, and must be: a ctor parameter's key
     /// is minted twice from the same identifier. An operator's `(` is no name and records none.

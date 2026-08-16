@@ -1021,7 +1021,7 @@ module Unification =
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the stable
         // `AmbientOpenScope` seed (not the per-element `OpenScope` the walk mutates).
-        walkElems ctx (CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file)
+        walkElems ctx (CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx
         validateCustomEqCompImpls ctx
         checkDuplicateMembers ctx

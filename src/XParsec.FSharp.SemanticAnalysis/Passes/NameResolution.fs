@@ -651,7 +651,4 @@ module NameResolution =
         let walker = mkWalker ctx
         // Seeded from the ambient prelude, not `ctx.Resolution.OpenScope`, which `walkElems`
         // overwrites per element.
-        walkElems
-            ctx
-            walker
-            (CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file)
+        walkElems ctx walker (CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file)

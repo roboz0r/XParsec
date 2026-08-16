@@ -23,9 +23,8 @@ module ModuleRules =
         else
             name
 
-    let compiledModuleName (r: ModuleNaming) (md: ModuleDefn<SyntaxToken>) : string =
-        let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
-        compiledModuleNameOf r attrs (VesperLibTypeTranslate.nameOfTok r.Lexed ident)
+    let compiledModuleName (r: ModuleNaming) (md: DeclaredModule<SyntaxToken>) : string =
+        compiledModuleNameOf r md.Attributes (SyntaxToken.nameIn r.Lexed md.Ident)
 
     /// Every container `c` sits in (the declaring namespace, then each enclosing `module`),
     /// OUTERMOST first, paired with the dotted path a local `open` writes for it
@@ -39,13 +38,28 @@ module ModuleRules =
         scopes.Add(path, container)
 
         for md in c.Modules do
-            let (ModuleDefn.ModuleDefn(ident = ident)) = md
-            let src = VesperLibTypeTranslate.nameOfTok r.Lexed ident
+            let src = SyntaxToken.nameIn r.Lexed md.Ident
             container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container (compiledModuleName r md))
             path <- if path.Length = 0 then src else path + "." + src
             scopes.Add(path, container)
 
         List.ofSeq scopes
+
+    /// The full COMPILED name of each `[<AutoOpen>]` module enclosing `c`, outermost first:
+    /// the prefixes something declared here is reachable through with no `open` written for it.
+    let autoOpenContainers (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : string list =
+        let mutable container =
+            ModuleContainer.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
+
+        let prefixes = ResizeArray<string>()
+
+        for md in c.Modules do
+            container <- ModuleContainer.InModule(SymbolKeyOps.moduleKeyOf container (compiledModuleName r md))
+
+            if VesperLibTypeTranslate.isAutoOpen r.Lexed md.Attributes then
+                prefixes.Add(SymbolKeyOps.containerFullName container)
+
+        List.ofSeq prefixes
 
     /// `namespace N` + `module A = module B =` yields `B ∈ A ∈ N`.
     let containerChain (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : ModuleContainer =

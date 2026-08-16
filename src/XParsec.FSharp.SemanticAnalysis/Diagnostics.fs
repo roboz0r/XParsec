@@ -129,10 +129,10 @@ type ConformanceVerdict =
     | UnknownSigOnly of name: string
     /// The contract or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
-    /// A declaration the signature makes that extraction could not MODEL, so the signature
+    /// A declaration the signature makes that the front end could not MODEL, so the signature
     /// publishes LESS than it says: the declaration is absent for everything that reads it.
-    /// Named by the diagnostic's own anchor, which is the signature that made the claim.
-    | SignatureNotExtracted of detail: string
+    /// Anchored at the signature that made the claim.
+    | SignatureNotPublished of detail: string
     /// A declaration the signature is not ALLOWED to make (a non-`inline` member on an
     /// `extern` type). A rule violation rather than a gap in what this compiler models.
     | SignatureRejected of detail: string
@@ -150,7 +150,7 @@ module ConformanceVerdict =
         | ConformanceVerdict.StaleSigOnly _
         | ConformanceVerdict.UnknownSigOnly _ -> DiagCode.Vesper "V243"
         | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
-        | ConformanceVerdict.SignatureNotExtracted _ -> DiagCode.Vesper "V245"
+        | ConformanceVerdict.SignatureNotPublished _ -> DiagCode.Vesper "V245"
         | ConformanceVerdict.SignatureRejected _ -> DiagCode.Vesper "V246"
 
     let describe (v: ConformanceVerdict) : string =
@@ -175,7 +175,7 @@ module ConformanceVerdict =
             sprintf "`sig-only` names '%s', which is not a contract `.fsi` in this package" name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
-        | ConformanceVerdict.SignatureNotExtracted detail ->
+        | ConformanceVerdict.SignatureNotPublished detail ->
             sprintf "the signature declares something this compiler cannot publish, so it is hidden: %s" detail
         | ConformanceVerdict.SignatureRejected detail -> sprintf "the signature declares %s" detail
 
@@ -539,6 +539,9 @@ module Kind =
 
     let severity (k: Kind) : Severity =
         match k with
+        // A gap in what this compiler MODELS is a warning; every other verdict is a fault in
+        // the program being compiled.
+        | Kind.Conformance(verdict = ConformanceVerdict.SignatureNotPublished _) -> Severity.Warning
         | Kind.DynamicEscape _
         | Kind.HeterogeneousEnum _
         | Kind.IncompleteAnonUnionMatch _

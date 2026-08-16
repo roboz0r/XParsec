@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
+open XParsec.FSharp.SemanticAnalysis.Passes
 
 // An assembly is a LINEAR composition of per-file provider views, ahead of the external
 // (package/BCL) provider. Each file is parsed and analysed on its OWN Lexed/PassContext,
@@ -137,18 +138,13 @@ module AssemblyFiles =
     /// its body, and that is what reaches a PRIOR file's namespace-direct declarations,
     /// including from the provider-layer probes that never see the file's local scope.
     let private declaredNamespaces (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
-        let identText (tok: SyntaxToken) =
-            match tok.Index with
-            | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
-            | TokenIndex.Virtual -> ""
-
         match file with
         | ImplementationFile.Namespaces groups ->
             [
                 for g in groups do
                     match g with
                     | NamespaceDeclGroup.Named(longIdent = li) ->
-                        let path = li.Idents |> Seq.map identText |> String.concat "."
+                        let path = li.Idents |> Seq.map (SyntaxToken.nameIn lexed) |> String.concat "."
 
                         if path.Length > 0 then
                             yield path
@@ -205,72 +201,53 @@ module AssemblyFiles =
                             Signature = ValueSome { Id = signature.Id; Parsed = parsed }
                         }
 
-    /// What one `.fsi` is extracted AGAINST: the surface the files before it published, so it
+    /// What one `.fsi` is resolved AGAINST: the surface the files before it published, so it
     /// can name their types, and the sibling `.fs`, whose `(# … #)` bindings are where a
     /// `type t = extern` gets a repr the signature itself never states.
     type private SignatureScope =
         {
-            Target: string
+            Assembly: CompilingAssembly
             Visible: IExternalSymbolProvider
-            Implementation: VesperLibManifest.ParsedFile
+            ImplementationPath: OriginPath
+            ImplementationLexed: Lexed
+            Implementation: ImplementationFile<SyntaxToken>
         }
 
-    /// Extract ONE in-assembly `.fsi` through the contract extractor, homed in the file rather
-    /// than in an assembly, since a later file of the same assembly resolves it as a local.
-    /// Publishes no ambient prefixes, matching what an implementation's own view publishes.
-    ///
-    /// Homed at the IMPLEMENTATION, not at the signature that declared it: a home names where
-    /// a symbol physically lives, and what a backend emits for this unit is compiled from the
-    /// `.fs`. `source` is still the signature's own, so extraction's losses anchor to the text
-    /// that made the claim.
+    /// Resolve ONE in-assembly `.fsi`, homed in the IMPLEMENTATION file: a later file of the
+    /// same assembly resolves it as a local, and a home names where a symbol lives. `source`
+    /// is the signature's own, so diagnostics anchor to the text that made the claim.
     let private signatureView
         (scope: SignatureScope)
         (source: OriginSource)
         (parsed: Pipeline.ParsedSignature)
         : IExternalSymbolProvider * Diagnostic list =
-        let ctx = VesperLib.ExtractCtx.empty scope.Target
-        ctx.AmbientShapes <- (fun name -> scope.Visible.TryLookupType name |> ExternalSymbols.typeShapeOf)
-        ctx.DependencyAmbientPrefixes <- scope.Visible.AmbientOpenPrefixes
+        let ctx = PassContext(scope.Visible, source)
+        ctx.AssemblyName <- scope.Assembly.Name
 
         // The `.fs` binds the reprs, so its pre-scan runs first and the `.fsi`'s
         // `type t = extern` picks a repr over `Unsupported`.
-        VesperLib.extractIntrinsicReprsInto ctx.IntrinsicReprs scope.Implementation
+        let reprs = Dictionary<string, string>(System.StringComparer.Ordinal)
 
-        VesperLib.extractSymbols
-            ctx
-            {
-                File = source.File.Path
-                Lexed = parsed.Lexed
-                Ast = FSharpAst.SignatureFile parsed.File
-            }
+        IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn scope.ImplementationLexed) scope.Implementation
 
-        // A declaration extraction dropped is one the signature promised and no later file
-        // can reach, so it is reported rather than left to surface as an unresolved name.
-        // The two halves say DIFFERENT things: `Skipped` is a gap in what this compiler
-        // models, `Diagnostics` a rule the signature broke.
-        let dropped =
-            [
-                for (_, detail) in ctx.Skipped ->
-                    Diagnostic.nowhere (
-                        Kind.Conformance(source.File.Path.BucketName, ConformanceVerdict.SignatureNotExtracted detail)
-                    )
-
-                for (_, detail) in ctx.Diagnostics ->
-                    Diagnostic.nowhere (
-                        Kind.Conformance(source.File.Path.BucketName, ConformanceVerdict.SignatureRejected detail)
-                    )
-            ]
+        let published =
+            SignatureResolution.run
+                ctx
+                {
+                    Target = scope.Assembly.Target
+                    Reprs = reprs
+                }
+                parsed.File
 
         ExternalSymbolProviders.stack
-            (ValueSome(Origin.InFile scope.Implementation.File))
+            (ValueSome(Origin.InFile scope.ImplementationPath))
             []
-            [ VesperLib.ExtractCtx.toProvider ctx ],
-        dropped
+            [ PublishedSurface.toProvider published ],
+        List.ofSeq ctx.Diagnostics
 
-    /// The implementation checked against what its signature publishes: `Conformance.checkUnit`,
-    /// the CST rule set a manifest-paired unit is held to as well, then typar ORDER over the
-    /// two frozen surfaces. The typar half is reachable only here — the package route conforms
-    /// a manifest without freezing anything, so it has no inferred scheme to compare.
+    /// The implementation checked against what its signature publishes: the CST rule set a
+    /// manifest-paired unit is held to as well, then typar ORDER over the two frozen surfaces.
+    /// The typar half runs only here, because the package route freezes nothing to compare.
     let private conformanceDiagnostics
         (assembly: string)
         (signature: ParsedHalf<Pipeline.ParsedSignature>)
@@ -316,7 +293,7 @@ module AssemblyFiles =
         ]
 
     /// What a unit's `.fsi` half publishes, and everything anchored to the signature's own
-    /// text: extraction's own losses, then the implementation's answer to it.
+    /// text: resolving it, then the implementation's answer to it.
     let private analyseSignature
         (assembly: CompilingAssembly)
         (composed: IExternalSymbolProvider)
@@ -328,17 +305,14 @@ module AssemblyFiles =
         // Anchored to the signature's OWN token stream: its diagnostics index that text.
         let source = fileSource assembly.Name signature.Id signature.Parsed.Lexed
 
-        let published, dropped =
+        let published, resolutionDiagnostics =
             signatureView
                 {
-                    Target = assembly.Target
+                    Assembly = assembly
                     Visible = composed
-                    Implementation =
-                        {
-                            File = implementationPath
-                            Lexed = implementation.Parsed.Lexed
-                            Ast = FSharpAst.ImplementationFile implementation.Parsed.File
-                        }
+                    ImplementationPath = implementationPath
+                    ImplementationLexed = implementation.Parsed.Lexed
+                    Implementation = implementation.Parsed.File
                 }
                 source
                 signature.Parsed
@@ -348,7 +322,7 @@ module AssemblyFiles =
             Source = source
             ParseDiagnostics = signature.Parsed.Diagnostics
             Diagnostics =
-                dropped
+                resolutionDiagnostics
                 @ conformanceDiagnostics assembly.Name signature implementation published frozen
         }
 

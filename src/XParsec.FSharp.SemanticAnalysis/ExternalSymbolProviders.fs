@@ -67,7 +67,7 @@ module ExternalSymbolProviders =
             ShapesByKey: IReadOnlyDictionary<TypeKey, ExternalTypeShape>
             /// A type's FULL member list, in DECLARATION order, because the by-name overload
             /// scan and the by-key selection both depend on that order.
-            MembersByKey: IReadOnlyDictionary<TypeKey, ResizeArray<ExternalMember>>
+            MembersByKey: IReadOnlyDictionary<TypeKey, EqArray<ExternalMember>>
             /// Written type name -> registered identity.
             ResolveTypeName: string -> TypeKey voption
             TryLookup: string -> ExternalSymbol voption

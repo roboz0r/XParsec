@@ -485,6 +485,14 @@ module DiagnosticCode =
 
 module SyntaxToken =
 
+    /// The name `tok` spells, read out of the file that produced it, a backtick-escaped
+    /// identifier reading as the name inside the quotes. A VIRTUAL token indexes no text and
+    /// spells the empty string, which is what "no name" reads as, no identifier being empty.
+    let nameIn (lexed: Lexed) (tok: SyntaxToken) : string =
+        match tok.Index with
+        | TokenIndex.Regular i -> lexed.GetTokenName i
+        | TokenIndex.Virtual -> ""
+
     let syntaxToken token (index: int) =
         {
             PositionedToken = token

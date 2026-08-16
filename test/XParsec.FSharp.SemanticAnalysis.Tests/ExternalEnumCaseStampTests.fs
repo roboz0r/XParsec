@@ -45,7 +45,7 @@ let private matchArmPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxTok
             EnterMatchArm = fun () p -> acc.Add p
         }
 
-    for m in CstWalk.implFileElems file do
+    for m in CstModuleTree.implFileElems file do
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do

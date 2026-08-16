@@ -281,19 +281,98 @@ its own), so step 3 is what decides the split.
 
 Pure refactor. Whole suite green with no test edits.
 
-### 3. The signature front end, wired to the in-assembly caller only
+### 3. The signature front end, wired to the in-assembly caller only — LANDED
 
-New pass: walk the `.fsi`'s `ModuleSignatureElements` on a `PassContext` built from its own
-`OriginSource`, maintaining `OpenScope` and the container chain as it descends, registering types
-through step 2's entry points, resolving type references through `TypeRefStamp` and
-`translateType`, and filling a `PublishedSurfaceBuilder` that freezes to a `PublishedSurface`.
-Publish internal-or-better.
+`Passes/SignatureResolution.fs` walks the `.fsi` on a `PassContext` built from its own
+`OriginSource` and fills a `PublishedSurfaceBuilder` that freezes to a `PublishedSurface`.
+`signatureView` (`AssemblyFiles.fs`) runs it; `buildProviderWith` still runs `VesperLib`.
 
-Wire into `signatureView` (`AssemblyFiles.fs:226`) alone. `buildProviderWith` keeps using
-`VesperLib`; the two front ends coexist for one step.
+**ONE walk, over both grammars.** A pair's two halves key off the containment the walk
+maintains, so any rule that differed between them would put one declaration in two places —
+which is why there is one `CstModuleTree.walkTree` and not two copies held to agreeing. Each
+grammar supplies a `ModuleNode` view (nested module / `open` / abbrev / pass-through) and a
+`ModuleGroup` reading of the file header; `walkImpl` and `walkSig` are the two ~1-line
+instantiations. `DeclContainment.Modules` narrowed from `ModuleDefn` to `DeclaredModule`
+(attributes + ident), which is all `ModuleRules` ever read, so both grammars feed it.
+`WalkedElem` is now `WalkedIn<'T, 'Elem>` with the signature element as the other instance.
+`onScope` survives on `walkImplWith` for its one caller (`Validation`).
 
-**Exit:** in-assembly `.fsi` behaviour unchanged except for the accessibility widening;
-`SignatureExtractorTests` still covers the package path through the old extractor.
+The `.fsi` front end walks the tree ONCE: the nominal-name pre-scan, the `[<AutoOpen>]`
+prefixes (`ModuleRules.autoOpenContainers`, off the containment) and the registration all read
+the one list, rather than each descending into nested modules again.
+
+Claiming is shared outright: `claimTypeIdentity` split into `claimTypeName`, which takes the
+`TypeName` and the kind, and `claimSigTypeIdentity` calls it. Detail registration goes through
+step 2's entry points. A class-like signature registers nothing but its CLAIM —
+`Translate.resolveClaimedType` builds a `TyClass` from the identity alone — so the sig grammar's
+`TypeElementsSignature`, which has no implementation-side twin, is read only for the surface.
+
+**One reading per declaration.** `sigDeclOf` narrows a `TypeSignature` to a `SigDecl` once —
+the kind it claims and the syntax each phase reads are the same choice — so claiming,
+registration and publication are total matches over it rather than over a `(kind, signature)`
+pair whose halves cannot disagree but must still be spelled. That is also what caught the
+divergence below.
+
+**Three things the corpus taught, none of them guessable from the grammar:**
+
+- A VALUE quantifies its own typars on the DECLARING axis (`instantiateSymbol` substitutes
+  there); a MEMBER's own go on the method axis, its declaring type owning the other.
+- A nominal class's members must NOT ride `ExternalClassShape.Members`. A shape's templates are
+  instantiated on the declaring axis, so a member typar there faults. Only an interface carries
+  them, which is what the `interface … with` conformance check reads.
+- A signature's typars are quantified in translation order: the argument/result shape first,
+  then the ones only a `when` clause's TARGET mentions (`'E` in `'S :> IStructSeq<'T,'E>`),
+  which stand in no parameter and no result but are quantified all the same.
+
+**Leniency kept, but not silent.** A MEMBER whose signature names a type this compilation
+cannot resolve is dropped, refusals and all — `Vesper.List`'s `GetSlice` names `int option`
+while its manifest depends only on `Vesper.Core`. `tryResolve` is where that happens, so the
+tolerance is one named function rather than spread through the walk. The DROP is REPORTED, as
+`ConformanceVerdict.SignatureNotPublished` (`V245`): what the signature promised is absent for
+every later file, and discovering that as an unresolved name three files on is worse than a
+warning here. That verdict is the one `Kind.Conformance` case at WARNING severity — a gap in
+what this compiler models rather than a fault in the program — so `Vesper.List` still builds.
+A VAL that fails is still an error, as it was. The `list.fsi` defect is real and now has a
+name; fixing it is a contract change, not a front-end one.
+
+`tryResolve` collects through `PassContext.Collecting`, which diverts a scope's diagnostics to
+a buffer of its own. Splicing an index range back out of the shared log would have been sound
+only while `f` was its only writer, and nothing said so.
+
+`PublishedSurface` is a VALUE beside the builder: key-ordered `EqArray`s under an ordinal
+rendering of each key, no `Dictionary` and no `ResizeArray`, with the lookup indexes derived in
+`toProvider`. `KeyIndexedChannels.MembersByKey` narrowed to `EqArray` to keep a mutable out of
+the seam. Both halves of the claim — the ordering, and equality over the same content published
+in a different ORDER — are asserted in `PublishedSurfaceTests`, because no call site can see
+either. Structural equality is NOT yet complete: an `ExternalSymbol.ValRepr` holds pool-relative
+handles, a tuple group's carrying the live `PoolBuilder`, so `Symbols` compares by contents in
+neither direction. That is the `ValRepr` item under the caching section, unchanged; the test
+asserts it INVERTED, so the flat-parameter-grouping fix fails there rather than landing
+unnoticed.
+
+**Both halves publish through the same fill rules.** `PublishedSurfaceBuilder` owns
+`addTypeName` / `addShape` / `addMembers` / `addRecordCandidate` / `addUnionCase`; first-wins on
+a compiled name, first-wins on a bare case name, and the per-field candidate multimap are stated
+once rather than once per producer. A shared accumulator whose two producers each brought their
+own filling rules would not have been shared.
+
+Factored out rather than copied: `IntrinsicReprs` (the `(# … #)` reader both front ends need,
+now the registrar's and the conformance check's too, and the one thing step 4 must rehome rather
+than delete), `SyntaxToken.nameIn` (the token→name read, previously spelled six times), and
+`OperatorNames.ofDeclaredName` / `ExternalSignature.setter`, which `VesperLib` now calls.
+
+**Typed where the choice was load-bearing.** `TyparOwner` (`Type` / `Member` / `Value`) is how
+a producer names WHAT it is freezing, so the surprising rule — a VALUE's own typars go on the
+declaring axis — is a case with its reason attached rather than a call indistinguishable from
+the type one. `SigMemberForm` and `ExternForm` likewise replace boolean pairs that could each
+represent a state with no meaning.
+
+The front end is three files: `SignatureResolution/Context.fs` (what it resolves against, typar
+scoping and the axis cut), `SignatureResolution/Members.fs` (the members and class-like body a
+type declares), and `SignatureResolution.fs` (publication, groups, vals, the walk).
+
+Whole suite green; three tests added, for the drop report, the surface value, and the `(# … #)`
+signature binding.
 
 ### 4. The package caller becomes a per-file fold
 
@@ -330,3 +409,11 @@ Runnable before step 1 if preferred; it is listed last only because it is the le
   cross-assembly boundary.
 - Conformance over two `PublishedSurface`s instead of two CSTs, and the folding-vs-structural
   decision for attribute arguments.
+- **`Vesper.List`'s contract names a type its package cannot resolve.** `list.fsi`'s
+  `GetSlice` writes `int option` while the manifest depends on `Vesper.Core` alone, so the
+  member is dropped. Either the dependency is missing or the member does not belong in that
+  contract; both halves of the compiler now agree it is unresolvable, which is new information.
+- **`module A.B.C` as a whole FILE loses its module.** `CstModuleTree.walkImpl` homes such a file's
+  declarations in the global namespace with no module chain, and the signature walk mirrors it
+  so a pair's halves agree. `VesperLib` honoured the chain, so the package path and the
+  in-assembly path disagreed; no contract is written that way, and no test covered it.

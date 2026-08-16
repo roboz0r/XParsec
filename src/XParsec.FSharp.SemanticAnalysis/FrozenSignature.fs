@@ -156,38 +156,26 @@ module FrozenSignature =
                 let arity = td.TypeParams.Length
                 let origin = originIn typeKey.Namespace
 
-                // Index the enclosing module chain so a written `A.M.T` for this type resolves
-                // through containment. An `InType`-nested type contributes no module container.
-                match typeKey.Container with
-                | TypeContainer.InModule m -> PublishedSurfaceBuilder.addModuleContainer surface m
-                | TypeContainer.InNamespace _
-                | TypeContainer.InType _ -> ()
+                PublishedSurfaceBuilder.addTypeName surface typeKey
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
-                    surface.ShapesByKey.[typeKey] <- shape
-                    // First declaration wins on a compiled-name collision.
-                    let name = SymbolKeyOps.typeMetaName typeKey
-
-                    if not (surface.TypesByName.ContainsKey name) then
-                        surface.TypesByName.[name] <- typeKey
+                    PublishedSurfaceBuilder.addShape surface typeKey shape
 
                     match members with
-                    | ValueSome ms when ms.Count > 0 -> surface.MembersByKey.[typeKey] <- ms
-                    | _ -> ()
+                    | ValueSome ms -> PublishedSurfaceBuilder.addMembers surface typeKey ms
+                    | ValueNone -> ()
 
-                let registerCases (cases: Frozen.TUnionCase seq) (caseShapes: EqArray<ExternalCaseShape>) =
-                    for c, shape in Seq.zip cases caseShapes do
-                        // First declaration wins on a bare case-name collision. An RQA union's
-                        // cases carry the flag so a consumer's bare `Red` is rejected.
-                        if not (surface.UnionCases.ContainsKey c.Name) then
-                            surface.UnionCases.[c.Name] <-
-                                {
-                                    UnionName = SymbolKeyOps.typeMetaName typeKey
-                                    TyparArity = arity
-                                    Origin = origin
-                                    Case = shape
-                                    IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
-                                }
+                let registerCases (caseShapes: EqArray<ExternalCaseShape>) =
+                    for shape in caseShapes do
+                        PublishedSurfaceBuilder.addUnionCase
+                            surface
+                            {
+                                UnionName = SymbolKeyOps.typeMetaName typeKey
+                                TyparArity = arity
+                                Origin = origin
+                                Case = shape
+                                IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
+                            }
 
                 match td.Kind with
                 | TTypeKindG.Record(fields, members, _, valueKind) ->
@@ -207,10 +195,10 @@ module FrozenSignature =
                         (ExternalTypeShape.Record(arity, fieldShapes, origin, valueKind <> ClassValueKind.RefType))
                         (ValueSome(membersOf typeKey arity members))
 
-                    // One candidate per record, appended to EVERY field's bucket, so a shared
-                    // field name keeps both records live. An RQA record carries the flag so a
-                    // consumer's bare `{ X = … }` literal excludes it from the field-set index.
-                    let candidate: ExternalRecordCandidate =
+                    // An RQA record carries the flag so a consumer's bare `{ X = … }` literal
+                    // excludes it from the field-set index.
+                    PublishedSurfaceBuilder.addRecordCandidate
+                        surface
                         {
                             TypeKey = typeKey
                             TyparArity = arity
@@ -219,23 +207,14 @@ module FrozenSignature =
                             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                         }
 
-                    for f in fields do
-                        match surface.RecordFields.TryGetValue f.Name with
-                        | true, buf -> buf.Add candidate
-                        | _ ->
-                            let buf = ResizeArray<ExternalRecordCandidate>()
-                            buf.Add candidate
-                            surface.RecordFields.[f.Name] <- buf
-
                 | TTypeKindG.Union(cases, members, _) ->
-                    let caseArr = [| for c in cases -> c |]
-                    let caseShapes = caseArr |> Array.map caseShapeOf |> EqArray.ofArray
+                    let caseShapes = EqArray.ofSeq [ for c in cases -> caseShapeOf c ]
 
                     register
                         (ExternalTypeShape.Union(arity, caseShapes, EqArray.empty, origin))
                         (ValueSome(membersOf typeKey arity members))
 
-                    registerCases caseArr caseShapes
+                    registerCases caseShapes
 
                 | TTypeKindG.Class c ->
                     let members = membersOf typeKey arity c.Members
@@ -391,15 +370,11 @@ module FrozenSignature =
                         IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
                     )
 
-            surface.ShapesByKey.[typeKey] <- shape
-
-            let name = SymbolKeyOps.typeMetaName typeKey
-
-            if not (surface.TypesByName.ContainsKey name) then
-                surface.TypesByName.[name] <- typeKey
+            PublishedSurfaceBuilder.addShape surface typeKey shape
+            PublishedSurfaceBuilder.addTypeName surface typeKey
 
         surface.Intrinsics <- IntrinsicTypeMap.ofReprKeys frozen.Residue.IntrinsicReprKeys
 
         // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in the SAME
         // namespace reaches these types through its own header, not here.
-        PublishedSurfaceBuilder.toProvider surface
+        PublishedSurface.toProvider (PublishedSurface.ofBuilder surface)

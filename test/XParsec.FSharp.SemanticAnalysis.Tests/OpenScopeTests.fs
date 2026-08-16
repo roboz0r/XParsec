@@ -21,8 +21,8 @@ let private walk (input: string) : (string * string list) list =
             | _ -> "let ?"
         | _ -> "other"
 
-    CstWalk.walkModuleTree ctx.NameOf OpenScope.empty file
-    |> List.map (fun (e, scope) -> label e, scope.Prefixes)
+    CstModuleTree.walkImpl ctx.NameOf OpenScope.empty file
+    |> List.map (fun w -> label w.Elem, w.Scope.Prefixes)
 
 [<Tests>]
 let tests =

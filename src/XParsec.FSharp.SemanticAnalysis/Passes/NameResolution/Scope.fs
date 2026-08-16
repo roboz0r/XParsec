@@ -203,7 +203,7 @@ module NameResolutionScope =
     /// Stamp every external union-case ctor in `p` (1- and 2-segment names only), including
     /// the alternatives and sub-patterns that introduce no bound variable. Embedded type
     /// names go through `typeIter`, which may also diagnose an unknown one.
-    let stampPatCasesWith (ctx: PassContext) (typeIter: CstWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
+    let stampPatCasesWith (ctx: PassContext) (typeIter: CstTypeWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
         let visit (pat: Pat<SyntaxToken>) : unit =
             match pat with
             | Pat.NamedSimple t ->
@@ -232,7 +232,7 @@ module NameResolutionScope =
                     | ValueNone -> ()
             | Pat.Typed(typ = t)
             | Pat.TypeTestAs(typ = t)
-            | Pat.TypeTest(typ = t) -> CstWalk.iterType typeIter t
+            | Pat.TypeTest(typ = t) -> CstTypeWalk.iterType typeIter t
             | _ -> ()
 
         CstWalk.iterPat

@@ -46,7 +46,7 @@ module VesperLib =
     /// the `struct … end` form, so its value-type-ness is on the `TypeName`'s attributes.
     let private classFlagsOfTypeName (lexed: Lexed) (typeName: TypeName<SyntaxToken>) : ExternalClassFlags =
         let (TypeName(attributes = attrs)) = typeName
-        let decoded = AttributeDecode.decodeClassAttributes (nameOfTok lexed) attrs
+        let decoded = AttributeDecode.decodeClassAttributes (SyntaxToken.nameIn lexed) attrs
 
         { ExternalClassFlags.Default with
             Declared =
@@ -56,29 +56,6 @@ module VesperLib =
                 }
             IsValueType = decoded.IsValueType
         }
-
-    /// A setter is dispatched from `x.[i] <- v`, never applied a group at a time, so its groups
-    /// collapse to ONE .NET parameter vector with the getter's result appended: `Item: int -> 'T
-    /// with set` takes `(int, 'T)`.
-    let private setterSignature
-        (declaringTyparArity: int)
-        (methodTyparArity: int)
-        (groupDomains: FrozenType list)
-        (ret: FrozenType)
-        : ExternalSignature =
-        let ps = ResizeArray<FrozenType>()
-
-        for domain in groupDomains do
-            ps.AddRange(ExternalSignature.argSigOfParameters domain)
-
-        ps.Add ret
-
-        ExternalSignature.make (
-            declaringTyparArity,
-            methodTyparArity,
-            ExternalSignature.tupledParams (EqArray.ofResizeArray ps),
-            ExternalSignature.unitFrozen
-        )
 
     /// A member's published `ExternalSignature`. `ValueNone` drops the member; a body-less shape
     /// degrades to `unit -> FTUnknown`.
@@ -93,7 +70,7 @@ module VesperLib =
             let methodTyparArity = max 0 (dc.Typars.Count - declaringTyparArity)
 
             if dm.IsSetter then
-                setterSignature declaringTyparArity methodTyparArity groupDomains ret
+                ExternalSignature.setter declaringTyparArity methodTyparArity groupDomains ret
             else
                 ExternalSignature.ofGroups (declaringTyparArity, methodTyparArity, groupDomains, ret)
 
@@ -489,7 +466,7 @@ module VesperLib =
         let identName =
             match tryCompiledName lexed attrs with
             | ValueSome n -> ValueSome n
-            | ValueNone -> identOrOpName lexed ident
+            | ValueNone -> OperatorNames.ofDeclaredName (SyntaxToken.nameIn lexed) ident
 
         match identName with
         | ValueNone -> ValueNone
@@ -498,7 +475,7 @@ module VesperLib =
     /// The *source*-qualified name for a val, the one the front end writes. IGNORES
     /// `[<CompiledName(_)>]`: a consumer writes `Set.empty`, not `Set.Empty`.
     let private sourceNameForVal (lexed: Lexed) (path: string list) (ident: IdentOrOp<SyntaxToken>) : string voption =
-        match identOrOpName lexed ident with
+        match OperatorNames.ofDeclaredName (SyntaxToken.nameIn lexed) ident with
         | ValueNone -> ValueNone
         | ValueSome n ->
             let qualifier = String.concat "." (List.rev path)
@@ -556,7 +533,7 @@ module VesperLib =
         let register (t: Typar<SyntaxToken>) =
             match t with
             | Typar.Named(_, identTok)
-            | Typar.Static(_, identTok) -> typars.IndexOf(nameOfTok lexed identTok) |> ignore
+            | Typar.Static(_, identTok) -> typars.IndexOf(SyntaxToken.nameIn lexed identTok) |> ignore
             | Typar.Anon _ -> ()
 
         match prefix with
@@ -589,7 +566,7 @@ module VesperLib =
         if ident.Idents.Length = 0 then
             ""
         else
-            nameOfTok lexed ident.Idents.[ident.Idents.Length - 1]
+            SyntaxToken.nameIn lexed ident.Idents.[ident.Idents.Length - 1]
 
     let private registerTypeDecl
         (ctx: ExtractCtx)
@@ -602,7 +579,7 @@ module VesperLib =
         if ident.Idents.Length = 0 then
             ValueNone
         else
-            let short = nameOfTok lexed ident.Idents.[ident.Idents.Length - 1]
+            let short = SyntaxToken.nameIn lexed ident.Idents.[ident.Idents.Length - 1]
 
             if short.Length = 0 then
                 ValueNone
@@ -690,7 +667,7 @@ module VesperLib =
 
         for i in 0 .. fields.Length - 1 do
             let (RecordField(_, mutableTok, _, identTok, _, fieldTy)) = fields.[i]
-            shapes.Add(ExternalFieldShape.create (nameOfTok lexed identTok, mutableTok.IsSome))
+            shapes.Add(ExternalFieldShape.create (SyntaxToken.nameIn lexed identTok, mutableTok.IsSome))
             csts.Add fieldTy
 
         // `Origin` is stamped later by the resolving source; the extractor records `Empty`.
@@ -733,7 +710,7 @@ module VesperLib =
         // Operator-named cases (the cons-list's `([])` / `(::)`) take their canonical
         // *ctor* names `Empty`/`Cons`, matching a locally-compiled union's case names.
         let caseName (ioo: IdentOrOp<SyntaxToken>) : string voption =
-            OperatorNames.unionCaseCtorName (nameOfTok lexed) ioo
+            OperatorNames.unionCaseCtorName (SyntaxToken.nameIn lexed) ioo
 
         for i in 0 .. cases.Length - 1 do
             if err.IsNone then
@@ -758,7 +735,8 @@ module VesperLib =
                             let nameOpt, fieldTy =
                                 match fields.[j] with
                                 | UnionTypeField.Unnamed t -> ValueNone, t
-                                | UnionTypeField.Named(identTok, _, t) -> ValueSome(nameOfTok lexed identTok), t
+                                | UnionTypeField.Named(identTok, _, t) ->
+                                    ValueSome(SyntaxToken.nameIn lexed identTok), t
 
                             names.Add nameOpt
                             fieldCsts.Add fieldTy
@@ -791,7 +769,7 @@ module VesperLib =
 
                             let nameOpt =
                                 match nameSpec with
-                                | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(nameOfTok lexed id)
+                                | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(SyntaxToken.nameIn lexed id)
                                 | ValueNone -> ValueNone
 
                             names.Add nameOpt
@@ -836,7 +814,7 @@ module VesperLib =
         (arity: int)
         (cases: EnumTypeCases<SyntaxToken>)
         : unit =
-        let nameOf = nameOfTok lexed
+        let nameOf = SyntaxToken.nameIn lexed
         let caseShapes = ResizeArray<ExternalEnumCaseShape>(cases.Length)
         let mutable err = None
 
@@ -919,7 +897,7 @@ module VesperLib =
                                 WithClause = ValueSome gs
                             |}
 
-                    match identOrOpName lexed identAndSig.Ident with
+                    match OperatorNames.ofDeclaredName (SyntaxToken.nameIn lexed) identAndSig.Ident with
                     | ValueNone -> ()
                     | ValueSome memberName ->
                         // Full-defer: stash the member + its signature CST. The collector
@@ -983,7 +961,7 @@ module VesperLib =
                                     IsSetter = false
                                 |}
                         | ValueSome getSet ->
-                            let halves = AccessorNames.halvesOf (nameOfTok lexed) getSet
+                            let halves = AccessorNames.halvesOf (SyntaxToken.nameIn lexed) getSet
 
                             if halves.Getter.IsSome then
                                 publish
@@ -1408,7 +1386,7 @@ module VesperLib =
             let (ModuleSignature(attrs, _, access, _, identTok, _, body)) = moduleSig
 
             if isAccessible access then
-                let name = nameOfTok lexed identTok
+                let name = SyntaxToken.nameIn lexed identTok
                 let compiledModuleName = ModuleRules.compiledModuleNameOf naming attrs name
 
                 let childDecl =
@@ -1448,7 +1426,7 @@ module VesperLib =
         let nsSegments, elems =
             match group with
             | NamespaceDeclGroupSignature.Named(_, _, li, els) ->
-                [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed li.Idents.[i] ], els
+                [ for i in 0 .. li.Idents.Length - 1 -> SyntaxToken.nameIn lexed li.Idents.[i] ], els
             | NamespaceDeclGroupSignature.Global(_, _, els) -> [], els
 
         let nsName = String.concat "." nsSegments
@@ -1479,7 +1457,7 @@ module VesperLib =
 
         if isAccessible access then
             let segments =
-                [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed li.Idents.[i] ]
+                [ for i in 0 .. li.Idents.Length - 1 -> SyntaxToken.nameIn lexed li.Idents.[i] ]
 
             // `module A.B.C` declares module `C` in namespace `A.B`. The `…Module` suffix
             // applies to that module segment only.
@@ -1555,30 +1533,9 @@ module VesperLib =
                         elems.[i]
         | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
 
-    /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
-    /// (`(# "System.Int32" #)` ⇒ `"System.Int32"`).
-    let private ilIntrinsicReprString
-        (lexed: Lexed)
-        (parts: System.Collections.Immutable.ImmutableArray<StringPart<SyntaxToken>>)
-        : string =
-        let sb = System.Text.StringBuilder()
-
-        for part in parts do
-            match part with
-            | StringPart.Text t
-            | StringPart.EscapeSequence t
-            | StringPart.FormatSpecifier t
-            | StringPart.EscapePercent t
-            | StringPart.VerbatimEscapeQuote t
-            | StringPart.OrphanFormatSpecifier t
-            | StringPart.InvalidText t -> sb.Append(nameOfTok lexed t) |> ignore
-            | StringPart.Expr _ -> ()
-
-        sb.ToString()
-
     /// Extract the intrinsic-representation bindings from a parsed `.fs` companion
     /// (`type exn = (# "System.Exception" #)`) into `dest` (short name ⇒ repr). Run BEFORE
-    /// the `.fsi` extraction, whose `type exn = extern` omits the repr. Last binding wins.
+    /// the `.fsi` extraction, whose `type exn = extern` omits the repr.
     let extractIntrinsicReprsInto
         (dest: System.Collections.Generic.Dictionary<string, string>)
         (parsed: ParsedFile)
@@ -1592,17 +1549,4 @@ module VesperLib =
 
         match implFile with
         | None -> ()
-        | Some f ->
-            let nameOf t = nameOfTok parsed.Lexed t
-
-            for (m, _) in CstWalk.walkModuleTree nameOf OpenScope.empty f do
-                match m with
-                | ModuleElem.Type defs ->
-                    for td in defs do
-                        match td with
-                        | TypeDefn.Abbrev(typeName = TypeName(ident = li); typ = Type.ILIntrinsic(instrParts = parts)) when
-                            li.Idents.Length = 1
-                            ->
-                            dest.[nameOf li.Idents.[0]] <- ilIntrinsicReprString parsed.Lexed parts
-                        | _ -> ()
-                | _ -> ()
+        | Some f -> IntrinsicReprs.ofImplementationInto dest (SyntaxToken.nameIn parsed.Lexed) f

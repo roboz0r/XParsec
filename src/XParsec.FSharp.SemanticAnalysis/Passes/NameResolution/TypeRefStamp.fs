@@ -228,8 +228,8 @@ module NameResolutionTypeRefStamp =
             { Keys = keys }
 
     /// A structural shape applies no type name, so it records no verdict.
-    let stampTypeIter (ctx: PassContext) : CstWalk.TypeIter =
-        { CstWalk.identityTypeIter with
+    let stampTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
+        { CstTypeWalk.identityTypeIter with
             VisitType =
                 fun _ t ->
                     match CstKeys.ofTypeRef t with
@@ -239,15 +239,16 @@ module NameResolutionTypeRefStamp =
                     true
         }
 
-    let stampTypeRefs (ctx: PassContext) (ty: Type<SyntaxToken>) : unit = CstWalk.iterType (stampTypeIter ctx) ty
+    let stampTypeRefs (ctx: PassContext) (ty: Type<SyntaxToken>) : unit =
+        CstTypeWalk.iterType (stampTypeIter ctx) ty
 
     let stampMemberSig (ctx: PassContext) (ms: MemberSig<SyntaxToken>) : unit =
-        CstWalk.iterTypeMemberSig (stampTypeIter ctx) ms
+        CstTypeWalk.iterTypeMemberSig (stampTypeIter ctx) ms
 
     /// A type header's trailing constraints hang off `TypeName`, reached by no other stamper,
     /// so a coercion bound there must be stamped here or codegen cannot lower its `.Invoke`.
     let stampTyparConstraints (ctx: PassContext) (cs: TyparConstraints<SyntaxToken>) : unit =
-        CstWalk.iterTypeConstraints (stampTypeIter ctx) cs
+        CstTypeWalk.iterTypeConstraints (stampTypeIter ctx) cs
 
     let stampUncurriedSig (ctx: PassContext) (sign: UncurriedSig<SyntaxToken>) : unit =
         let (UncurriedSig(args = ArgsSpec.ArgsSpec(args = args); returnType = ret)) = sign

@@ -127,11 +127,6 @@ module Conformance =
         | ConformanceError.ValueMissingInImpl n ->
             sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
 
-    let private nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
-        match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
-        | TokenIndex.Virtual -> ""
-
     /// A type declaration names a single ident, so its last segment is the short name.
     let private typeNameText (lexed: Lexed) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
@@ -139,25 +134,7 @@ module Conformance =
         if li.Idents.Length = 0 then
             ""
         else
-            nameOfTok lexed li.Idents.[li.Idents.Length - 1]
-
-    /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS:
-    /// `(# "System.Int32" #)` → `"System.Int32"`.
-    let private ilReprString (lexed: Lexed) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
-        let sb = System.Text.StringBuilder()
-
-        for part in parts do
-            match part with
-            | StringPart.Text t
-            | StringPart.EscapeSequence t
-            | StringPart.FormatSpecifier t
-            | StringPart.EscapePercent t
-            | StringPart.VerbatimEscapeQuote t
-            | StringPart.OrphanFormatSpecifier t
-            | StringPart.InvalidText t -> sb.Append(nameOfTok lexed t) |> ignore
-            | StringPart.Expr _ -> ()
-
-        sb.ToString()
+            SyntaxToken.nameIn lexed li.Idents.[li.Idents.Length - 1]
 
     let private sigTypeName (ts: TypeSignature<SyntaxToken>) : TypeName<SyntaxToken> =
         match ts with
@@ -211,11 +188,14 @@ module Conformance =
         | TypeDefn.SkipsTokens _ -> ValueNone
 
     let private implShape (lexed: Lexed) (td: TypeDefn<SyntaxToken>) : ImplShape =
+        let repr (parts: ImmutableArray<StringPart<SyntaxToken>>) =
+            IntrinsicReprs.ilString (SyntaxToken.nameIn lexed) parts
+
         match td with
         // An abbrev whose RHS is `(# … #)` binds a primitive; it is not a transparent alias.
         | TypeDefn.Abbrev(typ = Type.ILIntrinsic(kindTag = ValueSome _; instrParts = parts)) ->
-            ImplShape.IntrinsicClass(ilReprString lexed parts)
-        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) -> ImplShape.Intrinsic(ilReprString lexed parts)
+            ImplShape.IntrinsicClass(repr parts)
+        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) -> ImplShape.Intrinsic(repr parts)
         | TypeDefn.Abbrev _ -> ImplShape.Other "abbrev"
         | TypeDefn.Record _ -> ImplShape.Other "record"
         | TypeDefn.Union _ -> ImplShape.Other "union"
@@ -242,7 +222,7 @@ module Conformance =
             if name <> "" then
                 acc.Add { Name = name; Shape = sigShape ts }
 
-        for e in CstWalk.sigFileElems file do
+        for e in CstModuleTree.sigFileElems file do
             match e with
             | ModuleSignatureElement.Type(_, TypeSignatures(first, rest)) ->
                 addSig first
@@ -258,7 +238,7 @@ module Conformance =
     let summariseImpl (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : ImplDecl list =
         let acc = ResizeArray<ImplDecl>()
 
-        for e in CstWalk.implFileElems file do
+        for e in CstModuleTree.implFileElems file do
             match e with
             | ModuleElem.Type defns ->
                 for td in defns do
@@ -336,8 +316,8 @@ module Conformance =
     /// `ValueNone` for active patterns, whose compiled names are non-trivial.
     let private identOrOpRaw (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
-        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
-        | IdentOrOp.ParenOp(_, OpName.SymbolicOp op, _) -> ValueSome(nameOfTok lexed op)
+        | IdentOrOp.Ident tok -> ValueSome(SyntaxToken.nameIn lexed tok)
+        | IdentOrOp.ParenOp(_, OpName.SymbolicOp op, _) -> ValueSome(SyntaxToken.nameIn lexed op)
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome ".."
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome ".. .."
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "[]"
@@ -348,9 +328,9 @@ module Conformance =
     /// `Pat.OpNamed` and yields `ValueNone`.
     let rec private boundName (lexed: Lexed) (p: Pat<SyntaxToken>) : string voption =
         match p with
-        | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed ident)
+        | Pat.NamedSimple ident -> ValueSome(SyntaxToken.nameIn lexed ident)
         | Pat.Named(longIdent = li) when li.Idents.Length > 0 ->
-            ValueSome(nameOfTok lexed li.Idents.[li.Idents.Length - 1])
+            ValueSome(SyntaxToken.nameIn lexed li.Idents.[li.Idents.Length - 1])
         | Pat.Op io -> identOrOpRaw lexed io
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Typed(pat = inner) -> boundName lexed inner
@@ -365,7 +345,7 @@ module Conformance =
             if name <> "" then
                 acc.Add name
 
-        for e in CstWalk.sigFileElems file do
+        for e in CstModuleTree.sigFileElems file do
             match e with
             | ModuleSignatureElement.Val(ValSig(ident = io)) ->
                 match identOrOpRaw lexed io with
@@ -384,7 +364,7 @@ module Conformance =
     let summariseImplVals (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
         let acc = ResizeArray<string>()
 
-        for e in CstWalk.implFileElems file do
+        for e in CstModuleTree.implFileElems file do
             match e with
             | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) ->
                 for b in bs do
@@ -414,13 +394,8 @@ module Conformance =
     [<Struct; NoEquality; NoComparison>]
     type ModuleDeclMismatch = { SigDecl: string; ImplDecl: string }
 
-    let private identText (lexed: Lexed) (tok: SyntaxToken) : string =
-        match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
-        | TokenIndex.Virtual -> ""
-
     let private longIdentText (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
-        li.Idents |> Seq.map (identText lexed) |> String.concat "."
+        li.Idents |> Seq.map (SyntaxToken.nameIn lexed) |> String.concat "."
 
     /// The dotted leading declaration of a `.fsi`, F#'s `QualifiedNameOfFile` pairing key.
     /// `"global"` for an explicit `namespace global`; `""` for an anonymous module.

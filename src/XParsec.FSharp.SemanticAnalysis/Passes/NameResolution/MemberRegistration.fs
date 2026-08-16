@@ -142,8 +142,8 @@ module NameResolutionMemberRegistration =
         // `VarType` and a `SubtypeConstraint`'s constrained typar are the only two type forms
         // that bear one. A `when`-clause's constraint types are NOT descended: an implicit
         // method typar is drawn from the signature's arg/return SHAPE, not a constraint target.
-        let typarIter: CstWalk.TypeIter =
-            { CstWalk.identityTypeIter with
+        let typarIter: CstTypeWalk.TypeIter =
+            { CstTypeWalk.identityTypeIter with
                 VisitType =
                     fun it t ->
                         match t with
@@ -155,12 +155,12 @@ module NameResolutionMemberRegistration =
                             true
                         | Type.WhenConstrainedType(typ = inner) ->
                             // `false` suppresses the default recursion into the constraints.
-                            CstWalk.iterType it inner
+                            CstTypeWalk.iterType it inner
                             false
                         | _ -> true
             }
 
-        let walkTy (t: Type<SyntaxToken>) = CstWalk.iterType typarIter t
+        let walkTy (t: Type<SyntaxToken>) = CstTypeWalk.iterType typarIter t
 
         // Only a `(p : T)` annotation contributes a signature type; an unannotated
         // bound variable carries no typar.

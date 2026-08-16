@@ -1141,6 +1141,106 @@ module N =
                 Expect.isNonEmpty (definitionErrors f2) "the unpublished type and val are hidden"
             }
 
+            // A MEMBER whose signature names a type the compilation cannot resolve declares
+            // nothing a consumer could call, so it is dropped rather than faulting the file.
+            // The DROP is reported: what the signature promised is now absent for every later
+            // file, and discovering that as an unresolved name three files on is worse.
+            test "a `.fsi` member naming an unresolvable type is dropped, and the drop WARNS" {
+                let file1Sig =
+                    "\
+namespace Test.A
+
+module M =
+    type Holder =
+        member Reachable: int -> int
+        member Unreachable: NoSuchTypeAnywhere -> int
+"
+
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type Holder =
+        member this.Reachable(x: int) : int = x
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                        ]
+                    |> files
+
+                let anchored = consolidatedDiagnostics all
+
+                let dropped =
+                    anchored |> List.filter (fun a -> a.Diagnostic.Code = DiagCode.Vesper "V245")
+
+                match dropped with
+                | [ a ] ->
+                    Expect.equal a.Diagnostic.Severity Severity.Warning "a gap in what the compiler models WARNS"
+                    Expect.equal a.Path.Name "file1.fsi" "anchored to the signature that made the claim"
+
+                    Expect.stringContains a.Diagnostic.Message "Unreachable" "the report names the member it dropped"
+                | other -> failtestf "expected exactly one V245 for the dropped member, got %A" other
+
+                // The refusal itself does NOT survive: the name is wrong in the contract, and
+                // that is the drop's business rather than a second finding against the file.
+                Expect.isEmpty
+                    (anchored
+                     |> List.filter (fun a ->
+                         Diagnostic.isError a.Diagnostic
+                         && a.Diagnostic.Message.Contains "NoSuchTypeAnywhere"
+                     ))
+                    "the unresolved name is reported once, as the drop"
+            }
+
+            // `extern` is the spelling a signature normally uses, but the inline-IL form
+            // parses in a `.fsi` too, and both grammars must read it as the primitive BINDING
+            // it is: read as a transparent alias it registers no abbreviation either, and the
+            // type publishes a name with no shape behind it.
+            test "a `.fsi` inline-IL abbreviation publishes the primitive, not an empty alias" {
+                let file1Sig =
+                    "\
+namespace Test.A
+
+type myint = (# \"System.Int32\" #)
+"
+
+                let file1 = file1Sig
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let f (x: Test.A.myint) : Test.A.myint = x
+"
+
+                let all =
+                    analyseAssembly
+                        asm
+                        realProvider.Value
+                        [
+                            SourceUnit.paired
+                                (SourceFile.ofText "file1.fsi" file1Sig)
+                                (SourceFile.ofText "file1.fs" file1)
+                            impl "file2.fs" file2
+                        ]
+                    |> files
+
+                Expect.isEmpty
+                    (definitionErrors all.[1])
+                    (sprintf
+                        "the signature's `(# … #)` binding is reachable (diagnostics: %A)"
+                        all.[1].Frozen.Residue.Diagnostics)
+            }
+
             test "the SAME file 1 publishes them when it has no `.fsi`" {
                 let all =
                     analyseAssembly

@@ -318,6 +318,29 @@ module ExternalSignature =
     /// occupy `a * b`.
     let tupledParameters (s: ExternalSignature) : FrozenType = tupledParams (argSigOf s)
 
+    /// A setter is dispatched from `x.[i] <- v`, never applied a group at a time, so its
+    /// groups collapse to ONE .NET parameter vector with the getter's result appended:
+    /// `Item: int -> 'T with set` takes `(int, 'T)`.
+    let setter
+        (declaringTyparArity: int)
+        (methodTyparArity: int)
+        (groupDomains: FrozenType list)
+        (getterReturn: FrozenType)
+        : ExternalSignature =
+        let ps = ResizeArray<FrozenType>()
+
+        for domain in groupDomains do
+            ps.AddRange(argSigOfParameters domain)
+
+        ps.Add getterReturn
+
+        ExternalSignature.make (
+            declaringTyparArity,
+            methodTyparArity,
+            tupledParams (EqArray.ofResizeArray ps),
+            unitFrozen
+        )
+
 /// A resolved member (method, field or property) on an external type.
 type ExternalMember =
     {

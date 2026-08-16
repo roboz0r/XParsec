@@ -276,4 +276,4 @@ module VesperLibTyparCapture =
             surface
 
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
-            PublishedSurfaceBuilder.toProvider (toSurface ctx)
+            PublishedSurface.toProvider (PublishedSurface.ofBuilder (toSurface ctx))

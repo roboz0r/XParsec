@@ -71,7 +71,7 @@ let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> l
             EnterMatchArm = fun () p -> add p
         }
 
-    for m in CstWalk.implFileElems file do
+    for m in CstModuleTree.implFileElems file do
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             for b in bindings do

@@ -11,13 +11,9 @@ open VesperLibTyparCapture
 /// `TyparCollector` (typar interning) and a `ConstraintCollector` (inline `when …`).
 module VesperLibTypeTranslate =
 
-    let nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
-        match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenName(iT)
-        | TokenIndex.Virtual -> ""
-
     let longIdentName (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
-        let parts = [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed li.Idents.[i] ]
+        let parts =
+            [ for i in 0 .. li.Idents.Length - 1 -> SyntaxToken.nameIn lexed li.Idents.[i] ]
 
         String.concat "." parts
 
@@ -25,23 +21,7 @@ module VesperLibTypeTranslate =
         if li.Idents.Length = 0 then
             ""
         else
-            nameOfTok lexed li.Idents.[li.Idents.Length - 1]
-
-    let identOrOpName (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
-        match io with
-        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
-        // `(::)` is a bound name only the contract surface needs to name (cons has no `op_`
-        // member in expression position), so it is mapped before the shared resolver.
-        | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) when opTok.Token = Token.KWColonColon ->
-            ValueSome OperatorData.OpColonColon
-        | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) ->
-            OperatorNames.ofParenSymbolic (nameOfTok lexed opTok) opTok
-        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome OperatorData.OpRange
-        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome OperatorData.OpRangeStep
-        | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome OperatorData.OpNil
-        | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) ->
-            // Active-pattern compiled names are non-trivial, so defer.
-            ValueNone
+            SyntaxToken.nameIn lexed li.Idents.[li.Idents.Length - 1]
 
     /// First attribute whose short name (last segment) matches a candidate,
     /// ignoring the optional `Attribute` suffix.
@@ -105,9 +85,9 @@ module VesperLibTypeTranslate =
 
         for i in 0 .. parts.Length - 1 do
             match parts.[i] with
-            | StringPart.Text tok -> sb.Append(nameOfTok lexed tok) |> ignore
+            | StringPart.Text tok -> sb.Append(SyntaxToken.nameIn lexed tok) |> ignore
             | StringPart.EscapeSequence tok ->
-                let raw = nameOfTok lexed tok
+                let raw = SyntaxToken.nameIn lexed tok
                 // Preserve source-level text; full escape decoding is the
                 // lexer's job and unneeded for attribute args.
                 sb.Append raw |> ignore
@@ -133,7 +113,7 @@ module VesperLibTypeTranslate =
                     let s = stringExprText lexed parts
                     if s.Length > 0 then ValueSome s else ValueNone
                 | Expr.Const(Constant.Literal tok) ->
-                    let raw = nameOfTok lexed tok
+                    let raw = SyntaxToken.nameIn lexed tok
                     let trimmed = raw.Trim([| '"' |])
                     if trimmed.Length > 0 then ValueSome trimmed else ValueNone
                 | _ -> ValueNone
@@ -267,7 +247,7 @@ module VesperLibTypeTranslate =
     let typarName (lexed: Lexed) (t: Typar<SyntaxToken>) : string voption =
         match t with
         | Typar.Named(_, identTok)
-        | Typar.Static(_, identTok) -> ValueSome(nameOfTok lexed identTok)
+        | Typar.Static(_, identTok) -> ValueSome(SyntaxToken.nameIn lexed identTok)
         | Typar.Anon _ -> ValueNone
 
     /// Walk a `when …` clause and emit `RawConstraint` entries into the collector.
@@ -325,7 +305,7 @@ module VesperLibTypeTranslate =
                     match sign with
                     | ValueNone -> ()
                     | ValueSome(ident, CurriedSig(args, retTy)) ->
-                        match identOrOpName lexed ident with
+                        match OperatorNames.ofDeclaredName (SyntaxToken.nameIn lexed) ident with
                         | ValueNone -> ()
                         | ValueSome mName ->
                             // F# trait sigs are tupled by convention (`^T * ^T -> ^T`), parsing
@@ -448,7 +428,7 @@ module VesperLibTypeTranslate =
 
         | Type.VarType(Typar.Named(_, identTok))
         | Type.VarType(Typar.Static(_, identTok)) ->
-            let idx = typars.IndexOf(nameOfTok lexed identTok)
+            let idx = typars.IndexOf(SyntaxToken.nameIn lexed identTok)
             Ok(FTTypar(TyparAxis.Declaring, idx))
 
         | Type.VarType(Typar.Anon _) ->
@@ -629,5 +609,5 @@ module VesperLibTypeTranslate =
 
                 match typar with
                 | Typar.Named(_, identTok)
-                | Typar.Static(_, identTok) -> typars.IndexOf(nameOfTok lexed identTok) |> ignore
+                | Typar.Static(_, identTok) -> typars.IndexOf(SyntaxToken.nameIn lexed identTok) |> ignore
                 | Typar.Anon _ -> ()

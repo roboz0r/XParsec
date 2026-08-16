@@ -13,7 +13,14 @@
     <Compile Include="Anchor.fs" />
     <Compile Include="NodeKey.fs" />
     <Compile Include="CstKeys.fs" />
+    <Compile Include="OpenScope.fs" />
+    <Compile Include="TypeDefnPatterns.fs" />
+    <Compile Include="CstTypeWalk.fs" />
     <Compile Include="CstWalk.fs" />
+    <Compile Include="CstModuleTree.fs" />
+    <!-- Ahead of every reader of a `(# … #)` binding: the conformance check, the
+         registrar and both front ends stitch the same instruction string through here. -->
+    <Compile Include="IntrinsicReprs.fs" />
     <Compile Include="Conformance.fs" />
     <Compile Include="SymbolKeys.fs" />
     <Compile Include="SemanticScalars.fs" />
@@ -177,6 +184,11 @@
     <Compile Include="PlatformTypes.fs" />
     <Compile Include="DynamicEscape.fs" />
     <Compile Include="Freeze.fs" />
+    <!-- After the passes whose resolver it drives and the typar-axis cut it freezes
+         through, and before the driver that runs it beside them. -->
+    <Compile Include="Passes\SignatureResolution\Context.fs" />
+    <Compile Include="Passes\SignatureResolution\Members.fs" />
+    <Compile Include="Passes\SignatureResolution.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="AssemblyFiles.fs" />
     <Compile Include="PackageUnits.fs" />

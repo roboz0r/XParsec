@@ -176,7 +176,7 @@ let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassCon
 
 /// The file's first `let` binding.
 let firstBinding (file: ImplementationFile<SyntaxToken>) : Binding<SyntaxToken> =
-    CstWalk.implFileElems file
+    CstModuleTree.implFileElems file
     |> Seq.pick (fun m ->
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when bindings.Length > 0 ->
