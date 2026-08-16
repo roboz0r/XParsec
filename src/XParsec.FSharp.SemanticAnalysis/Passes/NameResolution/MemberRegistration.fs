@@ -1019,15 +1019,18 @@ module NameResolutionMemberRegistration =
     /// names, class members / ctor params, abbreviation RHS), plus any `with member …`
     /// augmentation on it. The identity is handed in, never re-derived from the CST.
     let private registerDetail (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
-        match id.Kind with
-        | TypeDeclKind.Record -> registerRecordTypeDefn ctx id td
-        | TypeDeclKind.Union -> registerUnionTypeDefn ctx id td
-        | TypeDeclKind.Enum -> registerEnumTypeDefn ctx id td
-        // The abbreviation ENTRY is filed ahead of every other kind's detail, so this arm
-        // has nothing left to do for it.
-        | TypeDeclKind.Abbreviation
-        | TypeDeclKind.IntrinsicRepr -> ()
-        | TypeDeclKind.Class -> registerClassTypeDefn ctx id td
+        match id.Kind, td with
+        | TypeDeclKind.Record, TypeDefn.Record(typeName = tn; fields = fields) -> registerRecordDecl ctx id tn fields
+        | TypeDeclKind.Union, TypeDefn.Union(typeName = tn; cases = cases) -> registerUnionDecl ctx id tn cases
+        | TypeDeclKind.Enum, TypeDefn.Enum(typeName = tn; cases = cases) -> registerEnumDecl ctx id tn cases
+        | TypeDeclKind.Class, _ -> registerClassTypeDefn ctx id td
+        // The abbreviation ENTRY is filed ahead of every other kind's detail, so those two
+        // kinds have nothing left to do here.
+        | TypeDeclKind.Abbreviation, _
+        | TypeDeclKind.IntrinsicRepr, _
+        | TypeDeclKind.Record, _
+        | TypeDeclKind.Union, _
+        | TypeDeclKind.Enum, _ -> ()
 
         registerNominalMember ctx id td
 
@@ -1057,7 +1060,11 @@ module NameResolutionMemberRegistration =
         for claimed in claims do
             match claimed.Identity.Kind with
             | TypeDeclKind.Abbreviation
-            | TypeDeclKind.IntrinsicRepr -> registerAbbreviationDefn ctx claimed.Identity claimed.Defn
+            | TypeDeclKind.IntrinsicRepr ->
+                match claimed.Defn with
+                | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
+                    registerAbbreviationDecl ctx claimed.Identity tn rhs ext.IsSome
+                | _ -> ()
             | TypeDeclKind.Record
             | TypeDeclKind.Union
             | TypeDeclKind.Enum

@@ -256,13 +256,30 @@ is not what a finalized surface answers.
 
 Pure refactor. Whole suite green with no test edits.
 
-### 2. Narrow the registration entry points
+### 2. Narrow the registration entry points — LANDED
 
-Refactor `TypeRegistration.register{Record,Union,Enum,Abbreviation}*` to take the payload
-(`RecordFields` / `UnionTypeCases` / `EnumTypeCases` / RHS `Type`) plus `TypeIdentity`,
-rather than the whole `TypeDefn`, so the signature grammar can call them.
+`TypeRegistration.register{Record,Union,Enum,Abbreviation}Decl` now take `TypeIdentity`, the
+`TypeName`, and the payload — `RecordFields` / `UnionTypeCases` / `EnumTypeCases` / RHS `Type`
+— all of which the two grammars spell identically. `MemberRegistration` destructures at the
+call site, so the kind→CST pairing is one `match id.Kind, td` there rather than an internal
+`| _ -> ()` in each of the four. The `*TypeDefn` suffix went with the parameter it named.
 
-Implementation side only, pure refactor. **Exit:** whole suite green, no test edits.
+Two things fell out. `registerRecordDecl` no longer calls `isValueTypeDefn`: only the
+`[<Struct>]` half applies to a record, so the attribute read is now `isStructAttributed`,
+which `isValueTypeDefn` also calls — the two cannot drift. And an abbreviation's augmentation
+reaches the registrar as `hasAugmentation: bool`, because only its presence was ever read and
+the two grammars' extension types differ.
+
+`registerAbbreviationDecl` still re-matches its RHS against `Type.ILIntrinsic` to pick the
+side table, duplicating the verdict `TypeIdentity.Kind` already carries. Left alone —
+[semantic-analysis-followups-plan](semantic-analysis-followups-plan.md) records it, and the
+sig side has no `Type.ILIntrinsic` to hand over at all (`TypeSignature.Extern` is a case of
+its own), so step 3 is what decides the split.
+
+`registerClassTypeDefn` is untouched: the sig grammar's class-like cases carry
+`TypeElementsSignature`, not `ObjectModelBody`, so there is no shared payload to narrow to.
+
+Pure refactor. Whole suite green with no test edits.
 
 ### 3. The signature front end, wired to the in-assembly caller only
 

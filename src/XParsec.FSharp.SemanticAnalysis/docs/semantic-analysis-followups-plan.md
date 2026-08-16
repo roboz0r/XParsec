@@ -1149,7 +1149,7 @@ already recorded for `tryListLiteralElem` — the loop wants to stop at the hit.
 
 `tryDeclaredTypeName` (`:212`) matches the abbreviation RHS against `Type.ILIntrinsic` to choose
 `TypeDeclKind.IntrinsicRepr` over `TypeDeclKind.Abbreviation`, and that kind rides the claim onto
-`TypeIdentity.Kind`. `registerAbbreviationDefn` is then handed that `id` and re-matches the very
+`TypeIdentity.Kind`. `registerAbbreviationDecl` is then handed that `id` and re-matches the very
 same `rhs` (`:815`) to choose which side table to write, never reading `id.Kind`. One
 classification, two spellings of it, and nothing makes the second agree with the first.
 
@@ -1174,7 +1174,7 @@ redundant given every consumer downstream already holds a resolved key.
 
 ### `Passes/NameResolution/TypeRegistration.fs:580`, `:723` — the index-bucket prepend is copied verbatim
 
-`registerRecordTypeDefn`'s `FieldIndex` fill (`:578-588`) and `registerUnionTypeDefn`'s `CtorIndex`
+`registerRecordDecl`'s `FieldIndex` fill (`:578-588`) and `registerUnionDecl`'s `CtorIndex`
 fill (`:721-731`) are the same eleven lines twice: `TryGetValue`, a `ResizeArray(infos.Length + 1)`
 seeded with the new entry, a copy loop, `EqArray.ofResizeArray`, and a `false, _` arm building an
 `EqArray.singleton`. Only the dictionary and the element type differ. A

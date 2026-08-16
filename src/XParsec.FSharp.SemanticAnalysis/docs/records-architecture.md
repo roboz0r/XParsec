@@ -127,7 +127,7 @@ hence "dot access", not "field access".
 
 ### NameResolution — registration (`Passes/NameResolution/TypeRegistration.fs`)
 
-`registerRecordTypeDefn` (`:119`), driven by `registerRecordTypes`
+`registerRecordDecl` (`:119`), driven by `registerRecordTypes`
 (`:199`), walks each `TypeDefn.Record`:
 
 - Single-segment type names only; multi-segment is skipped.
@@ -155,7 +155,7 @@ never resolves `X` through `ctx.Binding`.
 
 ### Unification
 
-Field types are **not** filled here: `registerRecordTypeDefn` translates every
+Field types are **not** filled here: `registerRecordDecl` translates every
 field's type at registration, under the record's typar scope (attaching
 `TyparConstraints` to the matching prototype TyVar), against the types in scope
 where the record is declared — everything above it, plus its own

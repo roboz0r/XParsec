@@ -123,7 +123,7 @@ like records' pending-field-access gate.
 
 ### NameResolution — registration (`Passes/NameResolution/TypeRegistration.fs`)
 
-`registerUnionTypeDefn` (`:265`) walks each `TypeDefn.Union`:
+`registerUnionDecl` (`:265`) walks each `TypeDefn.Union`:
 
 - Single-segment type names only; multi-segment is skipped.
 - `inspectCaseData` (`:224`) pulls each case's name + arity + per-field
@@ -151,7 +151,7 @@ binds nothing; recurse into sub-patterns) and uppercase nullary-ctor
 
 ### Unification
 
-Case field types are **not** filled here: `registerUnionTypeDefn` translates
+Case field types are **not** filled here: `registerUnionDecl` translates
 each case's field types at registration, under the union's typar scope, against
 the types in scope where the union is declared (everything above it, plus its
 own `type … and …` group). What Unification adds is what the union does not
