@@ -94,7 +94,7 @@ module SymbolProviders =
                 with e ->
                     let pruned =
                         match sem.Diagnostics |> Diagnostic.errors with
-                        | [] -> " (none — the fault is in the freeze itself)"
+                        | [] -> " (none, so the fault is in the freeze itself)"
                         | errors -> errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
 
                     failwithf

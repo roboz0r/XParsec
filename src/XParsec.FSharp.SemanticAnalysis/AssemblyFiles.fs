@@ -435,7 +435,7 @@ module AssemblyFiles =
                     }
                 | positioned ->
                     failwithf
-                        "internal error: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
+                        "internal error: %s produced no `Lexed`, so a diagnostic cannot carry a position, but got %A (%s)"
                         path.Name
                         positioned
                         d.Message

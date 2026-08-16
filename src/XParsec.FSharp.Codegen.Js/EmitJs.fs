@@ -756,7 +756,7 @@ module EmitJs =
                 JsExpr.Call(disposeFn, [ boundVar ], ValueNone)
             | Disposal.Unresolved ->
                 failwithf
-                    "EmitJs: `use` over a bound variable with no resolved disposal ('%s') — Unification reported an error, so this file should never have reached codegen"
+                    "EmitJs: `use` over a bound variable with no resolved disposal ('%s'). Disposal is unresolved only where Unification reported an error, so this file should never have reached codegen"
                     name
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]

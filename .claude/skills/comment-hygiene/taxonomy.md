@@ -434,10 +434,18 @@ line-initial dashes, a profile entirely unlike `EmitJs.fs`. Where a file's comme
 per-case one-liners over emitted output (`JsAst.fs`), expect the opposite: mostly legitimate.
 Check a file's existing punctuation convention before estimating how much of it will move.
 
-**Out of scope: string literals.** `EmitJs.fs:780` and `EmitJsContext.fs:124` hold em-dashes
-inside `failwithf` messages with the same defect. That is user-facing diagnostic text, not a
-comment; editing it can move test expectations, so it wants a separate decision rather than a
-punctuation sweep.
+**Message strings are in scope, but not in the same pass.** Diagnostic and panic strings carry
+every mode a comment does, H19 included. Settled 2026-08-15: they are held to this taxonomy
+exactly as comments are, because a prototype compiler's messages are read by the people writing
+it. Do them as their own pass, not inside a punctuation sweep, since editing a string can move a
+test expectation — check what asserts on the text first, then rerun the suites rather than
+relying on a diff that touched no code.
+
+Two things that pass turned up, both worth expecting again. A message often splices a phrase
+built elsewhere (`sprintf "%s — '%s'" r.Description name`), so the dash's two sides are written
+in different files and neither author saw the rendering: read the composed output, not the
+format string. And `unreachable — <the actual fault>` is the string-literal form of the
+"cannot happen" claim: naming the relation usually leaves the left half with nothing to say.
 
 ## Where the rot accretes — the siting law
 

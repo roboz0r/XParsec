@@ -74,17 +74,18 @@ test builds `Vesper.Seq` and asserts two type names exist; it never consumes `fo
 The claim is deleted. The agreement is real and currently untested — this wants the test the
 comment believed in.
 
-## A5. A milestone label is baked into a user-visible error string
+## A5. A milestone label is baked into a user-visible error string — DONE
 
-`EmitResolve`'s generic-union static-augmentation failure ends `"… is out of scope (R2)"`.
+`EmitResolve`'s generic-union static-augmentation failure ended `"… is out of scope (R2)"`.
 The house rule against plan-doc milestone labels applies, but this one is a string literal
 rather than a comment, so the sweep could not touch it without breaking its own gate.
 
-Same class as the `ClosureVerdictRewrite` message that cited a comment label, already fixed.
-State the limitation, not the plan step.
+Landed with the decision to hold message strings to the comment rule, recorded in
+`.claude/skills/comment-hygiene`: the message now states the limitation, that this compiler
+does not emit a static augmentation member on a generic union.
 
 `EmitLoops`'s five `Rung-3` / `Wall A` comment labels are gone — that file has now been
-swept. Only the string literal above remains.
+swept.
 
 ## A6. `instantiationFor` swallows every exception
 
@@ -422,7 +423,8 @@ serialize.
 
 ## B19. A prepared compilation — `ClrDriver`'s provider and cache digest are folded separately — DONE
 
-Also `codegen-js-followups-plan.md` B8. `PreparedCompilation` — private representation, minted
+Raised by the `Codegen.Js` sweep as well, and landed once for both. `PreparedCompilation` —
+private representation, minted
 only by `ClrDriver.prepare` — holds the `ClrCompilation`, its digest and its provider, and
 `compileCachedWith` takes one in place of a digest plus the inputs. A digest folded from other
 inputs can no longer reach it, and the doc clause that asked for one folded from THESE `inputs`

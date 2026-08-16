@@ -688,7 +688,7 @@ module Unification =
                                 impl.DeclSite.Tok,
                                 Kind.Message(
                                     sprintf
-                                        "'%s' is part of the platform interface of capability '%s', which this type already implements — the backend publishes that interface, and everything it inherits, for the capability. Remove this interface implementation."
+                                        "'%s' is part of the platform interface of capability '%s', which this type already implements, because the backend publishes that interface, and everything it inherits, for the capability. Remove this interface implementation."
                                         qual
                                         capability
                                 )

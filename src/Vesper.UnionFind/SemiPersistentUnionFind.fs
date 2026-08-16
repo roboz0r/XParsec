@@ -72,7 +72,7 @@ module internal PaCell =
 
             match t.Data with
             | Arr a -> a[i]
-            | _ -> invalidOp "SemiPersistentUnionFind: unreachable — reroot did not yield an array"
+            | _ -> invalidOp "SemiPersistentUnionFind: reroot did not yield an array"
 
     let set (t: PaCell) (i: int) (v: int) : PaCell =
         reroot t
@@ -90,7 +90,7 @@ module internal PaCell =
                 let res = { Data = Arr a }
                 t.Data <- Diff(i, old, res)
                 res
-        | _ -> invalidOp "SemiPersistentUnionFind: unreachable — reroot did not yield an array"
+        | _ -> invalidOp "SemiPersistentUnionFind: reroot did not yield an array"
 
     /// Append (or overwrite, when a rollback already materialized the slot) slot `k` with `v`,
     /// returning the grown newest version and turning `t` into a diff. No older version ever
@@ -104,7 +104,7 @@ module internal PaCell =
             let res = { Data = Arr a }
             t.Data <- Diff(k, v, res)
             res
-        | _ -> invalidOp "SemiPersistentUnionFind: unreachable — reroot did not yield an array"
+        | _ -> invalidOp "SemiPersistentUnionFind: reroot did not yield an array"
 
 /// Semi-persistent, NOT persistent: after `let b = a.Union(x, y)` merges two classes, reading
 /// `a` again reroots the shared array back to a's state and any later use of `b` raises. Roll

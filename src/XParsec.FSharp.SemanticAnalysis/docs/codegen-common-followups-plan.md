@@ -6,9 +6,10 @@ Part B is type candidates, each naming the comment its type would delete.
 
 Delete this file when the work lands.
 
-`FlatParams` is already tracked as `codegen-clr-followups-plan.md` **B1** and
-`codegen-js-followups-plan.md` **B6**, and both conclude it belongs in this project. Do not
-re-file it here; extend those entries instead.
+`FlatParams` is already tracked as `codegen-clr-followups-plan.md` **A1/B1**, which concludes it
+belongs in this project. The `Codegen.Js` sweep reached the same confusion independently and
+closed its own half with the JS-local `TailParams`, which does not reach the CLR call site. Do
+not re-file it here; extend that entry instead.
 
 ---
 

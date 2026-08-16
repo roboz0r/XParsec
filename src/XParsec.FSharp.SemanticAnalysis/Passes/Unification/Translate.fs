@@ -61,7 +61,7 @@ module internal UnificationTranslate =
                 (Kind.Message(
                     sprintf "A referenced package declares '%s', but its body did not extract (%s)" name reason
                 ))
-        | ValueSome r -> errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "%s — '%s'" r.Description name))
+        | ValueSome r -> errorTy ctx site.Tok (Kind.NotYetSupported(sprintf "'%s' is %s" name r.Description))
         | ValueNone ->
             // Blamed at the name's first token alone, because the long-ident span is not in
             // hand here.
@@ -128,13 +128,13 @@ module internal UnificationTranslate =
             match ctx.Resolution.TypeRefVerdicts.TryGetValue nodeKey with
             | ValueNone ->
                 failwithf
-                    "NameResolution stamping gap: dotted type reference '%s' carries no verdict — a stamping walk missed this syntax position"
+                    "NameResolution stamping gap: dotted type reference '%s' carries no verdict, so a stamping walk missed this syntax position"
                     name
             | ValueSome(TypeRefVerdict.ExternalType stamped) ->
                 match ctx.Provider.TryLookupType stamped with
                 | ValueNone ->
                     failwithf
-                        "External identity round-trip broken: dotted type reference '%s' resolved to %s, but the store view cannot serve that key — NameResolution's mint and the store disagree"
+                        "External identity round-trip broken: dotted type reference '%s' resolved to %s, but the store view cannot serve that key, so NameResolution's mint and the store disagree"
                         name
                         (SymbolKeyOps.typeMetaName stamped)
                 // Served, but the shape declined to build (no modelled body, or an arity the

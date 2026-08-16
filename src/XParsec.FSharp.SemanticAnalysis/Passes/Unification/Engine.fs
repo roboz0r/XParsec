@@ -229,7 +229,7 @@ module UnificationEngine =
                         tok,
                         Kind.Message(
                             sprintf
-                                "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
+                                "Type '%s' could not be resolved during contract extraction. Is a package dependency missing?"
                                 name
                         )
                     )

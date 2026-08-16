@@ -315,7 +315,7 @@ module TastPools =
             | ValueSome id -> id
             | ValueNone ->
                 failwithf
-                    "TastPools.toPools: %s entry %O names a bound variable no declaration in the frozen file introduces — prune the entry where its declaration is pruned"
+                    "TastPools.toPools: %s entry %O names a bound variable no declaration in the frozen file introduces, so prune the entry where its declaration is pruned"
                     referent
                     k
 

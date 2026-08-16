@@ -221,7 +221,7 @@ module OriginSources =
                     file.Path.BucketName
             | Some src when src.File.Content <> file.Content ->
                 failwithf
-                    "OriginSources: %s (package %s) has changed since the tree anchored in it was built (anchored against %s, retained %s) — every one of its anchors now names a different token"
+                    "OriginSources: %s (package %s) has changed since the tree anchored in it was built (anchored against %s, retained %s), so every one of its anchors now names a different token"
                     file.Path.Relative.Name
                     file.Path.BucketName
                     file.Content.Hex

@@ -338,7 +338,7 @@ module internal Layout =
                     || not (List.isEmpty p.ProgramMainValues)
                 then
                     failwithf
-                        "Layout.combine: file %d of %d carries %d top-level value binding(s) but is not the entry file — only the last file of an executable may carry top-level code"
+                        "Layout.combine: file %d of %d carries %d top-level value binding(s) but is not the entry file, and only the last file of an executable may carry top-level code"
                         (i + 1)
                         (List.length files)
                         (List.length p.ProgramCctorValues + List.length p.ProgramMainValues)
@@ -355,7 +355,7 @@ module internal Layout =
                 | TypeSlotKey.ModuleClass _ ->
                     if not (classSeen.Add k) then
                         failwithf
-                            "Layout.combine: module class %A is contributed by more than one file — a module's definition is split across files"
+                            "Layout.combine: module class %A is contributed by more than one file, so that module's definition is split across files"
                             k
                 | _ -> ()
 
@@ -421,7 +421,7 @@ module internal Layout =
                     for fn in f.Plan.ProgramFns do
                         if not (seen.Add fn.SymbolKey) then
                             failwithf
-                                "Layout.combine: top-level binding %s is declared by more than one file — two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
+                                "Layout.combine: top-level binding %s is declared by more than one file, and two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
                                 (SymbolKeyOps.qualifiedName fn.SymbolKey)
 
                         yield
@@ -507,7 +507,7 @@ module internal Layout =
             || not (HashSet(placedKeys).SetEquals(HashSet builtKeys))
         then
             failwithf
-                "Layout: the type hierarchy places %d slots but %d were built — a slot is dropped, duplicated or invented"
+                "Layout: the type hierarchy places %d slots but %d were built, so a slot is dropped, duplicated or invented"
                 (List.length placedKeys)
                 (List.length builtKeys)
 

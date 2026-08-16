@@ -169,7 +169,7 @@ module ConformanceVerdict =
                 implDecl
         | ConformanceVerdict.StaleSigOnly name ->
             sprintf
-                "'%s' is declared `sig-only` but a companion implementation exists — remove the stale exemption"
+                "'%s' is declared `sig-only` but a companion implementation exists, so remove the stale exemption"
                 name
         | ConformanceVerdict.UnknownSigOnly name ->
             sprintf "`sig-only` names '%s', which is not a signature file in this package" name
@@ -219,7 +219,7 @@ module PackageSetFault =
             sprintf "the referenced package set does not resolve: %s" detail
         | PackageSetFault.DuplicateType(typeName, first, second) when first = second ->
             sprintf
-                "the type '%s' is declared twice by package '%s' — the referenced set contains two copies (or versions) of it. Reference the package once."
+                "the type '%s' is declared twice by package '%s', because the referenced set contains two copies (or versions) of it. Reference the package once."
                 typeName
                 first
         | PackageSetFault.DuplicateType(typeName, first, second) ->
@@ -508,7 +508,7 @@ module Kind =
         | Kind.TraitNotSupported(supportTy, noun, name) ->
             sprintf "The type '%s' does not support the %s '%s'" supportTy (MemberNoun.word noun) name
         | Kind.UpcastUnrelated(source, target) ->
-            sprintf "Cannot upcast type '%s' to '%s' — no inheritance relationship" source target
+            sprintf "Cannot upcast type '%s' to '%s', because neither inherits the other" source target
         | Kind.DowncastUnrelated(source, target) ->
             sprintf "Cannot downcast type '%s' to unrelated type '%s'" source target
         | Kind.MeasureMismatch(left, right) -> sprintf "Measure mismatch: <%s> vs <%s>" left right
@@ -518,7 +518,7 @@ module Kind =
             sprintf "Constructor '%s' takes %d argument(s) but is used nullary in pattern position" name arity
         | Kind.AmbiguousConstructor(name, candidates) ->
             sprintf
-                "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
+                "Ambiguous constructor '%s': declared in %d union types, so add a qualifier or annotation"
                 name
                 candidates
         | Kind.ConstructorArity(name, expected, got) ->
@@ -530,7 +530,7 @@ module Kind =
         | Kind.RangeNotFirstClassValue ->
             "a range expression is only supported as the source of a 'for i in a..b do' counted loop; it has no first-class value"
         | Kind.CustomEqualityOnRecordOrUnion ->
-            "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
+            "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler, so wrap the type in a class that implements IEquatable<_>/IComparable<_>."
         | Kind.StructuralEqualityAttributeOnWrongKind ->
             "Only record, union, exception and struct types may be augmented with the 'ReferenceEquality', 'StructuralEquality' and 'StructuralComparison' attributes."
         | Kind.CustomEqualityAttributeOnInterface ->
@@ -551,7 +551,7 @@ module Kind =
         | Kind.MemberAndLocalBindingClash name ->
             sprintf "A member and a local class binding both have the name '%s'" name
         | Kind.DuplicateMember name ->
-            sprintf "Duplicate definition of member '%s' — same name and signature as an earlier member" name
+            sprintf "Duplicate definition of member '%s': the same name and signature as an earlier member" name
         | Kind.CyclicType(name, TypeCycle.Inheritance) -> sprintf "Type '%s' has a cyclic inheritance hierarchy" name
         | Kind.CyclicType(name, TypeCycle.Immediate) ->
             sprintf
@@ -559,7 +559,7 @@ module Kind =
                 name
         | Kind.CyclicInline(binding, via) ->
             sprintf
-                "The inline binding '%s' expands into itself (%s) — an inline body is spliced at its call site, so a binding that reaches itself has no expansion"
+                "The inline binding '%s' expands into itself (%s). An inline body is spliced at its call site, so a binding that reaches itself has no expansion"
                 binding
                 (String.concat " → " (binding :: via @ [ binding ]))
         | Kind.NotYetSupported feature -> sprintf "not yet supported: %s" feature
@@ -571,7 +571,7 @@ module Kind =
         | Kind.Internal b -> sprintf "internal compiler error: %s" (InternalBreak.describe b)
         | Kind.DynamicEscape pinnedType ->
             sprintf
-                "implicit escape from 'dynamic' to '%s': the compiler cannot verify this member access. Annotate the '?' expression — '(expr : %s)' — to assert the type explicitly."
+                "implicit escape from 'dynamic' to '%s': the compiler cannot verify this member access. Annotate the '?' expression as '(expr : %s)' to assert the type explicitly."
                 pinnedType
                 pinnedType
         | Kind.HeterogeneousEnum name ->
@@ -582,7 +582,7 @@ module Kind =
                 (String.concat " | " unhandled)
         | Kind.UnrelatedTypeTest(source, target) ->
             sprintf "Type test of '%s' against unrelated type '%s' is always false" source target
-        | Kind.RedundantDowncast ty -> sprintf "Downcast is redundant — the static type '%s' already matches" ty
+        | Kind.RedundantDowncast ty -> sprintf "Downcast is redundant, because the static type '%s' already matches" ty
         | Kind.Conformance(assembly, verdict) -> sprintf "%s: %s" assembly (ConformanceVerdict.describe verdict)
         | Kind.PackageSet fault -> PackageSetFault.describe fault
         | Kind.LexFailure detail -> sprintf "lex error: %s" detail

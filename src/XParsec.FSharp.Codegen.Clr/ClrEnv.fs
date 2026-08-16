@@ -138,7 +138,7 @@ type internal ClrEnv
     let eValueTupleN (arity: int) : EntityHandle =
         if arity < 1 || arity > ClrTuples.MaxArity then
             failwithf
-                "ClrProvider: ValueTuple arity %d is out of range — only the generic family `ValueTuple`1..`8` exists (≥9 nests via `ValueTuple`8`'s `TRest`)."
+                "ClrProvider: ValueTuple arity %d is out of range, because only the generic family `ValueTuple`1..`8` exists (≥9 nests via `ValueTuple`8`'s `TRest`)."
                 arity
 
         match valueTupleEntities.TryGetValue arity with

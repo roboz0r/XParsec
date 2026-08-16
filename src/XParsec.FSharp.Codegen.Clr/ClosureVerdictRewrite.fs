@@ -70,7 +70,7 @@ module internal ClosureVerdictRewrite =
                 match nestedSubst.TryGetValue oldT with
                 | true, existing when existing <> newT ->
                     failwithf
-                        "ClosureVerdictRewrite: nested-substitution collision — one OLD nominal mapped to two NEW ones. Only linear chains are supported; a multi-source combinator (`zip s1 s2`, two same-typed arguments bound to different closures) reaches this.\n  old: %A\n  new1: %A\n  new2: %A"
+                        "ClosureVerdictRewrite: nested-substitution collision, one OLD nominal mapped to two NEW ones. Only linear chains are supported; a multi-source combinator (`zip s1 s2`, two same-typed arguments bound to different closures) reaches this.\n  old: %A\n  new1: %A\n  new2: %A"
                         oldT
                         existing
                         newT

@@ -203,7 +203,7 @@ module FrozenType =
                         | [] -> ()
                         | _ ->
                             failwithf
-                                "FrozenType.iterChildren2: ambiguous FTOr pairing — open disjunct %A matches multiple instantiated disjuncts in %A"
+                                "FrozenType.iterChildren2: ambiguous FTOr pairing, because open disjunct %A matches multiple instantiated disjuncts in %A"
                                 x
                                 ys
 

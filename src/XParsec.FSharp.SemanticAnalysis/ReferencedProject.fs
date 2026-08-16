@@ -177,7 +177,7 @@ module ReferencedProject =
                         | Some explicit when explicit <> dirName ->
                             Error(
                                 sprintf
-                                    "%s: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity, and the assembly name it emits under"
+                                    "%s: [core] name \"%s\" must match the package directory name \"%s\", because the directory name is the package identity, and the assembly name it emits under"
                                     path
                                     explicit
                                     dirName

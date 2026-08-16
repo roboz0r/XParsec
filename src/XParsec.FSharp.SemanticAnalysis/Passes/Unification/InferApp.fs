@@ -36,7 +36,7 @@ module internal UnificationInferApp =
             ctx
             tok
             (Kind.Message(
-                sprintf "No definition for '%s' found — is the package that defines it referenced and opened?" spelling
+                sprintf "No definition for '%s' found. Is the package that defines it referenced and opened?" spelling
             ))
 
     /// Key each SOURCE lambda argument landing on a parameter bounded `:> Fun<a,b>` to that
@@ -384,11 +384,11 @@ module internal UnificationInferApp =
                                                 )
                                             | ValueNone ->
                                                 failwithf
-                                                    "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString — cannot lower capture-first"
+                                                    "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString, so capture-first cannot be lowered"
                                                     scratchName
                                         | other ->
                                             failwithf
-                                                "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate — resolveExternalSlots and the gate disagree"
+                                                "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate, so resolveExternalSlots and the gate disagree"
                                                 other
                                 // Partial-application marker: a fully-unapplied literal partial
                                 // (`printfn "%d"`), 1..K holes, no `%A`/`%O` (an unapplied one is

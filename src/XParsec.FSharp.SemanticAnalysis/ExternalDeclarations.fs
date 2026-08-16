@@ -21,7 +21,7 @@ type UnmodelledReason =
 exception BodylessExternalShape of compiledName: string * reason: UnmodelledReason with
     override this.Message =
         sprintf
-            "mkNominal: '%s' has no modelled body — %s. Model its kind before a contract names it"
+            "mkNominal: '%s' is %s, whose body this compiler does not model. Model its kind before a contract names it"
             this.compiledName
             this.reason.Description
 

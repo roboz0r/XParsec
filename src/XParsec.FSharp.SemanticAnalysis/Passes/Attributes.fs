@@ -237,7 +237,7 @@ module Attributes =
         | ValueNone, true ->
             report (
                 sprintf
-                    "[<Global>] declares %s to BE a target global, so its body must be exactly one zero-operand intrinsic naming that global — no definition is emitted for it"
+                    "[<Global>] declares %s to BE a target global, so its body must be exactly one zero-operand intrinsic naming that global, because no definition is emitted for it"
                     named
             )
         | ValueSome text, false when emittedName = ValueSome text ->
@@ -253,5 +253,5 @@ module Attributes =
             // A pattern naming no single value has no identity to file the declaration under.
             | ValueNone ->
                 report
-                    "[<Global>] declares the VALUE a binding names to be a target global, but this binding has no single name — give it one, or drop the attribute"
+                    "[<Global>] declares the VALUE a binding names to be a target global, but this binding has no single name, so give it one, or drop the attribute"
         | _ -> ()

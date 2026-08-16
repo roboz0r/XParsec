@@ -772,7 +772,7 @@ module NameResolutionMemberRegistration =
                             diagnose
                                 nameTok
                                 (Kind.Message(
-                                    sprintf "Cannot inherit from type '%s' — only classes are inheritable" name
+                                    sprintf "Cannot inherit from type '%s', because only classes are inheritable" name
                                 ))
                         else
                             diagnose nameTok (Kind.Message(sprintf "Cannot inherit from unknown type '%s'" name))

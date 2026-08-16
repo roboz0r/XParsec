@@ -12,7 +12,7 @@ module TastLower =
 
     let private unexpanded (what: string) : 'a =
         failwithf
-            "Emit: %s reached the emitter — the specialization table is expanded before emission, so this node should not exist here"
+            "Emit: %s reached the emitter, but the specialization table is expanded before emission, so this node should not exist here"
             what
 
     /// `TExpr.InlineCall` is an EDGE into the file's specialization table, so a backend that
@@ -30,7 +30,7 @@ module TastLower =
     /// expansion grounds what it can, and `lower` drops the rest as template-only.
     let traitCallUnresolved (memberName: string) : 'a =
         failwithf
-            "Emit: a TraitCall to '%s' reached the emitter — inline expansion grounds every trait call it can and reports the rest, so this node should not exist here"
+            "Emit: a TraitCall to '%s' reached the emitter, but inline expansion grounds every trait call it can and reports the rest, so this node should not exist here"
             memberName
 
     /// As `matchInstantiation`, but leaves a `ValueNone` hole for a typar no

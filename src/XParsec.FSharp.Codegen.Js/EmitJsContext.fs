@@ -217,7 +217,7 @@ module EmitJsContext =
                 match MapSources.tryFind origin.File.Path ctx.MapSources with
                 | ValueNone ->
                     failwithf
-                        "EmitJs: the node's origin file %s (package %s) was reached but never published to the map, so its position is readable only against the consuming file — the provider that served the body and the retained anchor domain are not the same contract"
+                        "EmitJs: the node's origin file %s (package %s) was reached but never published to the map, so its position is readable only against the consuming file, because the provider that served the body and the retained anchor domain are not the same contract"
                         origin.File.Path.Relative.Name
                         origin.File.Path.BucketName
                 | ValueSome producer ->

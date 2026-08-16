@@ -236,7 +236,10 @@ module EmitResolve =
                 if List.isEmpty u.Typars then
                     m.Handle
                 else
-                    failwithf "Emit: generic-union static augmentation member '%A.%s' is out of scope (R2)" key name
+                    failwithf
+                        "Emit: '%A.%s' is a static augmentation member on a GENERIC union, which this compiler does not emit"
+                        key
+                        name
             | false, _ -> failwithf "Emit: union '%A' has no emitted static member '%s'" key name
         | false, _ ->
             match env.Classes.TryGetValue key with

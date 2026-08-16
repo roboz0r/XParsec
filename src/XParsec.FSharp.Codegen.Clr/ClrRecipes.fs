@@ -351,9 +351,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     methodSpec callBase methodArgs
 
-            // `Grouped` carries the SOURCE grouping (the walker consumes `groups.Length`
-            // arguments, flattening each) AND the FLAT pop count. They diverge for a
-            // non-`GSimple` group: a tupled group is N flat from ONE argument, a lone `()` zero.
             let arity =
                 match recipeGroups with
                 | ValueSome groups -> CallArity.Grouped(groups, List.length flatParamTys)

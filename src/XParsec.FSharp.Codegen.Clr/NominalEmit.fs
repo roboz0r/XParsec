@@ -918,7 +918,7 @@ module internal NominalEmit =
             match hit with
             | None ->
                 failwithf
-                    "Emit: type '%A' implements capability '%A', whose co-slot forwards to member '%s' — but that impl block declares no such member"
+                    "Emit: type '%A' implements capability '%A', whose co-slot forwards to member '%s', but that impl block declares no such member"
                     td.Key
                     ifaceTy.Key
                     name

@@ -208,7 +208,7 @@ module InlineExpand =
                 | frame :: outer -> go caller outer frame.CallerSite (TastAccessor.exprChild e 0)
                 | [] ->
                     failwith
-                        "InlineExpand: a CallerExpr outside every entry — the node marks material moved INTO a body, so one must have been entered"
+                        "InlineExpand: a CallerExpr outside every entry, though the node marks material moved INTO a body, so one must have been entered"
             | _ ->
                 match site with
                 | InPlace ->
@@ -287,7 +287,7 @@ module InlineExpand =
 
             if entered |> List.exists (fun f -> f.Spec = spec) then
                 failwithf
-                    "InlineExpand: specialization %A (%A) reaches itself — the table is acyclic by `InlineSpecTable.findCycle`, checked before anything walks it"
+                    "InlineExpand: specialization %A (%A) reaches itself, but the table is checked acyclic before anything walks it"
                     spec
                     entry.Key.Template
 

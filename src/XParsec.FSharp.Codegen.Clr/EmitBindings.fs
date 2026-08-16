@@ -161,7 +161,7 @@ module EmitBindings =
                 | Disposal.ViaOwnMember key -> emitExternalDispose key
                 | Disposal.Unresolved ->
                     failwithf
-                        "Emit: `use` over a bound variable with no resolved disposal (%A) — Unification reported an error, so this file should never have reached codegen"
+                        "Emit: `use` over a bound variable with no resolved disposal (%A). Disposal is unresolved only where Unification reported an error, so this file should never have reached codegen"
                         varTy
 
                 b.SetDepth 0

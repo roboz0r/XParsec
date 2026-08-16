@@ -170,7 +170,7 @@ type internal ClrEncoder(env: ClrEnv) =
             // signature encoding: unlike an `FTTypar` it occupies no slot in any enclosing
             // generic parameter list.
             failwithf
-                "ClrProvider: local typar #%d of body-local %O reached signature encoding — it occupies no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
+                "ClrProvider: local typar #%d of body-local %O reached signature encoding, but it occupies no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
                 i
                 scheme
         // Declaring-axis → the enclosing type's `!i`; Method-axis → the method's own `!!i`.
@@ -215,7 +215,7 @@ type internal ClrEncoder(env: ClrEnv) =
         | FTEnum key when userTypes.ContainsKey key -> te.Type(userTypes.[key], true)
         | FTEnum _ ->
             failwithf
-                "ClrProvider: cannot encode enum type reference %A — project-local enums only; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"
+                "ClrProvider: cannot encode enum type reference %A, because only project-local enums encode; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"
                 t
         // A structural literal has no IL repr of its own, so erase to its base primitive.
         // External (TS/JS) vocabulary only, so this arm is rarely reached on CLR.
@@ -226,7 +226,7 @@ type internal ClrEncoder(env: ClrEnv) =
         | FTIndexedAccess _
         | FTConditional _ ->
             failwithf
-                "ClrProvider: cannot encode unevaluated type-level computation %A — keyof/indexed-access/conditional are a JS-target concern and must be ground-evaluated before CLR emit"
+                "ClrProvider: cannot encode unevaluated type-level computation %A, because keyof/indexed-access/conditional are a JS-target concern and must be ground-evaluated before CLR emit"
                 t
         // A nullable REFERENCE union `T | null` IS the CLR reference-null repr of `T`, because
         // `obj | null` and `obj` are the same `System.Object` slot, so erase `null` and encode
@@ -245,7 +245,7 @@ type internal ClrEncoder(env: ClrEnv) =
             | [ single ] -> encodeType te single
             | _ ->
                 failwithf
-                    "ClrProvider: cannot encode anonymous union %A — only a nullable reference `T | null` is representable on CLR (erased to `T`)"
+                    "ClrProvider: cannot encode anonymous union %A, because only a nullable reference `T | null` is representable on CLR (erased to `T`)"
                     t
         // Keys the IL type off the repr string (`"int"` → `"System.Int32"` → `i4`), not the
         // Vesper name, which survives only for the failure diagnostic. `obj` and `'T[]` are

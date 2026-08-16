@@ -182,7 +182,7 @@ module NameResolutionTypeRegistration =
                     declTok,
                     Kind.Message(
                         sprintf
-                            "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation — rename the type, or drop the reference to '%s'."
+                            "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation, so rename the type, or drop the reference to '%s'."
                             (SymbolKeyOps.typeMetaName key)
                             asm
                             asm

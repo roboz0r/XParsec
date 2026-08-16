@@ -266,7 +266,7 @@ module InlineSpecTable =
             // of silently sharing one site's material across sites.
             if o.Shareable && containsCallerExpr value then
                 failwithf
-                    "InlineExpansion: specialization %d is shareable but marks caller material — a closed reduction fused nothing, so this entry's parameters were mis-classified"
+                    "InlineExpansion: specialization %d is shareable but marks caller material, and a closed reduction fuses nothing, so this entry's parameters were mis-classified"
                     slot
 
             t.Entries.[slot].Built <-
@@ -312,7 +312,7 @@ module InlineSpecTable =
                     | ValueSome entry -> entry
                     | ValueNone ->
                         failwithf
-                            "InlineExpansion: specialization %d was reserved but never built — an expansion abandoned its slot"
+                            "InlineExpansion: specialization %d was reserved but never built, so an expansion abandoned its slot"
                             i
                 )
                 |> Array.ofSeq
@@ -335,7 +335,7 @@ module InlineSpecTable =
                 | [] -> ()
                 | bad ->
                     failwithf
-                        "InlineExpansion: %A fused caller material yet are named by that many call edges — fused material belongs to the one site that wrote it"
+                        "InlineExpansion: %A fused caller material yet are named by that many call edges, though fused material belongs to the one site that wrote it"
                         [ for (SpecializationId i, count) in bad -> table.[i].Key.Template, count ]
 
             table
