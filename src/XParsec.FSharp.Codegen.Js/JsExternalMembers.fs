@@ -158,7 +158,7 @@ module JsExternalMembers =
         (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
         (fn: TastAccessor.ExprId)
-        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: TastAccessor.AppliedArg list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match fn with
@@ -179,7 +179,7 @@ module JsExternalMembers =
                             JsExpr.Identifier(tmp, ValueNone), (tmp, build objArg) :: argSpills
 
                     plan.Residual
-                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) (callee objArgJs args)
+                    |> List.fold (fun acc a -> JsExpr.Call(acc, [ build a.Arg ], ValueNone)) (callee objArgJs args)
                     |> fun folded -> JsFlatFns.wrapSpills spills folded loc
                     |> ValueSome
                 | ValueNone -> ValueNone

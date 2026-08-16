@@ -265,7 +265,7 @@ module JsEmitHelpers =
                 && TastAccessor.exprVarBoundVar fn = selfKey
                 && List.length appArgs = ps.Arity
                 ->
-                Some [ for (a, _, _) in appArgs -> a ]
+                Some [ for a in appArgs -> a.Arg ]
             | _ -> None
         | _ -> None
 

@@ -429,10 +429,19 @@ module EmitClosures =
                 // `fVar` lives in, letting the spliced `fVar` keep its own id.
                 let pool = fVar.Pool
 
-                let argTriples =
-                    List.map2 (fun k (dom, cod) -> TastAccessor.mintVar pool k dom tok, cod, tok) keys levels
+                let appliedArgs: TastAccessor.AppliedArg list =
+                    List.map2
+                        (fun k (dom, cod) ->
+                            {
+                                Arg = TastAccessor.mintVar pool k dom tok
+                                StepResultTy = cod
+                                Tok = tok
+                            }
+                        )
+                        keys
+                        levels
 
-                let body = TastAccessor.mintAppChain fVar argTriples
+                let body = TastAccessor.mintAppChain fVar appliedArgs
 
                 List.foldBack2
                     (fun k (dom, cod) acc ->
@@ -453,7 +462,7 @@ module EmitClosures =
                         // Under-application: partially apply the eta closure.
                         TastAccessor.mintAppChain
                             (buildEta fn arity.[k])
-                            (args |> List.map (fun (a, t, tk) -> rw a, t, tk))
+                            (args |> List.map (fun a -> { a with Arg = rw a.Arg }))
                     | _ ->
                         // The application STANDS: a saturated (or over-applied) eligible
                         // function stays a direct `call`, so only the arguments and a

@@ -292,12 +292,17 @@ one keeps a one-line WHY for reading `void`-ness off metadata rather than off `r
 `buildStaticMethodCall` keeps the fact that an external member-ref encodes a `unit` return as
 `void` too, which is why one verdict serves both its handles.
 
-## B5. A named record for `EmitCall`'s argument triple
+## B5. A named record for `EmitCall`'s argument triple — **DONE (2026-08-16)**
 
-`(TastAccessor.ExprId * FrozenType * Anchor)`, where the middle element is the
-partial-application result type AT THAT STEP, not the argument's own type. That
-non-obviousness is the only reason two surviving comments exist. `{ Arg; StepResultTy;
-Anchor }` deletes both, and the repo already prefers records over tuples of three or more.
+`TastNodeViews.AppliedArg` is `{ Arg; StepResultTy; Tok }` (`Tok` because that is what every
+other `Anchor`-typed field in the TAST is called), re-exported as `TastAccessor.AppliedArg`
+and produced by `collectAppChain` / consumed by `mintAppChain`, so the whole chain — both
+backends — reads the step result off a named field. Both `EmitCall` comments are gone.
+
+`CompiledFns`' `AppliedArg` abbreviation went with it, and `memberCallPlan`'s `asTuple` is now
+`{ a with Arg = e }`: the record made visible that opening a tupled group was re-typing each
+element with its OWN type under a field that means the step result. All the elements belong to
+the one application step the tuple arrived at, and nothing reads either field off `Flat`.
 
 ## B6. Node-tagged `FrozenType` — `ClosureVerdictRewrite.nestedSubst`
 

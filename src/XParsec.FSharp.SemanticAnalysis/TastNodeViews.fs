@@ -111,6 +111,15 @@ module TastNodeViews =
     [<Struct>]
     type AppView = { Fn: ExprId; Arg: ExprId }
 
+    /// One level of a curried `App` chain: in `f a b`, `a`'s `StepResultTy` is the type of
+    /// `f a` — the partial application, not `a`.
+    type AppliedArg =
+        {
+            Arg: ExprId
+            StepResultTy: FrozenType
+            Tok: Anchor
+        }
+
     /// The scalar payload of a `RecordClone` node (`{ source with … }`). `Overrides` are the
     /// (field-name, replacement) pairs, carrying the labels `exprChildren` drops.
     [<Struct>]

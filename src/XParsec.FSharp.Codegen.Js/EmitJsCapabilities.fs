@@ -168,14 +168,14 @@ module EmitJsCapabilities =
         (imports: JsImports)
         (build: TastAccessor.ExprId -> JsExpr)
         (fn: TastAccessor.ExprId)
-        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: TastAccessor.AppliedArg list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match fn, appArgs with
-        | JsExternalMembers.InstanceExternalMember(objArg, em), [ (arg, _, _) ] when
+        | JsExternalMembers.InstanceExternalMember(objArg, em), [ a ] when
             em.Storage = MemberStorage.Method
-            && TastAccessor.exprKind arg = ExprShape.Const
-            && TastAccessor.exprConstValue arg = TConstValue.Unit
+            && TastAccessor.exprKind a.Arg = ExprShape.Const
+            && TastAccessor.exprConstValue a.Arg = TConstValue.Unit
             ->
             tryCapabilityLowering caps imports (JsExternalMembers.declKey em.Key) em.MemberName
             |> ValueOption.map (fun emit -> emit (build objArg) loc)

@@ -93,18 +93,18 @@ module JsFlatFns =
         (build: TastAccessor.ExprId -> JsExpr)
         (callee: JsExpr)
         (groups: TastAccessor.ArgGroup list)
-        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: TastAccessor.AppliedArg list)
         (loc: JsLoc voption)
         : JsExpr =
         let leading, rest = List.splitAt (List.length groups) appArgs
 
         let flatArgs, spills =
-            flattenGroupArgs pool build groups (leading |> List.map (fun (a, _, _) -> a))
+            flattenGroupArgs pool build groups (leading |> List.map (fun a -> a.Arg))
 
         let flatCall = wrapSpills spills (JsExpr.Call(callee, flatArgs, loc)) loc
 
         rest
-        |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) flatCall
+        |> List.fold (fun acc a -> JsExpr.Call(acc, [ build a.Arg ], ValueNone)) flatCall
 
     /// Re-curry a flat `callee` to its SOURCE arity, one arrow per group:
     /// `(c0) => (c1) => callee(c0, c1)`. A tuple group's one parameter is read positionally

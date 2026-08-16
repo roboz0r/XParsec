@@ -70,8 +70,6 @@ module CompiledFns =
         | ExprShape.Tuple -> ValueSome(List.ofArray (TastAccessor.exprChildren a))
         | _ -> ValueNone
 
-    type AppliedArg = TastAccessor.ExprId * FrozenType * Anchor
-
     /// A member call opened at its argument groups.
     [<NoEquality; NoComparison>]
     type MemberCallPlan =
@@ -79,21 +77,22 @@ module CompiledFns =
             /// One push per DECLARED parameter, in .NET argument order.
             Steps: FlatStep list
             /// Applied to what the member RETURNS, so the backend folds these on afterwards.
-            Residual: AppliedArg list
+            Residual: TastAccessor.AppliedArg list
         }
 
     /// Elaborate rewrites `w.M t` into `let (a, b) = t in w.M(a, b)`, so a tupled group always
     /// arrives as a literal tuple. `ValueNone` is an under-applied member or a group that is
     /// not that tuple: neither is a direct call, and both eta-wrap instead.
-    let memberCallPlan (widths: EqArray<int>) (args: AppliedArg list) : MemberCallPlan voption =
-        let asTuple ((a, _, _): AppliedArg) : AppliedArg list voption =
-            tupleElemsOf a
-            |> ValueOption.map (List.map (fun e -> e, TastAccessor.exprTy e, TastAccessor.exprTok e))
+    let memberCallPlan (widths: EqArray<int>) (args: TastAccessor.AppliedArg list) : MemberCallPlan voption =
+        // The elements of an opened group all belong to the one application step the tuple
+        // arrived at, so only `Arg` differs between them.
+        let asTuple (a: TastAccessor.AppliedArg) : TastAccessor.AppliedArg list voption =
+            tupleElemsOf a.Arg |> ValueOption.map (List.map (fun e -> { a with Arg = e }))
 
         SymbolKeyOps.openArgGroups asTuple widths args
         |> ValueOption.map (fun opened ->
             {
-                Steps = [ for (a, _, _) in opened.Flat -> FlatStep.Arg a ]
+                Steps = [ for a in opened.Flat -> FlatStep.Arg a.Arg ]
                 Residual = opened.Residual
             }
         )

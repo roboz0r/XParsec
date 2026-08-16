@@ -39,6 +39,7 @@ module TastAccessor =
     type IfThenElseView = TastNodeViews.IfThenElseView
     type ExternalView = TastNodeViews.ExternalView
     type AppView = TastNodeViews.AppView
+    type AppliedArg = TastNodeViews.AppliedArg
     type RecordCloneView = TastNodeViews.RecordCloneView
     type FieldGetView = TastNodeViews.FieldGetView
     type FieldSetView = TastNodeViews.FieldSetView
@@ -839,16 +840,21 @@ module TastAccessor =
 
     let existsChild (p: ExprId -> bool) (e: ExprId) : bool = exprChildren e |> Array.exists p
 
-    /// Peel a curried `App` chain into the applied function and the arguments paired with
-    /// each `App` node's *result* type and token. The inverse of `mintAppChain`.
-    let rec collectAppChain
-        (acc: (ExprId * FrozenType * Anchor) list)
-        (e: ExprId)
-        : ExprId * (ExprId * FrozenType * Anchor) list =
+    /// Peel a curried `App` chain into the applied function and its argument levels. The
+    /// inverse of `mintAppChain`.
+    let rec collectAppChain (acc: AppliedArg list) (e: ExprId) : ExprId * AppliedArg list =
         match exprKind e with
         | ExprShape.App ->
             let app = exprApp e
-            collectAppChain ((app.Arg, exprTy e, exprTok e) :: acc) app.Fn
+
+            let level: AppliedArg =
+                {
+                    Arg = app.Arg
+                    StepResultTy = exprTy e
+                    Tok = exprTok e
+                }
+
+            collectAppChain (level :: acc) app.Fn
         | _ -> e, acc
 
     /// Rewrite a curried `App` chain: `fArg` on each argument, `fFn` on the applied
@@ -915,10 +921,9 @@ module TastAccessor =
     let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
 
-    /// Re-apply a function to a list of `(arg, result type, token)` levels: the inverse
-    /// of `collectAppChain`.
-    let mintAppChain (fn: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
-        List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) fn args
+    /// Re-apply a function to its argument levels: the inverse of `collectAppChain`.
+    let mintAppChain (fn: ExprId) (args: AppliedArg list) : ExprId =
+        List.fold (fun acc (a: AppliedArg) -> mintApp acc a.Arg a.StepResultTy a.Tok) fn args
 
     /// `fun param -> body`.
     let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =

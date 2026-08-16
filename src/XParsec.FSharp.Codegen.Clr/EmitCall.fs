@@ -23,16 +23,16 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (args: TastAccessor.AppliedArg list)
         : unit =
         let mutable funcTy = funcTy0
 
-        for (arg, resTy, _) in args do
+        for a in args do
             match env.Provider.TryEmitInvoke funcTy with
             | ValueSome recipe ->
-                recur env b arg
+                recur env b a.Arg
                 b.Add(ILInstr.Recipe recipe)
-                funcTy <- resTy
+                funcTy <- a.StepResultTy
             | ValueNone -> failwithf "Emit: cannot apply argument to Vesper.Fun value of type %A" funcTy
 
     /// Push each step as IL, returning the pushed values' actual types in order for
@@ -73,9 +73,9 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (groups: TastAccessor.ArgGroup list)
-        (leading: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (leading: TastAccessor.AppliedArg list)
         : FrozenType list =
-        CompiledFns.flattenPlan groups (leading |> List.map (fun (a, _, _) -> a))
+        CompiledFns.flattenPlan groups (leading |> List.map (fun a -> a.Arg))
         |> pushFlatSteps recur env b
 
     /// Lower an `App` chain: dispatch on the applied function's shape, then apply any
@@ -91,18 +91,13 @@ module EmitCall =
             // which is stale once an argument became a value-struct closure, because that
             // argument still encodes to the `Fun`2` INTERFACE. Rebuild from the actual types.
             let recipeFnTy =
-                if
-                    appArgs
-                    |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
-                then
-                    // The tuple's middle element is the partial-application RESULT type
-                    // at that step, not the argument's own type.
+                if appArgs |> List.exists (fun a -> env.ClosureValueTypeByNode.ContainsKey a.Arg) then
                     let argTys =
                         appArgs
-                        |> List.map (fun (arg, _, _) ->
-                            match env.ClosureValueTypeByNode.TryGetValue arg with
+                        |> List.map (fun a ->
+                            match env.ClosureValueTypeByNode.TryGetValue a.Arg with
                             | true, closureFt -> closureFt
-                            | false, _ -> typeOfExpr arg
+                            | false, _ -> typeOfExpr a.Arg
                         )
 
                     List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
@@ -122,8 +117,8 @@ module EmitCall =
                     | CallArity.Flat argCount ->
                         let leading, rest = List.splitAt argCount appArgs
 
-                        for (a, _, _) in leading do
-                            recur env b a
+                        for a in leading do
+                            recur env b a.Arg
 
                         leading, rest
 
@@ -134,11 +129,9 @@ module EmitCall =
                 if recipe.Pushes = 0 then
                     EmitTypes.buildUnitValue env b
 
-                // The partial-application result at the last consumed argument, the type
-                // of the value `rest` is applied to.
                 let funcTy =
                     match List.tryLast leading with
-                    | Some(_, ty, _) -> ty
+                    | Some a -> a.StepResultTy
                     | None -> typeOfExpr fn
 
                 foldInvoke recur env b funcTy rest
@@ -171,8 +164,8 @@ module EmitCall =
                     // function type, because that encodes to the `Fun\`2` INTERFACE and boxes.
                     // A closure fills a whole group, so its group's one flat slot is the typar.
                     List.iter2
-                        (fun (arg, _, _) (_, slotTys) ->
-                            match env.ClosureValueTypeByNode.TryGetValue arg, slotTys with
+                        (fun (a: TastAccessor.AppliedArg) (_, slotTys) ->
+                            match env.ClosureValueTypeByNode.TryGetValue a.Arg, slotTys with
                             | (true, closureFt), [ FTTypar(TyparAxis.Method, idx) ] when
                                 idx >= 0 && idx < instArr.Length
                                 ->
