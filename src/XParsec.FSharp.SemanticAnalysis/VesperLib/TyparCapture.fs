@@ -187,69 +187,59 @@ module VesperLibTyparCapture =
 
             SymbolKeyOps.tryDottedInModule exact moduleContainer probe
 
-        /// Lift a FINALIZED context to a provider, publishing `AutoOpenPrefixes` as its
-        /// ambient. Precondition: every deferred body / member is already frozen into its shape.
-        let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
+        /// Read a FINALIZED context out as the surface it publishes, `AutoOpenPrefixes` its
+        /// ambient. Precondition: every deferred body / member is already frozen into its
+        /// shape, and every table below is read once rather than closed over.
+        let toSurface (ctx: ExtractCtx) : PublishedSurfaceBuilder =
+            let surface = PublishedSurfaceBuilder.create ()
+
             // Bare case name -> declaring union + case shape, for a consumer writing `Some x`
             // with no union named. First declaration wins on a name collision.
-            let unionCaseIndex =
-                let d = Dictionary<string, ExternalUnionCase>(StringComparer.Ordinal)
+            for kv in ctx.TypeShapes do
+                match kv.Value with
+                // A list is written only as `[]` / `::`, so indexing the cons-list's case
+                // names would only shadow a user union declaring a case of the same name.
+                | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName kv.Key -> ()
+                | ExternalTypeShape.Union(arity, cases, _, origin) ->
+                    let rqa = ctx.RqaTypes.Contains kv.Key
 
-                for kv in ctx.TypeShapes do
-                    match kv.Value with
-                    // A list is written only as `[]` / `::`, so indexing the cons-list's case
-                    // names would only shadow a user union declaring a case of the same name.
-                    | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName kv.Key -> ()
-                    | ExternalTypeShape.Union(arity, cases, _, origin) ->
-                        let rqa = ctx.RqaTypes.Contains kv.Key
+                    for case in cases do
+                        if not (surface.UnionCases.ContainsKey case.Name) then
+                            surface.UnionCases.[case.Name] <-
+                                {
+                                    UnionName = kv.Key
+                                    TyparArity = arity
+                                    Origin = origin
+                                    Case = case
+                                    IsRequireQualifiedAccess = rqa
+                                }
+                | _ -> ()
 
-                        for case in cases do
-                            if not (d.ContainsKey case.Name) then
-                                d.[case.Name] <-
-                                    {
-                                        UnionName = kv.Key
-                                        TyparArity = arity
-                                        Origin = origin
-                                        Case = case
-                                        IsRequireQualifiedAccess = rqa
-                                    }
-                    | _ -> ()
-
-                d
-
-            // Field name -> the records declaring it, a MULTIMAP rather than first-wins: a
-            // field name is deliberately shared across records, so each one ADDS a candidate.
             // What resolves a consumer's bare `{ x = 1 }` to a record this signature publishes.
-            let recordFieldIndex =
-                let d =
-                    Dictionary<string, ResizeArray<ExternalRecordCandidate>>(StringComparer.Ordinal)
+            for KeyValue(compiled, typeKey) in ctx.TypeKeys do
+                match ctx.TypeShapes.TryGetValue compiled with
+                | true, ExternalTypeShape.Record(arity, fields, origin, _) ->
+                    let candidate =
+                        {
+                            TypeKey = typeKey
+                            TyparArity = arity
+                            Origin = origin
+                            FieldNames = fields |> EqArray.map (fun f -> f.Name)
+                            IsRequireQualifiedAccess = ctx.RqaTypes.Contains compiled
+                        }
 
-                for KeyValue(compiled, typeKey) in ctx.TypeKeys do
-                    match ctx.TypeShapes.TryGetValue compiled with
-                    | true, ExternalTypeShape.Record(arity, fields, origin, _) ->
-                        let candidate =
-                            {
-                                TypeKey = typeKey
-                                TyparArity = arity
-                                Origin = origin
-                                FieldNames = fields |> EqArray.map (fun f -> f.Name)
-                                IsRequireQualifiedAccess = ctx.RqaTypes.Contains compiled
-                            }
-
-                        for f in fields do
-                            match d.TryGetValue f.Name with
-                            | true, buf -> buf.Add candidate
-                            | _ ->
-                                let buf = ResizeArray<ExternalRecordCandidate>()
-                                buf.Add candidate
-                                d.[f.Name] <- buf
-                    | _ -> ()
-
-                d
+                    for f in fields do
+                        match surface.RecordFields.TryGetValue f.Name with
+                        | true, buf -> buf.Add candidate
+                        | _ ->
+                            let buf = ResizeArray<ExternalRecordCandidate>()
+                            buf.Add candidate
+                            surface.RecordFields.[f.Name] <- buf
+                | _ -> ()
 
             // The intrinsic axis, off the `Intrinsic` shapes alone: a CAPABILITY interface
             // carries its platform name on its own identity and is deliberately absent here.
-            let intrinsics =
+            surface.Intrinsics <-
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
                     match kv.Value with
@@ -263,48 +253,27 @@ module VesperLibTyparCapture =
                 )
                 |> IntrinsicTypeMap.ofSeq
 
-            // The type channels, addressed by identity rather than by a rendering of one,
-            // because that is what answers a module-held type's key, which no written name spells.
-            let shapesByKey = Dictionary<TypeKey, ExternalTypeShape>()
-            let membersByKey = Dictionary<TypeKey, ResizeArray<ExternalMember>>()
-
+            // Extraction registers by compiled NAME throughout and only reaches identities
+            // here, through the one table that holds them.
             for KeyValue(compiled, typeKey) in ctx.TypeKeys do
-                let key = typeKey
+                surface.TypesByName.[compiled] <- typeKey
 
                 match ctx.TypeShapes.TryGetValue compiled with
-                | true, shape -> shapesByKey.[key] <- shape
+                | true, shape -> surface.ShapesByKey.[typeKey] <- shape
                 | _ -> ()
 
                 match ctx.TypeMembers.TryGetValue compiled with
-                | true, members -> membersByKey.[key] <- members
+                | true, members -> surface.MembersByKey.[typeKey] <- members
                 | _ -> ()
 
-            let typeKeyOfName (name: string) : TypeKey voption = tryTypeKey ctx name
+            for KeyValue(path, container) in ctx.ModuleContainers do
+                surface.ModuleContainers.[path] <- container
 
-            // The symbol channel stays name-addressed: a binding key renders `.`-joined,
-            // which is how `ctx.Symbols` is keyed.
-            ExternalSymbolProviders.ofKeyedChannels (
-                ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
-                    { ExternalSymbolProviders.KeyIndexedChannels.empty with
-                        ShapesByKey = shapesByKey
-                        MembersByKey = membersByKey
-                        ResolveTypeName = typeKeyOfName
-                        TryLookup =
-                            fun name ->
-                                match ctx.Symbols.TryGetValue name with
-                                | true, sym -> ValueSome sym
-                                | _ -> ValueNone
-                        TryLookupUnionCase =
-                            fun caseName ->
-                                match unionCaseIndex.TryGetValue caseName with
-                                | true, hit -> ValueSome hit
-                                | _ -> ValueNone
-                        TryRecordsWithField =
-                            fun fieldName ->
-                                match recordFieldIndex.TryGetValue fieldName with
-                                | true, buf -> EqArray.ofResizeArray buf
-                                | _ -> EqArray.empty
-                        AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
-                        IntrinsicTypeMap = intrinsics
-                    }
-            )
+            for KeyValue(name, sym) in ctx.Symbols do
+                surface.Symbols.[name] <- sym
+
+            surface.AmbientOpenPrefixes <- List.ofSeq ctx.AutoOpenPrefixes
+            surface
+
+        let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
+            PublishedSurfaceBuilder.toProvider (toSurface ctx)

@@ -1,10 +1,8 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open System.Collections.Generic
-
-// In-memory projection of a FROZEN implementation file to an `IExternalSymbolProvider`,
-// a file's *implicit signature*, so file N+1 resolves file N's exports by NAME with no DLL
-// emitted. Keeps INTERNAL-or-better, where the `.fsi` contract extractor keeps public-only.
+// In-memory projection of a FROZEN implementation file to the surface it publishes, a file's
+// *implicit signature*, so file N+1 resolves file N's exports by NAME with no DLL emitted.
+// Keeps INTERNAL-or-better, where the `.fsi` contract extractor keeps public-only.
 //
 // SIGNATURES only: the splice templates are collected separately and layered on, so a `.fsi`
 // can replace what a file publishes without taking its inline bodies with it.
@@ -48,37 +46,7 @@ module FrozenSignature =
             | true, Accessibility.Private -> false
             | _ -> true
 
-        // Type channels are addressed by the minted IDENTITY (a module-held type's `InModule`
-        // key is a chain no source name spells); the by-name index is rendered from it.
-        let shapesByKey = Dictionary<TypeKey, ExternalTypeShape>()
-        let membersByKey = Dictionary<TypeKey, ResizeArray<ExternalMember>>()
-        let typesByName = Dictionary<string, TypeKey>(System.StringComparer.Ordinal)
-
-        let unionCaseIndex =
-            Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
-
-        // A `field-name -> [records declaring it]` MULTIMAP, NOT first-wins: a field name is
-        // deliberately shared across records, so each record ADDS its candidate to the bucket.
-        let recordFieldIndex =
-            Dictionary<string, ResizeArray<ExternalRecordCandidate>>(System.StringComparer.Ordinal)
-
-        let symbols = Dictionary<string, ExternalSymbol>(System.StringComparer.Ordinal)
-
-        // The DOTTED path of a module this file declares -> the `TypeContainer` a type it holds
-        // sits in, populated from each registered type's containment chain: it is what makes
-        // a written `Test.A.M.T` reach the type whose canonical name is `Test.A.M+T`.
-        let moduleContainers =
-            Dictionary<string, TypeContainer>(System.StringComparer.Ordinal)
-
-        let rec registerModuleContainer (m: ModuleKey) =
-            let path = SymbolKeyOps.moduleFullName m
-
-            if not (moduleContainers.ContainsKey path) then
-                moduleContainers.[path] <- TypeContainer.InModule m
-
-            match m.Container with
-            | ModuleContainer.InModule parent -> registerModuleContainer parent
-            | ModuleContainer.InNamespace _ -> ()
+        let surface = PublishedSurfaceBuilder.create ()
 
         // --- member projection --------------------------------------------------------
         // A member's frozen `Params` / `ReturnTy` already carry the declaring type's typars as
@@ -191,28 +159,28 @@ module FrozenSignature =
                 // Index the enclosing module chain so a written `A.M.T` for this type resolves
                 // through containment. An `InType`-nested type contributes no module container.
                 match typeKey.Container with
-                | TypeContainer.InModule m -> registerModuleContainer m
+                | TypeContainer.InModule m -> PublishedSurfaceBuilder.addModuleContainer surface m
                 | TypeContainer.InNamespace _
                 | TypeContainer.InType _ -> ()
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
-                    shapesByKey.[typeKey] <- shape
+                    surface.ShapesByKey.[typeKey] <- shape
                     // First declaration wins on a compiled-name collision.
                     let name = SymbolKeyOps.typeMetaName typeKey
 
-                    if not (typesByName.ContainsKey name) then
-                        typesByName.[name] <- typeKey
+                    if not (surface.TypesByName.ContainsKey name) then
+                        surface.TypesByName.[name] <- typeKey
 
                     match members with
-                    | ValueSome ms when ms.Count > 0 -> membersByKey.[typeKey] <- ms
+                    | ValueSome ms when ms.Count > 0 -> surface.MembersByKey.[typeKey] <- ms
                     | _ -> ()
 
                 let registerCases (cases: Frozen.TUnionCase seq) (caseShapes: EqArray<ExternalCaseShape>) =
                     for c, shape in Seq.zip cases caseShapes do
                         // First declaration wins on a bare case-name collision. An RQA union's
                         // cases carry the flag so a consumer's bare `Red` is rejected.
-                        if not (unionCaseIndex.ContainsKey c.Name) then
-                            unionCaseIndex.[c.Name] <-
+                        if not (surface.UnionCases.ContainsKey c.Name) then
+                            surface.UnionCases.[c.Name] <-
                                 {
                                     UnionName = SymbolKeyOps.typeMetaName typeKey
                                     TyparArity = arity
@@ -252,12 +220,12 @@ module FrozenSignature =
                         }
 
                     for f in fields do
-                        match recordFieldIndex.TryGetValue f.Name with
+                        match surface.RecordFields.TryGetValue f.Name with
                         | true, buf -> buf.Add candidate
                         | _ ->
                             let buf = ResizeArray<ExternalRecordCandidate>()
                             buf.Add candidate
-                            recordFieldIndex.[f.Name] <- buf
+                            surface.RecordFields.[f.Name] <- buf
 
                 | TTypeKindG.Union(cases, members, _) ->
                     let caseArr = [| for c in cases -> c |]
@@ -372,7 +340,7 @@ module FrozenSignature =
                     ValRepr = bindingValRepr boundVar
                 }
 
-            symbols.[sym.Name] <- sym
+            surface.Symbols.[sym.Name] <- sym
 
         // EVERY module binding rides `Decls`, `inline` ones included, and its identity is in
         // `ModuleMembers`, a TOP-LEVEL binding's too, keyed in the file's namespace so it
@@ -423,57 +391,15 @@ module FrozenSignature =
                         IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
                     )
 
-            shapesByKey.[typeKey] <- shape
+            surface.ShapesByKey.[typeKey] <- shape
 
             let name = SymbolKeyOps.typeMetaName typeKey
 
-            if not (typesByName.ContainsKey name) then
-                typesByName.[name] <- typeKey
+            if not (surface.TypesByName.ContainsKey name) then
+                surface.TypesByName.[name] <- typeKey
 
-        let intrinsics = IntrinsicTypeMap.ofReprKeys frozen.Residue.IntrinsicReprKeys
+        surface.Intrinsics <- IntrinsicTypeMap.ofReprKeys frozen.Residue.IntrinsicReprKeys
 
-        // --- provider assembly --------------------------------------------------------
-
-        // Written type name -> the REGISTERED identity key. `typesByName` holds the canonical
-        // rendering (`Test.A.M+T` for a module-held type); the fallback adds the DOTTED source
-        // spelling (`Test.A.M.T`), resolved through the declared module containers.
-        let resolveNameToKey (name: string) : TypeKey voption =
-            let exact (probe: string) =
-                match typesByName.TryGetValue probe with
-                | true, key -> ValueSome key
-                | _ -> ValueNone
-
-            let moduleContainer (path: string) =
-                match moduleContainers.TryGetValue path with
-                | true, container -> ValueSome container
-                | _ -> ValueNone
-
-            SymbolKeyOps.tryDottedInModule exact moduleContainer name
-
-        ExternalSymbolProviders.ofKeyedChannels (
-            ExternalSymbolProviders.KeyedChannels.ofKeyIndexes
-                { ExternalSymbolProviders.KeyIndexedChannels.empty with
-                    ShapesByKey = shapesByKey
-                    MembersByKey = membersByKey
-                    ResolveTypeName = resolveNameToKey
-                    TryLookup =
-                        fun name ->
-                            match symbols.TryGetValue name with
-                            | true, sym -> ValueSome sym
-                            | _ -> ValueNone
-                    TryLookupUnionCase =
-                        fun caseName ->
-                            match unionCaseIndex.TryGetValue caseName with
-                            | true, hit -> ValueSome hit
-                            | _ -> ValueNone
-                    TryRecordsWithField =
-                        fun fieldName ->
-                            match recordFieldIndex.TryGetValue fieldName with
-                            | true, buf -> EqArray.ofResizeArray buf
-                            | _ -> EqArray.empty
-                    // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in
-                    // the SAME namespace reaches these types through its own header, not here.
-                    AmbientOpenPrefixes = []
-                    IntrinsicTypeMap = intrinsics
-                }
-        )
+        // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in the SAME
+        // namespace reaches these types through its own header, not here.
+        PublishedSurfaceBuilder.toProvider surface

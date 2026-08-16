@@ -86,6 +86,9 @@
     <Compile Include="IntrinsicTypeMap.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="ExternalSymbolProviders.fs" />
+    <!-- Ahead of both producers that fill it: the `.fsi` extractor below and the frozen-file
+         projection further down. -->
+    <Compile Include="PublishedSurface.fs" />
     <!-- After the symbol data model it projects, and independent of everything below: an
          open method signature is a function of an `ExternalSymbol` alone. -->
     <Compile Include="OpenSignature.fs" />
