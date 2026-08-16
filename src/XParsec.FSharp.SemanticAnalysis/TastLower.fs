@@ -163,17 +163,55 @@ module TastLower =
             | FTFun(a, b) -> (a, b) :: peelFuns (if n < 0 then -1 else n - 1) b
             | _ -> []
 
-    /// Rebuild a frozen type by transforming its top-level type-argument vector: every
-    /// nominal-with-args shape plus the tuple's element vector. Anything else (including
-    /// `FTFun`, whose domain/codomain are not an arg vector) passes through unchanged.
-    let mapFrozenArgs (f: EqArray<FrozenType> -> EqArray<FrozenType>) (t: FrozenType) : FrozenType =
+    /// The constructor of a frozen type that HAS a top-level type-argument vector: every
+    /// nominal-with-args shape plus the tuple, whose vector is its elements.
+    [<RequireQualifiedAccess>]
+    type TyCtor =
+        | Class of classKey: TypeKey
+        | Record of recordKey: TypeKey
+        | Union of unionKey: TypeKey
+        | Const of constKey: TypeKey
+        | Tuple
+
+    /// A frozen type split into its constructor and argument vector, so two of them with
+    /// equal `Ctor` and `Args.Length` differ only in their arguments.
+    [<Struct>]
+    type Nominal =
+        {
+            Ctor: TyCtor
+            Args: EqArray<FrozenType>
+        }
+
+    /// `ValueNone` for a type with no argument vector, `FTFun` included: its domain and
+    /// codomain are not one.
+    let tryNominal (t: FrozenType) : Nominal voption =
         match t with
-        | FTClass(key, args) -> FTClass(key, f args)
-        | FTRecord(key, args) -> FTRecord(key, f args)
-        | FTUnion(key, args) -> FTUnion(key, f args)
-        | FTConst(key, args) -> FTConst(key, f args)
-        | FTTuple items -> FTTuple(f items)
-        | _ -> t
+        | FTClass(key, args) -> ValueSome { Ctor = TyCtor.Class key; Args = args }
+        | FTRecord(key, args) ->
+            ValueSome
+                {
+                    Ctor = TyCtor.Record key
+                    Args = args
+                }
+        | FTUnion(key, args) -> ValueSome { Ctor = TyCtor.Union key; Args = args }
+        | FTConst(key, args) -> ValueSome { Ctor = TyCtor.Const key; Args = args }
+        | FTTuple items -> ValueSome { Ctor = TyCtor.Tuple; Args = items }
+        | _ -> ValueNone
+
+    let ofNominal (n: Nominal) : FrozenType =
+        match n.Ctor with
+        | TyCtor.Class key -> FTClass(key, n.Args)
+        | TyCtor.Record key -> FTRecord(key, n.Args)
+        | TyCtor.Union key -> FTUnion(key, n.Args)
+        | TyCtor.Const key -> FTConst(key, n.Args)
+        | TyCtor.Tuple -> FTTuple n.Args
+
+    /// Rebuild a frozen type by transforming its top-level type-argument vector. Anything
+    /// without one passes through unchanged.
+    let mapFrozenArgs (f: EqArray<FrozenType> -> EqArray<FrozenType>) (t: FrozenType) : FrozenType =
+        match tryNominal t with
+        | ValueSome n -> ofNominal { n with Args = f n.Args }
+        | ValueNone -> t
 
     /// `peelFuns` projected to `(parameter types, residual result)`; the residual is the
     /// type after the last peeled `->`.

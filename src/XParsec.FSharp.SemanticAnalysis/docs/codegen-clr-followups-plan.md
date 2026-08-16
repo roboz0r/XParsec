@@ -304,11 +304,32 @@ backends — reads the step result off a named field. Both `EmitCall` comments a
 element with its OWN type under a field that means the step result. All the elements belong to
 the one application step the tuple arrived at, and nothing reads either field off `Flat`.
 
-## B6. Node-tagged `FrozenType` — `ClosureVerdictRewrite.nestedSubst`
+## B6. Nominal-keyed substitution — `ClosureVerdictRewrite.nestedSubst` — **DONE (2026-08-16)**
 
-The substitution keys whole nominals so that two `int -> int` leaves at different chain
-depths cannot collide. A frozen type carrying its originating node makes that structural; the
-deleted collision-freedom paragraph is now recorded only here, which is the intended state.
+The substitution keys whole nominals, so `s3`'s own `'TFunc` argument and the same `int -> int`
+nested one and two levels down its `'S` source cannot collide. `TastLower.Nominal` is
+`{ Ctor: TyCtor; Args }`, minted only by `tryNominal`, which answers `ValueNone` for any type
+with no argument vector, `FTFun` included. `nestedSubst` is keyed by one, so a repeated
+`int -> int` is not a key at all and the deleted collision-freedom paragraph is unstatable
+rather than merely unwritten. `ofNominal` is the inverse, `mapFrozenArgs` is the two composed,
+and `recordNominalDiff`'s five copy-pasted arms became one `Ctor`-and-arity match.
+
+NOT node-tagged, as this entry originally proposed: `FrozenType` is interned row-wise in
+`FrozenTypeTable`, keyed by structure in the frozen codec, and read by some sixty files, so an
+originating node on it would break the structural identity that makes it a key. What the tag
+would have bought beyond nominal keying is the multi-source case (`zip s1 s2`: two same-typed
+arguments bound to different closures), which needs per-occurrence identity that no content key
+can supply. `record`'s collision `failwithf` still names exactly that shape.
+
+Superseded on the multi-source point by [function-representation-plan](function-representation-plan.md)
+§Retype by substitution: the collision is an artefact of deriving the substitution from
+content at all. Matching each argument against its own declared parameter puts two
+same-typed closures in different typars, so `zip s1 s2` needs no per-occurrence identity
+and the `failwithf` is deleted rather than turned into a diagnostic. That pass removes
+`ClosureVerdictRewrite`, and with it the only readers of `TastLower.Nominal` /
+`tryNominal` / `ofNominal` / `mapFrozenArgs` — this file is all four have. They go when it
+goes; the substitution the new pass needs is method-axis (`FTTypar(Method, i)` under a
+recovered instantiation), not argument-vector rewriting.
 
 ## B7. `ClrHoleFormat.toDotNetFormat`'s overloaded third slot
 

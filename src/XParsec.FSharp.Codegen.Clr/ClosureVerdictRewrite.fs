@@ -61,46 +61,32 @@ module internal ClosureVerdictRewrite =
             // `let s2 = map g s1` froze before any closure was minted, so the positions `s2`
             // inherited from `s1` (its `'S` source slot, its `'E` enumerator) still spell
             // function types where `s1`'s rewritten field lays out `<closure>$`. Map old→new.
-            let nestedSubst = Dictionary<FrozenType, FrozenType>()
+            let nestedSubst = Dictionary<TastLower.Nominal, FrozenType>()
 
             // An OLD nominal maps to exactly ONE NEW one. Re-recording the same target is
             // idempotent (the lockstep walk revisits shared subtrees); a different target
             // means two closures reached one nominal, so fail rather than corrupt the signature.
-            let record (oldT: FrozenType) (newT: FrozenType) =
-                match nestedSubst.TryGetValue oldT with
+            let record (oldN: TastLower.Nominal) (newT: FrozenType) =
+                match nestedSubst.TryGetValue oldN with
                 | true, existing when existing <> newT ->
                     failwithf
                         "ClosureVerdictRewrite: nested-substitution collision, one OLD nominal mapped to two NEW ones. Only linear chains are supported; a multi-source combinator (`zip s1 s2`, two same-typed arguments bound to different closures) reaches this.\n  old: %A\n  new1: %A\n  new2: %A"
-                        oldT
+                        (TastLower.ofNominal oldN)
                         existing
                         newT
-                | _ -> nestedSubst.[oldT] <- newT
+                | _ -> nestedSubst.[oldN] <- newT
 
             // Lockstep walk of a referenced binding's (old, rewritten) pair: record every
             // differing NOMINAL subtree, then recurse pairwise into its args so a deeper
-            // binding's enumerator is caught too. Equal subtrees and bare leaves are skipped.
-            let recordArgs recurse (ao: EqArray<FrozenType>) (an: EqArray<FrozenType>) =
-                for i in 0 .. ao.Length - 1 do
-                    recurse ao.[i] an.[i]
-
+            // binding's enumerator is caught too.
             let rec recordNominalDiff (oldT: FrozenType) (newT: FrozenType) =
                 if oldT <> newT then
-                    match oldT, newT with
-                    | FTClass(ko, ao), FTClass(kn, an) when ko = kn && ao.Length = an.Length ->
-                        record oldT newT
-                        recordArgs recordNominalDiff ao an
-                    | FTUnion(ko, ao), FTUnion(kn, an) when ko = kn && ao.Length = an.Length ->
-                        record oldT newT
-                        recordArgs recordNominalDiff ao an
-                    | FTRecord(ko, ao), FTRecord(kn, an) when ko = kn && ao.Length = an.Length ->
-                        record oldT newT
-                        recordArgs recordNominalDiff ao an
-                    | FTConst(no, ao), FTConst(nn, an) when no = nn && ao.Length = an.Length ->
-                        record oldT newT
-                        recordArgs recordNominalDiff ao an
-                    | FTTuple ao, FTTuple an when ao.Length = an.Length ->
-                        record oldT newT
-                        recordArgs recordNominalDiff ao an
+                    match TastLower.tryNominal oldT, TastLower.tryNominal newT with
+                    | ValueSome oldN, ValueSome newN when oldN.Ctor = newN.Ctor && oldN.Args.Length = newN.Args.Length ->
+                        record oldN newT
+
+                        for i in 0 .. oldN.Args.Length - 1 do
+                            recordNominalDiff oldN.Args.[i] newN.Args.[i]
                     // A differing argument (`FTFun` → `<closure>$`) or a swapped type
                     // constructor: the caller already recorded the nominal enclosing it.
                     | _ -> ()
@@ -134,7 +120,7 @@ module internal ClosureVerdictRewrite =
             if slots.Count = 0 then
                 ty, []
             else
-                // The replaced `FTFun` leaves paired with their closures: a projection `h.F`
+                // The replaced `FTFun` arguments paired with their closures: a projection `h.F`
                 // is typed as the function that occupied the slot, so the body must retype
                 // that projection to the value-struct.
                 let replaced = ResizeArray<FrozenType * FrozenType>()
@@ -142,9 +128,16 @@ module internal ClosureVerdictRewrite =
                 // A recorded earlier-binding nominal is replaced WHOLESALE and not descended
                 // into, because its own buried `FTFun` already rode in via the recorded NEW nominal.
                 let rec deep (t: FrozenType) : FrozenType =
-                    match nestedSubst.TryGetValue t with
-                    | true, newTy -> newTy
-                    | false, _ -> TastLower.mapFrozenArgs (EqArray.map deep) t
+                    match TastLower.tryNominal t with
+                    | ValueSome n ->
+                        match nestedSubst.TryGetValue n with
+                        | true, newTy -> newTy
+                        | false, _ ->
+                            TastLower.ofNominal
+                                { n with
+                                    Args = EqArray.map deep n.Args
+                                }
+                    | ValueNone -> t
 
                 // Each recorded position takes this binding's own closure; every other arg is
                 // deep-rewritten, so a nested nominal keeps ITS `'TFunc` slot rather than
