@@ -10,8 +10,8 @@ module internal SignatureParsingHelpers =
         RefParser<ModuleSignatureElement<SyntaxToken>, PositionedToken, ParseState, _>()
 
     // Module-level error values so the Message record isn't reallocated per parser invocation.
-    // See memory `pattern_hoist_error_messages`: a combined `let err = ... in fun r -> ...`
-    // triggers F#'s value restriction and compiles as a thunk that re-allocates on each call.
+    // A combined `let err = ... in fun r -> ...` triggers F#'s value restriction and compiles
+    // as a thunk that re-allocates on each call.
     let errExpectedTypeSigElement: ErrorType<PositionedToken, ParseState> =
         Message "Expected type signature element"
 

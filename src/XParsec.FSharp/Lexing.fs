@@ -24,22 +24,22 @@ type ActiveDefines =
         let (ActiveDefines symbols) = this
         symbols.Contains symbol
 
+module internal Indents =
+    [<Literal>]
+    let UseLineStarts = 255uy
+
 [<CustomEquality; NoComparison>]
 type Lexed =
     {
-        /// The text `Tokens` index. A token carries offsets and not its characters, so this is
-        /// not context a consumer supplies — without it the table cannot be read at all.
         Input: string
         Tokens: ReadableArrayM<PositionedToken, token>
         LineStarts: ReadableArrayM<int<token>, line>
-        /// Every symbol referenced by a `#if` directive in this file, including directives
-        /// inside branches that are never active.
+        Indents: ReadableArrayM<byte, token>
+        /// Every symbol referenced by a `#if` directive in this file.
         MentionedDefines: Set<string>
     }
 
-    /// Lexing is a total function of `Input` and `lexString` is the only way to build one, so
-    /// equal text is equal tables — the whole comparison, and cheaper than the array walk the
-    /// default would do.
+    // Lexing is a total function of `Input` and `lexString` is the only way you build one.
     member this.Equals(that: Lexed) : bool = this.Input = that.Input
 
     override this.Equals(other: obj) =
@@ -323,8 +323,7 @@ module LexBuilder =
     // Empirical ratios across 340 test .fs files: ~3.8 chars per token and
     // ~27 chars per line. We pick slightly denser divisors (3 and 32) so the
     // initial builder arrays cover most inputs without a growth copy, then
-    // round up to the next power of two for GC-friendly sizing. Both are pure
-    // arithmetic — no O(n) scan of the source.
+    // round up to the next power of two for GC-friendly sizing.
     let private roundUpToPowerOf2 (n: int) =
         if n <= 1 then
             1
@@ -371,10 +370,37 @@ module LexBuilder =
 
             ReadableArrayM(state.LineStarts.ToReadableArray())
 
+        let indents =
+            let arr = Array.zeroCreate tokens.Length
+            let lineCount = lineStarts.LengthM
+            let mutable l = 0<line>
+
+            while l < lineCount do
+                let startT = lineStarts[l]
+
+                let endT =
+                    if l + 1<line> < lineCount then
+                        lineStarts[l + 1<line>]
+                    else
+                        tokens.LengthM
+
+                let lineStartChar = tokens[startT].StartIndex
+                let mutable t = startT
+
+                while t < endT do
+                    let indent = tokens[t].StartIndex - lineStartChar
+                    arr[int t] <- if indent >= 255 then Indents.UseLineStarts else byte indent
+                    t <- t + 1<token>
+
+                l <- l + 1<line>
+
+            ReadableArrayM(ReadableArray arr)
+
         {
             Input = state.Source
             Tokens = tokens
             LineStarts = lineStarts
+            Indents = indents
             MentionedDefines = state.MentionedDefines
         }
 
@@ -1913,7 +1939,8 @@ module Lexing =
     // special-case branch in `pOperatorToken`, which emits their tokens directly and never
     // touches this table. The `.. ..` arm that existed in the prior literal match was dead
     // code — the consumption phase stops at whitespace, and `OpRangeStep` is fused in the
-    // parser (see memory: pattern_range_step_op_name).
+    // parser because F# permits trivia between the two `..` pieces, which a greedy scan
+    // cannot span.
     // wellKnownOps contains structural-keyword tokens (KindKeyword) and operator-family
     // tokens (KindOperator with unique OpFamily IDs) that the parser distinguishes by
     // enum value. Adding a token here costs one slot in the SIMD `SequenceEqual` linear
@@ -2541,6 +2568,8 @@ module Lexing =
         // via `parseFormatSpecifier`. Deferred deliberately: re-parsing a few
         // short specifier strings on demand is plausibly cheaper than carrying
         // these records on every lexed token — measure before adding the table.
+        // NOTE: any side-table indexed in lockstep with `Tokens` must also be fed by
+        // `pFormatSpecifierTokens` below, whose local `addToken` bypasses `appendI`.
         let lFormatPlaceholderToken =
             lFormatPlaceholder >>% Token.FormatPlaceholder
             <|> preturn Token.InvalidFormatPlaceholder

@@ -661,7 +661,7 @@ module ParseState =
         state.LastLine <- lineNo
         lineNo
 
-    let rec getIndent (state: ParseState) (index: int<token>) =
+    let rec private getIndentViaLineStarts (state: ParseState) (index: int<token>) =
         let currentLineTokenIndex = state.Lexed.LineStarts[state.LastLine]
 
         if index = currentLineTokenIndex then
@@ -678,14 +678,22 @@ module ParseState =
                     token.StartIndex - lineStartToken.StartIndex
                 else
                     state.LastLine <- findLineNumberImpl state.Lexed nextLine index
-                    getIndent state index
+                    getIndentViaLineStarts state index
             else
                 // Last line
                 let token = state.Lexed.Tokens[index]
                 token.StartIndex - state.Lexed.Tokens[currentLineTokenIndex].StartIndex
         else
             state.LastLine <- findLineNumberImpl state.Lexed (state.LastLine - 1<_>) index
-            getIndent state index
+            getIndentViaLineStarts state index
+
+    /// The token's column.
+    let getIndent (state: ParseState) (index: int<token>) =
+        let indent = state.Lexed.Indents[index]
+
+        match indent with
+        | Indents.UseLineStarts -> getIndentViaLineStarts state index
+        | _ -> int indent
 
     let isTriviaToken (state: ParseState) (token: PositionedToken) =
         if token.InComment then
