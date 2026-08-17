@@ -6,25 +6,16 @@ description = "printf / printfn / sprintf and the write-through format handler."
 # over its own frames, where the CLR one uses the cons-list.
 depends-on = ["../Vesper.Core"]
 
-# .fsi files in compile order: printf-format before printf, whose signatures reference
-# `PrintfFormat`.
 files = [
     "printf-format.fsi",
-    "printf.fsi",
 ]
 
-# Signature files that are DELIBERATELY impl-free — the conformance pass accepts these and turns
-# any OTHER `.fsi`-without-`.fs` into an FS0240 hard error. printf/printfn/sprintf are
-# lowered inline to `Format` nodes by the front end, so there is no `.fs` body.
-sig-only = [
-    "printf.fsi",
-    "printf-format.fsi",
-]
-
-# The standalone JS `%A` engine: a shape-keyed walker over the same Wadler `Doc` layout,
-# but with no BCL and no interface dispatch. It implements no printf `.fsi`, and owes
-# none — its published surface (`structuralFormat`, `float32ToString`) IS its contract.
+# `structural-printer.js.fs` is the standalone JS `%A` engine: a shape-keyed walker over the
+# same Wadler `Doc` layout, but with no BCL and no interface dispatch. It implements no printf
+# `.fsi`, and owes none — its published surface (`structuralFormat`, `float32ToString`) IS its
+# contract.
 impl = [
+    "printf-format.fs",
     "structural-printer.js.fs",
 ]
 

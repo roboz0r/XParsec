@@ -141,9 +141,7 @@ let tests =
                     tast.Diagnostics
                     (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    "a `[1;2;3]` over our own list + a concrete printf references no FSharp.Core"
+                expectNoFSharpCore artifact "a `[1;2;3]` over our own list + a concrete printf"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"

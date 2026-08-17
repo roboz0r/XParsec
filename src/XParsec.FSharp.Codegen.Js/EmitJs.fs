@@ -454,6 +454,8 @@ module EmitJs =
             | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
             // For `sprintf` the spliced concatenation IS the result string, yielded as a value.
             | FormatSinkG.ToString -> arg
+            // GAP: newline-less `printf` and the `e`/`f`/`b` families reach here and CRASH.
+            // They owe a target-support diagnostic upstream, not a `failwithf`.
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
         // Legitimate F# the walker has no lowering for yet: `TryWith` wants catch-side arm

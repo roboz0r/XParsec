@@ -232,9 +232,7 @@ let tests =
                 let project = ProjectInfo.library "Vesper.Collections"
                 let artifact = compileSourceTo project src
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    "the union + concrete fold reference no FSharp.Core construct"
+                expectNoFSharpCore artifact "the union + concrete fold"
 
                 // A second load of the same bytes is a DIFFERENT assembly, so everything
                 // reflected and constructed below has to come from this one `asm`.
@@ -397,9 +395,7 @@ let tests =
 
                 let artifact = compileSourceTo project src
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    "the generic union (int / 'T / self fields) references no FSharp.Core construct"
+                expectNoFSharpCore artifact "the generic union (int / 'T / self fields)"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 Expect.isNull asm.EntryPoint "a library DLL has no entry point"
@@ -475,9 +471,7 @@ let tests =
                 let project = ProjectInfo.library "Vesper.Collections.GenMembers"
                 let artifact = compileSourceTo project src
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    "the generic union + instance members reference no FSharp.Core construct"
+                expectNoFSharpCore artifact "the generic union + instance members"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 Expect.isNull asm.EntryPoint "a library DLL has no entry point"

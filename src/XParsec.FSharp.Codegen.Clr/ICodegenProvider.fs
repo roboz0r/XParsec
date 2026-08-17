@@ -211,8 +211,8 @@ type FormatSinkHandles =
 /// Resolves compiled names to emission recipes for one target.
 type ICodegenProvider =
     /// `fnTy` is the applied function's full curried type: a multi-typar call can't recover its type args
-    /// from the result alone (`List.fold` reads `'T`/`'State` from the folder). `key` dispatches
-    /// by identity: only `Vesper.Printf.printfn` trips cold-printf, never `MyMod.printfn`.
+    /// from the result alone (`List.fold` reads `'T`/`'State` from the folder). `key` is the
+    /// resolved binding identity; an operator-as-value carries none and names no module function.
     abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption
 
     /// `chosen` is the front-end-resolved `.ctor`'s `SymbolKey.MemberKey` when a `TExpr.New`
@@ -360,9 +360,4 @@ type ICodegenProvider =
     abstract DecimalCtor: EntityHandle
 
     /// `System.Exception::.ctor(string)` — the fallthrough a non-exhaustive `match` throws.
-    /// BCL, not `FSharp.Core`'s `MatchFailureException`, so it pins no dependency.
     abstract ExceptionCtor: EntityHandle
-
-    /// The distinct FSharp.Core constructs the emission referenced so far, read after
-    /// emission. Empty ⇒ the emitted PE does not depend on `FSharp.Core.dll`.
-    abstract FSharpCoreDependencies: unit -> string list

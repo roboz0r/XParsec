@@ -273,9 +273,7 @@ let tests =
             test "primitive arithmetic pins no FSharp.Core dependency (no runtime library)" {
                 let _, artifact = compileSource "ArithNoDep" "printfn \"%d\" (2 + 2 * 3)"
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "primitive arithmetic pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "primitive arithmetic"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"

@@ -81,8 +81,8 @@ module ReferencedProject =
             /// same bodies publish (`[core] impl`).
             Impl: string list
             /// Signature files that are DELIBERATELY impl-free (`[core] sig-only`): a
-            /// front-end intrinsic lowered inline (`printf.fsi`), or one whose declarations the
-            /// BCL resolves (`exceptions.fsi`).
+            /// front-end intrinsic lowered inline (`printf-format.fsi`), or one whose
+            /// declarations the BCL resolves (`exceptions.fsi`).
             SigOnly: string list
             /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.

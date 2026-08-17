@@ -8,9 +8,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Nothing the backend emits names an FSharp.Core construct, so the invariant is asserted on
 // the ARTIFACT: no `AssemblyRef` row in the PE, no `FSharp.Core.dll` beside a materialised app.
 
-// The one construct that can still put FSharp.Core back is `PrintfFormat`4`, reached when a
-// format falls off the structural engine onto the cold path. So an EMPTY use-set per
-// specifier is the guard that each of these lowers natively.
+// Each specifier below is a format that must lower on the structural engine, so no reference
+// row appears for it.
 let private nativeFormats =
     [
         "SpaceA", "printfn \"% A\" 42"
@@ -48,9 +47,7 @@ let tests =
                         test src {
                             let _, artifact = compileSource ("Deps" + name) src
 
-                            Expect.isEmpty
-                                artifact.FSharpCoreDependencies
-                                (sprintf "%s pins no FSharp.Core construct" src)
+                            expectNoFSharpCore artifact src
                         }
 
                     // An EXTERNAL Vesper union carries the synthesised `Format`, so `%A` of one
@@ -60,9 +57,7 @@ let tests =
                         let artifact =
                             compileResultArtifact "open Vesper\nlet r : Result<int, string> = Ok 5\nprintfn \"%A\" r"
 
-                        Expect.isEmpty
-                            artifact.FSharpCoreDependencies
-                            "%A of an external Vesper union pins no FSharp.Core construct"
+                        expectNoFSharpCore artifact "%A of an external Vesper union"
                     }
                 ]
 

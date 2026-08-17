@@ -63,12 +63,9 @@ module RuntimeNames =
     let vesperFunKey (genericArity: int) : TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Fun" genericArity
 
-    /// The type a format literal freezes to.
+    /// The type a format literal freezes to, and what a source-level format ANNOTATION
+    /// resolves to.
     let printfFormatKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Core" "PrintfFormat" 4
-
-    /// What a source-level format ANNOTATION resolves to; `isPrintfFormatKey` admits both.
-    let vesperPrintfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
 
     // The five language-capability ANCHORS, as the contract declares them: what the
@@ -226,10 +223,6 @@ module RuntimeNames =
 
     let isVesperListName (compiledName: string) : bool =
         compiledName = SymbolKeyOps.typeMetaName vesperListKey
-
-    /// Either spelling of the format type.
-    let isPrintfFormatKey (k: TypeKey) : bool =
-        k = printfFormatKey || k = vesperPrintfFormatKey
 
     /// Taken verbatim at ARITY 0; a generic intrinsic (`seq`) is minted from the contract
     /// instead.

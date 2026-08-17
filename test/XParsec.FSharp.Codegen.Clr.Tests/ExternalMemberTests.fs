@@ -284,9 +284,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "5" "GetHashCode of int 5 is 5"
 
                 // The BCL comparer rides `System.Private.CoreLib`, not FSharp.Core.
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "BCL member call"
             }
 
             // A type ANNOTATION naming an external type must resolve to the same `TyClass`
@@ -343,9 +341,7 @@ let tests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n0" "Equals(1,1)=true, Equals(1,2)=false"
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "2-arg BCL member call pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "2-arg BCL member call"
             }
 
             // `String.Concat` is heavily overloaded, so the pick has to narrow by arity and

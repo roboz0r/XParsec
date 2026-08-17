@@ -3,13 +3,10 @@ module XParsec.FSharp.Codegen.Clr.Tests.PackageBuildTriage
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-/// Assert a package builds to a BCL-only DLL (empty `FSharpCoreDependencies`).
+/// Assert a package builds to a BCL-only DLL.
 let private buildsBclOnly (package: string) : unit =
     let _, artifact = (buildPackage package).Value
-
-    Expect.isEmpty
-        artifact.FSharpCoreDependencies
-        (sprintf "%s must compile to a BCL-only DLL (FSharp.Core deps: %A)" package artifact.FSharpCoreDependencies)
+    expectNoFSharpCore artifact (sprintf "%s must compile to a BCL-only DLL" package)
 
 [<Tests>]
 let tests =

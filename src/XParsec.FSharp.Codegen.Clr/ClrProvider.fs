@@ -302,8 +302,6 @@ type ClrProvider
         member _.ExternalFieldRef(key, declTy, memberTy) =
             ext.ExternalFieldRef(key, declTy, memberTy)
 
-        member _.FSharpCoreDependencies() = env.FSharpCoreDependencies()
-
         member _.TryEmitCall(compiledName, key, fnTy) =
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))

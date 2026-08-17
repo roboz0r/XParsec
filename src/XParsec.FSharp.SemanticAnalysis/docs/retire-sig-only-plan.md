@@ -5,9 +5,10 @@ make "a signature file with no implementation file" a state ANALYSIS CANNOT REPR
 declared exemption, and not a verdict derived from content either. Delete this doc when it
 lands (`feedback_plan_docs_ephemeral`).
 
-**Status (2026-08-16): A′ and the js half of A have LANDED; printf is the only A left.**
-`manifest.js.toml` now carries no `sig-only` key at all. The inventory below is the new part;
-the four gates were already known. One fifth entry has already gone.
+**Status (2026-08-16): class A is CLEARED — no manifest anywhere carries a `sig-only` key.**
+Claim 1 is unblocked and gated on nothing; only the mechanical removal below is left. B, C
+and D still gate claim 2. The inventory below is the new part; the four gates were already
+known.
 
 ## Why the key exists at all
 
@@ -19,8 +20,8 @@ content split.
 
 A second consequence, easy to miss: an exempted `.fsi` is published to consumers via `files`
 but never compiled in its own package, because the unit list is built from `impl`. Nothing
-beyond parsing checks it. That is how the `printf.fsi` drift in
-[printf-contract-plan](printf-contract-plan.md) survived.
+beyond parsing checks it. That is how `printf.fsi` came to declare two of its three `val`s with
+a `'State` / `'Residue` the compiler disagreed with, for as long as it existed.
 
 **The headline goes further than the key.** Deleting `sig-only` alone leaves the three derived
 routes, and they admit nine more bodiless signatures than the key does. Making the state
@@ -33,7 +34,7 @@ Computed by pairing key over every manifest, not from any list. Only the **A** r
 
 | class | files | answer (user, 2026-08-16) |
 |---|---|---|
-| **A — owes a body, missing** | ~~`compiler-attributes.fsi` (js)~~, ~~`exceptions.js.fsi`~~, `printf-format.fsi` ×2, `printf.fsi` ×2 | write the `.fs`; it pairs |
+| **A — owes a body, missing** | ~~`compiler-attributes.fsi` (js)~~, ~~`exceptions.js.fsi`~~, ~~`printf-format.fsi` ×2~~, ~~`printf.fsi` ×2~~ | write the `.fs`; it pairs |
 | **A′ — owes a SENTINEL body** | ~~`prim-types-attr.fsi`, `capabilities.fsi` (both js)~~ | write the `.fs`; the repr is a sentinel the backend knows |
 | **B — transparent abbreviation** | `capabilities-compat.js.fsi`, `list-bcl.clr.fsi` | write the `.fs`; it pairs |
 | **C — served by a runtime asset** | `ops-platform-runtime.js.fsi`, `comparison-runtime.js.fsi` | **deferred** — representation still to be decided |
@@ -46,14 +47,37 @@ written, since class B is accepted by content anyway. Four suites green after re
 
 ## A and B: write the body
 
-Two of the four have landed; printf is what is left:
+All four have landed:
 
-| entry | answer | gated on |
-|---|---|---|
-| ~~`compiler-attributes.fsi`~~ | **DONE** — `compiler-attributes.fs` is now in the js `impl` list too, and pairs on both targets | |
-| ~~`exceptions.js.fsi`~~ | **DONE** — `exceptions.js.fs` declares the roster, BCL-shaped under `exn` | |
-| `printf-format.fsi` ×2 | write the body | [printf-contract-plan](printf-contract-plan.md) |
-| `printf.fsi` ×2 | delete from `files`, or make it load-bearing | [printf-contract-plan](printf-contract-plan.md) |
+| entry | answer |
+|---|---|
+| ~~`compiler-attributes.fsi`~~ | **DONE** — `compiler-attributes.fs` is now in the js `impl` list too, and pairs on both targets |
+| ~~`exceptions.js.fsi`~~ | **DONE** — `exceptions.js.fs` declares the roster, BCL-shaped under `exn` |
+| ~~`printf-format.fsi` ×2~~ | **DONE** — see below |
+| ~~`printf.fsi` ×2~~ | **DONE** — deleted from `files`; it declared three of the eight printf names and two of the three disagreed with the compiler |
+
+### What `printf-format.fs` cost, and what it bought (2026-08-16)
+
+The body is four lines: a class over the ctor and the `Value` member the contract declares.
+The arity-5 `PrintfFormat<…,'Tuple>` went from the `.fsi` rather than gaining a body — nothing
+in the repo names it, and it was the only declaration needing an `inherit`.
+
+What it unlocked is bigger than the pairing. `PrintfSpec.formatType` used to mint the
+**FSharp.Core** key while a source-level format ANNOTATION resolved to the Vesper one, and a
+predicate admitted both so the two never had to meet. With a real Vesper type there is one key,
+that predicate is gone, and with it the last FSharp.Core touchpoint in the CLR backend: the
+encoder arm that silently substituted `Microsoft.FSharp.Core.PrintfFormat`4` for
+`Vesper.PrintfFormat`4`, the `FSharp.Core` `AssemblyRef`, and the whole `FSharpCoreDependencies`
+use-set channel it fed. **That channel could only ever report empty once its one producer went**,
+so ~20 `Expect.isEmpty artifact.FSharpCoreDependencies` assertions were tautologies; they now
+assert on the PE's `AssemblyRef` table instead, which is the artefact fact they were proxying for.
+
+A probe (a `failwithf` in the encoder arm, whole CLR suite green) proved the arm unreachable by
+any covered form. The three forms that DO reach it — a format-typed parameter, return type and
+record field — turned out to be broken independently: `sprintf` is a front-end intrinsic with no
+runtime, so a format arriving as a VALUE has nothing to apply and codegen throws "no call recipe
+for external 'sprintf'". They are pinned as pending tests, and a printf runtime is what closes
+them.
 
 ### What the two js bodies actually cost (2026-08-16)
 
@@ -266,7 +290,7 @@ Follows `96837bff Remove impl-only as a category from source manifests` exactly.
 - **`ConformanceVerdict`**: `StaleSigOnly` / `UnknownSigOnly` / `SigWithoutImpl`, the V240 and
   V243 mappings and their messages, with the `FrozenCodecDiagnostics` wire tags renumbered
   densely and `Cache.CodeVersion` bumped.
-- **Manifests**: ~~`Vesper.Core/manifest.js.toml`~~ (done), `Vesper.Printf/manifest.{clr,js}.toml`.
+- **Manifests**: ~~all of them~~ (done) — no manifest carries the key.
 - **Tests**: `ConformanceTests.fs` (the exemption arms and `mkOutcome`'s second parameter — the
   target-asymmetry pin's expected list is already `[]`), `ReferencedProjectTests.fs`,
   `Codegen.Js.Tests/FrozenCodecRoundTripTests.fs`, `Codegen.Clr.Tests/TestHelpers.fs`.

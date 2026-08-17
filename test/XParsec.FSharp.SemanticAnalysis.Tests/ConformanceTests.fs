@@ -543,23 +543,23 @@ let jsPackageConformanceTests =
                 // `.fsi` demands a companion.
                 let outcome = outcomeFor (manifestOf "js" "Vesper.Printf")
 
-                Expect.isEmpty
+                let paired =
                     [
                         for p in outcome.Pairs do
                             match p with
                             | ConformancePass.PairOutcome.Paired r -> yield r.ImplFile
                             | _ -> ()
                     ]
-                    "no contract in the package pairs with the engine"
 
+                Expect.isFalse (List.contains "structural-printer.js.fs" paired) "the engine answers no contract"
                 Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
 
             test "every target-ASYMMETRIC `sig-only` entry is pinned, not an open list" {
                 // EMPTY: an entry every target of the package carries is a property of the
                 // contract; one only a single target carries claims the targets diverge, and
-                // no such claim survives. `printf.fsi` / `printf-format.fsi` are exempt on
-                // BOTH targets, so they are symmetric and absent here.
+                // no such claim survives. `printf-format.fsi` is exempt on BOTH targets, so it
+                // is symmetric and absent here.
                 let expected: (string * string * string list) list = []
 
                 // `None` is "does not build for this target", which is NOT an empty `sig-only`
@@ -645,7 +645,9 @@ let enforcementTests =
 
             test "a SigOnly .fsi declared `sig-only` in the manifest → no error (exempt)" {
                 let outcome =
-                    mkOutcome [ ConformancePass.PairOutcome.SigOnly "printf.fsi" ] (Set.ofList [ "printf.fsi" ])
+                    mkOutcome
+                        [ ConformancePass.PairOutcome.SigOnly "printf-format.fsi" ]
+                        (Set.ofList [ "printf-format.fsi" ])
 
                 Expect.isEmpty (ConformancePass.enforce outcome) "a recorded impl-free exemption conforms"
             }

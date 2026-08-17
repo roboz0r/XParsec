@@ -5,8 +5,8 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The manifest-driven `buildPackage` harness: each anchor compiles a package's `impl`
-// `.fs` to a BCL-only DLL (empty `FSharpCoreDependencies`) and loads it with its expected
-// public types, resolving the `depends-on` graph through the harness's own load context.
+// `.fs` to a BCL-only DLL and loads it with its expected public types, resolving the
+// `depends-on` graph through the harness's own load context.
 
 [<Tests>]
 let tests =
@@ -17,7 +17,7 @@ let tests =
             test "buildPackage Vesper.Core builds a BCL-only DLL with Fun`2 + Ref`1" {
                 let asm, artifact = (buildPackage "Vesper.Core").Value
 
-                Expect.isEmpty artifact.FSharpCoreDependencies "Vesper.Core.dll is BCL-only (no FSharp.Core)"
+                expectNoFSharpCore artifact "Vesper.Core.dll is BCL-only"
 
                 Expect.isNotNull (asm.GetType "Vesper.Fun`2") "the DLL contains Vesper.Fun`2"
                 Expect.isNotNull (asm.GetType "Vesper.Ref`1") "the DLL contains Vesper.Ref`1"
@@ -68,7 +68,7 @@ let tests =
             test "buildPackage Vesper.List builds a BCL-only DLL with List`1 over its Core dep" {
                 let asm, artifact = (buildPackage "Vesper.List").Value
 
-                Expect.isEmpty artifact.FSharpCoreDependencies "Vesper.List.dll is BCL-only (no FSharp.Core)"
+                expectNoFSharpCore artifact "Vesper.List.dll is BCL-only"
 
                 Expect.isNotNull (asm.GetType "Vesper.Collections.List`1") "the DLL contains Vesper.Collections.List`1"
             }
@@ -79,7 +79,7 @@ let tests =
             test "buildPackage Vesper.Seq builds a BCL-only DLL with the generic struct-seq surface" {
                 let asm, artifact = (buildPackage "Vesper.Seq").Value
 
-                Expect.isEmpty artifact.FSharpCoreDependencies "Vesper.Seq.dll is BCL-only (no FSharp.Core)"
+                expectNoFSharpCore artifact "Vesper.Seq.dll is BCL-only"
 
                 Expect.isNotNull
                     (asm.GetType "Vesper.Collections.ArraySeq`1")

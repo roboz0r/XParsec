@@ -6,8 +6,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // A fully-unapplied literal partial (`printfn "%d"`) becomes a synthesised heap closure
-// `fun h -> Format(sink, [Hole h])` instead of the FSharp.Core `PrintfFormat` fallback.
-// An `%A`/`%O` hole, a within-chunk partial or `fprintf` keeps the fallback.
+// `fun h -> Format(sink, [Hole h])`.
 
 let private runPrints (src: string) (expected: string) =
     let exitCode, output = withPrintfAlc (fun alc -> runDriverInAlc alc src)
@@ -51,10 +50,6 @@ let tests =
             test "a lowered `printfn \"%d\"` partial references no FSharp.Core construct" {
                 let _, artifact = compileSource "DepsPartialPrintf" "let p = printfn \"%d\"\np 3"
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf
-                        "the printf partial is pure Vesper, so it pins no FSharp.Core dependency (%A)"
-                        artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "the printf partial is pure Vesper"
             }
         ]

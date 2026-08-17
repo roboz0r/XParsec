@@ -11,7 +11,6 @@ open XParsec.FSharp.Codegen.Common
 /// through the symbol provider. Also hosts the blob builders that wrap it.
 type internal ClrEncoder(env: ClrEnv) =
     let ctx = env.Ctx
-    let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let userTypes = env.UserTypes
     let userValueTypes = env.UserValueTypes
 
@@ -25,7 +24,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let eFormatter = env.EFormatter
     let eHashCode = env.EHashCode
     let eFun2 () = env.EFun2()
-    let ePrintfFormat4 = env.EPrintfFormat4
     let eVesperList1 = env.EVesperList1
 
     /// Single-sourced primitive repr, as an active pattern over an `FTConst` canon key.
@@ -84,12 +82,6 @@ type internal ClrEncoder(env: ClrEnv) =
             let g = te.GenericInstantiation(eFun2 (), 2, false)
             encodeType (g.AddArgument()) a
             encodeType (g.AddArgument()) b
-        | FTClass(key, args) when RuntimeNames.isPrintfFormatKey key ->
-            markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
-            let g = te.GenericInstantiation(ePrintfFormat4.Value, args.Length, false)
-
-            for a in args do
-                encodeType (g.AddArgument()) a
         // `userTypes` holds exactly the types emitted into THIS assembly. A self-host
         // `Vesper.Collections.List` and a referenced one share a key; membership is the only
         // thing separating the emitted `TypeDef` from the cached external `eVesperList1`.

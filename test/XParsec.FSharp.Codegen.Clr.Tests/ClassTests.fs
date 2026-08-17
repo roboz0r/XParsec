@@ -203,9 +203,7 @@ let monoTests =
                         "ClsNoDep"
                         (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "class emission only references the BCL (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "class emission only references the BCL"
             }
 
             // A class is open by default so inheritance can derive from it;

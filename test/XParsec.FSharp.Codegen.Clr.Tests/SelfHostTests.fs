@@ -28,7 +28,7 @@ let tests =
                 let project = ProjectInfo.library "Vesper.Core"
                 let artifact = compileSourceTo project src
 
-                Expect.isEmpty artifact.FSharpCoreDependencies "the Fun interface references no FSharp.Core construct"
+                expectNoFSharpCore artifact "the Fun interface"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
@@ -95,7 +95,7 @@ let tests =
                 let project = ProjectInfo.library "Vesper.Mapper"
                 let artifact = compileSourceTo project src
 
-                Expect.isEmpty artifact.FSharpCoreDependencies "a typar-only signature pins no FSharp.Core"
+                expectNoFSharpCore artifact "a typar-only signature"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
@@ -136,9 +136,7 @@ let tests =
                     let project = ProjectInfo.library (sprintf "Vesper.G7Box.%s" asmSuffix)
                     let artifact = compileSourceTo project src
 
-                    Expect.isEmpty
-                        artifact.FSharpCoreDependencies
-                        "a primitive-only interface pins no FSharp.Core construct"
+                    expectNoFSharpCore artifact "a primitive-only interface"
 
                     let asm = loadAssembly (Codegen.toBytes artifact)
                     let boxTy = asm.GetType("Vesper.IBox")
@@ -186,9 +184,7 @@ let tests =
                 let project = ProjectInfo.library "Vesper.Applier"
                 let artifact = compileSourceTo project src
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    "the function-typed parameter is Vesper.Fun, so it pins no FSharp.Core construct"
+                expectNoFSharpCore artifact "the function-typed parameter is Vesper.Fun"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
@@ -241,7 +237,7 @@ let tests =
                 let _, artifact =
                     compileSource "R1Closure" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
-                Expect.isEmpty artifact.FSharpCoreDependencies "a plain closure pins no FSharp.Core construct"
+                expectNoFSharpCore artifact "a plain closure"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
@@ -385,9 +381,7 @@ let tests =
             test "the canonical sample compiles, runs in-process, prints 15 with no FSharp.Core" {
                 let _, artifact = compileSource "CanonicalSample" fullSample
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "the canonical sample pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "the canonical sample"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
@@ -412,9 +406,7 @@ let tests =
                 let project = withCore (ProjectInfo.app "XParsecBundle" outDir)
                 let artifact = compileSourceTo project fullSample
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "the canonical sample pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "the canonical sample"
 
                 // Deterministic regardless of a prior run leaving the dll behind.
                 let fsCoreDst = Path.Combine(outDir, "FSharp.Core.dll")

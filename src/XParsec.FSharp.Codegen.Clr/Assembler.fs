@@ -1179,5 +1179,4 @@ type internal Assembler
             OutputPath = project.OutputPath
             Pe = pe
             ReferencedAssemblies = ctx.ReferencedAssemblyNames
-            FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }

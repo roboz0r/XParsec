@@ -90,7 +90,7 @@ type ExternalSymbol =
         /// Where the symbol lives. `SymbolOrigin.Empty` until a resolving source fills it.
         Origin: SymbolOrigin
         /// Interned identity: declaring container + simple name, for exact identity checks
-        /// ("is this `Vesper.Printf.printfn`?") instead of suffix-matching the written name.
+        /// ("is this `Vesper.Collections.List.fold`?") instead of suffix-matching the written name.
         Key: BindingKey
         /// The producer's SOURCE parameter grouping; `ValueNone` for anything not
         /// contract-extracted.

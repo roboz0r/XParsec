@@ -158,9 +158,7 @@ let monoTests =
                         "RecNoDep"
                         (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "record emission only references the BCL (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "record emission only references the BCL"
             }
 
             test "an all-immutable record emits the structural-equality triple + IEquatable<Self>" {

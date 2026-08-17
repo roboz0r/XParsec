@@ -73,9 +73,7 @@ let tests =
             test "DU equality pins no FSharp.Core dependency" {
                 let _, artifact = compileSource "EqNoDep" shapeSrc
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "generated Equals/GetHashCode reference only the BCL (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "generated Equals/GetHashCode reference only the BCL"
             }
 
             test "nullary cases are equal once their tags match; unequal across cases" {
@@ -392,9 +390,7 @@ let genericTests =
             test "generic DU equality pins no FSharp.Core dependency" {
                 let _, artifact = compileSource "GenEqNoDep" lstSrc
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "generated generic triple references only the BCL (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "generated generic triple references only the BCL"
             }
 
             test "a `=` use site on a generic-DU instantiation reaches the structural triple via the comparer" {

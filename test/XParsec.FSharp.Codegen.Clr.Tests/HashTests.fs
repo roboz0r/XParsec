@@ -121,9 +121,7 @@ let tests =
             test "`hash` pins no FSharp.Core dependency (it rides the BCL comparer)" {
                 let _, artifact = compileSourceContract "HashNoDep" "printfn \"%d\" (hash 5)"
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "primitive `hash` pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "primitive `hash`"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"

@@ -172,6 +172,37 @@ let tests =
                     (sprintf "%s" (sprintf "%d" 99))
             }
 
+            // ---- a format in a real signature position ----
+            // A let-bound format literal is const-propagated and its binding folded out, so
+            // these three are the only places `Vesper.PrintfFormat`4` survives into metadata,
+            // where it resolves as an ordinary external type out of `Vesper.Printf`.
+            //
+            // PENDING: the TYPE resolves, but the CALL cannot be emitted. `sprintf` is a
+            // front-end intrinsic with no runtime behind it, so a format that arrives as a
+            // VALUE rather than a literal has nothing to apply and codegen throws
+            // "no call recipe for external 'sprintf'". A printf runtime is what closes these.
+
+            ptest "a format-typed PARAMETER emits and runs (F# parity)" {
+                runParity
+                    "FmtParam"
+                    "open Vesper\nlet f (fmt: PrintfFormat<int -> string, unit, string, string>) = sprintf fmt 1\nprintfn \"%s\" (f \"%d\")"
+                    (sprintf "%d" 1)
+            }
+
+            ptest "a format-typed RETURN emits and runs (F# parity)" {
+                runParity
+                    "FmtReturn"
+                    "open Vesper\nlet mk () : PrintfFormat<int -> string, unit, string, string> = \"%d\"\nprintfn \"%s\" (sprintf (mk ()) 5)"
+                    (sprintf "%d" 5)
+            }
+
+            ptest "a format-typed record FIELD emits and runs (F# parity)" {
+                runParity
+                    "FmtField"
+                    "open Vesper\ntype R = { F: PrintfFormat<int -> string, unit, string, string> }\nlet r = { F = \"%d\" }\nprintfn \"%s\" (sprintf r.F 5)"
+                    (sprintf "%d" 5)
+            }
+
             test "`printfn \"%s\"` lowers to a single string hole" {
                 match soleDecl "printfn \"%s\" \"world\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->

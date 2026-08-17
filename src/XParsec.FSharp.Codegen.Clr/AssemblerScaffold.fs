@@ -132,5 +132,4 @@ module internal AssemblerScaffold =
             OutputPath = project.OutputPath
             Pe = ctx.Serialize(mainDef)
             ReferencedAssemblies = ctx.ReferencedAssemblyNames
-            FSharpCoreDependencies = icodegen.FSharpCoreDependencies()
         }

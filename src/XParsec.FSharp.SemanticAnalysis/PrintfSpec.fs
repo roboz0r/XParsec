@@ -208,6 +208,9 @@ module PrintfSpec =
     /// Keyed by source short name. The `k*` continuation forms are absent because their
     /// leading continuation is typed by the call site's result, not by a fixed type like
     /// `fprintf`'s `TextWriter`.
+    ///
+    /// PROVISIONAL: hardcoded because no contract declares the family. A printf runtime
+    /// restores a `printf.fsi` declaring all eight, and this table goes with it.
     let families: Map<string, Family> =
         [
             "printf", writerFamily 0 []

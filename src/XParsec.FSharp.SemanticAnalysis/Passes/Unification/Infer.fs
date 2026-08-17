@@ -388,7 +388,7 @@ module UnificationInfer =
             // `PrintfFormat` gets that literal stashed by binding site, so a later
             // `sprintf fmt …` recovers it and lowers natively.
             match resolveStep ctx.Store patTy with
-            | TyClass(fmtKey, _) when RuntimeNames.isPrintfFormatKey fmtKey ->
+            | TyClass(fmtKey, _) when fmtKey = RuntimeNames.printfFormatKey ->
                 match peelToFormatString ctx b.expr with
                 | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.pattern, lit)
                 | ValueNone -> ()

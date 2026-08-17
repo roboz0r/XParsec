@@ -196,7 +196,8 @@ module internal UnificationInferLiterals =
 
     /// Types a format-string literal whose EXPECTED type is already a
     /// `PrintfFormat<Printer,State,Residue,Result>` (`let fmt : StringFormat<_> = "%d"`).
-    /// Only the `Printer` slot is unified, so the two `PrintfFormat` spellings never meet.
+    /// Only the `Printer` slot is unified; `State` / `Residue` / `Result` come from the
+    /// annotation and drive the printer's derivation from the specifiers.
     let tryTypeFormatLiteral
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -204,7 +205,7 @@ module internal UnificationInferLiterals =
         (expected: SemType)
         : SemType voption =
         match resolveStep ctx.Store expected with
-        | TyClass(fmtKey, args) when RuntimeNames.isPrintfFormatKey fmtKey && args.Length = 4 ->
+        | TyClass(fmtKey, args) when fmtKey = RuntimeNames.printfFormatKey && args.Length = 4 ->
             match formatSpecifiers ctx litExpr with
             | ValueSome specs ->
                 let fresh () = TyVar(freshTyVar ctx)

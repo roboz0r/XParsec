@@ -165,9 +165,7 @@ let tests =
                 let _, artifact =
                     compileSource "OpRoutingEqNoDep" "printfn \"%d\" (if 2 = 2 then 1 else 0)"
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "primitive `=` pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "primitive `=`"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"

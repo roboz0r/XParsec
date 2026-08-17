@@ -228,7 +228,4 @@ type ClrArtifact =
         /// Simple names of every assembly the emitted PE binds against (its `AssemblyRef`
         /// table), which seed the ship set when materialising a runnable app.
         ReferencedAssemblies: string list
-        /// The distinct FSharp.Core constructs the emission referenced. Empty ⇒ the PE has
-        /// no `FSharp.Core.dll` dependency.
-        FSharpCoreDependencies: string list
     }

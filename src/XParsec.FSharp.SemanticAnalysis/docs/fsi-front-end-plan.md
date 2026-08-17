@@ -192,8 +192,10 @@ is the point the prototype can build against.
 
 `Conformance.fs:9-11` is explicit that today it checks "Presence, not signatures", over the
 parsed CSTs. A resolved `.fsi` is what would catch a contract whose declared types disagree
-with the compiler's — see [printf-contract-plan](printf-contract-plan.md) for a live
-instance. Comparing two `PublishedSurface`s is its own design and is **not** in this plan.
+with the compiler's. The instance that proved it was `printf.fsi`, which declared
+`printf` / `printfn` with a `'State` / `'Residue` the front end's own table contradicted,
+undetected for as long as the file existed; it has since been deleted rather than fixed.
+Comparing two `PublishedSurface`s is its own design and is **not** in this plan.
 
 ### Accessibility: internal-or-better on both sides, filtered at the assembly boundary
 

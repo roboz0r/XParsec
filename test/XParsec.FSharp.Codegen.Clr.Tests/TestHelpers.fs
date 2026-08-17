@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 open System
 open System.Reflection
 open System.Runtime.Loader
+open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
@@ -573,6 +574,13 @@ let runLoadedEntryPoint (asm: Assembly) : int * string =
 let runEntryPoint (bytes: byte[]) : int * string =
     runLoadedEntryPoint (loadAssembly bytes)
 
+/// The emitted PE binds no `FSharp.Core`, asserted on its `AssemblyRef` table — the
+/// artefact itself, not a use-set the emitter maintains alongside it.
+let expectNoFSharpCore (artifact: ClrArtifact) (context: string) : unit =
+    Expect.isFalse
+        (List.contains "FSharp.Core" artifact.ReferencedAssemblies)
+        (sprintf "%s: no FSharp.Core AssemblyRef (refs: %A)" context artifact.ReferencedAssemblies)
+
 // ---- ALC-separable `Vesper.Printf` (choose the runtime handler) --------------
 // A driver PE loads into a collectible ALC whose `Load` returns a CHOSEN `Vesper.Printf`;
 // everything else falls to Default, so driver and handler meet on ONE `Vesper.Core`.
@@ -1056,8 +1064,8 @@ let failsWithOption (fragment: string) (src: string) : unit =
 // ---- Vesper.Result wrappers --------------------------------------------------
 
 /// Compile a `Vesper.Result` consumer and return the `ClrArtifact` without running it,
-/// for `FSharpCoreDependencies` assertions, e.g. that a `%A` of an external Vesper union
-/// keeps the use-set clear of `PrintfModule.PrintFormatLine`.
+/// for `expectNoFSharpCore` assertions, e.g. that a `%A` of an external Vesper union
+/// lowers on the structural engine.
 let compileResultArtifact (src: string) : ClrArtifact = compilePackages [ "Vesper.Result" ] src
 
 /// Vesper.Result — the result type + `Result` module (counterpart of `runsOption`).

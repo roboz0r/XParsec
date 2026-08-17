@@ -136,7 +136,7 @@ module internal ElaborateStrings =
         match e with
         | Expr.String(parts = parts) ->
             match Unification.zonk ctx.Store ty with
-            | TyClass(key, _) when RuntimeNames.isPrintfFormatKey key ->
+            | TyClass(key, _) when key = RuntimeNames.printfFormatKey ->
                 // A format literal at a printf call site denotes `new PrintfFormat<…>(text)`.
                 TExpr.New(
                     PrintfSpec.printfFormatName,

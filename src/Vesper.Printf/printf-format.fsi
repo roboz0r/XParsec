@@ -16,13 +16,5 @@ type PrintfFormat<'Printer, 'State, 'Residue, 'Result> =
     /// The original format string.
     member Value: string
 
-/// <summary>Type of a parsed format string, carrying the captured argument
-/// tuple type as a fifth parameter.</summary>
-type PrintfFormat<'Printer, 'State, 'Residue, 'Result, 'Tuple> =
-    inherit PrintfFormat<'Printer, 'State, 'Residue, 'Result>
-
-    /// Construct a format object from its source string.
-    new: value: string -> PrintfFormat<'Printer, 'State, 'Residue, 'Result, 'Tuple>
-
 /// <summary>Abbreviation for <see cref="T:Vesper.PrintfFormat`4"/>.</summary>
 type Format<'Printer, 'State, 'Residue, 'Result> = PrintfFormat<'Printer, 'State, 'Residue, 'Result>

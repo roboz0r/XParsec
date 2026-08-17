@@ -70,9 +70,7 @@ let tests =
             test "bitwise ops pin no FSharp.Core dependency (no runtime library)" {
                 let _, artifact = compileSource "BitwiseNoDep" "printfn \"%d\" (13 &&& 11 ||| 4)"
 
-                Expect.isEmpty
-                    artifact.FSharpCoreDependencies
-                    (sprintf "primitive bitwise pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+                expectNoFSharpCore artifact "primitive bitwise"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"

@@ -98,14 +98,6 @@ type internal ClrEnv
                 need
                 simpleName
 
-    let fsCoreRef =
-        lazy
-            (toEntity (
-                ctx.AssemblyRef(
-                    refOrHost "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.GetName())
-                )
-            ))
-
     // The BCL identity every emitted assembly needs, sourced from the referenced `System.Runtime`
     // ref pack so the `AssemblyRef` is the REFERENCE identity, not the host
     // `System.Private.CoreLib`, to which the ref assembly type-forwards at run time.
@@ -156,10 +148,7 @@ type internal ClrEnv
     let typeRefOfKey (scope: EntityHandle) (key: TypeKey) : EntityHandle =
         toEntity (ctx.TypeRef(scope, key.Namespace.Dotted, SymbolKeyOps.typeSegmentName key))
 
-    let ePrintfFormat4 =
-        lazy (typeRefOfKey fsCoreRef.Value RuntimeNames.printfFormatKey)
-
-    // The function interfaces and the `%A` sinks live in `Vesper.Core`, not FSharp.Core.
+    // The function interfaces and the `%A` sinks live in `Vesper.Core`.
     let vesperCoreRef =
         lazy (toEntity (ctx.AssemblyRef(refRequired "Vesper.Core" "a function value needs Vesper.Fun")))
 
@@ -324,11 +313,6 @@ type internal ClrEnv
                  )
 
              toEntity (ctx.MemberRef(eHashCode.Value, "ToHashCode", s)))
-
-    /// Each distinct FSharp.Core construct the emission references, so a build can tell
-    /// *positively* whether the PE depends on `FSharp.Core.dll`, and what pins it.
-    let fsharpCoreDeps = HashSet<string>()
-    let markFSharpCoreDep (construct: string) : unit = fsharpCoreDeps.Add construct |> ignore
 
     /// User types emitted into *this* assembly, by their nominal `TypeKey` →
     /// predicted `TypeDefinition` handle, so a field / factory / local signature
@@ -526,7 +510,6 @@ type internal ClrEnv
     member _.ConsoleRef = consoleRef
     member _.EValueTuple = eValueTuple
     member _.EValueTupleN arity = eValueTupleN arity
-    member _.EPrintfFormat4 = ePrintfFormat4
     member _.EFun2() = eFun2 ()
     member _.FlatFunEntity(genericArity: int) = flatFunEntity genericArity
     member _.VesperListRef = vesperListRef
@@ -564,11 +547,6 @@ type internal ClrEnv
     member _.GenericRecords = genericRecords
     member _.GenericClasses = genericClasses
     member _.GenericClosures = genericClosures
-
-    member _.MarkFSharpCoreDep construct = markFSharpCoreDep construct
-
-    member _.FSharpCoreDependencies() =
-        fsharpCoreDeps |> List.ofSeq |> List.sort
 
     member _.ClosureTyparScope
         with get () = closureTyparScope
