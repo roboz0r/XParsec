@@ -177,11 +177,17 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
-    /// `constructor(<params>) { … }`; `prologue` prints first, namely a union subclass's `super(3);`.
-    and private ctorDecl (ctor: JsCtor) (prologue: Doc list) : Doc =
+    /// `constructor(<params>) { [super(…);] … }` — the `super` call leads, as JS requires of a
+    /// derived constructor.
+    and private ctorDecl (ctor: JsCtor) : Doc =
+        let super =
+            match ctor.Super with
+            | Some args -> [ text "super(" ++ commaList (List.map expr args) ++ text ");" ]
+            | None -> []
+
         memberDecl
             (text "constructor(" ++ commaList (List.map text ctor.Params) ++ text ")")
-            (prologue @ [ for s in ctor.Body -> statement s ])
+            (super @ [ for s in ctor.Body -> statement s ])
 
     /// `[export ]class Name [extends Base] { member… }`.
     and private classDecl (export: bool) (name: string) (extends: string option) (members: Doc list) : Doc =
@@ -277,8 +283,8 @@ module JsPrint =
         | JsStatement.Yield e -> text "yield " ++ expr e ++ text ";"
         | JsStatement.TryFinally(tryBody, finallyBody) ->
             text "try " ++ block tryBody ++ text " finally " ++ block finallyBody
-        | JsStatement.Class(name, ctor, methods, export) ->
-            classDecl export name None (ctorDecl ctor [] :: [ for m in methods -> methodDecl m ])
+        | JsStatement.Class(name, extends, ctor, methods, export) ->
+            classDecl export name extends (ctorDecl ctor :: [ for m in methods -> methodDecl m ])
         | JsStatement.Union(baseName, brand, cases, baseMethods, export) ->
             let baseClass =
                 classDecl
@@ -286,7 +292,7 @@ module JsPrint =
                     baseName
                     None
                     [
-                        yield ctorDecl (JsCtor.positional [ "tag" ] []) []
+                        yield ctorDecl (JsCtor.positional [ "tag" ] [])
                         // `get $type() { return "Mod.U"; }` — a prototype getter, so absent from
                         // own-keys; the structural runtime's equality and comparison read it.
                         yield memberDecl (text "get $type()") [ text (sprintf "return %s;" (JsEscape.quoted brand)) ]
@@ -309,7 +315,10 @@ module JsPrint =
                     c.ClassName
                     (Some baseName)
                     [
-                        ctorDecl (JsCtor.positional c.Fields []) [ text (sprintf "super(%d);" c.Tag) ]
+                        ctorDecl
+                            { JsCtor.positional c.Fields [] with
+                                Super = Some [ JsExpr.Literal(JsLiteral.Number(string c.Tag), ValueNone) ]
+                            }
                     ]
 
             cat (baseClass :: [ for c in cases -> Line ++ subclass c ])

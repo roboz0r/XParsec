@@ -52,7 +52,7 @@ let private paletteProvider: IExternalSymbolProvider = paletteContract.Provider
 /// Emit through the `palette` provider with a stub runtime module, so the enum-object
 /// import resolves (the synthetic package ships no runtime asset of its own).
 let private emitWithPalette (input: string) : string =
-    emitWith paletteContract (Map.ofList [ "palette", JsRuntimeModule.ofSource "palette.mjs" "" ]) false input
+    emitWith paletteContract (Map.ofList [ "palette", JsPackageOutput.rootModule "palette.mjs" "" ]) false input
 
 [<Tests>]
 let tests =

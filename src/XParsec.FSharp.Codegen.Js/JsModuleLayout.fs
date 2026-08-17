@@ -13,10 +13,27 @@ type JsModulePath =
 
 module JsModulePath =
 
-    /// A committed runtime ASSET: copied to the output ROOT, one per package.
-    let asset (fileName: string) : JsModulePath =
+    [<Literal>]
+    let BarrelFileName = "index.mjs"
+
+    /// A file at the output ROOT, which is where a compiled PROGRAM lands.
+    let atRoot (fileName: string) : JsModulePath =
         {
             Package = ValueNone
+            FileName = fileName
+        }
+
+    /// The barrel a consumer enters `package` by, re-exporting everything the package ships.
+    let barrel (package: string) : JsModulePath =
+        {
+            Package = ValueSome package
+            FileName = BarrelFileName
+        }
+
+    /// A committed runtime file of `package`, shipped inside that package's own directory.
+    let asset (package: string) (fileName: string) : JsModulePath =
+        {
+            Package = ValueSome package
             FileName = fileName
         }
 
@@ -37,23 +54,28 @@ module JsModulePath =
             FileName = baseName relative + ".mjs"
         }
 
-    /// The module a specifier written FROM THE OUTPUT ROOT names: `./f.mjs` is a root asset,
-    /// `./pkg/f.mjs` a module in `pkg`. The inverse of `specifierFrom ValueNone`, so it is
-    /// `ValueNone` for anything that inverse never produces: a bare specifier (a node builtin
-    /// or an npm package, the host's to resolve) or a `../` escape above the root.
-    let tryOfRootSpecifier (specifier: string) : JsModulePath voption =
-        if not (specifier.StartsWith("./", System.StringComparison.Ordinal)) then
-            ValueNone
-        else
-            match (specifier.Substring 2).Split '/' with
-            | [| file |] -> ValueSome(asset file)
-            | [| package; file |] ->
-                ValueSome
-                    {
-                        Package = ValueSome package
-                        FileName = file
-                    }
+    /// The module a specifier written FROM `fromPackage` names — the inverse of `specifierFrom`,
+    /// so it is `ValueNone` for anything that inverse never produces: a bare specifier (a node
+    /// builtin or an npm package, the host's to resolve) or a `../` escape above the root.
+    let tryOfSpecifier (fromPackage: string voption) (specifier: string) : JsModulePath voption =
+        let named (segments: string[]) : JsModulePath voption =
+            match segments with
+            | [| file |] -> ValueSome(atRoot file)
+            | [| package; file |] -> ValueSome(asset package file)
             | _ -> ValueNone
+
+        if specifier.StartsWith("../", System.StringComparison.Ordinal) then
+            // Only a module INSIDE a package has a `..` to climb, and it climbs to the root.
+            match fromPackage with
+            | ValueSome _ -> named ((specifier.Substring 3).Split '/')
+            | ValueNone -> ValueNone
+        elif specifier.StartsWith("./", System.StringComparison.Ordinal) then
+            match fromPackage, (specifier.Substring 2).Split '/' with
+            | ValueSome p, [| file |] -> ValueSome(asset p file)
+            | ValueNone, segments -> named segments
+            | ValueSome _, _ -> ValueNone
+        else
+            ValueNone
 
     /// The specifier a module in `fromPackage` (`ValueNone` = the output root) names
     /// `target` by: `./f.mjs` within one package, `../pkg/f.mjs` across packages,
@@ -69,28 +91,40 @@ module JsModulePath =
         | ValueSome p -> toRoot + p + "/" + target.FileName
         | ValueNone -> toRoot + target.FileName
 
-/// The home of something this build IMPORTS: an assembly, refined to a declaring source
-/// file where the producer knew one.
+/// WHICH module of its home assembly something is imported from.
+[<RequireQualifiedAccess>]
+type JsHomeWhere =
+    /// The declaring source file's own module, inside the package's output directory.
+    | InFile of file: OriginPath
+    /// The package as a whole, a consumer resolving a dependency knowing only which one
+    /// declared the symbol.
+    | Package
+    /// A committed file of the package's output, which no source file declares: the
+    /// structural runtime, the format runtime.
+    | RuntimeAsset
+
+/// The home of something this build IMPORTS.
 [<Struct>]
 type JsHome =
-    {
-        Assembly: string
-        /// `ValueNone` wherever the producer knew only the assembly: a contract
-        /// view, a TS manifest, a codegen-synthesised runtime entry.
-        DeclaringFile: OriginPath voption
-    }
+    { Assembly: string; Where: JsHomeWhere }
 
 module JsHome =
 
     /// The backend home a provider `Origin` names. `ValueNone` for one carrying no assembly.
     let tryOfOrigin (home: Origin) : JsHome voption =
-        match home.AssemblyOption with
-        | ValueNone -> ValueNone
-        | ValueSome assembly ->
+        match home with
+        | Origin.Unstamped -> ValueNone
+        | Origin.InAssembly a ->
             ValueSome
                 {
-                    Assembly = assembly
-                    DeclaringFile = home.DeclaringFile
+                    Assembly = a.Name
+                    Where = JsHomeWhere.Package
+                }
+        | Origin.InFile f ->
+            ValueSome
+                {
+                    Assembly = f.BucketName
+                    Where = JsHomeWhere.InFile f
                 }
 
     /// The home an `Origin` names; fails when it carries no assembly, quoting `what`.
@@ -99,10 +133,61 @@ module JsHome =
         | ValueSome h -> h
         | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what
 
-    /// A whole package's home, carrying no declaring file, so it resolves to the package's
-    /// committed asset rather than to a per-file module.
+    /// The home of a runtime entry the BACKEND synthesises: no source file declares it, so it
+    /// resolves to a committed file of the package's output rather than to a compiled module.
     let ofAssembly (assembly: string) : JsHome =
         {
             Assembly = assembly
-            DeclaringFile = ValueNone
+            Where = JsHomeWhere.RuntimeAsset
         }
+
+/// WHICH JS class a nominal type is, and how the module being emitted reaches it. Every
+/// answer is an identifier in that module's scope, but they are bought differently, and only
+/// `Imported` costs an import.
+[<RequireQualifiedAccess>]
+type JsClassRef =
+    /// A class this module emits, named directly.
+    | Local of name: string
+    /// A class the runtime provides — `Error`, a `[<Global>]` type — named bare.
+    | Global of name: string
+    /// A class another package emits, imported from its home module.
+    | Imported of home: JsHome * name: string
+
+module JsClassRef =
+
+    /// A nominal whose home says where it lives: `ValueNone` is this module's own.
+    let ofHome (home: JsHome voption) (name: string) : JsClassRef =
+        match home with
+        | ValueSome h -> JsClassRef.Imported(h, name)
+        | ValueNone -> JsClassRef.Local name
+
+/// A class's `inherit` chain as JS lowers it: the immediate base first, each further base
+/// after it, ending at the runtime class the chain bottoms out in. NON-EMPTY by construction,
+/// so holding one is the proof that an `extends` clause is emittable.
+type JsPrototypeChain = private { Bases: JsClassRef list }
+
+module JsPrototypeChain =
+
+    /// `ValueNone` for the empty walk, which is exactly the chain with nothing to extend.
+    let tryOfBases (bases: JsClassRef list) : JsPrototypeChain voption =
+        match bases with
+        | [] -> ValueNone
+        | _ -> ValueSome { Bases = bases }
+
+    /// The class an emitted declaration writes in its `extends` clause.
+    let extends (chain: JsPrototypeChain) : JsClassRef = List.head chain.Bases
+
+/// What walking a class's `inherit` clause found — the ONE answer both the emit filter and
+/// the `extends` clause read, so they cannot disagree about a base.
+[<RequireQualifiedAccess>]
+type JsBaseVerdict =
+    /// No `inherit` clause: the class stands alone.
+    | Standalone
+    /// The chain bottoms out in a runtime class, which the emitted declaration extends.
+    | Extends of JsPrototypeChain
+    /// The chain reaches a representation naming nothing at runtime (`"!Vesper.Attribute"`).
+    /// There is no class to extend and nothing constructs one, so the declaration is dropped.
+    | Erased
+    /// The chain reaches neither: an ordinary hierarchy, whose members lower to free functions
+    /// that no prototype chain would dispatch. Rejected rather than mis-run.
+    | Unsupported

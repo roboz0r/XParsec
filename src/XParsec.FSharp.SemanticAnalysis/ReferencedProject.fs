@@ -342,23 +342,26 @@ module ReferencedProject =
             Ok(ordered, lookup)
 
     /// The `[core] runtime` assets of an already-closed manifest set, read off disk, keyed by
-    /// package name. One per package: the first listed.
-    let runtimeModules (manifests: Manifest list) : Map<string, RuntimeAsset> =
+    /// package name. In manifest order, and the FIRST is the package's runtime entry: the file
+    /// a backend-synthesised import (a structural helper, a format helper) resolves to.
+    let runtimeModules (manifests: Manifest list) : Map<string, RuntimeAsset list> =
         let mutable acc = Map.empty
 
         for manifest in manifests do
-            match manifest.Runtime with
-            | rel :: _ ->
-                let abs = Path.Combine(manifest.Dir, rel)
+            let assets =
+                [
+                    for rel in manifest.Runtime do
+                        let abs = Path.Combine(manifest.Dir, rel)
 
-                if File.Exists abs then
-                    let asset =
-                        {
-                            FileName = Path.GetFileName rel
-                            Source = File.ReadAllText abs
-                        }
+                        if File.Exists abs then
+                            {
+                                FileName = Path.GetFileName rel
+                                Source = File.ReadAllText abs
+                            }
+                ]
 
-                    acc <- Map.add manifest.Name asset acc
+            match assets with
             | [] -> ()
+            | _ -> acc <- Map.add manifest.Name assets acc
 
         acc

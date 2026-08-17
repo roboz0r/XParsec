@@ -26,7 +26,7 @@ let tests =
             test "a cons-list literal imports the case classes and nests Cons ending in Empty" {
                 Expect.equal
                     (emitJs "let xs = [1; 2; 3]")
-                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty } from \"./Vesper.List.mjs\";\n"
+                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty } from \"./Vesper.List/index.mjs\";\n"
                      + "const xs = new $Vesper_List_List_Cons(1, new $Vesper_List_List_Cons(2, new $Vesper_List_List_Cons(3, new $Vesper_List_List_Empty())));\n")
                     "external cons-list union → import Cons/Empty from the home module (no local re-emit); literal → nested Cons ending in Empty"
             }
@@ -102,7 +102,7 @@ let tests =
             test "List.length imports the runtime function AND the case classes it constructs" {
                 Expect.equal
                     (emitJs "let n = List.length [1; 2; 3]")
-                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty, length as $Vesper_Collections_ListModule_length } from \"./Vesper.List.mjs\";\n"
+                    ("import { List_Cons as $Vesper_List_List_Cons, List_Empty as $Vesper_List_List_Empty, length as $Vesper_Collections_ListModule_length } from \"./Vesper.List/index.mjs\";\n"
                      + "const n = $Vesper_Collections_ListModule_length(new $Vesper_List_List_Cons(1, new $Vesper_List_List_Cons(2, new $Vesper_List_List_Cons(3, new $Vesper_List_List_Empty()))));\n")
                     "one import merges the function and the case classes; the `new` sites reference the imported class aliases (no local re-emit)"
             }
@@ -216,7 +216,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { fold, length, head, map, filter, rev, isEmpty, append } from \"./Vesper.List.mjs\";"
+                            "import { fold, length, head, map, filter, rev, isEmpty, append } from \"./Vesper.List/index.mjs\";"
                             // Plain {tag,Head,Tail} cells stand in for List_Cons, nothing testing instanceof.
                             "const cons = (h, t) => ({ tag: 1, Head: h, Tail: t });"
                             "const empty = { tag: 0 };"
@@ -235,7 +235,12 @@ let tests =
                             "try { head(empty); console.log(\"NO_THROW\"); } catch (e) { console.log(e.message); }"
                         ]
 
-                match runNodeFiles "list-module-node" [ "driver.mjs", driver; "Vesper.List.mjs", generated.Value ] with
+                match
+                    runNodeFiles
+                        "list-module-node"
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.List" [ "Vesper.List.mjs", generated.Value ])
+                with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "driver exited non-zero: %s" out)
@@ -264,7 +269,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { List_Cons, List_Empty, ListEnumerator, List__get_Length, List__get_IsEmpty, List__get_Head, List__get_Tail, ofSeq, toSeq, length, head } from \"./Vesper.List.mjs\";"
+                            "import { List_Cons, List_Empty, ListEnumerator, List__get_Length, List__get_IsEmpty, List__get_Head, List__get_Tail, ofSeq, toSeq, length, head } from \"./Vesper.List/index.mjs\";"
                             "const xs = new List_Cons(1, new List_Cons(2, new List_Cons(3, new List_Empty())));"
                             "console.log(List__get_Length(xs));"
                             "console.log(List__get_IsEmpty(xs), List__get_IsEmpty(new List_Empty()));"
@@ -279,7 +284,12 @@ let tests =
                             "console.log(length(ofSeq([4, 5, 6])), head(ofSeq([4, 5, 6])));"
                         ]
 
-                match runNodeFiles "list-members-node" [ "driver.mjs", driver; "Vesper.List.mjs", generated.Value ] with
+                match
+                    runNodeFiles
+                        "list-members-node"
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.List" [ "Vesper.List.mjs", generated.Value ])
+                with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "driver exited non-zero: %s" out)

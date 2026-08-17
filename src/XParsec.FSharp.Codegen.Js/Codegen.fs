@@ -73,8 +73,7 @@ module Codegen =
     /// is the anchor domain those nodes index. Mixed from two contracts, a served body's file has
     /// no retained source and emission throws rather than reporting a plausible wrong position.
     let compileWith (contract: SymbolProviders.Contract) (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
-        let runtimeAssets =
-            contract.RuntimeAssets |> Map.map (fun _ -> JsRuntimeModule.ofAsset)
+        let runtimeAssets = contract.RuntimeAssets |> Map.map JsPackageOutput.ofAssets
 
         // A node's anchor is an index into the token table, so a position needs `src.Lexed`, the
         // very table the anchors were numbered against, not just the line starts.
@@ -165,7 +164,13 @@ module Codegen =
 
     let materialiseAssets (root: string) (assets: JsRuntimeModule list) : unit =
         for rt in assets do
-            System.IO.File.WriteAllText(System.IO.Path.Combine(root, rt.FileName), rt.Source)
+            let dir =
+                match rt.Path.Package with
+                | ValueSome package -> System.IO.Path.Combine(root, package)
+                | ValueNone -> root
+
+            System.IO.Directory.CreateDirectory dir |> ignore
+            System.IO.File.WriteAllText(System.IO.Path.Combine(dir, rt.Path.FileName), rt.Source)
 
     /// Assets land in `OutputPath`'s own directory, which for a program IS the output root
     /// every emitted specifier resolves from.

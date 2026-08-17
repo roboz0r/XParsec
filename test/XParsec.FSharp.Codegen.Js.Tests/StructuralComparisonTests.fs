@@ -13,7 +13,7 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "import { structuralCompare as $Vesper_ComparisonRuntime_structuralCompare } from \"./Vesper.Comparison.mjs\";"
+                    "import { structuralCompare as $Vesper_ComparisonRuntime_structuralCompare } from \"./Vesper.Comparison/index.mjs\";"
                     "the ordering base imports `structuralCompare`, `$`-aliased like any external value"
 
                 Expect.stringContains

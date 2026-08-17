@@ -58,7 +58,11 @@ let private analyseErrors (input: string) : string list =
     analyseWith echoProvider input |> List.map (fun d -> d.Message)
 
 let private emitWithEcho (input: string) : string =
-    emitWith echoContract (Map.ofList [ "boxlib", JsRuntimeModule.ofSource "boxlib.mjs" echoRuntimeSource ]) false input
+    emitWith
+        echoContract
+        (Map.ofList [ "boxlib", JsPackageOutput.rootModule "boxlib.mjs" echoRuntimeSource ])
+        false
+        input
 
 [<Tests>]
 let tests =

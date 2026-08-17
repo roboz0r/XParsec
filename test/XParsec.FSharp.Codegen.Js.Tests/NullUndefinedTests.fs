@@ -72,7 +72,7 @@ let private program =
 let private emitWithNull (input: string) : string =
     emitWith
         nullContract
-        (Map.ofList [ "nulllib", JsRuntimeModule.ofSource "nulllib.mjs" nullRuntimeSource ])
+        (Map.ofList [ "nulllib", JsPackageOutput.rootModule "nulllib.mjs" nullRuntimeSource ])
         false
         input
 

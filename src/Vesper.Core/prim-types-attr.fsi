@@ -7,4 +7,7 @@ namespace Vesper
 ///
 /// <category>Basic Types</category>
 [<AbstractClass>]
-type Attribute = extern class
+type Attribute = extern class with
+
+    /// <summary>Creates the base an attribute inherits.</summary>
+    new: unit -> Attribute

@@ -50,7 +50,7 @@ let private utilContract =
 /// Emit `input` through the `util` contract. The stub `util.mjs` stands in for a runtime
 /// asset the synthetic package does not have, without which the import throws.
 let private emitWithUtil (input: string) : string =
-    emitWith utilContract (Map.ofList [ "util", JsRuntimeModule.ofSource "util.mjs" "" ]) false input
+    emitWith utilContract (Map.ofList [ "util", JsPackageOutput.rootModule "util.mjs" "" ]) false input
 
 [<Tests>]
 let tests =

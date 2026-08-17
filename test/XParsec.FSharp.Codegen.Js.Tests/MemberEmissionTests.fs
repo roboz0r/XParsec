@@ -62,7 +62,7 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "import { Option__get_IsSome as $Option__get_IsSome } from \"./Vesper.Option.mjs\""
+                    "import { Option__get_IsSome as $Option__get_IsSome } from \"./Vesper.Option/index.mjs\""
                     "the consumer imports the mangled member export under its `$`-aliased name"
 
                 Expect.stringContains src "$Option__get_IsSome(o)" "and applies it to the object argument"

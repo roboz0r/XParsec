@@ -289,7 +289,7 @@ let tests =
                 expectShimAbbrev "System.IComparable`1" "Vesper.comparable`1"
             }
 
-            test "JS build: EVERY capability is canon-only; a BCL spelling is not a name" {
+            test "JS build: no capability keys by a BCL spelling; seq/enumerator key by a sentinel" {
                 // A BCL spelling reaches JS only through the compat shim above, which is an
                 // `Abbrev` that expands at the use. So no capability keys by one, and nothing
                 // downstream may tag a JS type with one.
@@ -301,30 +301,48 @@ let tests =
                 let matchesSpelling (id: RuntimeNames.CapabilityIdentity) (compiled: string) =
                     id.Matches(SymbolKeyOps.qualifiedTypeKeyOf compiled 0)
 
-                let expectCanonOnly
+                let expectMatches
                     (name: string)
                     (cap: RuntimeNames.CapabilityIdentity voption)
                     (bcl: string)
                     (canon: string)
-                    =
+                    : RuntimeNames.CapabilityIdentity =
                     match cap with
                     | ValueSome id ->
-                        Expect.equal id.CanonKey ValueNone (sprintf "%s is canon-only on JS" name)
                         Expect.isTrue (matchesSpelling id canon) (sprintf "%s matches its canonical key %s" name canon)
                         Expect.isFalse (matchesSpelling id bcl) (sprintf "%s's BCL spelling %s is not a name" name bcl)
+                        id
                     | ValueNone -> failtestf "%s resolved to ValueNone on JS" name
 
-                expectCanonOnly
+                let expectCanonOnly name cap bcl canon =
+                    let id = expectMatches name cap bcl canon
+                    Expect.equal id.CanonKey ValueNone (sprintf "%s is canon-only on JS" name)
+
+                // `capabilities.js.fs` binds a `!`-prefixed repr, so the anchor keys by that
+                // sentinel WITH the canon beside it — a spelling no JS global can collide with.
+                let expectSentinel name cap bcl canon sentinel =
+                    let id = expectMatches name cap bcl canon
+
+                    Expect.equal
+                        id.CanonKey
+                        (ValueSome(SymbolKeyOps.qualifiedTypeKeyOf canon 0))
+                        (sprintf "%s carries its canon beside the platform key" name)
+
+                    Expect.isTrue (matchesSpelling id sentinel) (sprintf "%s keys by the sentinel %s" name sentinel)
+
+                expectSentinel
                     "Enumerable"
                     caps.Enumerable
                     "System.Collections.Generic.IEnumerable`1"
                     "Vesper.Collections.seq`1"
+                    "!Vesper.Collections.seq"
 
-                expectCanonOnly
+                expectSentinel
                     "Enumerator"
                     caps.Enumerator
                     "System.Collections.Generic.IEnumerator`1"
                     "Vesper.Collections.enumerator`1"
+                    "!Vesper.Collections.enumerator"
 
                 expectCanonOnly "Disposable" caps.Disposable "System.IDisposable" "Vesper.disposable"
                 expectCanonOnly "Equatable" caps.Equatable "System.IEquatable`1" "Vesper.equatable`1"
@@ -721,25 +739,36 @@ let tests =
                             "ANOTHER target's suffix is part of the key"
                     }
 
-                    // The asset's contents, read off disk and keyed by package name — what the
-                    // JS backend imports and materialises beside its output.
+                    // The asset contents, read off disk and keyed by package name — what the JS
+                    // backend imports and materialises into the package's own directory. Every
+                    // listed file is read, in manifest order: a package ships as many as it names.
                     test "runtimeModules reads the asset contents keyed by package name" {
                         let dir = Path.Combine(tmpSrc, "RuntimeAsset")
                         Directory.CreateDirectory dir |> ignore
                         File.WriteAllText(Path.Combine(dir, "asset.mjs"), "export const k = 1;\n")
+                        File.WriteAllText(Path.Combine(dir, "extra.mjs"), "export const j = 2;\n")
 
                         let jsPath =
-                            writeManifestFor "js" "RuntimeAsset" "[core]\nfiles = []\nruntime = [\"asset.mjs\"]\n"
+                            writeManifestFor
+                                "js"
+                                "RuntimeAsset"
+                                "[core]\nfiles = []\nruntime = [\"asset.mjs\", \"extra.mjs\"]\n"
 
                         Expect.equal
                             (ReferencedProject.runtimeModules [ loadOrFail jsPath ]
                              |> Map.tryFind "RuntimeAsset")
                             (Some
-                                {
-                                    FileName = "asset.mjs"
-                                    Source = "export const k = 1;\n"
-                                })
-                            "package RuntimeAsset → its asset read from disk"
+                                [
+                                    {
+                                        FileName = "asset.mjs"
+                                        Source = "export const k = 1;\n"
+                                    }
+                                    {
+                                        FileName = "extra.mjs"
+                                        Source = "export const j = 2;\n"
+                                    }
+                                ])
+                            "package RuntimeAsset → its assets read from disk, in manifest order"
 
                         let clrPath = writeManifestFor "clr" "RuntimeAsset" "[core]\nfiles = []\n"
 
@@ -938,21 +967,12 @@ let tests =
                                     ClrOnly = [ "fun-adapters.fsi" ]
                                     JsOnly = []
                                 |}
-                                // `fun-adapters` follows its `.fsi` above; the attribute types
-                                // are fully erased on JS, so they get a body on CLR alone.
+                                // `fun-adapters` follows its `.fsi` above.
                                 {|
                                     Package = "Vesper.Core"
                                     List = "impl"
-                                    ClrOnly = [ "compiler-attributes.fs"; "fun-adapters.fs" ]
+                                    ClrOnly = [ "fun-adapters.fs" ]
                                     JsOnly = []
-                                |}
-                                // The same erasure, stated on the JS side: bodiless there, so it
-                                // must be exempted from the pairing rule there.
-                                {|
-                                    Package = "Vesper.Core"
-                                    List = "sig-only"
-                                    ClrOnly = []
-                                    JsOnly = [ "compiler-attributes.fsi" ]
                                 |}
                                 // The CLR `%A` engine builds its `Doc` child lists on the
                                 // cons-list; the JS one is a free function over its own frames.

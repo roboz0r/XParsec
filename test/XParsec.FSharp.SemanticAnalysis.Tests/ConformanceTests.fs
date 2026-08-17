@@ -556,14 +556,11 @@ let jsPackageConformanceTests =
             }
 
             test "every target-ASYMMETRIC `sig-only` entry is pinned, not an open list" {
-                // Erasure is the axis content cannot decide: `compiler-attributes.fsi`'s
-                // compile-time markers owe the CLR TypeDefs but owe JS nothing, and
-                // `exceptions.js.fsi` declares BCL names the CLR resolves through the metadata
-                // reader instead. An entry every target of the package carries is a property of
-                // the contract; one only a single target carries is the claim this list exists
-                // to make argue for itself.
-                let expected =
-                    [ "Vesper.Core", "js", [ "compiler-attributes.fsi"; "exceptions.js.fsi" ] ]
+                // EMPTY: an entry every target of the package carries is a property of the
+                // contract; one only a single target carries claims the targets diverge, and
+                // no such claim survives. `printf.fsi` / `printf-format.fsi` are exempt on
+                // BOTH targets, so they are symmetric and absent here.
+                let expected: (string * string * string list) list = []
 
                 // `None` is "does not build for this target", which is NOT an empty `sig-only`
                 // list: a package that builds for one target has no divergence to report.

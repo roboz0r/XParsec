@@ -40,7 +40,7 @@ let private sourceOf (pkg: JsPackage) (fileName: string) : string =
 let private expectImportsResolvable (pkg: JsPackage) =
     let written =
         (pkg.Modules |> List.map (fun m -> m.Path))
-        @ (pkg.RuntimeAssets |> List.map (fun a -> JsModulePath.asset a.FileName))
+        @ (pkg.RuntimeAssets |> List.map (fun a -> a.Path))
         |> Set.ofList
 
     for m in pkg.Modules do

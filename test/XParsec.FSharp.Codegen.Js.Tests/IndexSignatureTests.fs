@@ -91,7 +91,7 @@ let private analyseErrors (input: string) : string list =
 /// Emit through the `ixlib` provider with a stub runtime module, so the variable and
 /// function imports resolve (the synthetic package has no `.toml` asset).
 let private emitIx (input: string) : string =
-    emitWith contract (Map.ofList [ "ixlib", JsRuntimeModule.ofSource "ixlib.mjs" "" ]) false input
+    emitWith contract (Map.ofList [ "ixlib", JsPackageOutput.rootModule "ixlib.mjs" "" ]) false input
 
 [<Tests>]
 let tests =

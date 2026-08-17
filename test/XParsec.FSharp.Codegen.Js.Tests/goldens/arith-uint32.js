@@ -1,4 +1,4 @@
-import { checkedDivisor as $Vesper_ArithmeticRuntime_checkedDivisor } from "./Vesper.Core.mjs";
+import { checkedDivisor as $Vesper_ArithmeticRuntime_checkedDivisor } from "./Vesper.Core/index.mjs";
 console.log(((((((4000000000) + (1)) >>> 0)) | 0) >>> 0).toString());
 console.log(((((((4000000000) + (1000000000)) >>> 0)) | 0) >>> 0).toString());
 console.log(((((((0) - (1)) >>> 0)) | 0) >>> 0).toString());

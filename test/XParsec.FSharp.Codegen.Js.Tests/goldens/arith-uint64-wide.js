@@ -1,4 +1,4 @@
-import { checkedDivisor as $Vesper_ArithmeticRuntime_checkedDivisor } from "./Vesper.Core.mjs";
+import { checkedDivisor as $Vesper_ArithmeticRuntime_checkedDivisor } from "./Vesper.Core/index.mjs";
 console.log(String((BigInt.asUintN(64, (10000000000n) + (1n)))));
 console.log(String((BigInt.asUintN(64, (10000000000n) - (1n)))));
 console.log(String((BigInt.asUintN(64, (10000000000n) * (3n)))));

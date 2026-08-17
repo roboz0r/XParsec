@@ -66,7 +66,7 @@ let private busRuntime =
         ]
 
 let private emitBus (input: string) : string =
-    emitWith busContract (Map.ofList [ "buslib", JsRuntimeModule.ofSource "buslib.mjs" busRuntime ]) true input
+    emitWith busContract (Map.ofList [ "buslib", JsPackageOutput.rootModule "buslib.mjs" busRuntime ]) true input
 
 let private resultHarness =
     "import { result } from \"./bus-program.mjs\";\nconsole.log(result);\n"

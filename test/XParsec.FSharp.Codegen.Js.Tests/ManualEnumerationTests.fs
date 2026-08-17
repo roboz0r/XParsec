@@ -66,7 +66,7 @@ let tests =
 
                 Expect.stringContains
                     js
-                    "from \"./Vesper.Core.mjs\""
+                    "from \"./Vesper.Core/Vesper.Core.mjs\""
                     "the adapter is imported from the Vesper.Core runtime module"
 
                 // A type-prefixed `seq__GetEnumerator` import names an export

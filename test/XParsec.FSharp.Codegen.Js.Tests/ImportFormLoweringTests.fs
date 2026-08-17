@@ -33,7 +33,7 @@ let private overloadedFnManifest (pkg: string) (fnName: string) (import: Schema.
 /// Emit through a single-manifest provider with a stub runtime module for `pkg`, so the
 /// erase's import resolves (the synthetic package has no `.toml` asset).
 let private emitOverload (man: Schema.PackageManifest) (fileName: string) (input: string) : string =
-    emitWith (contractTs man) (Map.ofList [ man.Package, JsRuntimeModule.ofSource fileName "" ]) false input
+    emitWith (contractTs man) (Map.ofList [ man.Package, JsPackageOutput.rootModule fileName "" ]) false input
 
 [<Tests>]
 let tests =
@@ -108,7 +108,7 @@ let tests =
                     Map.ofList
                         [
                             "node/fs",
-                            JsRuntimeModule.ofSource "fs.mjs" "export function readFileSync(p) { return p; }\n"
+                            JsPackageOutput.rootModule "fs.mjs" "export function readFileSync(p) { return p; }\n"
                         ]
 
                 let js =

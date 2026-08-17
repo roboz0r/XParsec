@@ -72,7 +72,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { zeroCreate, length, isEmpty, get, set, create, init, copy, append, rev, map, mapi, iter, iteri, fold, foldBack } from \"./Vesper.Array.mjs\";"
+                            "import { zeroCreate, length, isEmpty, get, set, create, init, copy, append, rev, map, mapi, iter, iteri, fold, foldBack } from \"./Vesper.Array/index.mjs\";"
                             // Every slot is a real `null`, not a hole: a sparse array would
                             // report length 3 but skip all three in `join`.
                             "const z = zeroCreate(3);"
@@ -99,7 +99,10 @@ let tests =
                         ]
 
                 match
-                    runNodeFiles "array-module-node" [ "driver.mjs", driver; "Vesper.Array.mjs", generated.Value ]
+                    runNodeFiles
+                        "array-module-node"
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.Array" [ "Vesper.Array.mjs", generated.Value ])
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->
@@ -133,7 +136,7 @@ let tests =
             test "an `Array.map` use site imports the function from Vesper.Array.mjs" {
                 Expect.stringContains
                     (emitJs "let ys = Array.map (fun x -> x * 2) (Array.init 3 (fun i -> i))")
-                    "from \"./Vesper.Array.mjs\""
+                    "from \"./Vesper.Array/index.mjs\""
                     "the module functions come from the runtime asset, not a local re-emit"
             }
         ]

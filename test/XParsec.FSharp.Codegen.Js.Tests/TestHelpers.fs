@@ -280,8 +280,11 @@ let private emitLibrarySource
     (input: string)
     (frozen: FrozenPools)
     : string =
+    // The committed asset ships inside its own package directory, so it is compiled from
+    // there: a dependency's specifier climbs out (`../Vesper.Array/index.mjs`).
     let project =
         { JsProjectInfo.defaults moduleName with
+            Package = ValueSome moduleName
             Source = Some(jsSource sourceFile input)
             Kind = Library
             GeneratedFrom = Some sourceFile
@@ -313,12 +316,24 @@ let compileOwnLibrary
     : string =
     emitLibrarySource contract moduleName sourceFile input (frozenOwnImplJs moduleName contract.Provider input)
 
+/// A package's committed files as a consumer links them: each inside the package's own
+/// directory, behind the `index.mjs` barrel. Built by the production layout, so a driver
+/// written against it names what the emitter emits.
+let packageFiles (package: string) (files: (string * string) list) : (string * string) list =
+    JsPackageOutput.ofAssets package [ for (fileName, source) in files -> { FileName = fileName; Source = source } ]
+    |> JsPackageOutput.modules
+    |> List.map (fun m -> package + "/" + m.Path.FileName, m.Source)
+
 /// Write `files` to a tmp dir and run the first as entry point under Node.
 let runNodeFiles (name: string) (files: (string * string) list) : (int * string) option =
     let dir = tmpDir name
 
+    // A name may carry a package directory (`Vesper.Seq/Vesper.Seq.mjs`), which is the layout
+    // the emitted specifiers resolve against.
     for (fileName, source) in files do
-        IO.File.WriteAllText(IO.Path.Combine(dir, fileName), source)
+        let path = IO.Path.Combine(dir, fileName)
+        IO.Directory.CreateDirectory(IO.Path.GetDirectoryName path) |> ignore
+        IO.File.WriteAllText(path, source)
 
     match files with
     | (entry, _) :: _ ->
@@ -401,7 +416,7 @@ let errorText (ds: Diagnostic list) : string =
 /// selects script (`false`) vs library.
 let private jsEmissionInputs
     (contract: SymbolProviders.Contract)
-    (runtime: Map<string, JsRuntimeModule>)
+    (runtime: Map<string, JsPackageOutput>)
     (exportTopLevel: bool)
     (input: string)
     (frozen: FrozenPools)
@@ -429,7 +444,7 @@ let private jsEmissionInputs
 /// dependency resolves its position against the file it was written in.
 let emitWith
     (contract: SymbolProviders.Contract)
-    (runtime: Map<string, JsRuntimeModule>)
+    (runtime: Map<string, JsPackageOutput>)
     (exportTopLevel: bool)
     (input: string)
     : string =

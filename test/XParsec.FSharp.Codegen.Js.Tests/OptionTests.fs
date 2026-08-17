@@ -25,7 +25,7 @@ let tests =
             test "Some imports the case class from the Option runtime module" {
                 Expect.equal
                     (emitJs "let x = Some 5")
-                    ("import { Option_Some as $Vesper_Option_Option_Some } from \"./Vesper.Option.mjs\";\n"
+                    ("import { Option_Some as $Vesper_Option_Option_Some } from \"./Vesper.Option/index.mjs\";\n"
                      + "const x = new $Vesper_Option_Option_Some(5);\n")
                     "external Option `Some` → import the case class from its home module, then `new` it (no local re-emit)"
             }
@@ -109,9 +109,16 @@ let tests =
                         (sprintf "export const %s = " memberName)
                         (sprintf "exports %s" memberName)
 
-                Expect.stringContains src "new Error(" "Value raises a constructed exception → `new Error`"
+                Expect.stringContains
+                    src
+                    "new $Vesper_Core_InvalidOperationException("
+                    "Value raises the BCL-named class, imported from Core rather than flattened to `Error`"
+
                 Expect.stringContains src "class Option_Some extends Option" "emits the Some subclass"
-                Expect.isFalse (src.Contains "import ") "the Option module imports nothing"
+
+                Expect.isFalse
+                    (src.Contains "import { Option")
+                    "the option type itself rides inline; nothing of the module's own is imported"
             }
 
             test "the committed Vesper.Option.mjs matches the generated source (regenerable)" {
@@ -131,7 +138,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { isSome, isNone, defaultValue, defaultWith, orElse, get, count, fold, exists, forall, map, bind, flatten, filter } from \"./Vesper.Option.mjs\";"
+                            "import { isSome, isNone, defaultValue, defaultWith, orElse, get, count, fold, exists, forall, map, bind, flatten, filter } from \"./Vesper.Option/index.mjs\";"
                             // Plain {tag,Value} consumer cells (never instanceof) are interchangeable with Option_Some.
                             "const some = (x) => ({ tag: 1, Value: x });"
                             "const none = { tag: 0 };"
@@ -159,7 +166,18 @@ let tests =
                         ]
 
                 match
-                    runNodeFiles "option-module-node" [ "driver.mjs", driver; "Vesper.Option.mjs", generated.Value ]
+                    runNodeFiles
+                        "option-module-node"
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.Option" [ "Vesper.Option.mjs", generated.Value ]
+                         // `Option.get` raises `InvalidOperationException`, so the consumer
+                         // ships Core's roster too.
+                         @ packageFiles
+                             "Vesper.Core"
+                             [
+                                 "Vesper.Core.mjs", IO.File.ReadAllText(srcFile "Vesper.Core" "Vesper.Core.mjs")
+                                 "exceptions.mjs", IO.File.ReadAllText(srcFile "Vesper.Core" "exceptions.mjs")
+                             ])
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->

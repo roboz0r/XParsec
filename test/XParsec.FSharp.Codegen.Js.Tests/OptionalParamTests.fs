@@ -83,7 +83,7 @@ let private analyseErrors (input: string) : string list =
 /// Emit through the `optlib` provider with a stub runtime module, so the `api` import
 /// resolves (the synthetic package has no `.toml` asset).
 let private emitApi (input: string) : string =
-    emitWith contract (Map.ofList [ "optlib", JsRuntimeModule.ofSource "optlib.mjs" "" ]) false (withApi input)
+    emitWith contract (Map.ofList [ "optlib", JsPackageOutput.rootModule "optlib.mjs" "" ]) false (withApi input)
 
 [<Tests>]
 let tests =

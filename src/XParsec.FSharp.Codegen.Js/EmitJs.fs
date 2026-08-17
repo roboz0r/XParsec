@@ -158,7 +158,7 @@ module EmitJs =
                         | None -> failwithf "EmitJs: record literal for '%s' is missing field '%s'" info.Name f
                 ]
 
-            JsExpr.New(nominalCtorRef ctx info.Home info.Name ValueNone, args, loc)
+            JsExpr.New(nominalCtorRef ctx (JsClassRef.ofHome info.Home info.Name) ValueNone, args, loc)
 
         // `{ r with X = v; … }` → reconstruction `new R(…)`: each field takes its override
         // if listed, else reads `<src>.field`. `<src>` is read once per copied field, so a
@@ -176,7 +176,7 @@ module EmitJs =
                         | None -> JsExpr.Member(srcRef, JsExpr.Identifier(f, ValueNone), false, ValueNone)
                 ]
 
-            let ctor = nominalCtorRef ctx info.Home info.Name ValueNone
+            let ctor = nominalCtorRef ctx (JsClassRef.ofHome info.Home info.Name) ValueNone
 
             match TastAccessor.exprKind rc.Source with
             | ExprShape.Var -> JsExpr.New(ctor, argsFrom (buildExpr ctx rc.Source), loc)
@@ -211,7 +211,7 @@ module EmitJs =
 
             // A local union's class is in this file; an external union's case class is
             // imported from its home module, never re-emitted here.
-            let callee = nominalCtorRef ctx info.Home c.ClassName loc
+            let callee = nominalCtorRef ctx (JsClassRef.ofHome info.Home c.ClassName) loc
 
             JsExpr.New(callee, [ for a in TastAccessor.exprChildren e -> buildExpr ctx a ], loc)
 
@@ -219,10 +219,9 @@ module EmitJs =
             let args = TastAccessor.exprChildren e
 
             match tryNewTarget ctx (TastAccessor.exprNominalTy e).Key with
-            | ValueSome(NewTarget.LocalClass name)
-            | ValueSome(NewTarget.GlobalClass name) ->
-                JsExpr.New(JsExpr.Identifier(name, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
-            | ValueSome(NewTarget.ExnRepr repr) ->
+            | ValueSome(NewTarget.Class klass) ->
+                JsExpr.New(nominalCtorRef ctx klass loc, [ for a in args -> buildExpr ctx a ], loc)
+            | ValueSome(NewTarget.ExnRoot klass) ->
                 // Only the leading message argument is kept: `Error` has no slot for further ones.
                 let errArgs =
                     if Array.isEmpty args then
@@ -230,7 +229,7 @@ module EmitJs =
                     else
                         [ buildExpr ctx args.[0] ]
 
-                JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
+                JsExpr.New(nominalCtorRef ctx klass loc, errArgs, loc)
             | ValueNone ->
                 failwithf
                     "EmitJs: construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
@@ -794,6 +793,7 @@ module EmitJs =
                 [
                     for (pk, _) in sc.Params -> boundVarNameOf ctx.Pool (BoundVarKey.identity pk)
                 ]
+            Super = None
             Body =
                 [
                     for l in sc.Lets ->
@@ -857,9 +857,85 @@ module EmitJs =
                 | _ -> false
             | DeclShape.Expression -> false
 
-        let decls = expansion.Decls |> List.filter (declaresTargetsOwn >> not)
+        let declared = expansion.Decls |> List.filter (declaresTargetsOwn >> not)
 
-        let collected = collectTypes inputs.Capabilities inputs.ExportTopLevel decls
+        // The classes THIS file declares, each with the base it inherits. Whole before the
+        // first lookup, so a chain can be walked from either end.
+        let localClasses =
+            System.Collections.Generic.Dictionary<TypeKey, struct (string * TypeKey voption)>()
+
+        for decl in declared do
+            match TastAccessor.declKind decl with
+            | DeclShape.Type ->
+                let td = TastAccessor.declType decl
+
+                match td.Kind with
+                | TTypeKindG.Class cls ->
+                    let baseKey =
+                        cls.BaseType
+                        |> ValueOption.bind FrozenNominal.TryOfFrozen
+                        |> ValueOption.map (fun b -> b.Key)
+
+                    localClasses.[td.TypeKey] <- struct (td.Name, baseKey)
+                | _ -> ()
+            | _ -> ()
+
+        let localClassName (key: TypeKey) : string voption =
+            match localClasses.TryGetValue key with
+            | true, struct (name, _) -> ValueSome name
+            | _ -> ValueNone
+
+        // Inheritance lowers only where the chain BOTTOMS OUT in a runtime class (`exn` →
+        // `Error`), that root being the one JS object an emitted class can extend. Stopping at a
+        // representation that names nothing (`Attribute` → `"!Vesper.Attribute"`) leaves nothing
+        // to extend and nothing that constructs one, so the whole declaration goes; stopping at
+        // no representation at all is an ordinary hierarchy, and is rejected rather than mis-run.
+        let baseVerdictOf (td: TastAccessor.TypeDecl) : JsBaseVerdict =
+            // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict ancestor.
+            let rec climb (depth: int) (k: TypeKey) : JsClassRef list =
+                if depth > 16 then
+                    []
+                else
+                    match JsExternalMembers.tryClassRef inputs.Provider localClassName k with
+                    | ValueNone -> []
+                    | ValueSome klass ->
+                        match localClasses.TryGetValue k with
+                        // A local class is reached only THROUGH its own base, so a chain
+                        // stopping at one has not reached a runtime class at all.
+                        | true, struct (_, ValueSome baseKey) ->
+                            match climb (depth + 1) baseKey with
+                            | [] -> []
+                            | rest -> klass :: rest
+                        | true, struct (_, ValueNone) -> []
+                        | _ -> [ klass ]
+
+            let baseKey =
+                match td.Kind with
+                | TTypeKindG.Class cls -> cls.BaseType |> ValueOption.bind FrozenNominal.TryOfFrozen
+                | _ -> ValueNone
+
+            match baseKey with
+            | ValueNone -> JsBaseVerdict.Standalone
+            | ValueSome b ->
+                match JsPrototypeChain.tryOfBases (climb 0 b.Key) with
+                | ValueSome chain -> JsBaseVerdict.Extends chain
+                | ValueNone when (JsExternalMembers.inheritedReprOf inputs.Provider b.Key).IsSome ->
+                    JsBaseVerdict.Erased
+                | ValueNone -> JsBaseVerdict.Unsupported
+
+        let erased (d: TastAccessor.DeclId) : bool =
+            match TastAccessor.declKind d with
+            | DeclShape.Type ->
+                match baseVerdictOf (TastAccessor.declType d) with
+                | JsBaseVerdict.Erased -> true
+                | _ -> false
+            | DeclShape.Let
+            | DeclShape.Expression -> false
+
+        let decls = declared |> List.filter (erased >> not)
+
+        let collected =
+            collectTypes inputs.Capabilities baseVerdictOf inputs.ExportTopLevel decls
 
         let lowered = TastLower.lower decls
 
@@ -923,9 +999,22 @@ module EmitJs =
                         // A class with no primary ctor can carry no instance preamble.
                         | EmitJsTypes.PendingCtor.Explicit sc -> emitExplicitCtor ctx sc
 
+                    // The `super(…)` args read the derived ctor's own params, which are in
+                    // scope by name in the emitted constructor.
+                    let chained =
+                        match pc.Base with
+                        | ValueSome b ->
+                            { ctor with
+                                Super = Some [ for a in b.CtorArgs -> buildExpr ctx a ]
+                            }
+                        | ValueNone -> ctor
+
                     JsStatement.Class(
                         pc.Name,
-                        ctor,
+                        (match pc.Base with
+                         | ValueSome b -> Some(classIdentifier ctx (JsPrototypeChain.extends b.Chain))
+                         | ValueNone -> None),
+                        chained,
                         EmitJsMembers.emitClassMethods buildExpr ctx pc.Members,
                         ctx.ExportTopLevel
                     )

@@ -61,7 +61,7 @@ let private program =
         ]
 
 let private emitWithId (input: string) : string =
-    emitWith idContract (Map.ofList [ "idlib", JsRuntimeModule.ofSource "idlib.mjs" idRuntimeSource ]) false input
+    emitWith idContract (Map.ofList [ "idlib", JsPackageOutput.rootModule "idlib.mjs" idRuntimeSource ]) false input
 
 [<Tests>]
 let tests =

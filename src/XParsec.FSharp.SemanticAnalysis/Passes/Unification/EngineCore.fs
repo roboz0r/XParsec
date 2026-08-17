@@ -547,6 +547,11 @@ module UnificationEngineCore =
             | ValueSome(ExternalTypeShape.Intrinsic { Class = ValueSome surface }) ->
                 ExternalSymbols.instantiateInterfacesOf surface.Interfaces (args.AsSpan().ToArray())
                 |> Array.toList
+            // A capability's own `inherit` chain (`enumerator : disposable`), so `e.Dispose()`
+            // resolves off the contract rather than off whatever the platform spelling names.
+            | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
+                ExternalSymbols.instantiateInterfacesOf iface.Interfaces (args.AsSpan().ToArray())
+                |> Array.toList
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose canonical

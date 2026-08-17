@@ -1,4 +1,4 @@
-import { structuralEquals as $Vesper_StructuralRuntime_structuralEquals } from "./Vesper.Core.mjs";
+import { structuralEquals as $Vesper_StructuralRuntime_structuralEquals } from "./Vesper.Core/index.mjs";
 class P {
   constructor(X, Y) {
     this.X = X;

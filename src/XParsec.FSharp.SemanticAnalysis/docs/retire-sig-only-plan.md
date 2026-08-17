@@ -5,8 +5,9 @@ make "a signature file with no implementation file" a state ANALYSIS CANNOT REPR
 declared exemption, and not a verdict derived from content either. Delete this doc when it
 lands (`feedback_plan_docs_ephemeral`).
 
-**Status (2026-08-16): scoped, gated.** The inventory below is the new part; the four gates
-were already known. One fifth entry has already gone.
+**Status (2026-08-16): A′ and the js half of A have LANDED; printf is the only A left.**
+`manifest.js.toml` now carries no `sig-only` key at all. The inventory below is the new part;
+the four gates were already known. One fifth entry has already gone.
 
 ## Why the key exists at all
 
@@ -32,8 +33,8 @@ Computed by pairing key over every manifest, not from any list. Only the **A** r
 
 | class | files | answer (user, 2026-08-16) |
 |---|---|---|
-| **A — owes a body, missing** | `compiler-attributes.fsi` (js), `exceptions.js.fsi`, `printf-format.fsi` ×2, `printf.fsi` ×2 | write the `.fs`; it pairs |
-| **A′ — owes a SENTINEL body** | `prim-types-attr.fsi`, `capabilities.fsi` (both js) | write the `.fs`; the repr is a sentinel the backend knows |
+| **A — owes a body, missing** | ~~`compiler-attributes.fsi` (js)~~, ~~`exceptions.js.fsi`~~, `printf-format.fsi` ×2, `printf.fsi` ×2 | write the `.fs`; it pairs |
+| **A′ — owes a SENTINEL body** | ~~`prim-types-attr.fsi`, `capabilities.fsi` (both js)~~ | write the `.fs`; the repr is a sentinel the backend knows |
 | **B — transparent abbreviation** | `capabilities-compat.js.fsi`, `list-bcl.clr.fsi` | write the `.fs`; it pairs |
 | **C — served by a runtime asset** | `ops-platform-runtime.js.fsi`, `comparison-runtime.js.fsi` | **deferred** — representation still to be decided |
 | **D — the js target has no such type** | `prim-types-decimal.fsi`, `prim-types-nativeint.fsi`, `prim-types-nd-array.fsi` | omit from `manifest.js.toml` entirely |
@@ -45,14 +46,40 @@ written, since class B is accepted by content anyway. Four suites green after re
 
 ## A and B: write the body
 
-**A** is the four gated entries, unchanged:
+Two of the four have landed; printf is what is left:
 
 | entry | answer | gated on |
 |---|---|---|
-| `compiler-attributes.fsi` | gets a `compiler-attributes.fs` on both targets and pairs | [attribute-representation-plan](attribute-representation-plan.md) |
-| `exceptions.js.fsi` | gets an `exceptions.js.fs` declaring the inheritance hierarchy, and pairs | [js-exception-identity-plan](js-exception-identity-plan.md) |
+| ~~`compiler-attributes.fsi`~~ | **DONE** — `compiler-attributes.fs` is now in the js `impl` list too, and pairs on both targets | |
+| ~~`exceptions.js.fsi`~~ | **DONE** — `exceptions.js.fs` declares the roster, BCL-shaped under `exn` | |
 | `printf-format.fsi` ×2 | write the body | [printf-contract-plan](printf-contract-plan.md) |
 | `printf.fsi` ×2 | delete from `files`, or make it load-bearing | [printf-contract-plan](printf-contract-plan.md) |
+
+### What the two js bodies actually cost (2026-08-16)
+
+Neither was the two-line file the table implies. Writing them forced three fixes, each of
+which is a defect the absent file had been hiding:
+
+- **`Attribute` had no declared constructor.** Every `compiler-attributes.fs` type writes
+  `inherit Attribute()`, and `prim-types-attr.fsi` declared no `new`. The CLR never noticed
+  because a member-less heritable primitive falls back to resolving its base through the
+  platform repr, and `System.Attribute` resolves. On js the sentinel resolves to nothing, so
+  the fallback failed. `prim-types-attr.fsi` now declares `new: unit -> Attribute`, which is
+  what the ten `inherit` clauses were already relying on, and BOTH targets now take the
+  ctor-bearing path.
+- **A capability's `inherit` chain was invisible once it carried a repr.** `enumerator`
+  inherits `disposable`, and `subtypeInterfacesOf` had no `IntrinsicInterface` arm — so
+  `e.Dispose()` on an `enumerator<'T>` resolved only via the platform key, i.e. only where the
+  repr names a BCL type with its own `Dispose`. The sentinel exposed it; the arm is
+  target-neutral.
+- **A class over an intrinsic-repr base must not be REJECTED on js.** `EmitJsTypes` hard-failed
+  on ANY `inherit`. `Attribute` is constructed nowhere and its sentinel repr names no class, so
+  a marker over it is dropped; `exn` resolves to `Error`, so a class over it is emitted and
+  extends it. `exnReprOf` split into the climb (`inheritedReprOf`) and the runtime-class check,
+  and that split IS the discriminator between the two.
+
+The exception roster is now BCL-shaped and emits real classes — see
+[js-exception-identity-plan](js-exception-identity-plan.md).
 
 **B: an abbreviation needs an implementation file.** `SigShape.Abbrev.ImplOptional` is `true`
 (`Conformance.fs:51-56`) — not a considered divergence from fsc but a hack, hammered in to work
@@ -111,8 +138,7 @@ an exception to — and respelling it `"Array"` would be churn for nothing.
 The mechanism already exists and the CLR proves it: `capabilities.clr.fs` binds
 `(# "System.Collections.Generic.IEnumerable`1" #)` and `prim-types-attr.clr.fs` binds
 `(# class "System.Attribute" #)`. What changes on js is only that the string names nothing at
-runtime — JS has no interfaces — so `EmitJs` must match the sentinel where it currently keys
-off the ABSENCE of a repr, lowering `for … in` to the JS iteration protocol as it does now.
+runtime — JS has no interfaces.
 
 `IntrinsicTypeMap` needs no guarding: it is derived in `PublishedSurface.ofBuilder` from
 published `Intrinsic` shapes and a capability cannot reach it, which is why the CLR's
@@ -120,6 +146,17 @@ repr-bound capabilities already stay off the axis.
 
 `NumberCovariance` matching `IntrinsicPlatform.Repr "number"` is the backend side already: a
 named token compared against the repr. The sentinel cases are more of the same.
+
+**Correction (landed 2026-08-16): `EmitJs` needed no sentinel match.** The prediction above was
+that `EmitJs` keys `for … in` off the ABSENCE of a repr and would have to recognise `!`. It does
+not: the iteration lowering keys off `CapabilityIds`, and a capability identity compares on its
+canon key as well as its platform key, so gaining a repr moved nothing. The `!` string reaches
+no emitter — the one site that writes a repr verbatim (`new <repr>(…)`) is already guarded by
+resolving the repr to a runtime class first, and a sentinel does not resolve.
+
+What DID move is upstream and target-neutral: a capability publishes as `IntrinsicInterface`
+once it has a repr, and `subtypeInterfacesOf` had no arm for that shape, so `enumerator`'s
+`inherit disposable` became invisible. See the A-body notes above.
 
 ### The `exceptions.js.fsi` correction
 
@@ -135,6 +172,11 @@ it.
 sound on JS and unsound on the CLR, where `compiler-attributes.fsi`'s chain also reaches a repr
 (`prim-types-attr.clr.fs`) but the `.fs` is genuinely required — you cannot `newobj` a TypeDef
 you never emitted.
+
+That still holds for CONFORMANCE, and the body is written. The same walk is now the js EMIT
+rule, which is a different claim: a class over an intrinsic-repr base emits no declaration
+BECAUSE its construction already lowers to the base's repr. Owing a body and emitting one are
+separate questions, and only the second is answered by the walk.
 
 ## D: a type the target does not have is ABSENT, not declared-and-unimplemented
 
@@ -224,19 +266,19 @@ Follows `96837bff Remove impl-only as a category from source manifests` exactly.
 - **`ConformanceVerdict`**: `StaleSigOnly` / `UnknownSigOnly` / `SigWithoutImpl`, the V240 and
   V243 mappings and their messages, with the `FrozenCodecDiagnostics` wire tags renumbered
   densely and `Cache.CodeVersion` bumped.
-- **Manifests**: `Vesper.Core/manifest.js.toml`, `Vesper.Printf/manifest.{clr,js}.toml`.
-- **Tests**: `ConformanceTests.fs` (the exemption arms, `mkOutcome`'s second parameter, and the
-  target-asymmetry pin, whose expected list goes to `[]`), `ReferencedProjectTests.fs`,
+- **Manifests**: ~~`Vesper.Core/manifest.js.toml`~~ (done), `Vesper.Printf/manifest.{clr,js}.toml`.
+- **Tests**: `ConformanceTests.fs` (the exemption arms and `mkOutcome`'s second parameter — the
+  target-asymmetry pin's expected list is already `[]`), `ReferencedProjectTests.fs`,
   `Codegen.Js.Tests/FrozenCodecRoundTripTests.fs`, `Codegen.Clr.Tests/TestHelpers.fs`.
 
 ## Two halves, landing at different times
 
 The headline is two claims, and only the first is fully scoped:
 
-1. **Delete `sig-only` from the schema.** Needs class A alone — the four gated entries.
-   Nothing else blocks it.
+1. **Delete `sig-only` from the schema.** Needs class A alone. `Vesper.Core` is done; only
+   printf's four entries remain, and nothing else blocks it.
 2. **Make the bodiless state unrepresentable.** Needs A, A′, B, D **and C**, which is deferred
-   by decision. A′, B and D are ready to start and gated on nothing.
+   by decision. A′ is done; B and D are ready to start and gated on nothing.
 
 ## What this settles for the fold
 

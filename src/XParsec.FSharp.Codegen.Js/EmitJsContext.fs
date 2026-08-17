@@ -246,37 +246,44 @@ module EmitJsContext =
         | ValueSome info -> info
         | ValueNone -> failwithf "EmitJs: %s on record with no emitted type (key %A)" what key
 
-    /// The class identifier a nominal's construction site names: the locally emitted class for
-    /// a type declared in this file, or the imported class export for one declared elsewhere.
-    let nominalCtorRef (ctx: WalkCtx) (home: JsHome voption) (className: string) (loc: JsLoc voption) : JsExpr =
-        match home with
-        | ValueSome h -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports h className, loc)
-        | ValueNone -> JsExpr.Identifier(className, ValueNone)
+    /// The identifier this module writes for `klass`, recording the import an `Imported` one
+    /// costs. THE place a `JsClassRef` becomes text, so nothing else has to know the split.
+    let classIdentifier (ctx: WalkCtx) (klass: JsClassRef) : string =
+        match klass with
+        | JsClassRef.Local name
+        | JsClassRef.Global name -> name
+        | JsClassRef.Imported(home, name) -> JsImports.addTypeRef ctx.Imports home name
+
+    /// The class identifier a nominal's construction site names.
+    let nominalCtorRef (ctx: WalkCtx) (klass: JsClassRef) (loc: JsLoc voption) : JsExpr =
+        match klass with
+        | JsClassRef.Local _
+        | JsClassRef.Global _ -> JsExpr.Identifier(classIdentifier ctx klass, ValueNone)
+        | JsClassRef.Imported _ -> JsExpr.Identifier(classIdentifier ctx klass, loc)
+
+    /// The classes THIS file emits, as `tryClassRef` asks for them.
+    let localClassOf (ctx: WalkCtx) (key: TypeKey) : string voption =
+        match ctx.Classes.TryGetValue key with
+        | true, name -> ValueSome name
+        | _ -> ValueNone
 
     /// WHICH class an `ExprShape.New` constructs, and so how its arguments are passed.
+    [<RequireQualifiedAccess>]
     type NewTarget =
-        /// A class emitted in this file: its emitted name, positional args stored into the
-        /// like-named fields.
-        | LocalClass of name: string
-        /// An ambient external class: the key's simple name (`Js.Widget` → `Widget`), with NO
-        /// import, because the JS runtime provides it intrinsically.
-        | GlobalClass of name: string
-        /// An external `exn` subtype, constructed through the repr its `inherit` chain names.
-        | ExnRepr of repr: string
+        /// A class with a constructor of its own: every argument passes.
+        | Class of JsClassRef
+        /// The `exn` ROOT, whose repr IS the runtime class: `Error` has no constructor slot
+        /// past the message, so only the leading argument survives.
+        | ExnRoot of JsClassRef
 
-    /// The probe order IS the precedence: a locally emitted class wins over an ambient one of
-    /// the same key, and only a type that is neither class resolves through its `exn` repr.
     let tryNewTarget (ctx: WalkCtx) (key: TypeKey) : NewTarget voption =
-        match ctx.Classes.TryGetValue key with
-        | true, name -> ValueSome(NewTarget.LocalClass name)
-        | _ ->
-            match JsExternalMembers.classFlagsOf ctx.Provider key with
-            | ValueSome flags when flags.Global ->
-                let (DisplayName name) = SymbolKeyOps.typeSimpleName key
-                ValueSome(NewTarget.GlobalClass name)
-            | _ ->
-                JsExternalMembers.exnReprOf ctx.Provider key
-                |> ValueOption.map NewTarget.ExnRepr
+        JsExternalMembers.tryClassRef ctx.Provider (localClassOf ctx) key
+        |> ValueOption.map (fun klass ->
+            // The root is the INTRINSIC carrying the repr, as against a class declared over it.
+            match klass, ctx.Provider.TryLookupType key with
+            | JsClassRef.Global _, ValueSome(ExternalTypeShape.Intrinsic _) -> NewTarget.ExnRoot klass
+            | _ -> NewTarget.Class klass
+        )
 
     // ---- Unions --------------------------------------------------------------
 

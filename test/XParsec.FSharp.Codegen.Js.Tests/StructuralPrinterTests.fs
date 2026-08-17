@@ -48,7 +48,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { structuralFormat } from \"./Vesper.Printf.mjs\";"
+                            "import { structuralFormat } from \"./Vesper.Printf/Vesper.Printf.mjs\";"
                             "const fmt = (v) => structuralFormat(v, 80, 10000);"
                             // A union value carries `tag` + fields as own-keys and `cases()` on the
                             // prototype, which is exactly the emitted-class shape (Object.keys skips cases).
@@ -79,7 +79,10 @@ let tests =
                         ]
 
                 match
-                    runNodeFiles "structural-printer" [ "driver.mjs", driver; "Vesper.Printf.mjs", generated.Value ]
+                    runNodeFiles
+                        "structural-printer"
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.Printf" [ "Vesper.Printf.mjs", generated.Value ])
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->
@@ -115,7 +118,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { structuralFormat } from \"./Vesper.Printf.mjs\";"
+                            "import { structuralFormat } from \"./Vesper.Printf/Vesper.Printf.mjs\";"
                             "const fmt = (v, w) => structuralFormat(v, w, 10000);"
                             "const mkUnion = (names) => { const p = { cases() { return names; } };"
                             "  return (tag, fields) => Object.assign(Object.create(p), { tag }, fields); };"
@@ -137,7 +140,8 @@ let tests =
                 match
                     runNodeFiles
                         "structural-printer-break"
-                        [ "driver.mjs", driver; "Vesper.Printf.mjs", generated.Value ]
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.Printf" [ "Vesper.Printf.mjs", generated.Value ])
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->

@@ -19,7 +19,7 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "import { structuralEquals as $Vesper_StructuralRuntime_structuralEquals } from \"./Vesper.Core.mjs\";"
+                    "import { structuralEquals as $Vesper_StructuralRuntime_structuralEquals } from \"./Vesper.Core/index.mjs\";"
                     "the equality base imports `structuralEquals`, `$`-aliased like any external value"
 
                 Expect.stringContains
@@ -34,7 +34,7 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "import { structuralHash as $Vesper_StructuralRuntime_structuralHash } from \"./Vesper.Core.mjs\";"
+                    "import { structuralHash as $Vesper_StructuralRuntime_structuralHash } from \"./Vesper.Core/index.mjs\";"
                     "`hash` lowers to a call to the `structuralHash` runtime value + its import"
 
                 Expect.stringContains

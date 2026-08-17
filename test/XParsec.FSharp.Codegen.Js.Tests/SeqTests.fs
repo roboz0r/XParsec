@@ -19,10 +19,16 @@ let private lf (s: string) : string = s.Replace("\r\n", "\n")
 /// The dependency assets `Vesper.Seq.mjs` imports: `zeroCreate` for `toArray`'s buffer,
 /// `enumeratorOf` for the cursor's `GetEnumerator`. A consumer ships these too.
 let private depAssets: (string * string) list =
-    [
-        "Vesper.Array.mjs", IO.File.ReadAllText(srcFile "Vesper.Array" "Vesper.Array.mjs")
-        "Vesper.Core.mjs", IO.File.ReadAllText(srcFile "Vesper.Core" "Vesper.Core.mjs")
-    ]
+    packageFiles
+        "Vesper.Array"
+        [
+            "Vesper.Array.mjs", IO.File.ReadAllText(srcFile "Vesper.Array" "Vesper.Array.mjs")
+        ]
+    @ packageFiles
+        "Vesper.Core"
+        [
+            "Vesper.Core.mjs", IO.File.ReadAllText(srcFile "Vesper.Core" "Vesper.Core.mjs")
+        ]
 
 [<Tests>]
 let tests =
@@ -52,7 +58,7 @@ let tests =
                 // Array package instead.
                 Expect.stringContains
                     (generated.Value)
-                    "from \"./Vesper.Array.mjs\""
+                    "from \"../Vesper.Array/index.mjs\""
                     "zeroCreate is imported, not inlined as an allocation intrinsic"
             }
 
@@ -73,7 +79,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { fold, reduce, truncate, toArray } from \"./Vesper.Seq.mjs\";"
+                            "import { fold, reduce, truncate, toArray } from \"./Vesper.Seq/index.mjs\";"
                             // A plain JS array is already iterable, so it IS a `seq<'T>`.
                             "const xs = [1, 2, 3, 4, 5];"
                             "console.log(fold((acc) => (x) => acc + x, 0, xs));"
@@ -93,7 +99,9 @@ let tests =
                 match
                     runNodeFiles
                         "seq-module-node"
-                        ([ "driver.mjs", driver; "Vesper.Seq.mjs", generated.Value ] @ depAssets)
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.Seq" [ "Vesper.Seq.mjs", generated.Value ]
+                         @ depAssets)
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->
@@ -123,7 +131,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "import { truncate, toArray } from \"./Vesper.Seq.mjs\";"
+                            "import { truncate, toArray } from \"./Vesper.Seq/index.mjs\";"
                             "let pulled = 0;"
                             "function* naturals() { let i = 1; while (true) { pulled++; yield i++; } }"
                             "console.log(toArray(truncate(3, naturals())).join(\",\"));"
@@ -134,7 +142,9 @@ let tests =
                 match
                     runNodeFiles
                         "seq-truncate-lazy"
-                        ([ "driver.mjs", driver; "Vesper.Seq.mjs", generated.Value ] @ depAssets)
+                        ([ "driver.mjs", driver ]
+                         @ packageFiles "Vesper.Seq" [ "Vesper.Seq.mjs", generated.Value ]
+                         @ depAssets)
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->

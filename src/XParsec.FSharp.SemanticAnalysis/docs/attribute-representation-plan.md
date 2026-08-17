@@ -92,12 +92,20 @@ come along.
    **authoritative** (readers for the other nine; the DLL becomes self-sufficient) or
    **advisory** (emitted for external .NET tooling, contract stays the carrier for
    Vesper→Vesper). That fork is really a publishing question.
-6. JS: drop declarations whose base chain reaches `Attribute` at emit. This is the target
-   decision, and it lands before `EmitJsTypes.fs:313`'s `inherit` guard is reached.
+6. ~~JS: drop declarations whose base chain reaches `Attribute` at emit.~~ **DONE
+   (2026-08-16).** `EmitJs`'s decl filter drops any class whose base carries an intrinsic
+   repr, which reaches `Attribute` (`"!Vesper.Attribute"`) and the `exn` roster alike, before
+   `EmitJsTypes`' `inherit` guard sees it. `prim-types-attr.js.fs` binds the sentinel and
+   `compiler-attributes.fs` is now in the js `impl` list.
 7. Enforce `AttributeUsage` targets — currently decoded by nothing, so `[<Global>]` on a type
    would emit a row rather than erroring.
 
 ## Consequence for the manifests
 
-`compiler-attributes.fsi` then pairs with a `compiler-attributes.fs` on BOTH targets and needs
-no exemption — see [retire-sig-only-plan](retire-sig-only-plan.md).
+**Settled (2026-08-16).** `compiler-attributes.fsi` pairs with `compiler-attributes.fs` on BOTH
+targets and needs no exemption — see [retire-sig-only-plan](retire-sig-only-plan.md).
+
+That surfaced one thing worth carrying into step 1: `prim-types-attr.fsi` declared no `new`,
+so `inherit Attribute()` resolved only by falling through to the platform repr, and only where
+that repr names a real type. It now declares `new: unit -> Attribute` — the ctor the ten
+`inherit` clauses were already calling — and both targets take the same ctor-bearing path.

@@ -1,4 +1,5 @@
 // Generated from option.fs
+import { InvalidOperationException as $Vesper_Core_InvalidOperationException } from "../Vesper.Core/index.mjs";
 export class Option {
   constructor(tag) {
     this.tag = tag;
@@ -27,7 +28,7 @@ export const Option__get_Value = (_s0) => ((_m63) => {
     return v;
   }
   if ((_m63.tag === 0)) {
-    return ((_s61) => ((() => { throw (_s61); })()))(new Error("Option.Value: the option value was None"));
+    return ((_s61) => ((() => { throw (_s61); })()))(new $Vesper_Core_InvalidOperationException("Option.Value: the option value was None"));
   }
   throw new Error("The match cases were incomplete");
 })(_s0);
@@ -107,7 +108,7 @@ export const orElseWith = (ifNoneThunk, option) => ((_m71) => {
 })(option);
 export const get = (option) => ((_m72) => {
   if ((_m72.tag === 0)) {
-    return ((_s62) => ((() => { throw (_s62); })()))(new Error("Option.get: the option value was None"));
+    return ((_s62) => ((() => { throw (_s62); })()))(new $Vesper_Core_InvalidOperationException("Option.get: the option value was None"));
   }
   if ((_m72.tag === 1)) {
     const v = _m72.Value;

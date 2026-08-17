@@ -15,7 +15,7 @@ let tests =
 
                 Expect.stringContains
                     src
-                    "import { structuralFormat as $Vesper_StructuralPrinter_structuralFormat } from \"./Vesper.Printf.mjs\";"
+                    "import { structuralFormat as $Vesper_StructuralPrinter_structuralFormat } from \"./Vesper.Printf/Vesper.Printf.mjs\";"
                     "the `%A` hole imports `structuralFormat` from Vesper.Printf (Printf owns `%A`), `$`-aliased"
 
                 Expect.stringContains

@@ -19,25 +19,30 @@ type JsPackage =
     {
         Name: string
         Modules: JsPackageModule list
-        /// The runtime assets the modules import, written to the output ROOT:
-        /// `<root>/Vesper.Core.mjs` beside `<root>/<Name>/`.
+        /// The committed runtime files the modules import, each written into its own
+        /// package's directory.
         RuntimeAssets: JsRuntimeModule list
     }
 
     /// The generated `index.mjs`: `export * from "./shapes.mjs";` per emitting module, in
-    /// file order. A package whose files all lower to nothing gets an empty barrel, which
-    /// still resolves.
+    /// file order, then this package's OWN committed runtime files, so a consumer entering by
+    /// the barrel reaches the hand-authored half too. A package whose files all lower to
+    /// nothing gets a barrel over its runtime files alone, which still resolves.
     member this.Barrel: string =
-        this.Modules
-        |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.Path.FileName)
+        let ownAssets =
+            this.RuntimeAssets
+            |> List.filter (fun a -> a.Path.Package = ValueSome this.Name)
+
+        (this.Modules |> List.map (fun m -> m.Path.FileName))
+        @ (ownAssets |> List.map (fun a -> a.Path.FileName))
+        |> List.map (sprintf "export * from \"./%s\";\n")
         |> String.concat ""
 
 /// The production JS driver: an ordered multi-file assembly in, a directory of one `.mjs`
 /// per emitting file out.
 module JsDriver =
 
-    [<Literal>]
-    let BarrelFileName = "index.mjs"
+    let BarrelFileName = JsModulePath.BarrelFileName
 
     /// The resolution contract for a compilation that IS a package, over the JS-native stubs.
     let contractForSelf (selfPackage: string) (references: string list) : SymbolProviders.Contract =
@@ -69,34 +74,32 @@ module JsDriver =
         ]
 
     /// Every import of everything this build writes, against what it writes: the emitted
-    /// modules' and the runtime assets' alike, since `Vesper.Seq.mjs` imports
-    /// `./Vesper.Core.mjs` and a build shipping the first must ship the second.
+    /// modules' and the runtime files' alike, since `Vesper.Seq.mjs` imports `Vesper.Core`'s
+    /// runtime file and a build shipping the first must ship the second.
     let private checkResolvable
         (packageName: string)
         (modules: JsPackageModule list)
         (assets: JsRuntimeModule list)
         : unit =
         let written =
-            (modules |> List.map (fun m -> m.Path))
-            @ (assets |> List.map (fun a -> JsModulePath.asset a.FileName))
+            (modules |> List.map (fun m -> m.Path)) @ (assets |> List.map (fun a -> a.Path))
             |> Set.ofList
 
-        let check (fromPackage: string voption) (fileName: string) (target: JsModulePath) =
+        let check (from: JsModulePath) (target: JsModulePath) =
             if not (written.Contains target) then
                 failwithf
                     "JS package '%s': module '%s' imports '%s', which this build does not write"
                     packageName
-                    fileName
-                    (JsModulePath.specifierFrom fromPackage target)
+                    from.FileName
+                    (JsModulePath.specifierFrom from.Package target)
 
         for m in modules do
             for target in m.Artifact.ImportedModules do
-                check m.Path.Package m.Path.FileName target
+                check m.Path target
 
-        // An asset is written to the output root, so it names its targets from there.
         for a in assets do
             for target in a.Imports do
-                check ValueNone a.FileName target
+                check a.Path target
 
     /// Compile an ordered source-file list as ONE assembly named `packageName`.
     let compileAssemblyWith
@@ -157,7 +160,7 @@ module JsDriver =
             let assets =
                 emitted
                 |> List.collect (fun m -> m.Artifact.RuntimeModules)
-                |> List.distinctBy (fun a -> a.FileName)
+                |> List.distinctBy (fun (a: JsRuntimeModule) -> a.Path)
 
             match modulePathCollisions packageName emitted with
             | _ :: _ as errors -> Error errors
@@ -173,7 +176,7 @@ module JsDriver =
         )
 
     /// Write `package` under the output `root`: its modules and barrel into `<root>/<Name>/`,
-    /// the runtime assets into `<root>` itself.
+    /// each committed runtime file into its own package's directory.
     let materialise (root: string) (package: JsPackage) : unit =
         // Creating the package directory creates the root it sits in.
         let dir = Path.Combine(root, package.Name)

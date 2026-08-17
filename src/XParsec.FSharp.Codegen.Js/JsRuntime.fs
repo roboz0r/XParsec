@@ -3,15 +3,15 @@ namespace XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.SemanticAnalysis
 
 /// One of the assets a package's `manifest.js.toml` `runtime` key names: a committed
-/// `.mjs` shipped beside the compiled output.
+/// `.mjs` shipped inside that package's own output directory.
 type JsRuntimeModule =
     {
-        /// `Vesper.List.mjs` — written beside the output, named in `import … from "./<FileName>"`.
-        FileName: string
+        /// `Vesper.Seq/Vesper.Seq.mjs` — where it is written, and what an importer names.
+        Path: JsModulePath
         Source: string
         /// The modules `Source`'s own `import` lines name: `Vesper.Seq.mjs` names
-        /// `Vesper.Array.mjs` and `Vesper.Core.mjs`. Read from the output ROOT, the directory
-        /// every asset is written to, so shipping this one means shipping these too.
+        /// `Vesper.Array`'s barrel and `Vesper.Core`'s runtime file. Shipping this one means
+        /// shipping those too.
         Imports: JsModulePath list
     }
 
@@ -27,21 +27,57 @@ module JsRuntimeModule =
             ||| System.Text.RegularExpressions.RegexOptions.Compiled
         )
 
-    /// A committed asset, reading its `Imports` off its own text.
-    let ofSource (fileName: string) (source: string) : JsRuntimeModule =
+    /// A committed file at `path`, reading its `Imports` off its own text — resolved from the
+    /// directory it sits in, which is what its own specifiers were written against.
+    let ofSource (path: JsModulePath) (source: string) : JsRuntimeModule =
         {
-            FileName = fileName
+            Path = path
             Source = source
             Imports =
                 [
                     for m in statementSpecifier.Matches source do
-                        match JsModulePath.tryOfRootSpecifier m.Groups.[1].Value with
-                        | ValueSome path -> path
+                        match JsModulePath.tryOfSpecifier path.Package m.Groups.[1].Value with
+                        | ValueSome target -> target
                         | ValueNone -> ()
                 ]
         }
 
-    let ofAsset (asset: RuntimeAsset) : JsRuntimeModule = ofSource asset.FileName asset.Source
+    let ofAsset (package: string) (asset: RuntimeAsset) : JsRuntimeModule =
+        ofSource (JsModulePath.asset package asset.FileName) asset.Source
+
+/// A referenced package's committed JS output, as a consumer links it.
+[<RequireQualifiedAccess>]
+type JsPackageOutput =
+    /// A package this build lays out: a directory of committed files, entered by the generated
+    /// `<Package>/index.mjs` barrel. `files` is in manifest order, and the FIRST is the
+    /// package's runtime entry, where a backend-synthesised import resolves.
+    | Directory of barrel: JsRuntimeModule * files: JsRuntimeModule list
+    /// A module this build does NOT lay out — an npm package, whose stub sits at the output
+    /// root under its own name and is entered by that file.
+    | RootModule of JsRuntimeModule
+
+module JsPackageOutput =
+
+    /// A laid-out package, its barrel `export * from "./<file>";` per committed file.
+    let ofAssets (package: string) (assets: RuntimeAsset list) : JsPackageOutput =
+        let files = [ for a in assets -> JsRuntimeModule.ofAsset package a ]
+
+        let barrelSource =
+            files
+            |> List.map (fun f -> sprintf "export * from \"./%s\";\n" f.Path.FileName)
+            |> String.concat ""
+
+        JsPackageOutput.Directory(JsRuntimeModule.ofSource (JsModulePath.barrel package) barrelSource, files)
+
+    /// An npm package's stub at the output root.
+    let rootModule (fileName: string) (source: string) : JsPackageOutput =
+        JsPackageOutput.RootModule(JsRuntimeModule.ofSource (JsModulePath.atRoot fileName) source)
+
+    /// Every committed file, barrel included.
+    let modules (output: JsPackageOutput) : JsRuntimeModule list =
+        match output with
+        | JsPackageOutput.Directory(barrel, files) -> barrel :: files
+        | JsPackageOutput.RootModule rt -> [ rt ]
 
 /// The accumulating import for one MODULE: its named bindings plus at most one default and
 /// one namespace binding. A TS default export cannot be imported by name, so it rides its own
@@ -74,9 +110,8 @@ type JsValueRef =
 type JsImports =
     private
         {
-            /// Package/assembly name → its committed runtime asset; only the referenced
-            /// subset ships.
-            Runtime: Map<string, JsRuntimeModule>
+            /// Package/assembly name → its committed output; only the referenced subset ships.
+            Runtime: Map<string, JsPackageOutput>
             /// The package directory the module being emitted sits in, the base every
             /// specifier is rendered from. `ValueNone` for a program at the output root.
             SelfPackage: string voption
@@ -85,7 +120,7 @@ type JsImports =
 
 module JsImports =
 
-    let createIn (selfPackage: string voption) (runtime: Map<string, JsRuntimeModule>) : JsImports =
+    let createIn (selfPackage: string voption) (runtime: Map<string, JsPackageOutput>) : JsImports =
         {
             Runtime = runtime
             SelfPackage = selfPackage
@@ -93,17 +128,34 @@ module JsImports =
         }
 
     /// A program emitted at the output root.
-    let create (runtime: Map<string, JsRuntimeModule>) : JsImports = createIn ValueNone runtime
+    let create (runtime: Map<string, JsPackageOutput>) : JsImports = createIn ValueNone runtime
 
-    /// The module `home` is imported from: a home refined to its DECLARING FILE names that
-    /// file's module in its package directory; an assembly-only home, the committed asset.
+    /// The module `home` is imported from: a DECLARING FILE names that file's own module,
+    /// which the compilation writing it also writes; a whole package, its barrel; a synthesised
+    /// runtime entry, the package's runtime file, so that a package compiling ITSELF names that
+    /// file directly rather than cycling through its own barrel.
     let private moduleOf (imports: JsImports) (home: JsHome) (what: string) : JsModulePath * JsRuntimeModule voption =
-        match home.DeclaringFile with
-        | ValueSome f -> JsModulePath.ofSource f.BucketName f.Relative.Name, ValueNone
-        | ValueNone ->
-            match imports.Runtime |> Map.tryFind home.Assembly with
-            | Some rt -> JsModulePath.asset rt.FileName, ValueSome rt
-            | None -> failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what home.Assembly
+        let noModule () =
+            failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what home.Assembly
+
+        let committed (pick: JsRuntimeModule * JsRuntimeModule list -> JsRuntimeModule) =
+            let rt =
+                match imports.Runtime |> Map.tryFind home.Assembly with
+                | Some(JsPackageOutput.Directory(barrel, files)) -> pick (barrel, files)
+                | Some(JsPackageOutput.RootModule rt) -> rt
+                | None -> noModule ()
+
+            rt.Path, ValueSome rt
+
+        match home.Where with
+        | JsHomeWhere.InFile f -> JsModulePath.ofSource f.BucketName f.Relative.Name, ValueNone
+        | JsHomeWhere.Package -> committed fst
+        | JsHomeWhere.RuntimeAsset ->
+            committed (fun (_, files) ->
+                match files with
+                | rt :: _ -> rt
+                | [] -> noModule ()
+            )
 
     /// The entry for `home`'s module, recording it on first lookup.
     let private entryFor (imports: JsImports) (home: JsHome) (what: string) : ImportEntry =
@@ -223,10 +275,13 @@ module JsImports =
     let assets (imports: JsImports) : JsRuntimeModule list =
         let byPath = System.Collections.Generic.Dictionary<JsModulePath, JsRuntimeModule>()
 
-        for KeyValue(_, rt) in imports.Runtime do
-            byPath.[JsModulePath.asset rt.FileName] <- rt
+        for KeyValue(_, output) in imports.Runtime do
+            for rt in JsPackageOutput.modules output do
+                byPath.[rt.Path] <- rt
 
-        let selected = System.Collections.Generic.Dictionary<string, JsRuntimeModule>()
+        let selected =
+            System.Collections.Generic.Dictionary<JsModulePath, JsRuntimeModule>()
+
         let pending = System.Collections.Generic.Stack<JsRuntimeModule>()
 
         for kv in imports.Entries do
@@ -237,8 +292,8 @@ module JsImports =
         while pending.Count > 0 do
             let asset = pending.Pop()
 
-            if not (selected.ContainsKey asset.FileName) then
-                selected.[asset.FileName] <- asset
+            if not (selected.ContainsKey asset.Path) then
+                selected.[asset.Path] <- asset
 
                 for target in asset.Imports do
                     match byPath.TryGetValue target with
@@ -246,7 +301,9 @@ module JsImports =
                     | _ ->
                         failwithf
                             "JS codegen: runtime asset '%s' imports '%s', which no referenced package ships"
-                            asset.FileName
-                            (JsModulePath.specifierFrom ValueNone target)
+                            (JsModulePath.specifierFrom ValueNone asset.Path)
+                            (JsModulePath.specifierFrom asset.Path.Package target)
 
-        selected.Values |> Seq.sortBy (fun asset -> asset.FileName) |> List.ofSeq
+        selected.Values
+        |> Seq.sortBy (fun asset -> JsModulePath.specifierFrom ValueNone asset.Path)
+        |> List.ofSeq

@@ -1,6 +1,6 @@
 // Generated from seq.fs
-import { zeroCreate as $Vesper_Collections_ArrayModule_zeroCreate } from "./Vesper.Array.mjs";
-import { enumeratorOf as $Vesper_Collections_enumeratorOf } from "./Vesper.Core.mjs";
+import { zeroCreate as $Vesper_Collections_ArrayModule_zeroCreate } from "../Vesper.Array/index.mjs";
+import { enumeratorOf as $Vesper_Collections_enumeratorOf } from "../Vesper.Core/Vesper.Core.mjs";
 export class TruncateSeq {
   constructor(source, limit) {
     this.source = source;

@@ -123,10 +123,10 @@ and [<RequireQualifiedAccess>] JsStatement =
     | Assign of target: string * value: JsExpr
     /// `this.<field> = <value>;` — a constructor's field store.
     | FieldStore of field: string * value: JsExpr
-    /// `[export ]class <name> { constructor(…) { … } <methods…> }` — a record's or class's
-    /// emitted class. `methods` are attached instance methods, bound to JS `this`
-    /// (a record passes `[]`).
-    | Class of name: string * ctor: JsCtor * methods: JsClassMethod list * export: bool
+    /// `[export ]class <name> [extends <base>] { constructor(…) { … } <methods…> }` — a
+    /// record's or class's emitted class. `methods` are attached instance methods, bound to JS
+    /// `this` (a record passes `[]`).
+    | Class of name: string * extends: string option * ctor: JsCtor * methods: JsClassMethod list * export: bool
     /// `[export ]class <baseName>` carrying `tag`, `cases()` and a `$type` getter returning
     /// `brand` (the type's qualified name), plus one `extends`-subclass per case whose fields
     /// follow `super(tag)`. `baseMethods` attach to the BASE: every subclass inherits them.
@@ -178,7 +178,10 @@ and JsCtor =
         /// The ctor's OWN parameter names, not the field list, because `new(args) = { f = e }`
         /// need not take one parameter per field.
         Params: string list
-        /// The stores and preamble; a union subclass's `super(<tag>);` is printed before it.
+        /// The `super(<args>);` a DERIVED class's constructor opens with, ahead of any store —
+        /// JS forbids touching `this` before it. `None` for a class extending nothing.
+        Super: JsExpr list option
+        /// The stores and preamble.
         Body: JsStatement list
     }
 
@@ -192,6 +195,7 @@ module JsCtor =
     let positional (fields: string list) (preamble: JsStatement list) : JsCtor =
         {
             Params = fields
+            Super = None
             Body =
                 [
                     for f in fields -> JsStatement.FieldStore(f, JsExpr.Identifier(f, ValueNone))

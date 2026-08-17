@@ -1,4 +1,4 @@
-import { float32ToString as $Vesper_StructuralPrinter_float32ToString } from "./Vesper.Printf.mjs";
+import { float32ToString as $Vesper_StructuralPrinter_float32ToString } from "./Vesper.Printf/Vesper.Printf.mjs";
 const negI = (x) => ((-(x)) | 0);
 const negL = (x) => (BigInt.asIntN(64, -(x)));
 const negF = (x) => (-(x));

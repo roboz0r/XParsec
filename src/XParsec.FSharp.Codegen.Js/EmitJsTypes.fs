@@ -102,10 +102,20 @@ module EmitJsTypes =
         /// stores, neither obliged to match the field list.
         | Explicit of TastAccessor.SecondaryCtor
 
+    /// An `inherit Base(args)` clause, as JS takes it.
+    type PendingBase =
+        {
+            Chain: JsPrototypeChain
+            /// The `super(…)` arguments, still unwalked: they read the derived class's own
+            /// ctor params, so they need the walk context the pending record defers to.
+            CtorArgs: TastAccessor.ExprId list
+        }
+
     /// One locally-emitted class. A record reaches here too, with `Preamble = ValueNone`.
     type PendingClass =
         {
             Name: string
+            Base: PendingBase voption
             Ctor: PendingCtor
             Preamble: ClassPreamble voption
             StaticPreamble: TastAccessor.PreambleEntry list
@@ -205,8 +215,13 @@ module EmitJsTypes =
 
     /// Collect the file's nominal `type` decls, in source order. Takes the UN-lowered
     /// decls: lowering discards every `type` decl, so nothing survives it to read.
+    /// What a class's `inherit` clause lowers to. `Erased` never reaches here: the emit filter
+    /// drops those declarations whole, ahead of collection.
+    type BaseVerdictOf = TastAccessor.TypeDecl -> JsBaseVerdict
+
     let collectTypes
         (caps: RuntimeNames.CapabilityIds)
+        (baseVerdictOf: BaseVerdictOf)
         (exportTypes: bool)
         (decls: TastAccessor.DeclId list)
         : CollectedTypes =
@@ -259,7 +274,10 @@ module EmitJsTypes =
                     if recInterfaces.IsEmpty then
                         // No interface impls → no method bodies to defer; emit the class now
                         // and let the augmentation members ride out as free functions.
-                        ordered.Add(JsStatement.Class(info.Name, JsCtor.positional info.Fields [], [], exportTypes))
+                        ordered.Add(
+                            JsStatement.Class(info.Name, None, JsCtor.positional info.Fields [], [], exportTypes)
+                        )
+
                         addMembers td.Name recMembers
                     else
                         // A record with interface impls is still ONE class, so it takes the
@@ -269,6 +287,7 @@ module EmitJsTypes =
                         pendingClasses.Add
                             {
                                 Name = info.Name
+                                Base = ValueNone
                                 Ctor = PendingCtor.Positional info.Fields
                                 Preamble = ValueNone
                                 StaticPreamble = []
@@ -307,14 +326,33 @@ module EmitJsTypes =
                 | TTypeKindG.Class cls ->
                     classes.[td.TypeKey] <- td.Name
 
-                    // Two class shapes are REJECTED rather than dropped: `inherit`, since no
-                    // `extends` / `super(…)` is emitted and the base ctor would never run;
-                    // and a second `new(…)`, since a JS class has exactly one constructor.
-                    if cls.BaseType.IsSome || cls.BaseCtorCall.IsSome then
+                    let pendingBase =
+                        match baseVerdictOf td with
+                        | JsBaseVerdict.Standalone -> ValueNone
+                        | JsBaseVerdict.Extends chain ->
+                            ValueSome
+                                {
+                                    Chain = chain
+                                    CtorArgs =
+                                        match cls.BaseCtorCall with
+                                        | ValueSome bc -> List.ofSeq bc.Args
+                                        | ValueNone -> []
+                                }
+                        | JsBaseVerdict.Unsupported ->
+                            failwithf
+                                "EmitJs: class '%s' declares an `inherit` clause over a base with no runtime class behind it; class inheritance is not yet supported on the JS target except over an `exn` root"
+                                td.Name
+                        | JsBaseVerdict.Erased ->
+                            failwithf
+                                "EmitJs: class '%s' inherits an erased base, so its declaration should have been dropped before collection"
+                                td.Name
+
+                    if pendingBase.IsNone && cls.BaseCtorCall.IsSome then
                         failwithf
-                            "EmitJs: class '%s' declares an `inherit` clause; class inheritance is not yet supported on the JS target"
+                            "EmitJs: class '%s' calls a base constructor but declares no base type to chain to"
                             td.Name
 
+                    // A JS class has exactly one constructor, so a second `new(…)` is rejected.
                     // The primary ctor's params ARE its fields, so a secondary alongside it is a
                     // second arity; on the `val`-field form the secondaries are the ONLY ctors.
                     let ctorArities = (if cls.HasPrimaryCtor then 1 else 0) + cls.SecondaryCtors.Length
@@ -356,6 +394,7 @@ module EmitJsTypes =
                     pendingClasses.Add
                         {
                             Name = td.Name
+                            Base = pendingBase
                             Ctor = ctor
                             Preamble = preamble
                             StaticPreamble = [ for entry in cls.StaticPreamble -> entry ]
