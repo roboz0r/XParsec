@@ -18,10 +18,6 @@ module SymbolProviders =
     /// A parsed package manifest.
     type Manifest = ReferencedProject.Manifest
 
-    /// A whole-set fault as an unpositioned diagnostic, there being no file to anchor it to.
-    let private setFaultDiagnostics (fault: PackageSetFault) : AssemblyFiles.AnchoredDiagnostic list =
-        AssemblyFiles.unpositionedDiagnostics AssemblyFileId.nowhere [ Diagnostic.nowhere (Kind.PackageSet fault) ]
-
     /// The package stack for a compilation that IS a package: its declared references, then the
     /// package's OWN directory last. That `.fsi` route is the only channel a prior file's
     /// `type int32 = int` reaches a later one through: freezing carries no abbreviation.
@@ -42,7 +38,7 @@ module SymbolProviders =
         | Result.Error fault ->
             {
                 Provider = ExternalSymbolProviders.nullProvider
-                Diagnostics = setFaultDiagnostics fault
+                Diagnostics = AssemblyFiles.setFaultDiagnostics fault
             }
 
     /// One pass over a manifest set's splice sources: the templates published, and the
@@ -194,7 +190,7 @@ module SymbolProviders =
         match ReferencedProject.resolveAll target packageDirs with
         | Result.Error fault ->
             { Contract.empty with
-                Diagnostics = setFaultDiagnostics fault
+                Diagnostics = AssemblyFiles.setFaultDiagnostics fault
             }
         | Result.Ok normalised ->
 
@@ -214,9 +210,9 @@ module SymbolProviders =
                     fun _ ->
                         lazy
                             (match ReferencedProject.buildClosureWithDeps normalised with
-                             | Result.Error e ->
+                             | Result.Error fault ->
                                  { Contract.empty with
-                                     Diagnostics = setFaultDiagnostics (PackageSetFault.UnresolvedDependency e)
+                                     Diagnostics = AssemblyFiles.setFaultDiagnostics fault
                                  }
                              | Result.Ok(ordered, transitiveDeps) ->
 

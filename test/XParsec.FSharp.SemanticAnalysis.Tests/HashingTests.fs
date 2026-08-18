@@ -3,6 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.HashingTests
 open System.IO
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common.Tests
 
 /// Stand-in dependency signatures, so the fold-shape tests need no on-disk manifest.
 let private depA = Hashing.hashString "dependency-A"
@@ -39,9 +40,8 @@ let private writePackageFilesFor
 
     File.WriteAllText(Path.Combine(dir, "manifest." + target + ".toml"), manifestBody)
 
-    match ReferencedProject.resolveManifest target dir with
-    | Result.Ok mp -> mp
-    | Result.Error e -> failwithf "resolveManifest: %s" (PackageSetFault.describe e)
+    ReferencedProject.resolveManifest target dir
+    |> PackageFaults.okOrFail "resolveManifest"
 
 /// `writePackageFilesFor` at the target these fixtures are indifferent to — they hash a
 /// manifest's own file set, which no target reads differently.
@@ -55,9 +55,9 @@ let private writePackage (root: string) (pkg: string) (contract: string) : Refer
 /// The package's signature AS OF NOW: re-parsed each call, so a test that rewrites the
 /// manifest itself is hashing what it just wrote.
 let private signatureHash (mp: ReferencedProject.ManifestPath) : InputHash =
-    match ReferencedProject.loadManifest mp with
-    | Result.Ok m -> Hashing.dependencySignatureHash m
-    | Result.Error e -> failwithf "loadManifest: %s" e
+    ReferencedProject.loadManifest mp
+    |> PackageFaults.okOrFail "loadManifest"
+    |> Hashing.dependencySignatureHash
 
 /// Hash, rewrite ONE file of the package, hash again.
 let private hashAcrossWrite (mp: ReferencedProject.ManifestPath) (rel: string) (contents: string) =
@@ -461,7 +461,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"ops.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\", \"ops.fs\"]\n"
                                 [
                                     "contract.fsi", "val inline f: int -> int\n"
                                     "ops.fs", "let inline f x = x + 1\n"
@@ -480,7 +480,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"body.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\", \"body.fs\"]\n"
                                 [ "contract.fsi", "val f: int -> int\n"; "body.fs", "let f x = x\n" ]
 
                         let struct (before, after) = hashAcrossWrite manifest "body.fs" "let f x = x + 1\n"
@@ -497,7 +497,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"contract.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\", \"contract.fs\"]\n"
                                 [ "contract.fsi", "type a = extern\n"; "contract.fs", "type a = (# \"A\" #)\n" ]
 
                         let struct (before, after) =
@@ -532,7 +532,7 @@ let tests =
                                 root
                                 "Pkg"
                                 "clr"
-                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"contract.clr.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\", \"contract.clr.fs\"]\n"
                                 [
                                     "contract.fsi", "type a = extern\n"
                                     "contract.clr.fs", "type a = (# \"System.Int32\" #)\n"
@@ -543,7 +543,7 @@ let tests =
                                 root
                                 "Pkg"
                                 "js"
-                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"contract.js.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\", \"contract.js.fs\"]\n"
                                 [ "contract.js.fs", "type a = (# \"number\" #)\n" ]
 
                         let clrBefore = signatureHash clrManifest
@@ -587,7 +587,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"body.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\", \"body.fs\"]\n"
                                 [ "contract.fsi", "type a = extern\n" ]
 
                         let struct (before, after) = hashAcrossWrite manifest "body.fs" ""

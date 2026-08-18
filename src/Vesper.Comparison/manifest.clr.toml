@@ -3,13 +3,9 @@ name = "Vesper.Comparison"
 description = "The ordering operators (< > <= >=)."
 depends-on = ["../Vesper.Core"]
 
-# Signature files in compile order (one, today).
-files = [
-    "comparison.fsi",
-]
-
 # Every declaration is `inline`, so this compiles to an empty DLL and splices at each
 # use site.
-impl = [
+files = [
+    "comparison.fsi",
     "comparison.clr.fs",
 ]

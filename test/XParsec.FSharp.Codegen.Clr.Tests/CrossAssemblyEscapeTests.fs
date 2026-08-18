@@ -57,8 +57,7 @@ let private producerManifestToml =
         [
             "[core]"
             "depends-on = [\"../../src/Vesper.Core\"]"
-            "files = [\"producer.fsi\"]"
-            "impl = [\"producer.fs\"]"
+            "files = [\"producer.fsi\", \"producer.fs\"]"
         ]
 
 /// `tmp/EscapeProducer/` — the directory name IS the producer package / assembly

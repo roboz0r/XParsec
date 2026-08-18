@@ -1,53 +1,51 @@
 [core]
 description = "Minimal language fundamentals: the primitive types, Fun, Ref, capabilities, and the operators."
 
-# `fun-adapters.fsi` is CLR-only: a CLR function value is a nominal `Fun` interface, so
-# adapting flat<->curried needs a reified object.
+# One list, in compile order, each `.fsi` contract immediately ahead of its `.fs` body. The
+# `.fs` halves are compiled into Vesper.Core.dll AND published as the CLR splice sources. The
+# intrinsic-only `prim-types-*` / `capabilities` files emit NO IL: they register a
+# representation, not a TypeDef, so a `(# … #)` body reaches a use site only by being spliced.
 files = [
     "prim-types-min.fsi",
-    "capabilities.fsi",
-    "prim-types-array.fsi",
-    "prim-types-int.fsi",
-    "prim-types-float.fsi",
-    "prim-types-string.fsi",
-    "prim-types-object.fsi",
-    "prim-types-exn.fsi",
-    "prim-types-decimal.fsi",
-    "prim-types-bigint.fsi",
-    "prim-types-nativeint.fsi",
-    "prim-types-nd-array.fsi",
-    "prim-types-attr.fsi",
-    "compiler-attributes.fsi",
-    "core-types.fsi",
-    "structural-format.fsi",
-    "ops-platform.fsi",
-    "ops-std.fsi",
-    "int-comparison.fsi",
-    "fun-adapters.fsi",
-]
-
-# Compiled into Vesper.Core.dll AND published as the CLR splice sources. The intrinsic-only
-# `prim-types-*` / `capabilities` files emit NO IL: they register a representation, not a
-# TypeDef, so a `(# … #)` body reaches a use site only by being spliced.
-impl = [
     "prim-types-min.clr.fs",
+    "capabilities.fsi",
     "capabilities.clr.fs",
+    "prim-types-array.fsi",
     "prim-types-array.fs",
+    "prim-types-int.fsi",
     "prim-types-int.clr.fs",
+    "prim-types-float.fsi",
     "prim-types-float.clr.fs",
+    "prim-types-string.fsi",
     "prim-types-string.clr.fs",
+    "prim-types-object.fsi",
     "prim-types-object.clr.fs",
+    "prim-types-exn.fsi",
     "prim-types-exn.clr.fs",
+    "prim-types-decimal.fsi",
     "prim-types-decimal.clr.fs",
+    "prim-types-bigint.fsi",
     "prim-types-bigint.clr.fs",
+    "prim-types-nativeint.fsi",
     "prim-types-nativeint.clr.fs",
+    "prim-types-nd-array.fsi",
     "prim-types-nd-array.clr.fs",
+    "prim-types-attr.fsi",
     "prim-types-attr.clr.fs",
+    "compiler-attributes.fsi",
     "compiler-attributes.fs",
+    "core-types.fsi",
     "core-types.fs",
+    # `fun-adapters` is CLR-only: a CLR function value is a nominal `Fun` interface, so
+    # adapting flat<->curried needs a reified object.
+    "fun-adapters.fsi",
     "fun-adapters.fs",
+    "structural-format.fsi",
     "structural-format.fs",
+    "ops-platform.fsi",
     "ops-platform.clr.fs",
+    "ops-std.fsi",
     "ops-std.fs",
+    "int-comparison.fsi",
     "int-comparison.clr.fs",
 ]

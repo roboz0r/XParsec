@@ -163,15 +163,17 @@ module Hashing =
         // `(# … #)` reprs, so editing one moves a BCL signature without touching any `.fsi`.
         let closure =
             ReferencedProject.resolveAll inputs.Target (inputs.Packages @ Option.toList inputs.SelfPackage)
-            |> Result.mapError (PackageSetFault.code >> DiagCode.render)
-            |> Result.bind (ReferencedProject.buildClosure >> Result.mapError (sprintf "closure:%s"))
+            |> Result.bind ReferencedProject.buildClosure
 
-        // A package set that does not resolve is keyed on the FAULT, never on the subset that
-        // did resolve: keying on the subset would serve a good build's tree as a hit.
+        // A package set that does not resolve is keyed on the FAULT's code, never on the
+        // subset that did resolve: keying on the subset would serve a good build's tree as
+        // a hit, and keying on the fault's WORDING would fold diagnostic prose.
         let determinants =
             match closure with
             | Ok manifests -> List.map dependencySignatureHash manifests
-            | Error tag ->
+            | Error fault ->
+                let tag = PackageSetFault.code fault |> DiagCode.render
+
                 [
                     inputHash
                         "package-set-unresolved"

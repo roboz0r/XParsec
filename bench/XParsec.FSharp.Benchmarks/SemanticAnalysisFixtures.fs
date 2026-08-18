@@ -27,7 +27,8 @@ let private loadManifest (pkg: string) =
     | Ok mp ->
         match ReferencedProject.loadManifest mp with
         | Ok m -> m
-        | Error e -> failwithf "SemanticAnalysisFixtures: cannot load '%s' manifest: %s" pkg e
+        | Error e ->
+            failwithf "SemanticAnalysisFixtures: cannot load '%s' manifest: %s" pkg (PackageSetFault.describe e)
 
 /// One assembly's worth of analysable input: its home name, the external provider its
 /// files resolve against, and its ordered impl files.
@@ -50,7 +51,9 @@ let packageStage (pkg: string) : Stage =
     let m = loadManifest pkg
     let dir = packageDir pkg
 
-    let files = m.Impl |> List.map (AssemblyFiles.SourceFile.read dir)
+    let files =
+        ReferencedProject.implementationFiles m
+        |> List.map (AssemblyFiles.SourceFile.read dir)
 
     {
         Name = m.Name

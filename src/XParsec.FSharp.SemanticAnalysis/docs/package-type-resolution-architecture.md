@@ -61,8 +61,8 @@ projects to, which becomes an `IExternalSymbolProvider`.
 │                                                                    │
 │   ┌──────────────────────────────────────────────────────────────┐ │
 │   │ buildProviderWith                                            │ │
-│   │   reprs = (# … #) bindings read from every `[core] impl` .fs │ │
-│   │   for rel in `[core] files`:            (declared order)     │ │
+│   │   reprs = (# … #) bindings read from each `.fsi`'s paired .fs│ │
+│   │   for each `.fsi` in `[core] files`:    (declared order)     │ │
 │   │     ctx     = PassContext(own ++ deps ++ prelude, source)    │ │
 │   │     surface = SignatureResolution.run ctx { target; reprs }  │ │
 │   │     own     = surface.toProvider :: own      (nearest first) │ │
@@ -147,9 +147,9 @@ Two things sit under the package's own files in that stack:
   resolves nothing and publishes only prefixes, so a `.fsi` in
   `namespace Vesper.Collections` names `unit` exactly as a consumer would.
 
-Before any of it, the `(# … #)` bindings of every `[core] impl` `.fs` are read into
-one table. A contract commits `type exn = extern` and leaves the spelling to its
-implementation, so the repr has to be in hand when the `extern` is published.
+Before each `.fsi` is resolved, the `(# … #)` bindings of its paired `.fs` are read
+into one table. A contract commits `type exn = extern` and leaves the spelling to its
+implementation, so the repr has to be available when the `extern` is published.
 
 What the package publishes is the composite of its own files' surfaces, stamped
 with `Origin.InAssembly` and carrying its `[<AutoOpen>]` prefixes ahead of the

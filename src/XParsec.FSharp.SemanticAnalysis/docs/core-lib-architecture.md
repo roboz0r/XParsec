@@ -24,9 +24,7 @@ read once; the file name is the only place a manifest states which target it is 
 
 | key | meaning |
 |---|---|
-| `files` | contract `.fsi` files **in compile order** — the front-end symbol contract |
-| `impl` | the `.fs` files compiled into the package DLL, and the splice sources they publish |
-| `sig-only` | `.fsi` files deliberately impl-free — an accepted conformance exemption |
+| `files` | every source file **in compile order**, each `.fsi` contract immediately ahead of its companion `.fs`. The `.fsi` half is the front-end symbol contract; the `.fs` half is compiled into the package DLL and published as the splice sources |
 | `runtime` | hand-authored runtime *assets* (the JS `.mjs`) the backend ships beside its output |
 | `depends-on` | the other packages this one needs, **for this target**, each a path relative to this package's directory |
 | `name` | **optional** — see below |
@@ -138,12 +136,9 @@ touches, with no dead rows (`Codegen.Clr.Tests/FSharpCoreDepsTests.fs:48-61`
 holds the property for FSharp.Core; the same machinery drops unused `Vesper.*`
 refs). "Pay for what you use" reaches the shipped bundle.
 
-Not every package emits a DLL. `Vesper.Comparison` declares `impl = []`
-explicitly: its four operators are signature-only (`let inline` over
-static-optimized inline IL, spliced at each use site), so it is an inline-body
-source and nothing else. `Vesper.Core`'s `exceptions.js.fsi` is `sig-only` for the
-same structural reason from the other direction — its mechanism is `prim-types-exn`,
-which erases every root to `Error`.
+Not every package emits IL. Every declaration in `Vesper.Comparison`'s `.fs` is
+`let inline` over static-optimized inline IL, spliced at each use site, so its DLL
+is empty and the package is effectively an inline-body source.
 
 **Merging is a later publishing concern, and nothing depends on it.** There is no
 root manifest in the tree. A consumer hands `composeContract` the roots it wants
@@ -247,7 +242,9 @@ The `.<target>.fs` **filename** suffixes remain, because two targets' bodies coe
 in one package directory. They are what `pairingKey` strips to marry a `.fs` to its
 `.fsi`, and it strips only the suffix of the manifest's own target: reading
 `manifest.js.toml`, `prim-types-int.js.fs` keys on `prim-types-int` and
-`prim-types-int.clr.fs` would key on `prim-types-int.clr`.
+`prim-types-int.clr.fs` would key on `prim-types-int.clr`. The manifest parse also
+enforces that a paired `.fs` sits immediately after its `.fsi` in `files`, so the
+key pairing and the written layout always agree.
 
 `runtime` is the one key with no `.fs` counterpart, because a `.mjs` is not a parsed
 source at all — it is a hand-authored or backend-generated platform-support asset the

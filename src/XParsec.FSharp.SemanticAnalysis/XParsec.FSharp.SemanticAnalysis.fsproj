@@ -102,6 +102,7 @@
     <Compile Include="OpenSignature.fs" />
     <Compile Include="BuiltinTypes.fs" />
     <Compile Include="ModuleRules.fs" />
+    <Compile Include="SourceFileKind.fs" />
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="PackageSource.fs" />
     <Compile Include="Hashing.fs" />

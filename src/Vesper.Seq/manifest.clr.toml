@@ -5,18 +5,14 @@ description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
 # `Array.zeroCreate`.
 depends-on = ["../Vesper.Core", "../Vesper.List", "../Vesper.Comparison", "../Vesper.Array"]
 
-# Signature files in compile order. `struct-seq.fsi` is CLR-only: it names the
-# NON-generic `System.Collections.IEnumerable` / `IEnumerator`, which the JS capability shim
-# does not map, and every type in it is `[<Struct>]` for zero-allocation by-value chaining.
+# `toArray` builds a doubling buffer over `Array.zeroCreate`; `truncate` is a hand-rolled
+# lazy cursor over the `seq` / `enumerator` capabilities — an interface on CLR.
+# `struct-seq` is CLR-only: its `.fsi` names the NON-generic `System.Collections.IEnumerable`
+# / `IEnumerator`, which the JS capability shim does not map, and every type in it is
+# `[<Struct>]` for zero-allocation by-value chaining.
 files = [
     "seq.fsi",
-    "struct-seq.fsi",
-]
-
-# `toArray` builds a doubling buffer over `Array.zeroCreate`; `truncate` is a hand-rolled
-# lazy cursor over the `seq` / `enumerator` capabilities — an interface on CLR. Then the
-# by-value struct chaining above.
-impl = [
     "seq.fs",
+    "struct-seq.fsi",
     "struct-seq.clr.fs",
 ]

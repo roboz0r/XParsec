@@ -7,11 +7,8 @@ depends-on = ["../Vesper.Core", "../Vesper.List", "../Vesper.Array", "../Vesper.
 # CLR-only, so there is no `manifest.js.toml` beside this one. `set.fsi` itself — not
 # merely the impl — names `System.Collections.IEnumerable` / `IStructuralEquatable`,
 # `ReadOnlySpan<'T>`, `[<CollectionBuilder(typeof<Set>, "Create")>]` and `[<ScopedRef>]`.
+# The impl is CLR-bound too: `System`, `System.Collections{,.Generic}`, `System.Text`.
 files = [
     "set.fsi",
-]
-
-# CLR-bound: `System`, `System.Collections{,.Generic}`, `System.Text`.
-impl = [
     "set.clr.fs",
 ]

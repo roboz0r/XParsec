@@ -18,6 +18,7 @@
     <None Include="..\Codegen.Conformance\ops\**\*" LinkBase="Codegen.Conformance" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="PackageFaults.fs" />
     <Compile Include="Conformance.fs" />
     <Compile Include="Goldens.fs" />
     <Compile Include="OperatorClauses.fs" />

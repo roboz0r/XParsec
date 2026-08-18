@@ -9,6 +9,7 @@ open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Js
 
 /// Lex + parse a source string; a script fragment wraps as `AnonymousModule`. A source that
@@ -97,14 +98,9 @@ let expectMemberKeyHalvesAgree
     // The named packages alone, NOT their `depends-on` closure: the assertion is about the
     // halves one package's own `impl` publishes.
     let manifests =
-        (match ReferencedProject.resolveAll Target.Js implPackages with
-         | Result.Ok resolved -> resolved
-         | Result.Error fault -> failtestf "resolveAll: %s" (PackageSetFault.describe fault))
-        |> List.map (fun mp ->
-            match ReferencedProject.loadManifest mp with
-            | Result.Ok m -> m
-            | Result.Error e -> failtestf "loadManifest: %s" e
-        )
+        ReferencedProject.resolveAll Target.Js implPackages
+        |> PackageFaults.okOrFail "resolveAll"
+        |> List.map (ReferencedProject.loadManifest >> PackageFaults.okOrFail "loadManifest")
 
     let implBodies =
         (SymbolProviders.inlineBodies Target.Js contract.Provider (List.map PackageSource.readPackage manifests))

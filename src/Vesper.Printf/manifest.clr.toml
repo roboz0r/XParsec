@@ -6,20 +6,16 @@ description = "printf / printfn / sprintf and the write-through format handler."
 # uses as its `Doc` child lists and frame stack.
 depends-on = ["../Vesper.Core", "../Vesper.List"]
 
-# .fsi files in compile order: structural-printer before formatter, mirroring the impl
-# order. The last two are CLR-only: `formatter.fsi` names `TextWriter` / `StringBuilder` /
-# `IsByRefLike`, and `structural-printer.fsi` an interface-dispatching `RuntimeFormatState`.
+# The `.fs` halves are compiled into Vesper.Printf.dll by this repo's own backend. CLR-bound:
+# `Span` / `ArrayPool` / `Globalization`. A single-package compile is declaration-ordered, so
+# `StructuralPrinter` must precede `Formatter.AppendStructured`'s call to it. The last two
+# pairs are CLR-only: `formatter.fsi` names `TextWriter` / `StringBuilder` / `IsByRefLike`,
+# and `structural-printer.fsi` an interface-dispatching `RuntimeFormatState`.
 files = [
     "printf-format.fsi",
-    "structural-printer.fsi",
-    "formatter.fsi",
-]
-
-# The `.fs` compiled into Vesper.Printf.dll by this repo's own backend. CLR-bound:
-# `Span` / `ArrayPool` / `Globalization`. A single-package compile is declaration-ordered,
-# so `StructuralPrinter` must precede `Formatter.AppendStructured`'s call to it.
-impl = [
     "printf-format.fs",
+    "structural-printer.fsi",
     "structural-printer.clr.fs",
+    "formatter.fsi",
     "formatter.clr.fs",
 ]

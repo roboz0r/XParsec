@@ -3,12 +3,8 @@ name = "Vesper.Option"
 description = "The option type and the Option module."
 depends-on = ["../Vesper.Core"]
 
-# Signature files in compile order (one, today).
+# Pure data, no inline IL and no BCL name, so the js manifest names the same body.
 files = [
     "option.fsi",
-]
-
-# Pure data, no inline IL and no BCL name, so the js manifest names the same body.
-impl = [
     "option.fs",
 ]

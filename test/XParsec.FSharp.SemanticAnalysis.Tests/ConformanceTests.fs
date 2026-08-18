@@ -9,6 +9,7 @@ open Expecto
 
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Common.Tests
 
 let private vesperPath (package: string) (fileName: string) =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", package, fileName)
@@ -293,11 +294,8 @@ let private packageManifests (target: string) : (string * ReferencedProject.Mani
 
 /// The manifest-driven pass's outcome; a manifest or parse error fails the test.
 let private outcomeFor (mp: ReferencedProject.ManifestPath) : ConformancePass.PackageOutcome =
-    match ConformancePass.checkManifest mp with
-    | Ok o -> o
-    | Error e ->
-        failtestf "checkManifest failed for %s: %s" mp.Path e
-        Unchecked.defaultof<_>
+    ConformancePass.checkManifest mp
+    |> PackageFaults.okOrFail (sprintf "checkManifest %s" mp.Path)
 
 [<Tests>]
 let packageConformanceTests =
@@ -342,9 +340,9 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
         for name, content in files do
             File.WriteAllText(Path.Combine(dir, name), content)
 
-        match ReferencedProject.resolveManifest "js" dir with
-        | Ok mp -> outcomeFor mp
-        | Error e -> failtestf "resolveManifest: %s" (PackageSetFault.describe e)
+        ReferencedProject.resolveManifest "js" dir
+        |> PackageFaults.okOrFail "resolveManifest"
+        |> outcomeFor
     finally
         Directory.Delete(dir, true)
 
@@ -353,8 +351,7 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
 let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
     syntheticOutcome
         [
-            "manifest.js.toml",
-            "[core]\nfiles = [\"served.fsi\"]\nimpl = [\"served.js.fs\"]\nruntime = [\"Asset.mjs\"]\n"
+            "manifest.js.toml", "[core]\nfiles = [\"served.fsi\", \"served.js.fs\"]\nruntime = [\"Asset.mjs\"]\n"
             "served.fsi", "module V\n\nval served: x: int -> int\n"
             "served.js.fs",
             "module V\n\n[<Import(\"served\", \"./Asset.mjs\")>]\nlet served (x: int) : int = jsNative\n"
@@ -365,8 +362,7 @@ let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOu
 let private importImplOutcome (implSource: string) : ConformancePass.PackageOutcome =
     syntheticOutcome
         [
-            "manifest.js.toml",
-            "[core]\nfiles = [\"served.fsi\"]\nimpl = [\"served.js.fs\"]\nruntime = [\"Asset.mjs\"]\n"
+            "manifest.js.toml", "[core]\nfiles = [\"served.fsi\", \"served.js.fs\"]\nruntime = [\"Asset.mjs\"]\n"
             "served.fsi", "module V\n\nval served: x: int -> int\n"
             "served.js.fs", implSource
             "Asset.mjs", "export const served = (x) => x;\n"
@@ -883,11 +879,8 @@ let private unitPaths
 let private unitsOf
     (mp: ReferencedProject.ManifestPath)
     : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
-    match PackageUnits.ofManifest mp with
-    | Ok units -> units
-    | Error e ->
-        failtestf "PackageUnits.ofManifest failed for %s: %s" mp.Path e
-        []
+    PackageUnits.ofManifest mp
+    |> PackageFaults.okOrFail (sprintf "PackageUnits.ofManifest %s" mp.Path)
 
 [<Tests>]
 let packageUnitsTests =
@@ -898,16 +891,14 @@ let packageUnitsTests =
                 for package, manifestPath in packageManifests target do
                     test $"{package} ({target}): every body compiles under the contract it answers" {
                         let manifest =
-                            match ReferencedProject.loadManifest manifestPath with
-                            | Ok m -> m
-                            | Error e -> failtestf "%s: %s" package e
+                            ReferencedProject.loadManifest manifestPath |> PackageFaults.okOrFail package
 
                         let units = unitsOf manifestPath
 
                         Expect.equal
                             (unitPaths units |> List.map snd)
-                            manifest.Impl
-                            "one unit per `impl` entry, in manifest order"
+                            (ReferencedProject.implementationFiles manifest)
+                            "one unit per implementation entry, in manifest order"
 
                         let paired = unitPaths units |> List.filter (fst >> (<>) "") |> List.sort
 

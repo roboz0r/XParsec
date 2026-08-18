@@ -10,6 +10,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 
 // `SemType`'s nominal cases carry a `SymbolKey`; these shadow the constructors and
 // project the name back out, so tests construct and match by string name.
@@ -167,15 +168,13 @@ let private gatedContractForSelf
     | Ok contract -> contract
     | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
 
-/// The `impl` files a package's CLR manifest lists, in manifest order, relative to the
+/// The `.fs` files a package's CLR manifest lists, in manifest order, relative to the
 /// package directory.
 let manifestImplFiles (package: string) : string list =
-    match ReferencedProject.resolveManifest Target.Clr package with
-    | Error e -> failwithf "manifestImplFiles %s: %s" package (PackageSetFault.describe e)
-    | Ok mp ->
-        match ReferencedProject.loadManifest mp with
-        | Ok m -> m.Impl
-        | Error e -> failwithf "manifestImplFiles %s: cannot load manifest: %s" package e
+    ReferencedProject.resolveManifest Target.Clr package
+    |> Result.bind ReferencedProject.loadManifest
+    |> PackageFaults.okOrFail (sprintf "manifestImplFiles %s" package)
+    |> ReferencedProject.implementationFiles
 
 /// Compile `Vesper.Core.dll` from its manifest's units, load it into the *Default*
 /// `AssemblyLoadContext`, and return its path. *Default* because a PE loaded into a fresh
@@ -193,13 +192,9 @@ let vesperCoreDll: Lazy<string> =
          // Each unit the manifest lists is analysed as its own file against the composed
          // prior-file views, so a primitive repr (`string`, …) resolves from Core's own `.fs`.
          let files =
-             match
-                 ReferencedProject.resolveManifest Target.Clr vesperCorePackage
-                 |> Result.mapError PackageSetFault.describe
-                 |> Result.bind PackageUnits.ofManifest
-             with
-             | Ok units -> units
-             | Error e -> failwithf "vesperCoreDll: %s" e
+             ReferencedProject.resolveManifest Target.Clr vesperCorePackage
+             |> Result.bind PackageUnits.ofManifest
+             |> PackageFaults.okOrFail "vesperCoreDll"
 
          // Core defines its own primitives, so it references nothing and declares ITSELF as
          // the self manifest. That seeds the platform metadata with its own `{ platform -> canon }`
@@ -309,14 +304,12 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
         fun pkg ->
             lazy
                 (let manifestPath =
-                    match ReferencedProject.resolveManifest Target.Clr (srcPackage pkg) with
-                    | Result.Ok mp -> mp
-                    | Result.Error e -> failwithf "buildPackage %s: %s" pkg (PackageSetFault.describe e)
+                    ReferencedProject.resolveManifest Target.Clr (srcPackage pkg)
+                    |> PackageFaults.okOrFail (sprintf "buildPackage %s" pkg)
 
                  let manifest =
-                     match ReferencedProject.loadManifest manifestPath with
-                     | Result.Ok m -> m
-                     | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
+                     ReferencedProject.loadManifest manifestPath
+                     |> PackageFaults.okOrFail (sprintf "buildPackage %s" pkg)
 
                  // Read ONCE: the conformance gate and the unit list below both work off these
                  // trees, and off the pairing taken with them, so no file of the package is
@@ -894,17 +887,15 @@ let private transitivePackages (roots: string list) : string list =
 
     let rec go (pkg: string) =
         if not (acc.Contains pkg) then
-            match
+            let m =
                 ReferencedProject.resolveManifest Target.Clr (srcPackage pkg)
-                |> Result.mapError PackageSetFault.describe
                 |> Result.bind ReferencedProject.loadManifest
-            with
-            | Result.Ok m ->
-                m.DependsOn |> List.map dependencyName |> List.iter go
+                |> PackageFaults.okOrFail (sprintf "transitivePackages %s" pkg)
 
-                if not (acc.Contains pkg) then
-                    acc.Add pkg
-            | Result.Error e -> failwithf "transitivePackages %s: %s" pkg e
+            m.DependsOn |> List.map dependencyName |> List.iter go
+
+            if not (acc.Contains pkg) then
+                acc.Add pkg
 
     roots |> List.iter go
     List.ofSeq acc

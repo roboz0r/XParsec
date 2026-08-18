@@ -17,7 +17,7 @@ module ConformancePass =
         {
             /// `.fsi` relative path (as listed in the manifest).
             SigFile: string
-            /// The companion `.fs` relative path (resolved from the impl set).
+            /// The companion `.fs` relative path (resolved from the pairing).
             ImplFile: string
             ModuleMismatch: Conformance.ModuleDeclMismatch voption
             /// Empty = the pair conforms.
@@ -27,9 +27,9 @@ module ConformancePass =
     /// The verdict for one signature file in a package.
     [<RequireQualifiedAccess>]
     type PairOutcome =
-        /// `.fsi` with a companion `.fs` in the impl set.
+        /// `.fsi` with a companion `.fs`.
         | Paired of PairResult
-        /// `.fsi` with NO companion `.fs` in the impl set.
+        /// `.fsi` with NO companion `.fs`.
         | SigOnly of sigFile: string
         /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
         /// conformed. Per signature file, so one malformed file does not abort the package.
@@ -161,7 +161,7 @@ module ConformancePass =
 
     /// `check` for a caller holding only the path. `Error` ONLY when the package is wholly
     /// un-checkable, meaning a malformed or absent MANIFEST.
-    let checkManifest (mp: ReferencedProject.ManifestPath) : Result<PackageOutcome, string> =
+    let checkManifest (mp: ReferencedProject.ManifestPath) : Result<PackageOutcome, PackageSetFault> =
         ReferencedProject.loadManifest mp
         |> Result.map (PackageSource.readPackage >> check)
 

@@ -6,6 +6,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common.Tests
 
 /// `src/<pkg>`, relative to this test file.
 let srcPackage (pkg: string) : string =
@@ -13,9 +14,8 @@ let srcPackage (pkg: string) : string =
 
 /// `src/<pkg>`'s manifest for `target`. A package that does not build for it fails the test.
 let srcManifest (target: string) (pkg: string) : ReferencedProject.ManifestPath =
-    match ReferencedProject.resolveManifest target (srcPackage pkg) with
-    | Result.Ok mp -> mp
-    | Result.Error e -> failwithf "srcManifest: %s" (PackageSetFault.describe e)
+    ReferencedProject.resolveManifest target (srcPackage pkg)
+    |> PackageFaults.okOrFail "srcManifest"
 
 /// The default contract stack for the SA front-end tests: real SRTP operators (`(+) : ^T
 /// -> ^T -> ^T`), the ordering operators, `hash`/`failwith`, the cons-list and the printf

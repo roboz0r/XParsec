@@ -4,6 +4,7 @@ open System
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
@@ -274,19 +275,16 @@ module Shim =
             // which could be "the package's module".
             test "Vesper.Core compiles as one package and its modules load under Node" {
                 let manifestPath =
-                    match ReferencedProject.resolveManifest Target.Js vesperCorePackage with
-                    | Result.Ok mp -> mp
-                    | Result.Error e -> failtestf "Vesper.Core manifest: %s" (PackageSetFault.describe e)
+                    ReferencedProject.resolveManifest Target.Js vesperCorePackage
+                    |> PackageFaults.okOrFail "Vesper.Core manifest"
 
                 let manifest =
-                    match ReferencedProject.loadManifest manifestPath with
-                    | Result.Ok m -> m
-                    | Result.Error e -> failtestf "Vesper.Core manifest: %s" e
+                    ReferencedProject.loadManifest manifestPath
+                    |> PackageFaults.okOrFail "Vesper.Core manifest"
 
                 let files =
-                    match PackageUnits.ofManifest manifestPath with
-                    | Result.Ok units -> units
-                    | Result.Error e -> failtestf "Vesper.Core units: %s" e
+                    PackageUnits.ofManifest manifestPath
+                    |> PackageFaults.okOrFail "Vesper.Core units"
 
                 let pkg =
                     match
@@ -403,5 +401,54 @@ module Reader =
                     let actual = out.Replace("\r", "").Trim()
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" actual)
                     Expect.equal actual "42" "the cross-file call resolved through the emitted sibling module"
+            }
+        ]
+
+/// A `tmp/<name>` package whose two `.fs` files each declare an inline `pick`, in `order`.
+let private writePickPackage (name: string) (order: string list) : string =
+    let dir = tmpDir name
+
+    let write (file: string) (text: string) =
+        IO.File.WriteAllText(IO.Path.Combine(dir, file), text)
+
+    let entries = order |> List.map (sprintf "\"%s\"") |> String.concat ", "
+
+    write
+        "manifest.js.toml"
+        (sprintf
+            "[core]\nname = \"%s\"\ndescription = \"Two bodies for one name, for the clash order.\"\ndepends-on = [\"../../src/Vesper.Core\"]\nfiles = [%s]\n"
+            name
+            entries)
+
+    write "first.fs" "namespace PickOrder\n\n[<AutoOpen>]\nmodule First =\n    let inline pick () : int = 1\n"
+
+    write "second.fs" "namespace PickOrder\n\n[<AutoOpen>]\nmodule Second =\n    let inline pick () : int = 2\n"
+
+    dir
+
+/// The file that produced the body `BodiesByName` serves for `pick` from `dir`'s package.
+let private pickWinner (dir: string) : string =
+    match JsNativeSymbols.jsNativeInlineBodies [ dir ] |> Map.tryFind "pick" with
+    | Some body -> body.Origin.File.Path.Relative.Name
+    | None -> failtest "no inline body collected for 'pick'"
+
+[<Tests>]
+let inlineBodyOrderTests =
+    testList
+        "JsPackageInlineBodyOrder"
+        [
+            // The manifest file list is the ONE place `.fs`-to-`.fs` relative order is
+            // load-bearing: two bodies under one simple name resolve to the LATER file's.
+            // Reversing the list flips the winner, so it is order, not identity.
+            test "a name two files bind resolves to the later file's body, by manifest order" {
+                Expect.equal
+                    (pickWinner (writePickPackage "InlineOrder.AB" [ "first.fs"; "second.fs" ]))
+                    "second.fs"
+                    "the later entry wins the clash"
+
+                Expect.equal
+                    (pickWinner (writePickPackage "InlineOrder.BA" [ "second.fs"; "first.fs" ]))
+                    "first.fs"
+                    "reversed, the other file is the later entry and wins"
             }
         ]

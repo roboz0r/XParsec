@@ -4,9 +4,9 @@
 dataflow" encoded by ONE function every interested caller uses. Delete this doc when step 4
 lands (`feedback_plan_docs_ephemeral`).
 
-**Status (2026-08-16):** the inputs are in place and the merge is blocked on the manifest
-format alone. Absorbs the remnants of `package-parse-once-plan.md`, which is deleted — its
-account of the remaining seam was misdiagnosed, see §"What this closes".
+**Status (2026-08-17): step 1 LANDED**, including its ride-alongs; steps 2–4 remain. Absorbs
+the remnants of `package-parse-once-plan.md`, which is deleted — its account of the remaining
+seam was misdiagnosed, see §"What this closes".
 
 ## Where it stands: two folds implement one dataflow
 
@@ -22,17 +22,19 @@ Everything they differ in is one difference wearing four costumes:
 | home | `Origin.InFile implPath` | `Origin.InAssembly name` |
 | ambient prefixes | none | the package's `[<AutoOpen>]` |
 | analyse the `.fs` | yes | no |
-| an unsigned `.fs` publishes | the surface it infers | nothing |
+| a `.fs` without a `.fsi` publishes | the surface it infers | nothing |
 
 The first two rows are already stated as one parameter in
 [fsi-front-end-plan](fsi-front-end-plan.md) §"Constraints the merged path must keep". The
-other two follow from it: across the boundary only what a `.fsi` declares crosses, which is
-what makes a referenced package readable without compiling it.
+last two rows describe the code but are NOT design: rows three and four are the gap
+§"A `.fs` without a `.fsi` must publish across the boundary" closes — the referencing route
+already analyses every `.fs` (for inline bodies) and F# parity requires such a file's inferred
+surface to cross.
 
 Compile order permits the merge outright — `AssemblyFiles.fs` already sees `PackageSource`,
 `SignatureResolution`, `Freeze` and `Pipeline`, and `PackageProviders` is after it.
 
-## The blocker: one fold needs one order, and the manifest has two
+## The blocker: one fold needs one order, and the manifest has two — RESOLVED by step 1
 
 `[core] files` and `[core] impl` are independently ordered. Two folds can each be internally
 consistent over two orders; one fold must pick.
@@ -64,7 +66,35 @@ rule is total and the merged list is fully determined by `impl` order.
 - The package compile order is preserved exactly: it already reads `impl` order alone.
 - `fun-adapters.fsi` is the only entry that moves, earlier, in contract extraction only.
 
-## Step 1: collapse `files` + `impl` into one ordered list
+## Step 1: collapse `files` + `impl` into one ordered list — DONE (2026-08-17)
+
+**Landed as planned, with two deviations the merge itself forced:**
+
+- **`PackageSetFault.FileWrongHalf` and `PackageSource.FileFault.WrongHalf` are DELETED, not
+  typed.** The plan wanted the fault to carry `expected: Half`; with one extension-classified
+  list there is no independent "expected" left — the half IS the extension — so the fault had
+  no producer and the `readPackage` wrong-half check deleted outright. The manifest-level
+  parse error (unknown extension) is the surviving refusal.
+- **The role type is `SourceFileKind` (user, 2026-08-17), not `PackageSource.Half`**: hoisted
+  into its own `SourceFileKind.fs` above `ReferencedProject.fs`, renamed (it also collided with
+  `System.Half`), with `tryOfPath : string -> SourceFileKind voption`; the total `ofPath` and
+  `describe` are gone with their only callers.
+
+The ride-alongs all landed: `loadManifest`/`buildClosure`/`parseManifest` return
+`PackageSetFault` (new case `MalformedManifest of path * detail`, V251), `PackageUnits.ofManifest`
+/ `ConformancePass.checkManifest` / `PackageProviders.buildProvider` carry it through,
+`Hashing.compilationDigest` keys both failure arms on the fault's CODE,
+`AssemblyFiles.setFaultDiagnostics` is the one whole-set-fault primitive, and the duplicate-type
+diagnostic anchors at `AssemblyFileId.nowhere`. Wire change (FileWrongHalf out, MalformedManifest
+in, tags renumbered) bumped `Cache.CodeVersion` 32→33. The later-body-wins order pin landed
+first as `JsPackageTests.inlineBodyOrderTests`.
+
+**Review hardening (2026-08-18):** `classifyFiles` also rejects a duplicated entry and
+enforces `.fsi`-immediately-before-companion-`.fs` (see the step 2 note below), which let
+`sourceInputs` drop its `List.distinct`; `pairingKey` takes the target string, so the check
+runs at parse time; `parseManifest` flattened over `coreTable` / `packageName`; the
+`(PackageSetFault.describe e)` failure boilerplate across the test projects collapsed into
+`Codegen.Common.Tests.PackageFaults.okOrFail`.
 
 Parse into a TYPED ordered list. A bare `string list` whose five consumers each re-derive the
 role by sniffing the extension trades two honest lists for one over-wide one
@@ -136,53 +166,135 @@ became `[<Import>]` + `jsNative` bindings in a real `.fs`), the `sig-only` schem
 and an unpaired signature is an unconditional hard error. The pairing is TOTAL, which
 collapses this plan's step 2 and simplifies its merge rule:
 
-- `Unit` is not a three-case DU. Every unit has an implementation and an optional signature,
-  which is what `AssemblyFiles.ParsedUnit` already IS — so step 2 becomes "the package route
-  uses `ParsedUnit`", not "widen `ParsedUnit`".
+- `Unit` is not a three-case DU. Every unit of a WELL-FORMED package has an implementation
+  and an optional signature. (An earlier draft said "the package route uses
+  `AssemblyFiles.ParsedUnit`" — wrong on two counts, see step 2: `ParsedUnit` holds parsed
+  TREES where the conformance pass needs the per-file read OUTCOMES, and the unpaired `.fsi`
+  must stay representable for the referencing route.)
 - `impl`-driven ordering is canonical AND COMPLETE, not canonical for a spine with
   companion-less entries positioned off `files`. The merged list is a mechanical interleave
   with no exceptions.
 
-## Step 2: one unit type
+## Step 2: one unit type — REFINED (user, 2026-08-17)
 
 `readPackage` already computes the pairing and then splits it into two lists whose element
-types each make one half mandatory. Emit the pairing itself:
+types each make one half mandatory. Emit the pairing itself. The original three-case DU is
+superseded: total pairing makes "paired" and "implementation-only" one shape, and that shape
+is the record (user):
 
 ```fsharp
-type Unit =
-    | Paired of signature: ReadFile<ParsedSignature> * implementation: ReadFile<ParsedFile>
-    | SignatureOnly of ReadFile<ParsedSignature>
-    | ImplementationOnly of ReadFile<ParsedFile>
+type ParsedSource =
+    {
+        Signature: ReadFile<ParseChain.ParsedSignature> voption
+        Implementation: ReadFile<ParseChain.ParsedFile>
+    }
 ```
 
-`ParsedPackage.Units : Unit list` in merged-list order replaces `Signatures` / `Implementations`
-and the `Companion` fields on both. `AssemblyFiles.ParsedUnit` — which requires an
-implementation, and is why a `sig-only` `.fsi` is invisible to the compiling route today — is
-this type.
+The same axis as `AssemblyFiles.ParsedUnit` — mandatory implementation, optional signature —
+but as READ: each half keeps its `Outcome`, because the conformance pass turns a per-file
+fault into `PairOutcome.ParseFailed` and the provider build reports it from the list that
+names the file.
 
-`PackageUnits.ofPackage` disappears: it exists only to project one of the two lists back into
-a unit list.
+**One state the record cannot carry, and must survive: the unpaired `.fsi`.** Conformance
+refuses it (`SigWithoutImpl`, hard error), but conformance gates only the compiling and test
+routes; the REFERENCING route (`composeContract` → `buildProviderWith`, `PackageProviders.fs:84`)
+resolves and publishes every signature file regardless of companion, and the synthetic test
+corpus leans on exactly that — `writeSyntheticPackageWithType`
+(`ReferencedProjectTests.fs:83`) ships `contract.fsi` alone, as do the Hashing,
+`StructTests` `point.fsi` and `FrozenCacheIncrementalTests` fixtures. Losing the state would
+change the referencing route and break those fixtures, which is not this plan's scope. So the
+element type carries it as the degenerate case beside the dominant record:
+
+```fsharp
+[<RequireQualifiedAccess>]
+type PackageUnit =
+    | Source of ParsedSource
+    | UnpairedSignature of ReadFile<ParseChain.ParsedSignature>
+```
+
+- `ParsedPackage.Units : PackageUnit list` in merged-list order replaces
+  `Signatures` / `Implementations` and the `Companion` fields on both, so signature
+  resolution order (currently the signatures' own `files` order) is preserved even where an
+  `UnpairedSignature` interleaves with `Source` units.
+- `buildProviderWith` walks the one list: a `Source` signature resolves against reprs read
+  off ITS OWN record (`companionReprs` takes the unit), an `UnpairedSignature` resolves and
+  publishes exactly as today, and a faulted implementation reports from the unit that names it.
+- `ConformancePass.check` walks the same list: `Source` with a signature → the pair check;
+  `UnpairedSignature` → `PairOutcome.SigOnly`; `Source` without one → nothing (a `.fs` owes
+  no `.fsi`).
+- `PackageUnits.ofPackage` becomes the projection `ParsedSource →
+  Result<AssemblyFiles.ParsedUnit, UnparsedFile>` over the `Source` cases. The compiling
+  route stays blind to `UnpairedSignature`, which conformance separately refuses.
+- Pairing stays KEY-based (`pairingKey`), but `.fsi`-immediately-before-`.fs` is
+  **parse-enforced** (user, 2026-08-18), no longer a style convention: a `.fsi` whose sole
+  key-mate sits elsewhere in the list, a `.fsi` two `.fs` entries key-match, or a duplicated
+  entry is `MalformedManifest`. Key pairing and list adjacency therefore provably agree, and
+  step 2 may read the pairing either way.
 
 **Exit:** `ConformancePass.check`, `buildProviderWith` and `inlineBodies` each walk one list,
 and no consumer re-derives a pairing.
 
+## A `.fs` without a `.fsi` must publish across the boundary (user, 2026-08-17)
+
+(Not "unsigned" — that reads as cryptographic artifact signing. "`.fs` without a `.fsi`" is
+the term.)
+
+The §"Where it stands" table's fourth row — a `.fs` without a `.fsi` publishes "nothing" when
+referencing — described the code and was wrong as a design. F# parity: in
+`a.fsi, a.fs, b.fs, c.fsi, c.fs`, a consumer of the built assembly sees types from all three
+units, `b.fs`'s included. F#'s mechanism is that the consumer reads the PRODUCER COMPILE's
+output (the pickled inferred signature); the boundary rule is "only signatures cross", and
+for a `.fs` without a `.fsi` the signature is the one its compile inferred. So the
+cross-assembly view of `b.fs` is derivable only from the compile path.
+
+**The referencing route already runs that compile and discards its surface.**
+`SymbolProviders.inlineBodies` (`SymbolProviders.fs:59-135`), on the referencing route via
+`buildContractWith`, analyses EVERY impl file of every referenced package through
+`Pipeline.analyseSemWithContextFor` and freezes it, to harvest inline templates — while
+`buildProviderWith` walks only the `.fsi`s. `b.fs`'s inferred surface is computed and thrown
+away: a stage discarding an intermediate. The fix is therefore not "make referencing analyse"
+but "stop discarding": in the merged fold, ONE analysis per impl feeds the inline bodies AND,
+for a unit with no `.fsi`, the published surface. It also gives that analysis the proper
+nearest-first prior-file environment, where `inlineBodies` today analyses against the final
+whole-set composite.
+
+This lands with step 3 (it IS the fold's referencing arm done right), and PF5 / PF8 of
+[publishing-format-plan](publishing-format-plan.md) are producer-side MATERIALISATIONS of the
+same semantics — a cached resolved surface, or a generated-and-committed `.fsi` — not
+alternatives to it.
+
+**Enumerate before flipping — this is a behaviour change:**
+
+- `Vesper.Printf` (js): `structural-printer.js.fs` has no `.fsi` by design; its
+  `structuralFormat` / `float32ToString` start genuinely publishing, which is also what lets
+  `EmitJsContext.printfRuntimeRef`'s hardcode die.
+- The widget fixture violates F# pairing semantics: `widget.fsi` declares `gadget`, whose
+  members live in `gadget.js.fs`, which has no `.fsi` of its own. Publishing gadget's inferred surface
+  double-declares the type; the fixture needs restating first.
+- A2 of [codegen-common-followups-plan](codegen-common-followups-plan.md) stops being
+  cosmetic: a broken impl currently contributes no bodies SILENTLY; once surfaces flow from
+  the same analysis, its errors must surface.
+
 ## Step 3: one fold
 
-In `AssemblyFiles`, over `Unit list`, with the discriminator that made the four rows one:
+In `AssemblyFiles`, over `PackageUnit list`, with the discriminator that made the four rows one:
 
 ```fsharp
 /// Which side of the assembly boundary this fold publishes for.
 type Publication =
-    /// Compiling these units: each file homes in itself, the `.fs` is analysed and frozen,
-    /// and an unsigned `.fs` publishes the surface it infers.
-    | InAssembly of analyse: AnalyseFile
-    /// Reading them as a reference: every symbol homes in the assembly, the package's
-    /// `[<AutoOpen>]` prefixes are published, and only a `.fsi` crosses.
+    /// Compiling these units: each file homes in itself and the frozen `.fs` is kept for
+    /// codegen.
+    | InAssembly
+    /// Reading them as a reference: every symbol homes in the assembly and the package's
+    /// `[<AutoOpen>]` prefixes are published.
     | AcrossAssemblies
 ```
 
-`AnalyseFile` is reachable only on the compiling arm, so "referencing, but it analysed the
-bodies" is not a state that exists.
+Both arms analyse every implementation file (the referencing arm already does, for inline
+bodies), and on both a `.fs` without a `.fsi` publishes the surface it infers; a unit with a
+`.fsi` publishes its declarations. What remains of the axis is the home, the ambient prefixes, and
+whether the frozen bodies are kept for codegen — the original `analyse: AnalyseFile` payload
+dissolves into the fold itself.
 
 Two things the fold makes one that are two spellings today: the intrinsic-repr pre-scan
 (`signatureView` reads `scope.Implementation`, `companionReprs` reads `entry.Companion` — the

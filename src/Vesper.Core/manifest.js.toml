@@ -1,75 +1,74 @@
 [core]
 description = "Minimal language fundamentals: the primitive types, Fun, Ref, capabilities, and the operators."
 
+# One list, in compile order, each `.fsi` contract immediately ahead of its `.fs` body. The
+# `.fs` halves are the JS bodies: platform reprs and spliced operator templates. There is no
+# whole-package JS build (the runtime is the committed `Vesper.Core.mjs`), so most entries are
+# read as splice source, not compiled.
+#
+# decimal / nativeint / nd-array are ABSENT: JS has no such types, so their contracts are not
+# declared here. `decimal` / `nativeint` / `unativeint` stay language-known keys, and a js
+# program writing one is rejected as unsupported on the target. And `fun-adapters` is CLR-only:
+# JS applies function values directly.
 files = [
     "prim-types-min.fsi",
+    "prim-types-min.js.fs",
     "capabilities.fsi",
+    # JS has iteration but no interfaces, so these bind a `!`-prefixed repr that names nothing
+    # at runtime. `!` is illegal in a JS identifier, so it can never collide with a global.
+    "capabilities.js.fs",
     "prim-types-array.fsi",
+    "prim-types-array.fs",
     "prim-types-int.fsi",
+    "prim-types-int.js.fs",
     "prim-types-float.fsi",
+    "prim-types-float.js.fs",
     "prim-types-string.fsi",
+    "prim-types-string.js.fs",
     "prim-types-object.fsi",
+    "prim-types-object.js.fs",
     "prim-types-exn.fsi",
-    # decimal / nativeint / nd-array are ABSENT: JS has no such types, so their contracts are
-    # not declared here. `decimal` / `nativeint` / `unativeint` stay language-known keys, and
-    # a js program writing one is rejected as unsupported on the target.
+    "prim-types-exn.js.fs",
     "prim-types-bigint.fsi",
+    "prim-types-bigint.js.fs",
     "prim-types-attr.fsi",
+    # The same `!` repr: JS reifies no attributes, but `Attribute` is still the root every
+    # marker below inherits, and a base with a repr is what makes those markers erase at emit.
+    "prim-types-attr.js.fs",
     "compiler-attributes.fsi",
+    "compiler-attributes.fs",
     "core-types.fsi",
+    "core-types.fs",
     "structural-format.fsi",
+    "structural-format.fs",
     "ops-platform.fsi",
+    "ops-platform.js.fs",
     "ops-std.fsi",
+    "ops-std.fs",
     "int-comparison.fsi",
+    "int-comparison.js.fs",
     # The compat shim maps the BCL interface spellings to the BCL-free capabilities, so it
     # comes after `capabilities.fsi` — its RHS (`Vesper.disposable`) must already be in the
     # registry.
     "capabilities-compat.js.fsi",
+    "capabilities-compat.js.fs",
     # `structuralEquals` / `structuralHash` / `checkedDivisor` — the JS runtime entries;
-    # bodies in `Vesper.Core.mjs`. The CLR `=`/`<>`/`hash` use `EqualityComparer` instead.
+    # `[<Import>]`-attributed bindings served by `Vesper.Core.mjs`, plus `jsNative`.
     "ops-platform-runtime.js.fsi",
+    "ops-platform-runtime.js.fs",
     # `null` needs no counterpart entry — it is a reserved keyword, already distinct.
     "prim-types-undefined.js.fsi",
+    "prim-types-undefined.js.fs",
     # JS-only opaque `dynamic` intrinsic type — the F#-side landing point for TS `any`.
     "prim-types-dynamic.js.fsi",
+    "prim-types-dynamic.js.fs",
     # After `prim-types-dynamic.js.fsi` — these operators reference the `dynamic` type.
     "ops-dynamic.js.fsi",
+    "ops-dynamic.js.fs",
     # The BCL exception roots as `namespace System` contract types. JS-only: the CLR resolves
     # these names through `System.Private.CoreLib`, and declaring them there would shadow the
     # real types in a `newobj`. After `prim-types-exn.fsi` — each inherits `exn`.
     "exceptions.js.fsi",
-]
-
-# The JS bodies: platform reprs and spliced operator templates. There is no whole-package JS
-# build (the runtime is the committed `Vesper.Core.mjs`), so most entries are read as splice
-# source, not compiled.
-impl = [
-    "prim-types-min.js.fs",
-    # JS has iteration but no interfaces, so these bind a `!`-prefixed repr that names nothing
-    # at runtime. `!` is illegal in a JS identifier, so it can never collide with a global.
-    "capabilities.js.fs",
-    "prim-types-array.fs",
-    "prim-types-int.js.fs",
-    "prim-types-float.js.fs",
-    "prim-types-string.js.fs",
-    "prim-types-object.js.fs",
-    "prim-types-exn.js.fs",
-    "prim-types-bigint.js.fs",
-    # The same `!` repr: JS reifies no attributes, but `Attribute` is still the root every
-    # marker below inherits, and a base with a repr is what makes those markers erase at emit.
-    "prim-types-attr.js.fs",
-    "compiler-attributes.fs",
-    "core-types.fs",
-    "structural-format.fs",
-    "ops-platform.js.fs",
-    "ops-std.fs",
-    "int-comparison.js.fs",
-    "capabilities-compat.js.fs",
-    # `[<Import>]`-attributed bindings served by `Vesper.Core.mjs`, plus `jsNative`.
-    "ops-platform-runtime.js.fs",
-    "prim-types-undefined.js.fs",
-    "prim-types-dynamic.js.fs",
-    "ops-dynamic.js.fs",
     "exceptions.js.fs",
 ]
 

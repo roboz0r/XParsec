@@ -19,19 +19,16 @@ description = "Test fixture: a `(# … #)`-bodied member (`Poke`) on an `extern`
 # A `depends-on` entry is a path relative to THIS package's directory.
 depends-on = ["../../../../src/Vesper.Core"]
 
-# The front-end symbol contract: `widget` with `Poke`, and `gadget` with `Bump`.
-files = [
-    "widget.fsi",
-]
-
-# The bodies. Every declaration in them is `inline`, so the package emits no DLL and these
+# The front-end symbol contract (`widget` with `Poke`, `gadget` with `Bump`) and the bodies.
+# Every declaration in the `.fs` halves is `inline`, so the package emits no DLL and they
 # are purely SPLICE sources — the inline-body loader mints each `member inline` as a
 # `this`-first inline body served under that member's key. Listing them here is also what
 # marks `widget`/`gadget` as intrinsics (their `(# "object" #)` binding is the marker), so
 # the fixture pins that a member on an INTRINSIC host splices — instance and static alike.
 # `gadget.js.fs` is the NON-IL-bodied case: its body is a keyed `widget.Poke` call, and it
 # publishes because it is declared `inline`, not because of anything the body is.
-impl = [
+files = [
+    "widget.fsi",
     "widget.js.fs",
     "gadget.js.fs",
 ]

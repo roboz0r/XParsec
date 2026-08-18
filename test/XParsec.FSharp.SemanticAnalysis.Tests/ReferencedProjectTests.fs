@@ -5,6 +5,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Common.Tests
 
 // `Vesper.Core` stood up from its real manifests: what its contract resolves, and with
 // which identities.
@@ -37,15 +38,12 @@ let private vesperListPackage = Path.Combine(srcDir, "Vesper.List")
 
 /// Resolve a package for `target`, failing the test if it does not build for it.
 let private resolveOrFail (target: string) (packageDir: string) : ReferencedProject.ManifestPath =
-    match ReferencedProject.resolveManifest target packageDir with
-    | Result.Ok mp -> mp
-    | Result.Error e -> failwithf "resolveManifest: %s" (PackageSetFault.describe e)
+    ReferencedProject.resolveManifest target packageDir
+    |> PackageFaults.okOrFail "resolveManifest"
 
 /// Parse a resolved manifest, failing the test if it is malformed.
 let private loadOrFail (mp: ReferencedProject.ManifestPath) : ReferencedProject.Manifest =
-    match ReferencedProject.loadManifest mp with
-    | Result.Ok m -> m
-    | Result.Error e -> failwithf "loadManifest: %s" e
+    ReferencedProject.loadManifest mp |> PackageFaults.okOrFail "loadManifest"
 
 let private vesperCoreManifest = resolveOrFail "clr" vesperCorePackage
 let private vesperCoreJsManifest = resolveOrFail "js" vesperCorePackage
@@ -92,9 +90,8 @@ let private writeSyntheticPackageWithType
 
 let private builtProvider =
     lazy
-        (match PackageProviders.buildProvider vesperCoreManifest with
-         | Result.Error e -> failwithf "buildProvider failed: %s" e
-         | Result.Ok(provider, diags) -> provider, diags)
+        (PackageProviders.buildProvider vesperCoreManifest
+         |> PackageFaults.okOrFail "buildProvider")
 
 /// The same package's JS contract: no `.js.fs` capability reprs, plus the
 /// `capabilities-compat.js.fsi` shim `manifest.js.toml` names and the clr one does not.
@@ -113,14 +110,20 @@ let tests =
         "ReferencedProject"
         [
             test "manifest parses: name and files in compile order" {
-                match ReferencedProject.loadManifest vesperCoreManifest with
-                | Result.Error e -> failtestf "loadManifest failed: %s" e
-                | Result.Ok m ->
-                    // `Vesper.Core`'s `[core]` carries no `name`, so it falls back to the directory.
-                    Expect.equal m.Name "Vesper.Core" "assembly name from dir"
-                    Expect.equal m.Target "clr" "target from the file name"
-                    Expect.isNonEmpty m.Files "files listed"
-                    Expect.equal (List.head m.Files) "prim-types-min.fsi" "compile order: prim-types-min first"
+                let m = loadOrFail vesperCoreManifest
+
+                // `Vesper.Core`'s `[core]` carries no `name`, so it falls back to the directory.
+                Expect.equal m.Name "Vesper.Core" "assembly name from dir"
+                Expect.equal m.Target "clr" "target from the file name"
+                Expect.isNonEmpty m.Files "files listed"
+
+                Expect.equal
+                    (List.head m.Files)
+                    {
+                        ReferencedProject.Relative = "prim-types-min.fsi"
+                        ReferencedProject.Kind = SourceFileKind.Signature
+                    }
+                    "compile order: prim-types-min's contract first"
             }
 
             // Every signature file goes through the same front end an in-assembly `.fsi` does,
@@ -518,34 +521,36 @@ let tests =
                     test "pulls a transitive dependency into the closure (List ⇒ + Core)" {
                         // `Vesper.List` lists `Vesper.Core` only via `depends-on`; the closure
                         // resolves that to the sibling directory.
-                        match ReferencedProject.buildClosure [ vesperListManifest ] with
-                        | Result.Error e -> failtestf "buildClosure failed: %s" e
-                        | Result.Ok manifests ->
-                            let ordered = manifests |> List.map (fun m -> m.Path)
-                            let coreFull = vesperCoreManifest
-                            let listFull = vesperListManifest
-                            Expect.contains ordered coreFull "Core pulled into the closure"
-                            Expect.contains ordered listFull "List itself present"
+                        let manifests =
+                            ReferencedProject.buildClosure [ vesperListManifest ]
+                            |> PackageFaults.okOrFail "buildClosure"
 
-                            Expect.isLessThan
-                                (List.findIndex ((=) coreFull) ordered)
-                                (List.findIndex ((=) listFull) ordered)
-                                "Core ordered before List"
+                        let ordered = manifests |> List.map (fun m -> m.Path)
+                        let coreFull = vesperCoreManifest
+                        let listFull = vesperListManifest
+                        Expect.contains ordered coreFull "Core pulled into the closure"
+                        Expect.contains ordered listFull "List itself present"
+
+                        Expect.isLessThan
+                            (List.findIndex ((=) coreFull) ordered)
+                            (List.findIndex ((=) listFull) ordered)
+                            "Core ordered before List"
                     }
 
                     test "reorders a dependent-first input dependencies-first" {
                         // Post-order topo sort, so the input order does not survive.
-                        match ReferencedProject.buildClosure [ vesperListManifest; vesperCoreManifest ] with
-                        | Result.Error e -> failtestf "buildClosure failed: %s" e
-                        | Result.Ok manifests ->
-                            let ordered = manifests |> List.map (fun m -> m.Path)
-                            let coreFull = vesperCoreManifest
-                            let listFull = vesperListManifest
+                        let manifests =
+                            ReferencedProject.buildClosure [ vesperListManifest; vesperCoreManifest ]
+                            |> PackageFaults.okOrFail "buildClosure"
 
-                            Expect.isLessThan
-                                (List.findIndex ((=) coreFull) ordered)
-                                (List.findIndex ((=) listFull) ordered)
-                                "Core ordered before List despite being listed second"
+                        let ordered = manifests |> List.map (fun m -> m.Path)
+                        let coreFull = vesperCoreManifest
+                        let listFull = vesperListManifest
+
+                        Expect.isLessThan
+                            (List.findIndex ((=) coreFull) ordered)
+                            (List.findIndex ((=) listFull) ordered)
+                            "Core ordered before List despite being listed second"
                     }
 
                     test "empty root set closes to nothing" {
@@ -560,7 +565,9 @@ let tests =
 
                         match ReferencedProject.buildClosure [ a ] with
                         | Result.Ok ordered -> failtestf "expected a cycle error, got Ok %A" ordered
-                        | Result.Error e -> Expect.stringContains e "cycle" "error names the cycle"
+                        | Result.Error(PackageSetFault.UnresolvedDependency detail) ->
+                            Expect.stringContains detail "cycle" "the fault names the cycle"
+                        | Result.Error e -> failtestf "expected UnresolvedDependency, got %A" e
                     }
 
                     test "a missing dependency manifest is a hard error" {
@@ -568,7 +575,11 @@ let tests =
 
                         match ReferencedProject.buildClosure [ p ] with
                         | Result.Ok ordered -> failtestf "expected a missing-dependency error, got Ok %A" ordered
-                        | Result.Error e -> Expect.stringContains e "buildClosure" "error is surfaced from buildClosure"
+                        | Result.Error e ->
+                            Expect.equal
+                                e
+                                (PackageSetFault.NoManifestForTarget("NoSuchPackage", "none"))
+                                "the fault names the absent package and the target"
                     }
 
                     // Each package's TRANSITIVE `depends-on` closure, so composition can scope a
@@ -580,41 +591,38 @@ let tests =
                         writeSyntheticManifest "ClosureB" [ "ClosureC" ] |> ignore
                         let a = writeSyntheticManifest "ClosureA" [ "ClosureB" ]
 
-                        match ReferencedProject.buildClosureWithDeps [ a ] with
-                        | Result.Error e -> failtestf "buildClosureWithDeps failed: %s" e
-                        | Result.Ok(_, transitiveDeps) ->
-                            let pathOf name =
-                                resolveOrFail "none" (Path.Combine(tmpSrc, name))
+                        let _, transitiveDeps =
+                            ReferencedProject.buildClosureWithDeps [ a ]
+                            |> PackageFaults.okOrFail "buildClosureWithDeps"
 
-                            let depsA = transitiveDeps (pathOf "ClosureA")
-                            Expect.contains depsA (pathOf "ClosureB") "A's direct dependency B"
-                            Expect.contains depsA (pathOf "ClosureC") "A's transitive dependency C"
+                        let pathOf name =
+                            resolveOrFail "none" (Path.Combine(tmpSrc, name))
 
-                            Expect.equal
-                                (transitiveDeps (pathOf "ClosureB"))
-                                [ pathOf "ClosureC" ]
-                                "B depends on C only"
+                        let depsA = transitiveDeps (pathOf "ClosureA")
+                        Expect.contains depsA (pathOf "ClosureB") "A's direct dependency B"
+                        Expect.contains depsA (pathOf "ClosureC") "A's transitive dependency C"
 
-                            Expect.equal (transitiveDeps (pathOf "ClosureC")) [] "C is dependency-free"
+                        Expect.equal (transitiveDeps (pathOf "ClosureB")) [ pathOf "ClosureC" ] "B depends on C only"
+
+                        Expect.equal (transitiveDeps (pathOf "ClosureC")) [] "C is dependency-free"
                     }
 
                     test "buildClosureWithDeps excludes a non-dependency that merely sorts earlier" {
                         writeSyntheticManifest "IndepD" [] |> ignore
                         let e = writeSyntheticManifest "IndepE" []
 
-                        match
+                        let _, transitiveDeps =
                             ReferencedProject.buildClosureWithDeps
                                 [ resolveOrFail "none" (Path.Combine(tmpSrc, "IndepD")); e ]
-                        with
-                        | Result.Error err -> failtestf "buildClosureWithDeps failed: %s" err
-                        | Result.Ok(_, transitiveDeps) ->
-                            let pathOf name =
-                                resolveOrFail "none" (Path.Combine(tmpSrc, name))
+                            |> PackageFaults.okOrFail "buildClosureWithDeps"
 
-                            Expect.equal
-                                (transitiveDeps (pathOf "IndepE"))
-                                []
-                                "E declares no dependency on D despite D sorting earlier"
+                        let pathOf name =
+                            resolveOrFail "none" (Path.Combine(tmpSrc, name))
+
+                        Expect.equal
+                            (transitiveDeps (pathOf "IndepE"))
+                            []
+                            "E declares no dependency on D despite D sorting earlier"
                     }
 
                     // A qualified type name owned by two peer packages would resolve as a silent
@@ -677,6 +685,7 @@ let tests =
                         match ReferencedProject.loadManifest path with
                         | Result.Ok m -> failtestf "expected a name/dir mismatch error, got Ok %A" m
                         | Result.Error e ->
+                            let e = PackageSetFault.describe e
                             Expect.stringContains e "Mismatch" "error names the declared name"
                             Expect.stringContains e "DivergeDir" "error names the directory"
                     }
@@ -684,7 +693,7 @@ let tests =
                     test "an omitted [core] name falls back to the directory name (no divergence)" {
                         match ReferencedProject.loadManifest (writeManifest "NoName" "[core]\nfiles = []\n") with
                         | Result.Ok m -> Expect.equal m.Name "NoName" "name falls back to directory name"
-                        | Result.Error e -> failtestf "expected Ok, got Error %s" e
+                        | Result.Error e -> failtestf "expected Ok, got Error %s" (PackageSetFault.describe e)
                     }
 
                     // A package participates in a target by publishing `manifest.<target>.toml`
@@ -715,40 +724,129 @@ let tests =
                 "the flat per-target manifest"
                 [
                     let jsManifest =
-                        let path =
+                        loadOrFail (
                             writeManifestFor
                                 "js"
                                 "FlatLists"
                                 "[core]\n\
-                                 files = [\"contract.fsi\", \"shim.js.fsi\"]\n\
-                                 impl = [\"ops.fs\", \"ops.js.fs\"]\n\
+                                 files = [\"contract.fsi\", \"shim.js.fsi\", \"ops.fs\", \"ops.js.fs\"]\n\
                                  runtime = [\"runtime.mjs\"]\n"
+                        )
 
-                        match ReferencedProject.loadManifest path with
-                        | Result.Ok m -> m
-                        | Result.Error e -> failwithf "loadManifest failed: %s" e
-
-                    test "every list is read verbatim, in the declared order" {
+                    test "the file list is read verbatim, each entry classified by extension" {
                         Expect.equal jsManifest.Target "js" "the file name states the target"
-                        Expect.equal jsManifest.Files [ "contract.fsi"; "shim.js.fsi" ] "files"
-                        Expect.equal jsManifest.Impl [ "ops.fs"; "ops.js.fs" ] "impl"
+
+                        Expect.equal
+                            jsManifest.Files
+                            [
+                                {
+                                    ReferencedProject.Relative = "contract.fsi"
+                                    ReferencedProject.Kind = SourceFileKind.Signature
+                                }
+                                {
+                                    ReferencedProject.Relative = "shim.js.fsi"
+                                    ReferencedProject.Kind = SourceFileKind.Signature
+                                }
+                                {
+                                    ReferencedProject.Relative = "ops.fs"
+                                    ReferencedProject.Kind = SourceFileKind.Implementation
+                                }
+                                {
+                                    ReferencedProject.Relative = "ops.js.fs"
+                                    ReferencedProject.Kind = SourceFileKind.Implementation
+                                }
+                            ]
+                            "files, in declared order"
+
+                        Expect.equal
+                            (ReferencedProject.signatureFiles jsManifest)
+                            [ "contract.fsi"; "shim.js.fsi" ]
+                            "the signature half"
+
+                        Expect.equal
+                            (ReferencedProject.implementationFiles jsManifest)
+                            [ "ops.fs"; "ops.js.fs" ]
+                            "the implementation half"
+
                         Expect.equal jsManifest.Runtime [ "runtime.mjs" ] "runtime"
+                    }
+
+                    // The typed list is total over `.fsi`/`.fs`; anything else read as silence
+                    // would resolve a stale manifest to a plausible wrong file set.
+                    test "a files entry that is neither .fsi nor .fs is rejected" {
+                        match
+                            ReferencedProject.loadManifest (
+                                writeManifest "StrayEntry" "[core]\nfiles = [\"notes.txt\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected a rejection of notes.txt, got Ok %A" m
+                        | Result.Error e ->
+                            Expect.stringContains
+                                (PackageSetFault.describe e)
+                                "notes.txt"
+                                "the error names the offending entry"
+                    }
+
+                    // One file read twice would compile twice; the parse refuses the repeat
+                    // rather than deduplicating it.
+                    test "a files entry listed twice is rejected" {
+                        match
+                            ReferencedProject.loadManifest (
+                                writeManifest "TwiceEntry" "[core]\nfiles = [\"ops.fs\", \"ops.fs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected a rejection of the repeat, got Ok %A" m
+                        | Result.Error e ->
+                            Expect.stringContains (PackageSetFault.describe e) "twice" "the error names the repeat"
+                    }
+
+                    // The layout guarantee `Manifest.Files` states: a `.fsi` sits immediately
+                    // ahead of its companion `.fs`, so key pairing and list layout agree.
+                    test "a .fsi parted from its companion .fs is rejected" {
+                        match
+                            ReferencedProject.loadManifest (
+                                writeManifest "PartedPair" "[core]\nfiles = [\"x.fsi\", \"other.fs\", \"x.fs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected an adjacency rejection, got Ok %A" m
+                        | Result.Error e ->
+                            let e = PackageSetFault.describe e
+                            Expect.stringContains e "`x.fsi`" "the error names the signature file"
+                            Expect.stringContains e "`x.fs`" "and the companion it must precede"
+                    }
+
+                    // Both `x.fs` and `x.js.fs` key on `x` under the js target, so one of them
+                    // could never sit beside the `.fsi` — the parse refuses the pair outright.
+                    test "a .fsi two .fs entries pair with is rejected" {
+                        match
+                            ReferencedProject.loadManifest (
+                                writeManifestFor
+                                    "js"
+                                    "TwoClaimants"
+                                    "[core]\nfiles = [\"x.fsi\", \"x.fs\", \"x.js.fs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected a two-companion rejection, got Ok %A" m
+                        | Result.Error e ->
+                            let e = PackageSetFault.describe e
+                            Expect.stringContains e "`x.fs`" "the error names the first claimant"
+                            Expect.stringContains e "`x.js.fs`" "and the second"
                     }
 
                     // Extension off, then this manifest's own target suffix — how a `.fsi` finds
                     // its `.fs` body.
                     test "pairingKey strips the extension and this manifest's target suffix" {
-                        Expect.equal (ReferencedProject.pairingKey jsManifest "ops.js.fs") "ops" "target suffix off"
+                        Expect.equal (ReferencedProject.pairingKey "js" "ops.js.fs") "ops" "target suffix off"
 
-                        Expect.equal (ReferencedProject.pairingKey jsManifest "ops.fs") "ops" "bare body"
+                        Expect.equal (ReferencedProject.pairingKey "js" "ops.fs") "ops" "bare body"
 
                         Expect.equal
-                            (ReferencedProject.pairingKey jsManifest "shim.js.fsi")
+                            (ReferencedProject.pairingKey "js" "shim.js.fsi")
                             "shim"
                             "a `.js.fsi` signature file keys the same as its `.js.fs` body"
 
                         Expect.equal
-                            (ReferencedProject.pairingKey jsManifest "ops.clr.fs")
+                            (ReferencedProject.pairingKey "js" "ops.clr.fs")
                             "ops.clr"
                             "ANOTHER target's suffix is part of the key"
                     }
@@ -811,18 +909,22 @@ let tests =
                                 "NeedsJsDep"
                                 "[core]\nname = \"NeedsJsDep\"\ndepends-on = [\"../DepOnlyJs\"]\nfiles = []\n"
 
-                        match ReferencedProject.buildClosure [ dependent ] with
-                        | Result.Error e -> failtestf "js closure failed: %s" e
-                        | Result.Ok ordered ->
-                            Expect.contains
-                                (ordered |> List.map (fun m -> m.Path))
-                                (resolveOrFail "js" (Path.Combine(tmpSrc, "DepOnlyJs")))
-                                "the js dependency is the js manifest beside it"
+                        let ordered =
+                            ReferencedProject.buildClosure [ dependent ]
+                            |> PackageFaults.okOrFail "js closure"
+
+                        Expect.contains
+                            (ordered |> List.map (fun m -> m.Path))
+                            (resolveOrFail "js" (Path.Combine(tmpSrc, "DepOnlyJs")))
+                            "the js dependency is the js manifest beside it"
 
                         match ReferencedProject.buildClosure [ clrDependent ] with
                         | Result.Ok ordered -> failtestf "expected a missing clr dependency, got Ok %A" ordered
                         | Result.Error e ->
-                            Expect.stringContains e "DepOnlyJs" "a package absent for a target is named, not silent"
+                            Expect.stringContains
+                                (PackageSetFault.describe e)
+                                "DepOnlyJs"
+                                "a package absent for a target is named, not silent"
                     }
 
                     // An undefined key is a parse ERROR, not silence: a dashed-suffix spelling
@@ -835,21 +937,23 @@ let tests =
                         with
                         | Result.Ok m -> failtestf "expected an unknown-key error, got Ok %A" m
                         | Result.Error e ->
+                            let e = PackageSetFault.describe e
                             Expect.stringContains e "impl-js" "the error names the offending key"
                             Expect.stringContains e "core" "and the table it was found in"
                     }
 
-                    // `impl` is both compiled and spliced, so a manifest still declaring the retired
-                    // second list must error: read as silence it resolves to an impl missing
-                    // every splice source that list held.
-                    test "the retired `inline-bodies` key is rejected, not ignored" {
+                    // The `.fs` entries ride `files` now, so a manifest still declaring the
+                    // retired second list must error: read as silence it resolves to a package
+                    // missing every body and splice source that list held.
+                    test "the retired `impl` key is rejected, not ignored" {
                         match
                             ReferencedProject.loadManifest (
-                                writeManifest "RetiredCore" "[core]\nfiles = []\ninline-bodies = [\"ops.fs\"]\n"
+                                writeManifest "RetiredCore" "[core]\nfiles = []\nimpl = [\"ops.fs\"]\n"
                             )
                         with
                         | Result.Ok m -> failtestf "expected an unknown-key error, got Ok %A" m
-                        | Result.Error e -> Expect.stringContains e "inline-bodies" "the error names the retired key"
+                        | Result.Error e ->
+                            Expect.stringContains (PackageSetFault.describe e) "impl" "the error names the retired key"
                     }
 
                     // A `.fs` owes no signature file, so there is nothing to exempt. The key erroring
@@ -862,7 +966,11 @@ let tests =
                             )
                         with
                         | Result.Ok m -> failtestf "expected an unknown-key error, got Ok %A" m
-                        | Result.Error e -> Expect.stringContains e "impl-only" "the error names the retired key"
+                        | Result.Error e ->
+                            Expect.stringContains
+                                (PackageSetFault.describe e)
+                                "impl-only"
+                                "the error names the retired key"
                     }
 
                     // A `[targets.<t>]` table is the retired two-tier shape; read as silence it
@@ -876,7 +984,11 @@ let tests =
                             )
                         with
                         | Result.Ok m -> failtestf "expected a rejection of [targets.js], got Ok %A" m
-                        | Result.Error e -> Expect.stringContains e "targets" "the error names the retired table"
+                        | Result.Error e ->
+                            Expect.stringContains
+                                (PackageSetFault.describe e)
+                                "targets"
+                                "the error names the retired table"
                     }
                 ]
 
@@ -885,15 +997,14 @@ let tests =
             testList
                 "sourceInputs covers what the provider build reads"
                 [
-                    test "sourceInputs returns every path any list holds, and no runtime asset" {
+                    test "sourceInputs returns every file-list path, and no runtime asset" {
                         let m =
                             loadOrFail (
                                 writeManifestFor
                                     "js"
                                     "AllLists"
                                     "[core]\n\
-                                     files = [\"contract.fsi\", \"shim.js.fsi\"]\n\
-                                     impl = [\"ops.fs\", \"ops.js.fs\"]\n\
+                                     files = [\"contract.fsi\", \"shim.js.fsi\", \"ops.fs\", \"ops.js.fs\"]\n\
                                      runtime = [\"x.mjs\"]\n"
                             )
 
@@ -902,7 +1013,7 @@ let tests =
                         Expect.equal
                             (List.sort inputs)
                             (List.sort [ "contract.fsi"; "shim.js.fsi"; "ops.fs"; "ops.js.fs" ])
-                            "every list"
+                            "every file-list entry"
 
                         Expect.isFalse (List.contains "x.mjs" inputs) "a runtime asset is not a parsed source"
                     }
@@ -913,7 +1024,7 @@ let tests =
                             let m = loadOrFail manifest
                             let inputs = ReferencedProject.sourceInputs m
 
-                            for rel in m.Impl @ m.Files do
+                            for rel in ReferencedProject.implementationFiles m @ ReferencedProject.signatureFiles m do
                                 Expect.contains inputs rel (sprintf "%s (%s): %s is folded" m.Name m.Target rel)
                     }
                 ]
@@ -934,13 +1045,14 @@ let tests =
                     }
 
                     test "a closure carries its roots' target throughout" {
-                        match ReferencedProject.buildClosure [ vesperCoreJsManifest ] with
-                        | Result.Error e -> failtestf "buildClosure failed: %s" e
-                        | Result.Ok ordered ->
-                            Expect.isNonEmpty ordered "the closure is not empty"
+                        let ordered =
+                            ReferencedProject.buildClosure [ vesperCoreJsManifest ]
+                            |> PackageFaults.okOrFail "buildClosure"
 
-                            for m in ordered do
-                                Expect.equal m.Target "js" (sprintf "%s resolved for js" m.Path.Path)
+                        Expect.isNonEmpty ordered "the closure is not empty"
+
+                        for m in ordered do
+                            Expect.equal m.Target "js" (sprintf "%s resolved for js" m.Path.Path)
                     }
                 ]
 
@@ -955,13 +1067,14 @@ let tests =
                     // is that target's own file, and differing is what it is for.
                     let neutral (m: ReferencedProject.Manifest) (entries: string list) =
                         entries
-                        |> List.filter (fun rel -> ReferencedProject.pairingKey m rel = Path.ChangeExtension(rel, null))
+                        |> List.filter (fun rel ->
+                            ReferencedProject.pairingKey m.Target rel = Path.ChangeExtension(rel, null)
+                        )
 
                     let sharedLists (m: ReferencedProject.Manifest) =
                         [
                             "depends-on", m.DependsOn
-                            "files", neutral m m.Files
-                            "impl", neutral m m.Impl
+                            "files", neutral m (ReferencedProject.sourceInputs m)
                         ]
 
                     test "every divergence is a declared one" {
@@ -985,14 +1098,8 @@ let tests =
                                             "prim-types-nativeint.fsi"
                                             "prim-types-nd-array.fsi"
                                             "fun-adapters.fsi"
+                                            "fun-adapters.fs"
                                         ]
-                                    JsOnly = []
-                                |}
-                                // `fun-adapters` follows its `.fsi` above.
-                                {|
-                                    Package = "Vesper.Core"
-                                    List = "impl"
-                                    ClrOnly = [ "fun-adapters.fs" ]
                                     JsOnly = []
                                 |}
                                 // The CLR `%A` engine builds its `Doc` child lists on the

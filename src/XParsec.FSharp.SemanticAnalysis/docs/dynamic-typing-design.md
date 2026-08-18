@@ -26,7 +26,7 @@ type dynamic = (# "any" #)
 ```
 
 Modelled exactly like `undefined`: a JS-only intrinsic, so the pair is named by
-`Vesper.Core/manifest.js.toml` (`files` + `impl`) and by no other manifest — which is the
+`Vesper.Core/manifest.js.toml` (`files`) and by no other manifest — which is the
 whole statement that the CLR has no `dynamic`. The `.fs` is extracted for both marker and
 platform name, ahead of the `.fsi`. Canon identity `dynamic`; JS platform tag
 `"any"`. It carries **no special unifier behaviour** — it unifies with itself by name,

@@ -3,12 +3,8 @@ name = "Vesper.Choice"
 description = "The Choice<'T1, 'T2> two-way disjoint union type."
 depends-on = ["../Vesper.Core"]
 
-# Signature files in compile order (one, today).
+# Pure data, no inline IL and no BCL name, so the js manifest names the same body.
 files = [
     "choice.fsi",
-]
-
-# Pure data, no inline IL and no BCL name, so the js manifest names the same body.
-impl = [
     "choice.fs",
 ]

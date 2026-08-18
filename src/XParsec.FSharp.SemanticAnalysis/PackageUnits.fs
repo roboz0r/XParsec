@@ -1,13 +1,13 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-// The units a PACKAGE compiles, as against the list a driver is handed: the manifest's `impl`
+// The units a PACKAGE compiles, as against the list a driver is handed: the manifest's `.fs`
 // order, each implementation file under the signature file the package READ married it to.
 
 module PackageUnits =
 
-    /// Every `[core] impl` implementation file as a compilation unit, in manifest order, under the
-    /// signature file the package paired it with. One with no signature file publishes the surface
-    /// it infers; one whose EITHER half arrived without a tree is `Error`, never a smaller unit.
+    /// Every implementation file as a compilation unit, in manifest order, under the signature
+    /// file the package paired it with. One with no signature file publishes the surface it
+    /// infers; one whose EITHER half arrived without a tree is `Error`, never a smaller unit.
     let ofPackage
         (pkg: PackageSource.ParsedPackage)
         : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
@@ -53,6 +53,6 @@ module PackageUnits =
     /// pairing conforms is the caller's own check.
     let ofManifest
         (mp: ReferencedProject.ManifestPath)
-        : Result<Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list, string> =
+        : Result<Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list, PackageSetFault> =
         ReferencedProject.loadManifest mp
         |> Result.map (PackageSource.readPackage >> ofPackage)

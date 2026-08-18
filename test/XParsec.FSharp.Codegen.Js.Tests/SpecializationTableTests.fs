@@ -110,8 +110,7 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
 name = "Cycle.Probe"
 description = "Inline bodies that call themselves, for the acyclicity check."
 depends-on = ["../../src/Vesper.Core"]
-files = ["probe.fsi"]
-impl = ["probe.fs"]
+files = ["probe.fsi", "probe.fs"]
 """
 
         write
@@ -153,8 +152,7 @@ let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
             """[core]
 name = "Cycle.Member"
 description = "A member inline body that reaches itself, for the back edge's arity."
-files = ["bounce.fsi"]
-impl = ["bounce.fs", "array-cycle.js.fs"]
+files = ["bounce.fsi", "bounce.fs", "array-cycle.js.fs"]
 """
 
         write

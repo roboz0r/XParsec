@@ -61,6 +61,14 @@ module ReferencedProject =
 
         go [] packageDirs
 
+    /// One `[core] files` entry: the path as the manifest spells it, and the kind of source
+    /// file its extension makes it.
+    type ManifestFile =
+        {
+            Relative: string
+            Kind: SourceFileKind
+        }
+
     /// A parsed package `manifest.<target>.toml`: one flat `[core]` table, each list already
     /// in compile order for this manifest's target. A package that builds for two targets
     /// writes two files.
@@ -75,11 +83,11 @@ module ReferencedProject =
             /// RELATIVE TO THIS PACKAGE'S DIRECTORY (`"../Vesper.Core"`), because a package
             /// outside `src/` must be able to reference one inside it.
             DependsOn: string list
-            /// Signature files in compile order (`[core] files`).
-            Files: string list
-            /// The `.fs` bodies compiled into the package DLL, and the splice sources those
-            /// same bodies publish (`[core] impl`).
-            Impl: string list
+            /// Every source file in compile order (`[core] files`): each `.fsi` contract
+            /// immediately ahead of its companion `.fs`, and no entry twice — the parse
+            /// rejects any other shape. The `.fs` entries are the bodies compiled into the
+            /// package DLL, and the splice sources those same bodies publish.
+            Files: ManifestFile list
             /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
@@ -111,11 +119,11 @@ module ReferencedProject =
         | _ -> None
 
     /// The pairing key of a manifest-listed source: its name minus the extension, minus a
-    /// trailing `.<target>` segment. In `manifest.js.toml`, `prim-types-int.js.fs` and
+    /// trailing `.<target>` segment. Under the `js` target, `prim-types-int.js.fs` and
     /// `prim-types-int.fsi` both key on `prim-types-int`.
-    let pairingKey (m: Manifest) (rel: string) : string =
+    let pairingKey (target: string) (rel: string) : string =
         let noExt = Path.ChangeExtension(rel, null)
-        let suffix = "." + m.Target
+        let suffix = "." + target
 
         if noExt.EndsWith(suffix, System.StringComparison.Ordinal) then
             noExt.Substring(0, noExt.Length - suffix.Length)
@@ -125,91 +133,184 @@ module ReferencedProject =
     /// Every path the provider build may READ for this manifest, relative to the manifest's
     /// own directory; a path named here need not exist. `Runtime` is omitted: an asset is
     /// never parsed, so determines no frozen tree.
-    let sourceInputs (m: Manifest) : string list = m.Files @ m.Impl |> List.distinct
+    let sourceInputs (m: Manifest) : string list =
+        m.Files |> List.map (fun f -> f.Relative)
+
+    /// The `.fsi` entries of `Files`, in list order.
+    let signatureFiles (m: Manifest) : string list =
+        [
+            for f in m.Files do
+                match f.Kind with
+                | SourceFileKind.Signature -> f.Relative
+                | SourceFileKind.Implementation -> ()
+        ]
+
+    /// The `.fs` entries of `Files`, in list order: the package's compile order.
+    let implementationFiles (m: Manifest) : string list =
+        [
+            for f in m.Files do
+                match f.Kind with
+                | SourceFileKind.Implementation -> f.Relative
+                | SourceFileKind.Signature -> ()
+        ]
 
     /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: read as
     /// silence, it would resolve a stale manifest to a plausible wrong file set.
     let private coreKeys =
-        set [ "name"; "description"; "depends-on"; "files"; "impl"; "runtime" ]
+        set [ "name"; "description"; "depends-on"; "files"; "runtime" ]
 
-    let private unknownKey (path: string) (t: TomlTable) : string option =
+    let private unknownKey (t: TomlTable) : string option =
         t
         |> Map.toSeq
         |> Seq.map fst
         |> Seq.tryFind (coreKeys.Contains >> not)
         |> Option.map (fun key ->
-            sprintf
-                "%s: [core] unknown key `%s` (expected one of: %s)"
-                path
-                key
-                (coreKeys |> Set.toList |> String.concat ", ")
+            sprintf "[core] unknown key `%s` (expected one of: %s)" key (coreKeys |> Set.toList |> String.concat ", ")
         )
+
+    /// Each `files` entry classified by extension, with the list's shape checked: no entry
+    /// twice, and each `.fsi` immediately ahead of its companion `.fs`. Any violation is a
+    /// parse ERROR: read as silence it would resolve a stale manifest to a plausible wrong
+    /// file set.
+    let private classifyFiles (target: string) (files: string list) : Result<ManifestFile list, string> =
+        let rec classify acc rest =
+            match rest with
+            | [] -> Ok(List.rev acc)
+            | (rel: string) :: rest ->
+                match SourceFileKind.tryOfPath rel with
+                | ValueSome kind -> classify ({ Relative = rel; Kind = kind } :: acc) rest
+                | ValueNone -> Error(sprintf "[core] files entry `%s` is neither a `.fsi` nor a `.fs`" rel)
+
+        let duplicated =
+            files
+            |> List.countBy id
+            |> List.tryPick (fun (rel, n) -> if n > 1 then Some rel else None)
+
+        // Adjacency makes key pairing and list layout provably agree: a `.fsi` whose sole
+        // key-mate is the next entry pairs with it under either reading.
+        let checkAdjacency (classified: ManifestFile list) : Result<ManifestFile list, string> =
+            let implementations =
+                classified
+                |> List.filter (fun f -> f.Kind = SourceFileKind.Implementation)
+                |> List.groupBy (fun f -> pairingKey target f.Relative)
+                |> Map.ofList
+
+            let rec go entries =
+                match entries with
+                | [] -> Ok classified
+                | (f: ManifestFile) :: rest ->
+                    match f.Kind with
+                    | SourceFileKind.Implementation -> go rest
+                    | SourceFileKind.Signature ->
+                        match Map.tryFind (pairingKey target f.Relative) implementations with
+                        | None -> go rest
+                        | Some [ companion ] ->
+                            match rest with
+                            | next :: _ when next.Relative = companion.Relative -> go rest
+                            | _ ->
+                                Error(
+                                    sprintf
+                                        "[core] files: `%s` must sit immediately ahead of its companion `%s`"
+                                        f.Relative
+                                        companion.Relative
+                                )
+                        | Some claimants ->
+                            Error(
+                                sprintf
+                                    "[core] files: `%s` pairs with %s"
+                                    f.Relative
+                                    (claimants
+                                     |> List.map (fun c -> sprintf "`%s`" c.Relative)
+                                     |> String.concat " and ")
+                            )
+
+            go classified
+
+        match duplicated with
+        | Some rel -> Error(sprintf "[core] files lists `%s` twice" rel)
+        | None -> classify [] files |> Result.bind checkAdjacency
+
+    /// The `[core]` table, gated: the document's sole table, carrying known keys alone. A
+    /// second table or an unknown key read as silence would resolve a stale manifest to a
+    /// plausible wrong file set.
+    let private coreTable (doc: TomlDocument) : Result<TomlTable, string> =
+        match doc |> Map.toSeq |> Seq.map fst |> Seq.tryFind ((<>) "core") with
+        | Some other -> Error(sprintf "unknown table [%s] (a manifest carries [core] alone)" other)
+        | None ->
+            match Map.tryFind "core" doc |> Option.bind asTable with
+            | None -> Error "missing [core] table"
+            | Some core ->
+                match unknownKey core with
+                | Some e -> Error e
+                | None -> Ok core
+
+    /// `[core] name` when declared, else `dirName`. A declared name must match `dirName`,
+    /// because the directory name is the package identity, and the assembly name it emits
+    /// under; an omitted `name` trivially matches via the fallback.
+    let private packageName (core: TomlTable) (dirName: string) : Result<string, string> =
+        match findString core "name" with
+        | Some explicit when explicit <> dirName ->
+            Error(
+                sprintf
+                    "[core] name \"%s\" must match the package directory name \"%s\", because the directory name is the package identity, and the assembly name it emits under"
+                    explicit
+                    dirName
+            )
+        | Some explicit -> Ok explicit
+        | None -> Ok dirName
 
     /// Parse the manifest document read from `mp`, which carries both halves of a manifest's
     /// identity: its DIRECTORY name is the assembly name when `[core]` declares no `name`, and
-    /// the target it was resolved under is the one its lists are read for.
-    let parseManifest (mp: ManifestPath) (doc: TomlDocument) : Result<Manifest, string> =
-        let path = mp.Path
+    /// the target it was resolved under is the one its file list is read for.
+    let parseManifest (mp: ManifestPath) (doc: TomlDocument) : Result<Manifest, PackageSetFault> =
+        let malformed detail =
+            Error(PackageSetFault.MalformedManifest(mp.Path, detail))
+
         let dirName = Path.GetFileName(Path.TrimEndingDirectorySeparator mp.PackageDir)
 
-        // A manifest is `[core]` and nothing else. A second table read as silence would resolve
-        // a stale manifest to a file set missing everything that table held.
-        match doc |> Map.toSeq |> Seq.map fst |> Seq.tryFind ((<>) "core") with
-        | Some other -> Error(sprintf "%s: unknown table [%s] (a manifest carries [core] alone)" path other)
-        | None ->
+        match coreTable doc with
+        | Error e -> malformed e
+        | Ok core ->
+            match findStringList core "files" with
+            | None -> malformed "[core] missing `files = [...]`"
+            | Some files ->
+                match classifyFiles mp.Target files, packageName core dirName with
+                | Error e, _
+                | _, Error e -> malformed e
+                | Ok files, Ok name ->
+                    let list key =
+                        findStringList core key |> Option.defaultValue []
 
-            match Map.tryFind "core" doc |> Option.bind asTable with
-            | None -> Error(sprintf "%s: missing [core] table" path)
-            | Some core ->
-                match unknownKey path core with
-                | Some e -> Error e
-                | None ->
-                    match findStringList core "files" with
-                    | None -> Error(sprintf "%s: [core] missing `files = [...]`" path)
-                    | Some files ->
-                        // An omitted `name` trivially matches via the directory-name fallback.
-                        match findString core "name" with
-                        | Some explicit when explicit <> dirName ->
-                            Error(
-                                sprintf
-                                    "%s: [core] name \"%s\" must match the package directory name \"%s\", because the directory name is the package identity, and the assembly name it emits under"
-                                    path
-                                    explicit
-                                    dirName
-                            )
-                        | nameOpt ->
-                            let list key =
-                                findStringList core key |> Option.defaultValue []
-
-                            Ok
-                                {
-                                    Path = mp
-                                    Name = nameOpt |> Option.defaultValue dirName
-                                    DependsOn = list "depends-on"
-                                    Files = files
-                                    Impl = list "impl"
-                                    Runtime = list "runtime"
-                                }
+                    Ok
+                        {
+                            Path = mp
+                            Name = name
+                            DependsOn = list "depends-on"
+                            Files = files
+                            Runtime = list "runtime"
+                        }
 
     /// Read + parse a resolved manifest.
-    let loadManifest (mp: ManifestPath) : Result<Manifest, string> =
+    let loadManifest (mp: ManifestPath) : Result<Manifest, PackageSetFault> =
         match Toml.parse (File.ReadAllText mp.Path) with
-        | Error e -> Error(sprintf "Manifest parse error (%s): %s" mp.Path e)
+        | Error e -> Error(PackageSetFault.MalformedManifest(mp.Path, sprintf "TOML parse error: %s" e))
         | Ok doc -> parseManifest mp doc
 
     /// Resolve a `depends-on` entry against the dependent's own DIRECTORY and target:
     /// `"../Vesper.Core"` named by a manifest in `src/Vesper.List` resolves in `src/Vesper.Core`,
-    /// canonicalised, so two spellings of one package are one. The fault renders to prose here.
-    let private dependencyManifest (dependent: ManifestPath) (dependencyPath: string) : Result<ManifestPath, string> =
+    /// canonicalised, so two spellings of one package are one.
+    let private dependencyManifest
+        (dependent: ManifestPath)
+        (dependencyPath: string)
+        : Result<ManifestPath, PackageSetFault> =
         resolveManifest dependent.Target (Path.Combine(dependent.PackageDir, dependencyPath))
-        |> Result.mapError PackageSetFault.describe
 
     /// Close `rootManifests` over `[core] depends-on`: every reachable manifest PARSED, in
     /// **dependency order** (de-duplicated, stable over discovery order), plus each one's DIRECT
     /// dependencies. A cycle or an absent manifest is a hard error.
     let private closeAndOrder
         (rootManifests: ManifestPath list)
-        : Result<Manifest list * System.Collections.Generic.Dictionary<ManifestPath, ManifestPath list>, string> =
+        : Result<Manifest list * System.Collections.Generic.Dictionary<ManifestPath, ManifestPath list>, PackageSetFault> =
         // `discovered` is the order nodes were first reached (roots, then their deps);
         // the topo sort below walks it, so an already-ordered input comes back unchanged.
         let dependencies =
@@ -227,7 +328,7 @@ module ReferencedProject =
                 ()
             else
                 match loadManifest mp with
-                | Error e -> error <- Some(sprintf "buildClosure: %s" e)
+                | Error e -> error <- Some e
                 | Ok manifest ->
                     let rec resolveDeps acc names =
                         match names with
@@ -238,7 +339,7 @@ module ReferencedProject =
                             | Ok dep -> resolveDeps (dep :: acc) rest
 
                     match resolveDeps [] manifest.DependsOn with
-                    | Error e -> error <- Some(sprintf "buildClosure: %s" e)
+                    | Error e -> error <- Some e
                     | Ok depPaths ->
 
                         dependencies.[mp] <- depPaths
@@ -270,7 +371,12 @@ module ReferencedProject =
                     match state.TryGetValue node with
                     | true, 2 -> ()
                     | true, _ ->
-                        cycle <- Some(sprintf "buildClosure: dependency cycle through package '%s'" loaded.[node].Name)
+                        cycle <-
+                            Some(
+                                PackageSetFault.UnresolvedDependency(
+                                    sprintf "dependency cycle through package '%s'" loaded.[node].Name
+                                )
+                            )
                     | _ ->
                         state.[node] <- 1
 
@@ -288,7 +394,7 @@ module ReferencedProject =
             | None -> Ok(List.ofSeq ordered, dependencies)
 
     /// Every manifest reachable over `[core] depends-on`, parsed, in dependency order.
-    let buildClosure (rootManifests: ManifestPath list) : Result<Manifest list, string> =
+    let buildClosure (rootManifests: ManifestPath list) : Result<Manifest list, PackageSetFault> =
         closeAndOrder rootManifests |> Result.map fst
 
     /// Like `buildClosure`, but also returns each package's **transitive** `depends-on`
@@ -296,7 +402,7 @@ module ReferencedProject =
     /// itself). An unknown manifest maps to the empty list.
     let buildClosureWithDeps
         (rootManifests: ManifestPath list)
-        : Result<Manifest list * (ManifestPath -> ManifestPath list), string> =
+        : Result<Manifest list * (ManifestPath -> ManifestPath list), PackageSetFault> =
         match closeAndOrder rootManifests with
         | Error e -> Error e
         | Ok(ordered, adjacency) ->

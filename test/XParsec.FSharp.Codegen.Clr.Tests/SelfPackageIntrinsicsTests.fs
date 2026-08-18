@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.SelfPackageIntrinsicsTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -22,13 +23,9 @@ module ConcatProbe =
 
     let private coreFilesPlusProbe () =
         let coreUnits =
-            match
-                ReferencedProject.resolveManifest Target.Clr vesperCorePackage
-                |> Result.mapError PackageSetFault.describe
-                |> Result.bind PackageUnits.ofManifest
-            with
-            | Ok units -> units
-            | Error e -> failwithf "cannot load Vesper.Core manifest: %s" e
+            ReferencedProject.resolveManifest Target.Clr vesperCorePackage
+            |> Result.bind PackageUnits.ofManifest
+            |> PackageFaults.okOrFail "cannot load Vesper.Core manifest"
 
         coreUnits
         @ [

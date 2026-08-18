@@ -439,6 +439,11 @@ module AssemblyFiles =
                         d.Message
         ]
 
+    /// A whole-set fault as one unpositioned diagnostic: it is about the package set a
+    /// compilation was handed, so there is no file to anchor it to.
+    let setFaultDiagnostics (fault: PackageSetFault) : AnchoredDiagnostic list =
+        unpositionedDiagnostics AssemblyFileId.nowhere [ Diagnostic.nowhere (Kind.PackageSet fault) ]
+
     /// Anchor a file's bare diagnostics to its path and text: a `Site` points to tokens of THIS
     /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a
     /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at line 1, col 1.

@@ -210,11 +210,10 @@ module FrozenCodecDiagnostics =
             w.Write 0uy
             w.Write package
             w.Write relative
-        | PackageSetFault.FileWrongHalf(package, relative, expected) ->
+        | PackageSetFault.MalformedManifest(path, detail) ->
             w.Write 1uy
-            w.Write package
-            w.Write relative
-            w.Write expected
+            w.Write path
+            w.Write detail
         | PackageSetFault.NoManifestForTarget(packageDir, target) ->
             w.Write 2uy
             w.Write packageDir
@@ -234,9 +233,8 @@ module FrozenCodecDiagnostics =
             let package = r.ReadString()
             PackageSetFault.FileMissing(package, r.ReadString())
         | 1uy ->
-            let package = r.ReadString()
-            let relative = r.ReadString()
-            PackageSetFault.FileWrongHalf(package, relative, r.ReadString())
+            let path = r.ReadString()
+            PackageSetFault.MalformedManifest(path, r.ReadString())
         | 2uy ->
             let packageDir = r.ReadString()
             PackageSetFault.NoManifestForTarget(packageDir, r.ReadString())

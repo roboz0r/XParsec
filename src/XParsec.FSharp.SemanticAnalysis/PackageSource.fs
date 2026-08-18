@@ -7,26 +7,6 @@ open System.IO
 /// it.
 module PackageSource =
 
-    /// Which half of a compilation unit a path is. The EXTENSION decides.
-    [<RequireQualifiedAccess>]
-    type Half =
-        | Signature
-        | Implementation
-
-    [<RequireQualifiedAccess>]
-    module Half =
-
-        let ofPath (relative: string) : Half =
-            if relative.EndsWith ".fsi" then
-                Half.Signature
-            else
-                Half.Implementation
-
-        let describe (half: Half) : string =
-            match half with
-            | Half.Signature -> "a signature file"
-            | Half.Implementation -> "an implementation file"
-
     /// Why a path a manifest LISTED yielded no tree. Each is a finding about the manifest or
     /// the file, never a reason to read one fewer file than the manifest claimed.
     [<RequireQualifiedAccess>]
@@ -35,27 +15,23 @@ module PackageSource =
         | Missing
         /// The file is there and the parser got no tree out of it.
         | Unparsed of ParseChain.ParseFailure
-        /// A `.fs` listed under `[core] files`, or a `.fsi` under `[core] impl`: the halves
-        /// are mispaired, and reading it as the list's half would publish an empty surface.
-        | WrongHalf of expected: Half
 
     [<RequireQualifiedAccess>]
     module FileFault =
 
-        /// The fault as the parse failure it reads as. A path that is absent or the wrong half
-        /// has no token stream either, so all three faults travel the one channel.
+        /// The fault as the parse failure it reads as. An absent path has no token stream
+        /// either, so both faults travel the one channel.
         let toFailure (package: string) (relative: string) (fault: FileFault) : ParseChain.ParseFailure =
-            let setFault (f: PackageSetFault) : ParseChain.ParseFailure =
-                {
-                    Lexed = ValueNone
-                    Diagnostics = [ Diagnostic.nowhere (Kind.PackageSet f) ]
-                }
-
             match fault with
             | FileFault.Unparsed failure -> failure
-            | FileFault.Missing -> setFault (PackageSetFault.FileMissing(package, relative))
-            | FileFault.WrongHalf expected ->
-                setFault (PackageSetFault.FileWrongHalf(package, relative, Half.describe expected))
+            | FileFault.Missing ->
+                {
+                    Lexed = ValueNone
+                    Diagnostics =
+                        [
+                            Diagnostic.nowhere (Kind.PackageSet(PackageSetFault.FileMissing(package, relative)))
+                        ]
+                }
 
     /// A path a manifest NAMED and what reading it produced. The two travel together: a
     /// diagnostic must echo the name whether or not a tree came out, and the name is the whole
@@ -71,9 +47,8 @@ module PackageSource =
             Outcome: Result<'Tree, FileFault>
         }
 
-    /// One `[core] files` entry: the signature file, and the `[core] impl` implementation file
-    /// the manifest's own pairing key marries it to. `ValueNone` for a signature file this
-    /// target ships no implementation for.
+    /// One signature file, and the implementation file the manifest's own pairing key marries
+    /// it to. `ValueNone` for a signature file this target ships no implementation for.
     [<NoEquality; NoComparison>]
     type SignatureEntry =
         {
@@ -81,9 +56,8 @@ module PackageSource =
             Companion: ReadFile<ParseChain.ParsedFile> voption
         }
 
-    /// One `[core] impl` entry: the implementation file, and the `[core] files` signature file
-    /// that publishes it. `ValueNone` for an implementation file that owes no signature file,
-    /// as in F# itself.
+    /// One implementation file, and the signature file that publishes it. `ValueNone` for an
+    /// implementation file that owes no signature file, as in F# itself.
     [<NoEquality; NoComparison>]
     type ImplementationEntry =
         {
@@ -91,9 +65,9 @@ module PackageSource =
             Companion: ReadFile<ParseChain.ParsedSignature> voption
         }
 
-    /// Every path one manifest lists, read and parsed ONCE and PAIRED once: `[core] files` in
-    /// declared order, then `[core] impl`, each entry carrying what the read produced and the
-    /// file across the pairing. No `runtime` (never F#).
+    /// Every path one manifest lists, read and parsed ONCE and PAIRED once: the `.fsi` and
+    /// `.fs` halves of `[core] files`, each in declared order, each entry carrying what the
+    /// read produced and the file across the pairing. No `runtime` (never F#).
     [<NoEquality; NoComparison>]
     type ParsedPackage =
         {
@@ -102,39 +76,34 @@ module PackageSource =
             Implementations: ImplementationEntry list
         }
 
-    /// Read and parse every path `manifest` lists, and pair the two lists. An absent, unparseable
-    /// or wrong-half path faults and is never dropped: reading one file fewer than the manifest
+    /// Read and parse every path `manifest` lists, and pair the two halves. An absent or
+    /// unparseable path faults and is never dropped: reading one file fewer than the manifest
     /// claimed would resolve, and CACHE, against a smaller package.
     let readPackage (manifest: ReferencedProject.Manifest) : ParsedPackage =
-        let read
-            (want: Half)
-            (parse: string -> Result<'Tree, ParseChain.ParseFailure>)
-            (relative: string)
-            : ReadFile<'Tree> =
+        let read (parse: string -> Result<'Tree, ParseChain.ParseFailure>) (relative: string) : ReadFile<'Tree> =
             let absolute = Path.Combine(manifest.Dir, relative)
 
             {
                 Relative = relative
                 Id = AssemblyFileId.ofPathUnder manifest.Dir relative
                 Outcome =
-                    if Half.ofPath relative <> want then
-                        Error(FileFault.WrongHalf want)
-                    elif not (File.Exists absolute) then
+                    if not (File.Exists absolute) then
                         Error FileFault.Missing
                     else
                         parse (File.ReadAllText absolute) |> Result.mapError FileFault.Unparsed
             }
 
         let signatures =
-            manifest.Files
-            |> List.map (read Half.Signature (ParseChain.parseSignature Set.empty))
+            ReferencedProject.signatureFiles manifest
+            |> List.map (read (ParseChain.parseSignature Set.empty))
 
         let implementations =
-            manifest.Impl
-            |> List.map (read Half.Implementation (ParseChain.parse Set.empty))
+            ReferencedProject.implementationFiles manifest
+            |> List.map (read (ParseChain.parse Set.empty))
 
-        // The pairing, taken once and handed to both sides. A later entry wins a key clash.
-        let key = ReferencedProject.pairingKey manifest
+        // The pairing, taken once and handed to both sides. Manifest parsing rejects a key
+        // claimed by two entries of a pair, so the dictionaries never overwrite a paired file.
+        let key = ReferencedProject.pairingKey manifest.Target
 
         let implementationByKey =
             System.Collections.Generic.Dictionary<string, _>(System.StringComparer.Ordinal)

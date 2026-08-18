@@ -139,7 +139,7 @@ module PackageProviders =
     /// files. For a package with no `depends-on`.
     let buildProvider
         (mp: ReferencedProject.ManifestPath)
-        : Result<IExternalSymbolProvider * AssemblyFiles.AnchoredDiagnostic list, string> =
+        : Result<IExternalSymbolProvider * AssemblyFiles.AnchoredDiagnostic list, PackageSetFault> =
         ReferencedProject.loadManifest mp
         |> Result.map (fun manifest ->
             let bp =
@@ -212,13 +212,9 @@ module PackageProviders =
                 match seenTypeHomes.TryGetValue typeName with
                 | true, otherHome ->
                     diagnostics.AddRange(
-                        AssemblyFiles.unpositionedDiagnostics
-                            (AssemblyFileId.ofRelative manifest.Name)
-                            [
-                                Diagnostic.nowhere (
-                                    Kind.PackageSet(PackageSetFault.DuplicateType(typeName, otherHome, bp.HomeAssembly))
-                                )
-                            ]
+                        AssemblyFiles.setFaultDiagnostics (
+                            PackageSetFault.DuplicateType(typeName, otherHome, bp.HomeAssembly)
+                        )
                     )
                 | false, _ -> seenTypeHomes.[typeName] <- bp.HomeAssembly
 
@@ -241,10 +237,7 @@ module PackageProviders =
     let private setFault (fault: PackageSetFault) : ComposedContract =
         {
             Provider = ExternalSymbolProviders.nullProvider
-            Diagnostics =
-                AssemblyFiles.unpositionedDiagnostics
-                    AssemblyFileId.nowhere
-                    [ Diagnostic.nowhere (Kind.PackageSet fault) ]
+            Diagnostics = AssemblyFiles.setFaultDiagnostics fault
         }
 
     /// `composeOrdered` over a raw, unordered manifest set: the ordering is taken here and not
@@ -256,4 +249,4 @@ module PackageProviders =
         match ReferencedProject.buildClosureWithDeps manifests with
         | Ok(ordered, transitiveDeps) ->
             composeOrdered platformMetadata (List.map PackageSource.readPackage ordered) transitiveDeps
-        | Error e -> setFault (PackageSetFault.UnresolvedDependency e)
+        | Error fault -> setFault fault

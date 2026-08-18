@@ -172,8 +172,9 @@ module ConformanceVerdict =
 type PackageSetFault =
     /// A `[core]` list references a path that is not on disk.
     | FileMissing of package: string * relative: string
-    /// A path is the other half: a `.fs` under `[core] files`, or a `.fsi` under `[core] impl`.
-    | FileWrongHalf of package: string * relative: string * expected: string
+    /// A `manifest.<target>.toml` that does not read as a manifest: TOML that does not parse,
+    /// a missing or unknown `[core]` key, a `name` diverging from the directory name.
+    | MalformedManifest of path: string * detail: string
     /// A package directory has no `manifest.<target>.toml` for the target compiled.
     | NoManifestForTarget of packageDir: string * target: string
     /// A `depends-on` entry that resolves to nothing, or a cycle in the closure.
@@ -187,8 +188,8 @@ module PackageSetFault =
 
     let code (f: PackageSetFault) : DiagCode =
         match f with
-        | PackageSetFault.FileMissing _
-        | PackageSetFault.FileWrongHalf _ -> DiagCode.Vesper "V250"
+        | PackageSetFault.FileMissing _ -> DiagCode.Vesper "V250"
+        | PackageSetFault.MalformedManifest _
         | PackageSetFault.NoManifestForTarget _
         | PackageSetFault.UnresolvedDependency _ -> DiagCode.Vesper "V251"
         | PackageSetFault.DuplicateType _ -> DiagCode.Vesper "V252"
@@ -197,8 +198,7 @@ module PackageSetFault =
         match f with
         | PackageSetFault.FileMissing(package, relative) ->
             sprintf "package '%s' names '%s', which is not on disk" package relative
-        | PackageSetFault.FileWrongHalf(package, relative, expected) ->
-            sprintf "package '%s' lists '%s' where %s is expected" package relative expected
+        | PackageSetFault.MalformedManifest(path, detail) -> sprintf "%s: %s" path detail
         | PackageSetFault.NoManifestForTarget(packageDir, target) ->
             sprintf "package '%s' does not build for target `%s`: no manifest.%s.toml" packageDir target target
         | PackageSetFault.UnresolvedDependency detail ->

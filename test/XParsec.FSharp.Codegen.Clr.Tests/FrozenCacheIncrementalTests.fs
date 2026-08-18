@@ -165,7 +165,7 @@ let tests =
                 let fsPath = Path.Combine(pkgDir, "ops.fs")
                 let manifestPath = Path.Combine(pkgDir, "manifest.clr.toml")
 
-                File.WriteAllText(manifestPath, fixtureManifest "Inl" "files = [\"inl.fsi\"]\nimpl = [\"ops.fs\"]\n")
+                File.WriteAllText(manifestPath, fixtureManifest "Inl" "files = [\"inl.fsi\", \"ops.fs\"]\n")
 
                 File.WriteAllText(
                     Path.Combine(pkgDir, "inl.fsi"),

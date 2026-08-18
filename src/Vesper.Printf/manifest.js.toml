@@ -8,14 +8,11 @@ depends-on = ["../Vesper.Core"]
 
 files = [
     "printf-format.fsi",
-]
-
-# `structural-printer.js.fs` is the standalone JS `%A` engine: a shape-keyed walker over the
-# same Wadler `Doc` layout, but with no BCL and no interface dispatch. It implements no printf
-# `.fsi`, and owes none — its published surface (`structuralFormat`, `float32ToString`) IS its
-# contract.
-impl = [
     "printf-format.fs",
+    # `structural-printer.js.fs` is the standalone JS `%A` engine: a shape-keyed walker over
+    # the same Wadler `Doc` layout, but with no BCL and no interface dispatch. It implements
+    # no printf `.fsi`, and owes none — its published surface (`structuralFormat`,
+    # `float32ToString`) IS its contract.
     "structural-printer.js.fs",
 ]
 
