@@ -355,7 +355,7 @@ type Kind =
     /// resolved interface it demands, as this compilation's provider spells it.
     | CapabilityNotImplemented of attribute: string * capability: string
     /// The same demand, where the provider does not resolve that capability at all.
-    | CapabilityNotNamed of attribute: string * capabilityWord: string
+    | CapabilityNotDeclared of attribute: string * capabilityWord: string
     | MissingGetHashCodeOverride
     | CustomComparisonNeedsEquality
 
@@ -438,7 +438,7 @@ module Kind =
         // ── Equality / comparison attribute legality.
         | Kind.CustomEqualityOnRecordOrUnion
         | Kind.CapabilityNotImplemented _
-        | Kind.CapabilityNotNamed _ -> DiagCode.FSharp 378
+        | Kind.CapabilityNotDeclared _ -> DiagCode.FSharp 378
         | Kind.MissingGetHashCodeOverride -> DiagCode.FSharp 344
         | Kind.CustomComparisonNeedsEquality -> DiagCode.FSharp 379
         | Kind.StructuralEqualityAttributeOnWrongKind
@@ -541,7 +541,7 @@ module Kind =
             "Records, union, abbreviations and struct types cannot have the 'AllowNullLiteral' attribute"
         | Kind.CapabilityNotImplemented(attribute, capability) ->
             sprintf "A type with %s must implement '%s'." attribute capability
-        | Kind.CapabilityNotNamed(attribute, capabilityWord) ->
+        | Kind.CapabilityNotDeclared(attribute, capabilityWord) ->
             sprintf
                 "A type with %s requires the '%s' capability, which this compilation's provider does not declare."
                 attribute
@@ -630,7 +630,7 @@ module Kind =
         | Kind.InvalidEqualityAttributeMix
         | Kind.AllowNullLiteralOnWrongKind
         | Kind.CapabilityNotImplemented _
-        | Kind.CapabilityNotNamed _
+        | Kind.CapabilityNotDeclared _
         | Kind.MissingGetHashCodeOverride
         | Kind.CustomComparisonNeedsEquality
         | Kind.MemberAndLocalBindingClash _

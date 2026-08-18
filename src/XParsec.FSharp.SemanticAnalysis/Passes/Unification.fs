@@ -968,7 +968,7 @@ module Unification =
                 | ValueSome c when not (implementsSelf info c) ->
                     ctx.Report(nameTok, Kind.CapabilityNotImplemented(attr, SymbolKeyOps.qualifiedName c.SymKey))
                 | ValueSome _ -> ()
-                | ValueNone -> ctx.Report(nameTok, Kind.CapabilityNotNamed(attr, capWord))
+                | ValueNone -> ctx.Report(nameTok, Kind.CapabilityNotDeclared(attr, capWord))
 
             if needsEq then
                 requireCapability ctx.CapabilityIds.Equatable "[<CustomEquality>]" "equatable"

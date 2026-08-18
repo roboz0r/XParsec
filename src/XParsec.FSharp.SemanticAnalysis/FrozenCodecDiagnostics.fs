@@ -352,7 +352,7 @@ module FrozenCodecDiagnostics =
             w.Write 27uy
             w.Write attribute
             w.Write capability
-        | Kind.CapabilityNotNamed(attribute, capabilityWord) ->
+        | Kind.CapabilityNotDeclared(attribute, capabilityWord) ->
             w.Write 28uy
             w.Write attribute
             w.Write capabilityWord
@@ -500,7 +500,7 @@ module FrozenCodecDiagnostics =
             Kind.CapabilityNotImplemented(attribute, r.ReadString())
         | 28uy ->
             let attribute = r.ReadString()
-            Kind.CapabilityNotNamed(attribute, r.ReadString())
+            Kind.CapabilityNotDeclared(attribute, r.ReadString())
         | 29uy -> Kind.MissingGetHashCodeOverride
         | 30uy -> Kind.CustomComparisonNeedsEquality
         | 31uy -> Kind.MemberAndLocalBindingClash(r.ReadString())

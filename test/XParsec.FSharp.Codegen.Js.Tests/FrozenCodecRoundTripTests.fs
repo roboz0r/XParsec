@@ -477,7 +477,7 @@ let tests =
                         Kind.CustomEqualityAttributeOnInterface
                         Kind.InvalidEqualityAttributeMix
                         Kind.CapabilityNotImplemented("[<CustomEquality>]", "System.IEquatable`1")
-                        Kind.CapabilityNotNamed("[<CustomEquality>]", "equatable")
+                        Kind.CapabilityNotDeclared("[<CustomEquality>]", "equatable")
                         Kind.MissingGetHashCodeOverride
                         Kind.CustomComparisonNeedsEquality
                         Kind.MemberAndLocalBindingClash "x"
