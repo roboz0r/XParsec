@@ -21,7 +21,6 @@
     <!-- Ahead of every reader of a `(# … #)` binding: the conformance check, the
          registrar and both front ends stitch the same instruction string through here. -->
     <Compile Include="IntrinsicReprs.fs" />
-    <Compile Include="AttributeDecode.fs" />
     <Compile Include="Conformance.fs" />
     <Compile Include="SymbolKeys.fs" />
     <Compile Include="SemanticScalars.fs" />
@@ -39,6 +38,7 @@
     <Compile Include="RuntimeNames.fs" />
     <Compile Include="OperatorNames.fs" />
     <Compile Include="AccessorNames.fs" />
+    <Compile Include="AttributeDecode.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
     <Compile Include="Diagnostics.fs" />
@@ -101,7 +101,6 @@
          open method signature is a function of an `ExternalSymbol` alone. -->
     <Compile Include="OpenSignature.fs" />
     <Compile Include="BuiltinTypes.fs" />
-    <Compile Include="ModuleRules.fs" />
     <Compile Include="SourceFileKind.fs" />
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="PackageSource.fs" />
@@ -114,6 +113,9 @@
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />
     <Compile Include="PassContext.fs" />
+    <Compile Include="ExternalTypeProbe.fs" />
+    <Compile Include="AttributeResolution.fs" />
+    <Compile Include="Containment.fs" />
     <Compile Include="TypeLayout.fs" />
     <Compile Include="MemberNames.fs" />
     <Compile Include="PropertyAccessors.fs" />

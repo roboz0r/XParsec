@@ -1,13 +1,15 @@
 namespace Vesper
 
-[<AutoOpen>]
+// This file precedes `compiler-attributes.fsi`, so no attribute written here would resolve to
+// a compiler marker. Both modules are therefore opened explicitly by their consumers rather
+// than carrying `[<AutoOpen>]`.
+
 module JsInterop =
 
     /// <summary>The body of an <c>[&lt;Import&gt;]</c>-attributed binding, whose
     /// implementation the attribute names. Throws if evaluated.</summary>
     val inline jsNative<'T> : 'T
 
-[<AutoOpen>]
 module ArithmeticRuntime =
 
     /// The zero-divisor guard behind every fixed-width integral `/` and `%` (`bigint` has

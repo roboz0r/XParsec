@@ -338,7 +338,7 @@ module SignatureResolutionMembers =
             ]
 
         let attrs = Attributes.attributesOfTypeName tn
-        let decoded = AttributeDecode.decodeClassAttributes ctx.NameOf attrs
+        let decoded = AttributeDecode.decodeClassAttributes (ctx.ResolveAttributes attrs)
 
         let shape =
             underTypars

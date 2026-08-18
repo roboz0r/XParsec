@@ -617,7 +617,7 @@ module SignatureResolution =
 
         if isPublished access then
             let compiledName =
-                match AttributeDecode.tryCompiledName ctx.NameOf attrs with
+                match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes attrs) with
                 | ValueSome n -> ValueSome n
                 | ValueNone -> OperatorNames.ofDeclaredName ctx.NameOf ident
 
@@ -695,7 +695,7 @@ module SignatureResolution =
         let acc = ResizeArray<string>()
 
         for w in walked do
-            for prefix in ModuleRules.autoOpenContainers ctx.ModuleNaming w.Containment do
+            for prefix in ctx.AutoOpenContainersOf w.Containment do
                 if seen.Add prefix then
                     acc.Add prefix
 
@@ -735,12 +735,10 @@ module SignatureResolution =
 
             match w.Elem with
             | ModuleSignatureElement.Type(typeToken = kw; typeSigs = typeSigs) ->
-                let visibleFrom =
-                    match w.RecScopeOffset with
-                    | ValueSome offset -> offset
-                    | ValueNone -> kw.StartIndex
+                let decls = declsOf typeSigs
 
-                registerSigGroup sctx w.Containment visibleFrom (declsOf typeSigs)
+                let visibleFrom = sigGroupVisibleFrom w.RecScopeOffset kw decls
+                registerSigGroup sctx w.Containment visibleFrom decls
             | ModuleSignatureElement.Val valSig -> registerValSig sctx w.Containment valSig
             | ModuleSignatureElement.ValLiteral _
             | ModuleSignatureElement.Exception _

@@ -2,6 +2,8 @@ namespace Vesper
 
 #nowarn "42"
 
+open Vesper.ArithmeticRuntime
+
 // JS has one number type, so the trailing mask IS the width: `10uy - 20uy` is -10 on the
 // wire and 246 after `& 0xFF`. A bitwise member carries a mask only where the operator can
 // leave the width — `~5uy` is -6 before `& 0xFF` and 250 after.

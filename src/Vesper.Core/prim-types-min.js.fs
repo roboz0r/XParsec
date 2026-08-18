@@ -2,6 +2,8 @@ namespace Vesper
 
 #nowarn "42"
 
+open Vesper.ArithmeticRuntime
+
 type int =
     (# "number" #)
     with

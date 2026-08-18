@@ -1,5 +1,7 @@
 namespace Vesper
 
+open Vesper.JsInterop
+
 [<AutoOpen>]
 module StructuralRuntime =
 

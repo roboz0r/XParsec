@@ -131,7 +131,7 @@ module Elaborate =
     let private emittedNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
         MemberNames.ofBinding ctx b
         |> ValueOption.map (fun m ->
-            match AttributeDecode.tryCompiledName ctx.NameOf b.attributes with
+            match AttributeDecode.tryCompiledName ctx.NameOf (ctx.ResolveAttributes b.attributes) with
             | ValueSome cn -> cn
             | ValueNone -> m.Name
         )

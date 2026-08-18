@@ -238,6 +238,11 @@ module SymbolKeyOps =
         | ModuleContainer.InNamespace ns -> ns.Dotted
         | ModuleContainer.InModule m -> moduleFullName m
 
+    let typeContainerOf (h: ModuleContainer) : TypeContainer =
+        match h with
+        | ModuleContainer.InNamespace ns -> TypeContainer.InNamespace ns
+        | ModuleContainer.InModule m -> TypeContainer.InModule m
+
     let bindingKeyOf (decl: ModuleContainer) (name: string) : BindingKey = { Decl = decl; Name = name }
 
     let valueKey (decl: ModuleContainer) (name: string) : SymbolKey =

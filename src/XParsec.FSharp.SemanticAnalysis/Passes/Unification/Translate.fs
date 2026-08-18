@@ -524,7 +524,7 @@ module internal UnificationTranslate =
         (qualName: string)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        match NameResolutionTypeRefStamp.tryResolveExternalTypeKey ctx qualName translatedArgs.Length with
+        match ExternalTypeProbe.tryResolveExternalTypeKey ctx qualName translatedArgs.Length with
         | ValueSome symKey -> tryExternalTypeOfKey ctx symKey translatedArgs
         | ValueNone -> ValueNone
 

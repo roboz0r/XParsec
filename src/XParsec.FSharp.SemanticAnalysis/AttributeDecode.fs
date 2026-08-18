@@ -3,24 +3,36 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// Attributes matched on the long-ident's LAST SEGMENT rather than on a resolved `TypeKey`.
-// A written `Struct` and a written `MyOwn.Struct` are indistinguishable here.
+/// One written attribute, resolved: the declaration's `TypeKey` and the construction as
+/// written, which is where the arguments are read from.
+[<NoEquality; NoComparison>]
+type ResolvedAttribute =
+    {
+        Key: TypeKey
+        Construction: ObjectConstruction<SyntaxToken>
+    }
+
+/// A declaration's attributes, each resolved by `TypeKey`. An unresolved attribute is
+/// diagnosed at resolution and absent here.
+[<NoEquality; NoComparison>]
+type ResolvedAttributes =
+    {
+        Entries: ResolvedAttribute list
+    }
+
+    member this.Has(k: TypeKey) : bool =
+        this.Entries |> List.exists (fun e -> e.Key = k)
+
+    member this.TryFind(k: TypeKey) : ObjectConstruction<SyntaxToken> voption =
+        match this.Entries |> List.tryFind (fun e -> e.Key = k) with
+        | Some e -> ValueSome e.Construction
+        | None -> ValueNone
+
+    static member None: ResolvedAttributes = { Entries = [] }
+
+// The readers over `ResolvedAttributes`: presence by key, arguments off the construction.
 
 module AttributeDecode =
-
-    let private sealedNames = [ "Sealed"; "SealedAttribute" ]
-
-    let private allowNullLiteralNames =
-        [ "AllowNullLiteral"; "AllowNullLiteralAttribute" ]
-
-    /// A bare `type X = struct … end` carries no attribute, so this list is not the
-    /// only path to a value type.
-    let private structNames = [ "Struct"; "StructAttribute" ]
-
-    let private byRefLikeNames = [ "IsByRefLike"; "IsByRefLikeAttribute" ]
-
-    let private requireQualifiedAccessNames =
-        [ "RequireQualifiedAccess"; "RequireQualifiedAccessAttribute" ]
 
     [<Struct>]
     type ClassAttributeVerdict =
@@ -38,45 +50,6 @@ module AttributeDecode =
                 IsValueType = false
                 IsByRefLike = false
             }
-
-    /// `Microsoft.FSharp.Core.StructuralEquality` → `StructuralEquality`.
-    /// `ValueNone` for anything that is not a named type.
-    let attributeShortName (nameOf: SyntaxToken -> string) (typ: Type<SyntaxToken>) : string voption =
-        let lastOf (li: LongIdent<SyntaxToken>) =
-            match li.Idents.Length with
-            | 0 -> ValueNone
-            | n -> ValueSome(nameOf li.Idents.[n - 1])
-
-        match typ with
-        | Type.NamedType li -> lastOf li
-        | Type.GenericType(longIdent = li) -> lastOf li
-        | _ -> ValueNone
-
-    let private constructedType (construction: ObjectConstruction<SyntaxToken>) : Type<SyntaxToken> =
-        match construction with
-        | ObjectConstruction(typ = t)
-        | InterfaceConstruction(typ = t) -> t
-
-    /// The construction of the first attribute written as `name`, with or without the
-    /// `Attribute` suffix; `ValueNone` when none is.
-    let private findAttribute
-        (nameOf: SyntaxToken -> string)
-        (attrs: Attributes<SyntaxToken> voption)
-        (name: string)
-        : ObjectConstruction<SyntaxToken> voption =
-        let mutable found = ValueNone
-
-        match attrs with
-        | ValueNone -> ()
-        | ValueSome sets ->
-            for AttributeSet(attributes = entries) in sets do
-                for Attribute(construction = construction), _sep in entries do
-                    if found.IsNone then
-                        match attributeShortName nameOf (constructedType construction) with
-                        | ValueSome n when n = name || n = name + "Attribute" -> found <- ValueSome construction
-                        | _ -> ()
-
-        found
 
     let private constructionExpr (oc: ObjectConstruction<SyntaxToken>) : Expr<SyntaxToken> voption =
         match oc with
@@ -106,55 +79,32 @@ module AttributeDecode =
 
         sb.ToString()
 
-    /// Text of a string-literal argument expression; `ValueNone` when it is not one.
-    let private stringLiteralText (nameOf: SyntaxToken -> string) (e: Expr<SyntaxToken>) : string voption =
-        match stripParens e with
-        | Expr.String(_, parts, _) -> ValueSome(stringExprText nameOf parts)
-        | Expr.Const(Constant.Literal tok) -> ValueSome((nameOf tok).Trim([| '"' |]))
-        | _ -> ValueNone
-
     /// The name `[<CompiledName("Foo")>]` gives a declaration, which is what a consumer of
     /// the assembly writes.
-    let tryCompiledName (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : string voption =
+    let tryCompiledName (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : string voption =
         match
-            findAttribute nameOf attrs "CompiledName"
+            attrs.TryFind RuntimeNames.compiledNameAttributeKey
             |> ValueOption.bind constructionExpr
-            |> ValueOption.bind (stringLiteralText nameOf)
         with
-        | ValueSome "" -> ValueNone
-        | other -> other
-
-    /// A well-formed `[<Import>]`: the binding's implementation is the export `Selector` of
-    /// the committed runtime asset `Path` names, relative to the declaring package.
-    [<Struct>]
-    type ImportRef = { Selector: string; Path: string }
-
-    /// `[<Import(selector, path)>]` on a binding, as written.
-    [<RequireQualifiedAccess>]
-    type ImportDecl =
-        | Import of ImportRef
-        /// The attribute is present but its arguments are not two non-empty string literals.
-        | Malformed
-        | NoImport
-
-    let tryImport (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : ImportDecl =
-        match findAttribute nameOf attrs "Import" with
-        | ValueNone -> ImportDecl.NoImport
-        | ValueSome construction ->
-            match constructionExpr construction |> ValueOption.map stripParens with
-            | ValueSome(Expr.Tuple(exprs, _)) when exprs.Length = 2 ->
-                match stringLiteralText nameOf exprs.[0], stringLiteralText nameOf exprs.[1] with
-                | ValueSome selector, ValueSome path when selector <> "" && path <> "" ->
-                    ImportDecl.Import { Selector = selector; Path = path }
-                | _ -> ImportDecl.Malformed
-            | _ -> ImportDecl.Malformed
+        | ValueNone -> ValueNone
+        | ValueSome argExpr ->
+            match stripParens argExpr with
+            | Expr.String(_, parts, _) ->
+                match stringExprText nameOf parts with
+                | "" -> ValueNone
+                | s -> ValueSome s
+            | Expr.Const(Constant.Literal tok) ->
+                match (nameOf tok).Trim([| '"' |]) with
+                | "" -> ValueNone
+                | s -> ValueSome s
+            | _ -> ValueNone
 
     /// True iff the attributes carry
     /// `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]`, which
     /// pins a module's compiled name to `<name>Module`.
-    let hasModuleSuffix (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+    let hasModuleSuffix (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : bool =
         match
-            findAttribute nameOf attrs "CompilationRepresentation"
+            attrs.TryFind RuntimeNames.compilationRepresentationAttributeKey
             |> ValueOption.bind constructionExpr
         with
         | ValueNone -> false
@@ -173,59 +123,20 @@ module AttributeDecode =
 
     /// True iff the module-level attributes carry `[<AutoOpen>]`, so its members are in
     /// scope unqualified for a consumer.
-    let isAutoOpen (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        (findAttribute nameOf attrs "AutoOpen").IsSome
+    let isAutoOpen (attrs: ResolvedAttributes) : bool =
+        attrs.Has RuntimeNames.autoOpenAttributeKey
 
-    /// An unrecognised attribute is silently ignored; the flags are independent.
-    let decodeClassAttributes
-        (nameOf: SyntaxToken -> string)
-        (attrs: Attributes<SyntaxToken> voption)
-        : ClassAttributeVerdict =
-        match attrs with
-        | ValueNone -> ClassAttributeVerdict.Default
-        | ValueSome sets ->
-            let mutable isSealed = false
-            let mutable allowNullLiteral = false
-            let mutable isValueType = false
-            let mutable isByRefLike = false
+    let decodeClassAttributes (attrs: ResolvedAttributes) : ClassAttributeVerdict =
+        let isByRefLike = attrs.Has RuntimeNames.isByRefLikeAttributeKey
 
-            for AttributeSet(attributes = entries) in sets do
-                for Attribute(construction = construction), _sep in entries do
-                    let attrTy =
-                        match construction with
-                        | ObjectConstruction(typ = t) -> t
-                        | InterfaceConstruction(typ = t) -> t
+        {
+            IsSealed = attrs.Has RuntimeNames.sealedAttributeKey
+            AllowNullLiteral = attrs.Has RuntimeNames.allowNullLiteralAttributeKey
+            // `[<IsByRefLike>]` alone implies a value type. A bare `type X = struct … end`
+            // carries no attribute, so this flag is not the only path to a value type.
+            IsValueType = attrs.Has RuntimeNames.structAttributeKey || isByRefLike
+            IsByRefLike = isByRefLike
+        }
 
-                    match attributeShortName nameOf attrTy with
-                    | ValueSome n when List.contains n sealedNames -> isSealed <- true
-                    | ValueSome n when List.contains n allowNullLiteralNames -> allowNullLiteral <- true
-                    | ValueSome n when List.contains n structNames -> isValueType <- true
-                    | ValueSome n when List.contains n byRefLikeNames -> isByRefLike <- true
-                    | _ -> ()
-
-            {
-                IsSealed = isSealed
-                AllowNullLiteral = allowNullLiteral
-                // `[<IsByRefLike>]` alone implies a value type.
-                IsValueType = isValueType || isByRefLike
-                IsByRefLike = isByRefLike
-            }
-
-    let decodeRequireQualifiedAccess (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        match attrs with
-        | ValueNone -> false
-        | ValueSome sets ->
-            let mutable found = false
-
-            for AttributeSet(attributes = entries) in sets do
-                for Attribute(construction = construction), _sep in entries do
-                    let attrTy =
-                        match construction with
-                        | ObjectConstruction(typ = t) -> t
-                        | InterfaceConstruction(typ = t) -> t
-
-                    match attributeShortName nameOf attrTy with
-                    | ValueSome n when List.contains n requireQualifiedAccessNames -> found <- true
-                    | _ -> ()
-
-            found
+    let decodeRequireQualifiedAccess (attrs: ResolvedAttributes) : bool =
+        attrs.Has RuntimeNames.requireQualifiedAccessAttributeKey

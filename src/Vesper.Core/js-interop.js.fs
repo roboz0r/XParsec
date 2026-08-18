@@ -1,12 +1,10 @@
 namespace Vesper
 
-[<AutoOpen>]
 module JsInterop =
 
     let inline jsNative<'T> : 'T =
         (# "(() => { throw new Error('jsNative: this binding is served by its [<Import>] declaration') })()" : 'T #)
 
-[<AutoOpen>]
 module ArithmeticRuntime =
 
     // Inline, not `[<Import>]`-served: this file precedes `compiler-attributes.fsi`, so no

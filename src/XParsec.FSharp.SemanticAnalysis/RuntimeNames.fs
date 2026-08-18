@@ -103,21 +103,24 @@ module RuntimeNames =
     let allowNullLiteralAttributeKey: TypeKey = attributeKey "AllowNullLiteral"
     let globalAttributeKey: TypeKey = attributeKey "Global"
     let importAttributeKey: TypeKey = attributeKey "Import"
+    let abstractClassAttributeKey: TypeKey = attributeKey "AbstractClass"
+    let sealedAttributeKey: TypeKey = attributeKey "Sealed"
+    let structAttributeKey: TypeKey = attributeKey "Struct"
 
-    let compilerAttributeKeys: TypeKey list =
-        [
-            callAtMostOnceAttributeKey
-            structuralEqualityAttributeKey
-            structuralComparisonAttributeKey
-            referenceEqualityAttributeKey
-            noEqualityAttributeKey
-            customEqualityAttributeKey
-            noComparisonAttributeKey
-            customComparisonAttributeKey
-            allowNullLiteralAttributeKey
-            globalAttributeKey
-            importAttributeKey
-        ]
+    let requireQualifiedAccessAttributeKey: TypeKey =
+        attributeKey "RequireQualifiedAccess"
+
+    let autoOpenAttributeKey: TypeKey = attributeKey "AutoOpen"
+    let compiledNameAttributeKey: TypeKey = attributeKey "CompiledName"
+
+    let compilationRepresentationAttributeKey: TypeKey =
+        attributeKey "CompilationRepresentation"
+
+    /// `[<IsByRefLike>]` resolves to the BCL declaration: byref-likeness is a CLR-only
+    /// concept, so no Vesper declaration exists and on JS the spelling is an ordinary
+    /// unresolved attribute.
+    let isByRefLikeAttributeKey: TypeKey =
+        SymbolKeyOps.typeKeyOf "System.Runtime.CompilerServices" "IsByRefLikeAttribute"
 
     let objAbbrevName: string = "obj"
 

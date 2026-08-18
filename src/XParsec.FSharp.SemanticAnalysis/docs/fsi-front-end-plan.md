@@ -1,8 +1,9 @@
 # One front end for `.fsi`
 
-**Status (2026-08-16): steps 1-4 landed; step 5 is independent and outstanding.** Spun out of
-the `sig-only` discussion — this is the enabler the other three plans depend on. Delete when
-step 5 lands (`feedback_plan_docs_ephemeral`).
+**Status (2026-08-17): ALL five steps landed.** Spun out of the `sig-only` discussion — this
+is the enabler the other three plans depend on. Kept only because
+[manifest-single-file-list-plan](manifest-single-file-list-plan.md) links into §"Expected
+dataflow"; delete alongside it (`feedback_plan_docs_ephemeral`).
 
 Landing one step per session, in the order below. Each step names its own exit condition
 and leaves the tree green; nothing here is meant to be handed to a subagent as bulk work.
@@ -455,14 +456,17 @@ one now reads the flag off the published case index (there is no `RqaTypes` side
 
 Whole corpus green: 1409 + 1527 + 695 + the rest.
 
-### 5. Delete the attribute name lists (independent of 1-4)
+### 5. Delete the attribute name lists — DONE (2026-08-17)
 
-Declare `SealedAttribute`, `StructAttribute`, `IsByRefLikeAttribute` and
-`RequireQualifiedAccessAttribute` in `Vesper.Core/compiler-attributes.fsi`, add their keys to
-`RuntimeNames.compilerAttributeKeys`, switch `TypeRegistration.fs:237,559,702` and
-`MemberRegistration.fs:523` to `resolveAttributes`, and delete `AttributeDecode.fs`.
-
-Runnable before step 1 if preferred; it is listed last only because it is the least coupled.
+Landed with three variations from the sketch above. `IsByRefLikeAttribute` gained no Vesper
+declaration: it resolves from BCL metadata on CLR and is an ordinary unresolved attribute on
+JS (see [attribute-representation-plan](attribute-representation-plan.md)). `AttributeDecode.fs`
+survives, cut to KEY-based readers over `ResolvedAttributes` (presence by `TypeKey`, arguments
+off the construction) — the name lists and `attributeShortName` are gone. And resolution moved
+below the pass layer: `PassContext.ResolveAttributes`, memoised per site in
+`Resolution.AttributeVerdicts`, with an unresolved attribute now an ERROR everywhere it runs
+(type defns, bindings, params, module decls, val sigs) rather than only where it spelled a
+marker.
 
 ## Follow-ups, not in this plan
 

@@ -1,3 +1,5 @@
+open System.Runtime.CompilerServices
+
 [<Struct; IsByRefLike>]
 type S =
     val mutable Acc: int

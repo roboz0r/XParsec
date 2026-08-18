@@ -4,6 +4,7 @@ open System.Collections.Immutable
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open ExternalTypeProbe
 open NameResolutionTypeRefStamp
 
 // Scope tracking and ident-use resolution for NameResolution. Every

@@ -104,6 +104,14 @@ type TypeRefVerdict =
     /// Nothing in scope at the use site, and no external type of that spelling.
     | UnknownType
 
+/// What a written attribute's type-ref resolved to. Recorded at the first resolution of the
+/// site, so repeated reads of the same declaration's attributes diagnose once.
+[<Struct; RequireQualifiedAccess>]
+type AttributeVerdict =
+    | Resolved of key: TypeKey
+    /// The unresolved diagnostic for the site has been reported.
+    | Reported
+
 type PassContextResolution =
     {
         /// The prefixes active at the module element being analysed. `open` is declaration-level,
@@ -173,6 +181,10 @@ type PassContextResolution =
         /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
         /// RECORD: such a type bears no static fields, so an unresolved last segment is a real miss.
         ExternalUnionRecordQualifier: SideTable<SymbolKey>
+        /// Keyed by a written attribute's type-ref site. Written only under the walk's ambient
+        /// scope (`EnterElement`): the external half of attribute resolution reads `OpenScope`,
+        /// so the first resolution of a site must run inside the walk that owns it.
+        AttributeVerdicts: SideTable<AttributeVerdict>
         /// A local module's short name (`SetTree`) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModules: Dictionary<string, Dictionary<string, LocalModuleMember>>
@@ -208,6 +220,7 @@ module PassContextResolution =
             TypeRefVerdicts = SideTable<_>()
             ExternalStaticQualifier = SideTable<_>()
             ExternalUnionRecordQualifier = SideTable<_>()
+            AttributeVerdicts = SideTable<_>()
             LocalModules = Dictionary<_, _>()
             TypeEnclosingModule = Dictionary<_, _>()
         }
@@ -485,32 +498,6 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
     /// its trait calls against the CALL SITE, so expanding here bakes in the generic fallback.
     member val InlineTemplates = Dictionary<NodeKey, TDecl>() with get
 
-    /// The facts the module-naming rules read. `IsNominalTypeName` is a closure read at CALL
-    /// time, so it sees a type declared textually BELOW the module it collides with.
-    member _.ModuleNaming: ModuleNaming =
-        {
-            Lexed = source.Lexed
-            IsNominalTypeName = TypeRegistry.isNominalTypeName types
-        }
-
-    /// Enter a module containment: the chain a by-name read from inside speaks from, set and
-    /// returned. Every scope on the way in is noted under the SOURCE path an `open` writes it as.
-    member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleContainer =
-        let scopes = ModuleRules.enclosingContainers this.ModuleNaming c
-
-        for (path, container) in scopes do
-            TypeRegistry.noteLocalContainer types path container
-
-        let chain = scopes |> List.last |> snd
-        this.Resolution.EnclosingContainer <- ValueSome chain
-        chain
-
-    /// Enter a walked module element, advancing both ambient facts a by-name read speaks
-    /// against: the `open`s in scope and the module chain.
-    member this.EnterElement(w: WalkedIn<SyntaxToken, 'Elem>) : unit =
-        this.Resolution.OpenScope <- w.Scope
-        this.EnterContainment w.Containment |> ignore
-
     /// Where a by-NAME registry read from `key` speaks from: the node's place in the file, the
     /// module chain, the `open`s. `UseSite.unbounded` is the whole-file view instead.
     member this.UseSiteAt(key: NodeKey) : UseSite =
@@ -530,7 +517,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
     /// The `TypeKey` a type DECLARED where the walk stands would be minted with. A pass must
     /// not find the declaration it is walking by NAME: two sibling modules may each declare `T`.
     member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
-        LocalSymbolKey.ofType (ModuleRules.typeContainerOf this.CurrentContainer) name arity
+        LocalSymbolKey.ofType (SymbolKeyOps.typeContainerOf this.CurrentContainer) name arity
 
     /// Source text of `token`, a backtick-escaped identifier reading as the name it spells.
     /// Empty for virtual (synthesised) tokens.

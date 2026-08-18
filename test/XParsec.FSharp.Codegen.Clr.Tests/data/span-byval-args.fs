@@ -1,3 +1,4 @@
+open System.Runtime.CompilerServices
 open System
 
 [<Struct; IsByRefLike>]

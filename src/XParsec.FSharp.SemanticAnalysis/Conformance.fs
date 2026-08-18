@@ -399,6 +399,122 @@ module Conformance =
 
     // ---- `[<Import>]` bindings ---------------------------------------------------
 
+    // PROVISIONAL, and the wrong level. A `.fsi`/`.fs` pair is checked over the two CSTs
+    // alone, with no symbol table, so the two attributes read here are matched on the long
+    // ident's LAST SEGMENT: a written `Import` and a written `MyOwn.Import` are
+    // indistinguishable, and a shadowing declaration goes unnoticed. Conformance belongs over
+    // the two frozen surfaces, where `ConformanceTypars` already runs and where a resolved
+    // `TypeKey` is available; this reader retires with the rest of the CST rule set when the
+    // package route gains analysed halves. Every attribute reader downstream of name
+    // resolution belongs in `AttributeDecode`, which is key-based.
+
+    /// `Vesper.Import` → `Import`. `ValueNone` for anything that is not a named type.
+    let private attributeShortName (nameOf: SyntaxToken -> string) (typ: Type<SyntaxToken>) : string voption =
+        let lastOf (li: LongIdent<SyntaxToken>) =
+            match li.Idents.Length with
+            | 0 -> ValueNone
+            | n -> ValueSome(nameOf li.Idents.[n - 1])
+
+        match typ with
+        | Type.NamedType li -> lastOf li
+        | Type.GenericType(longIdent = li) -> lastOf li
+        | _ -> ValueNone
+
+    let private constructedType (construction: ObjectConstruction<SyntaxToken>) : Type<SyntaxToken> =
+        match construction with
+        | ObjectConstruction(typ = t)
+        | InterfaceConstruction(typ = t) -> t
+
+    /// The construction of the first attribute written as `name`, with or without the
+    /// `Attribute` suffix; `ValueNone` when none is.
+    let private findAttribute
+        (nameOf: SyntaxToken -> string)
+        (attrs: Attributes<SyntaxToken> voption)
+        (name: string)
+        : ObjectConstruction<SyntaxToken> voption =
+        let mutable found = ValueNone
+
+        match attrs with
+        | ValueNone -> ()
+        | ValueSome sets ->
+            for AttributeSet(attributes = entries) in sets do
+                for Attribute(construction = construction), _sep in entries do
+                    if found.IsNone then
+                        match attributeShortName nameOf (constructedType construction) with
+                        | ValueSome n when n = name || n = name + "Attribute" -> found <- ValueSome construction
+                        | _ -> ()
+
+        found
+
+    let private constructionExpr (oc: ObjectConstruction<SyntaxToken>) : Expr<SyntaxToken> voption =
+        match oc with
+        | ObjectConstruction(_, e) -> ValueSome e
+        | InterfaceConstruction _ -> ValueNone
+
+    let rec private stripParens (e: Expr<SyntaxToken>) =
+        match e with
+        | Expr.EnclosedBlock(_, inner, _) -> stripParens inner
+        | _ -> e
+
+    /// Text of a string-literal argument expression; `ValueNone` when it is not one.
+    /// Ignores expression holes and other interpolation artefacts: neither argument read
+    /// here is ever interpolated.
+    let private stringLiteralText (nameOf: SyntaxToken -> string) (e: Expr<SyntaxToken>) : string voption =
+        match stripParens e with
+        | Expr.String(_, parts, _) ->
+            let sb = System.Text.StringBuilder()
+
+            for p in parts do
+                match p with
+                // Source-level text, escapes and all: decoding them is the lexer's job and
+                // an attribute argument never needs it.
+                | StringPart.Text tok
+                | StringPart.EscapeSequence tok -> sb.Append(nameOf tok) |> ignore
+                | _ -> ()
+
+            ValueSome(sb.ToString())
+        | Expr.Const(Constant.Literal tok) -> ValueSome((nameOf tok).Trim([| '"' |]))
+        | _ -> ValueNone
+
+    /// The name `[<CompiledName("Foo")>]` gives a declaration, which is what a consumer of
+    /// the assembly writes.
+    let private tryCompiledName
+        (nameOf: SyntaxToken -> string)
+        (attrs: Attributes<SyntaxToken> voption)
+        : string voption =
+        match
+            findAttribute nameOf attrs "CompiledName"
+            |> ValueOption.bind constructionExpr
+            |> ValueOption.bind (stringLiteralText nameOf)
+        with
+        | ValueSome "" -> ValueNone
+        | other -> other
+
+    /// A well-formed `[<Import>]`: the binding's implementation is the export `Selector` of
+    /// the committed runtime asset `Path` names, relative to the declaring package.
+    [<Struct>]
+    type ImportRef = { Selector: string; Path: string }
+
+    /// `[<Import(selector, path)>]` on a binding, as written.
+    [<RequireQualifiedAccess>]
+    type ImportDecl =
+        | Import of ImportRef
+        /// The attribute is present but its arguments are not two non-empty string literals.
+        | Malformed
+        | NoImport
+
+    let private tryImport (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : ImportDecl =
+        match findAttribute nameOf attrs "Import" with
+        | ValueNone -> ImportDecl.NoImport
+        | ValueSome construction ->
+            match constructionExpr construction |> ValueOption.map stripParens with
+            | ValueSome(Expr.Tuple(exprs, _)) when exprs.Length = 2 ->
+                match stringLiteralText nameOf exprs.[0], stringLiteralText nameOf exprs.[1] with
+                | ValueSome selector, ValueSome path when selector <> "" && path <> "" ->
+                    ImportDecl.Import { Selector = selector; Path = path }
+                | _ -> ImportDecl.Malformed
+            | _ -> ImportDecl.Malformed
+
     /// The body is the bare identifier `jsNative`, parens stripped.
     let rec private isJsNativeBody (lexed: Lexed) (e: Expr<SyntaxToken>) : bool =
         match e with
@@ -410,11 +526,7 @@ module Conformance =
 
     /// A module-level binding carrying a well-formed `[<Import>]`.
     [<Struct; NoEquality; NoComparison>]
-    type ImportBinding =
-        {
-            Name: string
-            Ref: AttributeDecode.ImportRef
-        }
+    type ImportBinding = { Name: string; Ref: ImportRef }
 
     /// The `[<Import>]` bindings of an implementation file, in source order, plus every
     /// CST-level finding about them: a malformed attribute, a body other than `jsNative`,
@@ -439,16 +551,16 @@ module Conformance =
                         | ValueNone -> ""
 
                     let emittedName =
-                        match AttributeDecode.tryCompiledName nameOf b.attributes with
+                        match tryCompiledName nameOf b.attributes with
                         | ValueSome n -> n
                         | ValueNone -> name
 
-                    match AttributeDecode.tryImport nameOf b.attributes with
-                    | AttributeDecode.ImportDecl.NoImport ->
+                    match tryImport nameOf b.attributes with
+                    | ImportDecl.NoImport ->
                         if isJsNativeBody lexed b.expr then
                             errors.Add(ConformanceError.JsNativeWithoutImport name)
-                    | AttributeDecode.ImportDecl.Malformed -> errors.Add(ConformanceError.ImportMalformed name)
-                    | AttributeDecode.ImportDecl.Import r ->
+                    | ImportDecl.Malformed -> errors.Add(ConformanceError.ImportMalformed name)
+                    | ImportDecl.Import r ->
                         if not (isJsNativeBody lexed b.expr) then
                             errors.Add(ConformanceError.ImportBodyNotJsNative name)
 

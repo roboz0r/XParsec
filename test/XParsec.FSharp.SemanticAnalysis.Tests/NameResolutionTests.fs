@@ -544,14 +544,19 @@ let tests =
                 Expect.isTrue (reportsWrongKind ctx) "FS0934 reported"
             }
 
-            test "fully-qualified [<Microsoft.FSharp.Core.Sealed>] still stamps IsSealed" {
-                // The class-SHAPING attributes decode by SHORT NAME (suffix optional): they are
-                // emission facts the `.fsi` extractor decodes with no resolver to hand.
+            test "fully-qualified [<Microsoft.FSharp.Core.Sealed>] does not stamp IsSealed and is an error" {
+                // Nothing declares `Microsoft.FSharp.Core` here, so the path does not resolve:
+                // the attribute is diagnosed and supplies no verdict.
                 let ctx =
                     analyse "[<Microsoft.FSharp.Core.SealedAttribute>]\ntype C() = member this.M () = 1"
 
                 let info = expectClass ctx "C"
-                Expect.isTrue info.Declared.IsSealed "long-ident [<...Sealed>] is decoded"
+                Expect.isFalse info.Declared.IsSealed "an unresolved path stamps nothing"
+
+                Expect.isTrue
+                    (ctx.Diagnostics
+                     |> Seq.exists (fun d -> d.Message.Contains "Microsoft.FSharp.Core.SealedAttribute"))
+                    "an unresolved attribute is an error quoting the path as written"
             }
 
             test "no class-shaping attribute leaves IsSealed=false, AllowNullLiteral=false" {

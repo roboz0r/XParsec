@@ -55,7 +55,7 @@ let tests =
                     "the qualifier is honoured because it resolves"
             }
 
-            test "a qualified path that does not resolve to a type is blamed for spelling a marker" {
+            test "a qualified path that does not resolve to a type is an error" {
                 // Nothing declares `Microsoft.FSharp.Core` here, so the path does not resolve,
                 // and silence would ship the structural default the attribute refuses.
                 let ctx =
@@ -75,12 +75,20 @@ let tests =
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 
-            test "an unresolved attribute that does not spell a marker stays silently ignored" {
-                // Most of F#'s attribute vocabulary is declared nowhere in the Vesper
-                // contract, so blaming every unresolved name would blame every library file.
+            test "an unresolved attribute is always an error" {
+                let ctx = analyse (src [ "[<FableImport>]"; "type Point = { X: int }" ])
+
+                match ctx.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
+                | [ msg ] -> Expect.stringContains msg "FableImport" "the diagnostic quotes the name as written"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
+            test "F#'s general attribute vocabulary resolves through the contract" {
+                // `AutoOpen` is a Vesper.Core declaration like any other, so writing it is
+                // not an error even where the analysis reads nothing off it.
                 let ctx = analyse (src [ "[<AutoOpen>]"; "type Point = { X: int }" ])
 
-                Expect.isEmpty (ctx.Diagnostics |> Diagnostic.errors) "an undeclared non-marker is not an error"
+                Expect.isEmpty (ctx.Diagnostics |> Diagnostic.errors) "a declared attribute resolves"
             }
 
             test "a same-named user type does NOT take the compiler marker's meaning" {

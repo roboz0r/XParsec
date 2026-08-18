@@ -505,6 +505,14 @@ let structTests =
                 runsDataLines [ "e"; "o" ] "ref-struct-span-byref-indexer"
             }
 
+            // A byref-like value cannot box to `IDisposable`, so `use` accepts a pattern
+            // `Dispose()` on it (C#8 pattern-`using` parity) and calls it directly. Analysis
+            // accepts the form; `EmitBindings.buildUse` has no value-type arm yet.
+            ptest
+                "`use` over a `[<IsByRefLike>]` ref struct calls its pattern `Dispose` — emit gap: `use` over a value type" {
+                runsDataLines [ "body"; "disposed" ] "ref-struct-use-pattern-dispose"
+            }
+
             // The call omits `Return`'s optional trailing `clearArray = false`; that
             // constant is synthesised, so codegen still sees a full two-arg call.
             test "ArrayPool<char>.Shared Rent + Return (omitted optional arg)" {

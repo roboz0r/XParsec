@@ -115,7 +115,16 @@ come along.
    `prim-types-attr.js.fs` failed on the sentinel; it now falls back to the ctor-bearing canon,
    the same rule the provider arm already had.
 2. Land attributes verbatim in the FrozenTast; rebuild the verdicts as views.
-3. Delete `AttributeDecode`'s name lists and `TypeTranslate.fs:166,171`.
+3. ~~Delete `AttributeDecode`'s name lists and `TypeTranslate.fs:166,171`.~~ **DONE
+   (2026-08-17)** — see [fsi-front-end-plan](fsi-front-end-plan.md) step 5. Attribute
+   resolution is `PassContext.ResolveAttributes` (site-memoised, unresolved = error on both
+   worlds), `AttributeDecode` reads by key off `ResolvedAttributes`, and
+   `AttributeIdentityTests` pins "an unresolved attribute is always an error". Landing it
+   surfaced a scoping bug: the signature path pinned an `and`-group's visibility to the
+   `type` keyword's offset, in front of which the group's own attributes sit —
+   `SignatureResolution.fs` now takes the first retained token, as the impl path already did.
+   Remaining silently-unresolved positions are the ones no consumer reads yet — member,
+   union-case, field and enum-case attributes — which step 2's whole-tree landing covers.
 4. CLR: emit `CustomAttribute` rows for resolved usages, generalising the `IsByRefLike`
    machinery at `ClrEnv.fs:193` to an arbitrary attribute ctor plus blob-encoded arguments.
 5. CLR: fix `hasAllowNullLiteral` to accept the Vesper key, and decide whether the rows are

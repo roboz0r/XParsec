@@ -92,13 +92,12 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// The container a TYPE declared in `c` sits in, under this file's `ModuleNaming`.
-    let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer =
-        ModuleRules.typeContainer ctx.ModuleNaming c
+    /// The container a TYPE declared in `c` sits in, under this file's module-naming rules.
+    let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer = ctx.TypeContainerOf c
 
     /// The container a BINDING declared in `c` sits in, and the chain a TYPE's `TypeContainer` narrows.
     let localContainerChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleContainer =
-        ModuleRules.containerChain ctx.ModuleNaming c
+        ctx.ContainerChainOf c
 
     /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` declares, recovered by
     /// the key the declaration mints in the module the walk stands in, never by its name: an
@@ -131,7 +130,7 @@ module NameResolutionTypeRegistration =
         (name: string)
         (arity: int)
         : TypeKey =
-        let key = LocalSymbolKey.ofType (ModuleRules.typeContainerOf container) name arity
+        let key = LocalSymbolKey.ofType (SymbolKeyOps.typeContainerOf container) name arity
 
         match TypeRegistry.recordKeyOrigin ctx.Types declSite.Key (SymbolKey.Type key) with
         | ValueSome _ ->
@@ -227,7 +226,7 @@ module NameResolutionTypeRegistration =
     /// `[<Struct>]` on the declaration's header: the half of the value-type verdict a
     /// header alone decides, the `type X = struct … end` SHAPE being the other half.
     let isStructAttributed (ctx: PassContext) (tn: TypeName<SyntaxToken>) : bool =
-        (AttributeDecode.decodeClassAttributes ctx.NameOf (Attributes.attributesOfTypeName tn)).IsValueType
+        (AttributeDecode.decodeClassAttributes (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))).IsValueType
 
     /// Is this declaration a VALUE type: `[<Struct>]`, or the `type X = struct … end` shape?
     /// Kind-agnostic (a record, a union and a class can each be a struct): a struct stores its
@@ -532,6 +531,20 @@ module NameResolutionTypeRegistration =
         | ValueNone -> ValueNone
         | ValueSome kind -> claimTypeName ctx c visibleFrom (SigDecl.typeName decl) kind
 
+    /// `typeGroupVisibleFrom` for a signature group: the first declaration's attributes
+    /// precede the `type` keyword, and an attribute of the group may reference a member of
+    /// the group, so the earlier of the two tokens wins.
+    let sigGroupVisibleFrom (recScopeOffset: int voption) (kw: SyntaxToken) (decls: SigDecl list) : int =
+        match recScopeOffset with
+        | ValueSome offset -> offset
+        | ValueNone ->
+            match decls with
+            | d :: _ ->
+                match CstKeys.tryFirstTokenOfTypeName (SigDecl.typeName d) with
+                | ValueSome t -> min kw.StartIndex t.StartIndex
+                | ValueNone -> kw.StartIndex
+            | [] -> kw.StartIndex
+
     /// The RECORD / UNION / CLASS-like short name one signature declaration writes, which is
     /// what a `module` of the same name is renamed by.
     let noteNominalSigTypeName (ctx: PassContext) (decl: SigDecl) : unit =
@@ -767,7 +780,7 @@ module NameResolutionTypeRegistration =
         // consumer's bare `{ X = … }` field-set index (`Elaborate` projects it
         // onto the frozen decl; `FrozenSignature` / `InferResolve` honour it).
         info.IsRequireQualifiedAccess <-
-            AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)
+            AttributeDecode.decodeRequireQualifiedAccess (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
         rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 
@@ -912,7 +925,7 @@ module NameResolutionTypeRegistration =
         // cross-file consumer's bare case index (`Elaborate` projects it onto
         // the frozen decl; `FrozenSignature` honours it).
         info.IsRequireQualifiedAccess <-
-            AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)
+            AttributeDecode.decodeRequireQualifiedAccess (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
         rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 

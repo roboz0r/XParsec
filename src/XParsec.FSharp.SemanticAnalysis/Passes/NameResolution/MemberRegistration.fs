@@ -6,6 +6,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 open UnificationTranslate
+open ExternalTypeProbe
 open NameResolutionTypeRefStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
@@ -520,7 +521,7 @@ module NameResolutionMemberRegistration =
             // the same ones with no resolver. `AllowNullLiteral` is on the decoded record too,
             // but reading it here would skip the FS0934 kind check below.
             let classAttrs =
-                AttributeDecode.decodeClassAttributes ctx.NameOf (Attributes.attributesOfTypeName tn)
+                AttributeDecode.decodeClassAttributes (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
 
             // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value type. Known before
             // the preamble is extracted: a struct may not carry an instance one.

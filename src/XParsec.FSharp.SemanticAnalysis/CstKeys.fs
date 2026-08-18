@@ -115,7 +115,8 @@ module CstKeys =
         | Pat.Null t -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
-    let private firstTokenOfTypeName (tn: TypeName<SyntaxToken>) : SyntaxToken voption =
+    /// The leftmost token a type header retains: its attributes' `[<`, else the declared name.
+    let tryFirstTokenOfTypeName (tn: TypeName<SyntaxToken>) : SyntaxToken voption =
         let (TypeName(attributes = attrs; ident = li)) = tn
 
         match attrs with
@@ -143,7 +144,7 @@ module CstKeys =
         | TypeDefn.Enum(typeName = tn)
         | TypeDefn.Delegate(typeName = tn)
         | TypeDefn.TypeExtension(typeName = tn)
-        | TypeDefn.AbstractType(typeName = tn) -> firstTokenOfTypeName tn
+        | TypeDefn.AbstractType(typeName = tn) -> tryFirstTokenOfTypeName tn
         | TypeDefn.Missing -> ValueNone
         | TypeDefn.SkipsTokens tokens ->
             if tokens.Length > 0 then

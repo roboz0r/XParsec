@@ -490,10 +490,12 @@ let tests =
                     "a duck-typed `Dispose` (no `System.IDisposable`) no longer qualifies for `use`"
             }
 
-            // A `[<IsByRefLike>]` type can't be boxed to `IDisposable`, so a duck-typed pattern
-            // `Dispose()` is accepted (C#8 pattern-`using` parity) and called directly. That
-            // path needs no capability resolution, so it is the accepted direction testable here.
-            test "`use` over a `[<IsByRefLike>]` ref struct with a pattern `Dispose` is accepted (carve-out)" {
+            // `IsByRefLikeAttribute` is a BCL declaration with no Vesper counterpart, and this
+            // provider carries no platform metadata, so the attribute is an unresolved-attribute
+            // error — the same answer the JS target gives. The accepted direction (`use` calling
+            // the pattern `Dispose` on a byref-like) runs against real BCL metadata in
+            // `Codegen.Clr.Tests/StructTests.fs`.
+            test "`[<IsByRefLike>]` with no platform metadata is an unresolved-attribute error" {
                 let provider, _ = builtProvider.Value
 
                 let input =
@@ -509,9 +511,9 @@ let tests =
                             "run ()"
                         ]
 
-                Expect.isFalse
+                Expect.isTrue
                     (analyseDiagnostics provider input)
-                    "a ref struct exposing a pattern `Dispose` qualifies for `use` (the carve-out)"
+                    "a BCL-only attribute does not resolve without the platform metadata that declares it"
             }
 
             // `buildClosure` closes a root manifest set over `depends-on` and orders it dependencies-first.

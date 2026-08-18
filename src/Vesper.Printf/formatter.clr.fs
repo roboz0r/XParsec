@@ -4,6 +4,7 @@ open System
 open System.Buffers
 open System.Globalization
 open System.IO
+open System.Runtime.CompilerServices
 open System.Text
 
 open Vesper.IntComparison

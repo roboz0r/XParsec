@@ -1,3 +1,5 @@
+open System.Runtime.CompilerServices
+
 [<Struct; IsByRefLike>]
 type RPoint(x: int, y: int) =
     member this.X = x
