@@ -299,7 +299,7 @@ tranche, and worth doing: it is what would have caught §3.3 automatically.
 `Vesper.Comparison.mjs` — yes, and nearly free: one function of the same shape as
 `Vesper.Printf.mjs`'s walker.
 
-`Vesper.Core.mjs` — this is the `--compiling-fslib` bootstrap ("Route B"), and it is
+`Vesper.Core.mjs` — this is the self-hosting bootstrap ("Route B"), and it is
 genuinely hard: `structuralEquals` / `structuralHash` / `enumeratorOf` are self-referential
 (the equality runtime cannot be written in a language whose `=` it implements). It also needs
 §4.3 first. Keep it hand-authored until the bootstrap has a real design.

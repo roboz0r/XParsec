@@ -60,8 +60,8 @@ naming it from a closure for that target is a hard error rather than an empty
 contribution. `Vesper.Set` is CLR-only.
 
 **No package has a `.fsproj`.** None of this tree is built by `dotnet`/`fsc`. The
-operators alone force it: a `let inline (+)` body needs inline IL /
-`--compiling-fslib` (`Vesper.Core/ops-platform.clr.fs`), so the contract is
+operators alone force it: a `let inline (+)` body needs inline IL
+(`Vesper.Core/ops-platform.clr.fs`), so the contract is
 signature-only from `fsc`'s point of view. The `.fsi` are parsed by
 `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the `.fs` are
 compiled by this repo's own backend. Parser coverage is held by golden `.parsed`

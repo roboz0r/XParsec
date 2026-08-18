@@ -15,6 +15,18 @@ namespace              'namespace'       KWNamespace         tok=   0  pos=   0
           Text         'System.Att...'   StringFragment      tok=  27  pos=  77
                        '"'               StringClose         tok=  28  pos=  93
         #)             '#)'              KWRHashParen        tok=  30  pos=  95
+  TypeDefn.Anon:
+    TypeName           'AbstractCl...'   Identifier          tok=  35  pos= 103
+    (                  '('               KWLParen            tok=  36  pos= 125
+    )                  ')'               KWRParen            tok=  37  pos= 126
+    =                  '='               OpEquality          tok=  39  pos= 128
+    begin              <virt>            KWBegin             tok=virt  pos= 134
+      inherit          'inherit'         KWInherit           tok=  42  pos= 134
+      NamedType:
+        Ident          'Attribute'       Identifier          tok=  44  pos= 142
+      ParenBlock       '('               KWLParen            tok=  45  pos= 151
+                       ')'               KWRParen            tok=  46  pos= 152
+    end                <virt>            KWEnd               tok=virt  pos= 154
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

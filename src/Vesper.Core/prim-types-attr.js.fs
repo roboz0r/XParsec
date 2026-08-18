@@ -4,3 +4,6 @@ namespace Vesper
 
 [<AbstractClass>]
 type Attribute = (# class "!Vesper.Attribute" #)
+
+and AbstractClassAttribute() =
+    inherit Attribute()

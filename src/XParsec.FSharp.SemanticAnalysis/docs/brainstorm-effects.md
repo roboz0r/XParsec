@@ -123,7 +123,7 @@ The inferencer fails on exactly one class of body: the ones it cannot read.
 - **SRTP-resolved members** that bottom out in such intrinsics.
 
 These are precisely the cases that *also* keep F#'s `inline` (a `let inline (+)`
-body needs inline IL / `--compiling-fslib`), which is why this is where a `pure`
+body needs inline IL), which is why this is where a `pure`
 annotation, if Vesper has one at all, earns its keep. Two consequences:
 
 1. A trusted `pure` is **unchecked** — wrong = miscompile. It deserves the same

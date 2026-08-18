@@ -51,22 +51,38 @@ becomes live the moment a `.dll` is consumed without its contract — the publis
 ## What has to be declared
 
 `compiler-attributes.fsi` declares ten (`RuntimeNames.fs:98-121`). Used throughout the core
-contracts and declared **nowhere** in Vesper:
+contracts and declared **nowhere** in Vesper; the new declarations go in
+`prim-types-attr.fsi`, beside the `Attribute` base they inherit:
 
 | name | used at |
 |---|---|
 | `AttributeUsage` | all ten declarations in `compiler-attributes.fsi` |
 | `AttributeTargets` | same, as a flags enum combined with `\|\|\|` |
 | `AbstractClass` | `prim-types-attr.fsi:9` — on `Attribute` itself |
-| `Sealed`, `Struct`, `IsByRefLike`, `RequireQualifiedAccess` | `AttributeDecode.fs:11-23` |
+| `Sealed`, `Struct`, `RequireQualifiedAccess` | `AttributeDecode.fs:11-23` |
 | `AutoOpen` | `TypeTranslate.fs:166` |
+
+`IsByRefLike` (`AttributeDecode.fs:20`) gets NO Vesper declaration. It is a BCL type,
+`System.Runtime.CompilerServices.IsByRefLikeAttribute`, so on CLR it resolves by key through
+the external provider; on JS the spelling diagnoses as an ordinary unresolved attribute, which
+is the correct answer for a CLR-only concept.
+
+The meta-attributes `AttributeUsage` and `AttributeTargets` are also BCL types, but unlike
+`IsByRefLike` they are written in the shared contracts themselves, so they must resolve on
+BOTH targets. **Landed (2026-08-17) as real Vesper declarations, not extern shims.** The
+dialect has no extern-enum form, and an extern repr carries no member values for `ConstFold`
+to fold, so `AttributeTargets` is a Vesper enum declared with ECMA-335's numeric values and
+`AttributeUsageAttribute` a real class over it. Typing an emitted CLR blob as
+`System.AttributeTargets` / `System.AttributeUsageAttribute` is a step-4/5 mapping, the same
+direction as reading: an attribute row in CLR metadata carries the `System.*` key, so a
+metadata reader canonicalises it to the Vesper key, the fix step 5 makes to
+`hasAllowNullLiteral`.
 
 ## The bootstrap
 
 `compiler-attributes.fsi` applies `[<AttributeUsage>]` and `[<Sealed>]` to the types declared
 in that same file, and `prim-types-attr.fsi:9` applies `[<AbstractClass>]` to the root of the
-hierarchy. The file defines the vocabulary it is written in — the same shape as
-`--compiling-fslib` (`feedback_fsharpcore_one_assembly`). This is the part that decides the
+hierarchy. The file defines the vocabulary it is written in. This is the part that decides the
 design, and it is why key-based attribute resolution cannot simply be switched on.
 
 ## FrozenTast: attributes become the primary encoding
@@ -83,7 +99,21 @@ come along.
 
 ## Work
 
-1. Declare the missing attribute types and `AttributeTargets`; resolve the bootstrap.
+1. ~~Declare the missing attribute types and `AttributeTargets`; resolve the bootstrap.~~
+   **DONE (2026-08-17).** The bootstrap knot is an `and`-group in `prim-types-attr.fsi`:
+   `Attribute and AbstractClassAttribute`, so `[<AbstractClass>]` on `Attribute` resolves under
+   top-down scoping; the pair's bodies live in `prim-types-attr.{clr,js}.fs`, `and`-grouped
+   there too, because the implementation's own `[<AbstractClass>]` is the same forward
+   reference (fsc probe: ungrouped impl fails FS0039; grouped builds). Everything else —
+   `AttributeTargets`, `AttributeUsage`, `Sealed` first, then the F#-only markers and the
+   corpus-inert set (`Struct`, `RequireQualifiedAccess`, `AutoOpen`, `CompiledName`,
+   `CompilationRepresentation{,Flags}`, `Literal`, `Measure`, `CompilerMessage`,
+   `EqualityConditionalOn`, `GeneralizableValue`, `Experimental`, `DefaultAugmentation`) — is
+   in `compiler-attributes.{fsi,fs}`, transliterated from FSharp.Core. Landing it surfaced one
+   analysis gap: the heritable-local `inherit` arm in `MemberRegistration.fs` only resolved a
+   repr to an external type, so `AbstractClassAttribute`'s `inherit Attribute()` in
+   `prim-types-attr.js.fs` failed on the sentinel; it now falls back to the ctor-bearing canon,
+   the same rule the provider arm already had.
 2. Land attributes verbatim in the FrozenTast; rebuild the verdicts as views.
 3. Delete `AttributeDecode`'s name lists and `TypeTranslate.fs:166,171`.
 4. CLR: emit `CustomAttribute` rows for resolved usages, generalising the `IsByRefLike`
@@ -98,7 +128,17 @@ come along.
    `EmitJsTypes`' `inherit` guard sees it. `prim-types-attr.js.fs` binds the sentinel and
    `compiler-attributes.fs` is now in the js `impl` list.
 7. Enforce `AttributeUsage` targets — currently decoded by nothing, so `[<Global>]` on a type
-   would emit a row rather than erroring.
+   would emit a row rather than erroring. Prerequisite: a `ConstFold` module in
+   SemanticAnalysis, sibling of `EnumCaseValues` and in its style —
+   `tryConstant: TExpr -> Result<TConstValue, ConstRejection>` — folding the closed
+   attribute-argument constant domain: a literal; an enum-member reference read from the
+   registry or `ExternalEnumCaseShape.Value`; `|||`/`&&&`/`^^^` on integral constants of one
+   width; unary minus. Anything else in attribute position is a diagnostic (F#'s FS0267), not a
+   silent pass-through. This needs NO provider change: enum values already cross the seam as
+   `IntVal`/`StringVal` (`ExternalDeclarations.fs:141`), and the fold rules are language
+   semantics, so they live in analysis once rather than per provider. An `expr -> expr`
+   evaluator seam was considered and rejected here; that shape belongs to backend optimisation
+   passes downstream of freeze. Step 4's blob encoding consumes the same `TConstValue`.
 
 ## Consequence for the manifests
 

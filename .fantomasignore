@@ -7,7 +7,7 @@ bench/XParsec.FSharp.Benchmarks/fixtures/
 # XParsec-dialect forms FCS/Fantomas can't parse (same stance as Vesper.Core).
 test/XParsec.FSharp.Codegen.Js.Tests/fixtures/widget/
 src/XParsec/Readables.fs
-# Uses inline-IL / `--compiling-fslib`-style constructs Fantomas can't parse.
+# Uses inline-IL constructs Fantomas can't parse.
 src/Vesper.Core/
 # Vesper.List — same `[]`/`::` operator-union-case syntax Fantomas mangles (it
 # strips the case payloads `: 'T list` / `Head: 'T * Tail: …`). Authored to a

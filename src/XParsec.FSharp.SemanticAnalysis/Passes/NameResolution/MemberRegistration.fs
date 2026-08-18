@@ -726,22 +726,40 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
-                // A heritable base's platform repr → its external `TyClass`, or a "did not
-                // resolve" diagnostic.
+                // The contract's ctor-bearing intrinsic surface for the name, as its canon.
+                let tryCtorBearingCanon () =
+                    match
+                        tryPickExternalType
+                            ctx
+                            (arityProbes targs.Length)
+                            (fun hit -> ExternalSymbols.intrinsicClassOf hit.Shape)
+                            name
+                    with
+                    | ValueSome(struct (id, surface)) when surface.Members |> EqArray.exists (fun m -> m.Name = ".ctor") ->
+                        ValueSome(TyConst(id.Canon, EqArray.ofList targs))
+                    | _ -> ValueNone
+
+                // A heritable base's platform repr → its external `TyClass`. A sentinel repr
+                // (`"!Vesper.Attribute"`) denotes no external type, so a base with declared
+                // ctors falls back to inheriting by canon, and only a base with neither gets
+                // the "did not resolve" diagnostic.
                 let reprToExternalBase (repr: string) =
                     match tryResolveExternalTypeKey ctx repr targs.Length with
                     | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
                     | ValueNone ->
-                        diagnose
-                            nameTok
-                            (Kind.Message(
-                                sprintf
-                                    "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
-                                    name
-                                    repr
-                            ))
+                        match tryCtorBearingCanon () with
+                        | ValueSome t -> ValueSome t
+                        | ValueNone ->
+                            diagnose
+                                nameTok
+                                (Kind.Message(
+                                    sprintf
+                                        "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
+                                        name
+                                        repr
+                                ))
 
-                        ValueNone
+                            ValueNone
 
                 // The name is not a project-local class: a heritable primitive published by a
                 // provider (`exn`, or a prior file's `(# class … #)` base like `Attribute`).
