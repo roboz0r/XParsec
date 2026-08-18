@@ -125,38 +125,48 @@ module ConformancePass =
                     ]
                 | ValueSome _ -> []
 
-        let outcome (entry: PackageSource.SignatureEntry) : PairOutcome =
-            let fsiRel = entry.Signature.Relative
+        let pair
+            (signatureFile: PackageSource.ReadFile<ParseChain.ParsedSignature>)
+            (implementationFile: PackageSource.ReadFile<ParseChain.ParsedFile>)
+            : PairOutcome =
+            let fsiRel = signatureFile.Relative
 
-            match entry.Signature.Outcome with
+            match signatureFile.Outcome with
             | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name fsiRel fault)
             | Ok signature ->
-                match entry.Companion with
-                | ValueSome companion ->
-                    match companion.Outcome with
-                    // Fails the PAIR: calling it a signature without an implementation would
-                    // blame the `.fsi` for the `.fs`'s defect.
-                    | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name companion.Relative fault)
-                    | Ok implementation ->
-                        let verdict =
-                            Conformance.checkUnit
-                                signature.Lexed
-                                signature.File
-                                implementation.Lexed
-                                implementation.File
+                match implementationFile.Outcome with
+                // Fails the PAIR: calling it a signature without an implementation would
+                // blame the `.fsi` for the `.fs`'s defect.
+                | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name implementationFile.Relative fault)
+                | Ok implementation ->
+                    let verdict =
+                        Conformance.checkUnit signature.Lexed signature.File implementation.Lexed implementation.File
 
-                        PairOutcome.Paired
-                            {
-                                SigFile = fsiRel
-                                ImplFile = companion.Relative
-                                ModuleMismatch = verdict.ModuleMismatch
-                                Errors = verdict.Errors @ List.collect checkImport verdict.Imports
-                            }
-                | ValueNone -> PairOutcome.SigOnly fsiRel
+                    PairOutcome.Paired
+                        {
+                            SigFile = fsiRel
+                            ImplFile = implementationFile.Relative
+                            ModuleMismatch = verdict.ModuleMismatch
+                            Errors = verdict.Errors @ List.collect checkImport verdict.Imports
+                        }
 
         {
             Package = m.Name
-            Pairs = pkg.Signatures |> List.map outcome
+            Pairs =
+                [
+                    for unit in pkg.Units do
+                        match unit with
+                        | PackageSource.PackageUnit.UnpairedSignature signature ->
+                            match signature.Outcome with
+                            | Error fault ->
+                                PairOutcome.ParseFailed(signature.Relative, faultDetail m.Name signature.Relative fault)
+                            | Ok _ -> PairOutcome.SigOnly signature.Relative
+                        | PackageSource.PackageUnit.Source source ->
+                            match source.Signature with
+                            | ValueSome signature -> pair signature source.Implementation
+                            // A `.fs` owes no `.fsi`.
+                            | ValueNone -> ()
+                ]
         }
 
     /// `check` for a caller holding only the path. `Error` ONLY when the package is wholly

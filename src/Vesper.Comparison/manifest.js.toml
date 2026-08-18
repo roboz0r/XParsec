@@ -8,11 +8,12 @@ depends-on = ["../Vesper.Core"]
 # operands, body in `Vesper.Comparison.mjs`); it has no CLR `.fs` body, so the clr manifest
 # does not name it.
 files = [
-    "comparison.fsi",
-    "comparison.js.fs",
-    # `structuralCompare` as an `[<Import>]`-attributed binding served by `Vesper.Comparison.mjs`.
+    # `structuralCompare` as an `[<Import>]`-attributed binding served by
+    # `Vesper.Comparison.mjs`. First: the operator bodies below splice it.
     "comparison-runtime.js.fsi",
     "comparison-runtime.js.fs",
+    "comparison.fsi",
+    "comparison.js.fs",
 ]
 
 runtime = [

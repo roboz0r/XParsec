@@ -47,33 +47,32 @@ module PackageSource =
             Outcome: Result<'Tree, FileFault>
         }
 
-    /// One signature file, and the implementation file the manifest's own pairing key marries
-    /// it to. `ValueNone` for a signature file this target ships no implementation for.
+    /// One compilation unit as READ: its implementation file, and the signature file that
+    /// publishes it. `ValueNone` for an implementation file that owes no signature file, as in
+    /// F# itself. Each half keeps its `Outcome`, so a per-file fault reports from the unit
+    /// that names the file.
     [<NoEquality; NoComparison>]
-    type SignatureEntry =
+    type ParsedSource =
         {
-            Signature: ReadFile<ParseChain.ParsedSignature>
-            Companion: ReadFile<ParseChain.ParsedFile> voption
-        }
-
-    /// One implementation file, and the signature file that publishes it. `ValueNone` for an
-    /// implementation file that owes no signature file, as in F# itself.
-    [<NoEquality; NoComparison>]
-    type ImplementationEntry =
-        {
+            Signature: ReadFile<ParseChain.ParsedSignature> voption
             Implementation: ReadFile<ParseChain.ParsedFile>
-            Companion: ReadFile<ParseChain.ParsedSignature> voption
         }
 
-    /// Every path one manifest lists, read and parsed ONCE and PAIRED once: the `.fsi` and
-    /// `.fs` halves of `[core] files`, each in declared order, each entry carrying what the
-    /// read produced and the file across the pairing. No `runtime` (never F#).
+    /// One `[core] files` unit. `UnpairedSignature` is a signature file this target ships no
+    /// implementation for: the conformance gate refuses it, but the referencing route resolves
+    /// and publishes it, so it stays representable.
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type PackageUnit =
+        | Source of ParsedSource
+        | UnpairedSignature of ReadFile<ParseChain.ParsedSignature>
+
+    /// Every path one manifest lists, read and parsed ONCE and PAIRED once, in `[core] files`
+    /// order, each entry carrying what the read produced. No `runtime` (never F#).
     [<NoEquality; NoComparison>]
     type ParsedPackage =
         {
             Manifest: ReferencedProject.Manifest
-            Signatures: SignatureEntry list
-            Implementations: ImplementationEntry list
+            Units: PackageUnit list
         }
 
     /// Read and parse every path `manifest` lists, and pair the two halves. An absent or
@@ -93,54 +92,42 @@ module PackageSource =
                         parse (File.ReadAllText absolute) |> Result.mapError FileFault.Unparsed
             }
 
-        let signatures =
-            ReferencedProject.signatureFiles manifest
-            |> List.map (read (ParseChain.parseSignature Set.empty))
+        let readSignature = read (ParseChain.parseSignature Set.empty)
+        let readImplementation = read (ParseChain.parse Set.empty)
 
-        let implementations =
-            ReferencedProject.implementationFiles manifest
-            |> List.map (read (ParseChain.parse Set.empty))
-
-        // The pairing, taken once and handed to both sides. Manifest parsing rejects a key
-        // claimed by two entries of a pair, so the dictionaries never overwrite a paired file.
+        // Manifest parsing enforces `.fsi`-immediately-before-companion-`.fs`, so adjacency
+        // IS the pairing: a `.fsi` pairs with the next entry exactly when their keys agree.
         let key = ReferencedProject.pairingKey manifest.Target
 
-        let implementationByKey =
-            System.Collections.Generic.Dictionary<string, _>(System.StringComparer.Ordinal)
+        let rec units (files: ReferencedProject.ManifestFile list) : PackageUnit list =
+            match files with
+            | [] -> []
+            | file :: rest ->
+                match file.Kind with
+                | SourceFileKind.Implementation ->
+                    PackageUnit.Source
+                        {
+                            Signature = ValueNone
+                            Implementation = readImplementation file.Relative
+                        }
+                    :: units rest
+                | SourceFileKind.Signature ->
+                    let signature = readSignature file.Relative
 
-        let signatureByKey =
-            System.Collections.Generic.Dictionary<string, _>(System.StringComparer.Ordinal)
-
-        for implementation in implementations do
-            implementationByKey.[key implementation.Relative] <- implementation
-
-        for signature in signatures do
-            signatureByKey.[key signature.Relative] <- signature
-
-        let companion
-            (table: System.Collections.Generic.Dictionary<string, 'Other>)
-            (relative: string)
-            : 'Other voption =
-            match table.TryGetValue(key relative) with
-            | true, other -> ValueSome other
-            | _ -> ValueNone
+                    match rest with
+                    | companion :: rest when
+                        companion.Kind = SourceFileKind.Implementation
+                        && key companion.Relative = key file.Relative
+                        ->
+                        PackageUnit.Source
+                            {
+                                Signature = ValueSome signature
+                                Implementation = readImplementation companion.Relative
+                            }
+                        :: units rest
+                    | _ -> PackageUnit.UnpairedSignature signature :: units rest
 
         {
             Manifest = manifest
-            Signatures =
-                [
-                    for signature in signatures ->
-                        {
-                            Signature = signature
-                            Companion = companion implementationByKey signature.Relative
-                        }
-                ]
-            Implementations =
-                [
-                    for implementation in implementations ->
-                        {
-                            Implementation = implementation
-                            Companion = companion signatureByKey implementation.Relative
-                        }
-                ]
+            Units = units manifest.Files
         }

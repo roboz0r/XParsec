@@ -68,6 +68,16 @@ module InlineBodies =
             Members: KeyedInlineBody list
         }
 
+    let empty: FileInlineBodies = { Values = []; Members = [] }
+
+    /// The files' templates flattened in input order, so a later file's template wins a clash
+    /// under `index`.
+    let concat (files: FileInlineBodies list) : FileInlineBodies =
+        {
+            Values = files |> List.collect (fun f -> f.Values)
+            Members = files |> List.collect (fun f -> f.Members)
+        }
+
     /// Read every splice template out of one frozen file, anchored to the file it was
     /// declared in, since a spliced node resolves only against that file's own text.
     let collect (origin: OriginSource) (tast: FrozenPools) : FileInlineBodies =

@@ -39,96 +39,9 @@ module SymbolProviders =
             {
                 Provider = ExternalSymbolProviders.nullProvider
                 Diagnostics = AssemblyFiles.setFaultDiagnostics fault
+                InlineBodies = InlineBodies.empty
+                Origins = OriginSources.empty
             }
-
-    /// One pass over a manifest set's splice sources: the templates published, and the
-    /// producer file each was declared in.
-    type CollectedInlineBodies =
-        {
-            Bodies: InlineBodies.FileInlineBodies
-            Origins: OriginSources
-        }
-
-    /// Load cross-package inline bodies from the packages' implementation files as READ,
-    /// type-checked and frozen once against `provider`. Manifest/decl order, so a later body
-    /// wins a clash.
-    let inlineBodies
-        (target: string)
-        (provider: IExternalSymbolProvider)
-        (packages: PackageSource.ParsedPackage list)
-        : CollectedInlineBodies =
-        let acc = ResizeArray<InlineBodies.KeyedInlineBody>()
-        let memberAcc = ResizeArray<InlineBodies.KeyedInlineBody>()
-        let mutable origins = OriginSources.empty
-
-        let collect
-            (manifest: ReferencedProject.Manifest)
-            (file: PackageSource.ReadFile<ParseChain.ParsedFile>)
-            (impl: ParseChain.ParsedFile)
-            =
-            let origin =
-                Hashing.originSource
-                    {
-                        BucketName = manifest.Name
-                        Relative = file.Id
-                    }
-                    impl.Lexed
-
-            origins <- OriginSources.add origin origins
-
-            // `manifest.Name` is the home assembly the published keys are rooted at, the same
-            // one the package's own symbols are stamped with, so a served key and a resolved
-            // one agree.
-            let ctx, sem =
-                Pipeline.analyseSemWithContextFor
-                    {
-                        Name = manifest.Name
-                        Target = target
-                    }
-                    provider
-                    origin
-                    impl.File
-
-            // Freezing an errored tree prunes the failed declarations; pooling then
-            // trips on side-table entries that outlived them, blaming the file's FIRST
-            // binding. Errors alone are not fatal: an implementation file may reference spare types.
-            let frozen =
-                try
-                    Freeze.run ctx sem
-                with e ->
-                    let pruned =
-                        match sem.Diagnostics |> Diagnostic.errors with
-                        | [] -> " (none, so the fault is in the freeze itself)"
-                        | errors -> errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
-
-                    failwithf
-                        "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
-                        manifest.Name
-                        file.Relative
-                        e.Message
-                        pruned
-
-            let bodies = InlineBodies.collect origin frozen
-
-            acc.AddRange bodies.Values
-            memberAcc.AddRange bodies.Members
-
-        for pkg in packages do
-            for entry in pkg.Implementations do
-                match entry.Implementation.Outcome with
-                | Ok parsed -> collect pkg.Manifest entry.Implementation parsed
-                // A file the read could not deliver splices nothing. Its fault is reported by
-                // the provider build, which reads the same package value.
-                | Error _ -> ()
-
-        {
-            Bodies =
-                {
-                    Values = List.ofSeq acc
-                    Members = List.ofSeq memberAcc
-                }
-            Origins = origins
-        }
 
     /// One manifest set's composed contract. A backend takes the WHOLE value: a provider from
     /// one manifest set beside an anchor domain from another resolves a served body's position
@@ -216,29 +129,30 @@ module SymbolProviders =
                                  }
                              | Result.Ok(ordered, transitiveDeps) ->
 
-                                 // Read once: the contracts below resolve, and the bodies freeze,
-                                 // off these same trees.
-                                 let packages = ordered |> List.map PackageSource.readPackage
-
+                                 // Read once: the contracts resolve, and the bodies freeze, off
+                                 // these same trees, inside one fold per package.
                                  let composed =
-                                     PackageProviders.composeOrdered platformMetadata packages transitiveDeps
-
-                                 let collected = inlineBodies target composed.Provider packages
+                                     PackageProviders.composeOrdered
+                                         platformMetadata
+                                         (ordered |> List.map PackageSource.readPackage)
+                                         transitiveDeps
 
                                  // A later body wins a clash (the list is in manifest/decl order).
                                  let byName =
-                                     (Map.empty, collected.Bodies.Values)
+                                     (Map.empty, composed.InlineBodies.Values)
                                      ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
 
                                  let served =
                                      composed.Provider
-                                     |> ExternalSymbolProviders.withInlineBodies (InlineBodies.index collected.Bodies)
+                                     |> ExternalSymbolProviders.withInlineBodies (
+                                         InlineBodies.index composed.InlineBodies
+                                     )
 
                                  {
                                      RuntimeAssets = ReferencedProject.runtimeModules ordered
                                      Provider = served
                                      BodiesByName = byName
-                                     Origins = collected.Origins
+                                     Origins = composed.Origins
                                      Diagnostics = composed.Diagnostics
                                  })
                 )

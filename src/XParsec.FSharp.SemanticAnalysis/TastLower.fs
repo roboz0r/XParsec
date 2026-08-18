@@ -438,12 +438,20 @@ module TastLower =
             | ExprShape.TraitCall -> true
             | _ -> TastAccessor.existsChild hasTraitCall e
 
+        // An inline VALUE whose whole body is one zero-operand template (`jsNative`) is
+        // splice source: every use splices the template, and a definition would evaluate
+        // it at module load.
+        let isBareTemplateValue (e: TastAccessor.ExprId) : bool =
+            match TastAccessor.exprKind e with
+            | ExprShape.ILIntrinsic -> (TastAccessor.exprChildren e).Length = 0
+            | _ -> false
+
         let lowerOne (d: TastAccessor.DeclId) =
             match TastAccessor.declKind d with
             | DeclShape.Let ->
                 let lv = TastAccessor.declLet d
 
-                if not (lv.IsInline && hasTraitCall lv.Value) then
+                if not (lv.IsInline && (hasTraitCall lv.Value || isBareTemplateValue lv.Value)) then
                     result.Add d
             | DeclShape.Expression -> result.Add d
             | DeclShape.Type -> ()

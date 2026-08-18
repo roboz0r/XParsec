@@ -69,14 +69,6 @@ function hashStructural(x) {
   return h;
 }
 
-// JS `/` is total — `1 / 0` is `Infinity`, `Infinity | 0` is `0` — so an unguarded mask
-// would answer 0 where CIL `div` / `rem` fault. It returns the divisor so `($0 / $1) | 0`
-// reads the operand once; `d === 0` also catches `-0`, and `0n` catches int64's `bigint`.
-export const checkedDivisor = (d) => {
-  if (d === 0 || d === 0n) { throw new Error("Attempted to divide by zero."); }
-  return d;
-};
-
 // `src.GetEnumerator()` lowers to `enumeratorOf(src)`. JS's `next()` returns
 // `{ value, done }` — one call for advance AND read — where the cursor splits them into
 // `MoveNext()` / `Current()`, so the result parks in `cur` between the two.

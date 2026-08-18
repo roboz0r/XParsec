@@ -8,9 +8,9 @@ export class TruncateSeq {
   }
   *[Symbol.iterator]() {
     const _s0 = this;
-    const _e151 = new TruncateEnumerator($Vesper_Collections_enumeratorOf(_s0.source), _s0.limit);
-    while (_e151.MoveNext()) {
-      yield _e151.Current();
+    const _e124 = new TruncateEnumerator($Vesper_Collections_enumeratorOf(_s0.source), _s0.limit);
+    while (_e124.MoveNext()) {
+      yield _e124.Current();
     }
   }
 }
@@ -26,7 +26,7 @@ export class TruncateEnumerator {
   }
   MoveNext() {
     const _s3 = this;
-    return (((_s96) => ((_s97) => ((_s96) >= (_s97)))(_s3.limit))(_s3.taken) ? false : (_s3.inner.MoveNext() ? ((_s3.taken = ((_s98) => (((_s98) + (1)) | 0))(_s3.taken)), true) : false));
+    return (((_s82) => ((_s83) => ((_s82) >= (_s83)))(_s3.limit))(_s3.taken) ? false : (_s3.inner.MoveNext() ? ((_s3.taken = ((_s84) => (((_s84) + (1)) | 0))(_s3.taken)), true) : false));
   }
   [Symbol.dispose]() {
     const _s3 = this;
@@ -43,24 +43,24 @@ export const reduce = (reduction, source) => ((acc) => ((seen) => ((() => {
     (acc = (seen ? reduction(acc)(x) : x));
     (seen = true);
   }
-})(), ((!(seen)) ? ((() => { throw new Error(((((((("The input sequence was empty.") + (" (Parameter '"))) + ("source"))) + ("')")))); })()) : undefined), acc))(false))((null));
+})(), ((!(seen)) ? ((() => { throw new Error(("The input sequence was empty.") + " (Parameter '" + ("source") + "')") })()) : undefined), acc))(false))((null));
 export const truncate = (count, source) => new TruncateSeq(source, count);
 export const toArray = (source) => ((buffer) => ((count) => ((() => {
   for (const x of source) {
-    (((_s120) => ((count) === (_s120)))(buffer.length) ? ((grown) => ((() => {
-      const _lim152 = (((count) - (1)) | 0);
-      for (let i = 0; i <= _lim152; i++) {
-        const _s134 = buffer[i];
-        (grown[i] = _s134);
+    (((_s93) => ((count) === (_s93)))(buffer.length) ? ((grown) => ((() => {
+      const _lim125 = (((count) - (1)) | 0);
+      for (let i = 0; i <= _lim125; i++) {
+        const _s107 = buffer[i];
+        (grown[i] = _s107);
       }
-    })(), (buffer = grown)))($Vesper_Collections_ArrayModule_zeroCreate(((_s122) => (Math.imul((_s122), (2))))(buffer.length))) : undefined);
+    })(), (buffer = grown)))($Vesper_Collections_ArrayModule_zeroCreate(((_s95) => (Math.imul((_s95), (2))))(buffer.length))) : undefined);
     (buffer[count] = x);
     (count = (((count) + (1)) | 0));
   }
 })(), ((result) => ((() => {
-  const _lim153 = (((count) - (1)) | 0);
-  for (let i = 0; i <= _lim153; i++) {
-    const _s150 = buffer[i];
-    (result[i] = _s150);
+  const _lim126 = (((count) - (1)) | 0);
+  for (let i = 0; i <= _lim126; i++) {
+    const _s123 = buffer[i];
+    (result[i] = _s123);
   }
 })(), result))($Vesper_Collections_ArrayModule_zeroCreate(count))))(0))($Vesper_Collections_ArrayModule_zeroCreate(4));

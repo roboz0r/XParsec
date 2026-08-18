@@ -11,26 +11,18 @@ module PackageProviders =
 
     /// One built package. `DeclaredTypeNames` are the qualified compiled names of the NOMINAL
     /// types it OWNS: those that would first-hit-shadow a peer package's same-named type.
+    /// `InlineBodies` are its splice templates in manifest/decl order, anchored in the
+    /// producer files `Origins` retains.
+    [<NoEquality; NoComparison>]
     type BuiltPackage =
         {
             Provider: IExternalSymbolProvider
             Diagnostics: AssemblyFiles.AnchoredDiagnostic list
             HomeAssembly: string
             DeclaredTypeNames: string list
+            InlineBodies: InlineBodies.FileInlineBodies
+            Origins: OriginSources
         }
-
-    /// Short name ⇒ intrinsic repr, read off the signature file's PAIRED implementation
-    /// (`type exn = (# "System.Exception" #)`), so `type exn = extern` picks `Repr` over
-    /// `Unsupported`. A signature this target ships no implementation for stays unsupported.
-    let private companionReprs (entry: PackageSource.SignatureEntry) : Dictionary<string, string> =
-        let reprs = Dictionary<string, string>(System.StringComparer.Ordinal)
-
-        match entry.Companion with
-        | ValueSome { Outcome = Ok implementation } ->
-            IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn implementation.Lexed) implementation.File
-        | _ -> ()
-
-        reprs
 
     /// The nominal types a surface declares, for the composition-time duplicate sweep. Every
     /// package's `int` is THE `int`, so intrinsics and capability interfaces repeat
@@ -49,68 +41,97 @@ module PackageProviders =
                 | ExternalTypeShape.IntrinsicInterface _ -> ()
         ]
 
-    /// The language prelude as a SOURCE: it resolves nothing, and publishes the prefixes every
-    /// signature file is written against, so a `.fsi` in `namespace Vesper.Collections` writes
-    /// `unit` exactly as a consumer of the package would. Fixed, not manifest-declared.
-    let private prelude =
-        ExternalSymbolProviders.stack ValueNone RuntimeNames.preludeNamespaces []
+    /// Analyse+freeze one package implementation file. A freeze fault here is an internal
+    /// error, rethrown naming the package and file with the analysis errors the freeze pruned,
+    /// because those are usually its cause.
+    let private analysePackageFile: AssemblyFiles.AnalyseFile =
+        fun assembly provider origin file ->
+            let ctx, sem = Pipeline.analyseSemWithContextFor assembly provider origin file
 
-    /// What a path the read could not deliver reads as, anchored. The parser's own findings
-    /// carry positions in the text; the rest have no place in any file to point at.
-    let private faultDiagnostics
-        (packageName: string)
-        (file: PackageSource.ReadFile<'Tree>)
-        (fault: PackageSource.FileFault)
-        : AssemblyFiles.AnchoredDiagnostic list =
-        let failure = PackageSource.FileFault.toFailure packageName file.Relative fault
+            try
+                Freeze.run ctx sem
+            with e ->
+                let pruned =
+                    match sem.Diagnostics |> Diagnostic.errors with
+                    | [] -> " (none, so the fault is in the freeze itself)"
+                    | errors -> errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
 
-        match failure.Lexed with
-        | ValueSome lexed ->
-            AssemblyFiles.anchorDiagnostics (AssemblyFiles.fileSource packageName file.Id lexed) failure.Diagnostics
-        | ValueNone -> AssemblyFiles.unpositionedDiagnostics file.Id failure.Diagnostics
+                failwithf
+                    "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
+                    assembly.Name
+                    origin.File.Path.Relative.Name
+                    e.Message
+                    pruned
 
-    /// Resolve each signature file in `files` order against `dependencies` plus the package's
-    /// OWN earlier files, nearest first, which is the fold an assembly's units go through. A file
+    /// Fold the package's units in manifest order against its dependency providers, nearest
+    /// first — the same fold an assembly's units go through. Every `.fsi` publishes its
+    /// declarations, a `.fs` without one publishes the surface its analysis infers, and a file
     /// the read could not deliver yields a diagnostic and contributes nothing.
-    let buildProviderWith (dependencies: IExternalSymbolProvider) (pkg: PackageSource.ParsedPackage) : BuiltPackage =
+    /// `platformMetadata` seeds the signatures with the dependencies' intrinsic axis and each
+    /// BODY with the axis published before it as well, the way its own compile presents its
+    /// primitives to itself.
+    let buildProviderSeeded
+        (platformMetadata: IntrinsicTypeMap -> IExternalSymbolProvider list)
+        (depProviders: IExternalSymbolProvider list)
+        (pkg: PackageSource.ParsedPackage)
+        : BuiltPackage =
         let manifest = pkg.Manifest
-        let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
 
-        // The package's own files, NEAREST first: what it publishes, and the top of the
-        // visibility stack each later file resolves through, over the dependencies.
-        let mutable own: IExternalSymbolProvider list = []
-        let surfaces = ResizeArray<PublishedSurface>()
+        let depIntrinsics = ExternalSymbolProviders.mergeIntrinsics depProviders
 
-        for entry in pkg.Signatures do
-            match entry.Signature.Outcome with
-            | Error fault -> diagnostics.AddRange(faultDiagnostics manifest.Name entry.Signature fault)
-            | Ok parsed ->
-                let source = AssemblyFiles.fileSource manifest.Name entry.Signature.Id parsed.Lexed
-
-                let surface, resolutionDiagnostics =
-                    SignatureResolution.resolveFile
-                        (ExternalSymbolProviders.composite (own @ [ dependencies; prelude ]))
-                        source
-                        {
-                            Assembly = manifest.Name
-                            Target = manifest.Target
-                            Reprs = companionReprs entry
-                        }
-                        parsed.File
-
-                surfaces.Add surface
-                own <- PublishedSurface.toProvider surface :: own
-
-                diagnostics.AddRange(
-                    AssemblyFiles.anchorDiagnostics source (parsed.Diagnostics @ resolutionDiagnostics)
+        let bodyExternal (ownIntrinsics: IntrinsicTypeMap) =
+            ExternalSymbolProviders.composite (
+                depProviders
+                @ platformMetadata (
+                    IntrinsicTypeMap.ofSeq (
+                        Seq.append (IntrinsicTypeMap.entries depIntrinsics) (IntrinsicTypeMap.entries ownIntrinsics)
+                    )
                 )
+            )
 
-        // An implementation file's fault, reported from the list that NAMES it: off the pairing
-        // a companion's would appear twice, and one with no signature file not at all.
-        for entry in pkg.Implementations do
-            match entry.Implementation.Outcome with
-            | Error fault -> diagnostics.AddRange(faultDiagnostics manifest.Name entry.Implementation fault)
-            | Ok _ -> ()
+        let folded =
+            AssemblyFiles.foldUnits
+                analysePackageFile
+                {
+                    Name = manifest.Name
+                    Target = manifest.Target
+                }
+                (ExternalSymbolProviders.composite (depProviders @ platformMetadata depIntrinsics))
+                (AssemblyFiles.Publication.AcrossAssemblies bodyExternal)
+                pkg.Units
+
+        let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
+        let surfaces = ResizeArray<PublishedSurface>()
+        let published = ResizeArray<IExternalSymbolProvider>()
+        let analysed = ResizeArray<AssemblyFiles.AnalysedUnit>()
+
+        for unit in folded do
+            match unit with
+            | AssemblyFiles.FoldedUnit.Failed faults ->
+                for fault in faults do
+                    diagnostics.AddRange(AssemblyFiles.failureDiagnostics fault)
+            | AssemblyFiles.FoldedUnit.SignatureOnly r ->
+                surfaces.Add r.Surface
+                published.Add r.Published
+                diagnostics.AddRange(AssemblyFiles.anchorDiagnostics r.Source (r.ParseDiagnostics @ r.Diagnostics))
+            | AssemblyFiles.FoldedUnit.Analysed u ->
+                surfaces.Add u.Surface
+                published.Add u.Published
+                analysed.Add u
+
+                match u.File.Signature with
+                | ValueSome s ->
+                    diagnostics.AddRange(AssemblyFiles.anchorDiagnostics s.Source (s.ParseDiagnostics @ s.Diagnostics))
+                | ValueNone ->
+                    // The unit's inferred surface IS its contract, so its analysis errors are
+                    // findings about what this package publishes. A unit with a `.fsi` keeps
+                    // today's tolerance: its analysis feeds splice templates alone.
+                    diagnostics.AddRange(
+                        AssemblyFiles.anchorDiagnostics
+                            u.File.Source
+                            (u.File.ParseDiagnostics @ u.File.Frozen.Residue.Diagnostics)
+                        |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error)
+                    )
 
         // What a consumer resolves through: this package's `[<AutoOpen>]` modules (most
         // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude.
@@ -121,6 +142,9 @@ module PackageProviders =
             ]
             |> List.distinct
             |> (fun prefixes -> prefixes @ RuntimeNames.preludeNamespaces)
+
+        // The units' published views, NEAREST first, as the fold stacked them.
+        let own = List.rev (List.ofSeq published)
 
         {
             // Every resolved descriptor carries the package as its home: the surfaces record
@@ -133,7 +157,14 @@ module PackageProviders =
             Diagnostics = List.ofSeq diagnostics
             HomeAssembly = manifest.Name
             DeclaredTypeNames = surfaces |> Seq.collect declaredTypeNames |> List.ofSeq |> List.distinct
+            InlineBodies = InlineBodies.concat [ for u in analysed -> u.Bodies ]
+            Origins = OriginSources.ofSeq [ for u in analysed -> u.File.Source ]
         }
+
+    /// `buildProviderSeeded` with no platform metadata, over one already-composed dependency
+    /// provider.
+    let buildProviderWith (dependencies: IExternalSymbolProvider) (pkg: PackageSource.ParsedPackage) : BuiltPackage =
+        buildProviderSeeded (fun _ -> []) [ dependencies ] pkg
 
     /// Stand up a referenced project in isolation: nothing in scope but the package's own
     /// files. For a package with no `depends-on`.
@@ -159,10 +190,17 @@ module PackageProviders =
 
     /// One package set composed: the provider a consumer resolves through, and everything
     /// resolving the contracts found.
+    [<NoEquality; NoComparison>]
     type ComposedContract =
         {
             Provider: IExternalSymbolProvider
             Diagnostics: AssemblyFiles.AnchoredDiagnostic list
+            /// Every package's splice templates, package then declaration order, so a later
+            /// body wins a clash.
+            InlineBodies: InlineBodies.FileInlineBodies
+            /// The producer files the templates were unpooled from, retained so their anchors
+            /// stay readable.
+            Origins: OriginSources
         }
 
     /// Compose layer-1 providers in dependency (topological) order ahead of `platformMetadata`.
@@ -175,7 +213,7 @@ module PackageProviders =
         : ComposedContract =
         // `byPath` indexes each built provider by its manifest, so a package's dependency
         // providers resolve in O(closure).
-        let built = ResizeArray<IExternalSymbolProvider>()
+        let builtPackages = ResizeArray<BuiltPackage>()
         let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
 
         let byPath =
@@ -197,15 +235,10 @@ module PackageProviders =
                     | _ -> None
                 )
 
-            // Seeded with the axis of the deps built so far, so a dependency's BCL member
-            // sigs canonicalize while this package resolves.
-            let depComposite =
-                ExternalSymbolProviders.composite (
-                    depProviders
-                    @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics depProviders)
-                )
-
-            let bp = buildProviderWith depComposite pkg
+            // The signatures resolve seeded with the deps' intrinsic axis, so a dependency's
+            // BCL member sigs canonicalize while this package resolves; the bodies re-seed
+            // with the package's own axis as well.
+            let bp = buildProviderSeeded platformMetadata depProviders pkg
             diagnostics.AddRange bp.Diagnostics
 
             for typeName in bp.DeclaredTypeNames do
@@ -218,12 +251,12 @@ module PackageProviders =
                     )
                 | false, _ -> seenTypeHomes.[typeName] <- bp.HomeAssembly
 
-            built.Add bp.Provider
+            builtPackages.Add bp
             byPath.[manifest.Path] <- bp.Provider
 
         // The final composite's platform metadata IS seeded with the full resolved axis, so a
         // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
-        let builtList = List.ofSeq built
+        let builtList = [ for bp in builtPackages -> bp.Provider ]
 
         {
             Provider =
@@ -231,6 +264,10 @@ module PackageProviders =
                     builtList @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics builtList)
                 )
             Diagnostics = List.ofSeq diagnostics
+            InlineBodies = InlineBodies.concat [ for bp in builtPackages -> bp.InlineBodies ]
+            Origins =
+                (OriginSources.empty, builtPackages)
+                ||> Seq.fold (fun acc bp -> OriginSources.addAll bp.Origins acc)
         }
 
     /// A whole-set fault, raised before the set got as far as having a package or a file.
@@ -238,6 +275,8 @@ module PackageProviders =
         {
             Provider = ExternalSymbolProviders.nullProvider
             Diagnostics = AssemblyFiles.setFaultDiagnostics fault
+            InlineBodies = InlineBodies.empty
+            Origins = OriginSources.empty
         }
 
     /// `composeOrdered` over a raw, unordered manifest set: the ordering is taken here and not

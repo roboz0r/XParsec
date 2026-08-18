@@ -90,9 +90,10 @@ module Operators =
         (# "(() => { throw new Error($0); })()" message : 'T #)
 
     /// `exn` erases to a JS `Error`, so the name survives only in the message text —
-    /// worded as the BCL's `ArgumentException` words it.
+    /// worded as the BCL's `ArgumentException` words it. The concatenation is JS `+`:
+    /// the SRTP `(+)` lives in a sibling module, out of scope inside this file.
     let inline invalidArg (argumentName: string) (message: string) : 'T =
-        failwith (message + " (Parameter '" + argumentName + "')")
+        (# "(() => { throw new Error($1 + \" (Parameter '\" + $0 + \"')\") })()" argumentName message : 'T #)
 
 [<AutoOpen>]
 module IndexIntrinsics =

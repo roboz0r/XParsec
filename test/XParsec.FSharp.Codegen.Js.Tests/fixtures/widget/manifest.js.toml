@@ -30,5 +30,6 @@ depends-on = ["../../../../src/Vesper.Core"]
 files = [
     "widget.fsi",
     "widget.js.fs",
+    "gadget.js.fsi",
     "gadget.js.fs",
 ]

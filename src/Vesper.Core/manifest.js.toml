@@ -11,6 +11,10 @@ description = "Minimal language fundamentals: the primitive types, Fun, Ref, cap
 # program writing one is rejected as unsupported on the target. And `fun-adapters` is CLR-only:
 # JS applies function values directly.
 files = [
+    # `jsNative` and `checkedDivisor` lead: the primitive `.fs` bodies below splice
+    # `checkedDivisor` into their `/` and `%` templates, and it references no type at all.
+    "js-interop.js.fsi",
+    "js-interop.js.fs",
     "prim-types-min.fsi",
     "prim-types-min.js.fs",
     "capabilities.fsi",
@@ -41,6 +45,10 @@ files = [
     "core-types.fs",
     "structural-format.fsi",
     "structural-format.fs",
+    # `structuralEquals` / `structuralHash` — `[<Import>]`-attributed bindings served by
+    # `Vesper.Core.mjs`. Before `ops-platform`, whose `=` / `hash` bodies splice them.
+    "ops-platform-runtime.js.fsi",
+    "ops-platform-runtime.js.fs",
     "ops-platform.fsi",
     "ops-platform.js.fs",
     "ops-std.fsi",
@@ -52,10 +60,6 @@ files = [
     # registry.
     "capabilities-compat.js.fsi",
     "capabilities-compat.js.fs",
-    # `structuralEquals` / `structuralHash` / `checkedDivisor` — the JS runtime entries;
-    # `[<Import>]`-attributed bindings served by `Vesper.Core.mjs`, plus `jsNative`.
-    "ops-platform-runtime.js.fsi",
-    "ops-platform-runtime.js.fs",
     # `null` needs no counterpart entry — it is a reserved keyword, already distinct.
     "prim-types-undefined.js.fsi",
     "prim-types-undefined.js.fs",
@@ -74,6 +78,6 @@ files = [
 
 # The package's committed JS output, behind the generated `Vesper.Core/index.mjs` barrel.
 # `Vesper.Core.mjs` leads and is hand-authored, so it is also the RUNTIME ENTRY a synthesised
-# import resolves to: `structuralEquals` / `structuralHash` / `checkedDivisor` / `enumeratorOf`.
+# import resolves to: `structuralEquals` / `structuralHash` / `enumeratorOf`.
 # `exceptions.mjs` is GENERATED from `exceptions.js.fs`, regenerable via the codegen-js suite.
 runtime = ["Vesper.Core.mjs", "exceptions.mjs"]

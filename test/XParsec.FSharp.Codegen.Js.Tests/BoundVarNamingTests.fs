@@ -35,9 +35,10 @@ let tests =
             // token spells the CALL, while the bound variable is minted and never written.
             test "an expanded body's bound variable is named after its slot, not the call site" {
                 // `int (…)` expands a conversion whose lambda parameter is minted, onto the
-                // `int` call site; the lambda survives only over the division, whose operand
-                // cannot be duplicated. `emitFrozenJs` is the path `checkedDivisor` resolves on.
-                let src = "printfn \"%d\" (int (200uy / 3uy))"
+                // `int` call site; the lambda survives only over the `structuralHash` call,
+                // whose operand cannot be duplicated. `emitFrozenJs` is the path the runtime
+                // import resolves on.
+                let src = "printfn \"%d\" (int (structuralHash 3uy))"
                 let js = emitFrozenJs "Conv" src (frozenOf src)
 
                 Expect.isFalse

@@ -30,10 +30,10 @@ module FrozenSignature =
             (fun _ -> TastPoolBuilder.mintBoundVar pats)
             vr
 
-    /// Project a frozen implementation file's INTERNAL-or-better signature to a provider
-    /// view. `producer` is the file `frozen` was analysed FROM: every anchor in every
+    /// Project a frozen implementation file's INTERNAL-or-better signature to the surface it
+    /// publishes. `producer` is the file `frozen` was analysed FROM: every anchor in every
     /// published `ValRepr` indexes that file's `Lexed`.
-    let toSignatures (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
+    let toSurface (producer: OriginSource) (frozen: FrozenPools) : PublishedSurface =
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
                 Home = Origin.InFile producer.File.Path
@@ -378,4 +378,8 @@ module FrozenSignature =
 
         // A frozen impl file publishes no `[<AutoOpen>]` surface: a later file in the SAME
         // namespace reaches these types through its own header, not here.
-        PublishedSurface.toProvider (PublishedSurface.ofBuilder surface)
+        PublishedSurface.ofBuilder surface
+
+    /// `toSurface` as a provider view.
+    let toSignatures (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
+        PublishedSurface.toProvider (toSurface producer frozen)

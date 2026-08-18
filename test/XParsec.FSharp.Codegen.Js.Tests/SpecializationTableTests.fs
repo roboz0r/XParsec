@@ -152,6 +152,7 @@ let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
             """[core]
 name = "Cycle.Member"
 description = "A member inline body that reaches itself, for the back edge's arity."
+depends-on = ["../../src/Vesper.Core"]
 files = ["bounce.fsi", "bounce.fs", "array-cycle.js.fs"]
 """
 

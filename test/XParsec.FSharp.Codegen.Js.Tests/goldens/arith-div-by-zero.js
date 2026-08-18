@@ -1,2 +1,1 @@
-import { checkedDivisor as $Vesper_ArithmeticRuntime_checkedDivisor } from "./Vesper.Core/index.mjs";
-console.log((((1) / ($Vesper_ArithmeticRuntime_checkedDivisor(0))) | 0));
+console.log((((1) / ((((d) => (d === 0 || d === 0n) ? (() => { throw new Error('Attempted to divide by zero.') })() : d)((0))))) | 0));

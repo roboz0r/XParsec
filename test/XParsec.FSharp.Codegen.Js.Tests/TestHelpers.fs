@@ -103,8 +103,10 @@ let expectMemberKeyHalvesAgree
         |> List.map (ReferencedProject.loadManifest >> PackageFaults.okOrFail "loadManifest")
 
     let implBodies =
-        (SymbolProviders.inlineBodies Target.Js contract.Provider (List.map PackageSource.readPackage manifests))
-            .Bodies.Members
+        manifests
+        |> List.collect (fun m ->
+            (PackageProviders.buildProviderWith contract.Provider (PackageSource.readPackage m)).InlineBodies.Members
+        )
 
     for memberName in members do
         let contractKey =

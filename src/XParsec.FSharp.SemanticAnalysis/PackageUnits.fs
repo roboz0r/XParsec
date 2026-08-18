@@ -8,6 +8,7 @@ module PackageUnits =
     /// Every implementation file as a compilation unit, in manifest order, under the signature
     /// file the package paired it with. One with no signature file publishes the surface it
     /// infers; one whose EITHER half arrived without a tree is `Error`, never a smaller unit.
+    /// Blind to an unpaired signature file, which the conformance gate separately refuses.
     let ofPackage
         (pkg: PackageSource.ParsedPackage)
         : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
@@ -22,31 +23,36 @@ module PackageUnits =
         let half (file: PackageSource.ReadFile<'Tree>) (parsed: 'Tree) : AssemblyFiles.ParsedHalf<'Tree> =
             { Id = file.Id; Parsed = parsed }
 
-        [
-            for entry in pkg.Implementations do
-                match entry.Implementation.Outcome with
-                | Error fault -> yield Error(unread entry.Implementation fault)
-                | Ok parsedImplementation ->
-                    let implementation = half entry.Implementation parsedImplementation
+        let ofSource
+            (source: PackageSource.ParsedSource)
+            : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> =
+            match source.Implementation.Outcome with
+            | Error fault -> Error(unread source.Implementation fault)
+            | Ok parsedImplementation ->
+                let implementation = half source.Implementation parsedImplementation
 
-                    match entry.Companion with
-                    | ValueNone ->
-                        yield
-                            Ok
-                                {
-                                    Implementation = implementation
-                                    Signature = ValueNone
-                                }
-                    | ValueSome companion ->
-                        match companion.Outcome with
-                        | Ok parsedSignature ->
-                            yield
-                                Ok
-                                    {
-                                        Implementation = implementation
-                                        Signature = ValueSome(half companion parsedSignature)
-                                    }
-                        | Error fault -> yield Error(unread companion fault)
+                match source.Signature with
+                | ValueNone ->
+                    Ok
+                        {
+                            Implementation = implementation
+                            Signature = ValueNone
+                        }
+                | ValueSome signature ->
+                    match signature.Outcome with
+                    | Ok parsedSignature ->
+                        Ok
+                            {
+                                Implementation = implementation
+                                Signature = ValueSome(half signature parsedSignature)
+                            }
+                    | Error fault -> Error(unread signature fault)
+
+        [
+            for unit in pkg.Units do
+                match unit with
+                | PackageSource.PackageUnit.Source source -> ofSource source
+                | PackageSource.PackageUnit.UnpairedSignature _ -> ()
         ]
 
     /// `ofPackage` for a caller holding only the path: it reads the package itself. Whether the

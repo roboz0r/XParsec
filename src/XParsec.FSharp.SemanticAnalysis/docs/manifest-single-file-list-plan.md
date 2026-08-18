@@ -4,7 +4,7 @@
 dataflow" encoded by ONE function every interested caller uses. Delete this doc when step 4
 lands (`feedback_plan_docs_ephemeral`).
 
-**Status (2026-08-17): step 1 LANDED**, including its ride-alongs; steps 2–4 remain. Absorbs
+**Status (2026-08-18): steps 1–3 LANDED**, including step 1's ride-alongs; step 4 remains. Absorbs
 the remnants of `package-parse-once-plan.md`, which is deleted — its account of the remaining
 seam was misdiagnosed, see §"What this closes".
 
@@ -175,7 +175,14 @@ collapses this plan's step 2 and simplifies its merge rule:
   companion-less entries positioned off `files`. The merged list is a mechanical interleave
   with no exceptions.
 
-## Step 2: one unit type — REFINED (user, 2026-08-17)
+## Step 2: one unit type — DONE (2026-08-18)
+
+**Landed as specified below, one refinement:** `readPackage` reads the pairing off list
+ADJACENCY (a `.fsi` pairs with the next entry exactly when their keys agree), which the
+parse-enforced shape makes equivalent to key pairing; the two `Dictionary` fill loops are gone
+with the split lists. `companionReprs` takes the implementation half directly
+(`ReadFile<ParsedFile> voption`), and `PackageUnits.ofPackage` is `ofSource` mapped over the
+`Source` cases.
 
 `readPackage` already computes the pairing and then splits it into two lists whose element
 types each make one half mandatory. Emit the pairing itself. The original three-case DU is
@@ -275,7 +282,59 @@ alternatives to it.
   cosmetic: a broken impl currently contributes no bodies SILENTLY; once surfaces flow from
   the same analysis, its errors must surface.
 
-## Step 3: one fold
+## Step 3: one fold — DONE (2026-08-18), strict nearest-first on BOTH arms
+
+**Landed as `AssemblyFiles.foldUnits`,** with `Publication` as sketched below and the `.fs`-
+without-`.fsi` publishing change riding along. `buildProviderWith` (now over
+`buildProviderSeeded`, which takes the platform-metadata factory and the dep provider list)
+and `analyseParsedWith` are both call sites; the `analyse: AnalyseFile` seam SURVIVES as the
+fold's parameter (the bench probes wrap it), with the referencing arm's instance
+(`PackageProviders.analysePackageFile`) carrying the freeze-crash context message.
+`BuiltPackage` and `ComposedContract` carry `InlineBodies` + `Origins`, `buildContractWith`
+consumes them, and `SymbolProviders.inlineBodies` is DELETED — one analysis per impl. The
+prelude is settled at the fold's visibility floor for BOTH arms. Analysis-behaviour change,
+so `Cache.CodeVersion` 33→35 (34 was an intermediate two-round shape, retracted).
+
+**Both arms are strict manifest order (user, 2026-08-18): there are no distinct compiling
+and referencing semantics, and no cross-file forward reference resolves.** An earlier
+landing read the referencing arm in two rounds (all signatures, then every body against the
+whole boundary), justified by cycles in the corpus; the cycles were the defect, and the
+corpus is restated instead:
+
+- `Vesper.Core` (js): `jsNative` + `checkedDivisor` hoisted into a new leading unit
+  `js-interop.js.fsi/.js.fs`. `checkedDivisor` is an INLINE `(# … #)` guard now (its arrow
+  binds the divisor once), not an `[<Import>]` binding — the file precedes
+  `compiler-attributes.fsi`, ahead of which no attribute resolves as a compiler marker. Its
+  `Vesper.Core.mjs` export is deleted. `ops-platform-runtime` (now `StructuralRuntime`
+  alone) moves ahead of `ops-platform`, whose `=` / `hash` bodies splice it.
+- `Vesper.Comparison` (js): `comparison-runtime` moves ahead of `comparison`.
+- `ops-platform.js.fs`'s `invalidArg` concatenates in raw JS: its old body used the SRTP
+  `(+)` of a SIBLING module in the same file, which in-file resolution does not reach — the
+  whole-boundary read had been masking that front-end gap.
+
+Within a unit, the `.fsi` resolves first (against prior units only) and is pushed AFTER the
+body analyses, so neither half sees the other's names; the body's `bodyExternal` platform
+metadata is seeded with the axis published so far PLUS the unit's own intrinsics — the
+file's in-file knowledge, which BCL member canonicalisation (`String.Concat` →
+`string * string`) reads.
+
+**Fallout found fixing the fold:** `TastLower.lower` also drops an inline VALUE whose whole
+body is one zero-operand template (`jsNative`) — every use splices it, and a definition
+evaluates the throw at module load. The arith byte-identity goldens and the committed
+`Vesper.Seq.mjs` regenerated (divisions carry the inline guard; no `checkedDivisor` import).
+Two latent defects surfaced, still open: an `[<Import>]` binding's declaring module still
+emits it as a jsNative-throwing function (consumers are unaffected — they import from the
+runtime asset), and `JsDriver.materialise`'s barrel is overwritten by the contract's
+ASSET barrel whenever a module imports a runtime asset of its own package, which is the only
+reason the Vesper.Core package-build test tolerated those emissions.
+
+**Behaviour-change fallout, as enumerated:** the widget fixture is restated (`gadget`'s
+declarations moved to a new `gadget.js.fsi`); `structural-printer.js.fs` publishes (the
+`EmitJsContext.printfRuntimeRef` hardcode is now deletable but still standing — it needs an
+emit-time provider lookup, a separate change); a `.fs`-without-`-fsi` unit's analysis ERRORS
+surface in `BuiltPackage.Diagnostics` (its inferred surface IS its contract), while a paired
+impl keeps today's tolerance, so A2's paired half stays open. The `Cycle.Member` test fixture
+gained the `depends-on` it silently leaned on the whole-set composite for.
 
 In `AssemblyFiles`, over `PackageUnit list`, with the discriminator that made the four rows one:
 
@@ -327,6 +386,42 @@ loop.
   that is true of `PackageSet` faults and false of the positioned signature-resolution errors
   the gate also passes. Widen the single-file entry's error channel, or fold `path:line` into
   the rendered message.
+
+**Added by the post-step-3 review (2026-08-18)**, since step 4 is already rewriting the fold
+and its callers:
+
+- **`foldUnits`' two `Publication` arms are one fold written twice.** The signature floor is
+  identical between them (`own-nearest-first @ [external; prelude]`); the real axis is two
+  seams — what a BODY analyses over, and how a unit's published surface is homed/wrapped
+  before it is pushed. The `AcrossAssemblies` arm re-implements `analyseUnit` inline (the
+  surface/published/signatureFile triple, the `withInlineBodies` wrap, the `AnalysedUnit`
+  construction), which is exactly the drift the plan set out to kill. Have `Publication`
+  project those two seams and collapse the arms into one loop over `classified`; `analyseUnit`
+  absorbs the seams or dissolves into it. The `InAssembly` `Unpaired` branch, dead today
+  (`analyseParsedWith` never produces one), stops being duplicated dead code.
+- **The merge must settle what `Published` IS.** Today `InAssembly` pushes the full view —
+  inline bodies indexed, homed `Origin.InFile` — so `AnalysedUnit.Published` aliases
+  `File.View`; `AcrossAssemblies` pushes the bare `PublishedSurface.toProvider surface`. One
+  field, two contracts, and `buildProviderSeeded` reads it as the package's outward provider
+  while the doc describes only its intra-fold role.
+- **`analyseParsedWith` widens to re-narrow.** It fabricates `PackageSource.ReadFile` values
+  (`Relative = Id.Name`, `Outcome = Ok …`; a pre-failed unit wrapped as
+  `FileFault.Unparsed` only for `classify` to route it back through `toFailure`) and guards
+  the output with an impossible-shape `failwith`, while `Failed(e :: _) → Error e` truncates
+  a fault list. Make `ClassifiedUnit` (renamed as needed) the fold's INPUT, with the
+  `PackageUnit list → ClassifiedUnit list` classification exposed beside it; the
+  Result-shaped caller then maps `Ok u → Parsed u | Error e → Faulted [e]` 1:1 and the fake
+  reads, the round-trip, and the truncation all delete.
+- **`PackageUnits.ofSource` duplicates `classify`'s `Source` arm with a DIVERGENT fault
+  policy**: `ofSource` reports only the implementation's fault when both halves failed, where
+  `classify` carries both with the implementation leading. `PackageUnits` survives only for
+  the CLR test helpers and ConformanceTests; once the fold takes classified units,
+  `ofPackage` is the classification plus a trivial projection, and the divergent copy
+  deletes.
+- **The `.fs`-without-`.fsi` error-only filter** in `buildProviderSeeded` (anchored
+  diagnostics filtered to `Severity.Error`) is a per-unit diagnostics policy expressed in a
+  consumer loop. When the arms unify, make which diagnostics a unit surfaces part of the
+  fold's output contract instead.
 
 **Exit:** the dataflow in [fsi-front-end-plan](fsi-front-end-plan.md) §"Expected dataflow" is
 one function, and `a.fsi, a.fs, b.fs, c.fsi, c.fs` is a list you can write in a manifest.
