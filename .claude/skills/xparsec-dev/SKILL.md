@@ -105,6 +105,11 @@ Runs BenchmarkDotNet against `bench/XParsec.FSharp.Benchmarks`. A `-Filter` is *
 
 **Available benchmark names:** `EndToEndBenchmarks`, `LexingBenchmarks`, `ParsingBenchmarks`.
 
+The BDN job defaults to `Default`, because a Short run's variance is wider than the effect size
+of most changes measured here. `-Job Short` is available for a smoke run whose numbers will not
+be compared, and `-Job Long` for a final measurement; `Dry` and `Medium` are also accepted.
+Compare only runs that used the same job.
+
 By default the fast in-process toolchain (`-i`) is used. To capture a profile, pass `-Profiler` with one of:
 - `EP` — EventPipe sampling (cross-platform)
 - `ETW` — Windows-only event tracing
@@ -113,7 +118,7 @@ By default the fast in-process toolchain (`-i`) is used. To capture a profile, p
 ./claude_tools.cmd -Action Benchmark -Filter "LexingBenchmarks" -Profiler EP
 ```
 
-When a profiler is set, BDN runs out-of-process (drops `-i`) and writes `.speedscope.json` traces alongside the report. Profiling has extra restore prerequisites (BDN >= 0.15.x, FSharp.Core centrally pinned) — see the `reference_bdn_profiler_eventpipe` memory before running with `-Profiler`.
+When a profiler is set, BDN runs out-of-process (drops `-i`) and writes `.speedscope.json` traces alongside the report. Profiling needs the central `FSharp.Core` pin raised for the session, and an EP trace carries no per-frame self time. Read the `perf-tuning` skill before running with `-Profiler`, and before proposing any optimisation from what a profile shows.
 
 ### 5. Fable-building the TS Extractor (`-Action Fable`)
 
@@ -142,3 +147,25 @@ Every time you run `claude_tools.cmd`, the **complete, unfiltered output** of th
 - To save your context window, the terminal output is filtered/truncated (test output to the last `-SummaryLines` lines, build output to errors + summary).
 - If tests fail or code fails to compile and the truncation hides the actual stack trace or compiler error, **DO NOT run the command again.**
 - Instead, immediately use your native `Read` tool to open `claude_tools_output.log` to investigate the failure.
+
+## Known failures that are not your change
+
+**`FSC : error FS0229: ... not a PE file - bad magic PE number 0x00000000`**, with its FS3160
+companion, naming an `obj/<cfg>/<tfm>/ref/*.dll`. MSBuild has transiently written a 0-byte
+reference assembly. Re-run `-Action Build` and carry on. Do not `Remove-Item` the dll, and do
+not report it as an anomaly worth investigating.
+
+**A library fix that appears to have no effect.** `-Filter` runs `dotnet run --no-build`, and
+`Build -SourceProject <lib>` does not relink the library into the test project's `bin`, so the
+run executed the stale test assembly against the old library. Verify a library edit with a
+no-filter `Test` run, which does a full build and relink. See `test/CLAUDE.md`.
+
+**No output from a library `eprintfn`.** The test host captures it. Append to a file under
+`./tmp/` instead.
+
+## `dotnet fsi` is the sanctioned exception
+
+The no-raw-`dotnet` rule targets Build and Test. `dotnet fsi --nologo ./tmp/probe.fsx` is the
+oracle for F# semantics and diagnostics, and probing it beats reasoning about what F# accepts.
+Keep one case per file under repo-root `./tmp/`, use absolute paths (a `cd` in one Bash call
+does not reliably persist to the next), and clean up afterwards.

@@ -56,7 +56,7 @@ Two rules follow:
   percentile by lines touched. Correlational, n=5, and large commits contain more comments to
   begin with — but the cost of re-reading before you write is one grep.
 - **When you rename or migrate a type, grep the old name in comments as part of that change.**
-  A migration rewrites many declarations and touches no comment, so every doc naming the old
+  A migration rewrites many declarations and touches no comment, so every doc citing the old
   type keeps compiling and keeps reading plausibly. This is the cheapest moment to fix it —
   you have the mapping in your head and nobody later will have both names.
 
@@ -65,18 +65,22 @@ Two rules follow:
 All three are cheap to avoid at writing time and expensive to undo; the evidence, the word
 list and the grep signatures are in `taxonomy.md` (H17–H19).
 
-- **Do not negate the object.** "names no type", "resolves to no class", "maps to no slot"
-  put the negation in the middle, so the reader parses grammar before concept — and one
-  phrase ends up standing for three different verdicts. Negate the verb: *does not resolve to
-  a type*. Then check WHICH is true — nothing was looked up (**has no**), the lookup missed
-  (**does not resolve to**), or it hit the wrong kind (**is neither … nor …**). Picking the
-  right one is where the false comments surface.
+- **Do not negate the object.** "names no type", "resolves to no class", "maps to no slot",
+  and the plain transitive "resolves no values" all quantify over an abstract set that exists
+  only to be emptied — "no \<object\>" meaning *not in the abstract set of those objects* is
+  always poor English. Assert positively first (CLAUDE.md's exclusion-framing rule); where
+  the fact is a genuine miss, negate the verb: *does not resolve to a type*. Then check WHICH
+  verdict is true — nothing was looked up (**has no**), the lookup missed (**does not resolve
+  to**), or it hit the wrong kind (**is neither … nor …**). Picking the right one is where
+  the false comments surface.
 - **Do not reach for a metaphor when the codebase has a term.** `holder`, `spine`, `drain`,
   `face` and `harvest` each accreted several unrelated concepts. So did `head`, `binder` and
   `receiver`, which are worse, because they are real terms of art borrowed for their
   approximate meaning: a reader who knows the term is misled rather than merely uninformed.
   Reuse the word this codebase already uses for THIS concept. If there is no such word, the
   concept is not modelled — a type candidate, the same verdict the 3-line ceiling produces.
+  `vocabulary.md` beside this file has every retired word, the senses it was covering and the
+  replacement for each. Consult it before naming something, not only when triaging a hit.
 - **Do not hedge a relation the code determines.** An em-dash standing in for *because*, *so*,
   *but* or *namely* is a fact you had and did not hand over: code is deterministic, so the
   relation between two facts about it is itself a fact, and the reader is left re-deriving from
@@ -194,6 +198,9 @@ Everything below is beside this file. Nothing it needs is on the repo root.
 - **`taxonomy.md`** — the 18 named failure modes with verbatim examples, dispositions, and
   the grep signatures that catch most of them without reading any code. Load this when
   reviewing or cutting existing comments.
+- **`vocabulary.md`** — the H18 retired words (`head`, `receiver`, `binder`, `leaf`, `tail`,
+  `arrow`, `contract`, `harvest`, the verb `name`), each sense they covered, and the replacement term. Load
+  this when naming anything or when an H18 grep returns hits.
 - **`sweep.md`** — the procedure for a whole-file or whole-project cleanup: the two-stage
   verification gate that makes comment edits provably code-preserving, batching to parallel
   agents, and measurement. Load this when the task is a cleanup rather than a single comment.

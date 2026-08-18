@@ -26,9 +26,9 @@ most of the deletable bulk.
 | H14 | Routing-order narration | prose re-listing the order of match arms or of a probe chain that the code below reads in that order: "Resolved after the local-class path and before the external `exn`-repr fallback" | delete outright |
 | H15 | Known-limitation hedge | a parenthetical pre-empting an objection: "(Not collision-proof against a source param literally named `_tc0` …)" | delete; the honest form is a failing test name |
 | H16 | Jargon without an instance | states a what AND a why, but only in vocabulary defined in other files | replace with the concrete emitted shape, or delete |
-| H17 | Collapsed verdict | one negation phrase standing for several distinct verdicts: "`name` names no type" covers *structurally has none*, *lookup found nothing*, and *found the wrong kind* | rephrase — pick the verdict, then negate the VERB (`does not resolve to a type`), never the object |
-| H18 | Overloaded term | one noun or verb naming several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest`, `flow`, `leaf`, `tail` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
-| H19 | Causal hedge | an em-dash standing in for a connective the code DETERMINES: "constructs by its BARE export name with NO import — the JS runtime provides it intrinsically" (*because*), "produces NO symbol — only its members do" (*but*), "are LEAVES — never expanded" (*namely*) | rephrase — name the relation; keep the dash only as `literal — gloss`, literal LEFT |
+| H17 | Collapsed verdict | one negation phrase standing for several distinct verdicts: "`name` names no type" covers *structurally has none*, *lookup found nothing*, and *found the wrong kind* | rephrase — pick the verdict, then assert it positively (CLAUDE.md's exclusion-framing rule); where the fact is a genuine miss, negate the VERB (`does not resolve to a type`), never the object |
+| H18 | Overloaded term | one noun or verb covering several independent concepts across the tree: `head`, `receiver`, `binder`, `holder`, `spine`, `drain`, `face`, `harvest`, `flow`, `leaf`, `tail`, the verb `name` | rename per concept, reusing the word the codebase already has; the number of distinct replacements measures the damage |
+| H19 | Causal hedge | an em-dash standing in for a connective the code DETERMINES: "constructs by its BARE export name with NO import — the JS runtime provides it intrinsically" (*because*), "produces NO symbol — only its members do" (*but*), "are LEAVES — never expanded" (*namely*) | rephrase — state the relation; keep the dash only as `literal — gloss`, literal LEFT |
 
 ## Grep signatures — the part that becomes a lint
 
@@ -48,7 +48,7 @@ Found to catch essentially every instance in a file, without reading any code:
   and `feedback_|project_|reference_` — a snake_case citation with no extension is usually an
   agent's private memory file, which no reader of the repo can ever open. Grep the whole tree
   for these: they leak from the agent's own context into code and are invisible to review.
-- **H12** — a FIELD doc naming another function plus an ordering word (`before`, `AFTER`,
+- **H12** — a FIELD doc citing another function plus an ordering word (`before`, `AFTER`,
   `first`, `pre-pass`)
 - **H13** — hash every n-line comment block and look for cross-FILE collisions, especially
   between a file and the files behind its `open` list
@@ -56,10 +56,12 @@ Found to catch essentially every instance in a file, without reading any code:
 - **H15** — a parenthetical containing `not .*-proof|does not handle|would need`
 - **H16** — not greppable. The review question is: does this contain a concrete instance
   (`x` → `y`), or only nouns from the design? Highest-value manual check in codegen code.
-- **H17** — `names no |names none|names nothing|resolves to no |maps to no |projects to no `.
-  Measured 63/65 precision over the tree: the only false positive is `names` as a plural NOUN
-  ("short names no longer resolve"). The positive verb (`key names the declaring type`) is
-  fine and must not be matched — the negation is the target, not the word.
+- **H17** — `names no |names none|names nothing|resolves to no |maps to no |projects to no `,
+  plus the plain transitive family `\b(resolves|introduces|mints|carries|drops|binds|emits) no `.
+  The first list measured 63/65 precision over the tree: the only false positive is `names` as
+  a plural NOUN ("short names no longer resolve"). The transitive family was carved out of that
+  measurement and is unmeasured. The positive verb (`key names the declaring type`) escapes
+  this signature and is an H18 hit instead — see `name` in `vocabulary.md`.
 - **H18** — `\b(holder|receiver|binder|spine|drain|harvest)\b` and `\bface`, case-insensitive,
   over comments AND identifiers (`interface` and `surface` do NOT match `\bface`, verified;
   `head` needs manual filtering against legitimate cons use). Re-run after the renames landed
@@ -68,6 +70,10 @@ Found to catch essentially every instance in a file, without reading any code:
   `Holder<'T>` fixture type in test source. Triage is one pass. The general test needs no word
   list: **a term appearing across three unrelated subsystems is either genuinely universal or
   overloaded, and there are very few genuinely universal terms.**
+  For the verb `name`, `\bnames? (a|an|the|it|its|one|several|both|this|that|where|by)\b` over
+  comments: the plural noun does not take a following determiner, so precision is high; the
+  base form with a plural subject ("two diagnostics name the mode") needs the `names?`
+  alternation and manual triage. ~108 hits over 67 files when the word was added, unswept.
   For `flow`, `\bflow(s|ing|ed)?\b` then subtract the legitimate compounds:
   `control.flow|flow-sensitiv|flow-typing|flow-narrow|guard-flow|flow environment|data flow`.
   Measured over this tree — 72 occurrences, 27 of them on a compound line, 45 residue of which
@@ -200,12 +206,17 @@ Three defects the uniform phrasing was hiding, which is what makes this a precis
 The grammar is the mechanism, not a taste: **negation in the middle.** `names no type`
 negates the object where English negates the verb, so the reader parses the sentence before
 the concept. The trap on the way out is that `resolves to no type` has the identical shape,
-and a two-word verb is worse — `resolves to` is held open across the negation. Negate the
-verb. The plain transitive with no preposition (`resolves no values`) reads fine; leave it.
+and a two-word verb is worse — `resolves to` is held open across the negation. The plain
+transitive is no better: `resolves no values` quantifies over an abstract set of values that
+exists only to be emptied. An earlier revision of this entry left the plain transitive alone;
+that carve-out was wrong. "No \<object\>" meaning *not in the abstract set of those objects*
+is always poor English. The repair order is CLAUDE.md's: assert positively where a positive
+fact exists (exclusion framing, construction 4), and negate the verb (`does not resolve to a
+type`) where the fact is a genuine miss.
 
 ### H18 — one noun for several concepts
 
-Ten words, each naming several independent things. The replacement count is the measure:
+Eleven words, each covering several independent things. The replacement count is the measure:
 
 - `head` → `fn`/`Function`, `tyCtor`, `anchorIdent`, `ctorFun`/`ctorPat`, `current`,
   `zonkShallow`; kept for cons only — 160 files
@@ -227,12 +238,16 @@ Ten words, each naming several independent things. The replacement count is the 
   `END` (of a ctor, a scope, a member list), `the rest` (of a fused operator token),
   `Codomain` (a function type's result), `Rest` (a `ValueTuple`8` nesting), `the implicit
   ones` (inferred typars), `fallback`, `Trampoline…`; kept for cons and for tail CALLS — 44 files
+- the verb `name` → `identifies` (a key, its row), `resolves to` (an ident, a symbol),
+  `lists` (a manifest, a path), `points to` (a token, a source position), `hardcodes`
+  (codegen, an identity the providers omit), `binds` (an emitted wrapper, a value),
+  `refers to it as` (a diagnostic's phrase); kept for literally assigning a name — 67 files, unswept
 
 Every replacement is a word the codebase ALREADY used for that concept. None is a coinage,
 and that is the acceptance test: **when a rename cannot find an existing word, the concept is
 not modelled** — a type candidate, the same verdict the 3-line ceiling produces.
 
-Two diagnostics that name the mode before any renaming:
+Two diagnostics that identify the mode before any renaming:
 
 - **The word is a metaphor, not a term of art** — `holder`, `spine`, `drain`, `face`,
   `harvest`. A picture accepts any concept that fits it, so it accretes.
@@ -273,7 +288,7 @@ the caller to diagnose**. Three different facts behind one verb, none recoverabl
 
 The user's own formulation is the rule to apply: **control flow is a genuine concept; values
 are passed to a function or assigned to a field.** Anything using the word for a value is
-naming a relation it declined to pick.
+evading the choice of relation.
 
 And the reason this belongs in a COMMENT doc rather than a naming one: re-running the
 signature after all eight renames had landed found three surviving sites, and every one was a
@@ -374,8 +389,8 @@ restating the `PatShape.Tuple` arm on the next line (H3).
 
   Strip the aside from the example above and what survives is bare ordering narration — an
   H14 violation with its why removed. n=7; treat as a tendency, not a law. The seventh
-  instance is the standing counterexample, and it names the exception: **in a per-CASE doc
-  neither half can go**, because the head names the case. `` /// A `float32` whose repr is a
+  instance is the standing counterexample, and it states the exception: **in a per-CASE doc
+  neither half can go**, because the head identifies the case. `` /// A `float32` whose repr is a
   JS `number` — an IEEE-754 DOUBLE — so JS renders it at double precision `` needs the head
   (it is the `Single` case's doc) and needs the aside (a JS `number` BEING a double is what
   loses the width). The fix there is apposition, never deletion: `` …a JS `number`, an
@@ -445,7 +460,7 @@ Two things that pass turned up, both worth expecting again. A message often spli
 built elsewhere (`sprintf "%s — '%s'" r.Description name`), so the dash's two sides are written
 in different files and neither author saw the rendering: read the composed output, not the
 format string. And `unreachable — <the actual fault>` is the string-literal form of the
-"cannot happen" claim: naming the relation usually leaves the left half with nothing to say.
+"cannot happen" claim: stating the relation usually leaves the left half with nothing to say.
 
 ## Where the rot accretes — the siting law
 
@@ -508,16 +523,16 @@ place because they change WHERE YOU LOOK:
 **A moved comment is a NEW claim.** A refactor that relocates a doc block is the moment it is
 least likely to be checked and most in need of it, because the diff reads as a pure move.
 Worse, refactors compose new prose FROM the block they are moving: one split wrote a fresh
-two-line summary naming the three members that commit had just routed elsewhere, while the
+two-line summary listing the three members that commit had just routed elsewhere, while the
 correct doc sat five declarations lower in the same file.
 
 > When you summarise code you are moving, the source of truth is the CODE, never the doc that
 > travelled with it.
 
 **Migrations leave a name trail — grep it in the same change.** A type migration rewrites many
-declarations and touches no comment, so every doc naming the old type keeps compiling and
+declarations and touches no comment, so every doc citing the old type keeps compiling and
 keeps reading plausibly. `SemType` → `FrozenType` gave most cases a near-twin
-(`TyUnion`/`FTUnion`), and backend docs still named the old one two months later — they
+(`TyUnion`/`FTUnion`), and backend docs still cited the old one two months later — they
 survive review because the wrong name is a REAL type one letter from the right one.
 
 ```bash

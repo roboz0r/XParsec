@@ -58,7 +58,12 @@ param(
     # When set, BDN writes .speedscope.json trace files alongside the regular report.
     [Parameter(Mandatory = $false)]
     [ValidateSet("EP", "ETW")]
-    [string]$Profiler
+    [string]$Profiler,
+
+    # BenchmarkDotNet job. Pass Short only for a smoke run, Long for a final measurement.
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Dry", "Short", "Medium", "Long", "Default")]
+    [string]$Job = "Default"
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,8 +125,8 @@ try {
             Write-Host "Running tests for $TestProject..." -ForegroundColor Cyan
 
             if (-not [string]::IsNullOrWhiteSpace($Filter)) {
-                # Use dotnet run with Expecto's --filter for targeted tests
-                $testArgs = @("run", "--project", $TestPath, "--", "--filter", $Filter)
+                Write-Host "Filters are not respected by tests. Use ftest in the source"
+                $testArgs = @("test", $TestPath)
             }
             else {
                 $testArgs = @("test", $TestPath)
@@ -173,14 +178,13 @@ try {
             # needs BDN >= 0.15.x (0.14.0 doesn't recognize net10.0 as a runtime and fails
             # validation) and FSharp.Core >= 10.1.202 centrally pinned (BDN regenerates a
             # csproj out-of-process and the VersionOverride in the bench fsproj is not
-            # enough on its own). See reference_bdn_profiler_eventpipe memory for the
-            # full checklist before running with -Profiler.
+            # enough on its own).
             $benchArgs = @(
                 "run",
                 "--project", $BenchmarkProject,
                 "-c", "Release",
                 "--",
-                "-j", "short",
+                "-j", $Job.ToLowerInvariant(),
                 "--filter", $Filter
             )
 
