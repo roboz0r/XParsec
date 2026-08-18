@@ -881,10 +881,16 @@ module N =
                     (consumer.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf "the cross-file inline call resolves (diagnostics: %A)" consumer.Frozen.Residue.Diagnostics)
 
-                match List.ofArray consumer.Frozen.Specializations with
+                // The served `+` inside the template mints entries of its own, so select
+                // `twice`'s.
+                let twiceEntries =
+                    consumer.Frozen.Specializations
+                    |> Array.filter (fun e -> SymbolKeyOps.simpleName e.Key.Template = DisplayName "twice")
+
+                match List.ofArray twiceEntries with
                 | [ entry ] ->
                     Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING file"
-                | other -> failtestf "expected exactly one specialization entry, got %d" (List.length other)
+                | other -> failtestf "expected exactly one `twice` specialization entry, got %d" (List.length other)
 
                 // The call-site EDGE is file 2's own node, so its origin is file 2 while the
                 // entry it points at has file 1.
@@ -896,9 +902,12 @@ module N =
                             | _ -> ()
                     ]
 
-                match edgeOrigins with
-                | [ o ] -> Expect.equal o consumer.Source.File "the call site is the CONSUMING file's material"
-                | other -> failtestf "expected exactly one edge in the consumer, got %d" (List.length other)
+                match edgeOrigins |> List.filter (fun o -> o = consumer.Source.File) with
+                | [ _ ] -> ()
+                | other ->
+                    failtestf
+                        "expected exactly one edge in the consuming file's own material, got %d"
+                        (List.length other)
             }
 
             test "cross-file INTRINSIC: a prior file's primitive resolves in a later file's annotation" {

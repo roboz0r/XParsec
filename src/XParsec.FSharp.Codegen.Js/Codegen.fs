@@ -72,7 +72,11 @@ module Codegen =
     /// `contract.Provider` served the inline bodies whose nodes the tree carries; `contract.Origins`
     /// is the anchor domain those nodes index. Mixed from two contracts, a served body's file has
     /// no retained source and emission throws rather than reporting a plausible wrong position.
-    let compileWith (contract: SymbolProviders.Contract) (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
+    let compileWith
+        (contract: PackageProviders.AnalyzedManifest)
+        (project: JsProjectInfo)
+        (tast: FrozenPools)
+        : JsArtifact =
         let runtimeAssets = contract.RuntimeAssets |> Map.map JsPackageOutput.ofAssets
 
         // A node's anchor is an index into the token table, so a position needs `src.Lexed`, the
@@ -157,7 +161,7 @@ module Codegen =
     /// `compileWith` over the empty contract: a program that references no external
     /// union/record and imports no package runtime, so its map has the one source.
     let compile (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
-        compileWith SymbolProviders.Contract.empty project tast
+        compileWith PackageProviders.AnalyzedManifest.empty project tast
 
     let toSource (artifact: JsArtifact) : string = artifact.Source
     let toSourceMap (artifact: JsArtifact) : string option = artifact.Map

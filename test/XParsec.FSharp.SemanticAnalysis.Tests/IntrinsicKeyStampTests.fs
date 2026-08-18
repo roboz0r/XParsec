@@ -5,48 +5,26 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // A desugared `External` node (`a + b` → `op_Addition`) carries the key its cross-package
-// inline body is spliced by. This harness resolves contracts from `.fsi` alone, so no body
-// is served and the node survives unspliced, key readable.
+// inline body is spliced by. Under the served contract the splice happens during analysis,
+// so the stamp's observable is the specialization entry minted under the operator's key.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
-/// The `key` of the first `TExpr.External` named `name` in the lowered decls (`None` if
-/// none survives). Diagnostics are checked empty first: an unresolved intrinsic stamps nothing.
-let private externalKey (name: string) (input: string) : SymbolKey voption option =
+let private assertStamped (name: string) (input: string) =
     let tast = analyse input
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics for: %s" input)
 
-    let mutable found: SymbolKey voption option = None
+    let specialized =
+        tast.Specializations
+        |> Seq.exists (fun s -> SymbolKeyOps.simpleName s.Key.Template = DisplayName name)
 
-    let mapper: TastWalk.Mapper =
-        { TastWalk.identityMapper with
-            OverrideExpr =
-                fun _ e ->
-                    match e with
-                    | TExpr.External(n, k, _, _) when n = name && found.IsNone -> found <- Some k
-                    | _ -> ()
-
-                    ValueNone
-        }
-
-    for d in tast.Decls do
-        match d with
-        | TDecl.Let(_, value, _, _) -> TastWalk.mapExpr mapper value |> ignore
-        | _ -> ()
-
-    found
-
-let private assertStamped (name: string) (input: string) =
-    match externalKey name input with
-    | Some(ValueSome _) -> ()
-    | Some ValueNone ->
+    if not specialized then
         failtestf
-            "`%s` node minted with a ValueNone key — the `IntrinsicKey` stamp is missing, so InlineExpansion cannot splice its inline body by key: %s"
+            "no `%s` specialization entry — the `IntrinsicKey` stamp is missing, so the served inline body cannot splice by key: %s"
             name
             input
-    | None -> failtestf "no `%s` External node found in the lowered TAST of: %s" name input
 
 [<Tests>]
 let tests =

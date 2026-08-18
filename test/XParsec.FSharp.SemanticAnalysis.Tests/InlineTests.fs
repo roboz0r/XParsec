@@ -219,7 +219,7 @@ let tests =
 
                 Expect.equal
                     (TastShape.prettyDecl tast.Decls.[0])
-                    "let inline v0 = fun v1 -> (v1 + 1)"
+                    "let inline v0 = fun v1 -> spec#0(v1, 1)"
                     "TAST shape includes inline"
             }
 
@@ -315,7 +315,7 @@ let tests =
             test "`let inline succ x = x + 1 in succ 41` keeps the inline template and outlines its use site" {
                 // At module level the parser lifts `let inline succ … in body` into a top-level
                 // inline binding plus the body as its own decl, whose use site is outlined into
-                // an edge. `op_Addition` survives in the entry: `realProvider` serves `.fsi` only.
+                // an edge. The served `+` is itself an edge inside `succ`'s entry.
                 let tast = analyse "let inline succ x = x + 1 in succ 41"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -336,13 +336,12 @@ let tests =
                     // the entry is `succ`'s body under the parameter it abstracts.
                     match entryValue tast spec with
                     | TExpr.Lambda(TPat.NamedSimple _,
-                                   TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _), TExpr.Var _, _, _),
-                                             TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _),
-                                             _,
-                                             _),
+                                   TExpr.InlineCall(
+                                       args = EqList [ TExpr.Var _
+                                                       TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _) ]),
                                    _,
                                    _) -> ()
-                    | other -> failtestf "the entry is not `fun x -> x + 1`: %A" other
+                    | other -> failtestf "the entry is not `fun x -> x + 1` (with `+` as an edge): %A" other
                 | other -> failtestf "the use site is not an edge carrying its one argument: %A" other
             }
 
@@ -354,20 +353,16 @@ let tests =
                 // substitution returning the retained `fun x -> x + 1` body.
                 match fst (Inline.inlineExpand ctx0 succDecl [||]) with
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
-                                                   TExpr.Var(_, TyConst(k2, _), _),
-                                                   _,
-                                                   _),
-                                         TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _),
-                                         _,
-                                         _),
+                               TExpr.InlineCall(
+                                   args = EqList [ TExpr.Var(_, TyConst(k2, _), _)
+                                                   TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _) ]),
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
                                _) when
                     [ k1; k2; k3; k4 ]
                     |> List.forall (fun k -> SymbolKeyOps.typeSimpleName k = DisplayName "int")
                     ->
                     ()
-                | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
+                | other -> failtestf "expected `fun x -> x + 1` body (with `+` as an edge), got %A" other
             }
 
             // A monotone counter shared across calls, so two expansions never mint the same
@@ -385,10 +380,9 @@ let tests =
             let succBoundVarAndVar (e: TExpr) =
                 match e with
                 | TExpr.Lambda(TPat.NamedSimple(kb, _, _),
-                               TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _), TExpr.Var(kv, _, _), _, _),
-                                         TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _),
-                                         _,
-                                         _),
+                               TExpr.InlineCall(
+                                   args = EqList [ TExpr.Var(kv, _, _)
+                                                   TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _) ]),
                                _,
                                _) -> kb, kv
                 | other -> failtestf "unexpected succ body: %A" other
@@ -457,7 +451,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 let body = expandedCore tast tast.Decls.[1]
                 Expect.isFalse (body.Contains "fun") (sprintf "no surviving closure: %s" body)
-                Expect.stringContains body "+ 1" "the inlined lambda body survives"
+                Expect.stringContains body ", 1)" "the inlined lambda body survives (the served `+` edge applied to 1)"
             }
 
             test "a doubly-applied inline lambda parameter is eliminated at both sites" {
@@ -469,7 +463,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 let body = expandedCore tast tast.Decls.[1]
                 Expect.isFalse (body.Contains "fun") (sprintf "both closures eliminated: %s" body)
-                Expect.stringContains body "+ 1" "…and both copies of the lambda's body are there to show for it"
+                Expect.stringContains body ", 1)" "…and both copies of the lambda's body are there to show for it"
             }
 
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {

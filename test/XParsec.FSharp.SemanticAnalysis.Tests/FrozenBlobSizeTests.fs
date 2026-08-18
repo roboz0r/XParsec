@@ -27,7 +27,7 @@ let private programs =
         {
             Name = "curried fns"
             Source = "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n"
-            Ceiling = 640
+            Ceiling = 780
         }
         {
             Name = "record type + literal + field get"
@@ -38,7 +38,7 @@ let private programs =
             Name = "match + for-to + mutable accumulator"
             Source =
                 "let classify x =\n    match x with\n    | 0 -> 1\n    | _ -> 2\n\nlet sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n"
-            Ceiling = 640
+            Ceiling = 780
         }
     ]
 

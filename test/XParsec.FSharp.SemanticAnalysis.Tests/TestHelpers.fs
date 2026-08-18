@@ -19,7 +19,9 @@ let srcManifest (target: string) (pkg: string) : ReferencedProject.ManifestPath 
 
 /// The default contract stack for the SA front-end tests: real SRTP operators (`(+) : ^T
 /// -> ^T -> ^T`), the ordering operators, `hash`/`failwith`, the cons-list and the printf
-/// family, with the primitive reprs canonicalised to `int` / `string`.
+/// family, with the primitive reprs canonicalised to `int` / `string`. Splice templates are
+/// SERVED, as a compilation resolves them, so an operator use elaborates to an `InlineCall`
+/// edge (`spec#N` in pretty output), never a bare `External` App.
 let realProvider: Lazy<IExternalSymbolProvider> =
     lazy
         [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]

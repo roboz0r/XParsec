@@ -270,7 +270,7 @@ let tests =
 
             test "buildContractWithRefs does not alias distinct ref sets under one manifest" {
                 // `Enumerable` lives in System.Linq, never CoreLib, so dropping
-                // System.Linq.dll from the TPA must lose it. If the build cache ignored the
+                // System.Linq.dll from the TPA must lose it. If the reader ignored the
                 // path set the second build would alias the first and still resolve it.
                 let full = MetadataSymbols.runtimeAssemblyPaths ()
 

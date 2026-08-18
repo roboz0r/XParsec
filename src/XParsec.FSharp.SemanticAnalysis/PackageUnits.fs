@@ -12,47 +12,12 @@ module PackageUnits =
     let ofPackage
         (pkg: PackageSource.ParsedPackage)
         : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
-        let package = pkg.Manifest.Name
-
-        let unread (file: PackageSource.ReadFile<'Tree>) (fault: PackageSource.FileFault) : AssemblyFiles.UnparsedFile =
-            {
-                Id = file.Id
-                Failure = PackageSource.FileFault.toFailure package file.Relative fault
-            }
-
-        let half (file: PackageSource.ReadFile<'Tree>) (parsed: 'Tree) : AssemblyFiles.ParsedHalf<'Tree> =
-            { Id = file.Id; Parsed = parsed }
-
-        let ofSource
-            (source: PackageSource.ParsedSource)
-            : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> =
-            match source.Implementation.Outcome with
-            | Error fault -> Error(unread source.Implementation fault)
-            | Ok parsedImplementation ->
-                let implementation = half source.Implementation parsedImplementation
-
-                match source.Signature with
-                | ValueNone ->
-                    Ok
-                        {
-                            Implementation = implementation
-                            Signature = ValueNone
-                        }
-                | ValueSome signature ->
-                    match signature.Outcome with
-                    | Ok parsedSignature ->
-                        Ok
-                            {
-                                Implementation = implementation
-                                Signature = ValueSome(half signature parsedSignature)
-                            }
-                    | Error fault -> Error(unread signature fault)
-
         [
             for unit in pkg.Units do
-                match unit with
-                | PackageSource.PackageUnit.Source source -> ofSource source
-                | PackageSource.PackageUnit.UnpairedSignature _ -> ()
+                match AssemblyFiles.ClassifiedUnit.ofPackageUnit pkg.Manifest.Name unit with
+                | AssemblyFiles.ClassifiedUnit.Parsed u -> Ok u
+                | AssemblyFiles.ClassifiedUnit.Faulted(leading, _) -> Error leading
+                | AssemblyFiles.ClassifiedUnit.Unpaired _ -> ()
         ]
 
     /// `ofPackage` for a caller holding only the path: it reads the package itself. Whether the

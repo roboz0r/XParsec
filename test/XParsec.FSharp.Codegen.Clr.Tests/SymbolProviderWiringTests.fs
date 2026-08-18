@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The `ClrSymbolProviders.build` composite is the one stack threaded through both phases,
+// The `ClrSymbolProviders.buildContract` composite is the one stack threaded through both phases,
 // and it has no mock backstop: operators, `hash`, `failwith`, printf and `List.fold` all
 // resolve from the `Vesper.*` signature files.
 
@@ -15,10 +15,11 @@ let tests =
     testList
         "SymbolProviderWiring"
         [
-            test "build [] resolves no values (the List.fold backstop is gone); List.fold comes from the contract" {
+            test
+                "buildContract [] resolves no values (the List.fold backstop is gone); List.fold comes from the contract" {
                 // With no manifests the stack is the metadata reader alone, and metadata
                 // resolves no values at all.
-                let empty = ClrSymbolProviders.build []
+                let empty = ClrSymbolProviders.buildContract []
 
                 Expect.isTrue
                     (empty.TryLookup "List.fold" |> ValueOption.isNone)
@@ -32,7 +33,8 @@ let tests =
 
                 // With the Vesper.List manifest, `fold` resolves under its SOURCE-qualified
                 // name (`Vesper.Collections.List.fold`, not compiled `ListModule.fold`).
-                let contract = ClrSymbolProviders.build [ vesperListPackage; vesperCorePackage ]
+                let contract =
+                    ClrSymbolProviders.buildContract [ vesperListPackage; vesperCorePackage ]
 
                 match contract.TryLookup "Vesper.Collections.List.fold" with
                 | ValueSome _ -> ()
@@ -40,7 +42,7 @@ let tests =
             }
 
             test "the Vesper.Core manifest layer adds type + operator resolution from the contract" {
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 // The provider answers the QUALIFIED name; short names come from the
                 // ambient open scope. `int` is an `extern` paired with a `.fs`

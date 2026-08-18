@@ -60,7 +60,15 @@ module LocalMemberKeys =
             | ValueNone -> ValueNone
 
         // The declaring type's own typars are the axis the signature freezes against.
-        match TypeRegistry.tryNominalMemberByKey ctx.Types declKey memberName with
+        // The intrinsic-abbrev arm reaches the member the unifier satisfied an SRTP bound
+        // with (`type X = (# … #) with static member (+) …`), which no provider carries
+        // while the declaring file itself is being compiled.
+        let local =
+            match TypeRegistry.tryNominalMemberByKey ctx.Types declKey memberName with
+            | ValueSome nm -> ValueSome nm
+            | ValueNone -> TypeRegistry.tryIntrinsicAbbrevMemberByKey ctx.Types declKey memberName
+
+        match local with
         | ValueSome nm ->
             ValueSome(
                 UnificationInferOverload.frozenUserMemberKey ctx.Store nm.Decl.TypeKey nm.Decl.TypeParams nm.Member

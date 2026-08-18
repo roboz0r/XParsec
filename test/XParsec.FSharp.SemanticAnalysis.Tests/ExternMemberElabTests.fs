@@ -148,6 +148,50 @@ let tests =
                 | None -> failtestf "no `addW` let decl found, decls: %A" tast.Decls
             }
 
+            test "the trait-dispatched call site keys the member body the file collects" {
+                // The unifier satisfies the SRTP bound off `IntrinsicAbbrevHost`; the inline
+                // trait dispatcher must mint the SAME key the member body is collected under,
+                // or the backend has no body to splice at the site.
+                let source =
+                    "module Widgets\n\
+                     \n\
+                     type widget =\n\
+                     \x20   (# \"object\" #)\n\
+                     \x20   with\n\
+                     \x20       static member inline (+) (x: widget, y: widget) : widget = (# \"$0 + $1\" x y : widget #)\n\
+                     \x20   end\n\
+                     \n\
+                     let addW (a: widget) (b: widget) : widget = a + b\n"
+
+                let lexed, file = parseFile source
+                let origin = Hashing.originSourceOfText lexed
+                let ctx, tast = Pipeline.analyseSemWithContext realProvider.Value origin file
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let bodies = InlineBodies.collect origin (Freeze.run ctx tast)
+
+                let callKeys =
+                    [
+                        for s in tast.Specializations do
+                            match s.Decl with
+                            | TDecl.Let(_, value, _, _) ->
+                                yield!
+                                    TastWalk.chooseExpr
+                                        (function
+                                        | TExpr.StaticMethodCall(k, _, _, _) -> ValueSome k
+                                        | _ -> ValueNone)
+                                        value
+                            | _ -> ()
+                    ]
+
+                Expect.isNonEmpty callKeys "the trait call dispatched to a StaticMethodCall"
+
+                for k in callKeys do
+                    Expect.isTrue
+                        (bodies.Members |> List.exists (fun mb -> mb.Key = k))
+                        (sprintf "no collected member body under the call-site key %A" k)
+            }
+
             test "a member on an intrinsic host must be declared inline" {
                 let bad =
                     "module Widgets\n\

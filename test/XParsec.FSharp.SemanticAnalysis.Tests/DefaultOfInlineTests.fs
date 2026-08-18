@@ -4,9 +4,10 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// `Unchecked.defaultof`, however spelled, must lower to `TExpr.External`: only that node
-// takes the splice arm. A member-read instead reaches codegen as a `call` into `Unchecked`,
-// a module every reference splices in place — so it emits no method to call.
+// `Unchecked.defaultof`, however spelled, must lower to the served intrinsic — under the
+// served contract, an `InlineCall` of its template. A member-read instead reaches codegen as
+// a `call` into `Unchecked`, a module every reference splices in place — so it emits no
+// method to call.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
@@ -31,11 +32,12 @@ let tests =
                     "qualified", "let f () : int = Unchecked.defaultof"
                     "qualified type-applied", "let f () : int = Unchecked.defaultof<int>"
                 ] ->
-                test (sprintf "%s `defaultof` freezes to a splice-eligible External node" label) {
+                test (sprintf "%s `defaultof` lowers to the served intrinsic, not a member-read" label) {
                     match bodyOf src with
-                    | TExpr.External _ -> ()
+                    | TExpr.External _
+                    | TExpr.InlineCall _ -> ()
                     | (TExpr.StaticPropertyGet _ | TExpr.StaticMethodCall _ | TExpr.ExternalMember _) as other ->
                         failtestf "%s lowered to a member-read (%A) — the splice arm would miss it" label other
-                    | other -> failtestf "%s lowered to %A, expected TExpr.External" label other
+                    | other -> failtestf "%s lowered to %A, expected an External or its InlineCall" label other
                 }
         ]

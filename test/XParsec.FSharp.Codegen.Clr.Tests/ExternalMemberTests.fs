@@ -47,7 +47,7 @@ let tests =
             test "EqualityComparer<int>.Default.GetHashCode 5 type-checks + freezes carrying its key" {
                 // Vesper.Core supplies the `type int = (# "System.Int32" #)` relationship the
                 // metadata reader canonicalizes `GetHashCode`'s `System.Int32` return through.
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 let ctx, tast =
                     analyseWithCtx
@@ -142,7 +142,7 @@ let tests =
             test "the frozen key matches the provider's own resolved member key" {
                 // The interned key must equal what the provider resolves directly:
                 // elaboration stamps the resolver's verdict rather than re-deriving a key.
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 let expected =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
@@ -163,7 +163,7 @@ let tests =
             }
 
             test "short name under `open` type-checks + freezes carrying its key" {
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 let ctx, tast =
                     analyseWithCtx
@@ -242,7 +242,7 @@ let tests =
             }
 
             test "short-name key equals the fully-qualified form's resolved key" {
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 let expected =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKeyOf eqComparer 0, "GetHashCode") with
@@ -291,7 +291,7 @@ let tests =
             // a value of that type carries, so the two unify. An annotation that dropped
             // its type arguments would clash with the object argument's `TyClass`.
             test "a type annotation resolves an external type, so the short form unifies with the object argument" {
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 let tast =
                     analyseWith
@@ -304,7 +304,7 @@ let tests =
             }
 
             test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
-                let provider = ClrSymbolProviders.build [ vesperCorePackage ]
+                let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 // An UNresolved annotation would be a fresh `TyVar`, which unifies with
                 // `5 : int` silently. So the observable is inverted: an error is required,
@@ -409,7 +409,7 @@ let tests =
             // into a single LongIdent, so the type / static-member split has to be probed
             // for rather than read off the syntax.
             test "non-generic external static property resolves + freezes carrying its key" {
-                let provider = ClrSymbolProviders.build []
+                let provider = ClrSymbolProviders.buildContract []
                 let ctx, tast = analyseWithCtx provider "let w = System.Console.Out"
 
                 Expect.isEmpty (errors tast) "System.Console.Out resolves through the metadata provider"
@@ -443,7 +443,7 @@ let tests =
             }
 
             test "the short form under `open` resolves the same non-generic static member" {
-                let provider = ClrSymbolProviders.build []
+                let provider = ClrSymbolProviders.buildContract []
                 let tast = analyseWith provider "open System\nlet w = Console.Out"
 
                 Expect.isEmpty (errors tast) "Console.Out resolves under `open System`"
@@ -480,7 +480,7 @@ let tests =
             // `System.Math.PI` is a const field, which is not modelled. The F# is valid, so
             // the unmatched name must fall through without a "no accessible member" error.
             test "a non-member name on a resolved external type does not error" {
-                let provider = ClrSymbolProviders.build []
+                let provider = ClrSymbolProviders.buildContract []
                 let tast = analyseWith provider "let p = System.Math.PI"
                 Expect.isEmpty (errors tast) "System.Math.PI (a field) falls through silently, no false error"
             }

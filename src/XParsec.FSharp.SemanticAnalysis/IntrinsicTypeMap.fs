@@ -138,17 +138,3 @@ module IntrinsicTypeMap =
                     }
             }
         )
-
-    /// A rendering of the whole axis for a CACHE KEY: order-sensitive, like the value itself.
-    /// Never for display.
-    let cacheTag (map: IntrinsicTypeMap) : string =
-        map.Entries
-        |> Seq.map (fun entry ->
-            let platform =
-                match entry.Platform with
-                | IntrinsicPlatform.Repr platform -> platform
-                | IntrinsicPlatform.Unsupported target -> "!" + target
-
-            SymbolKeyOps.typeMetaName entry.Canon + "=" + platform
-        )
-        |> String.concat ";"

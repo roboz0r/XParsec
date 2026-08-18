@@ -273,6 +273,11 @@ module Shim =
 
             // The package this shape exists for: many signature files, no single one of
             // which could be "the package's module".
+            //
+            // KNOWN DEFECT this test tolerates: an `[<Import>]` binding's DECLARING module
+            // still emits it as a jsNative-throwing function (consumers are unaffected —
+            // they import from the runtime asset), and the load check passes only because
+            // the asset barrel overwrites the generated one (see `JsDriver.materialise`).
             test "Vesper.Core compiles as one package and its modules load under Node" {
                 let manifestPath =
                     ReferencedProject.resolveManifest Target.Js vesperCorePackage
@@ -426,7 +431,7 @@ let private writePickPackage (name: string) (order: string list) : string =
 
     dir
 
-/// The file that produced the body `BodiesByName` serves for `pick` from `dir`'s package.
+/// The file that produced the body `jsNativeInlineBodies` serves for `pick` from `dir`'s package.
 let private pickWinner (dir: string) : string =
     match JsNativeSymbols.jsNativeInlineBodies [ dir ] |> Map.tryFind "pick" with
     | Some body -> body.Origin.File.Path.Relative.Name

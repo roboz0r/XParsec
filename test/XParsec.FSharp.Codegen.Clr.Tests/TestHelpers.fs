@@ -157,16 +157,23 @@ let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : st
     |> List.map (fun d -> sprintf "%s: %s" d.Path.Name d.Diagnostic.Message)
     |> String.concat "\n"
 
-/// The self-package contract, GATED, so a test that miswires its packages fails with the
-/// contract error and not an unresolved name three files later.
+/// The contract, GATED, so a test that miswires its packages fails with the contract error
+/// and not an unresolved name three files later.
+let private gatedContract
+    (label: string)
+    (contract: PackageProviders.AnalyzedManifest)
+    : PackageProviders.AnalyzedManifest =
+    match PackageProviders.AnalyzedManifest.gate contract with
+    | Ok contract -> contract
+    | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
+
+/// The self-package contract, GATED.
 let private gatedContractForSelf
     (label: string)
     (selfPackage: string)
     (packageDirs: string list)
-    : SymbolProviders.Contract =
-    match SymbolProviders.Contract.gate (ClrSymbolProviders.contractForSelf (Some selfPackage) packageDirs) with
-    | Ok contract -> contract
-    | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
+    : PackageProviders.AnalyzedManifest =
+    gatedContract label (ClrSymbolProviders.contractForSelf (Some selfPackage) packageDirs)
 
 /// The `.fs` files a package's CLR manifest lists, in manifest order, relative to the
 /// package directory.
@@ -340,8 +347,11 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // The package declares ITSELF as self, so a BCL signature presents the primitives
                  // this compilation declares: `prim-types-string.clr.fs`'s `String.Concat(x, y)`
                  // takes two `Vesper.string`s and must still find the `(String, String)` overload.
+                 // The self entry folds off the trees read above, not a second read.
                  let contract =
-                     gatedContractForSelf (sprintf "buildPackage %s" pkg) (srcPackage pkg) depManifests
+                     gatedContract
+                         (sprintf "buildPackage %s" pkg)
+                         (ClrSymbolProviders.contractForSelfParsed (srcPackage pkg) depManifests parsedPackage)
 
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`

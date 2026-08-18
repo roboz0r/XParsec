@@ -87,15 +87,14 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "pipe rendered as |> in TAST" {
+            test "pipe specializes the served |>" {
                 let tast = analyse "let f x = x + 1\nlet r = 1 |> f"
 
-                let resultDecl =
-                    match tast.Decls with
-                    | EqList [ _; d ] -> d
-                    | _ -> failwithf "expected two decls, got %A" tast.Decls
+                let piped =
+                    tast.Specializations
+                    |> Seq.exists (fun s -> SymbolKeyOps.simpleName s.Key.Template = DisplayName "op_PipeRight")
 
-                Expect.stringContains (TastShape.prettyDecl resultDecl) "1 |>" "pipe rendered symbolically"
+                Expect.isTrue piped "the pipe reached specialization under its own key"
             }
 
             test "`f <| x` types same as `f x`" {

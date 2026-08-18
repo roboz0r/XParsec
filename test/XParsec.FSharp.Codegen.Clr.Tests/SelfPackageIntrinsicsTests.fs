@@ -42,7 +42,7 @@ module ConcatProbe =
         // GATED, so a contract that failed to resolve is reported as itself rather than as the
         // missing-overload verdict this test is about.
         ClrSymbolProviders.contractForSelf selfManifest []
-        |> SymbolProviders.Contract.gate
+        |> PackageProviders.AnalyzedManifest.gate
         |> Result.bind (fun contract ->
             ClrDriver.compileAssemblyWith
                 []

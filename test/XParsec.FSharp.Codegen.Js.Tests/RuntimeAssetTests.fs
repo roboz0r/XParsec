@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 /// `jsPackages` plus `Vesper.Seq`'s: the contract of a program that CONSUMES the Seq
 /// package, so `Seq.*` resolves to the committed asset rather than to a compiled module.
-let private seqConsumerContract: Lazy<SymbolProviders.Contract> =
+let private seqConsumerContract: Lazy<PackageProviders.AnalyzedManifest> =
     lazy JsNativeSymbols.jsNativeContract (jsPackages @ [ srcPackage "Vesper.Seq" ])
 
 /// Compile `input` against `seqConsumerContract`, writing into `tmp/<name>/` so the artifact

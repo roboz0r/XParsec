@@ -239,9 +239,8 @@ checking that against fsc.
   ambient prefixes; the package caller homes `Origin.InAssembly` and publishes its
   `[<AutoOpen>]` prefixes.
 
-All three are discharged by the single fold in
-[manifest-single-file-list-plan](manifest-single-file-list-plan.md), which is where the two
-callers become one.
+All three are discharged by `AssemblyFiles.foldUnits`, the single fold both callers
+(`PackageProviders.buildProviderSeeded` and `AssemblyFiles.analyseWith`) now use.
 
 ## Steps
 

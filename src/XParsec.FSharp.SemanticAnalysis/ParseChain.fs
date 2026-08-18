@@ -16,12 +16,18 @@ module ParseChain =
     /// A parsed file: the token stream and tree every pass runs on, and the diagnostics
     /// RECOVERY raised producing them. A COMPLETE tree can still have had every delimiter
     /// inserted and every missing expression stubbed, so `Ok` routinely carries diagnostics.
-    type ParsedFile =
+    type Parsed<'Tree> =
         {
             Lexed: Lexed
-            File: ImplementationFile<SyntaxToken>
+            File: 'Tree
             Diagnostics: Diagnostic list
         }
+
+    /// A parsed implementation file.
+    type ParsedFile = Parsed<ImplementationFile<SyntaxToken>>
+
+    /// A parsed signature file: the tree the `.fsi` front end walks.
+    type ParsedSignature = Parsed<SignatureFile<SyntaxToken>>
 
     /// A file no tree came out of. `Lexed` is present iff LEXING succeeded, so the recovery
     /// diagnostics raised before the parser gave up still have the token stream their
@@ -64,11 +70,16 @@ module ParseChain =
                 Diagnostic.create (Kind.Parse d.Code) site related
         ]
 
-    /// The front-end parse chain, lex → reader → AST: a bare-expression `ScriptFragment`
-    /// wraps as an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s
-    /// (never exceptions). The parser's recovery diagnostics ride out on BOTH arms.
-    /// `compilationDefines` are the symbols the file's `#if` directives resolve against.
-    let parse (compilationDefines: Set<string>) (source: string) : Result<ParsedFile, ParseFailure> =
+    /// The parse chain shared by both entry points, lex → reader → AST: `run` is the parser
+    /// and `accept` projects the AST case the caller wants, any other case failing as a
+    /// parse failure. Lex/parse failures surface as `Diagnostic`s (never exceptions), and
+    /// the parser's recovery diagnostics ride out on BOTH arms.
+    let private parseAs
+        run
+        (accept: FSharpAst<SyntaxToken> -> 'Tree voption)
+        (compilationDefines: Set<string>)
+        (source: string)
+        : Result<Parsed<'Tree>, ParseFailure> =
         match Lexing.lexString source with
         | Result.Error e ->
             Error
@@ -87,59 +98,42 @@ module ParseChain =
                         Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
                     }
 
-            let parsed (file: ImplementationFile<SyntaxToken>) =
-                Ok
-                    {
-                        Lexed = lexed
-                        File = file
-                        Diagnostics = ofParseDiagnostics reader.State.Diagnostics
-                    }
-
-            match FSharpAst.parse reader with
+            match run reader with
             | Result.Error e -> failed (Kind.ParseFailure(sprintf "%A" e))
-            | Result.Ok(FSharpAst.ImplementationFile f) -> parsed f
-            | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-                parsed (ImplementationFile.AnonymousModule elems)
-            | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
+            | Result.Ok ast ->
+                match accept ast with
+                | ValueSome file ->
+                    Ok
+                        {
+                            Lexed = lexed
+                            File = file
+                            Diagnostics = ofParseDiagnostics reader.State.Diagnostics
+                        }
+                | ValueNone -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" ast))
 
-    /// A parsed SIGNATURE file: the tree the `.fsi` front end walks, and the token table every
-    /// `SyntaxToken` in it indexes into.
-    type ParsedSignature =
-        {
-            Lexed: Lexed
-            File: SignatureFile<SyntaxToken>
-            Diagnostics: Diagnostic list
-        }
+    /// The front-end parse chain for an implementation file: a bare-expression
+    /// `ScriptFragment` wraps as an `AnonymousModule`. `compilationDefines` are the symbols
+    /// the file's `#if` directives resolve against.
+    let parse (compilationDefines: Set<string>) (source: string) : Result<ParsedFile, ParseFailure> =
+        parseAs
+            FSharpAst.parse
+            (function
+            | FSharpAst.ImplementationFile f -> ValueSome f
+            | FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems) ->
+                ValueSome(ImplementationFile.AnonymousModule elems)
+            | _ -> ValueNone)
+            compilationDefines
+            source
 
     /// `parse` for a `.fsi`. A signature file has no bare-expression form to wrap.
     let parseSignature (compilationDefines: Set<string>) (source: string) : Result<ParsedSignature, ParseFailure> =
-        match Lexing.lexString source with
-        | Result.Error e ->
-            Error
-                {
-                    Lexed = ValueNone
-                    Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
-                }
-        | Result.Ok lexed ->
-            let reader = Reader.ofParseInput (lexed.WithDefines compilationDefines)
-
-            let failed (kind: Kind) =
-                Error
-                    {
-                        Lexed = ValueSome lexed
-                        Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
-                    }
-
-            match FSharpAst.parseSignature reader with
-            | Result.Error e -> failed (Kind.ParseFailure(sprintf "%A" e))
-            | Result.Ok(FSharpAst.SignatureFile f) ->
-                Ok
-                    {
-                        Lexed = lexed
-                        File = f
-                        Diagnostics = ofParseDiagnostics reader.State.Diagnostics
-                    }
-            | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
+        parseAs
+            FSharpAst.parseSignature
+            (function
+            | FSharpAst.SignatureFile f -> ValueSome f
+            | _ -> ValueNone)
+            compilationDefines
+            source
 
     /// `parse`, refusing a tree the parser had to PATCH: every inserted delimiter and every
     /// `Expr.Missing` is a hole the source did not fill, so a recovered parse is not a

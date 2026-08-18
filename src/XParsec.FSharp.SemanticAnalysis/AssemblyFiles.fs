@@ -198,6 +198,94 @@ module AssemblyFiles =
                             Signature = ValueSome { Id = signature.Id; Parsed = parsed }
                         }
 
+    /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so nothing
+    /// resolves a token index against it and they render at line 1, col 1. A POSITIONED
+    /// diagnostic here is unverifiable, so it faults rather than printing a plausible line.
+    let unpositionedDiagnostics (path: AssemblyFileId) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+        [
+            for d in diagnostics do
+                match d.Site with
+                | Site.Nowhere ->
+                    {
+                        Path = path
+                        Diagnostic = d
+                        Line = 1
+                        Col = 1
+                    }
+                | positioned ->
+                    failwithf
+                        "internal error: %s produced no `Lexed`, so a diagnostic cannot carry a position, but got %A (%s)"
+                        path.Name
+                        positioned
+                        d.Message
+        ]
+
+    /// A whole-set fault as one unpositioned diagnostic: it is about the package set a
+    /// compilation was handed, so there is no file to anchor it to.
+    let setFaultDiagnostics (fault: PackageSetFault) : AnchoredDiagnostic list =
+        unpositionedDiagnostics AssemblyFileId.nowhere [ Diagnostic.nowhere (Kind.PackageSet fault) ]
+
+    /// Anchor a file's bare diagnostics to its path and text: a `Site` points to tokens of THIS
+    /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a
+    /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at line 1, col 1.
+    let anchorDiagnostics (file: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+        let lexed = file.Lexed
+        let source = file.Input
+        let lineIndex = XParsec.LineIndex.OfString source
+
+        // The gap after the LAST token is the end of the file; every other token's gap is
+        // where the next one starts.
+        let gapAfter (t: int<token>) =
+            let next = t + 1<token>
+
+            if int next < lexed.Tokens.Length then
+                lexed.Tokens[next].StartIndex
+            else
+                source.Length
+
+        [
+            for d in diagnostics do
+                let struct (line, col) =
+                    match d.Site with
+                    | Site.Nowhere -> struct (1, 1)
+                    | Site.At t
+                    | Site.Between(first = t) -> lineIndex.GetLineCol lexed.Tokens[t].StartIndex
+                    | Site.After t -> lineIndex.GetLineCol(gapAfter t)
+
+                {
+                    Path = file.File.Path.Relative
+                    Diagnostic = d
+                    Line = line
+                    Col = col
+                }
+        ]
+
+    /// A failed file's diagnostics, anchored against its own token stream when the failure
+    /// came AFTER lexing, and at line 1, col 1 when there is no stream to anchor against.
+    let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
+        match e.Failure.Lexed with
+        // The `""` bucket: no file was analysed, so no assembly claims this one. The
+        // source exists only to resolve the positions the parser's diagnostics carry.
+        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Id lexed) e.Failure.Diagnostics
+        | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
+
+    /// A `.fsi` half's findings, anchored in its own text: recovery's first, then
+    /// resolution's and conformance's.
+    let signatureFileDiagnostics (s: FrozenSignatureFile) : AnchoredDiagnostic list =
+        anchorDiagnostics s.Source (s.ParseDiagnostics @ s.Diagnostics)
+
+    /// An analysed implementation's findings, anchored in its own text: recovery's first,
+    /// then the analysis residue.
+    let implementationFileDiagnostics (f: FrozenFile) : AnchoredDiagnostic list =
+        anchorDiagnostics f.Source (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
+
+    /// Both halves' findings, the signature's first.
+    let fileDiagnostics (f: FrozenFile) : AnchoredDiagnostic list =
+        (match f.Signature with
+         | ValueSome s -> signatureFileDiagnostics s
+         | ValueNone -> [])
+        @ implementationFileDiagnostics f
+
     /// Which side of the assembly boundary the fold publishes for.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type Publication =
@@ -283,23 +371,32 @@ module AssemblyFiles =
             File: FrozenFile
             Surface: PublishedSurface
             Bodies: InlineBodies.FileInlineBodies
-            /// What LATER units of the fold resolved this one through.
+            /// The provider this unit pushed onto the fold's stack: later units resolve
+            /// through it, and a package build composes its outward provider from it. Under
+            /// `Publication.InAssembly` it is the full view, splice templates included; under
+            /// `Publication.AcrossAssemblies` it is the published surface alone.
             Published: IExternalSymbolProvider
+            /// The diagnostics this unit surfaces to the fold's consumer, anchored in their
+            /// own files. When compiling, everything both halves reported; when referencing,
+            /// the `.fsi`'s findings — or, for a `.fs` without one, the analysis ERRORS,
+            /// because the inferred surface IS the unit's contract.
+            Surfaced: AnchoredDiagnostic list
         }
 
-    /// A `.fsi` with no implementation on this target, resolved and published on its own.
-    /// The conformance gate refuses one in a compiling assembly; the referencing route
-    /// publishes it as-is.
+    /// A signature file resolved against the units before it, and its surface published.
+    /// Every `FoldedUnit.SignatureOnly` payload is one of these; a paired unit's resolution
+    /// passes through here before conformance joins its findings.
     [<NoEquality; NoComparison>]
     type ResolvedSignature =
         {
+            /// The parsed half the surface was resolved from; its `Parsed.Diagnostics` are
+            /// recovery's findings.
+            Signature: ParsedHalf<ParseChain.ParsedSignature>
             Source: OriginSource
             Surface: PublishedSurface
-            /// What RECOVERY reported while parsing.
-            ParseDiagnostics: Diagnostic list
             /// What resolving the signature found.
             Diagnostics: Diagnostic list
-            /// What LATER units of the fold resolved this one through.
+            /// `Surface` wrapped as a provider.
             Published: IExternalSymbolProvider
         }
 
@@ -310,7 +407,18 @@ module AssemblyFiles =
         | SignatureOnly of ResolvedSignature
         /// A half that yielded no tree fails the unit whole; the implementation's fault
         /// leads when both halves failed.
-        | Failed of faults: UnparsedFile list
+        | Failed of leading: UnparsedFile * rest: UnparsedFile list
+
+    [<RequireQualifiedAccess>]
+    module FoldedUnit =
+
+        /// The diagnostics a unit surfaces to the fold's consumer, anchored in their own
+        /// files.
+        let surfaced (unit: FoldedUnit) : AnchoredDiagnostic list =
+            match unit with
+            | FoldedUnit.Analysed u -> u.Surfaced
+            | FoldedUnit.SignatureOnly r -> anchorDiagnostics r.Source (r.Signature.Parsed.Diagnostics @ r.Diagnostics)
+            | FoldedUnit.Failed(leading, rest) -> List.collect failureDiagnostics (leading :: rest)
 
     /// One implementation file analysed and frozen against `composed`, with its splice
     /// templates collected.
@@ -380,116 +488,46 @@ module AssemblyFiles =
     let private noReprs () =
         Dictionary<string, string>(System.StringComparer.Ordinal)
 
-    /// One in-assembly unit analysed against `composed`, the surface every unit before it
-    /// published. The `.fs`-derived surface is published where no `.fsi` narrows it; a
-    /// `.fsi`'s replaces it, homed in the IMPLEMENTATION file so a later file of the same
-    /// assembly resolves it as a local.
-    let private analyseUnit
-        (analyse: AnalyseFile)
-        (assembly: CompilingAssembly)
-        (composed: IExternalSymbolProvider)
-        (unit: ParsedUnit)
-        : AnalysedUnit =
-        let impl = analyseImplementation analyse assembly composed unit.Implementation
-
-        let surface, signatures, signatureFile =
-            match unit.Signature with
-            | ValueNone ->
-                let surface = FrozenSignature.toSurface impl.Origin impl.Frozen
-                surface, PublishedSurface.toProvider surface, ValueNone
-            | ValueSome signature ->
-                let source, surface, resolutionDiagnostics =
-                    resolveSignatureFile
-                        assembly
-                        composed
-                        (implementationReprs unit.Implementation.Parsed.Lexed unit.Implementation.Parsed.File)
-                        signature
-
-                let published =
-                    ExternalSymbolProviders.stack
-                        (ValueSome(Origin.InFile impl.Origin.File.Path))
-                        []
-                        [ PublishedSurface.toProvider surface ]
-
-                surface,
-                published,
-                ValueSome
-                    {
-                        Source = source
-                        ParseDiagnostics = signature.Parsed.Diagnostics
-                        Diagnostics =
-                            resolutionDiagnostics
-                            @ conformanceDiagnostics assembly.Name signature unit.Implementation published impl.Frozen
-                    }
-
-        let view =
-            ExternalSymbolProviders.withInlineBodies (InlineBodies.index impl.Bodies) signatures
-
-        {
-            File =
-                {
-                    Source = impl.Origin
-                    ParseDiagnostics = unit.Implementation.Parsed.Diagnostics
-                    Frozen = impl.Frozen
-                    Scoped = impl.Scoped
-                    View = view
-                    Signature = signatureFile
-                }
-            Surface = surface
-            Bodies = impl.Bodies
-            Published = view
-        }
-
     /// A unit's halves gated to trees: analysis runs only over a unit both halves of which
-    /// parsed, and a faulted half fails the unit whole either way.
+    /// parsed, and a faulted half fails the unit whole either way. The fold's input shape.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
-    type private ClassifiedUnit =
+    type ClassifiedUnit =
         | Unpaired of ParsedHalf<ParseChain.ParsedSignature>
         | Parsed of ParsedUnit
-        | Faulted of UnparsedFile list
+        /// The implementation's fault leads when both halves failed.
+        | Faulted of leading: UnparsedFile * rest: UnparsedFile list
 
-    /// Fold a unit list in manifest order over `external`, with the language prelude at the
-    /// visibility floor. Every implementation is analysed ONCE, and one with no `.fsi`
-    /// publishes the surface it infers.
-    ///
-    /// Both arms are strict manifest order: each unit resolves only the units BEFORE it,
-    /// nearest first, on both sides of the boundary. What remains of the axis is the home,
-    /// the ambient prefixes, the conformance check, and whether the frozen `.fs` is kept
-    /// for codegen.
-    let foldUnits
-        (analyse: AnalyseFile)
-        (assembly: CompilingAssembly)
-        (external: IExternalSymbolProvider)
-        (publication: Publication)
-        (units: PackageSource.PackageUnit list)
-        : FoldedUnit list =
-        let unparsed (file: PackageSource.ReadFile<'Tree>) (fault: PackageSource.FileFault) : UnparsedFile =
-            {
-                Id = file.Id
-                Failure = PackageSource.FileFault.toFailure assembly.Name file.Relative fault
-            }
+    [<RequireQualifiedAccess>]
+    module ClassifiedUnit =
 
-        let half (file: PackageSource.ReadFile<'Tree>) (parsed: 'Tree) : ParsedHalf<'Tree> =
-            { Id = file.Id; Parsed = parsed }
+        /// Classify one package unit. `package` names the compilation in a faulted file's
+        /// failure message.
+        let ofPackageUnit (package: string) (unit: PackageSource.PackageUnit) : ClassifiedUnit =
+            let unparsed (file: PackageSource.ReadFile<'Tree>) (fault: PackageSource.FileFault) : UnparsedFile =
+                {
+                    Id = file.Id
+                    Failure = PackageSource.FileFault.toFailure package file.Relative fault
+                }
 
-        let classify (unit: PackageSource.PackageUnit) : ClassifiedUnit =
+            let half (file: PackageSource.ReadFile<'Tree>) (parsed: 'Tree) : ParsedHalf<'Tree> =
+                { Id = file.Id; Parsed = parsed }
+
             match unit with
             | PackageSource.PackageUnit.UnpairedSignature signature ->
                 match signature.Outcome with
-                | Error fault -> ClassifiedUnit.Faulted [ unparsed signature fault ]
+                | Error fault -> ClassifiedUnit.Faulted(unparsed signature fault, [])
                 | Ok parsed -> ClassifiedUnit.Unpaired(half signature parsed)
             | PackageSource.PackageUnit.Source src ->
-                // The implementation's fault leads when both halves failed.
                 let sigFaults =
                     match src.Signature with
                     | ValueSome({ Outcome = Error fault } as signature) -> [ unparsed signature fault ]
                     | _ -> []
 
                 match src.Implementation.Outcome with
-                | Error fault -> ClassifiedUnit.Faulted(unparsed src.Implementation fault :: sigFaults)
+                | Error fault -> ClassifiedUnit.Faulted(unparsed src.Implementation fault, sigFaults)
                 | Ok parsedImplementation ->
                     match sigFaults with
-                    | _ :: _ -> ClassifiedUnit.Faulted sigFaults
+                    | fault :: rest -> ClassifiedUnit.Faulted(fault, rest)
                     | [] ->
                         ClassifiedUnit.Parsed
                             {
@@ -501,193 +539,197 @@ module AssemblyFiles =
                                     | _ -> ValueNone
                             }
 
-        let classified = List.map classify units
+        /// A unit the caller parsed itself: `Ok` is a parsed unit, `Error` its one fault.
+        let ofResult (unit: Result<ParsedUnit, UnparsedFile>) : ClassifiedUnit =
+            match unit with
+            | Ok u -> ClassifiedUnit.Parsed u
+            | Error e -> ClassifiedUnit.Faulted(e, [])
 
-        match publication with
-        | Publication.InAssembly ->
-            // The visibility STACK, nearest first.
-            let mutable visible: IExternalSymbolProvider list = [ external; prelude ]
+    /// Fold a unit list in manifest order over `external`, with the language prelude at the
+    /// visibility floor. Every implementation is analysed ONCE, and one with no `.fsi`
+    /// publishes the surface it infers.
+    ///
+    /// Both arms are strict manifest order: each unit resolves only the units BEFORE it,
+    /// nearest first, on both sides of the boundary. What remains of the axis is what a body
+    /// analyses over, the home a `.fsi`'s surface is wrapped in, the conformance check, and
+    /// which diagnostics a unit surfaces.
+    let foldUnits
+        (analyse: AnalyseFile)
+        (assembly: CompilingAssembly)
+        (external: IExternalSymbolProvider)
+        (publication: Publication)
+        (units: ClassifiedUnit list)
+        : FoldedUnit list =
+        // The units' published views so far, NEAREST first; `external` and the prelude are
+        // the floor beneath them.
+        let mutable own: IExternalSymbolProvider list = []
 
-            [
-                for unit in classified ->
-                    match unit with
-                    | ClassifiedUnit.Faulted faults -> FoldedUnit.Failed faults
-                    | ClassifiedUnit.Unpaired signature ->
-                        let source, surface, resolutionDiagnostics =
-                            resolveSignatureFile
-                                assembly
-                                (ExternalSymbolProviders.composite visible)
-                                (noReprs ())
-                                signature
+        let signatureFloor () =
+            ExternalSymbolProviders.composite (own @ [ external; prelude ])
 
-                        let published = PublishedSurface.toProvider surface
-                        visible <- published :: visible
+        let resolveSignature (reprs: Dictionary<string, string>) (signature: ParsedHalf<ParseChain.ParsedSignature>) =
+            let source, surface, diagnostics =
+                resolveSignatureFile assembly (signatureFloor ()) reprs signature
 
-                        FoldedUnit.SignatureOnly
-                            {
-                                Source = source
-                                Surface = surface
-                                ParseDiagnostics = signature.Parsed.Diagnostics
-                                Diagnostics = resolutionDiagnostics
-                                Published = published
-                            }
-                    | ClassifiedUnit.Parsed parsedUnit ->
-                        let analysed =
-                            analyseUnit analyse assembly (ExternalSymbolProviders.composite visible) parsedUnit
+            {
+                Signature = signature
+                Source = source
+                Surface = surface
+                Diagnostics = diagnostics
+                Published = PublishedSurface.toProvider surface
+            }
 
-                        // Pushed on top of the units it may shadow; later units resolve
-                        // through it.
-                        visible <- analysed.Published :: visible
-                        FoldedUnit.Analysed analysed
-            ]
-        | Publication.AcrossAssemblies bodyExternal ->
-            // The visibility STACK, nearest first: what the units before this one published.
-            let mutable visible: IExternalSymbolProvider list = []
+        // What a BODY analyses over: the signature floor when compiling; when referencing,
+        // platform metadata re-seeded with the axis published so far PLUS the intrinsics the
+        // unit itself declares — the file's in-file knowledge, which BCL member
+        // canonicalisation reads.
+        let bodyProvider (sigPublished: IExternalSymbolProvider voption) : IExternalSymbolProvider =
+            match publication with
+            | Publication.InAssembly -> signatureFloor ()
+            | Publication.AcrossAssemblies bodyExternal ->
+                let axis =
+                    ExternalSymbolProviders.mergeIntrinsics (
+                        match sigPublished with
+                        | ValueSome p -> p :: own
+                        | ValueNone -> own
+                    )
 
-            let signatureFloor () =
-                ExternalSymbolProviders.composite (visible @ [ external; prelude ])
+                ExternalSymbolProviders.composite (own @ [ bodyExternal axis; prelude ])
 
-            let resolveBoundary
-                (reprs: Dictionary<string, string>)
-                (signature: ParsedHalf<ParseChain.ParsedSignature>)
-                =
-                let source, surface, diagnostics =
-                    resolveSignatureFile assembly (signatureFloor ()) reprs signature
+        [
+            for unit in units ->
+                match unit with
+                | ClassifiedUnit.Faulted(leading, rest) -> FoldedUnit.Failed(leading, rest)
+                | ClassifiedUnit.Unpaired signature ->
+                    let resolved = resolveSignature (noReprs ()) signature
 
-                {
-                    Source = source
-                    Surface = surface
-                    ParseDiagnostics = signature.Parsed.Diagnostics
-                    Diagnostics = diagnostics
-                    Published = PublishedSurface.toProvider surface
-                }
-
-            [
-                for unit in classified ->
-                    match unit with
-                    | ClassifiedUnit.Faulted faults -> FoldedUnit.Failed faults
-                    | ClassifiedUnit.Unpaired signature ->
-                        let resolved = resolveBoundary (noReprs ()) signature
-
-                        visible <- resolved.Published :: visible
-                        FoldedUnit.SignatureOnly resolved
-                    | ClassifiedUnit.Parsed parsedUnit ->
-                        // The unit's `.fsi` resolves against the units BEFORE it, and is not
-                        // pushed until the body has analysed: neither half sees the other's
-                        // names, exactly as in a compiling assembly.
-                        let boundarySignature =
-                            match parsedUnit.Signature with
-                            | ValueSome signature ->
-                                ValueSome(
-                                    resolveBoundary
-                                        (implementationReprs
-                                            parsedUnit.Implementation.Parsed.Lexed
-                                            parsedUnit.Implementation.Parsed.File)
-                                        signature
-                                )
-                            | ValueNone -> ValueNone
-
-                        // The body's platform metadata is seeded with the axis published so
-                        // far PLUS the intrinsics this unit itself declares — the file's
-                        // in-file knowledge, which BCL member canonicalisation reads.
-                        let bodyAxis =
-                            ExternalSymbolProviders.mergeIntrinsics (
-                                match boundarySignature with
-                                | ValueSome resolved -> resolved.Published :: visible
-                                | ValueNone -> visible
+                    own <- resolved.Published :: own
+                    FoldedUnit.SignatureOnly resolved
+                | ClassifiedUnit.Parsed parsedUnit ->
+                    // The unit's `.fsi` resolves against the units BEFORE it, and is not
+                    // pushed until the body has analysed: neither half sees the other's
+                    // names.
+                    let resolvedSignature =
+                        parsedUnit.Signature
+                        |> ValueOption.map (
+                            resolveSignature (
+                                implementationReprs
+                                    parsedUnit.Implementation.Parsed.Lexed
+                                    parsedUnit.Implementation.Parsed.File
                             )
+                        )
 
-                        let impl =
-                            analyseImplementation
-                                analyse
-                                assembly
-                                (ExternalSymbolProviders.composite (visible @ [ bodyExternal bodyAxis; prelude ]))
-                                parsedUnit.Implementation
+                    let impl =
+                        analyseImplementation
+                            analyse
+                            assembly
+                            (bodyProvider (resolvedSignature |> ValueOption.map (fun r -> r.Published)))
+                            parsedUnit.Implementation
 
-                        let surface, published, signatureFile =
-                            match boundarySignature with
-                            | ValueSome resolved ->
-                                resolved.Surface,
-                                resolved.Published,
-                                ValueSome
-                                    {
-                                        Source = resolved.Source
-                                        ParseDiagnostics = resolved.ParseDiagnostics
-                                        Diagnostics = resolved.Diagnostics
-                                    }
+                    let surface, published, signatureFile =
+                        match resolvedSignature with
+                        | ValueSome r ->
+                            // Homed in the IMPLEMENTATION file when compiling, so a later
+                            // file of the same assembly resolves it as a local; bare when
+                            // referencing, the caller stamping the assembly home once.
+                            let published, conformance =
+                                match publication with
+                                | Publication.InAssembly ->
+                                    let homed =
+                                        ExternalSymbolProviders.stack
+                                            (ValueSome(Origin.InFile impl.Origin.File.Path))
+                                            []
+                                            [ r.Published ]
+
+                                    homed,
+                                    conformanceDiagnostics
+                                        assembly.Name
+                                        r.Signature
+                                        parsedUnit.Implementation
+                                        homed
+                                        impl.Frozen
+                                | Publication.AcrossAssemblies _ -> r.Published, []
+
+                            r.Surface,
+                            published,
+                            ValueSome
+                                {
+                                    Source = r.Source
+                                    ParseDiagnostics = r.Signature.Parsed.Diagnostics
+                                    Diagnostics = r.Diagnostics @ conformance
+                                }
+                        | ValueNone ->
+                            let surface = FrozenSignature.toSurface impl.Origin impl.Frozen
+                            surface, PublishedSurface.toProvider surface, ValueNone
+
+                    let view =
+                        ExternalSymbolProviders.withInlineBodies (InlineBodies.index impl.Bodies) published
+
+                    // Pushed on top of the units it may shadow; later units resolve through
+                    // it. The full view crosses only inside a compiling assembly — across
+                    // the boundary the surface alone does, and the splice templates travel
+                    // beside it.
+                    let pushed =
+                        match publication with
+                        | Publication.InAssembly -> view
+                        | Publication.AcrossAssemblies _ -> published
+
+                    own <- pushed :: own
+
+                    let file =
+                        {
+                            Source = impl.Origin
+                            ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
+                            Frozen = impl.Frozen
+                            Scoped = impl.Scoped
+                            View = view
+                            Signature = signatureFile
+                        }
+
+                    let surfaced =
+                        match publication with
+                        | Publication.InAssembly -> fileDiagnostics file
+                        | Publication.AcrossAssemblies _ ->
+                            match signatureFile with
+                            | ValueSome s -> signatureFileDiagnostics s
                             | ValueNone ->
-                                let surface = FrozenSignature.toSurface impl.Origin impl.Frozen
-                                surface, PublishedSurface.toProvider surface, ValueNone
+                                // The unit's inferred surface IS its contract, so its
+                                // analysis errors are findings about what it publishes. A
+                                // unit with a `.fsi` keeps its tolerance: its analysis
+                                // feeds splice templates alone.
+                                implementationFileDiagnostics file
+                                |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error)
 
-                        visible <- published :: visible
-
-                        FoldedUnit.Analysed
-                            {
-                                File =
-                                    {
-                                        Source = impl.Origin
-                                        ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
-                                        Frozen = impl.Frozen
-                                        Scoped = impl.Scoped
-                                        View =
-                                            ExternalSymbolProviders.withInlineBodies
-                                                (InlineBodies.index impl.Bodies)
-                                                published
-                                        Signature = signatureFile
-                                    }
-                                Surface = surface
-                                Bodies = impl.Bodies
-                                Published = published
-                            }
-            ]
+                    FoldedUnit.Analysed
+                        {
+                            File = file
+                            Surface = surface
+                            Bodies = impl.Bodies
+                            Published = pushed
+                            Surfaced = surfaced
+                        }
+        ]
 
     /// Analyse a multi-file assembly in manifest order through a chosen front end: the
     /// compiling arm of `foldUnits`, for a caller holding its units as parse RESULTS.
-    let analyseParsedWith
+    let analyseWith
         (analyse: AnalyseFile)
         (assembly: CompilingAssembly)
         (external: IExternalSymbolProvider)
         (units: Result<ParsedUnit, UnparsedFile> list)
         : Result<FrozenFile, UnparsedFile> list =
-        let toPackageUnit (unit: Result<ParsedUnit, UnparsedFile>) : PackageSource.PackageUnit =
-            let readFile (h: ParsedHalf<'Tree>) : PackageSource.ReadFile<'Tree> =
-                {
-                    Relative = h.Id.Name
-                    Id = h.Id
-                    Outcome = Ok h.Parsed
-                }
-
-            match unit with
-            | Ok u ->
-                PackageSource.PackageUnit.Source
-                    {
-                        Signature = u.Signature |> ValueOption.map readFile
-                        Implementation = readFile u.Implementation
-                    }
-            | Error e ->
-                PackageSource.PackageUnit.Source
-                    {
-                        Signature = ValueNone
-                        Implementation =
-                            {
-                                Relative = e.Id.Name
-                                Id = e.Id
-                                Outcome = Error(PackageSource.FileFault.Unparsed e.Failure)
-                            }
-                    }
-
-        foldUnits analyse assembly external Publication.InAssembly (List.map toPackageUnit units)
+        foldUnits analyse assembly external Publication.InAssembly (List.map ClassifiedUnit.ofResult units)
         |> List.map (
             function
             | FoldedUnit.Analysed u -> Ok u.File
-            | FoldedUnit.Failed(e :: _) -> Error e
-            | FoldedUnit.Failed []
+            | FoldedUnit.Failed(e, []) -> Error e
+            | FoldedUnit.Failed _
             | FoldedUnit.SignatureOnly _ ->
-                // Every input unit above carries an implementation and at least a fault.
-                failwith "internal error: a Result-shaped unit folded to a shape it cannot express"
+                failwith
+                    "internal error: `ClassifiedUnit.ofResult` yields one fault per failed unit and no unpaired signature"
         )
 
-    /// `analyseParsedWith` for a caller holding raw TEXT, namely a driver or a test. One that
+    /// `analyseWith` for a caller holding raw TEXT, namely a driver or a test. One that
     /// already parsed its units hands them over directly.
     let analyseAssemblyWith
         (analyse: AnalyseFile)
@@ -696,7 +738,7 @@ module AssemblyFiles =
         compilationDefines
         (units: SourceUnit list)
         : Result<FrozenFile, UnparsedFile> list =
-        analyseParsedWith analyse assembly external (List.map (parseUnit compilationDefines) units)
+        analyseWith analyse assembly external (List.map (parseUnit compilationDefines) units)
 
     /// Analyse a multi-file assembly through the default package/FSharp.Core front end.
     /// The self-host one is reached by passing it to `analyseAssemblyWith` directly.
@@ -708,88 +750,9 @@ module AssemblyFiles =
         : Result<FrozenFile, UnparsedFile> list =
         analyseAssemblyWith Pipeline.analyseFor assembly external compilationDefines units
 
-    /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so nothing
-    /// resolves a token index against it and they render at line 1, col 1. A POSITIONED
-    /// diagnostic here is unverifiable, so it faults rather than printing a plausible line.
-    let unpositionedDiagnostics (path: AssemblyFileId) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
-        [
-            for d in diagnostics do
-                match d.Site with
-                | Site.Nowhere ->
-                    {
-                        Path = path
-                        Diagnostic = d
-                        Line = 1
-                        Col = 1
-                    }
-                | positioned ->
-                    failwithf
-                        "internal error: %s produced no `Lexed`, so a diagnostic cannot carry a position, but got %A (%s)"
-                        path.Name
-                        positioned
-                        d.Message
-        ]
-
-    /// A whole-set fault as one unpositioned diagnostic: it is about the package set a
-    /// compilation was handed, so there is no file to anchor it to.
-    let setFaultDiagnostics (fault: PackageSetFault) : AnchoredDiagnostic list =
-        unpositionedDiagnostics AssemblyFileId.nowhere [ Diagnostic.nowhere (Kind.PackageSet fault) ]
-
-    /// Anchor a file's bare diagnostics to its path and text: a `Site` points to tokens of THIS
-    /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a
-    /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at line 1, col 1.
-    let anchorDiagnostics (file: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
-        let lexed = file.Lexed
-        let source = file.Input
-        let lineIndex = XParsec.LineIndex.OfString source
-
-        // The gap after the LAST token is the end of the file; every other token's gap is
-        // where the next one starts.
-        let gapAfter (t: int<token>) =
-            let next = t + 1<token>
-
-            if int next < lexed.Tokens.Length then
-                lexed.Tokens[next].StartIndex
-            else
-                source.Length
-
-        [
-            for d in diagnostics do
-                let struct (line, col) =
-                    match d.Site with
-                    | Site.Nowhere -> struct (1, 1)
-                    | Site.At t
-                    | Site.Between(first = t) -> lineIndex.GetLineCol lexed.Tokens[t].StartIndex
-                    | Site.After t -> lineIndex.GetLineCol(gapAfter t)
-
-                {
-                    Path = file.File.Path.Relative
-                    Diagnostic = d
-                    Line = line
-                    Col = col
-                }
-        ]
-
-    /// A failed file's diagnostics, anchored against its own token stream when the failure
-    /// came AFTER lexing, and at line 1, col 1 when there is no stream to anchor against.
-    let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
-        match e.Failure.Lexed with
-        // The `""` bucket: no file was analysed, so no assembly claims this one. The
-        // source exists only to resolve the positions the parser's diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Id lexed) e.Failure.Diagnostics
-        | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
-
     /// Every analysed file's diagnostics, each anchored to ITS OWN file. Recovery's findings
     /// come first: they are what the tree the analysis ran on was patched up from.
-    let consolidatedDiagnostics (files: FrozenFile list) : AnchoredDiagnostic list =
-        [
-            for f in files do
-                match f.Signature with
-                | ValueSome s -> yield! anchorDiagnostics s.Source (s.ParseDiagnostics @ s.Diagnostics)
-                | ValueNone -> ()
-
-                yield! anchorDiagnostics f.Source (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
-        ]
+    let consolidatedDiagnostics (files: FrozenFile list) : AnchoredDiagnostic list = List.collect fileDiagnostics files
 
     /// A whole assembly that passed the gate: its files in manifest order, plus their
     /// retained sources as one domain, because a backend needs those to read the anchors of a
@@ -800,44 +763,46 @@ module AssemblyFiles =
             Origins: OriginSources
         }
 
-    /// `analyseParsedWith`, GATED: every file must have parsed, and no analysed file may carry
+    /// `analyseWith`, GATED: every file must have parsed, and no analysed file may carry
     /// an error-severity diagnostic. A parse failure is fatal for the whole assembly and is
     /// reported alone, because the files after it analysed against a truncated view.
-    let analyseGatedParsed
+    let analyseGated
         (analyse: AnalyseFile)
         (assembly: CompilingAssembly)
         (external: IExternalSymbolProvider)
         (units: Result<ParsedUnit, UnparsedFile> list)
         : Result<AnalysedAssembly, AnchoredDiagnostic list> =
-        let results = analyseParsedWith analyse assembly external units
+        let folded =
+            foldUnits analyse assembly external Publication.InAssembly (List.map ClassifiedUnit.ofResult units)
 
         let parseFailures =
-            results
+            folded
             |> List.collect (
                 function
-                | Error e -> failureDiagnostics e
-                | Ok _ -> []
+                | FoldedUnit.Failed(leading, rest) -> List.collect failureDiagnostics (leading :: rest)
+                | _ -> []
             )
 
         match parseFailures with
         | _ :: _ -> Error parseFailures
         | [] ->
             let analysed =
-                results
+                folded
                 |> List.choose (
                     function
-                    | Ok f -> Some f
-                    | Error _ -> None
+                    | FoldedUnit.Analysed u -> Some u
+                    | _ -> None
                 )
 
             match
-                consolidatedDiagnostics analysed
+                analysed
+                |> List.collect (fun u -> u.Surfaced)
                 |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
             with
             | _ :: _ as errors -> Error errors
             | [] ->
                 Ok
                     {
-                        Files = analysed
-                        Origins = analysed |> List.map (fun f -> f.Source) |> OriginSources.ofSeq
+                        Files = [ for u in analysed -> u.File ]
+                        Origins = analysed |> List.map (fun u -> u.File.Source) |> OriginSources.ofSeq
                     }

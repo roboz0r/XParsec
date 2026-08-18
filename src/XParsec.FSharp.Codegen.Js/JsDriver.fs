@@ -45,7 +45,7 @@ module JsDriver =
     let BarrelFileName = JsModulePath.BarrelFileName
 
     /// The resolution contract for a compilation that IS a package, over the JS-native stubs.
-    let contractForSelf (selfPackage: string) (references: string list) : SymbolProviders.Contract =
+    let contractForSelf (selfPackage: string) (references: string list) : PackageProviders.AnalyzedManifest =
         JsNativeSymbols.jsNativeContract (SymbolProviders.selfStack (Some selfPackage) references)
 
     /// The sources that claim one `.mjs`, blamed individually. A module path is a base name,
@@ -103,7 +103,7 @@ module JsDriver =
 
     /// Compile an ordered source-file list as ONE assembly named `packageName`.
     let compileAssemblyWith
-        (contract: SymbolProviders.Contract)
+        (contract: PackageProviders.AnalyzedManifest)
         (packageName: string)
         (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
@@ -113,8 +113,8 @@ module JsDriver =
                 Target = Target.Js
             }
 
-        SymbolProviders.Contract.gate contract
-        |> Result.bind (fun gated -> AssemblyFiles.analyseGatedParsed Pipeline.analyseFor assembly gated.Provider units)
+        PackageProviders.AnalyzedManifest.gate contract
+        |> Result.bind (fun gated -> AssemblyFiles.analyseGated Pipeline.analyseFor assembly gated.Provider units)
         |> Result.bind (fun analysed ->
             // A spliced node reads only against its declaring file's own text, so the
             // assembly's own sources join the references' before any file is emitted.
@@ -177,6 +177,10 @@ module JsDriver =
 
     /// Write `package` under the output `root`: its modules and barrel into `<root>/<Name>/`,
     /// each committed runtime file into its own package's directory.
+    ///
+    /// KNOWN DEFECT: when a module imports a runtime asset of its OWN package, the contract's
+    /// asset barrel rides along in `RuntimeAssets` and `materialiseAssets` writes it over the
+    /// generated barrel written here.
     let materialise (root: string) (package: JsPackage) : unit =
         // Creating the package directory creates the root it sits in.
         let dir = Path.Combine(root, package.Name)

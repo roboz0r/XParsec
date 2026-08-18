@@ -40,12 +40,12 @@ let tests =
                 | other -> failtestf "unexpected: %A" other
             }
 
-            test "`let f = fun x -> x + 1` -> Lambda over App chain with External operator" {
+            test "`let f = fun x -> x + 1` -> Lambda over an InlineCall of the served operator" {
                 let tast = analyse "let f = fun x -> x + 1"
                 let intTy = BuiltinTypes.tyInt
                 let intToInt = TyFun(intTy, intTy)
 
-                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> (v1 + 1)" "TAST shape"
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> spec#0(v1, 1)" "TAST shape"
 
                 match tast.Decls.[0] with
                 | TDecl.Let(_, TExpr.Lambda(_, _, lamTy, _), _, declTy) ->
@@ -60,7 +60,7 @@ let tests =
 
                 Expect.equal
                     (TastShape.prettyDecl tast.Decls.[0])
-                    "let v0 = fun v1 -> (v1 + 1)"
+                    "let v0 = fun v1 -> spec#0(v1, 1)"
                     "TAST shape matches fun-form"
 
                 match tast.Decls.[0] with

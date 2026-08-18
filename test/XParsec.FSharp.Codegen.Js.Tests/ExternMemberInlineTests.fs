@@ -140,7 +140,7 @@ let private widgetPackage: string =
 /// The JS-native contract with the `widget` fixture layered ahead. The WHOLE contract, not
 /// just its provider: a spliced body's positions read only against this set's retained
 /// producer files, and `widget.js.fs` is in this retention and in no other.
-let private widgetFixtureContract: Lazy<SymbolProviders.Contract> =
+let private widgetFixtureContract: Lazy<PackageProviders.AnalyzedManifest> =
     lazy JsNativeSymbols.jsNativeContract (widgetPackage :: TestHelpers.jsPackages)
 
 /// Emit a consumer snippet through the widget-inclusive contract. No runtime module is

@@ -311,7 +311,7 @@ re-implement its dependency loop at a call site. It is **layer-2-agnostic**: a
 backend injects its own platform metadata (BCL `MetadataSymbols` on CLR, the
 JS-native stubs on JS) through the `PlatformMetadataFactory` seam, and an in-assembly
 caller that needs none passes `noPlatformMetadata`. It hands back a
-`ComposedContract` — the provider AND everything resolving those contracts found,
+`Contract` — the provider AND everything resolving those contracts found,
 because a caller that drops the second gets a provider publishing less than the
 contracts say. `composeContract` is the order-it-yourself convenience over a raw
 manifest set; `buildProvider` is the single-package entry point.

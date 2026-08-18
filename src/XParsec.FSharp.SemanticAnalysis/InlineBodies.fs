@@ -130,6 +130,13 @@ module InlineBodies =
 
         { Values = values; Members = members }
 
+    /// The VALUE templates by simple source name, a later template winning a clash. NOT a
+    /// resolution channel (a provider folds a body onto the entry that owns its key); the
+    /// introspection seam tests assert against.
+    let valuesByName (bodies: FileInlineBodies) : Map<string, InlineBody> =
+        (Map.empty, bodies.Values)
+        ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
+
     /// One file's templates as a flat lookup. A binding key and a member key are distinct
     /// `SymbolKey` cases, so the two halves cannot collide.
     let index (bodies: FileInlineBodies) : SymbolKey -> InlineBody voption =

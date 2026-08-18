@@ -132,8 +132,8 @@ Names one thing: the set of types and function signatures a signature file publi
 analysis**. A file at any stage is a *[parsed|analysed] (signature|implementation) file*, never
 "a contract", "a contract file" or "a `.fsi` contract".
 
-Legitimate and untouched: `SymbolProviders.Contract`, `buildContract*`, `composeContract`,
-`ComposedContract`, `compilationContract`, "the contract stack/provider/surface", "a contract
+Legitimate and untouched: `PackageProviders.Contract`, `buildContract*`, `composeContract`,
+`compilationContract`, "the contract stack/provider/surface", "a contract
 extracted from a real `.fsi`", "the implementation does not answer the contract".
 
 Retired: "contract `.fsi` files in compile order" becomes *signature files in compile order*; "a

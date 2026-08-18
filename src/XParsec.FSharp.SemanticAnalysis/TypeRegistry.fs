@@ -670,6 +670,19 @@ module TypeRegistry =
     let tryNominalMemberByKey (types: PassContextTypes) (key: TypeKey) (memberName: string) : NominalMember voption =
         tryNominalByKey types key |> ValueOption.bind (pickMember memberName)
 
+    /// `memberName` on the inline intrinsic-abbrev host filed under the intrinsic's CANON
+    /// `key` — the key a use site's `TyConst` carries.
+    let tryIntrinsicAbbrevMemberByKey
+        (types: PassContextTypes)
+        (key: TypeKey)
+        (memberName: string)
+        : NominalMember voption =
+        match types.IntrinsicAbbrevHost.TryGetValue key with
+        | true, info ->
+            nominalDecl info.TypeKey info.TypeParams info.Members
+            |> ValueOption.bind (pickMember memberName)
+        | false, _ -> ValueNone
+
     /// `C.M`: the static `M` on the class / union / record `C` denotes, resolved AS SEEN FROM
     /// `useSite`. An instance member of that name misses, so a caller cannot mistake one for
     /// a qualified static access.

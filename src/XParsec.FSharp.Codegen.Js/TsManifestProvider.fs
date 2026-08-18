@@ -206,7 +206,7 @@ module TsManifestProvider =
                 | Error msg -> failwith msg
             )
 
-        SymbolProviders.buildContractWithMetadata "tsmanifest" tsProviders Target.Js packageDirs
+        SymbolProviders.buildContractWithMetadata tsProviders Target.Js packageDirs
         // Wraps the COMPOSED stack: its `float` must-repr-to-`number` check reads the merged axis.
         |> NumberCovariance.wrap
         |> ExternalSymbolProviders.memoize

@@ -14,7 +14,7 @@ let private dummyTok: SyntaxToken =
     SyntaxToken.virtualToken (XParsec.FSharp.Lexer.PositionedToken.Create(XParsec.FSharp.Lexer.Token.EOF, 0))
 
 /// The real Vesper.Core provider, so these hand-written-IL fixtures read primitive reprs
-/// from Core's own `.fs` like every other build. `buildContract` caches.
+/// from Core's own `.fs` like every other build.
 let private coreProvider: Lazy<IExternalSymbolProvider> =
     lazy ClrSymbolProviders.buildContract [ vesperCorePackage ]
 

@@ -55,10 +55,13 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "unary minus translates to External op_UnaryNegation App" {
+            test "unary minus specializes the served op_UnaryNegation" {
                 let tast = analyse "let f x = -x + 0"
 
-                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((-v1) + 0)" "TAST shape"
+                Expect.equal
+                    (TastShape.prettyDecl tast.Decls.[0])
+                    "let v0 = fun v1 -> spec#0(spec#2(v1), 0)"
+                    "TAST shape"
             }
 
             test "if true then 1 else 2 types as int" {
@@ -111,7 +114,7 @@ let tests =
                     (TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyBool; BuiltinTypes.tyInt ]))
                     "t : int * bool * int"
 
-                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, true, (2 + 3))" "TAST shape"
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1, true, spec#0(2, 3))" "TAST shape"
             }
 
             test "tuple constrains element types via context" {
@@ -143,7 +146,7 @@ let tests =
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
 
-                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((); (v1 + 1))" "TAST shape"
+                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> ((); spec#0(v1, 1))" "TAST shape"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
@@ -369,7 +372,10 @@ let tests =
                 Expect.equal (declType tast) expected "f : int * int -> int"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun (v1, v2) -> (v1 + v2)" "TAST shape"
+                Expect.equal
+                    (TastShape.prettyDecl tast.Decls.[0])
+                    "let v0 = fun (v1, v2) -> spec#0(v1, v2)"
+                    "TAST shape"
             }
 
             test "function-form let with tuple arg: `let f (a, b) = a * b`" {

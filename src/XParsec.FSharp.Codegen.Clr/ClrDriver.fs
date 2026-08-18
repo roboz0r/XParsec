@@ -26,7 +26,7 @@ type PreparedCompilation =
             Digest: Hashing.CompilationDigest
             /// The reference set already GATED, so a compilation whose contracts failed to
             /// resolve is refused for the whole run and not once per file.
-            Contract: Result<SymbolProviders.Contract, Diagnostic list>
+            Contract: Result<PackageProviders.AnalyzedManifest, Diagnostic list>
         }
 
 module ClrCompilation =
@@ -61,14 +61,23 @@ module ClrDriver =
     /// The compilation's reference set resolved, GATED on what resolving it found.
     let private contractFor
         (inputs: ClrCompilation)
-        : Result<SymbolProviders.Contract, AssemblyFiles.AnchoredDiagnostic list> =
+        : Result<PackageProviders.AnalyzedManifest, AssemblyFiles.AnchoredDiagnostic list> =
         ClrSymbolProviders.compilationContract inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
-        |> SymbolProviders.Contract.gate
+        |> PackageProviders.AnalyzedManifest.gate
 
-    /// A gate refusal as the FLAT diagnostics a single-file entry returns; the file each references
-    /// is in its own message, there being no compiling file to anchor it to.
+    /// A gate refusal as the FLAT diagnostics a single-file entry returns. A positioned
+    /// diagnostic keeps its file and position, rendered into the message; a whole-set fault
+    /// has no file and passes through.
     let private unanchored (diagnostics: AssemblyFiles.AnchoredDiagnostic list) : Diagnostic list =
-        diagnostics |> List.map (fun d -> d.Diagnostic)
+        [
+            for d in diagnostics ->
+                if d.Path = AssemblyFileId.nowhere then
+                    d.Diagnostic
+                else
+                    Diagnostic.nowhere (
+                        Kind.Driver(sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
+                    )
+        ]
 
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
     /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
@@ -191,7 +200,7 @@ module ClrDriver =
                 Target = Target.Clr
             }
 
-        AssemblyFiles.analyseGatedParsed Pipeline.analyseFor assembly external units
+        AssemblyFiles.analyseGated Pipeline.analyseFor assembly external units
         |> Result.map (fun analysed ->
             // The visibility stack analysis composed, rebuilt: `external` is the floor and
             // `Files` is in file order, so each view pushes on top of the ones it may shadow.
