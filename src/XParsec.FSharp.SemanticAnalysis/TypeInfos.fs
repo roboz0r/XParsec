@@ -454,7 +454,7 @@ type ResolvedLocalMember =
     {
         Key: SymbolKey
         /// The declaring level's type at ITS type arguments, which for an INHERITED member is
-        /// not the object argument's own. The object argument upcasts to it, so the call names
+        /// not the object argument's own. The object argument upcasts to it, so the call spells
         /// the type that emits the member.
         DeclaringTy: SemType
     }

@@ -56,7 +56,7 @@ and ValueTupleRest =
         Nested: ValueTupleHandles
     }
 
-/// Which member of an emitted *generic* union a `MemberRef` names. The ref's signature is
+/// Which member of an emitted *generic* union a `MemberRef` identifies. The ref's signature is
 /// written in the union's own generic parameters (`!0`), the instantiation riding the parent
 /// `TypeSpec`: `List<int>` externally, `List<!0>` from inside the type's own factory bodies.
 [<RequireQualifiedAccess>]
@@ -67,7 +67,7 @@ type UnionMember =
     | Field of caseName: string * fieldIndex: int
     | Factory of caseName: string
 
-/// Which member of an emitted *generic* closure (`<closure>$n`) a `MemberRef` names.
+/// Which member of an emitted *generic* closure (`<closure>$n`) a `MemberRef` identifies.
 /// Signature in the closure's own generic parameters (`!i`); the parent `TypeSpec` is
 /// `<closure>$n<int>` externally, `<closure>$n<!0>` from inside its own `Invoke`.
 [<RequireQualifiedAccess>]
@@ -79,7 +79,7 @@ type ClosureMember =
     /// `instance ResultTy Invoke(ParamTy)` — the closure's `Invoke` override.
     | Invoke
 
-/// Which member of an emitted *generic* record a `MemberRef` names.
+/// Which member of an emitted *generic* record a `MemberRef` identifies.
 [<RequireQualifiedAccess>]
 type RecordMember =
     /// The single instance `.ctor(field0, field1, …)`, fields in declaration order.
@@ -87,7 +87,7 @@ type RecordMember =
     /// The public field named `fieldName`, the source field name preserved verbatim.
     | Field of fieldName: string
 
-/// Which member of an emitted *generic* class a `MemberRef` names.
+/// Which member of an emitted *generic* class a `MemberRef` identifies.
 [<RequireQualifiedAccess>]
 type ClassMember =
     /// The primary `instance void .ctor(p0, p1, …)` — parameter types are
@@ -100,7 +100,7 @@ type ClassMember =
     /// The backing field named `fieldName` for a primary-ctor parameter.
     | Field of fieldName: string
 
-/// Which family, and which member of it, a `UserGenericMemberRef` names.
+/// Which family, and which member of it, a `UserGenericMemberRef` identifies.
 [<RequireQualifiedAccess>]
 type UserMemberKind =
     | UnionMember of UnionMember
@@ -327,7 +327,7 @@ type ICodegenProvider =
     abstract ExternalParameterlessBaseCtor: key: TypeKey -> EntityHandle voption
 
     /// The raw external `TypeRef` for `key` (a heritable external base class), the token a
-    /// derived type's `extends` column names. `ValueNone` ⇒ `key` is not an external class.
+    /// derived type's `extends` column points to. `ValueNone` ⇒ `key` is not an external class.
     abstract ExternalClassTypeRef: key: TypeKey -> EntityHandle voption
 
     /// Resolve an intrinsic-CLASS `inherit` parent to its platform external key

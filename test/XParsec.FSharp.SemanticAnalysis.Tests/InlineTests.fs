@@ -47,7 +47,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 // A wire body keeps the PRODUCER's token indices and does not say which file they index, so a
-// consumer names that file and reads them there. An edit leaves every index still in range, so
+// consumer identifies that file and reads them there. An edit leaves every index still in range, so
 // the file's hash is the only thing that can tell a stale anchor from a live one.
 
 let private producerSrc =
@@ -94,7 +94,7 @@ let private tokenIndices (toks: SyntaxToken list) : int list =
         | TokenIndex.Virtual -> -1
     )
 
-/// The abstraction the entry `spec` names. An inline call is outlined, so what a use site
+/// The abstraction the entry `spec` identifies. An inline call is outlined, so what a use site
 /// expands TO is read off the specialization table, not out of the decl the call sits in.
 let private entryValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
@@ -475,7 +475,7 @@ let tests =
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {
                 // The published body is expanded at a CONSUMER, where none of this file's bound
                 // variables exist, so a module-level sibling must leave the file as `External` +
-                // `SymbolKey`, never as a `Var` naming a bound variable only this tree has.
+                // `SymbolKey`, never as a `Var` referencing a bound variable only this tree has.
                 let input =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 

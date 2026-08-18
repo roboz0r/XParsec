@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // A JS package build: one `.mjs` per EMITTING source file inside a directory named for
-// the package, plus the generated barrel. A cross-file reference names the DECLARING
+// the package, plus the generated barrel. A cross-file reference resolves to the DECLARING
 // FILE's module, which the package name alone could not identify.
 
 let private packageName = "Test.Pkg"
@@ -98,7 +98,7 @@ let tests =
             }
 
             // A `.fsi` publishes the declarations, but what a backend EMITS for the unit is
-            // compiled from the `.fs` — so the import must name that module, not the signature.
+            // compiled from the `.fs` — so the import must reference that module, not the signature.
             test "a reference through a `.fsi` imports the IMPLEMENTATION's module" {
                 let declaring =
                     "\
@@ -123,7 +123,7 @@ module Shapes =
     type Point = { X: int; Y: int }
 "
 
-                // The record literal names no type: it resolves through the field-reverse
+                // The record literal carries no type annotation: it resolves through the field-reverse
                 // index the SIGNATURE publishes, which is a channel a `.fsi` view must carry.
                 let consuming =
                     "\
@@ -178,7 +178,7 @@ module Use =
 
             // Most of a declaration-heavy package's files lower to no JS at all, so they get
             // no `.mjs` rather than an empty one.
-            test "a file that emits nothing gets no module and is absent from the barrel" {
+            test "a file that emits nothing is absent from both the module list and the barrel" {
                 let interfacesOnly =
                     "\
 namespace Test.Pkg
@@ -227,14 +227,14 @@ type IShape =
                         "each claimant is blamed, so neither is silently the loser"
 
                     for d in diags do
-                        Expect.stringContains d.Diagnostic.Message "one.mjs" "naming the claimed module path"
+                        Expect.stringContains d.Diagnostic.Message "one.mjs" "quoting the claimed module path"
                         Expect.stringContains d.Diagnostic.Message "a/one.fs" "and the sources that claimed it"
             }
 
-            // Dropping a module is decided per FILE; naming one in an import is per
+            // Dropping a module is decided per FILE; importing one is per
             // CONSUMER. A declaration-only file is reachable only at the type level, which
             // JS erases, so the consumer imports nothing from the dropped module.
-            test "a consumer of a declaration-only file imports no module the package omits" {
+            test "a consumer of a declaration-only file imports nothing from the dropped module" {
                 let contracts =
                     "\
 namespace Test.Pkg
@@ -342,7 +342,7 @@ module Shim =
             // A `[<Global>]` value's declaring file emits no definition, so it contributes
             // no module at all, and a sibling reference cannot import from a module that
             // does not exist.
-            test "a [<Global>] value emits no definition and a cross-file use imports nothing" {
+            test "a [<Global>] value defines nothing, and a cross-file use imports nothing" {
                 let declaring =
                     "\
 namespace Test.Pkg

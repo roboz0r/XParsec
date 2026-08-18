@@ -91,10 +91,10 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // A member signature may name the enclosing class typar. The fresh typar scope
+            // A member signature may reference the enclosing class typar. The fresh typar scope
             // minted per binding must be seeded with the class typars first, else the
             // annotation hits an empty strict scope and falsely diagnoses "Free type parameter".
-            test "instance member signature names the class typar" {
+            test "instance member signature references the class typar" {
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    member this.Wrap (x: 'a) : Box<'a> = Box(x)"
@@ -107,7 +107,7 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "static member signature names the class typar" {
+            test "static member signature references the class typar" {
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    static member Of (x: 'a) : Box<'a> = Box(x)"
@@ -421,7 +421,7 @@ let tests =
             }
 
             // `set_Q` makes the NAME resolve, so a read gets past name resolution; the error
-            // it then earns names the reason rather than reporting an unknown name.
+            // it then earns gives the reason rather than reporting an unknown name.
             test "a read of a write-only static property says so" {
                 let src =
                     "type C() =\n    static let mutable q = 0\n    static member Q with set (w: int) = q <- w\nlet x = C.Q"
@@ -444,7 +444,7 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // The miss names the OBJECT ARGUMENT's type. Before the array carried its own
+            // The miss cites the OBJECT ARGUMENT's type. Before the array carried its own
             // accessor, an unindexable object argument was unified against `'T[]` instead and
             // reported `Type mismatch: [] vs C` — a complaint about the wrong type.
             test "a type declaring no indexer reports the miss against its own type" {

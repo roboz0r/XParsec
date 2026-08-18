@@ -11,7 +11,7 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 module TastAccessor =
 
-    // Every shape an accessor below yields, re-exported so a consumer names one module for
+    // Every shape an accessor below yields, re-exported so a consumer references one module for
     // both the reader and what it hands back.
     type ExprId = TastNodeViews.ExprId
     type PatId = TastNodeViews.PatId
@@ -65,7 +65,7 @@ module TastAccessor =
     type Specialization = TastNodeViews.Specialization
 
     /// A sibling id in the same pool: every child edge resolves through this, so the pool
-    /// propagates down a walk without any consumer naming it.
+    /// propagates down a walk without any consumer referencing it.
     let inline private at (h: Handle<'a>) (id: 'b) : Handle<'b> = { Pool = h.Pool; Id = id }
 
     /// The EAGER form of a view that has a recognizer: project through it, or fault with
@@ -88,7 +88,7 @@ module TastAccessor =
 
         match FrozenNominal.TryOfFrozen ty with
         | ValueSome n -> n
-        | ValueNone -> failwithf "a %A expression does not name a type constructor: %A" (exprKind e) ty
+        | ValueNone -> failwithf "a %A expression does not denote a type constructor: %A" (exprKind e) ty
 
     /// Where the node SITS: its token's index in the file's `Lexed`, or `Anchor.nowhere`
     /// where no source spells it (a minted node, a contract's rebuilt pattern).
@@ -435,7 +435,7 @@ module TastAccessor =
         | ExprPayload.InlineCall p -> ValueSome p.Spec
         | _ -> ValueNone
 
-    /// The specialization slot an `InlineCall` names: an index into the pools'
+    /// The specialization slot an `InlineCall` identifies: an index into the pools'
     /// `Specializations` root array, NOT into any column this handle reads. The call's args
     /// are the node's `exprChildren`.
     let exprInlineCallSpec (e: ExprId) : SpecializationId =
@@ -633,14 +633,14 @@ module TastAccessor =
 
     let patTy (p: PatId) : FrozenType = TastPoolBuilder.patTy p.Pool p.Id
 
-    /// A union / record pattern tests the type ITSELF, so its scrutinee names a type
+    /// A union / record pattern tests the type ITSELF, so its scrutinee denotes a type
     /// constructor.
     let patNominalTy (p: PatId) : FrozenNominal =
         let ty = patTy p
 
         match FrozenNominal.TryOfFrozen ty with
         | ValueSome n -> n
-        | ValueNone -> failwithf "a %A pattern does not name a type constructor: %A" (patKind p) ty
+        | ValueNone -> failwithf "a %A pattern does not denote a type constructor: %A" (patKind p) ty
 
     let patTok (p: PatId) : Anchor = TastPoolBuilder.patTok p.Pool p.Id
 
@@ -802,7 +802,7 @@ module TastAccessor =
     let roots (pool: PoolBuilder) : DeclId[] =
         TastPoolBuilder.roots pool |> Array.map (fun id -> { Pool = pool; Id = id })
 
-    /// The resolved-specialization entry an `InlineCall`'s `SpecializationId` names, its
+    /// The resolved-specialization entry an `InlineCall`'s `SpecializationId` identifies, its
     /// abstraction as a handle. Reached from the pool, not from a node: several call sites
     /// share one entry.
     let specialization (pool: PoolBuilder) (spec: SpecializationId) : Specialization =
@@ -900,7 +900,7 @@ module TastAccessor =
         }
 
     /// A reference to `boundVar`, keyed by the bound variable's own dense id, so a reference
-    /// minted before (or without) its defining pattern names the same bound variable either way.
+    /// minted before (or without) its defining pattern identifies the same bound variable either way.
     let mintVar (pool: PoolBuilder) (boundVar: BoundVarId) (ty: FrozenType) (tok: Anchor) : ExprId =
         {
             Pool = pool

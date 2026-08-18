@@ -51,7 +51,7 @@ let tests =
 
             // The array's own two halves: the key `prim-types-array.fsi` publishes and the key
             // the lifted `prim-types-array.fs` body was collected under. Compared WHOLE, so an
-            // `ArgSig` divergence names itself here.
+            // `ArgSig` divergence surfaces here.
             test "the array's accessor contract-side and impl-side member keys are equal, ArgSig included" {
                 expectMemberKeyHalvesAgree
                     jsContract.Value

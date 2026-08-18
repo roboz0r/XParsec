@@ -1,65 +1,65 @@
 namespace            'namespace'       KWNamespace         tok=   0  pos=   0
                      'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type             'type'            KWType              tok=  21  pos= 482
+    type             'type'            KWType              tok=  21  pos= 487
     TypeSig.Extern:
       PrefixTypar:
         Typar.Named:
-                     ''T'              TypeParameter       tok=  23  pos= 487
-      TypeName       '``[]``'          BacktickedIdentifier  tok=  25  pos= 490
-      =              '='               OpEquality          tok=  27  pos= 497
-      extern         'extern'          KWExtern            tok=  29  pos= 499
-      with           'with'            KWWith              tok=  31  pos= 506
+                     ''T'              TypeParameter       tok=  23  pos= 492
+      TypeName       '``[]``'          BacktickedIdentifier  tok=  25  pos= 495
+      =              '='               OpEquality          tok=  27  pos= 502
+      extern         'extern'          KWExtern            tok=  29  pos= 504
+      with           'with'            KWWith              tok=  31  pos= 511
         InterfaceSpec:
-          interface  'interface'       KWInterface         tok=  34  pos= 515
+          interface  'interface'       KWInterface         tok=  34  pos= 520
           GenericType:
             LongIdent:
-                     'Vesper'          Identifier          tok=  36  pos= 525
-                     'Collection...'   Identifier          tok=  38  pos= 532
-                     'seq'             Identifier          tok=  40  pos= 544
-            <        '<'               op_LessThan         tok=  41  pos= 547
+                     'Vesper'          Identifier          tok=  36  pos= 530
+                     'Collection...'   Identifier          tok=  38  pos= 537
+                     'seq'             Identifier          tok=  40  pos= 549
+            <        '<'               op_LessThan         tok=  41  pos= 552
             TypeArg.Type:
               VarType:
                 Typar.Named:
-                     ''T'              TypeParameter       tok=  42  pos= 548
-            >        '>'               op_GreaterThan      tok=  43  pos= 550
+                     ''T'              TypeParameter       tok=  42  pos= 553
+            >        '>'               op_GreaterThan      tok=  43  pos= 555
         Member:
-          member     'member'          KWMember            tok=  53  pos= 677
-          inline     'inline'          KWInline            tok=  55  pos= 684
-          Ident      'Item'            Identifier          tok=  57  pos= 691
-          :          ':'               OpColon             tok=  58  pos= 695
-          arg        'index'           Identifier          tok=  60  pos= 697
-          :          ':'               OpColon             tok=  61  pos= 702
+          member     'member'          KWMember            tok=  53  pos= 682
+          inline     'inline'          KWInline            tok=  55  pos= 689
+          Ident      'Item'            Identifier          tok=  57  pos= 696
+          :          ':'               OpColon             tok=  58  pos= 700
+          arg        'index'           Identifier          tok=  60  pos= 702
+          :          ':'               OpColon             tok=  61  pos= 707
           NamedType:
-            Ident    'int'             Identifier          tok=  63  pos= 704
-          ->         '->'              OpArrowRight        tok=  65  pos= 708
+            Ident    'int'             Identifier          tok=  63  pos= 709
+          ->         '->'              OpArrowRight        tok=  65  pos= 713
           VarType:
             Typar.Named:
-                     ''T'              TypeParameter       tok=  67  pos= 711
-          with       'with'            KWWith              tok=  69  pos= 714
-          get/set    'get'             Identifier          tok=  71  pos= 719
-          set/get    'set'             Identifier          tok=  74  pos= 724
+                     ''T'              TypeParameter       tok=  67  pos= 716
+          with       'with'            KWWith              tok=  69  pos= 719
+          get/set    'get'             Identifier          tok=  71  pos= 724
+          set/get    'set'             Identifier          tok=  74  pos= 729
         Member:
-          member     'member'          KWMember            tok=  81  pos= 784
-          inline     'inline'          KWInline            tok=  83  pos= 791
-          Ident      'Length'          Identifier          tok=  85  pos= 798
-          :          ':'               OpColon             tok=  86  pos= 804
+          member     'member'          KWMember            tok=  81  pos= 789
+          inline     'inline'          KWInline            tok=  83  pos= 796
+          Ident      'Length'          Identifier          tok=  85  pos= 803
+          :          ':'               OpColon             tok=  86  pos= 809
           NamedType:
-            Ident    'int'             Identifier          tok=  88  pos= 806
-          with       'with'            KWWith              tok=  90  pos= 810
-          get/set    'get'             Identifier          tok=  92  pos= 815
-      end            <virt>            KWEnd               tok=virt  pos= 974
+            Ident    'int'             Identifier          tok=  88  pos= 811
+          with       'with'            KWWith              tok=  90  pos= 815
+          get/set    'get'             Identifier          tok=  92  pos= 820
+      end            <virt>            KWEnd               tok=virt  pos= 979
   Type:
-    type             'type'            KWType              tok= 101  pos= 974
+    type             'type'            KWType              tok= 101  pos= 979
     TypeSig.Abbrev:
       PrefixTypar:
         Typar.Named:
-                     ''T'              TypeParameter       tok= 103  pos= 979
-      TypeName       'array'           Identifier          tok= 105  pos= 982
-      =              '='               OpEquality          tok= 107  pos= 988
+                     ''T'              TypeParameter       tok= 103  pos= 984
+      TypeName       'array'           Identifier          tok= 105  pos= 987
+      =              '='               OpEquality          tok= 107  pos= 993
         ArrayType:
           VarType:
             Typar.Named:
-                     ''T'              TypeParameter       tok= 109  pos= 990
-                     '['               KWLBracket          tok= 110  pos= 992
-                     ']'               KWRBracket          tok= 111  pos= 993
+                     ''T'              TypeParameter       tok= 109  pos= 995
+                     '['               KWLBracket          tok= 110  pos= 997
+                     ']'               KWRBracket          tok= 111  pos= 998

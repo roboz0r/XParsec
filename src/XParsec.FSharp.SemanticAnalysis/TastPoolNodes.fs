@@ -105,9 +105,9 @@ module Wire =
     type TInlineBody = TInlineBodyG<FrozenType, Anchor, NodeKey>
     type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
 
-/// A `type` declaration whose member/preamble/ctor BODY slots name their expression by
+/// A `type` declaration whose member/preamble/ctor BODY slots identify their expression by
 /// pool id instead of carrying the tree, and whose pattern-less BOUND-VARIABLE slots (a member's
-/// `this`, parameters, ctor locals) name their definition site by `BoundVarId`.
+/// `this`, parameters, ctor locals) identify their definition site by `BoundVarId`.
 type PooledTypeDecl = TTypeDeclG<FrozenType, Anchor, BoundVarId, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id: a group's
@@ -279,7 +279,7 @@ type ExprPayload =
             SupportTy: FrozenType
             MemberName: string
         |}
-    /// The specialization-table slot this call names, and the file the node's own anchor (and
+    /// The specialization-table slot this call identifies, and the file the node's own anchor (and
     /// its args') indexes. The entry is a root of its own, not a child edge: several call
     /// sites share one.
     | InlineCall of
@@ -579,7 +579,7 @@ type ExprRow =
         Children: ExprPoolId[]
         PatChildren: PatPoolId[]
         /// The `Var` reference edge (`ValueNone` at every other shape). A walk-produced row
-        /// leaves it `ValueNone`: a `Var` may name a bound variable the walk has not reached yet.
+        /// leaves it `ValueNone`: a `Var` may reference a bound variable the walk has not reached yet.
         VarBoundVar: BoundVarId voption
         Payload: ExprPayload
     }

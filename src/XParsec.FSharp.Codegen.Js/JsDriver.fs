@@ -14,7 +14,7 @@ type JsPackageModule =
     }
 
 /// A compiled JS package: `<Name>/<file>.mjs` per emitting source, each with its own 1:1
-/// source map, plus the `index.mjs` barrel a consumer names the whole package by.
+/// source map, plus the `index.mjs` barrel a consumer imports the whole package through.
 type JsPackage =
     {
         Name: string

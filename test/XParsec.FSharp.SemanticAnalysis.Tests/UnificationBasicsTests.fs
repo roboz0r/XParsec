@@ -180,9 +180,9 @@ let tests =
             }
 
             // Three uses of a two-position signature meet `unify` six times, and there is one
-            // thing to fix. The message must name the construct, because the sentinel carries
+            // thing to fix. The message must identify the construct, because the sentinel carries
             // no position back from the extraction that minted it.
-            test "an unfreezable signature reports once, naming the construct" {
+            test "an unfreezable signature reports once, identifying the construct" {
                 let brokenProvider =
                     ExternalSymbolProviders.ofNamedChannels
                         { ExternalSymbolProviders.NamedChannels.empty with

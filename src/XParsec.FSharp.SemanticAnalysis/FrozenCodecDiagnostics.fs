@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
 /// The FROZEN diagnostic domain: a `Diagnostic`, the `Kind` that is its verdict, and the
 /// small closed vocabularies a kind's facts are drawn from. A `Kind` carries strings, ints
-/// and its own enums, never a `FrozenType` or a key, so nothing here names the tables.
+/// and its own enums, never a `FrozenType` or a key, so nothing here references the tables.
 module FrozenCodecDiagnostics =
 
     // `XParsec.FSharp.Parser` declares its own `Diagnostic`, so the bare name here would be

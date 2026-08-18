@@ -57,7 +57,7 @@ module NameResolutionScope =
         (tryExternalCase ctx ValueNone name).IsSome
 
     /// The written type name an `Expr.TypeApp`'s applied expression spells, when it could
-    /// name a type; `ValueNone` for shapes that never can (e.g. an applied expression).
+    /// denote a type; `ValueNone` for shapes that never can (e.g. an applied expression).
     let private typeAppTypeName (ctx: PassContext) (expr: Expr<SyntaxToken>) : WrittenTypeName voption =
         match expr with
         | Expr.Ident tok -> ValueSome(WrittenTypeName.bare (ctx.NameOf tok))
@@ -93,12 +93,12 @@ module NameResolutionScope =
                 | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(useKey, uc)
                 | ValueNone -> ()
 
-                // The first hit in candidate order IS what the name names.
+                // The first hit in candidate order IS what the name resolves to.
                 let bareHit = tryClassifyExternalType ctx (arityProbes 0) name
 
                 // A single-ident external CLASS in expression position is a ctor-sugar
                 // application (`InvalidOperationException "x"`). Class-only: `float x`
-                // names a real external type but is not constructible.
+                // resolves to a real external type but is not constructible.
                 if not (ctx.Resolution.ResolvedType.ContainsKey useKey) then
                     match bareHit with
                     | ValueSome hit ->
@@ -399,7 +399,7 @@ module NameResolutionScope =
                         let isLocalQualifiedType =
                             TypeRegistry.isWrittenTypeNameInScope ctx.Types useSite (ctx.WrittenTypeNameOf li)
 
-                        // `E.C1` — the anchor names a project-local enum. Suppress, so a bad
+                        // `E.C1` — the anchor resolves to a project-local enum. Suppress, so a bad
                         // last segment gets the precise "Enum 'E' has no case 'C'" instead of a
                         // redundant unresolved-qualified-name on top of it.
                         let isEnumCase =

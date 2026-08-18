@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The committed runtime assets import EACH OTHER: `Vesper.Seq.mjs` names `Vesper.Array`'s
+// The committed runtime assets import EACH OTHER: `Vesper.Seq.mjs` imports `Vesper.Array`'s
 // barrel and `Vesper.Core`'s runtime file. A program reaching Seq without reaching either
 // directly must ship all three, or the written output carries a specifier Node cannot resolve.
 
@@ -27,7 +27,7 @@ let private compileSeqConsumer (name: string) (input: string) : JsArtifact =
 
     Codegen.compileWith seqConsumerContract.Value project (frozenImplJs seqConsumerContract.Value.Provider input)
 
-/// `Seq.truncate` and `Seq.toArray` are the only external functions; nothing here names the
+/// `Seq.truncate` and `Seq.toArray` are the only external functions; nothing here references the
 /// Array or Core packages, whose assets `Vesper.Seq.mjs` imports on its own account. The
 /// source is an ARRAY, which carries the `seq<'T>` capability — built by the raw `newarr`
 /// intrinsic, since an array LITERAL lowers through a module this contract does not serve.

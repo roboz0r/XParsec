@@ -26,7 +26,7 @@ type SyntaxToken =
 
 /// WHERE something is, in the token space of the file that produced it. Declared HERE, in
 /// the parser layer, because a position in a token stream is the parser's own notion: a
-/// `DiagnosticCode` names one, and every later layer (the semantic passes, the frozen
+/// `DiagnosticCode` identifies one, and every later layer (the semantic passes, the frozen
 /// format) speaks the same space rather than a translation of it.
 [<RequireQualifiedAccess>]
 type Site =
@@ -46,7 +46,7 @@ type Site =
 [<RequireQualifiedAccess>]
 module Site =
 
-    /// The place a token names. A VIRTUAL token yields `Nowhere` — it carries no lexed
+    /// The place a token points to. A VIRTUAL token yields `Nowhere` — it carries no lexed
     /// index, so there is nothing to point at. This is deliberately NOT `Anchor.ofToken`,
     /// which faults instead: an anchor may never be virtual, whereas a recovery-inserted
     /// token is exactly what a diagnostic wants to blame. A producer that means "a `)` is
@@ -71,9 +71,9 @@ module Site =
         | Site.At i when i > 0<token> -> Site.After(i - 1<token>)
         | placed -> placed
 
-    /// The place `tok` names, or `fallback` when `tok` has none — for a caller holding an
+    /// The place `tok` points to, or `fallback` when `tok` has none — for a caller holding an
     /// ENCLOSING span (the declaration it sits in) that is still a real place when
-    /// the named node itself is a recovery insertion.
+    /// the node itself is a recovery insertion.
     let ofTokenOr (fallback: Site) (tok: SyntaxToken) : Site =
         match ofToken tok with
         | Site.Nowhere -> fallback
@@ -100,10 +100,10 @@ module Site =
         | Site.At _
         | Site.After _ -> s
 
-    /// The run a SEQUENCE of tokens covers, from the leftmost that names a place to the
+    /// The run a SEQUENCE of tokens covers, from the leftmost placed token to the
     /// rightmost. Recovery insertions are skipped rather than faulting the whole span — a
-    /// run containing one is still somewhere — and `Nowhere` only when NO token names a
-    /// place. THE span builder: `between` takes indices, this takes what a caller holds.
+    /// run containing one is still somewhere — and `Nowhere` when every token is virtual.
+    /// THE span builder: `between` takes indices, this takes what a caller holds.
     let spanning (toks: SyntaxToken seq) : Site =
         let mutable lo = ValueNone
         let mutable hi = ValueNone
@@ -226,7 +226,7 @@ module Offside =
 /// — never a CST node. That is what lets a consumer forward the code whole (the semantic
 /// layer wraps it as its own `Kind.Parse`) and freeze it alongside the rest of a
 /// diagnostic: a node would drag raw char offsets and virtual tokens across a boundary
-/// built to keep them out. The tokens a code is ABOUT are named by `Site`, in the same
+/// built to keep them out. The tokens a code is ABOUT are identified by `Site`, in the same
 /// token space every later layer speaks.
 [<RequireQualifiedAccess>]
 type DiagnosticCode =
@@ -260,14 +260,14 @@ type DiagnosticCode =
     | UnclosedDelimiter of opened: Token * openedAt: Site * expected: Token
     /// A close delimiter that is PRESENT but wrong (`{| … }`). The parser accepts the token
     /// as the close rather than inserting anything, so that token IS the mistake and there
-    /// is no hole to name — which is why this is not `UnclosedDelimiter`.
+    /// is no hole to point at — which is why this is not `UnclosedDelimiter`.
     | MismatchedDelimiter of opened: Token * openedAt: Site * expected: Token
 
 /// A parse diagnostic. Every one is an error — recovery only ever reports something the
 /// grammar could not accept — so there is no severity to carry.
 ///
 /// `Token`/`TokenEnd` are `SyntaxToken`, not `PositionedToken`: a consumer outside the
-/// parser needs the token INDEX to name the place, and a `PositionedToken` carries only a
+/// parser needs the token INDEX to point at the place, and a `PositionedToken` carries only a
 /// char offset, which it could only turn back into a token by searching. A diagnostic
 /// raised where the input offers no token to blame carries `SyntaxToken.nowhere`.
 and Diagnostic =
@@ -386,7 +386,7 @@ type FSReader = Reader<PositionedToken, ParseState, FSReadable>
 
 module DiagnosticCode =
 
-    /// The source spelling of `t` as an error message names it. There is no general
+    /// The source spelling of `t` as an error message refers to it. There is no general
     /// token→text table, so this covers the delimiters and keywords a diagnostic can
     /// demand and falls back to the token's own name, which is what the pre-existing
     /// `Other $"Expected '{t}'"` sites already print.
@@ -475,8 +475,8 @@ module DiagnosticCode =
 module SyntaxToken =
 
     /// The name `tok` spells, read out of the file that produced it, a backtick-escaped
-    /// identifier reading as the name inside the quotes. A VIRTUAL token indexes no text and
-    /// spells the empty string, which is what "no name" reads as, no identifier being empty.
+    /// identifier reading as the name inside the quotes. A VIRTUAL token spells the empty
+    /// string, the one string an identifier can never be.
     let nameIn (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
         | TokenIndex.Regular i -> lexed.GetTokenName i

@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 
 // Each attribute's long-ident is RESOLVED as a type and compared by `TypeKey`, so a user type
 // named `ReferenceEqualityAttribute` elsewhere keeps its own meaning, and an ABBREVIATION
-// naming a marker resolves to the alias' OWN identity, so it is ignored.
+// of a marker resolves to the alias' OWN identity, so it is ignored.
 
 module Attributes =
 
@@ -250,8 +250,8 @@ module Attributes =
         | ValueSome _, true ->
             match exportedKey with
             | ValueSome k -> ctx.Bindings.GlobalValueKeys.Add k |> ignore
-            // A pattern naming no single value has no identity to file the declaration under.
+            // A pattern with no single bound name has no identity to file the declaration under.
             | ValueNone ->
                 report
-                    "[<Global>] declares the VALUE a binding names to be a target global, but this binding has no single name, so give it one, or drop the attribute"
+                    "[<Global>] declares the VALUE a binding introduces to be a target global, but this binding has no single name, so give it one, or drop the attribute"
         | _ -> ()

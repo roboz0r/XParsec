@@ -103,7 +103,7 @@ module internal ElaborateClassMembers =
 
         // The member's own generic parameters, recovered from the registered
         // `TypeMemberInfo.CanonicalTypars`. That order is PRESERVED, so the
-        // ABI index a frozen `TyTypar(Method, i)` marker names stays valid.
+        // ABI index a frozen `TyTypar(Method, i)` marker carries stays valid.
         let methodTypeParams (site: MemberSite) : EqArray<string * SemType> =
             // Materialise each root as a plain `TyVar root`, so the later cut flips it
             // to `TyTypar(Method, i)` like every other embedded type, and the tree field
@@ -183,7 +183,7 @@ module internal ElaborateClassMembers =
 
         // The explicit field-init form `new(args) = { f = e; … }` stores into declared
         // instance fields and has no primary-ctor chain; the LAST `LongIdent` segment
-        // names the field.
+        // identifies the field.
         let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) =
             for FieldInitializer(longIdent = li; expr = e) in inits do
                 if not li.Idents.IsEmpty then

@@ -280,7 +280,7 @@ type internal FileLayout =
         Partitioned: PartitionedTypeDecls
         /// This file's source-lambda value-struct closure verdicts, keyed by the lambda
         /// NODE, the id together with the pool that issued it, so an id from another
-        /// file's pool misses instead of silently naming a different node.
+        /// file's pool misses instead of silently denoting a different node.
         FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
         /// Whether this file carries the entry point (`Main`): TRUE on the single entry
         /// file (an executable's last), FALSE on every other.

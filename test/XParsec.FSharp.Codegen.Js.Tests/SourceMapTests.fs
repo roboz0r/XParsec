@@ -135,7 +135,7 @@ let private decodeMap (artifact: JsArtifact) : DecodedMap =
             Segments = decodeMappings (root.GetProperty("mappings").GetString())
         }
 
-/// The 0-based `line` of `text`, as a V3 source line names it.
+/// The 0-based `line` of `text`, as a V3 mapping's source line index counts it.
 let private lineOf (text: string) (line: int) : string =
     let lines = text.Replace("\r\n", "\n").Split '\n'
 
@@ -144,7 +144,7 @@ let private lineOf (text: string) (line: int) : string =
     else
         failtestf "line %d is past the end of a %d-line source" line lines.Length
 
-/// Every source index a mapping actually resolves against, paired with the file it names.
+/// Every source index a mapping actually resolves against, paired with the file it points to.
 let private attributions (m: DecodedMap) : (int * string) list =
     m.Segments
     |> List.map (fun s -> s.SrcIndex, m.Sources.[s.SrcIndex])
@@ -217,7 +217,7 @@ let tests =
                     Expect.equal (output.Replace("\r", "").Trim()) "hi" "Node prints hi"
             }
 
-            test "a build that reaches no producer emits the single-source document verbatim" {
+            test "a single-file build emits the single-source document verbatim" {
                 // Pinned as the whole document rather than as a property of it, because the
                 // only way to say the multi-source axis costs a one-file build nothing is to
                 // fix the bytes.
@@ -334,7 +334,7 @@ let tests =
             }
 
             test "a NESTED frame is attributed to its own file, not to the entry that reached it" {
-                // `(|>)`'s body (in `ops-std.fs`) carries the edge naming `not`'s entry (in
+                // `(|>)`'s body (in `ops-std.fs`) carries the edge pointing to `not`'s entry (in
                 // `ops-platform.js.fs`), and the emitted `!` comes from `not`, so an
                 // implementation attributing the expansion to its OUTERMOST entry would fail.
                 let input = "let b = true\nlet a = b |> not\n"

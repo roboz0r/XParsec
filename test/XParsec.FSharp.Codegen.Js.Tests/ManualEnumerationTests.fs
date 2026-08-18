@@ -69,7 +69,7 @@ let tests =
                     "from \"./Vesper.Core/Vesper.Core.mjs\""
                     "the adapter is imported from the Vesper.Core runtime module"
 
-                // A type-prefixed `seq__GetEnumerator` import names an export
+                // A type-prefixed `seq__GetEnumerator` import requests an export
                 // `Vesper.Core.mjs` does not have: an ESM link error under Node, not a
                 // compile diagnostic.
                 Expect.isFalse (js.Contains "seq__GetEnumerator") "no mangled `seq__GetEnumerator` import"

@@ -7,7 +7,7 @@ open XParsec.FSharp.Parser
 
 /// The codec's WRITE seam: the stream and the file's type/key tables as ONE value. A type
 /// reaches the wire as the id of its row and interning it is what MINTS that row, so a writer
-/// naming a type needs both; pairing them makes a cross-file intern unstateable.
+/// emitting a type needs both; pairing them makes a cross-file intern unstateable.
 [<Struct>]
 type FrozenWriter =
     {

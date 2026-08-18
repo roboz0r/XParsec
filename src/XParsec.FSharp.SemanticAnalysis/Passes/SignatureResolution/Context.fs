@@ -220,7 +220,7 @@ module SignatureResolutionContext =
     // --- `when` clauses --------------------------------------------------------------
 
     /// The published form of a signature's `when` clauses, over its own typars by INDEX. An
-    /// entry naming a typar the signature does not declare is dropped: a consumer
+    /// entry referencing a typar the signature does not declare is dropped: a consumer
     /// instantiates by index and has nothing to attach it to.
     let publishedConstraints
         (ctx: PassContext)

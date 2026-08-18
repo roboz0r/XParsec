@@ -88,7 +88,7 @@ and ModuleKey =
 [<RequireQualifiedAccess>]
 type TypeContainer =
     | InNamespace of ns: NamespaceKey
-    /// `parent` names the module's COMPILED module class, with the `…Module` suffix already
+    /// `parent` identifies the module's COMPILED module class, with the `…Module` suffix already
     /// applied, never the source name an `open` writes.
     | InModule of parent: ModuleKey
     /// A CLR *nested* type such as `` List`1+Enumerator ``; the parser cannot declare one.

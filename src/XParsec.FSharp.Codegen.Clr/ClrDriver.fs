@@ -65,7 +65,7 @@ module ClrDriver =
         ClrSymbolProviders.compilationContract inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
         |> SymbolProviders.Contract.gate
 
-    /// A gate refusal as the FLAT diagnostics a single-file entry returns; the file each names
+    /// A gate refusal as the FLAT diagnostics a single-file entry returns; the file each references
     /// is in its own message, there being no compiling file to anchor it to.
     let private unanchored (diagnostics: AssemblyFiles.AnchoredDiagnostic list) : Diagnostic list =
         diagnostics |> List.map (fun d -> d.Diagnostic)

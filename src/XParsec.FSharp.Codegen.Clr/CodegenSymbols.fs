@@ -21,7 +21,7 @@ module CodegenSymbols =
             else
                 probe (SymbolKeyOps.qualifiedTypeKeyOf bare 0)
 
-    /// The shape a resolved `SymbolKey` names, over either registration convention.
+    /// The shape a resolved `SymbolKey` denotes, over either registration convention.
     let lookupTypeByKey (symbols: ICodegenSymbols) (key: TypeKey) : ExternalTypeShape voption =
         reconciledLookup symbols.TryLookupType key
 
@@ -86,7 +86,7 @@ module CodegenSymbols =
                 match provider.TryLookupByKey key with
                 | ValueNone -> ValueNone
                 | ValueSome sym ->
-                    // A project-local symbol has no home assembly for a ref to name; the
+                    // A project-local symbol has no home assembly for a ref to point to; the
                     // caller falls back.
                     if sym.Origin.Home = Origin.Unstamped then
                         ValueNone

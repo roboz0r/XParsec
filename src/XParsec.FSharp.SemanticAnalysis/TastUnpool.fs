@@ -301,7 +301,7 @@ module TastUnpool =
 
         // Likewise the specialization table, in SLOT ORDER: the `SpecializationId`s the
         // rebuilt tree carries index this array, so it must not be reordered or compacted,
-        // not even for an entry no surviving call site names.
+        // not even for an entry no surviving call site references.
         let specializations =
             pools.Specializations
             |> Array.map (fun s ->

@@ -50,7 +50,7 @@ module PackageProviders =
         ]
 
     /// The language prelude as a SOURCE: it resolves nothing, and publishes the prefixes every
-    /// signature file is written against, so a `.fsi` in `namespace Vesper.Collections` names
+    /// signature file is written against, so a `.fsi` in `namespace Vesper.Collections` writes
     /// `unit` exactly as a consumer of the package would. Fixed, not manifest-declared.
     let private prelude =
         ExternalSymbolProviders.stack ValueNone RuntimeNames.preludeNamespaces []

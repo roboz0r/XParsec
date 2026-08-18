@@ -31,7 +31,7 @@ module SymbolProviders =
         | None -> packageDirs
 
     /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 FACTORY. Common
-    /// names no platform; each backend injects its own reader. Uncached.
+    /// is platform-neutral; each backend injects its own reader. Uncached.
     let buildWith
         (platformMetadata: PlatformMetadataFactory)
         (target: string)
@@ -95,7 +95,7 @@ module SymbolProviders =
 
             // Freezing an errored tree prunes the failed declarations; pooling then
             // trips on side-table entries that outlived them, blaming the file's FIRST
-            // binding. Errors alone are not fatal: an implementation file may name spare types.
+            // binding. Errors alone are not fatal: an implementation file may reference spare types.
             let frozen =
                 try
                     Freeze.run ctx sem
@@ -149,7 +149,7 @@ module SymbolProviders =
             /// The producer files the collected bodies were unpooled from, retained so their
             /// anchors stay readable. Re-parsing to recover them would give a second answer.
             Origins: OriginSources
-            /// What resolving the referenced contracts found: a manifest naming a file it has
+            /// What resolving the referenced contracts found: a manifest listing a file it has
             /// not got, a declaration a contract could not publish.
             Diagnostics: AssemblyFiles.AnchoredDiagnostic list
         }

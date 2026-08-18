@@ -160,7 +160,7 @@ let tests =
                 Expect.equal (underlying "type C = | A = 0 | B = 1") (ValueSome RuntimeNames.intKey) "unsuffixed → int"
             }
 
-            test "underlying type: an explicit byte width names byte" {
+            test "underlying type: an explicit byte width yields byte" {
                 Expect.equal (underlying "type W = | A = 1uy | B = 2uy") (ValueSome RuntimeNames.byteKey) "byte width"
             }
 
@@ -308,7 +308,7 @@ let tests =
 
             test "unknown case in a pattern (| E.NotACase) is a resolution error" {
                 // Mirrors the expression-side `E.NotACase` miss: the pattern's name
-                // names a registered enum but the last segment is not one of its cases.
+                // resolves to a registered enum but the last segment is not one of its cases.
                 let tast =
                     analyse "type E = | A = 0 | B = 1\nlet f (x: E) = match x with | E.NotACase -> 1 | _ -> 0"
 

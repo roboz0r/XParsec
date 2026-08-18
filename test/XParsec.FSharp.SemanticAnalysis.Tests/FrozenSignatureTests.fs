@@ -65,7 +65,7 @@ let private bindingKey (frozen: FrozenPools) (name: string) : SymbolKey =
     moduleBindings frozen |> List.find (fun (n, _) -> n = name) |> snd
 
 /// One integer per curried group (`0` = a `unit` group, `1` = simple, `N` = a tuple of
-/// `N`), so it pins the curried/tupled/mixed grouping without naming any type.
+/// `N`), so it pins the curried/tupled/mixed grouping without referring to any type.
 let private groupShape (vr: TastAccessor.ValRepr voption) : int list option =
     match vr with
     | ValueNone -> None

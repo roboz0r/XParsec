@@ -19,9 +19,9 @@ let tests =
     testList
         "UnsupportedOnTarget"
         [
-            // ---- The rule fires, and names both the type and the target ----
+            // ---- The rule fires, and reports both the type and the target ----
 
-            test "a JS program mentioning `nativeint` is rejected, naming type and target" {
+            test "a JS program mentioning `nativeint` is rejected, reporting type and target" {
                 let errors = jsErrors "let f (x: nativeint) = x"
 
                 Expect.contains errors "nativeint is not supported on the js target" "the targeted verdict"
@@ -73,7 +73,7 @@ let tests =
 
             // ---- ...and stays silent otherwise ----
 
-            test "a JS program mentioning none of these produces no unsupported verdict" {
+            test "a JS program mentioning none of these compiles clean" {
                 let errors =
                     jsErrors "let add (x: int) (y: int) = x + y\nlet s = \"ok\"\nlet xs = [| 1.0; 2.0 |]"
 
@@ -81,6 +81,6 @@ let tests =
             }
 
             test "loading the library is silent: the diagnostic belongs to the mentioning program" {
-                Expect.isEmpty (jsErrors "let x = 1 + 2") "a JS compile that never names one is clean"
+                Expect.isEmpty (jsErrors "let x = 1 + 2") "a JS compile that never references one is clean"
             }
         ]

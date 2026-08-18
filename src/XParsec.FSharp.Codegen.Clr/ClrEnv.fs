@@ -55,7 +55,7 @@ type internal GenericClassShape =
         Fields: EqArray<string * FrozenType>
     }
 
-/// The CLR-only nominals the backend names DIRECTLY. They reach it as an `FTConst` over a bare
+/// The CLR-only nominals the backend references DIRECTLY. They reach it as an `FTConst` over a bare
 /// platform name (what the front end mints for a name the TARGET owns) and are recognised by
 /// key identity, so a Vesper type of the same short name cannot false-match.
 [<RequireQualifiedAccess>]
@@ -144,7 +144,7 @@ type internal ClrEnv
 
     /// A `TypeRef` row for a well-known nominal, spelled from its own `TypeKey`: the
     /// namespace and the arity-suffixed segment name are the key's, so the row the backend
-    /// emits and the identity the front end matched cannot name different types.
+    /// emits and the identity the front end matched cannot denote different types.
     let typeRefOfKey (scope: EntityHandle) (key: TypeKey) : EntityHandle =
         toEntity (ctx.TypeRef(scope, key.Namespace.Dotted, SymbolKeyOps.typeSegmentName key))
 
@@ -179,7 +179,7 @@ type internal ClrEnv
     let eIsByRefLikeAttr =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.Runtime.CompilerServices", "IsByRefLikeAttribute")))
 
-    // Its parameterless `.ctor`, the constructor a `CustomAttribute` row names.
+    // Its parameterless `.ctor`, the constructor a `CustomAttribute` row points to.
     let eIsByRefLikeAttrCtor =
         lazy
             (let s = BlobBuilder()

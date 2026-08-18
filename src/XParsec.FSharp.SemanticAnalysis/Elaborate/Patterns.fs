@@ -15,7 +15,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 module internal ElaboratePatterns =
 
     /// The `(cons, empty)` case names of the list type `ty`. A program-declared list union
-    /// names its own BY ARITY (binary = cons, nullary = empty); anything else is the
+    /// declares its own BY ARITY (binary = cons, nullary = empty); anything else is the
     /// cons-list, `("Cons", "Empty")`.
     let listCaseNames (ctx: PassContext) (ty: SemType) : string * string =
         let consList = RuntimeNames.consCaseName, RuntimeNames.emptyCaseName

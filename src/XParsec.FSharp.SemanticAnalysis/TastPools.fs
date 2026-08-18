@@ -13,12 +13,12 @@ module TastPools =
     [<RequireQualifiedAccess>]
     type PooledEvent<'id> =
         /// A `Var`'s reference edge, which the walk cannot fill: bound variable ids are the sink's
-        /// to assign, and a `Var` may name a bound variable the walk has not reached.
+        /// to assign, and a `Var` may reference a bound variable the walk has not reached.
         | VarRef of boundVar: 'id * at: ExprPoolId
         /// A pooled lambda's id, with the anchor its `LambdaKey` is minted from.
         | LambdaPooled of anchor: Anchor * at: ExprPoolId
 
-    /// Where a pooling walk PUTS its rows. Generic in how the walked tree names a bound variable
+    /// Where a pooling walk PUTS its rows. Generic in how the walked tree identifies a bound variable
     /// (`'id`: `NodeKey` from source, `BoundVarId` from an already-pooled tree) and in how it
     /// spells a position (`'tok`).
     type PoolSink<'tok, 'id> =
@@ -39,9 +39,9 @@ module TastPools =
         }
 
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
-    /// itself, so every child id its row names already resolves.
+    /// itself, so every child id its row carries already resolves.
     let rec poolPat (sink: PoolSink<'tok, 'id>) (p: TPatG<FrozenType, 'tok, 'id>) : PatPoolId =
-        // Interned first: the payload names this bound variable by the id the intern hands back.
+        // Interned first: the payload identifies this bound variable by the id the intern hands back.
         let boundVar = BoundVarKey.ofPat p |> ValueOption.map sink.InternBoundVar
         let kids = patChildren p |> Array.map (poolPat sink)
 
@@ -101,7 +101,7 @@ module TastPools =
             )
 
     /// Pool a declaration, its expr/pat roots (see `poolPat`) and, for a `Type` decl,
-    /// its member bodies, which the payload names by id rather than surfacing as children.
+    /// its member bodies, which the payload references by id rather than surfacing as children.
     let poolDecl (sink: PoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPoolId =
         let struct (exprKids, patKids) =
             match d with
@@ -186,7 +186,7 @@ module TastPools =
         let exprPatChildrenCol = ChildColumnBuilder<PatPoolId>()
         let exprPayloads = ResizeArray<ExprPayload>()
 
-        // Each `Var`'s expr id + the bound variable it references. A `Var` may name a bound variable pooled
+        // Each `Var`'s expr id + the bound variable it references. A `Var` may reference one pooled
         // after it (a forward / mutually-recursive reference), so the enumeration must
         // complete before the edge can be resolved.
         let varBindings = ResizeArray<struct (int * 'id)>()
@@ -281,7 +281,7 @@ module TastPools =
                 }
             )
 
-        // Pooled as its own roots and in SLOT ORDER: a `SpecializationId` names a position in
+        // Pooled as its own roots and in SLOT ORDER: a `SpecializationId` identifies a position in
         // this array, not in the pool the decls land in.
         let specializations =
             file.Specializations
@@ -349,7 +349,7 @@ module TastPools =
         for (struct (id, key)) in varBindings do
             exprVarBoundVar.[id] <- ValueSome(boundVarIdOfRef "Var" key)
 
-        // The resolver is a parameter so that a fault names the table holding the key.
+        // The resolver is a parameter so that a fault identifies the table holding the key.
         let remapSideTable (resolve: 'k -> 'dense) (m: Map<'k, 'v>) : ('dense * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 

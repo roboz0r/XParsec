@@ -471,7 +471,7 @@ let isFusedClassLike (sym: Ts.Symbol) : bool =
 
 /// The constructor-INTERFACE (`MapConstructor`) a fused symbol's value side resolves
 /// to. It is CONSUMED into the fused class, so the global enumerator must NOT also emit
-/// it standalone. `None` when the value type carries no naming symbol.
+/// it standalone. `None` when the value type carries no symbol.
 let fusedCarrierSymbol (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Ts.Symbol option =
     (checker.getTypeOfSymbolAtLocation (sym, declOf sym)).getSymbol ()
 

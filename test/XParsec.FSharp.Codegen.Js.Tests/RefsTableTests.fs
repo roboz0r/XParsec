@@ -91,10 +91,10 @@ let tests =
                     (sprintf "cross-package member access should type-check, got:\n%A" (errorText errors))
             }
 
-            test "with A ABSENT, member access fails naming the type that has no shape" {
+            test "with A ABSENT, member access fails and reports the type that has no shape" {
                 // With only B stacked, the `Box` identity B minted has no shape anywhere in the
                 // stack, because the refs table is identity-only, so member access errors. It
-                // names the TYPE, not the missing package: a `SymbolKey` carries no home.
+                // reports the TYPE, not the missing package: a `SymbolKey` carries no home.
                 let errors = analyseWith (stackTs manifestB) program
                 let text = errorText errors
 

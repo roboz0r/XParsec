@@ -23,7 +23,7 @@ module MemberNames =
         namingPat b.pattern |> ValueOption.map CstKeys.ofPat
 
     /// A member's name and declaration site. An operator-named member takes its compiled
-    /// name (`op_Addition`), which is how a use site names it.
+    /// name (`op_Addition`), which is how a use site refers to it.
     let ofBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
         match namingPat b.pattern with
         | ValueSome(Pat.NamedSimple id as named) ->

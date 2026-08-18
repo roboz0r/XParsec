@@ -130,7 +130,7 @@ module InlineReduction =
             | ValueSome site -> site
             | ValueNone -> call.Tok
 
-        /// Go INSIDE the body this call names: the descent its own expressions are walked at
+        /// Go INSIDE the body this call targets: the descent its own expressions are walked at
         /// (this binding pushed onto the caller's), beside the one the call site's arguments
         /// stay at, because they are the caller's expressions and never enter anything.
         let enter (d: Descent) (call: PendingCall) (origin: OriginFile) (spec: SpecializationId) : InFlight =
@@ -149,7 +149,7 @@ module InlineReduction =
                 Caller = d
             }
 
-    /// An applied FUNCTION that names a cross-file symbol: a plain `External`, or the dotted
+    /// An applied FUNCTION that resolves to a cross-file symbol: a plain `External`, or the dotted
     /// `ExternalMember` that `x.get_Item(2)` lowers to, whose object argument is a FIELD of the
     /// function rather than an applied argument and so must be prepended at curried position 0.
     [<NoEquality; NoComparison>]

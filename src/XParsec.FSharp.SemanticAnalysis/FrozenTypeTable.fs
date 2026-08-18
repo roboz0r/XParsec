@@ -4,7 +4,7 @@ open System.Collections.Generic
 open System.Collections.Immutable
 
 // THE TABLES ARE PER FILE: every id is a row index into ONE file's own tables, so an id from
-// another file's blob names a DIFFERENT, valid row rather than a missing one. Nothing ever
+// another file's blob identifies a DIFFERENT, valid row rather than a missing one. Nothing ever
 // widens an id across the `FrozenSignature` seam. Within one file, id equality IS structural.
 
 /// A string in the file's string heap.
@@ -143,7 +143,7 @@ type TypeRow =
     | Unknown of reason: UnknownReasonRow
 
 /// The content hash rides as a heap string, re-parsed on materialisation: two entries drawn
-/// from one producer name the same text and so the same hex, and intern to one row.
+/// from one producer carry the same text and so the same hex, and intern to one row.
 type OriginRow =
     {
         BucketName: StrId
@@ -211,8 +211,8 @@ type private RowTable<'row, 'id when 'row: equality and 'id: equality>(ofIndex: 
     /// handed out, so this may be taken mid-build.
     member _.ToImmutable() : ImmutableArray<'row> = ImmutableArray.CreateRange rows
 
-/// Fill-on-demand memo. The row graph is acyclic, but a member row names types while a type
-/// row names the symbol that member belongs to, so there is no array-at-a-time build order.
+/// Fill-on-demand memo. The row graph is acyclic, but a member row references types while a
+/// type row references the symbol that member belongs to, so there is no array-at-a-time order.
 /// `inline`: the hit path must not allocate the closure.
 module private Materialise =
 
@@ -225,7 +225,7 @@ module private Materialise =
         | _ -> cache.[i]
 
 /// Interns a file's frozen types and keys BOTTOM-UP: a node's children are interned before
-/// the node, so a row only ever names rows already minted, which is what lets the read side
+/// the node, so a row only ever points to rows already minted, which is what lets the read side
 /// materialise by plain recursion with no cycle check. Not thread-safe; belongs to ONE freeze.
 [<Sealed>]
 type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
@@ -396,7 +396,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
 /// A file's interned type and key tables, READ SIDE: an id resolves back to the very
 /// `FrozenType` / `SymbolKey` the DU declares. One row materialises to ONE object, shared by
-/// every id that names it, so a type is allocated once per DISTINCT type.
+/// every id that resolves to it, so a type is allocated once per DISTINCT type.
 [<Sealed>]
 type FrozenTypeTable private (rows: FrozenTypeRows) =
     let namespaceCache: NamespaceKey[] = Array.zeroCreate rows.Namespaces.Length
@@ -576,7 +576,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
     /// live table is reading through costs nothing.
     member _.Rows: FrozenTypeRows = rows
 
-    /// Resolve an id to the value it names. The ID's TYPE chooses the table, so `t.[id]`
+    /// Resolve an id to the value it identifies. The ID's TYPE chooses the table, so `t.[id]`
     /// cannot reach the wrong one and a further table adds an overload rather than a method
     /// name to learn. The inverses of the builder's five `Intern*` entry points.
     member _.Item

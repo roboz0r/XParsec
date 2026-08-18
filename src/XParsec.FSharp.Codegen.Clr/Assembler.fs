@@ -42,7 +42,7 @@ type internal Assembler
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
 
-    // Identities read off the reference files, so an emitted `AssemblyRef` names the exact
+    // Identities read off the reference files, so an emitted `AssemblyRef` identifies the exact
     // artifact rather than whatever the host loaded. `referenceAssemblies` is separate from
     // `project.References` (which ships beside the output); the latter wins a name tie.
     let references =
@@ -179,7 +179,7 @@ type internal Assembler
 
                 provider.RegisterGenericClass(td.TypeKey, td.TypeParams, List.length ctorParamFields, shape)
 
-        // Interfaces register their `TypeDef` too, so one naming another as a member's
+        // Interfaces register their `TypeDef` too, so one referencing another as a member's
         // type (`IStructuralFormattable.Format(IFormatSink)`) resolves like any nominal.
         // A generic one (`IStructSeq<'E>`) also needs its slots minted on a `TypeSpec`.
         for (td, _) in partitioned.Interfaces do
@@ -325,7 +325,7 @@ type internal Assembler
             | ValueNone -> ()
 
             // An ungrounded type constructor in a field type (a closure capture whose element typar
-            // never resolved, say) surfaces here as an opaque encoder failure; name the
+            // never resolved, say) surfaces here as an opaque encoder failure; identify the
             // field + type so the front-end grounding gap is pinpointable.
             let fieldSig =
                 try

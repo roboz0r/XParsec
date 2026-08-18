@@ -26,7 +26,7 @@ type PoolBuilder =
             mutable OvBoundVarCount: int
             /// The bound variable key `declTree` hands a DU-typed consumer for each bound variable. Per
             /// BUILDER, not per unpool: two unpools of one subtree are two views of the same
-            /// bound variables and must name them alike.
+            /// bound variables and must key them alike.
             UnpooledBoundVarKeys: Dictionary<BoundVarId, NodeKey>
             mutable UnpoolCount: int
         }
@@ -317,7 +317,7 @@ module TastPoolBuilder =
     /// The bound on every `SpecializationId` an edge can carry.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length
 
-    /// The resolved-specialization entry a `SpecializationId` names, bounds-checked. The
+    /// The resolved-specialization entry a `SpecializationId` identifies, bounds-checked. The
     /// entries are the BASE pool's: an overlay derives nodes, never table entries.
     let specialization (b: PoolBuilder) (spec: SpecializationId) : PooledSpecialization =
         let (SpecializationId i) = spec
@@ -373,7 +373,7 @@ module TastPoolBuilder =
             // The tree being poured in is already in this pool's identity space, so a
             // definition site IS its id and needs no lookup.
             InternBoundVar = BoundVarKey.identity
-            // Likewise already in the stored form: the tree names positions by the very index
+            // Likewise already in the stored form: the tree identifies positions by the very index
             // the columns hold.
             Anchor = id
             AddExpr = appendExpr b

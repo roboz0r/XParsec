@@ -10,7 +10,7 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// Widen a metadata handle to `EntityHandle`. `op_Implicit` also has a `-> Handle`
-/// overload, and naming the target explicitly stays off the implicit-conversion warning.
+/// overload, and spelling the target explicitly stays off the implicit-conversion warning.
 let inline private toEntity (h: ^T) : EntityHandle =
     (^T: (static member op_Implicit: ^T -> EntityHandle) h)
 

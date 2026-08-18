@@ -85,7 +85,7 @@ let useTests =
                     Expect.equal out "body\ndisposed" "canonical interface disposable runs under Node"
             }
 
-            test "`use _ = e` disposes the bound variable even though the body can't name it" {
+            test "`use _ = e` disposes the bound variable even though the body can't refer to it" {
                 // `use _ = …`, the RAII-guard form: the value is still parked in a fresh
                 // `_use<tok>` local and disposed in the finally, but the body has no name
                 // for it.

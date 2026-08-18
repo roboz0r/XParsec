@@ -72,7 +72,7 @@ module RefPack =
 
     /// The reference-assembly `.dll` set for `tfm`. Among pack version directories whose
     /// `ref/<tfm>` exists and whose major matches the TFM's, the HIGHEST by `System.Version`
-    /// wins. `Error` names what was probed.
+    /// wins. `Error` lists what was probed.
     let resolve (tfm: string) : Result<string list, string> =
         match tfmMajor tfm with
         | None -> Error(sprintf "RefPack: cannot parse a major version from TFM '%s'" tfm)

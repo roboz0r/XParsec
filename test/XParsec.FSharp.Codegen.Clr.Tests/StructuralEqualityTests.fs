@@ -70,7 +70,7 @@ let tests =
                 Expect.isTrue (hashMethod ty).IsVirtual "GetHashCode is virtual (overrides Object.GetHashCode)"
             }
 
-            test "DU equality pins no FSharp.Core dependency" {
+            test "DU equality does not pin an FSharp.Core dependency" {
                 let _, artifact = compileSource "EqNoDep" shapeSrc
 
                 expectNoFSharpCore artifact "generated Equals/GetHashCode reference only the BCL"
@@ -387,7 +387,7 @@ let genericTests =
                     "EqualityComparer<Box<int>>.Default is the IEquatable-based GenericEqualityComparer"
             }
 
-            test "generic DU equality pins no FSharp.Core dependency" {
+            test "generic DU equality does not pin an FSharp.Core dependency" {
                 let _, artifact = compileSource "GenEqNoDep" lstSrc
 
                 expectNoFSharpCore artifact "generated generic triple references only the BCL"

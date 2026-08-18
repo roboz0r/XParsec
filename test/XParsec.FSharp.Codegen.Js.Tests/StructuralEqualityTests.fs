@@ -43,7 +43,7 @@ let tests =
                     "the hash base emits the runtime call"
             }
 
-            test "a primitive-only `=` pulls in NO core import (`===` stays inline)" {
+            test "a primitive-only `=` stays inline, with NO core import" {
                 let src = emitJs "printfn \"%b\" (2 = 2)"
                 Expect.isFalse (src.Contains "Vesper.Core.mjs") "int `=` lowers to `===`, never the structural base"
             }

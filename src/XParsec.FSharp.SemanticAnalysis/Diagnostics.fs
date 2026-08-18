@@ -180,11 +180,11 @@ module ConformanceVerdict =
         | ConformanceVerdict.SignatureRejected detail -> sprintf "the signature declares %s" detail
 
 /// A fault in the PACKAGE SET a compilation was handed, rather than in any one file's text:
-/// a manifest naming a path it has not got, a `depends-on` that does not resolve, a type two
+/// a manifest listing a path it has not got, a `depends-on` that does not resolve, a type two
 /// referenced packages both declare.
 [<RequireQualifiedAccess>]
 type PackageSetFault =
-    /// A `[core]` list names a path that is not on disk.
+    /// A `[core]` list references a path that is not on disk.
     | FileMissing of package: string * relative: string
     /// A path is the other half: a `.fs` under `[core] files`, or a `.fsi` under `[core] impl`.
     | FileWrongHalf of package: string * relative: string * expected: string
@@ -293,7 +293,7 @@ module Intrinsic =
         | Intrinsic.DynamicSet
         | Intrinsic.GetIndex -> RuntimeNames.corePackageName
 
-    /// The noun phrase naming it in a sentence, subject-position.
+    /// The noun phrase referring to it in a sentence, subject-position.
     let describe (i: Intrinsic) : string =
         match i with
         | Intrinsic.ConsList -> "the cons-list type a '[…]' literal builds"
@@ -352,7 +352,7 @@ type Kind =
     /// `[<AllowNullLiteral>]` on a kind with no reference slot for `null` to occupy.
     | AllowNullLiteralOnWrongKind
     /// `attribute` is the posture attribute (`[<CustomEquality>]`); `capability` the
-    /// resolved interface it demands, as this compilation's provider names it.
+    /// resolved interface it demands, as this compilation's provider spells it.
     | CapabilityNotImplemented of attribute: string * capability: string
     /// The same demand, where the provider does not resolve that capability at all.
     | CapabilityNotNamed of attribute: string * capabilityWord: string
@@ -543,7 +543,7 @@ module Kind =
             sprintf "A type with %s must implement '%s'." attribute capability
         | Kind.CapabilityNotNamed(attribute, capabilityWord) ->
             sprintf
-                "A type with %s requires the '%s' capability, which this compilation's provider does not name."
+                "A type with %s requires the '%s' capability, which this compilation's provider does not declare."
                 attribute
                 capabilityWord
         | Kind.MissingGetHashCodeOverride -> "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."

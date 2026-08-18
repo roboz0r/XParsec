@@ -212,6 +212,6 @@ module NodeSite =
         }
 
 /// Identity of a source LAMBDA expression: the INDEX of its anchor token, not the character
-/// offset a `NodeKey` carries, because one integer names a different node in each space.
+/// offset a `NodeKey` carries, because one integer identifies a different node in each space.
 [<Struct>]
 type LambdaKey = | LambdaKey of anchor: Anchor

@@ -80,7 +80,7 @@ let tests =
             }
 
             test "prim-types-array.fsi conforms to prim-types-array.fs (no drift)" {
-                // The array is declared apart from the other primitives because it names the
+                // The array is declared apart from the other primitives because it references the
                 // `seq` capability, which must already be in scope. Its impl is target-neutral,
                 // so one `.fs` serves both targets.
                 let sigSrc = readNormalised (vesperCorePath "prim-types-array.fsi")
@@ -419,7 +419,7 @@ let jsPackageConformanceTests =
 
             test "js: the hard-error set is exactly the un-ported library surface" {
                 // EMPTY: every in-scope contract has a JS body, is unrepresentable, or is
-                // declared impl-free. Pinned as a list, so a new entry names the contract
+                // declared impl-free. Pinned as a list, so a new entry identifies the contract
                 // that lost its body.
                 let expected: string list = []
 
@@ -494,7 +494,7 @@ let jsPackageConformanceTests =
             }
 
             test "js: prim-types-array.fsi PAIRS with its body rather than being waved through" {
-                // The manifest names one pair and it conforms: `extern` ↔ `(# "!0[]" #)`.
+                // The manifest lists one pair and it conforms: `extern` ↔ `(# "!0[]" #)`.
                 // Neither half is waved through — the `.fsi` as owing no body, or the
                 // `.fs` as contract-less.
                 let paired =

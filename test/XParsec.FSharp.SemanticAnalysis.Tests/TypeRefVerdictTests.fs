@@ -56,7 +56,7 @@ let private isExternalTypeRef (ctx: PassContext) (ty: Type<SyntaxToken>) : bool 
         | _ -> false
     | ValueNone -> false
 
-/// One error, naming the type: the annotation is the cause, so uses of the bound variable
+/// One error, citing the type: the annotation is the cause, so uses of the bound variable
 /// must recover in silence rather than spray secondaries.
 let private expectSoleUndefinedType (name: string) (input: string) =
     let ctx, file = analyse input

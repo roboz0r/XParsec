@@ -143,7 +143,7 @@ let tests =
                 assertWellFormed "representative" representativeBytes.Value
             }
 
-            test "the library's metadata is well-formed and carries no entry point" {
+            test "the library's metadata is well-formed and does not carry an entry point" {
                 assertWellFormed "library" libraryBytes.Value
                 assertNoEntryPoint "library" libraryBytes.Value
             }

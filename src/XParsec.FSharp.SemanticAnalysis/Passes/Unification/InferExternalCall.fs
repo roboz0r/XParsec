@@ -226,7 +226,7 @@ module internal UnificationInferExternalCall =
             let memberName = ctx.NameOf memberTok
             let candidates = ctx.Provider.TryLookupMembers(declTypeKey, memberName)
 
-            // A folded LongIdent names a non-generic type (generics need `<>`), so
+            // A folded LongIdent denotes a non-generic type (generics need `<>`), so
             // the declaring type has no type arguments to instantiate.
             let typeArgs: SemType[] = [||]
 

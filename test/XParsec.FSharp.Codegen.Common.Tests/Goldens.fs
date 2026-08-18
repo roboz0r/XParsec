@@ -23,7 +23,7 @@ let private isCi = Environment.GetEnvironmentVariable "CI" |> isNull |> not
 let private normalise (s: string) = s.Replace("\r", "")
 
 /// Compare `actual` against the golden at `path`; under `UPDATE_SNAPSHOTS` (or when the
-/// golden is absent) write it instead. `label` names the artifact in the failure.
+/// golden is absent) write it instead. `label` identifies the artifact in the failure.
 let check (path: string) (label: string) (actual: string) : unit =
     if updateSnapshots || not (File.Exists path) then
         Directory.CreateDirectory(Path.GetDirectoryName path) |> ignore
@@ -40,7 +40,7 @@ let check (path: string) (label: string) (actual: string) : unit =
             (normalise (File.ReadAllText path))
             (sprintf "byte-identity golden holds: %s" label)
 
-/// Fail on a committed golden matching `pattern` that `pinned` no longer names: a program the
+/// Fail on a committed golden matching `pattern` that `pinned` no longer lists: a program the
 /// manifest stops compiling leaves its golden behind, and the per-program gate only ever reads
 /// the ones it still covers.
 let checkNoOrphans (dir: string) (pattern: string) (pinned: string seq) : unit =

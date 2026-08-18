@@ -8,7 +8,7 @@ type Accessibility =
     | Internal
     | Private
 
-/// The exportable identity of a module-level `let`. `InModule m` names the compiled module
+/// The exportable identity of a module-level `let`. `InModule m` identifies the compiled module
 /// type, because an F# module is a static class (`Vesper.Collections.ListModule::fold`).
 type ModuleBindingInfo =
     {

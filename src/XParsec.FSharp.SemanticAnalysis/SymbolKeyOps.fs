@@ -272,7 +272,7 @@ module SymbolKeyOps =
         : SymbolKey =
         SymbolKey.Member(memberKeyOf decl name argSig methodTyparArity kind)
 
-    /// Narrow a wide `SymbolKey` to a `MemberKey`; `what` names the site in the failure.
+    /// Narrow a wide `SymbolKey` to a `MemberKey`; `what` identifies the site in the failure.
     let asMemberKey (what: string) (k: SymbolKey) : MemberKey =
         match k with
         | SymbolKey.Member m -> m

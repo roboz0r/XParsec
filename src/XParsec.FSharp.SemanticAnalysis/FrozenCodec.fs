@@ -574,8 +574,8 @@ module FrozenCodec =
     // ── the whole frozen file (top-level entry points) ──────────────────────
 
     /// The file's type/key tables, then the columns as they stand. The only work is EXTENDING
-    /// the tables with types a payload embeds; every already-minted id still names the row it
-    /// named, so `thaw` inverts this and re-flattening reproduces the blob byte for byte.
+    /// the tables with types a payload embeds; every already-minted id still identifies the row
+    /// it did, so `thaw` inverts this and re-flattening reproduces the blob byte for byte.
     let flatten (pools: FrozenPools) : byte[] =
         toBytes (FrozenTypeTableBuilder.OfRows pools.Types.Rows) writePools pools
 

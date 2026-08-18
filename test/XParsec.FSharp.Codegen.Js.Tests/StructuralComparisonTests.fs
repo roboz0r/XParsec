@@ -22,7 +22,7 @@ let tests =
                     "the aggregate base emits a curried call to the runtime comparator"
             }
 
-            test "a primitive-only `<` pulls in NO comparison import (`<` stays inline)" {
+            test "a primitive-only `<` stays inline, with NO comparison import" {
                 let src = emitJs "printfn \"%b\" (2 < 3)"
 
                 Expect.isFalse

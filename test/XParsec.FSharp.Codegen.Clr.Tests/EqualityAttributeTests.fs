@@ -175,7 +175,7 @@ let tests =
                 Expect.isNull (equalsObj ty) "no triple ⇒ the suffix variant resolved to NoEquality"
             }
 
-            test "a qualified attribute path resolves through the type it names" {
+            test "a qualified attribute path resolves through the type it identifies" {
                 // The marker type is `Vesper.ReferenceEqualityAttribute`, so the
                 // qualified spelling reaches the same identity as the bare one.
                 let src =

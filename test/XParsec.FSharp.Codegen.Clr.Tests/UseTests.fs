@@ -70,7 +70,7 @@ let useTests =
                     "body runs, then Dispose() in the finally"
             }
 
-            test "`use _ = e` disposes the bound variable even though the body can't name it" {
+            test "`use _ = e` disposes the bound variable even though the body can't refer to it" {
                 // `use _ = …` is the RAII-guard form: the value is still parked in a local
                 // and disposed in the finally, keyed off a synthetic placeholder.
                 let src =

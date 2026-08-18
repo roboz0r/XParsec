@@ -241,7 +241,7 @@ let tests =
                             | _ -> None
                         )
 
-                    // Through the edge: the eta reification mints an `InlineCall` naming the
+                    // Through the edge: the eta reification mints an `InlineCall` pointing to the
                     // resolved `(+)` entry, whose abstraction IS the two-lambda closure.
                     match addBinding |> Option.map (throughEdge tast) with
                     | Some(TExpr.Lambda(_, TExpr.Lambda(_, body, _, _), _, _)) ->

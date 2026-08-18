@@ -33,7 +33,7 @@ type ParamAttrs =
 
 [<RequireQualifiedAccess>]
 type TPatG<'ty, 'tok, 'id> =
-    /// `boundVar` is the definition site a `TExpr.Var` names.
+    /// `boundVar` is the definition site a `TExpr.Var` identifies.
     | NamedSimple of boundVar: 'id * ty: 'ty * tok: 'tok
     /// `_` placeholder. Has a type (the matched value's type) but binds nothing.
     | Wildcard of ty: 'ty * tok: 'tok
@@ -222,7 +222,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// has its `App` chain peeled at elaboration. `ty` is a `TyUnion`.
     | UnionCons of caseName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// Class primary-constructor invocation; `args` is the per-parameter list, the parser's
-    /// tuple wrapper (`new Point(3, 4)`) already peeled. `key` names the chosen EXTERNAL
+    /// tuple wrapper (`new Point(3, 4)`) already peeled. `key` identifies the chosen EXTERNAL
     /// `.ctor` of an overload set; `ValueNone` for a project-local or synthesised class.
     | New of className: string * key: SymbolKey voption * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// `r.M(args)`. `args` is the per-parameter list (peeled as for `New`); `ty` is the
@@ -307,7 +307,7 @@ type TExprG<'ty, 'tok, 'id> =
     | CallerExpr of body: TExprG<'ty, 'tok, 'id> * origin: OriginFile * ty: 'ty * tok: 'tok
 
 /// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the pattern and the
-/// guard/body expressions are carried: either the trees themselves, or handles naming them
+/// guard/body expressions are carried: either the trees themselves, or handles identifying them
 /// in a pool.
 and TMatchArmG<'pat, 'e> =
     {

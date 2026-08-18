@@ -52,7 +52,7 @@ module EmitJsFormat =
         let iife (build: JsExpr -> JsExpr) : JsExpr =
             call (JsExpr.Arrow([ "v" ], JsFnBody.Expr(build (id "v")), ValueNone)) [ buildExpr ctx operand ]
 
-        // `((s) => build(s))(inner)` — names the intermediate *string* so a sign-aware float
+        // `((s) => build(s))(inner)` — binds the intermediate *string* so a sign-aware float
         // form can inspect it (`s.startsWith("-")`) without rebuilding it.
         let strBind (inner: JsExpr) (build: JsExpr -> JsExpr) : JsExpr =
             call (JsExpr.Arrow([ "s" ], JsFnBody.Expr(build (id "s")), ValueNone)) [ inner ]

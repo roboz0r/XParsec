@@ -70,7 +70,7 @@ module OperatorSurfaceParity =
     let private allOperators = operators |> List.map fst |> Set.ofList
 
     /// What the manifest owes for ONE (width, operator) pair, merged over every program
-    /// that names it.
+    /// that references it.
     type private Support =
         {
             /// Backends that must RUN that operator at that width — so that width must
@@ -218,8 +218,8 @@ module OperatorSurfaceParity =
                                 "declares widths the manifest never pairs with this operator — it emits code no conformance program judges"
                                 unpinned)
 
-                        // What is left over: a pair in the matrix this backend is named in
-                        // neither half of, so it owes nothing there yet declares it.
+                        // What is left over: a pair where this backend is in neither the run nor
+                        // the reject half, so it owes nothing there yet declares it.
                         let unsupported = extra - mustReject - unpinned
 
                         Expect.isEmpty

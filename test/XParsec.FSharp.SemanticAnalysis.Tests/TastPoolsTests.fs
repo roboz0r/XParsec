@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // and the same fan-out, so a mis-wired child edge shows up as a fan-out mismatch.
 
 /// The dense id the pool interned a DU node's own bound variable under: an unpooled tree already
-/// names its bound variables in the pool's own space, so this is the node's own key widened.
+/// identifies its bound variables in the pool's own space, so this is the node's own key widened.
 let private internedBoundVarId (pools: FrozenPools) (b: BoundVarKeyG<BoundVarId> voption) : BoundVarId voption =
     b
     |> ValueOption.map (fun b ->
@@ -149,7 +149,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     checkColumn "BindingTyparArities" pools.BindingTyparArities (boundVarSource frozen.BindingTyparArities)
 
 /// A binding's recorded arity is READ OFF the pooled lambda chain, so every recorded `GTuple` must
-/// name a pat some `Lambda` bears as its parameter — a re-pooled copy is structurally equal but a
+/// point to a pat some `Lambda` bears as its parameter — a re-pooled copy is structurally equal but a
 /// different id. Also: one entry per `NamedSimple`-patterned `Let` root and no more.
 let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
     let lambdaParams = System.Collections.Generic.HashSet<PatPoolId>()
@@ -234,7 +234,7 @@ let private programs =
 
         // Binding patterns that introduce NO single bound variable, or introduce one only behind
         // a wrapper the frozen tree erases: a producer filing these under the bound PATTERN's key
-        // would name a node the frozen tree does not bear.
+        // would point to a node the frozen tree does not bear.
         "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
         "module-level tuple destructuring without parens", "let p = (1, 2)\nlet a, b = p\nlet s = a + b\n"
         "module-level nested destructuring", "let p = ((1, 2), 3)\nlet ((a, b), c) = p\nlet s = a + b + c\n"
@@ -351,7 +351,7 @@ let boundVarAnchorTests =
 // CONTAINS: a file with no type declaration proves nothing about pooled member bodies. So count
 // member bodies, inline templates and tuple groups, and fail if the set stops populating one.
 
-/// Counted over one program's pools. A tuple group names a lambda parameter node rather than a
+/// Counted over one program's pools. A tuple group points to a lambda parameter node rather than a
 /// pooled copy, so its count is coverage of the derivation, not of a carrier of its own.
 let private carrierCounts (pools: FrozenPools) =
     let memberBodies =
@@ -503,7 +503,7 @@ let funVerdictLambdaKeyTests =
                     "verdict rebuilt under its lambda key"
             }
 
-            test "a FunVerdicts key naming no pooled lambda faults in toPools" {
+            test "a FunVerdicts key that does not point to a pooled lambda faults in toPools" {
                 let src = "let f = fun x -> x + 1\n"
                 let _, frozen = poolsFor src
                 let rePool = rePoolFor src
@@ -515,7 +515,7 @@ let funVerdictLambdaKeyTests =
                     }
 
                 // A key on a token index past the end of any lexed file — a lambda-keyed entry
-                // naming no pooled lambda.
+                // that does not point to a pooled lambda.
                 let bogus = LambdaKey(Anchor.ofStored 1_000_000)
 
                 let injected =
@@ -526,7 +526,7 @@ let funVerdictLambdaKeyTests =
                 Expect.throws (fun () -> rePool injected |> ignore) "unresolved lambda-keyed verdict faults"
             }
 
-            test "a verdict reaches EVERY pooled lambda its key names" {
+            test "a verdict reaches EVERY pooled lambda its key identifies" {
                 // A published `inline` binding makes the key one-to-many: the published template
                 // and the ordinary function the binding is emitted as are two trees over the SAME
                 // source, so their lambdas anchor on the same token.
@@ -571,10 +571,10 @@ let funVerdictLambdaKeyTests =
 
 // The REACHABILITY half of side-table identity: an entry keyed by a real bound variable whose
 // declaration was then dropped, as a producer that prunes a decl and forgets its entry leaves
-// behind. The fault must name WHICH table still holds it — several producers file into several.
+// behind. The fault must identify WHICH table still holds it — several producers file into several.
 
 /// Two module bindings that nothing references, so dropping the second takes nothing with it: a
-/// surviving `Var` naming it would fault as an incomplete enumeration — a different failure, and
+/// surviving `Var` referencing it would fault as an incomplete enumeration — a different failure, and
 /// the test would pass for the wrong reason.
 let private staleEntrySrc = "module M\n\nmodule N =\n    let a = 1\n    let b = 2\n"
 
@@ -629,7 +629,7 @@ let staleSideTableEntryTests =
                 dropped.RePool dropped.Pruned |> ignore
             }
 
-            test "a retained ModuleMembers entry faults, naming that table" {
+            test "a retained ModuleMembers entry faults, identifying that table" {
                 let dropped = lastBindingDropped ()
 
                 let injected =
@@ -649,8 +649,8 @@ let staleSideTableEntryTests =
 
             // The SAME dropped bound variable in a different table, so the reported name is
             // diagnostic. `BindingTyparArities` reaches the pools as a `BoundVarColumn` — no key
-            // at all — yet its key still has to name a slot, so it faults the same way.
-            test "a retained BindingTyparArities entry faults, naming that table" {
+            // at all — yet its key still has to identify a slot, so it faults the same way.
+            test "a retained BindingTyparArities entry faults, identifying that table" {
                 let dropped = lastBindingDropped ()
 
                 let injected =

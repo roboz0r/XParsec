@@ -45,7 +45,7 @@ let tests =
                     "the suffixed spelling names the same type"
             }
 
-            test "a qualified path resolves through the type it names" {
+            test "a qualified path resolves through the type it denotes" {
                 let ctx =
                     analyse (src [ "[<Vesper.ReferenceEquality>]"; "type Point = { X: int }" ])
 
@@ -75,7 +75,7 @@ let tests =
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 
-            test "an unresolved attribute that spells no marker stays silently ignored" {
+            test "an unresolved attribute that does not spell a marker stays silently ignored" {
                 // Most of F#'s attribute vocabulary is declared nowhere in the Vesper
                 // contract, so blaming every unresolved name would blame every library file.
                 let ctx = analyse (src [ "[<AutoOpen>]"; "type Point = { X: int }" ])

@@ -209,7 +209,7 @@ module MethodOrPropDefn =
             if tokenStringIs "get" next state || tokenStringIs "set" next state then
                 return! Binding.parse attrs
             else
-                // A virtual token spells no source text, so name its kind instead.
+                // A virtual token has no source text, so print its kind instead.
                 let shown =
                     match tokenString next state with
                     | "" -> string next.Token

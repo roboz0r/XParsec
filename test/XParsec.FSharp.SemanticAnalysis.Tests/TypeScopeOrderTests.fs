@@ -117,7 +117,7 @@ let tests =
         "TypeScopeOrder"
         [
             // A reference to a type declared BELOW is a plain unknown-type error, not a
-            // special "forward reference" one, and every position that names a type is alike.
+            // special "forward reference" one, and every position that writes a type is alike.
             for position, source in
                 [
                     "record field", "type A = { x: B }\ntype B = { y: int }"
@@ -254,7 +254,7 @@ let tests =
 
             // A type BODY is two-tier: the `let`/`do` preamble is strictly top-down, while
             // MEMBERS are one mutually-recursive group seeing every let. Probed: a preamble
-            // `let` naming a later `let` is FS0039; a member calling a later member compiles.
+            // `let` referencing a later `let` is FS0039; a member calling a later member compiles.
             yield
                 test "a class static let referencing a later static let is rejected" {
                     expectError
@@ -444,7 +444,7 @@ let tests =
                 }
 
             // …and the non-shadowing neighbours still resolve, pinned by TYPE: the member reads
-            // the bound variable it names, which an acceptance test could not tell from a
+            // the bound variable it references, which an acceptance test could not tell from a
             // blanket rejection of anything that merely LOOKS like a preamble let.
             yield
                 test "a distinctly-named instance let over a ctor param binds the let in a member" {

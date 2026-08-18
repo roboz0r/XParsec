@@ -961,7 +961,7 @@ module Unification =
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
 
-            // `capWord` names the language capability when the provider resolves none, so
+            // `capWord` is the diagnostic's word for the capability the provider cannot resolve, so
             // the check reports rather than silently passing.
             let requireCapability (cap: RuntimeNames.CapabilityIdentity voption) (attr: string) (capWord: string) =
                 match cap with

@@ -623,7 +623,7 @@ module internal NominalEmit =
                         provider.InstanceMethodSignature(paramTys, mem.ReturnTy)
                 with ex ->
                     // A leaked metavar / unresolved type constructor surfaces here as an anonymous
-                    // encoder failure; name the member and keep the original as
+                    // encoder failure; identify the member and keep the original as
                     // `InnerException`, whose stack pinpoints the encode site.
                     raise (System.Exception(sprintf "While encoding signature of member '%A.%s'" td.Key mem.Name, ex))
 

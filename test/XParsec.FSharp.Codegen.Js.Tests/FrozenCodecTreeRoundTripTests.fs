@@ -21,7 +21,7 @@ let private frozenFiles: (string * FrozenPools) list =
 let private survivesRoundTrip (f: FrozenPools) : bool =
     TastFileG.structurallyEqual (TastUnpool.ofPools f) (TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
 
-/// A pools value bearing a specialization entry, an `InlineCall` edge naming it, and a
+/// A pools value bearing a specialization entry, an `InlineCall` edge referencing it, and a
 /// `CallerExpr` mark. No corpus program reaches any of the three, so the carriers are grafted
 /// onto a real frozen file, leaving every other column exactly as the freeze built it.
 let private withSpecialization () : FrozenPools =
@@ -104,7 +104,7 @@ let private withSpecialization () : FrozenPools =
             |]
     }
 
-/// The same graft with a SECOND entry naming the same producer file: one template grounded
+/// The same graft with a SECOND entry carrying the same producer file: one template grounded
 /// two ways. The two entries differ only in the grounding, so the origin is what they share.
 let private withSharedOrigin () : FrozenPools =
     let pools = withSpecialization ()
@@ -200,7 +200,7 @@ let tests =
                         (name + " did not survive flatten/thaw structurally")
                 }
 
-            // A `type` declaration's bodies are the one place the stored form names an
+            // A `type` declaration's bodies are the one place the stored form identifies an
             // expression by pool id from INSIDE a declaration SHAPE, so the shape's writer and
             // reader must stay in lockstep slot for slot. A plain `member` misses these slots.
             for name, src in
@@ -222,7 +222,7 @@ let tests =
             // The corpus leaves the specialization array and the `InlineCall`/`CallerExpr`
             // payloads at zero. Assert on the decoded carriers themselves: an entry the writer
             // skipped and the reader defaulted to empty is invisible to a tree comparison.
-            test "a specialization entry, the InlineCall naming it and a CallerExpr survive flatten/thaw" {
+            test "a specialization entry, the InlineCall referencing it and a CallerExpr survive flatten/thaw" {
                 let grafted = withSpecialization ()
                 let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
 
@@ -235,7 +235,7 @@ let tests =
 
             // The file's OWN origin is the one field no structural comparison can reach: the
             // unpooled tree has no field for it, so a writer that dropped it passes every gate
-            // above, and a file naming nobody's origin calls all of its own code foreign.
+            // above, and a file carrying no origin calls all of its own code foreign.
             test "the file's own origin survives flatten/thaw" {
                 let frozen = frozenOfJs "module M\n\nlet y = 1 + 2\n"
 
@@ -260,7 +260,7 @@ let tests =
                 Expect.equal (rt.Specializations.Length) 2 "both entries survived the wire"
                 Expect.equal rt.Specializations grafted.Specializations "…each with the origin it was written with"
 
-                // Counted rather than assumed: two entries name the producer and the two
+                // Counted rather than assumed: two entries reference the producer and the two
                 // grafted nodes the consumer, on top of whatever the freeze itself anchored.
                 let referenced =
                     [

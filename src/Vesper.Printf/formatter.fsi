@@ -5,7 +5,7 @@ open System.Text
 open System.Runtime.CompilerServices
 
 /// <summary>Stack-only handler that accumulates formatted text and flushes it to
-/// a sink. Constructed and driven by the backend; users never name it.</summary>
+/// a sink. Constructed and driven by the backend; users never write it.</summary>
 [<Struct; IsByRefLike>]
 type Formatter =
     /// Write-through sink: appended text is buffered, and <c>Flush</c> writes it to

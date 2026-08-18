@@ -105,7 +105,7 @@ module IntrinsicTypeMap =
         | _ -> EqArray.empty
 
     /// The canon `platform` reconciles to: `"System.Exception"` → `exn`. The LEADING canon
-    /// where a repr names several.
+    /// where a repr reconciles to several.
     let tryCanon (platform: string) (map: IntrinsicTypeMap) : TypeKey voption =
         match map.ByPlatform.TryGetValue platform with
         | true, canons when not canons.IsEmpty -> ValueSome canons.[0]

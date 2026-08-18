@@ -54,8 +54,8 @@ let tests =
             }
 
             test "toArray allocates through Vesper.Array, never a raw newarr" {
-                // The shared body spells no allocation intrinsic; the buffer comes from the
-                // Array package instead.
+                // The shared body does not spell an allocation intrinsic; the buffer comes
+                // from the Array package instead.
                 Expect.stringContains
                     (generated.Value)
                     "from \"../Vesper.Array/index.mjs\""

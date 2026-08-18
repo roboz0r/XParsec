@@ -16,7 +16,7 @@ open XParsec.FSharp.Codegen.Js
 /// position.
 let private dummyTok: Anchor = Anchor.nowhere
 
-/// The origin a lift of such a body names. Every node anchors `Anchor.nowhere`, which
+/// The origin a lift of such a body carries. Every node anchors `Anchor.nowhere`, which
 /// resolves without consulting a retained source, so the empty text below is never read.
 let private nowhereSource: OriginSource =
     {

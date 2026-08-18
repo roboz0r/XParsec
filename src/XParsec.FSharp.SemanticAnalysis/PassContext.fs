@@ -268,7 +268,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
     member _.Resolver: IExternalSymbolResolver = provider
 
     /// A field name → every external record declaring it. Not a spelling lookup: a bare
-    /// `{ X = … }` does not name a record, so the field set IS the identity, pinned at inference.
+    /// `{ X = … }` does not spell a record, so the field set IS the identity, pinned at inference.
     member _.TryRecordsWithField(fieldName: string) : EqArray<ExternalRecordCandidate> =
         provider.TryRecordsWithField fieldName
 
@@ -486,7 +486,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
         }
 
     /// Enter a module containment: the chain a by-name read from inside speaks from, set and
-    /// returned. Every scope on the way in is noted under the SOURCE path an `open` names it by.
+    /// returned. Every scope on the way in is noted under the SOURCE path an `open` writes it as.
     member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleContainer =
         let scopes = ModuleRules.enclosingContainers this.ModuleNaming c
 

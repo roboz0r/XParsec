@@ -69,7 +69,7 @@ module Hashing =
         InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// One referenced package's signature: the manifest's bytes plus the CONTENTS of every
-    /// source it names, `.fs` impls included, whose inline templates splice into a consumer's
+    /// source it lists, `.fs` impls included, whose inline templates splice into a consumer's
     /// tree. Reads all of them. `depends-on` is not followed from here.
     let dependencySignatureHash (manifest: ReferencedProject.Manifest) : InputHash =
         let hasher = XxHash128()
@@ -78,7 +78,7 @@ module Hashing =
         // DIRECTORY name when the file declares none.
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes manifest.Name)
 
-        // The manifest's OWN bytes: which files it names, under which key, in which order,
+        // The manifest's OWN bytes: which files it lists, under which key, in which order,
         // plus `depends-on` and `sig-only`, none of which is visible in the contents below.
         appendLengthPrefixed hasher (File.ReadAllBytes manifest.Path.Path)
 
@@ -98,7 +98,7 @@ module Hashing =
     type CompilationInputs =
         {
             /// The assembly name the front end roots minted keys at: a blob frozen under one
-            /// home assembly names its own symbols differently from one frozen under another.
+            /// home assembly keys its own symbols differently from one frozen under another.
             HomeAssembly: string
             /// The backend target. It SELECTS which `manifest.<t>.toml` each package below
             /// resolves to, and is folded in its own right besides: backend-supplied facts reach
@@ -155,7 +155,7 @@ module Hashing =
 
         InputHash.ofBytes (hasher.GetCurrentHash())
 
-    /// THE expensive step in a cache key: it reads every source file the closure names. The
+    /// THE expensive step in a cache key: it reads every source file the closure reaches. The
     /// `depends-on` closure is taken HERE, because inline bodies splice out of
     /// transitively-reached packages too.
     let compilationDigest (inputs: CompilationInputs) : CompilationDigest =

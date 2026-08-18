@@ -338,7 +338,7 @@ module UnificationInferOverload =
         let declEnv = frozenAxisEnv store declTypars
         let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
 
-        // A metavar on NEITHER axis: not generic in anything the key can name. It goes into an
+        // A metavar on NEITHER axis: not generic in anything the key can denote. It goes into an
         // argSig, which is a key, so every such position must freeze to the SAME value, or a
         // half-inferred signature mints a different key per inference run.
         let onVar (v: SemType) : FrozenType =

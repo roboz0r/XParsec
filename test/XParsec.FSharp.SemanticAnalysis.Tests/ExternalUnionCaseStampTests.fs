@@ -110,7 +110,7 @@ let private assertPatStamped (input: string) (caseName: string) (expected: int) 
             (sprintf "external case '%s' stamped at its ctor pattern in: %s" caseName input)
 
 /// Assert every `caseName` ctor in `input` is NOT stamped: its declaring namespace is
-/// not open, so the name binds a variable rather than naming an external case.
+/// not open, so the name binds a variable rather than resolving to an external case.
 let private assertPatNotStamped (input: string) (caseName: string) (expected: int) =
     let ctx, file = analyse input
     let ctors = caseCtors ctx file caseName

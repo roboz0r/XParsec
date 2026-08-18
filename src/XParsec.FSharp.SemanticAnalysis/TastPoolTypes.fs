@@ -176,7 +176,7 @@ type FrozenPools =
         /// The inline vocabulary's roots: one per published template, in publication order.
         InlineTemplates: PooledInlineValue[]
         /// The resolved-specialization table's roots, indexed by the `SpecializationId` an
-        /// `InlineCall` payload carries. An entry's body may name a LATER slot, so resolve
+        /// `InlineCall` payload carries. An entry's body may reference a LATER slot, so resolve
         /// an id against the whole array, not in definition order.
         Specializations: PooledSpecialization[]
         /// The bound variable pool's two parallel columns, indexed by `BoundVarId`. This one is the

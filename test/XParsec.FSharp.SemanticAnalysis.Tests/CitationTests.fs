@@ -7,8 +7,8 @@ open System.Text.RegularExpressions
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// A citation is prose, so deleting the member it names does not break it. This guards that
-// one bug class: a backticked `T.X` for a guarded `T` must name a field, case, or module
+// A citation is prose, so deleting the member it cites does not break it. This guards that
+// one bug class: a backticked `T.X` for a guarded `T` must refer to a field, case, or module
 // member that exists. The valid set is reflected off `T`, so there is no allowlist to update.
 
 /// A bare `module M` as the `System.Type` it compiles to — a module has no `typeof<_>`.
@@ -159,7 +159,7 @@ let tests =
     testList
         "Citations"
         [
-            test "every backticked citation of a guarded type names a member that exists" {
+            test "every backticked citation of a guarded type refers to a member that exists" {
                 let repoRoot = Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", ".."))
                 let srcRoot = Path.Combine(repoRoot, "src")
 

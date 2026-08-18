@@ -60,7 +60,7 @@ type PassContextTypes =
         /// An enum is non-generic, so its claim is always `(container, name, 0)`, but still keyed
         /// by `TypeKey`, since two sibling modules may each declare one.
         Enum: Dictionary<TypeKey, EnumTypeInfo>
-        /// An alias body is forced by the first thing that names it, at the latest when its
+        /// An alias body is forced by the first thing that references it, at the latest when its
         /// group closes. Expansion is eager: downstream sees the underlying type longhand.
         Abbreviation: Dictionary<TypeKey, AbbreviationInfo>
         /// Reverse index: ctor name → case-info entries, each tagged with its declaring union.
@@ -146,7 +146,7 @@ module TypeRegistry =
         | true, k -> k
         | _ -> failwithf "Internal error: intrinsic '%s' has no stamped identity key" name
 
-    /// `intrinsicKeyOf` for a caller that does not know whether `name` names a local
+    /// `intrinsicKeyOf` for a caller that does not know whether `name` resolves to a local
     /// intrinsic at all: the lookup arm of the name → key index.
     let tryIntrinsicKeyOf (types: PassContextTypes) (name: string) : TypeKey voption =
         match types.IntrinsicKeys.TryGetValue name with
@@ -196,12 +196,12 @@ module TypeRegistry =
 
         go scope
 
-    /// The module / namespace this `open` names, if THIS file declares it. Its written path is
+    /// The module / namespace this `open` resolves to, if THIS file declares it. Its written path is
     /// resolved from the scope it is written in.
     let private openedContainer (types: PassContextTypes) (o: LocalOpen) : ModuleContainer voption =
         tryContainerOfPath types o.Scope o.Path
 
-    /// The scope the dotted SOURCE `path` names when written INSIDE `enclosing`, and `enclosing`
+    /// The scope the dotted SOURCE `path` reaches when written INSIDE `enclosing`, and `enclosing`
     /// itself for an empty path. An EXACT descent, no walking outward.
     let private containerUnder
         (types: PassContextTypes)
@@ -235,7 +235,7 @@ module TypeRegistry =
         }
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this file
-    /// from `useSite`. Empty for a path naming no scope of this file (`System.Uri`).
+    /// from `useSite`. Empty for a path that does not reach a scope of this file (`System.Uri`).
     let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ContainerReach list =
         match useSite.Container with
         | ValueNone -> []
@@ -315,7 +315,7 @@ module TypeRegistry =
                 best
 
     /// The max-rank claim on `written` that `admit`s at `useSite`. Every by-name lookup is this
-    /// with a different `admit`; a qualified name reads from the scope its path names.
+    /// with a different `admit`; a qualified name reads from the scope its path reaches.
     let private tryWinner
         (types: PassContextTypes)
         (useSite: UseSite)
@@ -670,7 +670,7 @@ module TypeRegistry =
     let tryNominalMemberByKey (types: PassContextTypes) (key: TypeKey) (memberName: string) : NominalMember voption =
         tryNominalByKey types key |> ValueOption.bind (pickMember memberName)
 
-    /// `C.M`: the static `M` on the class / union / record `C` names, resolved AS SEEN FROM
+    /// `C.M`: the static `M` on the class / union / record `C` denotes, resolved AS SEEN FROM
     /// `useSite`. An instance member of that name misses, so a caller cannot mistake one for
     /// a qualified static access.
     let tryStaticMember
@@ -709,10 +709,10 @@ module TypeRegistry =
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
             | ValueNone -> tryIntrinsicAbbrevHostByName types name
 
-    /// The key-addressed twin of the above, for what a DECLARATION names, because two sibling
+    /// The key-addressed twin of the above, for what a DECLARATION claims, because two sibling
     /// modules may each declare `T`. Every kind answers by KEY, but by a DIFFERENT key for the
     /// intrinsic arm, which is why the name is still a parameter: an intrinsic binding carries
-    /// two, the container-homed claim `key` naming it here and the namespace-homed canon
+    /// two, the container-homed claim `key` identifying it here and the namespace-homed canon
     /// addressing the host table, which the name resolves to through `IntrinsicKeys`.
     let tryNonClassMemberHostByKey
         (types: PassContextTypes)
@@ -768,7 +768,7 @@ module TypeRegistry =
             hits.ToArray()
         | false, _ -> Array.empty
 
-    /// The ctor-vs-bound variable test: does `name` name a union case visible from `useSite`?
+    /// The ctor-vs-bound variable test: does `name` resolve to a union case visible from `useSite`?
     let isCaseName (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
         match types.CtorIndex.TryGetValue name with
         | true, infos -> infos |> EqArray.exists (caseVisibleAt types useSite)

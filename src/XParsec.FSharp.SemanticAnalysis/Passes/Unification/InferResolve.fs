@@ -360,7 +360,7 @@ module internal UnificationInferResolve =
             MemberName: string
         }
 
-    /// For a 2+-segment `Q.member` whose qualifier names a known external union/record but
+    /// For a 2+-segment `Q.member` whose qualifier resolves to a known external union/record but
     /// whose last segment resolved to no value, case or static member, the names to diagnose.
     let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : QualifiedMemberMiss voption =
         match e with

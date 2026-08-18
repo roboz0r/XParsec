@@ -65,7 +65,7 @@ let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     | TDecl.Let(_, value, _, _) -> value
     | other -> failwithf "a specialization entry is a `TDecl.Let` of lambdas; got %A" other
 
-/// Read THROUGH an `InlineCall` edge to the body it names; the identity on anything else.
+/// Read THROUGH an `InlineCall` edge to the body it points to; the identity on anything else.
 /// A resolved inline body sits in the specialization table, not spliced into the consumer.
 let rec throughEdge (tast: TastFile) (e: TExpr) : TExpr =
     match e with
@@ -201,7 +201,7 @@ let vesperCoreDll: Lazy<string> =
              | Ok units -> units
              | Error e -> failwithf "vesperCoreDll: %s" e
 
-         // Core defines its own primitives, so it references nothing and names ITSELF as
+         // Core defines its own primitives, so it references nothing and declares ITSELF as
          // the self manifest. That seeds the platform metadata with its own `{ platform -> canon }`
          // axis, so a BCL signature presents `System.String` as `Vesper.string` here too.
          let contract = gatedContractForSelf "vesperCoreDll" vesperCorePackage []
@@ -344,7 +344,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
                  let depManifests = depNames |> List.map srcPackage
 
-                 // The package names ITSELF as self, so a BCL signature presents the primitives
+                 // The package declares ITSELF as self, so a BCL signature presents the primitives
                  // this compilation declares: `prim-types-string.clr.fs`'s `String.Concat(x, y)`
                  // takes two `Vesper.string`s and must still find the `(String, String)` overload.
                  let contract =

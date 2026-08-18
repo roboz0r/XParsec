@@ -114,7 +114,7 @@ module EmitJs =
             match folded with
             | ValueSome call -> call
             | ValueNone ->
-                // An applied function naming a module function → its flat callee + SOURCE
+                // An applied function resolving to a module function → its flat callee + SOURCE
                 // groups. The groups are non-empty by construction, so saturation is the
                 // argument count reaching the group count; anything else stays curried.
                 let flatFn: (JsExpr * TastAccessor.ArgGroup list) voption =
@@ -726,7 +726,7 @@ module EmitJs =
             | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
     /// The JS name for a single-name loop/scope pattern (`use x = …`, `for x in …`).
-    /// A wildcard gets a fresh temporary: still bound, though the body cannot name it.
+    /// A wildcard gets a fresh temporary: still bound, though the body cannot refer to it.
     and private patBoundVarName (ctx: WalkCtx) (prefix: string) (pattern: TastAccessor.PatId) : string =
         match pattern with
         | TastAccessor.PNamedNaming naming -> boundVarName naming
@@ -750,7 +750,7 @@ module EmitJs =
         let disposeCall =
             match dispose with
             // The CLR-only interface `slot` key the node carries is irrelevant here, because
-            // JS names its own slot.
+            // JS has its own slot, `Symbol.dispose`.
             | Disposal.ViaCapability _ -> disposeSlotCall boundVar ValueNone
             // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
             // keyed member's free type-prefixed function.
@@ -841,7 +841,7 @@ module EmitJs =
 
         let moduleMembers = TastPoolBuilder.moduleMembers inputs.Pool
 
-        // Declared to be the TARGET'S OWN: `type x = (# "repr" #)` names a platform
+        // Declared to be the TARGET'S OWN: `type x = (# "repr" #)` denotes a platform
         // representation (`int` IS `number`) and `[<Global>]` a target global (`undefined`).
         // Neither can emit a definition, and each reference emits the front end's splice.
         let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys inputs.Pool
@@ -976,7 +976,7 @@ module EmitJs =
         InlineExpand.Derivation.absorb ctx.Derivation expansion.Derived
 
         // The producer files this program reached get a slot in the map's `sources[]`. It walks
-        // the RETENTION, which yields in path order, keeping what the expansion named but not
+        // the RETENTION, which yields in path order, keeping what the expansion reached but not
         // the expansion's dictionary order, so two builds of one program publish the same map.
         match ctx.Resolver with
         | ValueNone -> ()

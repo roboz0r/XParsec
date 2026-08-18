@@ -52,7 +52,7 @@ module NameResolution =
             InheritsExpr: Expr<SyntaxToken> voption
             /// The enclosing module's `let` bindings that are VISIBLE from this type's
             /// declaration. Entered as the lowest-priority layer of every member-body scope,
-            /// so a member can name a module sibling unqualified. Empty for a top-level type.
+            /// so a member can reference a module sibling unqualified. Empty for a top-level type.
             EnclosingModuleScope: Scope
             Elements: TypeDefnElements<SyntaxToken>
         }
@@ -198,7 +198,7 @@ module NameResolution =
 
         // The instance sequence runs inside the primary ctor: it sees the ctor params, the static
         // bound variables, and the instance bound variables above it, but never `this` / `base` /
-        // the `as` alias, so a preamble `let` naming the object is rejected rather than typed.
+        // the `as` alias, so a preamble `let` referencing the object is rejected rather than typed.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
             ||> Array.fold (fun acc p -> Map.add p.Name (BoundVarKey.identity p.DeclSite.BoundVar, false) acc)
@@ -570,7 +570,7 @@ module NameResolution =
         | TypeDefn.SkipsTokens _ -> ValueNone
 
     /// The implicit file module's stand-in name in `LocalModules` / `TypeEnclosingModule`,
-    /// so a top-level type's member body can name a top-level `let` sibling unqualified. `$`
+    /// so a top-level type's member body can reference a top-level `let` sibling unqualified. `$`
     /// is not a legal F# identifier character, so it never collides with a `module Foo = …`.
     let private topLevelModuleSentinel = "$top"
 
@@ -631,7 +631,7 @@ module NameResolution =
                 | _ -> ()
 
         // Under the sentinel name rather than `ValueNone`, so the file module's direct `let`s
-        // register as siblings a top-level type's member bodies can name.
+        // register as siblings a top-level type's member bodies can reference.
         let top = ValueSome topLevelModuleSentinel
 
         match file with

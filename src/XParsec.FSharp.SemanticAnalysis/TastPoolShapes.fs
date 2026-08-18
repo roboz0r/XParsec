@@ -153,7 +153,7 @@ module TastPoolShapes =
             for x in args do
                 acc.Add x
         // The ENTRY is not a child: it is a separate pool root, shared by every call site
-        // that names it. Only the call's own argument expressions belong to this node.
+        // that references it. Only the call's own argument expressions belong to this node.
         | TExprG.InlineCall(args = args) ->
             for x in args do
                 acc.Add x

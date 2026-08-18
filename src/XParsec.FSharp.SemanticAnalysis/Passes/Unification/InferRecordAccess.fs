@@ -296,7 +296,7 @@ module internal UnificationInferRecordAccess =
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
                 // Derived members shadow inherited ones. On a total miss the diagnostic
-                // names the object argument's own class rather than some ancestor.
+                // refers to the object argument's own class rather than some ancestor.
                 match tryClassChainMember ctx clsKey args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
@@ -323,7 +323,7 @@ module internal UnificationInferRecordAccess =
                     | ValueNone ->
 
                         // An object argument typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`) is an
-                        // `IntrinsicInterface`: it names a platform type but carries no member
+                        // `IntrinsicInterface`: it identifies a platform type but carries no member
                         // table, so retry there. A non-capability key comes back unchanged.
                         let platformKey = capabilityPlatformKey ctx clsKey
 
@@ -564,7 +564,7 @@ module internal UnificationInferRecordAccess =
             | ValueNone -> pickSurface ctx objArgTy resolveExternalIndexer
 
     /// `x.[i] <- v`: the write accessor, and the constraint that pins the element type when no
-    /// getter typed the LHS. Unlike the read it REPORTS its own miss, naming `set_Item`, so a
+    /// getter typed the LHS. Unlike the read it REPORTS its own miss, citing `set_Item`, so a
     /// write with neither accessor is not blamed on the getter.
     and resolveIndexedSet
         (ctx: PassContext)

@@ -2,14 +2,14 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// One of the assets a package's `manifest.js.toml` `runtime` key names: a committed
+/// One of the assets a package's `manifest.js.toml` `runtime` key lists: a committed
 /// `.mjs` shipped inside that package's own output directory.
 type JsRuntimeModule =
     {
-        /// `Vesper.Seq/Vesper.Seq.mjs` — where it is written, and what an importer names.
+        /// `Vesper.Seq/Vesper.Seq.mjs` — where it is written, and what an importer references.
         Path: JsModulePath
         Source: string
-        /// The modules `Source`'s own `import` lines name: `Vesper.Seq.mjs` names
+        /// The modules `Source`'s own `import` lines reference: `Vesper.Seq.mjs` imports
         /// `Vesper.Array`'s barrel and `Vesper.Core`'s runtime file. Shipping this one means
         /// shipping those too.
         Imports: JsModulePath list
@@ -130,10 +130,10 @@ module JsImports =
     /// A program emitted at the output root.
     let create (runtime: Map<string, JsPackageOutput>) : JsImports = createIn ValueNone runtime
 
-    /// The module `home` is imported from: a DECLARING FILE names that file's own module,
+    /// The module `home` is imported from: a DECLARING FILE resolves to that file's own module,
     /// which the compilation writing it also writes; a whole package, its barrel; a synthesised
-    /// runtime entry, the package's runtime file, so that a package compiling ITSELF names that
-    /// file directly rather than cycling through its own barrel.
+    /// runtime entry, the package's runtime file, so that a package compiling ITSELF references
+    /// that file directly rather than cycling through its own barrel.
     let private moduleOf (imports: JsImports) (home: JsHome) (what: string) : JsModulePath * JsRuntimeModule voption =
         let noModule () =
             failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what home.Assembly
@@ -264,12 +264,12 @@ module JsImports =
                 | None -> ()
         ]
 
-    /// The modules the emitted `import` block names, sorted as it emits them.
+    /// The modules the emitted `import` block lists, sorted as it emits them.
     let importedModules (imports: JsImports) : JsModulePath list =
         [ for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) -> kv.Key ]
 
     /// The committed runtime ASSETS this program needs: those referenced during the walk,
-    /// closed over asset→asset imports, sorted by file name. An asset naming a module no
+    /// closed over asset→asset imports, sorted by file name. An asset importing a module no
     /// package in the manifest closure ships is a dangling ESM specifier, and throws here
     /// rather than at the point Node loads the written output.
     let assets (imports: JsImports) : JsRuntimeModule list =

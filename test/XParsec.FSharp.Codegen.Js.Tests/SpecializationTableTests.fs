@@ -25,7 +25,7 @@ type private Analysed =
     }
 
 /// Run the front end up to and including inline expansion, and hand back the pass's own
-/// product: the flattened decls AND the table its edges named. The production pipeline runs
+/// product: the flattened decls AND the table its edges reference. The production pipeline runs
 /// the same prefix, then flattens the table away and discards it.
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
@@ -103,7 +103,7 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
             System.IO.File.WriteAllText(System.IO.Path.Combine(dir, name), text)
 
         // `int` is Vesper.Core's, and a contract resolves only what its own dependencies
-        // declare, so this fixture under `tmp/` names the way back to `src/`.
+        // declare, so this fixture under `tmp/` spells the way back to `src/`.
         write
             "manifest.js.toml"
             """[core]
@@ -140,7 +140,7 @@ module Probe =
 
 /// A producer whose recursion closes on a MEMBER. `'T[]`'s `get_Item` is OVERRIDDEN rather than
 /// a fresh type declared (a later manifest's body wins), because a member inline body cannot
-/// name its own type's member; reaching it through `bounce` is what makes the reference keyed.
+/// reference its own type's member; reaching it through `bounce` is what makes the reference keyed.
 let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
     lazy
         let dir = tmpDir "Cycle.Member"
@@ -197,7 +197,7 @@ type 'T ``[]`` =
 
         JsNativeSymbols.buildJsNativeContract (jsPackages @ [ dir ])
 
-/// Every `InlineCall` edge in `e`, as the slot it names and the number of arguments it carries.
+/// Every `InlineCall` edge in `e`, as the slot it points to and the number of arguments it carries.
 let private edgeArities (e: TExpr) : (SpecializationId * int) list =
     e
     |> TastWalk.chooseExpr (fun n ->
@@ -206,7 +206,7 @@ let private edgeArities (e: TExpr) : (SpecializationId * int) list =
         | _ -> ValueNone
     )
 
-/// The entries resolved from the template `name` names (`op_Addition`, `op_Multiply`, …),
+/// The entries resolved from the template `name` identifies (`op_Addition`, `op_Multiply`, …),
 /// picked out of a table that also holds every other inline the source happened to reach.
 let private entriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
     [
@@ -215,7 +215,7 @@ let private entriesFor (name: string) (table: TSpecialization[]) : TSpecializati
                 yield e
     ]
 
-/// `entriesFor`, split by WHERE the template is declared. An arithmetic use site names TWO
+/// `entriesFor`, split by WHERE the template is declared. An arithmetic use site resolves to TWO
 /// entries under one compiled name: the operator's `let inline` module BINDING, and the static
 /// MEMBER witness it dispatches to, named after the operator. Only the key's case tells them apart.
 let private operatorEntriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
@@ -339,17 +339,17 @@ let tests =
                     "…and the verdict came off a table that really is cyclic"
             }
 
-            test "a MUTUALLY recursive pair is caught, and the verdict names the way round" {
+            test "a MUTUALLY recursive pair is caught, and the verdict reports the way round" {
                 let _, ds =
                     expandedWithDiagnostics "let rec inline f x = g x\nand inline g x = f x\nlet a = f 1\n"
 
-                // ONE verdict, not one per rotation: `g → f → g` is a single loop, named in call
+                // ONE verdict, not one per rotation: `g → f → g` is a single loop, reported in call
                 // order. It closes on `g` because `g` is the first entry minted: an inline binding
                 // is walked as the function it also emits, so `f`'s body reaches `g` first.
                 Expect.equal
                     (cyclicInlines ds)
                     [ "g", [ "f" ] ]
-                    "a → b → a is a cycle even though neither binding names itself"
+                    "a → b → a is a cycle even though neither binding references itself"
             }
 
             test "a recursive SERVED body terminates into a cyclic table, which is rejected" {
@@ -552,8 +552,8 @@ let tests =
                     "…more than one of them, or a collapse onto a single token would be indistinguishable from keeping them"
 
                 // Every one of those integers reads back, against the PRODUCER file the entry
-                // names, as exactly the token the node carries. Nothing weaker would do: an index
-                // is in range against the consuming file too, naming an unrelated token of it.
+                // points to, as exactly the token the node carries. Nothing weaker would do: an index
+                // is in range against the consuming file too, pointing at an unrelated token of it.
                 for tok in positions entry do
                     match tok.Index with
                     | TokenIndex.Virtual -> ()
@@ -571,7 +571,7 @@ let tests =
 
             test "a nullary intrinsic value reference is an ordinary entry, shared across sites" {
                 // `undefined` is a zero-operand `(# … #)` alias: no parameters to fuse, so its
-                // entry is closed by construction and both references name it.
+                // entry is closed by construction and both references resolve to it.
                 let expanded =
                     expandedFor "let a: undefined = undefined\nlet b: undefined = undefined\n"
 
@@ -672,7 +672,7 @@ let tests =
             }
 
             test "a SHAREABLE entry marks nothing, which is what makes sharing sound" {
-                // Two sites at one grounding name ONE entry, so material fused from either would
+                // Two sites at one grounding share ONE entry, so material fused from either would
                 // be evaluated at both. The reduction's closedness condition, seen from outside.
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
@@ -736,7 +736,7 @@ let tests =
                             | TDecl.Type _ -> ()
                     ]
 
-                // One per outlined call site, and each names a slot of the table that came
+                // One per outlined call site, and each points to a slot of the table that came
                 // back with them: a decl carrying an edge into nothing is what publishing the
                 // two apart would produce.
                 Expect.equal (List.length edges) 2 "both operator call sites left an edge"
@@ -748,7 +748,7 @@ let tests =
             // The two halves of an outlined call sit in DIFFERENT files, and each node says
             // which. Without that, an anchor's meaning is a property of the descent that
             // reached it rather than of the node.
-            test "an edge and its mark name the CALLING file; the entry names the producer" {
+            test "an edge and its mark point to the CALLING file; the entry to the producer" {
                 let src = "let a = true && false\n"
                 let expanded = expandedFor src
                 let compiling = compilingOrigin src
@@ -800,7 +800,7 @@ let tests =
                     Expect.equal o compiling "the call site is this file's material, whatever file the body came from"
             }
 
-            test "a fused entry named by TWO edges is what the closure assertion convicts" {
+            test "a fused entry referenced by TWO edges is what the closure assertion convicts" {
                 // Fused material belongs to the one site that wrote it. `(&&)`'s entry fuses its
                 // right operand, so a second edge to it would run that call with this one's.
                 let expanded = expandedFor "let a = true && false\n"
@@ -817,7 +817,7 @@ let tests =
                 let entry = expanded.Specializations.[slot]
 
                 // Only the slot is read, so the edge's own domain is free; the entry's is the
-                // one file this fixture can name without reaching back into the compile.
+                // one file this fixture can reference without reaching back into the compile.
                 let edge =
                     TExpr.InlineCall(
                         spec,

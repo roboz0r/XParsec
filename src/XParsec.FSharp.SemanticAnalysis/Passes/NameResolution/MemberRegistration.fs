@@ -795,7 +795,7 @@ module NameResolutionMemberRegistration =
                             | _ -> ValueNone
 
                     match heritableLocalRepr with
-                    // The EXTERNAL type the repr names, not the opaque value-repr `TyConst`.
+                    // The EXTERNAL type the repr denotes, not the opaque value-repr `TyConst`.
                     | ValueSome platform -> reprToExternalBase platform
                     | ValueNone -> resolveThroughProvider ()
 
@@ -940,7 +940,7 @@ module NameResolutionMemberRegistration =
             | ValueNone -> ()
         | _ -> ()
 
-    /// The nominal a `SemType` names DIRECTLY, if any. A type argument is NOT direct: a
+    /// The nominal a `SemType` denotes DIRECTLY, if any. A type argument is NOT direct: a
     /// `B option` field stores a reference to a `B`, so it is an indirection, and only the
     /// outermost type constructor of a field's type is an immediate containment edge.
     let private directNominal (store: TypeStore) (t: SemType) : TypeKey voption =
@@ -1006,7 +1006,7 @@ module NameResolutionMemberRegistration =
                             match members.TryGetValue fieldKey with
                             | true, next -> walk next
                             // A struct field of a type OUTSIDE the group cannot lead back
-                            // into it: mutual naming needs `and`, so a cycle stays in one group.
+                            // into it: mutual reference needs `and`, so a cycle stays in one group.
                             | false, _ -> ()
                     | _ -> ()
 

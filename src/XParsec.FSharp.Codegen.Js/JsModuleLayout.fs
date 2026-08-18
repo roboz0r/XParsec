@@ -54,7 +54,7 @@ module JsModulePath =
             FileName = baseName relative + ".mjs"
         }
 
-    /// The module a specifier written FROM `fromPackage` names — the inverse of `specifierFrom`,
+    /// The module a specifier written FROM `fromPackage` denotes — the inverse of `specifierFrom`,
     /// so it is `ValueNone` for anything that inverse never produces: a bare specifier (a node
     /// builtin or an npm package, the host's to resolve) or a `../` escape above the root.
     let tryOfSpecifier (fromPackage: string voption) (specifier: string) : JsModulePath voption =
@@ -77,8 +77,8 @@ module JsModulePath =
         else
             ValueNone
 
-    /// The specifier a module in `fromPackage` (`ValueNone` = the output root) names
-    /// `target` by: `./f.mjs` within one package, `../pkg/f.mjs` across packages,
+    /// The specifier a module in `fromPackage` (`ValueNone` = the output root) uses for
+    /// `target`: `./f.mjs` within one package, `../pkg/f.mjs` across packages,
     /// `../f.mjs` out to a root asset.
     let specifierFrom (fromPackage: string voption) (target: JsModulePath) : string =
         let toRoot =
@@ -110,7 +110,7 @@ type JsHome =
 
 module JsHome =
 
-    /// The backend home a provider `Origin` names. `ValueNone` for one carrying no assembly.
+    /// The backend home a provider `Origin` identifies. `ValueNone` for one carrying no assembly.
     let tryOfOrigin (home: Origin) : JsHome voption =
         match home with
         | Origin.Unstamped -> ValueNone
@@ -127,7 +127,7 @@ module JsHome =
                     Where = JsHomeWhere.InFile f
                 }
 
-    /// The home an `Origin` names; fails when it carries no assembly, quoting `what`.
+    /// The home an `Origin` identifies; fails when it carries no assembly, quoting `what`.
     let ofOrigin (what: string) (home: Origin) : JsHome =
         match tryOfOrigin home with
         | ValueSome h -> h

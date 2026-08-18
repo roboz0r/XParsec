@@ -274,7 +274,7 @@ let tests =
                 "the cache key covers every determinant of the frozen tree"
                 [
                     test "an edited TRANSITIVE dependency changes the key" {
-                        // `Root` names only `Dep` in `depends-on` and the consumer only `Root`,
+                        // `Root` lists only `Dep` in `depends-on` and the consumer only `Root`,
                         // so no caller ever spells `Dep`'s manifest path.
                         let root = freshRoot "transitive-dep"
 
@@ -522,8 +522,8 @@ let tests =
                         Expect.notEqual before after "every contract a manifest names is contract surface"
                     }
 
-                    test "a body only the js manifest names leaves the clr signature hash alone" {
-                        // The digest is PER TARGET: each manifest folds the sources IT names, so
+                    test "a body only the js manifest lists leaves the clr signature hash alone" {
+                        // The digest is PER TARGET: each manifest folds the sources IT lists, so
                         // a JS-only body edit cannot invalidate a CLR consumer's frozen cache.
                         let root = freshRoot "per-target-digest"
 
@@ -551,12 +551,12 @@ let tests =
                         let struct (jsBefore, jsAfter) =
                             hashAcrossWrite jsManifest "contract.js.fs" "type a = (# \"bigint\" #)\n"
 
-                        Expect.notEqual jsBefore jsAfter "the js digest moves with the body it names"
+                        Expect.notEqual jsBefore jsAfter "the js digest moves with the body its manifest lists"
 
                         Expect.equal
                             clrBefore
                             (signatureHash clrManifest)
-                            "and the clr digest, which does not name that body, does not"
+                            "and the clr digest, whose manifest does not list it, does not"
                     }
 
                     test "reordering the manifest's file list changes the signature hash" {
@@ -579,7 +579,7 @@ let tests =
                         Expect.notEqual before after "compile order is part of the signature"
                     }
 
-                    test "creating a file the manifest already named changes the signature hash" {
+                    test "creating a file the manifest already listed changes the signature hash" {
                         // Absent and present-but-empty both length-prefix as zero.
                         let root = freshRoot "absent-to-empty"
 

@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-/// What an assignment's left-hand side is written on. `x.P <- v` and `x.[i] <- v` name the
+/// What an assignment's left-hand side is written on. `x.P <- v` and `x.[i] <- v` carry the
 /// object argument as a whole expression; `a.b.P <- v` rides in ONE `Expr.LongIdentOrOp`, so
 /// there the object argument is the chain minus its last segment.
 [<RequireQualifiedAccess>]
@@ -10,7 +10,7 @@ type AssignObjArg =
     | Expr of Expr<SyntaxToken>
     | ChainPrefix of LongIdent<SyntaxToken>
 
-/// What an assignment's left-hand side names. The type-check and the lowering both match on
+/// What an assignment's left-hand side denotes. The type-check and the lowering both match on
 /// this, so the two cannot disagree about which writes go through a `set_` accessor.
 [<RequireQualifiedAccess>]
 type AssignTarget =
@@ -47,7 +47,7 @@ module AssignTarget =
         | Expr.TypeAnnotation(expr = inner) -> unwrap inner
         | _ -> e
 
-    /// `C.P <- v` where the qualifier names a type declaring a static `set_P`. The written
+    /// `C.P <- v` where the qualifier resolves to a type declaring a static `set_P`. The written
     /// qualifier's own token IS the use site, so a type declared below the write does not
     /// answer for its name.
     let private tryStaticSlot (ctx: PassContext) (qualifier: SyntaxToken) (slot: SyntaxToken) : AssignTarget voption =

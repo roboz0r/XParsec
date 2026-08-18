@@ -375,7 +375,7 @@ module Operators =
         ///
         val inline failwith: message: string -> 'T
 
-        /// <summary>Raise a <see cref="T:System.ArgumentException"/> naming the offending argument.</summary>
+        /// <summary>Raise a <see cref="T:System.ArgumentException"/> carrying the offending argument's name.</summary>
         ///
         /// <param name="argumentName">The name of the argument that was invalid.</param>
         /// <param name="message">The exception message.</param>

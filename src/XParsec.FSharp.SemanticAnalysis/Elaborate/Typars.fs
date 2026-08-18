@@ -80,7 +80,7 @@ module internal ElaborateTypars =
         for r in acc do
             seen.Add r |> ignore
 
-        // A `Coercion` bound may name typars absent from the declared type: in
+        // A `Coercion` bound may reference typars absent from the declared type: in
         // `let f (s: 'S when 'S :> IStructSeq<'T,'E>)`, `'E` is in no parameter/return position.
         // F# generalises those too, so fold the bounds in to a fixpoint (a bound may add more).
         let mutable depIdx = 0

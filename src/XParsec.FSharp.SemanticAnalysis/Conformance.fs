@@ -114,7 +114,7 @@ module Conformance =
         | ConformanceError.ValueMissingInImpl n ->
             sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
 
-    /// A type declaration names a single ident, so its last segment is the short name.
+    /// A type declaration writes a single ident, so its last segment is the short name.
     let private typeNameText (lexed: Lexed) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
 

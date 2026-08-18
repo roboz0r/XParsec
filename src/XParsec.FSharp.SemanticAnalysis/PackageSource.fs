@@ -27,11 +27,11 @@ module PackageSource =
             | Half.Signature -> "a signature file"
             | Half.Implementation -> "an implementation file"
 
-    /// Why a path a manifest NAMED yielded no tree. Each is a finding about the manifest or
+    /// Why a path a manifest LISTED yielded no tree. Each is a finding about the manifest or
     /// the file, never a reason to read one fewer file than the manifest claimed.
     [<RequireQualifiedAccess>]
     type FileFault =
-        /// The manifest names a path that is not on disk.
+        /// The manifest lists a path that is not on disk.
         | Missing
         /// The file is there and the parser got no tree out of it.
         | Unparsed of ParseChain.ParseFailure
@@ -91,7 +91,7 @@ module PackageSource =
             Companion: ReadFile<ParseChain.ParsedSignature> voption
         }
 
-    /// Every path one manifest names, read and parsed ONCE and PAIRED once: `[core] files` in
+    /// Every path one manifest lists, read and parsed ONCE and PAIRED once: `[core] files` in
     /// declared order, then `[core] impl`, each entry carrying what the read produced and the
     /// file across the pairing. No `sig-only` (a subset of `files`) and no `runtime` (never F#).
     [<NoEquality; NoComparison>]
@@ -102,7 +102,7 @@ module PackageSource =
             Implementations: ImplementationEntry list
         }
 
-    /// Read and parse every path `manifest` names, and pair the two lists. An absent, unparseable
+    /// Read and parse every path `manifest` lists, and pair the two lists. An absent, unparseable
     /// or wrong-half path faults and is never dropped: reading one file fewer than the manifest
     /// claimed would resolve, and CACHE, against a smaller package.
     let readPackage (manifest: ReferencedProject.Manifest) : ParsedPackage =

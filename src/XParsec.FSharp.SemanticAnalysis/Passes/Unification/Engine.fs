@@ -156,7 +156,7 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr names BOTH: on JS
+    /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr covers BOTH: on JS
     /// the numeric family (`"number"` -> int/float/float32); on CLR, never.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep ctx.Store a, resolveStep ctx.Store b with

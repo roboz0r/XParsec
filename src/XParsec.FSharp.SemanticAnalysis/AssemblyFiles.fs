@@ -199,7 +199,7 @@ module AssemblyFiles =
                         }
 
     /// What one `.fsi` is resolved AGAINST: the surface the files before it published, so it
-    /// can name their types, and the sibling `.fs`, whose `(# … #)` bindings are where a
+    /// can refer to their types, and the sibling `.fs`, whose `(# … #)` bindings are where a
     /// `type t = extern` gets a repr the signature itself never states.
     type private SignatureScope =
         {
@@ -211,7 +211,7 @@ module AssemblyFiles =
         }
 
     /// Resolve ONE in-assembly `.fsi`, homed in the IMPLEMENTATION file: a later file of the
-    /// same assembly resolves it as a local, and a home names where a symbol lives. `source`
+    /// same assembly resolves it as a local, and a home identifies where a symbol lives. `source`
     /// is the signature's own, so diagnostics anchor to the text that made the claim.
     let private signatureView
         (scope: SignatureScope)
@@ -439,7 +439,7 @@ module AssemblyFiles =
                         d.Message
         ]
 
-    /// Anchor a file's bare diagnostics to its path and text: a `Site` names tokens of THIS
+    /// Anchor a file's bare diagnostics to its path and text: a `Site` points to tokens of THIS
     /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a
     /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at line 1, col 1.
     let anchorDiagnostics (file: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =

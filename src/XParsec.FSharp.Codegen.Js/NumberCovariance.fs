@@ -11,7 +11,7 @@ module NumberCovariance =
     let private NumberToken = "number"
 
     /// How `float` is SPELLED in the assertion below, taken off its own identity so the message
-    /// cannot name a type other than the one that was checked.
+    /// cannot refer to a type other than the one that was checked.
     let private floatCanonName = RuntimeNames.floatKey.Name
 
     let wrap (inner: IExternalSymbolProvider) : IExternalSymbolProvider =

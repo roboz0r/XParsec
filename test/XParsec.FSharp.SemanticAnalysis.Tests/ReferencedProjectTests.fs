@@ -74,7 +74,7 @@ let private writeManifest (name: string) (body: string) : ReferencedProject.Mani
 
 /// A synthetic package with no sources: `files = []` keeps it parse-valid with no `.fsi`.
 let private writeSyntheticManifest (name: string) (dependsOn: string list) : ReferencedProject.ManifestPath =
-    // These fixtures are siblings under one synthetic `src/`, so each names `../<package>`.
+    // These fixtures are siblings under one synthetic `src/`, so each lists `../<package>`.
     let deps = dependsOn |> List.map (sprintf "\"../%s\"") |> String.concat ", "
     writeManifest name (sprintf "[core]\nname = \"%s\"\ndepends-on = [%s]\nfiles = []\n" name deps)
 
@@ -516,7 +516,7 @@ let tests =
                 "buildClosure"
                 [
                     test "pulls a transitive dependency into the closure (List ⇒ + Core)" {
-                        // `Vesper.List` names `Vesper.Core` only via `depends-on`; the closure
+                        // `Vesper.List` lists `Vesper.Core` only via `depends-on`; the closure
                         // resolves that to the sibling directory.
                         match ReferencedProject.buildClosure [ vesperListManifest ] with
                         | Result.Error e -> failtestf "buildClosure failed: %s" e
@@ -575,7 +575,7 @@ let tests =
                     // package's ambient to its declared dependencies rather than to every
                     // topological predecessor.
                     test "buildClosureWithDeps reports the transitive depends-on closure" {
-                        // A → B → C: A's closure must include C even though A never names it.
+                        // A → B → C: A's closure must include C even though A never references it.
                         writeSyntheticManifest "ClosureC" [] |> ignore
                         writeSyntheticManifest "ClosureB" [ "ClosureC" ] |> ignore
                         let a = writeSyntheticManifest "ClosureA" [ "ClosureB" ]
@@ -619,7 +619,7 @@ let tests =
 
                     // A qualified type name owned by two peer packages would resolve as a silent
                     // first-hit shadow, the loser's type minted but unreachable, so composition
-                    // refuses it — a CS0433-equivalent naming both homes.
+                    // refuses it — a CS0433-equivalent citing both homes.
                     test "composition rejects the same type declared by two peer packages" {
                         let a =
                             writeSyntheticPackageWithType "DupPkgA" "Dup" "type Thing =\n    | A\n    | B"
@@ -688,7 +688,7 @@ let tests =
                     }
 
                     // A package participates in a target by publishing `manifest.<target>.toml`
-                    // and in no other way, so a bare `manifest.toml` does not name a target and is
+                    // and in no other way, so a bare `manifest.toml` does not declare a target and is
                     // not resolved for any. `Vesper.Set` is the real instance: clr only.
                     test "a package that publishes no manifest for the target does not resolve" {
                         let dir = Path.Combine(tmpSrc, "ClrOnlyPkg")
@@ -841,9 +841,9 @@ let tests =
                             Expect.stringContains e "core" "and the table it was found in"
                     }
 
-                    // `impl` is both compiled and spliced, so a manifest still naming the retired
+                    // `impl` is both compiled and spliced, so a manifest still declaring the retired
                     // second list must error: read as silence it resolves to an impl missing
-                    // every splice source that list named.
+                    // every splice source that list held.
                     test "the retired `inline-bodies` key is rejected, not ignored" {
                         match
                             ReferencedProject.loadManifest (
@@ -887,7 +887,7 @@ let tests =
             testList
                 "sourceInputs covers what the provider build reads"
                 [
-                    test "sourceInputs names every path any list holds, and no runtime asset" {
+                    test "sourceInputs returns every path any list holds, and no runtime asset" {
                         let m =
                             loadOrFail (
                                 writeManifestFor
@@ -971,7 +971,7 @@ let tests =
                     test "every divergence is a declared one" {
                         // A name one target carries and the other does not can be a real
                         // statement about the target rather than drift, so these are PINNED,
-                        // not banned. Each below is explained by the manifest that names it; a
+                        // not banned. Each below is explained by the manifest that declares it; a
                         // NEW entry is two manifests that drifted.
                         let expected =
                             [
@@ -1007,7 +1007,7 @@ let tests =
                                     ClrOnly = [ "../Vesper.List" ]
                                     JsOnly = []
                                 |}
-                                // `formatter.fsi` names `TextWriter`/`StringBuilder`/`IsByRefLike`
+                                // `formatter.fsi` references `TextWriter`/`StringBuilder`/`IsByRefLike`
                                 // and `structural-printer.fsi` an interface-dispatching state.
                                 {|
                                     Package = "Vesper.Printf"
@@ -1015,7 +1015,7 @@ let tests =
                                     ClrOnly = [ "structural-printer.fsi"; "formatter.fsi" ]
                                     JsOnly = []
                                 |}
-                                // It names the NON-generic `IEnumerable`/`IEnumerator`, which the
+                                // It references the NON-generic `IEnumerable`/`IEnumerator`, which the
                                 // JS capability shim does not map.
                                 {|
                                     Package = "Vesper.Seq"

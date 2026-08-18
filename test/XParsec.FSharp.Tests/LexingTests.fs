@@ -55,7 +55,7 @@ let tests =
                             "B is mentioned, so defining it is a different parse"
                     }
 
-                    test "A symbol the file never names is dropped" {
+                    test "A symbol the file never references is dropped" {
                         let lexed = lexOrFail "#if A\n1\n#endif\n"
 
                         Expect.equal
@@ -64,13 +64,13 @@ let tests =
                             "Z is not mentioned, so it cannot change this parse"
                     }
 
-                    test "A comment on the #if line names no symbol" {
+                    test "A trailing comment on the #if line stays comment text" {
                         let lexed = lexOrFail "#if A //B\n1\n#endif\n"
 
                         Expect.equal lexed.MentionedDefines (set [ "A" ]) "B is comment text"
                     }
 
-                    test "A #if inside a block comment names no symbol" {
+                    test "A #if inside a block comment stays comment text" {
                         let lexed = lexOrFail "(*\n#if A\n*)\n"
 
                         Expect.isEmpty lexed.MentionedDefines "The directive's tokens are flagged in-comment"

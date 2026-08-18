@@ -148,7 +148,7 @@ module PlatformTypes =
 
             // Member bodies a backend lowers alongside the type. Class members are NOT
             // walked: a backend that does not emit them would make flagging a type they
-            // name a premature reject.
+            // reference a premature reject.
             match td.Kind with
             | TTypeKindG.Record(_, members, interfaces, _)
             | TTypeKindG.Union(_, members, interfaces) ->

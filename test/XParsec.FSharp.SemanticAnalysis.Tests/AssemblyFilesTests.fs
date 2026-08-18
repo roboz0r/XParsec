@@ -32,7 +32,7 @@ let private analyseAssembly
     : Result<FrozenFile, UnparsedFile> list =
     AssemblyFiles.analyseAssembly assembly external Set.empty units
 
-/// The `Ok` files of an assembly run, or a test failure naming the first parse error.
+/// The `Ok` files of an assembly run, or a test failure citing the first parse error.
 let private files (results: Result<FrozenFile, UnparsedFile> list) : FrozenFile list =
     results
     |> List.map (
@@ -95,7 +95,7 @@ module M =
     type Shown = { value: int }
 "
 
-/// A file 2 naming one of file 1's types and one of its functions, both qualified.
+/// A file 2 referencing one of file 1's types and one of its functions, both qualified.
 let private usesFile1 (typeName: string) (valueName: string) : string =
     sprintf
         "\
@@ -325,13 +325,16 @@ module C =
                 let canonical = AssemblyFileId.ofRelative "math/z.fs"
 
                 for spelling in [ "math\\z.fs"; "./math/z.fs"; "math/./z.fs"; "sub/../math/z.fs" ] do
-                    Expect.equal (AssemblyFileId.ofRelative spelling) canonical (sprintf "%s names math/z.fs" spelling)
+                    Expect.equal
+                        (AssemblyFileId.ofRelative spelling)
+                        canonical
+                        (sprintf "%s canonicalises to math/z.fs" spelling)
             }
 
-            test "a name that climbs out of its assembly, or does not name a file, is refused" {
+            test "a name that climbs out of its assembly, or does not identify a file, is refused" {
                 for bad in [ "../z.fs"; "a/../../z.fs"; ""; "   "; "."; "a/.." ] do
                     match AssemblyFileId.tryOfRelative bad with
-                    | Ok id -> failtestf "'%s' does not name a file within an assembly (got '%s')" bad id.Name
+                    | Ok id -> failtestf "'%s' does not identify a file within an assembly (got '%s')" bad id.Name
                     | Error _ -> ()
             }
 
@@ -883,8 +886,8 @@ module N =
                     Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING file"
                 | other -> failtestf "expected exactly one specialization entry, got %d" (List.length other)
 
-                // The call-site EDGE is file 2's own node, so it names file 2 while the entry
-                // it points at names file 1.
+                // The call-site EDGE is file 2's own node, so its origin is file 2 while the
+                // entry it points at has file 1.
                 let edgeOrigins =
                     [
                         for p in consumer.Frozen.ExprPayloads do
@@ -1150,11 +1153,11 @@ module N =
                 Expect.isNonEmpty (definitionErrors f2) "the unpublished type and val are hidden"
             }
 
-            // A MEMBER whose signature names a type the compilation cannot resolve declares
+            // A MEMBER whose signature references a type the compilation cannot resolve declares
             // nothing a consumer could call, so it is dropped rather than faulting the file.
             // The DROP is reported: what the signature promised is now absent for every later
             // file, and discovering that as an unresolved name three files on is worse.
-            test "a `.fsi` member naming an unresolvable type is dropped, and the drop WARNS" {
+            test "a `.fsi` member referencing an unresolvable type is dropped, and the drop WARNS" {
                 let file1Sig =
                     "\
 namespace Test.A
@@ -1475,9 +1478,9 @@ module M =
             }
 
             test "a published symbol is homed at the IMPLEMENTATION, not the signature" {
-                // A home names where a symbol physically lives, and what a backend emits for
+                // A home identifies where a symbol physically lives, and what a backend emits for
                 // this unit is compiled from the `.fs`. A backend that resolves the home to a
-                // module path would otherwise name a file no build writes.
+                // module path would otherwise point to a file no build writes.
                 let all =
                     analyseAssembly
                         asm

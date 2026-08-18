@@ -42,8 +42,8 @@ module internal UnificationTranslate =
         TyVar(freshTyVar ctx)
 
     /// The last resort for a WRITTEN reference no claim of this file holds and no external shape built.
-    /// The spelling either names an external type the contract registered without a body, which
-    /// is a gap to name, or resolved to nothing at all.
+    /// The spelling either resolves to an external type the contract registered without a body,
+    /// which is a gap to report, or resolved to nothing at all.
     let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) : SemType =
         let unmodelled =
             match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
@@ -202,7 +202,7 @@ module internal UnificationTranslate =
             | ValueNone -> resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)
         | Type.NamedType li ->
             // Qualified named type (`A.T`, `System.Text.StringBuilder`); not external ⇒ the
-            // qualifier names a scope of THIS file, or the reference does not resolve.
+            // qualifier resolves to a scope of THIS file, or the reference does not resolve.
             let site = CstKeys.typeRefSite t
 
             match tryResolveExternalTypeStamped ctx site.Key EqArray.empty with
@@ -264,7 +264,7 @@ module internal UnificationTranslate =
             resolveNamedGeneric ctx site name translatedArgs
         | Type.GenericType(longIdent = li; typeArgs = args) ->
             // Qualified generic type (`A.T<int>`). Resolved at the WRITTEN arity:
-            // `A.T<int>` names the `T\`1` of module `A`, and a same-named `T` at another
+            // `A.T<int>` denotes the `T\`1` of module `A`, and a same-named `T` at another
             // arity is a different type.
             let translatedArgs =
                 EqArray.ofSeq (
@@ -313,7 +313,7 @@ module internal UnificationTranslate =
             // anonymous record. A free TyVar lets unification pin it from context.
             TyVar(freshTyVar ctx)
 
-    /// The `SemType` of the project-local type `claim` names, applied to `args`. A nominal is
+    /// The `SemType` of the project-local type `claim` identifies, applied to `args`. A nominal is
     /// built from the claim's `TypeKey` alone, so `type A = { x: B } and B = { y: A }`
     /// resolves before either detail registers.
     and private resolveClaimedType
@@ -389,8 +389,8 @@ module internal UnificationTranslate =
                     | ValueNone -> unresolvedRefTy ctx site name
 
     /// Resolve a QUALIFIED reference (`A.T`, `N.A.T<int>`) whose external verdict read already
-    /// missed: it names a project-local type THROUGH the scope holding it, or it names
-    /// nothing. The claim on `(path, name, arity)` answers, as it does for a bare name.
+    /// missed: it resolves to a project-local type THROUGH the scope holding it, or does not
+    /// resolve at all. The claim on `(path, name, arity)` answers, as it does for a bare name.
     and private resolveQualifiedTypeName
         (ctx: PassContext)
         (site: NodeSite)
@@ -490,7 +490,7 @@ module internal UnificationTranslate =
         | ExternalTypeShape.Abbrev(_, frozen) ->
             Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
         // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
-        // the reference to `unresolvedRefTy`, which names the gap.
+        // the reference to `unresolvedRefTy`, which records the gap.
         | ExternalTypeShape.Unmodelled _ -> None
 
     /// Fetch + build from an already-resolved external type identity. An arity mismatch is

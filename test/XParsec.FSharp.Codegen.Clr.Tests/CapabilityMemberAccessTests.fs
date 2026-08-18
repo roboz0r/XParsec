@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Member access on a value typed as a CAPABILITY rather than as a concrete implementer.
-// A capability's canonical shape (`Vesper.Collections.enumerator`1`) names its platform
+// A capability's canonical shape (`Vesper.Collections.enumerator`1`) identifies its platform
 // type but carries no member table, so lookup retries under the platform key.
 
 /// A cursor over `1 .. n` used as the inner enumerator to drive by hand.

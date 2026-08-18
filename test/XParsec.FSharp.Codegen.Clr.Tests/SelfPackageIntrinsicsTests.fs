@@ -59,7 +59,7 @@ module ConcatProbe =
         testList
             "SelfPackageIntrinsics"
             [
-                test "without the self manifest a BCL call over Vesper.string finds no overload" {
+                test "without the self manifest a BCL call over Vesper.string does not find an overload" {
                     match compileProbeAsCore None with
                     | Ok _ -> failtest "expected no overload; otherwise the seed would be guarding nothing"
                     | Error diags ->

@@ -20,7 +20,7 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
 /// `src/<pkg>` — the package DIRECTORY. The JS backend resolves it to `manifest.js.toml`;
-/// this suite never names a manifest file, so it cannot name another target's.
+/// this suite passes only the directory, so it cannot reach another target's manifest.
 let srcPackage (pkg: string) : string =
     IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", pkg)
 
@@ -87,7 +87,7 @@ let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 
 /// A member declared in a `.fsi` and bodied in an `impl` file is keyed twice, and the
 /// inline-body store is keyed by the WHOLE member key. Assert the two halves agree for each of
-/// `members`, so an `ArgSig` divergence is named here instead of surfacing as an absent body.
+/// `members`, so an `ArgSig` divergence is reported here instead of surfacing as an absent body.
 let expectMemberKeyHalvesAgree
     (contract: SymbolProviders.Contract)
     (implPackages: string list)
@@ -117,7 +117,7 @@ let expectMemberKeyHalvesAgree
             | ValueNone -> failtestf "the contract of %A publishes no `%s`" declKey memberName
 
         // Scoped to `declKey`: several intrinsics declare an `Item` accessor, so the name
-        // alone names more than one impl-side body.
+        // alone matches more than one impl-side body.
         match
             implBodies
             |> List.filter (fun mb ->

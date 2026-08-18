@@ -339,7 +339,7 @@ let qualifiedTests =
     testList
         "ModuleScoping qualified"
         [
-            test "a sibling module's type is reached by naming its module" {
+            test "a sibling module's type is reached by qualifying with its module" {
                 let tast =
                     analyse (
                         src
@@ -363,7 +363,7 @@ let qualifiedTests =
                     "A.T is A's T — not the B.T that a bare T would have named"
             }
 
-            test "a fully-qualified path names the type from anywhere in the file" {
+            test "a fully-qualified path resolves to the type from anywhere in the file" {
                 let tast =
                     analyse (
                         src
@@ -384,7 +384,7 @@ let qualifiedTests =
             }
 
             // `N` is not an ancestor scope of the use, so the path is resolved from the ROOT.
-            test "a fully-qualified path names the type from ANOTHER namespace" {
+            test "a fully-qualified path resolves to the type from ANOTHER namespace" {
                 let tast =
                     analyse (
                         src
@@ -467,7 +467,7 @@ let qualifiedTests =
                     Expect.equal (EqArray.toList args) [ BuiltinTypes.tyInt ] "the written type argument is applied"
                 | other -> failtestf "expected a record, got %A" other
 
-                // The same path at the OTHER arity names the other type.
+                // The same path at the OTHER arity resolves to the other type.
                 let nonGeneric =
                     analyse (
                         src
@@ -492,7 +492,7 @@ let qualifiedTests =
                     "A.T names A's non-generic T"
             }
 
-            // An `open` qualifies a PARTIAL path: `open N` + `A.T` names `N.A.T`, exactly as
+            // An `open` qualifies a PARTIAL path: `open N` + `A.T` resolves to `N.A.T`, exactly as
             // it brings `N`'s own types into scope bare. (Probed against `dotnet fsi`.)
             test "an `open` qualifies a partial path" {
                 let tast =
@@ -526,7 +526,7 @@ let qualifiedTests =
 
             // `Vesper.Collections.seq` is a real external type (the contract's `seq`
             // interface), and the local module chain of the same spelling shadows it. Probed:
-            // the nearest scope that can name the qualifier wins, here the enclosing namespace.
+            // the nearest scope that can resolve the qualifier wins, here the enclosing namespace.
             test "a project-local qualified type beats an external type of the same spelling" {
                 let tast =
                     analyse (

@@ -91,7 +91,7 @@ let private collect () : Collected =
             | MemberKind.Property -> ()
 
     let collectFile (file: Pooled.TastFile) =
-        // A diagnostic's position, which can name a node the emittable tree does not
+        // A diagnostic's position, which can point to a node the emittable tree does not
         // contain and so takes no pool id.
         for d in file.Diagnostics do
             sites.Add d.Site |> ignore
@@ -108,7 +108,7 @@ let private collect () : Collected =
                 | FrozenConstraint.Coercion(_, target) -> visitFt target
 
         // No `BindingValReprs` pass: a binding's source arity is a PROJECTION of its lambda
-        // chain derived off the columns, so every type and slot it names is already reached
+        // chain derived off the columns, so every type and slot it references is already reached
         // by the walks above.
 
         // Real frozen anchors, shallowly: the source anchor of each top-level decl body.
@@ -336,7 +336,7 @@ type private Interned =
 
 /// The whole path a type takes to a blob and back: intern it into the file's tables, write
 /// the ROWS, read them, materialise the id. One builder for every collected value, as the
-/// freeze does, so this exercises rows that name rows rather than isolated values.
+/// freeze does, so this exercises rows that reference rows rather than isolated values.
 let private intern (h: Collected) : Interned =
     let builder = FrozenTypeTableBuilder()
     let typeIds = h.FrozenTypes |> List.map builder.Intern

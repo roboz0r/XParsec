@@ -305,7 +305,7 @@ module SignatureResolution =
                     Kind.Message(IntrinsicHost.cannotDeclare id.Name IntrinsicHost.Construct.Override)
                 )
             // `abstract` declares a slot and `val` storage, so neither is a body. `new` on a
-            // heritable primitive (`obj` / `exn`) names a target-provided constructor.
+            // heritable primitive (`obj` / `exn`) resolves to a target-provided constructor.
             | TypeSignatureElement.Member _
             | TypeSignatureElement.StaticMember _
             | TypeSignatureElement.Abstract _
@@ -516,7 +516,7 @@ module SignatureResolution =
             publishShape sctx key (ExternalTypeShape.Unmodelled(reason, arity))
 
     /// The shape ONE claimed declaration publishes, once every declaration in its group has
-    /// registered its detail: a field or case type may name a sibling.
+    /// registered its detail: a field or case type may reference a sibling.
     let private publishType (sctx: SigCtx) (id: TypeIdentity) (decl: SigDecl) : unit =
         match decl with
         | SigDecl.Record(extensions = ext) -> publishRecord sctx id ext

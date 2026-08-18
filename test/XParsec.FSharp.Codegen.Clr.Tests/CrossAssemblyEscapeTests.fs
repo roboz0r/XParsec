@@ -50,7 +50,7 @@ let private producerFs =
 
 /// `name` is omitted so it defaults to the directory name, which is what the consumer
 /// references the producer DLL by. `int` is Vesper.Core's, and a contract resolves only what its
-/// own dependencies declare, so this fixture under `tmp/` names the way back to `src/`.
+/// own dependencies declare, so this fixture under `tmp/` spells the way back to `src/`.
 let private producerManifestToml =
     String.concat
         "\n"

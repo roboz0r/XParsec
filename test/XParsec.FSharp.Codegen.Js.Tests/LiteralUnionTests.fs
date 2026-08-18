@@ -87,7 +87,7 @@ let tests =
                 Expect.isEmpty errors (sprintf "expected no errors, got:\n%s" (errorText errors))
             }
 
-            test "(2) a non-matching constant errors, naming the allowed set" {
+            test "(2) a non-matching constant errors, listing the allowed set" {
                 let errors =
                     analyse (String.concat "\n" [ "let w = makeWidget()"; "w.setMode(\"bogus\")"; "" ])
 

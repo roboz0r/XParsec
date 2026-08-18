@@ -359,7 +359,7 @@ module NameResolutionTypeRegistration =
 
     /// The visitor for every type NAME written at a DECLARING position. Classify each name
     /// (a claim in scope wins, else the external universe) and diagnose a SINGLE-SEGMENT one
-    /// that names neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
+    /// that resolves to neither (FS0039); a DOTTED name is judged where its path's scope is resolved.
     let private classifyingTypeIter (ctx: PassContext) : CstTypeWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
         // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
@@ -1046,7 +1046,7 @@ module NameResolutionTypeRegistration =
                 )
         | _ ->
             // An alias renames one type as another and declares nothing of its own, so
-            // every posture and `[<AllowNullLiteral>]` belongs on the type it names.
+            // every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates.
             Attributes.validateTypeDefnAttributes
                 ctx
                 Attributes.TypeDefnKind.Abbrev

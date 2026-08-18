@@ -4,7 +4,7 @@ open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
-// A `type t = extern` names a primitive and says nothing about how the target spells it. The
+// A `type t = extern` declares a primitive and says nothing about how the target spells it. The
 // REPR comes from the paired implementation's `type t = (# "System.Int32" #)`, so a signature
 // front end reads its companion's bindings before its own declarations.
 

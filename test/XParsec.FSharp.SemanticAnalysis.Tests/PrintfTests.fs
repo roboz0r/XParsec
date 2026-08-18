@@ -44,7 +44,7 @@ let private ph (t: FormatType) : FormatPlaceholder =
         TypeChar = ' '
     }
 
-/// Assert `src` analyses to an error diagnostic naming `fragment` — a specifier
+/// Assert `src` analyses to an error diagnostic citing `fragment` — a specifier
 /// the printf gate re-errors rather than lowering.
 let private rejectsResidual (fragment: string) (src: string) =
     let tast = analyse src
@@ -405,7 +405,7 @@ let tests =
             }
 
             // A residual mixed with lowerable holes still rejects the whole call — the
-            // gate names the FIRST offending specifier.
+            // gate cites the FIRST offending specifier.
             test "a residual among lowerable holes still re-errors" {
                 rejectsResidual "%0*d" "let r = printfn \"ok %d then %0*d\" 1 5 42"
             }

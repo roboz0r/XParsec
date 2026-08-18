@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.IO
 open XParsec.Toml
 
-/// A committed file a package's `[core] runtime` key names, read off disk.
+/// A committed file a package's `[core] runtime` key lists, read off disk.
 type RuntimeAsset = { FileName: string; Source: string }
 
 /// A *referenced project*: a package DIRECTORY resolved against a target to
@@ -73,7 +73,7 @@ module ReferencedProject =
             Name: string
             /// Other packages this one depends on (`[core] depends-on`), each a path
             /// RELATIVE TO THIS PACKAGE'S DIRECTORY (`"../Vesper.Core"`), because a package
-            /// outside `src/` must be able to name one inside it.
+            /// outside `src/` must be able to reference one inside it.
             DependsOn: string list
             /// Signature files in compile order (`[core] files`).
             Files: string list

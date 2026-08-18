@@ -101,9 +101,9 @@ module SignatureResolutionMembers =
 
         List.ofSeq acc
 
-    /// Resolve `f`, and keep the result only if nothing refused it. A member signature naming
+    /// Resolve `f`, and keep the result only if nothing refused it. A member signature referencing
     /// a type this compilation cannot resolve declares nothing a consumer could call, so it is
-    /// dropped, its refusals go with it, and the DROP is reported instead: `what` names it.
+    /// dropped, its refusals go with it, and the DROP is reported instead: `what` identifies it.
     let tryResolve (sctx: SigCtx) (what: unit -> string) (f: unit -> 'a) : 'a voption =
         let ctx = sctx.Pass
         // Collected apart, so a refusal takes its own diagnostics with it.
@@ -286,7 +286,7 @@ module SignatureResolutionMembers =
         let env = typarEnv ctx (TyparOwner.Type declTypars)
 
         // Translated UNDER the declaring typars, not merely frozen over them: `interface
-        // seq<'T>` names `'T`, and one resolved outside their scope is a fresh variable that
+        // seq<'T>` references `'T`, and one resolved outside their scope is a fresh variable that
         // freezes to a hole no consumer can fill.
         let translated =
             underTypars ctx declTypars EqArray.empty (fun () -> [ for t in types -> translateType ctx t ])

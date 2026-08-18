@@ -25,7 +25,7 @@ let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) :
 
 let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 
-/// The home assembly of the type `decl` names. A `SymbolKey` is a NOMINAL identity and
+/// The home assembly of the type `decl` identifies. A `SymbolKey` is a NOMINAL identity and
 /// carries no home, so the physical location has to be read back off the shape the
 /// provider resolves for that key.
 let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : string option =
@@ -287,7 +287,7 @@ let tests =
                 expectNoFSharpCore artifact "BCL member call"
             }
 
-            // A type ANNOTATION naming an external type must resolve to the same `TyClass`
+            // A type ANNOTATION referring to an external type must resolve to the same `TyClass`
             // a value of that type carries, so the two unify. An annotation that dropped
             // its type arguments would clash with the object argument's `TyClass`.
             test "a type annotation resolves an external type, so the short form unifies with the object argument" {
@@ -308,7 +308,7 @@ let tests =
 
                 // An UNresolved annotation would be a fresh `TyVar`, which unifies with
                 // `5 : int` silently. So the observable is inverted: an error is required,
-                // and its message must name the resolved type, not an anonymous variable.
+                // and its message must refer to the resolved type, not an anonymous variable.
                 let tast =
                     analyseWith provider "let d : System.Collections.Generic.EqualityComparer<int> = 5"
 

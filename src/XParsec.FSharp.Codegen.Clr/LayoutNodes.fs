@@ -235,7 +235,7 @@ module internal LayoutNodes =
             | TypeContainer.InNamespace _ -> ValueNone
             // `InType` is the EXTERNAL nesting of a bare-IL type; source cannot declare
             // a nested type, and a local one would need an enclosing SLOT this backend
-            // has no way to name.
+            // has no way to reference.
             | TypeContainer.InType outer ->
                 failwithf "Layout: local type '%s' claims a CLR-nested container '%s'" td.Name outer.Name
         | k -> failwithf "Layout: type declaration '%s' carries a non-type key %A" td.Name k

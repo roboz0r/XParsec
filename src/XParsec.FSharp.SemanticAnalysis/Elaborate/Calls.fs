@@ -212,7 +212,7 @@ module internal ElaborateCalls =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        // A folded / type-qualified static call names a non-generic declaring type (generics
+        // A folded / type-qualified static call denotes a non-generic declaring type (generics
         // need `<>`, handled at the qualifier), so it carries no declaring-type args; the
         // operand element types alone discriminate a same-arity overload (e.g. an operator).
         let operands =

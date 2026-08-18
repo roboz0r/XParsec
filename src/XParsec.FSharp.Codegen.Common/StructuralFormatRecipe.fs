@@ -5,7 +5,7 @@ namespace XParsec.FSharp.Codegen.Common
 /// it: its one consumer is the test pinning the JS runtime's walker to these forms.
 module StructuralFormatRecipe =
 
-    /// One step of a record / union's layout. `FormatChild`/`FormatArg` name a field
+    /// One step of a record / union's layout. `FormatChild`/`FormatArg` identify a field
     /// by declaration-order *index*. `FormatArg` is DU-argument position (parenthesises
     /// a payload-bearing union, `Some (Some 3)`); `FormatChild` is normal position.
     type SinkOp =

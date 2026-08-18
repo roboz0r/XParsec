@@ -5,7 +5,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Nothing the backend emits names an FSharp.Core construct, so the invariant is asserted on
+// Nothing the backend emits references an FSharp.Core construct, so the invariant is asserted on
 // the ARTIFACT: no `AssemblyRef` row in the PE, no `FSharp.Core.dll` beside a materialised app.
 
 // Each specifier below is a format that must lower on the structural engine, so no reference
@@ -63,7 +63,7 @@ let tests =
 
             // The provider's refs are `lazy`, so an `AssemblyRef` row is added only when one
             // is actually forced, so an empty use-set leaves no dead reference row.
-            test "an emitted executable carries no FSharp.Core reference row" {
+            test "an emitted executable does not carry an FSharp.Core reference row" {
                 let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
@@ -73,7 +73,7 @@ let tests =
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
 
-            test "`materialiseApp` writes no FSharp.Core.dll, and the app still runs" {
+            test "`materialiseApp` does not write FSharp.Core.dll, and the app still runs" {
                 let outDir = tmpDir "no-fsharpcore-app"
                 // `withCore`: the happy-path `printfn` binds `Vesper.Printf` and its deps,
                 // so their on-disk paths must be references for the bundle to copy them.

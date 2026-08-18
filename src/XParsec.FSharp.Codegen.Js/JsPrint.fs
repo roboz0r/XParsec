@@ -445,7 +445,7 @@ module JsSourceMap =
         sb.ToString()
 
     /// The V3 JSON mapping generated `file` back to `sources`, whose ORDER is the index space
-    /// every mapping's `SrcIndex` names.
+    /// every mapping's `SrcIndex` points into.
     let build (file: string) (sources: JsMapSource list) (maps: JsPrint.Mapping list) : string =
         let jsonArray (quoted: JsMapSource -> string) =
             sources |> List.map quoted |> String.concat ","

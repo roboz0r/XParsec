@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 // under it in each of its five kinds, with the members, preambles and ctors they carry.
 
 /// An identity a node of the tree INTRODUCES as a definition site, over the tree's own
-/// identity axis (`'id`): pre-freeze and frozen trees name a bound variable by `NodeKey`, a tree
+/// identity axis (`'id`): pre-freeze and frozen trees identify a bound variable by `NodeKey`, a tree
 /// rebuilt from the pools by `BoundVarId`.
 [<Struct>]
 type BoundVarKeyG<'id> = private | BoundVar of 'id
@@ -64,7 +64,7 @@ type TDeclG<'ty, 'tok, 'id> =
     | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
 
 /// `'body` abstracts how a member/preamble/ctor BODY is carried: either the expression tree
-/// itself (`TExprG<'ty,'tok,'id>`) or a dense id naming that expression in a pool.
+/// itself (`TExprG<'ty,'tok,'id>`) or a dense id identifying that expression in a pool.
 and TTypeDeclG<'ty, 'tok, 'id, 'body> =
     {
         /// Simple (unqualified) type name, e.g. `"Fun"`, never `` `arity ``-mangled: the
@@ -241,7 +241,7 @@ and TCtorLetG<'ty, 'id, 'body> =
     }
 
 /// One `field = expr` initialiser of a secondary constructor's explicit field-init block
-/// (`new(s) = { stack = s; started = false }`). `Field` names a declared instance field (an
+/// (`new(s) = { stack = s; started = false }`). `Field` identifies a declared instance field (an
 /// explicit `val` or a primary-ctor backing field); `Init` is stored into it via `stfld`.
 and TCtorFieldInitG<'body> = { Field: string; Init: 'body }
 
@@ -345,7 +345,7 @@ module BoundVarKey =
 
     /// `ofPat` before the tree exists: the bound variable a CST pattern introduces. The key is the
     /// INNERMOST `NamedSimple`'s, after peeling `[<…>] p` / `(p)` / `p : t` / `p as x`, because the
-    /// elaborated tree drops those: a key off `let (x) = 5`'s pattern names a node nothing binds.
+    /// elaborated tree drops those: a key off `let (x) = 5`'s pattern points to a node nothing binds.
     let rec siteOfCstPat (p: Pat<SyntaxToken>) : BoundVarSite voption =
         match p with
         | Pat.NamedSimple t ->
@@ -382,7 +382,7 @@ module BoundVarKey =
     let ofInterned (id: BoundVarId) : BoundVarKeyG<BoundVarId> = BoundVar id
 
     /// Every bound variable a TYPE DECLARATION introduces with no pattern node to introduce it. A
-    /// member body names `this` and its parameters by `TExpr.Var`, but those definition
+    /// member body references `this` and its parameters by `TExpr.Var`, but those definition
     /// sites are key SLOTS on the shape, which a walk over PATTERNS alone never reaches.
     let ofTypeDecl (td: TTypeDeclG<'ty, 'tok, 'id, 'body>) : BoundVarKeyG<'id> seq =
         let ofMember (m: TTypeMemberG<'ty, 'id, 'body>) =
@@ -431,7 +431,7 @@ module BoundVarKey =
         }
 
     /// Widen to the tree's own identity axis, for a lookup driven by a REFERENCE: a
-    /// `TExpr.Var` names its bound variable by that axis.
+    /// `TExpr.Var` identifies its bound variable by that axis.
     let identity (BoundVar k) : 'id = k
 
     /// Re-file a bound variable into ANOTHER identity space: `f` answers with the identity THIS

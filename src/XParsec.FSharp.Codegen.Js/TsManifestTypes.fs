@@ -85,7 +85,7 @@ module internal TsManifestTranslate =
     type TranslateCtx =
         {
             /// Names declared as an `Interface`/`Class`, keyed by their minted qualified name.
-            /// Built over ALL flat exports first, so a signature naming a LATER type resolves.
+            /// Built over ALL flat exports first, so a signature referencing a LATER type resolves.
             Types: Map<string, TypeIdentity>
             /// The manifest's foreign references, keyed by the referenced type's BARE name.
             /// IDENTITY ONLY, never the foreign shape (the ECMA-335 `TypeRef` analog).
@@ -287,7 +287,7 @@ module internal TsManifestTranslate =
 
     /// The contract intrinsics a manifest may spell that neither shared primitive core
     /// holds: `undefined` (JS-only) and `bigint` (not a fixed-width scalar). Spelled as
-    /// the identities' own names, so this cannot name a type that does not exist.
+    /// the identities' own names, so every entry denotes a type that exists.
     let private manifestSpellableExtras: Set<string> =
         [ RuntimeNames.undefinedKey; RuntimeNames.bigintKey ]
         |> Seq.map (fun k -> k.Name)

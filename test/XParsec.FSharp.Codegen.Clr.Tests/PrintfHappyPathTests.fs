@@ -748,7 +748,7 @@ let tests =
 
             // The writer arrives as an ANNOTATED PARAMETER, not a `System.Console.Out`
             // expression, so the written `System.IO.TextWriter` must unify with the class
-            // the sink names. Pins the hole's TYPE and the `unit` result of the write.
+            // the sink carries. Pins the hole's TYPE and the `unit` result of the write.
             test "fully-applied `fprintf` on an annotated TextWriter param lowers to a writer-sink Format" {
                 match soleDecl "let f (w: System.IO.TextWriter) = fprintf w \"%d\" 42" with
                 | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _) ->
@@ -803,7 +803,7 @@ let tests =
             }
 
             // The builder twin of the annotated-writer case above: the written
-            // `System.Text.StringBuilder` must resolve to the class the builder sink names.
+            // `System.Text.StringBuilder` must resolve to the class the builder sink carries.
             test "fully-applied `bprintf` on an annotated StringBuilder param lowers to a builder-sink Format" {
                 match soleDecl "let f (sb: System.Text.StringBuilder) = bprintf sb \"%d\" 42" with
                 | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _) ->

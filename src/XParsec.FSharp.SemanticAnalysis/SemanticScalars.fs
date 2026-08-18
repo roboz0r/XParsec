@@ -184,7 +184,7 @@ type SchemeId = | SchemeId of int
 [<Struct>]
 type BoundVarId = | BoundVarId of int
 
-/// A dense index into a file's `Specializations` table: how a `TExprG.InlineCall` names the
+/// A dense index into a file's `Specializations` table: how a `TExprG.InlineCall` identifies the
 /// body it calls. An entry IS its slot.
 [<Struct>]
 type SpecializationId = | SpecializationId of int

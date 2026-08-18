@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open XParsec.FSharp.Lexer
 
-/// Single source of truth for the well-known runtime types the pipeline names. Every other
+/// Single source of truth for the well-known runtime types the pipeline references. Every other
 /// file refers to one through a key minted here, so a well-known type's SPELLING is written
 /// exactly once in the tree. Recognition is KEY EQUALITY: a `TypeKey` carries its arity as
 /// a field, so there is nothing for a matcher to strip. The few NAMES that remain are for
@@ -161,7 +161,7 @@ module RuntimeNames =
             | SymbolKey.Type t -> this.Matches t
             | _ -> false
 
-    /// A capability a provider does not name is `ValueNone`, never a hardcoded BCL fallback.
+    /// A capability a provider does not resolve is `ValueNone`, never a hardcoded BCL fallback.
     type CapabilityIds =
         {
             Enumerable: CapabilityIdentity voption
@@ -213,7 +213,7 @@ module RuntimeNames =
             | None -> ValueNone
 
     /// Whether a realised interface set carries `cap` at all. A capability the provider does
-    /// not name is carried by nothing.
+    /// not resolve is carried by nothing.
     let carriesCapability (cap: CapabilityIdentity voption) (interfaces: SemType[]) : bool =
         cap |> ValueOption.exists (fun c -> (tryCapabilityArgs c interfaces).IsSome)
 
@@ -239,7 +239,7 @@ module RuntimeNames =
     /// classification a finite key set cannot spell: an array of arbitrary rank, whose
     /// identity names (`"[]"`, `"[,]"`, …) are unbounded. Namespace and arity are compared
     /// too, confining the name test to keys already established to be intrinsics. A
-    /// classification with FIXED membership names its keys instead.
+    /// classification with FIXED membership lists its keys instead.
     let isIntrinsicKeyWhere (nameSatisfies: string -> bool) (k: TypeKey) : bool =
         k.TyparArity = 0 && k.Container = intrinsicContainer && nameSatisfies k.Name
 

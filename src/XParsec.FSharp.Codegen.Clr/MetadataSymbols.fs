@@ -119,7 +119,7 @@ module private MetadataMapping =
                 | _ -> None
 
     /// Boxed `RawDefaultValue` → `TConstValue`. The box's runtime type is the only width
-    /// witness metadata gives, so each arm names its own `IntWidth`; widening to `bits`
+    /// witness metadata gives, so each arm spells its own `IntWidth`; widening to `bits`
     /// sign-extends the signed cases, zero-extends the unsigned (`uint64` reinterprets).
     let private constOfBoxed (v: obj) : TConstValue option =
         let inline integral (w: IntWidth) (bits: int64) = Some(TConstValue.Integral(w, bits))

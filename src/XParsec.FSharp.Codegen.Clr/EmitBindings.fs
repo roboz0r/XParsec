@@ -78,7 +78,7 @@ module EmitBindings =
                 | ValueSome b -> b
                 | ValueNone -> TastPoolBuilder.mintBoundVar pat.Pool
             // `use x = v in body` → `let x = v in try body finally if x <> null then
-            // x.Dispose()`, so a null `x` disposes nothing. `view.Dispose` names the member:
+            // x.Dispose()`, so a null `x` disposes nothing. `view.Dispose` identifies the member:
             // the capability's interface slot, or `x`'s own `Dispose()`.
 
             // Both disposal paths below `brfalse` the loaded `x` and `callvirt` it, so both

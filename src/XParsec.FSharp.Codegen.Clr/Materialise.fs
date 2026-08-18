@@ -96,7 +96,7 @@ module Materialise =
                 fromProject
                 |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
 
-            // Ship set closed over transitive references, because a `%A` program's PE names
+            // Ship set closed over transitive references, because a `%A` program's PE references
             // `Vesper.Printf`, which needs `Vesper.Core` beside it or `%A` throws
             // `FileNotFoundException`. A name with no source ends the walk.
             let shipNames =

@@ -11,7 +11,7 @@ type UnmodelledReason =
     /// The kind IS modelled; this declaration's body did not translate.
     | ExtractionFailed of reason: string
 
-    /// The phrase a diagnostic or fault names this by.
+    /// The phrase a diagnostic or fault refers to this by.
     member this.Description: string =
         match this with
         | Delegate -> "a delegate type"
@@ -263,7 +263,7 @@ module ExternalSignature =
 
     let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 
-    /// The body position an extractor could not translate. `what` must name the construct,
+    /// The body position an extractor could not translate. `what` must identify the construct,
     /// because it is all the use site is told: the contract is read back by a compilation with
     /// neither this declaration nor this extractor's error in hand.
     let unfreezable (what: string) : FrozenType =
@@ -471,14 +471,14 @@ type ExternalClassShape =
             Origin = origin
         }
 
-/// What the compiling target does about an intrinsic: binds a representation, or names
+/// What the compiling target does about an intrinsic: binds a representation, or identifies
 /// itself as the target that binds none, because a use-site diagnostic must say WHICH.
 [<RequireQualifiedAccess>]
 type IntrinsicPlatform =
     /// The target's own name for the type, from the `<base>.<target>.fs` companion's
     /// `type x = (# "<repr>" #)`: `"System.Int32"` on CLR, `"number"`/`"Error"` on JS.
     | Repr of platform: string
-    /// The target binds no representation, so naming the type is an error there
+    /// The target binds no representation, so referring to the type is an error there
     /// (`nativeint` / `nativeptr` / `voidptr` on JS).
     | Unsupported of target: string
 

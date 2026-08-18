@@ -475,7 +475,7 @@ let interfaceImplTests =
 
             // `interface seq<'T>` declares only `GetEnumerator() : enumerator<'T>`, so the
             // backend synthesises the slots `IEnumerable<'T>` inherits but the capability
-            // never names: `IEnumerable.GetEnumerator`, `IEnumerator.Current`, `Reset`.
+            // does not declare: `IEnumerable.GetEnumerator`, `IEnumerator.Current`, `Reset`.
             test
                 "a generic record implementing the seq capability iterates through the synthesised IEnumerable co-slots" {
                 let src =

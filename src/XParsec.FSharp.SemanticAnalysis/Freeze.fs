@@ -55,7 +55,7 @@ module Freeze =
         | TDecl.Let(TPat.NamedSimple _, _, false, _) -> (Inline.nullaryIntrinsicValueBody d).IsSome
         | _ -> false
 
-    /// Rewrite `Var` -> `External` + `SymbolKey` for every module-level sibling: a `Var` names
+    /// Rewrite `Var` -> `External` + `SymbolKey` for every module-level sibling: a `Var` references
     /// a bound variable that exists only in this file's tree, so a consumer could not resolve it.
     let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleBindingInfo>) (d: TDecl) : TDecl =
         let mapper: TastWalk.Mapper =
@@ -74,7 +74,7 @@ module Freeze =
         | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, ty)
         | other -> other
 
-    /// Every `Var` in the rewritten body naming a bound variable the splice does not re-create,
+    /// Every `Var` in the rewritten body referencing a bound variable the splice does not re-create,
     /// in practice a module-level `let (a, b) = p`, which binds several names at once and so has
     /// no key. Paired with the FIRST reference's token, which spells what the user wrote.
     let private freeVarsOfBody (d: TDecl) : (NodeKey * SyntaxToken) list =
@@ -132,7 +132,7 @@ module Freeze =
         let inlineBodies = ResizeArray<TInlineValue>()
 
         // Widened to the REFERENCE domain: the sibling rewrite is driven by a body's
-        // `TExpr.Var`s, which name their bound variable by `NodeKey`.
+        // `TExpr.Var`s, which identify their bound variable by `NodeKey`.
         let siblingsByRef = BoundVarKey.widenMap tast.ModuleMembers
 
         let publishedInfo (pattern: TPat) =
@@ -187,7 +187,7 @@ module Freeze =
 
     /// The assembly's output: the frozen file as struct-of-arrays pools.
     let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
-        // No record means no source names the bound variable: a class's `this`/`base` and a
+        // No record means no source spells the bound variable: a class's `this`/`base` and a
         // spliced bound variable are both minted.
         let identOf (b: BoundVarKey) =
             match ctx.BoundVarNames.TryGetValue b with

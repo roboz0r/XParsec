@@ -48,7 +48,7 @@ module InlineSpecTable =
             Survivors: InlineParam list
         }
 
-    /// The identity two call sites must agree on to name ONE specialization entry. `Arity` is
+    /// The identity two call sites must agree on to share ONE specialization entry. `Arity` is
     /// the number of parameters the site actually APPLIED: a partial application at the same
     /// types leaves the unapplied lambdas in the body, so it cannot share the saturated entry.
     type Grounding = { Key: SpecializationKey; Arity: int }
@@ -64,7 +64,7 @@ module InlineSpecTable =
         }
 
     /// ONE outlined reduction, as the table consumes it: everything needed to reuse an entry
-    /// or mint one, and to build the edge that names whichever it was.
+    /// or mint one, and to build the edge that points to whichever it was.
     [<NoEquality; NoComparison>]
     type Outlining =
         {
@@ -72,7 +72,7 @@ module InlineSpecTable =
             /// entry; the entry's own anchors index the producer's file instead.
             Site: SyntaxToken
             Grounding: Grounding
-            /// May a LATER site at the same grounding name this same entry? False when the
+            /// May a LATER site at the same grounding reuse this same entry? False when the
             /// reduction fused any call-site material, or when its type arguments are not ground,
             /// because either way the entry belongs to this site rather than the template.
             Shareable: bool
@@ -89,7 +89,7 @@ module InlineSpecTable =
             /// them is an expansion in its own right; the minting path uses the survivors instead.
             ReuseArgs: unit -> TExpr list
             /// Build the reduction that fills a freshly reserved slot. Takes the slot, which is
-            /// what a re-entrant call inside the body names, so a recursive template terminates
+            /// what a re-entrant call inside the body refers to, so a recursive template terminates
             /// instead of exhausting the stack.
             Build: SpecializationId -> Reduced
         }
@@ -128,7 +128,7 @@ module InlineSpecTable =
             | _ -> ValueNone
         )
 
-    /// The slot an id names, bounds-checked. An out-of-range id is a MINTING bug, not a graph
+    /// The slot an id identifies, bounds-checked. An out-of-range id is a MINTING bug, not a graph
     /// shape, so it faults rather than being reported as a diagnostic.
     let private checkedSlot (entries: TSpecialization[]) (SpecializationId i) : int =
         if i < 0 || i >= entries.Length then
@@ -231,7 +231,7 @@ module InlineSpecTable =
             t.Origins <- OriginSources.add src t.Origins
             t.Origins
 
-        /// The entry `grounding` already names, if a previous site interned one. `shareable` is
+        /// The entry `grounding` is already interned at, if a previous site minted one. `shareable` is
         /// false when the reduction fused the site's own material, or when non-ground type
         /// arguments leave this thaw's inference cells inside the body.
         let private tryReuse (grounding: Grounding) (shareable: bool) (t: SpecTable) : SpecializationId voption =
@@ -287,7 +287,7 @@ module InlineSpecTable =
 
             spec, reduced.Survivors
 
-        /// Outline one reduction and hand back the EDGE naming it. Reusing an interned entry and
+        /// Outline one reduction and hand back the EDGE pointing to it. Reusing an interned entry and
         /// minting a fresh one differ only in where the edge's arguments come from.
         let outline (o: Outlining) (t: SpecTable) : TExpr =
             let spec, args =
@@ -318,7 +318,7 @@ module InlineSpecTable =
                 |> Array.ofSeq
 
             // A recursive `let inline` asks for an expansion that does not exist, so the cycle
-            // is a diagnostic naming every binding on it and nothing expands the graph.
+            // is a diagnostic listing every binding on it and nothing expands the graph.
             match findCycle table with
             | ValueSome cycle ->
                 // Named in call order, so the verdict reads as the loop runs, and positioned at

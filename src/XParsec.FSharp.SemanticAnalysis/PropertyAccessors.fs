@@ -4,7 +4,7 @@ open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
 /// The bindings after `member x.P with …`, read as the accessors they declare. The parser
-/// admits any binding there, so rejecting the ones naming neither `get` nor `set` is this
+/// admits any binding there, so rejecting the ones declaring neither `get` nor `set` is this
 /// module's job rather than the grammar's.
 module PropertyAccessors =
 
@@ -33,8 +33,8 @@ module PropertyAccessors =
             | _ -> false
         | _ -> false
 
-    /// The accessor one `with`-clause binding declares; `ValueNone` for a binding naming
-    /// neither `get` nor `set`.
+    /// The accessor one `with`-clause binding declares; `ValueNone` for a binding that
+    /// declares neither `get` nor `set`.
     let private accessorOf (ctx: PassContext) (propName: string) (b: Binding<SyntaxToken>) : PropertyAccessor voption =
         match MemberNames.ofBinding ctx b with
         | ValueSome m ->

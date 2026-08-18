@@ -53,7 +53,7 @@ let tests =
                 Expect.stringContains src "class Ref {" "the reference-equality record with the mutable field"
 
                 // The flat<->curried adapters are CLR-only, so nothing here reaches `Fun` and
-                // no import is owed. An `import` would name the package's own asset, which
+                // no import is owed. An `import` would reference the package's own asset, which
                 // exports runtime entries and no compiled member.
                 Expect.isFalse (src.Contains "import ") "a self-contained module"
             }

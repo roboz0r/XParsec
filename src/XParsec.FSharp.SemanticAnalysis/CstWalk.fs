@@ -384,7 +384,7 @@ module CstWalk =
         // An SRTP member-trait invocation (`((^T): (static member …) args`).
         | Expr.StaticMemberInvocation(membersign = ms) -> onMemberSig ms
 
-        // A static-optimization clause's tycon-equality constraint names a type on
+        // A static-optimization clause's tycon-equality constraint writes a type on
         // its RHS (`when ^T : int` / `when ^T : System.DateTime`).
         | Expr.LibraryOnlyStaticOptimization(clauses = clauses) ->
             for clause in clauses do

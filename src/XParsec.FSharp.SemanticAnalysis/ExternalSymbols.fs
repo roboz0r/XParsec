@@ -31,7 +31,7 @@ type ExternalTypeShape =
     /// capability is a plain canon-only interface `Class`.
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
     /// NAME + ARITY are registered, the body is not modelled. `reason` says which gap, so a
-    /// use site can name it rather than degrade silently.
+    /// use site can report it rather than degrade silently.
     | Unmodelled of reason: UnmodelledReason * arity: int
 
     member this.TyparArity: int =
@@ -228,7 +228,7 @@ module ExternalSymbols =
         | ExternalTypeShape.IntrinsicInterface _ -> true
         | _ -> false
 
-    /// The heritable-primitive surface a shape carries (`obj`/`exn`): what an `inherit` may name.
+    /// The heritable-primitive surface a shape carries (`obj`/`exn`): what an `inherit` may write.
     let intrinsicClassOf (shape: ExternalTypeShape) : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         match shape with
         | ExternalTypeShape.Intrinsic {

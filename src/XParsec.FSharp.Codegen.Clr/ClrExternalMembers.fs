@@ -449,7 +449,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     member _.ExternalParameterlessBaseCtor(key) = externalParameterlessBaseCtor key
 
     /// An intrinsic-CLASS `inherit` parent (`exn`) → its platform key (`System.Exception`)
-    /// plus the raw `TypeRef` the derived type's `extends` names. Only a `(# class "…" #)`
+    /// plus the raw `TypeRef` the derived type's `extends` points to. Only a `(# class "…" #)`
     /// primitive is heritable, so a value-repr intrinsic (`int`) never matches, even though
     /// it carries a surface of its own once it declares an `interface`.
     member _.IntrinsicClassBase(canon: TypeKey) : struct (TypeKey * EntityHandle) voption =

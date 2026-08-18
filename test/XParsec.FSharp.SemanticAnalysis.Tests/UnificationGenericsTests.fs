@@ -100,7 +100,7 @@ let tests =
                 Expect.isTrue hasArity "arity-mismatch diagnostic emitted"
             }
 
-            test "generic type named bare back-fills fresh typars" {
+            test "generic type written bare back-fills fresh typars" {
                 // `Box` is arity 1 but named bare: its typar is back-filled with a fresh
                 // TyVar, which the record literal then pins to `int`. No arity diagnostic.
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b : Box = { Value = 1 }"
@@ -115,7 +115,7 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics — a bare generic name is lenient"
             }
 
-            test "generic intrinsic named bare back-fills an element arg, not empty" {
+            test "generic intrinsic written bare back-fills an element arg, not empty" {
                 // `Vec<'a>` written bare must still carry one back-filled TyVar: a niladic
                 // `TyConst(k, [])` has the wrong arity, so it fails every arg-count-matched
                 // unification and the array-element guard downstream.
@@ -129,7 +129,7 @@ let tests =
                 | other -> failtestf "expected TyFun over a TyConst, got %A" other
             }
 
-            test "arity-0 type given a type argument diagnoses yet still names the local type" {
+            test "arity-0 type given a type argument diagnoses yet still resolves to the local type" {
                 let ctx = analyse "type Color = | Red | Green\nlet f (c : Color<int>) = c"
 
                 let hasArity =

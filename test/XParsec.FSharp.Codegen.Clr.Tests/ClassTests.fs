@@ -158,7 +158,7 @@ let monoTests =
                 Expect.equal (m.Invoke(instance, [| box 3; box 4 |]) :?> int) 7 "T().Add(3, 4) returns 7"
             }
 
-            test "a class with no ctor params + a method that references no captures emits cleanly" {
+            test "a class with no ctor params + a capture-free method emits cleanly" {
                 let _, artifact =
                     compileSource
                         "ClsNullary"
@@ -1552,7 +1552,7 @@ let inheritanceTests =
                     "SetTreeNode<int>.Value returns its own field 42"
             }
 
-            // `d.Key` names a member declared on the base, so resolution walks the
+            // `d.Key` resolves to a member declared on the base, so resolution walks the
             // `inherit` chain and upcasts the object argument to the declaring
             // ancestor, which is a codegen no-op for a ref type.
             test "reading an inherited member on a derived object argument resolves the base property (Key shape)" {
@@ -2346,7 +2346,7 @@ let interfaceImplCodegenTests =
             }
 
             // `c.Q <- n` resolves its `set_Q` up the chain exactly as the indexer does, and the
-            // object argument upcasts so the call names the base that emits the accessor.
+            // object argument upcasts so the call resolves to the base that emits the accessor.
             test "`x.P <- v` dispatches through an INHERITED setter" {
                 let src =
                     String.concat

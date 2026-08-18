@@ -127,7 +127,7 @@ module internal UnificationInferGeneralize =
                             && not (store.Defaults.IsEmpty root)
                         then
                             acc.Add root.Id
-                            // Follow the default-target graph: `default ^T3 : ^T1` names
+                            // Follow the default-target graph: `default ^T3 : ^T1` references
                             // another TyVar that may be an *intermediate* result var (the
                             // inner `a + b` of `a + b + c`), off the binding's surface type.
                             for target in store.Defaults.Items root do
@@ -254,7 +254,7 @@ module internal UnificationInferGeneralize =
 
         zonkedTy |> iterTypeVarRoots store addRoot
 
-        // Dependent typars: a `Coercion` bound may name *further* typars that appear ONLY in
+        // Dependent typars: a `Coercion` bound may reference *further* typars that appear ONLY in
         // constraints (`'S :> IStructSeq<'T,'E>`, where `'E` is in no parameter/return position).
         // Un-quantified they leak as un-ground `TyVar`s, degraded at freeze to an `FTUnknown`.
         let mutable i = 0

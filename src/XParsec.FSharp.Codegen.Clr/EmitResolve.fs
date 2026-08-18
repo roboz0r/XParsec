@@ -174,10 +174,10 @@ module EmitResolve =
 
     /// Where the parent `TypeSpec` of an external instance member ref comes from.
     type private ExternalParent =
-        /// The object argument names it: `"Vesper.Option"` carries no `` `1 ``, and
+        /// The object argument identifies it: `"Vesper.Option"` carries no `` `1 ``, and
         /// `ResizeArray<int>`'s instantiation is not recoverable from `Count: int`.
         | FromObjArg of FrozenType
-        /// Nothing at the site names the parent, so the open signature recovers it.
+        /// Nothing at the site mentions the parent, so the open signature recovers it.
         | RecoverFromSignature
 
     /// The class arm is gated `declKey = rKey`: an INHERITED member is parented on a base,
@@ -214,7 +214,7 @@ module EmitResolve =
     /// Where a static member's DECLARING instantiation comes from at a call site, in
     /// precedence order.
     type private DeclaringInstantiation =
-        /// The result IS the declaring nominal (`Set<int>.Empty : Set<int>`), which names it.
+        /// The result IS the declaring nominal (`Set<int>.Empty : Set<int>`), which identifies it.
         | FromResultTy of FrozenType list
         /// Matched out of the member's open signature against the call's types.
         | FromSignature of FrozenType list

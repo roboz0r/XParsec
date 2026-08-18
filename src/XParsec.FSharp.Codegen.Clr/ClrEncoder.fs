@@ -405,7 +405,7 @@ type internal ClrEncoder(env: ClrEnv) =
         toEntity (ctx.TypeSpec tsB)
 
     /// The `System.ValueTuple` handles for an N-tuple of `elemTys`, shared by construction and
-    /// destructuring. The ctor / `Item` signatures name the type's own `!0…`, so they are
+    /// destructuring. The ctor / `Item` signatures spell the type's own `!0…`, so they are
     /// element-type-independent and only the parent `TypeSpec` carries the instantiation.
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles =
         if not (ClrTuples.isTupleArity (List.length elemTys)) then

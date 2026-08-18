@@ -34,7 +34,7 @@ type TSpecializationG<'ty, 'tok, 'id> =
     {
         Key: SpecializationKeyG<'ty>
         /// The file every anchor inside `Decl` is an index into, except under a nested
-        /// `CallerExpr` / `InlineCall`, which names its own.
+        /// `CallerExpr` / `InlineCall`, which carries its own.
         Origin: OriginFile
         Decl: TDeclG<'ty, 'tok, 'id>
     }
@@ -209,7 +209,7 @@ module Frozen =
     type TastFile = TastFileG<FrozenType, SyntaxToken, NodeKey>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
     // The TREE instantiation of the compiled-form cluster: `'pat` is the pattern node
-    // itself, the form an EXTERNAL symbol carries. A file's own names a pooled pat by id.
+    // itself, the form an EXTERNAL symbol carries. A file's own identifies a pooled pat by id.
     type StaticParam = StaticParamG<FrozenType, TPat, NodeKey>
     type ArgGroup = ArgGroupG<FrozenType, TPat, NodeKey>
     type ValRepr = ValReprG<FrozenType, TPat, NodeKey>

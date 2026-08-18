@@ -482,7 +482,7 @@ let tests =
             // The flag decides `when 'a : null`, a type-checking verdict, so it is read off the
             // RESOLVED marker like the equality postures: a same-named type of the author's own
             // keeps its own meaning and states nothing about `null`.
-            test "[<AllowNullLiteral>] naming a user type of that name stamps nothing" {
+            test "[<AllowNullLiteral>] resolving to a user type of that name stamps nothing" {
                 let ctx =
                     analyse (
                         "type AllowNullLiteralAttribute() =\n"

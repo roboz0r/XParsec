@@ -120,7 +120,7 @@ let tests =
             // `~+` is the identity, so its body splices to the operand and no opcode. It
             // is still a DECLARED member at each width, because that declaration is the
             // only thing admitting the operand, as the `char` row shows.
-            test "prefix plus is the identity and leaves no opcode, at every numeric width" {
+            test "prefix plus is the identity and does not leave an opcode, at every numeric width" {
                 for ty in
                     [
                         "int"
@@ -270,7 +270,7 @@ let tests =
                 runs "42" "let f a b = a + b\nprintfn \"%d\" (f 40 2)"
             }
 
-            test "primitive arithmetic pins no FSharp.Core dependency (no runtime library)" {
+            test "primitive arithmetic does not pin an FSharp.Core dependency (no runtime library)" {
                 let _, artifact = compileSource "ArithNoDep" "printfn \"%d\" (2 + 2 * 3)"
 
                 expectNoFSharpCore artifact "primitive arithmetic"
@@ -282,7 +282,7 @@ let tests =
 
             // `char` is a `TyConst`, not a nominal, and declares no arithmetic, so `+`
             // resolves no member and is a compile error rather than CIL `add` on chars.
-            test "char arithmetic diagnoses (declares no member, and not a nominal)" {
+            test "char arithmetic diagnoses (`char` does not declare the operator, and is not a nominal)" {
                 failsWith "The type 'char' does not support the operator '+'" "let x = 'a' + 'b'\nignore x"
 
                 failsWith "The type 'char' does not support the operator '*'" "let x = 'a' * 'b'\nignore x"

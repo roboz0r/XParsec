@@ -6,9 +6,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // A record/union construction emits the type ITSELF, so no source program hands one an
 // intrinsic; these retype the node in the pooled file to reach it. An intrinsic key is as
-// nominal as a record's, so the failure comes from the table that missed and names the key.
+// nominal as a record's, so the failure comes from the table that missed and quotes the key.
 
-/// The first intrinsic (`FTConst`) row of the file's own type table, and the key it names.
+/// The first intrinsic (`FTConst`) row of the file's own type table, and the key it carries.
 let private intrinsicRow (pools: FrozenPools) : TypeId * TypeKey =
     pools.Types.Rows.Types
     |> Seq.indexed
@@ -48,7 +48,7 @@ let tests =
     testList
         "Codegen.Js nominal emit sites"
         [
-            test "a RecordCons on an intrinsic type fails naming the key it looked up" {
+            test "a RecordCons on an intrinsic type fails and quotes the key it looked up" {
                 emitRetypedToIntrinsic
                     "RecordConsIntrinsic"
                     "type R = { X: int }\nlet r = { X = 1 }"
@@ -60,7 +60,7 @@ let tests =
                     "record"
             }
 
-            test "a UnionCons on an intrinsic type fails naming the key it looked up" {
+            test "a UnionCons on an intrinsic type fails and quotes the key it looked up" {
                 emitRetypedToIntrinsic
                     "UnionConsIntrinsic"
                     "type U = | A of int | B\nlet u = A 1"

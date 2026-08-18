@@ -174,7 +174,7 @@ let private asSymbolScheme (ft: FrozenType) : FrozenType =
         ft
     |> toFrozen
 
-/// The symbol's `TyparArity`: one past the highest typar index the template names.
+/// The symbol's `TyparArity`: one past the highest typar index the template references.
 let rec private typarArity (ft: FrozenType) : int =
     match ft with
     | FTTypar(_, i) -> i + 1
@@ -243,7 +243,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
     )
 
 /// The constant `let r = …` reduced to. `kindOf`'s clause bodies are bare `int` literals, so
-/// WHICH clause the expansion selected is read off the entry the call's edge names. An
+/// WHICH clause the expansion selected is read off the entry the call's edge points to. An
 /// unresolved call leaves an `App` node instead, which reaches no `Const`.
 let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
@@ -329,7 +329,7 @@ let tests =
                     "the un-emittable template is still published for consumers to splice"
             }
 
-            test "a published StaticOptimization clause carries no SemType cell, because its constraints freeze too" {
+            test "a published StaticOptimization clause has no SemType cell, because its constraints freeze too" {
                 let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
                 let clauses, resultTy =
@@ -399,7 +399,7 @@ let tests =
                     "f's own type carries no local-typar residue, which is exactly why mkMethodQuantEnv cannot map it"
 
                 // The thaw mints on all three axes, so the expected count is every leaf the
-                // frozen decl names, not just the local ones.
+                // frozen decl carries, not just the local ones.
                 let store = TypeStore()
 
                 let cells =

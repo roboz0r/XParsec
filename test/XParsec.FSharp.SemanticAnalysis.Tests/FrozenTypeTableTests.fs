@@ -200,7 +200,7 @@ let tests =
 
             // `flatten` re-admits the freeze's own rows to intern the types a PAYLOAD embeds,
             // while the `ty` columns it writes hold ids from that first build. Move one id on
-            // re-admission and every column entry names a different type.
+            // re-admission and every column entry identifies a different type.
             test "a re-admitted table keeps every id, and grows only at the end" {
                 let frozen = FrozenTypeTableBuilder()
                 let originals = samples |> List.map frozen.Intern

@@ -91,7 +91,7 @@ let tests =
                     "mk () constructs the class Foo declared above it"
             }
 
-            // The static member returns a RECORD, so the `let`'s result type names the
+            // The static member returns a RECORD, so the `let`'s result type is the
             // member's own type rather than degenerating to a free TyVar.
             test "a static-member access below the class's declaration resolves to the member" {
                 let tast =
@@ -106,7 +106,7 @@ let tests =
                     "s () is Foo.Bar's type — the record the static member returns"
             }
 
-            test "a member body naming its own type resolves to it" {
+            test "a member body referencing its own type resolves to it" {
                 expectClean "type C(n: int) =\n    member this.N = n\n    member this.Self: C = C(this.N)"
             }
 

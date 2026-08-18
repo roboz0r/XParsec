@@ -202,7 +202,7 @@ module EmitJsContext =
 
     /// Where a node lands in the source it was WRITTEN in, for the map. Takes the NODE, not its
     /// anchor: a node copied out of a specialization was MOVED onto the call site, so its own
-    /// anchor names the consuming file; its producer position rides beside it in `NodeOrigins`.
+    /// anchor points to the consuming file; its producer position rides beside it in `NodeOrigins`.
     let locOf (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsLoc voption =
         match ctx.Resolver with
         | ValueNone -> ValueNone
@@ -254,7 +254,7 @@ module EmitJsContext =
         | JsClassRef.Global name -> name
         | JsClassRef.Imported(home, name) -> JsImports.addTypeRef ctx.Imports home name
 
-    /// The class identifier a nominal's construction site names.
+    /// The class identifier a nominal's construction site uses.
     let nominalCtorRef (ctx: WalkCtx) (klass: JsClassRef) (loc: JsLoc voption) : JsExpr =
         match klass with
         | JsClassRef.Local _
@@ -423,7 +423,7 @@ module EmitJsContext =
             }
 
     /// A `Vesper.Printf.mjs` runtime entry the BACKEND synthesises: no front-end symbol resolves
-    /// to it, so no provider shape carries its home. Codegen names both the key and the module.
+    /// to it, so no provider shape carries its home. Codegen hardcodes both the key and the module.
     let private printfRuntimeRef (name: string) : JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.moduleValueKey "Vesper" "StructuralPrinter" name)

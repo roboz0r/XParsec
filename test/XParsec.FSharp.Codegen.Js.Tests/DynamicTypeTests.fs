@@ -155,7 +155,7 @@ let tests =
 
             // A `?`-result pinned to a concrete type by CONTEXT (the `default : dynamic` never
             // fired) is an unchecked assertion, so it warns. Suppressed ONLY by an ascription
-            // directly on the `?` expression: "name the type at the escape point."
+            // directly on the `?` expression: "spell the type at the escape point."
 
             test "`d?foo + 1` implicitly escapes `dynamic` to int → warns" {
                 let ws =

@@ -87,7 +87,7 @@ module ConformancePass =
         |> List.map (fun d -> d.Message)
         |> String.concat "; "
 
-    /// Conform every signature file a package manifest names against its implementation
+    /// Conform every signature file a package manifest lists against its implementation
     /// companion, over the package as READ: no F# source is re-read and no pairing re-taken, so
     /// a file the read could not deliver becomes a `ParseFailed` verdict.
     let check (pkg: PackageSource.ParsedPackage) : PackageOutcome =
@@ -180,7 +180,7 @@ module ConformancePass =
             Diagnostic.nowhere (Kind.Conformance(outcome.Package, verdict))
 
         // The signature files that DID pair, the basis for catching a `sig-only`
-        // exemption naming a file that in fact has a companion `.fs`.
+        // exemption listing a file that in fact has a companion `.fs`.
         let pairedSigs =
             set
                 [

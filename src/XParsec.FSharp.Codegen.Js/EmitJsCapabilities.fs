@@ -62,7 +62,7 @@ module EmitJsCapabilities =
 
     /// The runtime entry behind `seq<'T>.GetEnumerator()`: a JS source's only enumerable surface
     /// is `Symbol.iterator`, so nothing exists to call and this adapter holds the state the split
-    /// `MoveNext`/`Current` needs. No front-end symbol resolves to it, so codegen names its home.
+    /// `MoveNext`/`Current` needs. No front-end symbol resolves to it, so codegen hardcodes its home.
     let private enumeratorOfRef: JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "Vesper.Collections") "enumeratorOf")

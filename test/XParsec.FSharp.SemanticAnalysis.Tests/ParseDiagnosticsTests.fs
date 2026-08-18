@@ -70,9 +70,9 @@ let tests =
             }
 
             // A `with` clause binds `get` and `set` and nothing else, so a third name is a
-            // GRAMMAR mistake. The message names the property and the offending word, since
+            // GRAMMAR mistake. The message cites the property and the offending word, since
             // neither is recoverable from the position alone.
-            test "a `with` clause naming neither get nor set is a parse error" {
+            test "a `with` clause declaring neither get nor set is a parse error" {
                 let p = parsed "type C() =\n    member this.P with frobnicate () = 1\n"
 
                 match p.Diagnostics |> List.map (fun d -> d.Message) with
@@ -137,7 +137,7 @@ let tests =
                 let d = parsed mismatchedClose |> mismatchedDelimiter
 
                 // Nothing was inserted — the offending token was consumed as the close — so
-                // there is no gap to name and the token is the mistake.
+                // there is no gap to report and the token is the mistake.
                 match d.Site with
                 | Site.At _ -> ()
                 | other -> failtestf "expected the wrong close token, got %A" other

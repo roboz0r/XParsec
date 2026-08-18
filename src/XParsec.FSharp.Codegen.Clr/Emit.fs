@@ -171,7 +171,7 @@ module Emit =
         (body: TastAccessor.ExprId)
         : ILBody =
         let b = IlBuilder()
-        // Keyed by raw identity: a body loads a parameter through a `Var` that names it
+        // Keyed by raw identity: a body loads a parameter through a `Var` that refers to it
         // that way, so each definition site widens as it takes its `ldarg` index.
         let args = Dictionary<BoundVarId, int>()
 

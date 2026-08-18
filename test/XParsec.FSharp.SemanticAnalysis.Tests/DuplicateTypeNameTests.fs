@@ -143,7 +143,7 @@ let tests =
             // compilation a fully-qualified name names at most one type. The `List`1` below is
             // already Vesper.List's, so re-declaring it is an error, not a silent shadow.
             yield
-                test "a type a referenced assembly already claims is an error naming both" {
+                test "a type a referenced assembly already claims is an error citing both" {
                     let src =
                         "namespace Vesper.Collections\n\ntype List<'T> =\n    | Nil\n    | Cons of 'T * List<'T>"
 

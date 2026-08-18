@@ -102,9 +102,9 @@ let tests =
                 Expect.isFalse (isStaticQualifier ctx e) "unknown name is not a qualifier-prefix stamp"
             }
 
-            // The first hit in candidate order IS what the name names; its shape is
+            // The first hit in candidate order IS what the name resolves to; its shape is
             // checked only afterwards. `Thing` is a union under `Early` and a class under
-            // `Late`, so it names the union and no constructible-class stamp appears.
+            // `Late`, so it resolves to the union and no constructible-class stamp appears.
             test "classification commits to the first hit — a shadowed class stays shadowed" {
                 let shadowingProvider: IExternalSymbolProvider =
                     ExternalSymbolProviders.ofNamedChannels

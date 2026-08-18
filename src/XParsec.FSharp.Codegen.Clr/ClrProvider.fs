@@ -137,7 +137,7 @@ type ClrProvider
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
             // LOCAL-FIRST: a same-assembly CROSS-FILE interface resolves as `External` home-stamped
-            // to our OWN assembly, yet its `InterfaceImpl` row must name the registered `TypeDef`,
+            // to our OWN assembly, yet its `InterfaceImpl` row must point to the registered `TypeDef`,
             // not an `AssemblyRef`-scoped `TypeRef` back to ourselves.
             match env.UserTypes.TryGetValue key with
             | true, h -> h
@@ -306,7 +306,7 @@ type ClrProvider
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))
             else
-                // Only a binding key names a module function; an operator-as-value does not,
+                // Only a binding key identifies a module function; an operator-as-value does not,
                 // and operators are expanded to `TExpr.ILIntrinsic` before emission anyway.
                 match key with
                 | ValueSome(SymbolKey.Binding binding) -> recipes.EmitExternalCall(binding, fnTy)

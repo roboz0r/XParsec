@@ -100,7 +100,7 @@ let tests =
             }
 
             // The surfaced supertype IS the identity the declaring package published, not one
-            // derived from its rendering, so the re-cut spelling names a different type and
+            // derived from its rendering, so the re-cut spelling denotes a different type and
             // the upcast to it must fail.
             test "a module-held interface is not reached by the re-cut spelling of its own name" {
                 let reCut =

@@ -204,7 +204,7 @@ module EmitClosures =
                     | _ -> ()
             ]
 
-        // The bound variable each identity ends up naming: later declarations overwrite earlier
+        // The bound variable each identity ends up denoting: later declarations overwrite earlier
         // ones, exactly as the name environment does.
         let owner = Dictionary<SymbolKey, BoundVarId>()
 
@@ -498,7 +498,7 @@ module EmitClosures =
                         let c = candidates.[k]
                         // A module-value reference is an `ldsfld`, not a capture, so those
                         // keys count as bound. A simple/unit param binds its own `Slot`; a
-                        // tuple param binds each variable the pattern names.
+                        // tuple param binds each variable the pattern introduces.
                         let paramBound =
                             c.Params.Flat
                             |> List.collect (fun p ->

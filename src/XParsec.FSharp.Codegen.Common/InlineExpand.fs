@@ -3,7 +3,7 @@ namespace XParsec.FSharp.Codegen.Common
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-/// Splice each `TExprG.InlineCall` edge with the body of the specialization it names, and
+/// Splice each `TExprG.InlineCall` edge with the body of the specialization it identifies, and
 /// freshen that body's bound variables. Anchors stay readable: a copied node records the file it was
 /// WRITTEN in (`NodeOrigin`) while its own anchor moves to the call site.
 module InlineExpand =
@@ -114,7 +114,7 @@ module InlineExpand =
 
     /// One entry the walk is currently INSIDE, and the site the material that called it was
     /// walked at. They pop together: a `CallerExpr`'s subtree is the CALLER's, so keeping the
-    /// site would leave its `Var` references naming the uncopied body's bound variables.
+    /// site would leave its `Var` references resolving to the uncopied body's bound variables.
     [<NoEquality; NoComparison>]
     type private Entered =
         {
@@ -123,7 +123,7 @@ module InlineExpand =
         }
 
     /// Splice every `TExprG.InlineCall` in `decls` — member bodies included, via
-    /// `mapDeclBodies` — with the entry it names, applied to the edge's own arguments. A
+    /// `mapDeclBodies` — with the entry it identifies, applied to the edge's own arguments. A
     /// `TExprG.CallerExpr` is unwrapped and its subtree left where it stands, being the caller's.
     let expand (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
         let origins = Dictionary<TastAccessor.ExprId, NodeOrigin>()
@@ -142,7 +142,7 @@ module InlineExpand =
             result
 
         // The copy's own bound variable for `b`, minting one on first sight. A `Var` reference
-        // resolves through the same table, so a variable and its uses cannot name different slots.
+        // resolves through the same table, so a variable and its uses cannot resolve to different slots.
         let bind (copy: Copy) (b: BoundVarId) : BoundVarId =
             let fresh = TastPoolBuilder.mintBoundVar pool
             copy.BoundVars.[b] <- fresh
@@ -275,7 +275,7 @@ module InlineExpand =
 
             // The node states the domain of its own anchor; the descent derives the same thing
             // from the edges it came through. A disagreement is the only warning: an anchor read
-            // in the wrong file's index space resolves in range and names an unrelated token.
+            // in the wrong file's index space resolves in range and points to an unrelated token.
             let stated = domainOf (TastAccessor.exprInlineCallOrigin e)
 
             if stated <> domain then
@@ -291,7 +291,7 @@ module InlineExpand =
                     spec
                     entry.Key.Template
 
-            // Where the edge SITS is where the body it names is moved to. A copied edge already
+            // Where the edge SITS is where the body it identifies is moved to. A copied edge already
             // sits on the enclosing call site, so an inner body collapses onto the outermost one.
             let at =
                 match site with

@@ -64,7 +64,7 @@ module TEnumCases =
             | ValueNone -> ValueSome RuntimeNames.intKey
 
     /// How a width is SPELLED to the user, off the same identity the enum is typed by, so
-    /// the message cannot name a type the enum was not given.
+    /// the message cannot cite a type the enum was not given.
     let private widthDisplayName (v: TConstValue) : string =
         let (DisplayName n) =
             SymbolKeyOps.typeSimpleName (RuntimeNames.intWidthKey (integralWidth v))

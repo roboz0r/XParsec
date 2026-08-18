@@ -1016,7 +1016,7 @@ let globalAttributeTests =
                 Expect.isEmpty tast.GlobalValueKeys "nothing declared, nothing recorded"
             }
 
-            test "[<Global>] on a body that is not a bare intrinsic is an error naming the binding" {
+            test "[<Global>] on a body that is not a bare intrinsic is an error citing the binding" {
                 match errorsOf "module M\n\n[<Global>]\nlet answer = 42\n" with
                 | [ msg ] ->
                     Expect.stringContains msg "'answer'" "the diagnostic names the binding"
@@ -1038,7 +1038,7 @@ let globalAttributeTests =
                 Expect.isEmpty (errorsOf "module M\n\nlet emptyDocs = (# \"[]\" #)\n") "no diagnostic"
             }
 
-            test "[<Global>] on a pattern naming no value is an error, not a silent no-op" {
+            test "[<Global>] on a pattern with no single bound name is an error, not a silent no-op" {
                 // The declaration is filed under the value's identity, so a wildcard pattern
                 // has nowhere to carry it — and honouring it silently would emit the very
                 // definition the attribute exists to suppress.

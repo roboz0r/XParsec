@@ -5,9 +5,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// An `ExternalTypeShape.Unmodelled` names a type the contract registered without a body, so
-// no `SemType` can be built for an annotation naming it. What the annotation yields is the
-// question these pin: the reference must report ONCE, naming the gap, and must do so
+// An `ExternalTypeShape.Unmodelled` denotes a type the contract registered without a body, so
+// no `SemType` can be built for an annotation referencing it. What the annotation yields is the
+// question these pin: the reference must report ONCE, citing the gap, and must do so
 // identically however the name is spelled — a bare `Widget` and a dotted `Tests.Widget`
 // reach that verdict through different arms of `translateType`.
 
@@ -43,7 +43,7 @@ let tests =
     testList
         "UnmodelledExternalType"
         [
-            test "an annotation naming an unmodelled body reports the gap, not an undefined name" {
+            test "an annotation referencing an unmodelled body reports the gap, not an undefined name" {
                 let msgs = analyse delegateShape "let f (w: Widget) = w" |> messages
 
                 Expect.hasLength msgs 1 (sprintf "exactly one diagnostic, got %A" msgs)

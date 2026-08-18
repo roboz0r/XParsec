@@ -98,7 +98,7 @@ let baseIdTests =
                     let b = TastPoolBuilder.openOver pools
                     let before = unpoolRoots b
 
-                    // Grow the overlay: a re-pooled real subtree (which also names bound variable
+                    // Grow the overlay: a re-pooled real subtree (which also carries bound variable
                     // references) and a bound variable the base never held.
                     TastPoolBuilder.appendExprTree b (firstLetValue frozen) |> ignore
                     TastPoolBuilder.mintBoundVar b |> ignore
@@ -156,7 +156,7 @@ let appendTests =
                 let pools, frozen = poolsFor "let x = 1\nlet y = x\n"
                 let b = TastPoolBuilder.openOver pools
 
-                // `let y = x`'s value is the `Var` naming `x`'s bound variable — a reference the
+                // `let y = x`'s value is the `Var` referencing `x`'s bound variable — a reference the
                 // overlay must resolve into the BASE bound variable pool rather than mint anew.
                 let varDu =
                     EqArray.toArray frozen.Decls
@@ -249,7 +249,7 @@ let rowCopyTests =
                 let kids = TastPoolBuilder.exprChildren b tuple
                 Expect.equal kids.Length 2 "a two-element tuple"
 
-                // The overlay node names BASE children (the two element ids, reversed): an edge
+                // The overlay node references BASE children (the two element ids, reversed): an edge
                 // minted above the boundary addressing a node below it.
                 let swapped =
                     TastPoolBuilder.copyExprWith

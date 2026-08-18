@@ -159,7 +159,7 @@ let tests =
                     "`<` / `>` / `<=` / `>=` dispatch to IComparable<Ranked>.CompareTo (inverted order)"
             }
 
-            test "[<CustomEquality>] class emits NO synthesized typed Equals(Self) and NO CompareTo" {
+            test "[<CustomEquality>] class does not emit a synthesized typed Equals(Self) or a CompareTo" {
                 // Reflection surfaces the user's interface method as a typed
                 // `Equals(Tagged)`, so the absence of synthesis is asserted on the
                 // comparison pair: this class has no `CompareTo` member at all.

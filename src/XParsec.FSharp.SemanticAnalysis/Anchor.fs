@@ -67,7 +67,7 @@ module AssemblyFileId =
         || s.[0] = '\\'
         || (s.Length >= 2 && s.[1] = ':' && System.Char.IsAsciiLetter s.[0])
 
-    /// `relative` canonicalised, or why it does not name a file within its assembly.
+    /// `relative` canonicalised, or why it does not identify a file within its assembly.
     let tryOfRelative (relative: string) : Result<AssemblyFileId, string> =
         if System.String.IsNullOrWhiteSpace relative then
             Error "a file is named by something, not by blank"
@@ -96,7 +96,7 @@ module AssemblyFileId =
                 Error(sprintf "'%s' climbs out of its assembly" relative)
             else
                 match segments.Count with
-                | 0 -> Error(sprintf "'%s' does not name a file: nothing is left of it canonicalised" relative)
+                | 0 -> Error(sprintf "'%s' does not identify a file: nothing is left of it canonicalised" relative)
                 | _ -> Ok(FileId(String.concat "/" segments))
 
     let ofRelative (relative: string) : AssemblyFileId =
@@ -148,7 +148,7 @@ type OriginPath =
 
 /// A producer file an `Anchor` may be resolved against: which file, plus a hash of the exact
 /// text whose `Lexed` those indices address. Without the hash, a producer edited between two
-/// builds leaves every index still in range and naming a DIFFERENT token, with no error.
+/// builds leaves every index still in range and pointing to a DIFFERENT token, with no error.
 type OriginFile =
     { Path: OriginPath; Content: InputHash }
 

@@ -40,7 +40,7 @@ let private hasIlIntrinsic (op: string) (e: TastAccessor.ExprId) : bool =
         | _ -> false
     )
 
-/// The SYMBOL a node names, rendered; `ValueNone` for a node with no symbol. Lets a
+/// The SYMBOL a node refers to, rendered; `ValueNone` for a node with no symbol. Lets a
 /// test say "this body reaches `EqualityComparer<_>.Equals`" without rendering the tree.
 let private symbolText (e: TastAccessor.ExprId) : string voption =
     match TastAccessor.exprKind e with
@@ -55,7 +55,7 @@ let private symbolText (e: TastAccessor.ExprId) : string voption =
     | ExprShape.New -> ValueSome(TastAccessor.exprNewClassName e)
     | _ -> ValueNone
 
-/// Does any node below `e` (itself included) name a symbol whose rendering mentions
+/// Does any node below `e` (itself included) refer to a symbol whose rendering mentions
 /// `needle`?
 let private mentionsSymbol (needle: string) (e: TastAccessor.ExprId) : bool =
     subExprs e
@@ -79,8 +79,8 @@ let tests =
         "OperatorRouting"
         [
             test "an operator whose contract is not referenced diagnoses by its SOURCE spelling" {
-                // The user typed `<`, never `op_LessThan`. No package is named either:
-                // the declaring contract is absent from the referenced set, so naming
+                // The user typed `<`, never `op_LessThan`. The diagnostic omits the package too:
+                // the declaring contract is absent from the referenced set, so citing
                 // `Vesper.Comparison` would take a hardcoded operator→package table.
                 let tast = analyseCoreOnly "let b = 2 < 3"
 
@@ -160,7 +160,7 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "1\n0" "f 2 2 = true, f 2 3 = false"
             }
 
-            test "primitive equality pins no FSharp.Core dependency" {
+            test "primitive equality does not pin an FSharp.Core dependency" {
                 // `=` on ints is a bare `ceq`, with no metadata and no comparer call.
                 let _, artifact =
                     compileSource "OpRoutingEqNoDep" "printfn \"%d\" (if 2 = 2 then 1 else 0)"

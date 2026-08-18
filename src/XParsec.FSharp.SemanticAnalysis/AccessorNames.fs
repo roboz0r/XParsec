@@ -17,7 +17,7 @@ module AccessorNames =
 
     /// A signature's `with` clause halves, named. The CST keeps the two tokens in SOURCE
     /// order (`with set, get` is legal) and the parser admits no spelling but `get` / `set`,
-    /// so naming the first half names the second.
+    /// so identifying the first half determines the second.
     let halvesOf
         (nameOf: SyntaxToken -> string)
         (getSet: SyntaxToken * SyntaxToken voption)

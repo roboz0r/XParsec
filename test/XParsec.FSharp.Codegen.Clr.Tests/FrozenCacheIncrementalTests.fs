@@ -50,7 +50,7 @@ let private printProgram (message: string) : string =
     sprintf "System.Console.WriteLine \"%s\"" message
 
 /// A fixture package's manifest. It `depends-on` the real `Vesper.Core` because its contract
-/// names `int`, which resolves through Vesper.Core and nowhere else. Forward slashes because a
+/// references `int`, which resolves through Vesper.Core and nowhere else. Forward slashes because a
 /// TOML basic string reads `\` as an escape.
 let private fixtureManifest (name: string) (lists: string) : string =
     sprintf "[core]\nname = \"%s\"\ndepends-on = [\"%s\"]\n%s" name (vesperCorePackage.Replace('\\', '/')) lists

@@ -170,7 +170,7 @@ module UnificationSubsume =
                 SubsumeOutcome.Unrelated
         // A Vesper string ENUM admits into a literal union when its case-VALUE set ⊆ the
         // union's literal set, so an enum can be the nominal companion for code that wants to
-        // name the literal type. A non-string enum declines the guard and takes the arm below.
+        // refer to the literal type. A non-string enum declines the guard and takes the arm below.
         | TyEnum ek, TyOr ts when enumAdmitsIntoLiteralUnion ctx ek ts.Disjuncts -> SubsumeOutcome.Subtype
         // disjunct → union (`A ≤ A | B`): `Equal` when `src` *is* a disjunct by structural `=`,
         // `Subtype` when it subsumes into some disjunct (a subclass of one, or a literal

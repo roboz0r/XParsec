@@ -108,7 +108,7 @@ and [<Sealed>] FTDisjuncts private (disjuncts: EqSet<FrozenType>) =
 
     override _.GetHashCode() = hash disjuncts
 
-/// A frozen type known to name a type CONSTRUCTOR, with its key and arguments destructured.
+/// A frozen type known to denote a type CONSTRUCTOR, with its key and arguments destructured.
 /// Required where the construct emits the type itself: an `interface <ty>` reference, an
 /// `inherit` parent, a construction, a member access's object argument.
 type FrozenNominal =
@@ -146,11 +146,11 @@ type FrozenNominal =
         | _ -> ValueNone
 
     /// `what` is a bare noun phrase the failure completes: "an `inherit` clause" reads
-    /// "an `inherit` clause does not name a type constructor: FTFun (…)".
+    /// "an `inherit` clause does not denote a type constructor: FTFun (…)".
     static member OfFrozen (what: string) (ft: FrozenType) : FrozenNominal =
         match FrozenNominal.TryOfFrozen ft with
         | ValueSome n -> n
-        | ValueNone -> failwithf "%s does not name a type constructor: %A" what ft
+        | ValueNone -> failwithf "%s does not denote a type constructor: %A" what ft
 
     /// Rebuild over the type ARGUMENTS; the identity is untouched.
     member this.MapArgs(f: FrozenType -> FrozenType) : FrozenNominal =

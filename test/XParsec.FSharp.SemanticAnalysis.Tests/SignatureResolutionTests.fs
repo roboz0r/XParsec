@@ -36,7 +36,7 @@ let private reprTable (reprs: (string * string) list) : IReadOnlyDictionary<stri
     d :> IReadOnlyDictionary<_, _>
 
 /// Resolve one in-memory `.fsi` against `dependencies`, with `reprs` standing in for the
-/// `(# … #)` bindings a paired `.fs` would supply. `relative` only names the snippet in a
+/// `(# … #)` bindings a paired `.fs` would supply. `relative` only identifies the snippet in a
 /// diagnostic.
 let resolveFsiWith
     (dependencies: IExternalSymbolProvider)
@@ -171,7 +171,7 @@ let tests =
                 assertWidgetIntToInt "reference via open" (instOf "viaOpen")
             }
 
-            test "a signature naming an out-of-scope type is reported, and the val still publishes" {
+            test "a signature referencing an out-of-scope type is reported, and the val still publishes" {
                 // Nothing declares `Missing.Thing`. The val is RETAINED carrying the unresolved
                 // name — a use-site diagnostic — and the file says so where it was written.
                 let r =
@@ -197,7 +197,7 @@ let tests =
                 | ExternalTypeShape.Record(fields = fields) when fields.Length = 1 -> fields.[0].Frozen
                 | other -> failtestf "expected a one-field Record for '%s'; got %A" typeName other
 
-            test "a type naming one declared LATER in the file does not resolve" {
+            test "a type referencing one declared LATER in the file does not resolve" {
                 // Declarations come into scope where they are written, as F# resolves them.
                 let r =
                     resolveFsi
@@ -218,7 +218,7 @@ let tests =
             }
 
             test "an `and`-joined type group resolves mutually" {
-                // The group is registered whole before it is published, so the two may name
+                // The group is registered whole before it is published, so the two may reference
                 // each other — the one place a declaration sees a name written below it.
                 let r =
                     resolveFsi
@@ -232,7 +232,7 @@ let tests =
                 | other -> failtestf "`Node.Edge` must resolve to the `Link` declared below it; got %A" other
             }
 
-            test "a signature naming a type declared in a LATER file does not resolve" {
+            test "a signature referencing a type declared in a LATER file does not resolve" {
                 // Files fold top-down, so the same rule holds across them: `b.fsi`'s type is
                 // not in scope while `a.fsi` is being resolved.
                 let r =
@@ -344,7 +344,7 @@ let tests =
 
             test "An enum case with no constant value downgrades the whole enum" {
                 // A partial case table would answer `E.Red` and then deny `E.Green`, so one
-                // unreadable case makes the whole body Unmodelled. The reason names the case,
+                // unreadable case makes the whole body Unmodelled. The reason cites the case,
                 // not the literal form: the declaring package's own compilation reported that.
                 let r =
                     resolveFsi
@@ -358,7 +358,7 @@ let tests =
                 | other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
             }
 
-            test "A val naming an enum bakes FTEnum, not an opaque nominal" {
+            test "A val referencing an enum bakes FTEnum, not an opaque nominal" {
                 // The kind-correct bake for an `Enum` shape: `mkNominal`'s `Enum` arm must be
                 // reachable from a `.fsi`-declared enum, not only from a dependency's shapes.
                 let r =

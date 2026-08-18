@@ -557,7 +557,7 @@ module Parsing =
             | Token.IfDirective ->
                 // processIfDirective expects the reader to be positioned AT the #if token,
                 // and moves it off the directive line before it can raise a diagnostic — so
-                // the token's index is captured here, while the reader still names it.
+                // the token's index is captured here, while the reader still points at it.
                 processIfDirective (nextSyntaxTokenImpl isPeek) (syntaxToken token reader.Index) reader
             | Token.ElseDirective ->
                 // We are in an active then-branch that has reached its #else.
@@ -751,7 +751,7 @@ module Parsing =
     /// The token to blame for a refusal at the reader's current position. `peeked` is what
     /// `peekNextSyntaxToken` returned, passed in rather than re-peeked so the failure is
     /// not traced twice: on `Ok`, that token; on a failure, the RAW token the reader sits
-    /// on, which still names a real place even though the parser would not accept it
+    /// on, which still points to a real place even though the parser would not accept it
     /// there; and `nowhere` past the end of input, where there is nothing to blame.
     let blameToken
         (peeked: Result<SyntaxToken, ParseError<PositionedToken, ParseState>>)

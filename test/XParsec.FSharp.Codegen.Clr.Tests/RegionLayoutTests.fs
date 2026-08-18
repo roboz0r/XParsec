@@ -36,7 +36,7 @@ let tests =
                 Expect.equal (RegionProbe.escapeOf p "r") None "r has no escape entry — the CLR lays an int flat"
             }
 
-            test "a tuple-typed call result mints no region" {
+            test "a tuple-typed call result does not mint a region" {
                 // The CLR answers `System.ValueTuple`2` for a 2-tuple, and that is a value type,
                 // so `pair 3` is flat. The literal that BUILT it still allocates, inside `pair`.
                 let p = probe "let pair x = (x, x)\nlet pt = pair 3"

@@ -19,7 +19,7 @@ module internal Layout =
         (pools: FrozenPools)
         : FileLayout =
         // An append-only overlay over the file's frozen trees: every node this emission
-        // derives is appended, and every id the frozen pool handed out keeps naming the
+        // derives is appended, and every id the frozen pool handed out keeps denoting the
         // same node, so derived nodes can be minted mid-emit rather than in one batch.
         let pool = TastPoolBuilder.openOver pools
 
@@ -37,7 +37,7 @@ module internal Layout =
 
         // A source lambda's verdict, keyed by NODE (id + issuing pool): two files' pools
         // both number from 0, so a bare id would not miss across files but would
-        // silently name a different node.
+        // silently denote a different node.
         let funVerdicts =
             let frozen =
                 pools.FunVerdicts

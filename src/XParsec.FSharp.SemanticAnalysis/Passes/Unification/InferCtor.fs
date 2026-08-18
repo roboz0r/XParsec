@@ -100,7 +100,7 @@ module internal UnificationInferCtor =
         // A heritable primitive typed by its canon (`new exn "boom"`).
         | TyConst(canonKey, tyArgs) ->
             // A written PLATFORM spelling (`new System.Exception(msg, inner)`) canonicalizes to
-            // the same `TyConst`, but the reference still names the metadata class, which is the
+            // the same `TyConst`, but the reference still denotes the metadata class, which is the
             // opt-in to the wider ctor catalogue. Read its external verdict, confirm CLASS.
             let stampedClassKey =
                 match CstKeys.ofTypeRef t with
@@ -196,7 +196,7 @@ module internal UnificationInferCtor =
                 ctorTy
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
-    /// `ArgumentException(message, name)`. The applied function must name an external class (resolved
+    /// `ArgumentException(message, name)`. The applied function must resolve to an external class (via
     /// through the active `open`s) and not be a local binding. Ctor args arrive as one tuple.
     and tryInferExternalCtorApp
         (infer: Infer)
@@ -278,7 +278,7 @@ module internal UnificationInferCtor =
             | Expr.TypeApp(expr = h; types = ts) -> h, ValueSome [ for t in ts -> translateType ctx t ]
             | _ -> fn, ValueNone
 
-        // The ctor may name the class bare (`OnceEnum(x)`) or through the module holding it
+        // The ctor may spell the class bare (`OnceEnum(x)`) or through the module holding it
         // (`A.OnceEnum(x)`), and either form yields one written name.
         let ctorName =
             match ctorFun with

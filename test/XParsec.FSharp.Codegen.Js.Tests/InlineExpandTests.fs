@@ -123,7 +123,7 @@ let tests =
                     "…and the multiply the member body asked for is what it emits"
             }
 
-            test "an entry whose body names another entry expands through both" {
+            test "an entry whose body references another entry expands through both" {
                 // `b |> not`: `(|>)`'s entry body is itself an edge, its applied function having
                 // been substituted. That is the entry-references-entry leg of the DAG, which a
                 // one-level splice would leave standing.
@@ -142,7 +142,7 @@ let tests =
                 Expect.stringContains (emit input) "!(" "the negation the inner entry carries is emitted"
             }
 
-            test "the frame chain names, for every copied node, the entry it was written in" {
+            test "the frame chain identifies, for every copied node, the entry it was written in" {
                 // Asserted against an INDEPENDENT reading of the same fact (`entryOwners`), so
                 // a frame the descent failed to push leaves a copy no entry owns, and one it
                 // failed to pop leaves caller material attributed to the entry it sits in.
@@ -180,7 +180,7 @@ let tests =
                 Expect.isGreaterThan (expansion.Origins.Count) 1 "more than one node came out of the table"
             }
 
-            test "a node re-authored REPEATEDLY still names the file it was copied from" {
+            test "a node re-authored REPEATEDLY still points to the file it was copied from" {
                 // `1 + 2` reduces to a `let` chain of pure bindings, and each collapse re-authors
                 // the operator node, so the origin is filed several links from the node emitted.
                 // Following one link falls back to the CALL SITE's anchor: in range, wrong file.

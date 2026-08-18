@@ -91,7 +91,7 @@ let tests =
             }
 
             // Without `Vesper.List` there is no cons-list for `[…]` to resolve to. The
-            // diagnostic names the missing dependency rather than the platform: a package
+            // diagnostic identifies the missing dependency rather than the platform: a package
             // that does not build for the target is already fatal at manifest resolution.
             let analyseWithoutList (src: string) : Diagnostic list =
                 let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
@@ -109,13 +109,13 @@ let tests =
                          |> List.exists (fun d -> d.Kind = Kind.IntrinsicNotInScope Intrinsic.ConsList))
                         (sprintf "the diagnostic names the missing dependency, got %A" (errors |> List.map _.Kind))
 
-            test "`[1; 2; 3]` with no Vesper.List reference names the missing dependency" {
+            test "`[1; 2; 3]` with no Vesper.List reference identifies the missing dependency" {
                 expectMissingListDep "let xs = [1; 2; 3]"
             }
 
             // A separate path: an empty literal's element is still free at generalisation,
             // so its container is settled there rather than by the whole-file sweep.
-            test "`[]` with no Vesper.List reference names the missing dependency" {
+            test "`[]` with no Vesper.List reference identifies the missing dependency" {
                 expectMissingListDep "let xs = []"
             }
 

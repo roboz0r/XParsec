@@ -15,7 +15,7 @@ let private clrBackend: Backend =
     {
         Name = Target.Clr
         // The entry point runs IN-PROCESS by reflection, so an uncaught user exception
-        // never reaches an exit code: it arrives as a throw naming the inner exception,
+        // never reaches an exit code: it arrives as a throw carrying the inner exception,
         // and that throw is the fault surface reported as `Faulted`.
         CompileAndRun =
             fun name src ->

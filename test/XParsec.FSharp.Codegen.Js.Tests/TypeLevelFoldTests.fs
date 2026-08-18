@@ -191,7 +191,7 @@ let tests =
                 Expect.isEmpty errors (sprintf "expected no errors, got:\n%s" (errorText errors))
             }
 
-            test "(keyof) a non-member constant errors, naming the member set" {
+            test "(keyof) a non-member constant errors, listing the member set" {
                 let errors = analyse "e.subscribe(\"nope\")"
                 Expect.isNonEmpty errors "a non-key constant must be rejected"
                 let msg = errorText errors
