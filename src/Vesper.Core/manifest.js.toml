@@ -25,8 +25,8 @@ files = [
     # comes after `capabilities.fsi` — its RHS (`Vesper.disposable`) must already be in the
     # registry.
     "capabilities-compat.js.fsi",
-    # `structuralEquals` / `structuralHash` — declarations only; the bodies are in
-    # `Vesper.Core.mjs`. The CLR `=`/`<>`/`hash` use `EqualityComparer` instead.
+    # `structuralEquals` / `structuralHash` / `checkedDivisor` — the JS runtime entries;
+    # bodies in `Vesper.Core.mjs`. The CLR `=`/`<>`/`hash` use `EqualityComparer` instead.
     "ops-platform-runtime.js.fsi",
     # `null` needs no counterpart entry — it is a reserved keyword, already distinct.
     "prim-types-undefined.js.fsi",
@@ -65,6 +65,8 @@ impl = [
     "ops-std.fs",
     "int-comparison.js.fs",
     "capabilities-compat.js.fs",
+    # `[<Import>]`-attributed bindings served by `Vesper.Core.mjs`, plus `jsNative`.
+    "ops-platform-runtime.js.fs",
     "prim-types-undefined.js.fs",
     "prim-types-dynamic.js.fs",
     "ops-dynamic.js.fs",

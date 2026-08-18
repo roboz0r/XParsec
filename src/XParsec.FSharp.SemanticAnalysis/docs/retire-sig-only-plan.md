@@ -5,9 +5,10 @@ make "a signature file with no implementation file" a state ANALYSIS CANNOT REPR
 declared exemption, and not a verdict derived from content either. Delete this doc when it
 lands (`feedback_plan_docs_ephemeral`).
 
-**Status (2026-08-17): A, A′, B and D are DONE; C alone gates claim 2.** No manifest anywhere
-carries a `sig-only` key, so claim 1 is unblocked and only the mechanical removal below is
-left. `PairOutcome.Unrepresentable` is deleted with D; `RuntimeServed` waits on C.
+**Status (2026-08-17): every class is DONE — A, A′, B, D, and C (`[<Import>]` + `jsNative`,
+see below).** `PairOutcome.Unrepresentable` went with D and `RuntimeServed` with C, so every
+`.fsi` in every manifest pairs and every unpaired signature is a hard error. All that remains
+of this plan is the mechanical `sig-only` schema removal below.
 
 ## Why the key exists at all
 
@@ -36,7 +37,7 @@ Computed by pairing key over every manifest, not from any list. Only the **A** r
 | **A — owes a body, missing** | ~~`compiler-attributes.fsi` (js)~~, ~~`exceptions.js.fsi`~~, ~~`printf-format.fsi` ×2~~, ~~`printf.fsi` ×2~~ | write the `.fs`; it pairs |
 | **A′ — owes a SENTINEL body** | ~~`prim-types-attr.fsi`, `capabilities.fsi` (both js)~~ | write the `.fs`; the repr is a sentinel the backend knows |
 | **B — transparent abbreviation** | ~~`capabilities-compat.js.fsi`, `list-bcl.clr.fsi`~~ | write the `.fs`; it pairs |
-| **C — served by a runtime asset** | `ops-platform-runtime.js.fsi`, `comparison-runtime.js.fsi` | **deferred** — representation still to be decided |
+| **C — served by a runtime asset** | `ops-platform-runtime.js.fsi`, `comparison-runtime.js.fsi` | write the `.fs`: `[<Import(name, "./asset.mjs")>] … = jsNative` (user, 2026-08-17) |
 | **D — the js target has no such type** | ~~`prim-types-decimal.fsi`, `prim-types-nativeint.fsi`, `prim-types-nd-array.fsi`~~ | **DONE** — omitted from `manifest.js.toml`; see below |
 
 Every file is classified. C is the only class without an answer.
@@ -321,15 +322,69 @@ The line between D and A′ is whether the target has the CONCEPT. `decimal` on 
 format JS cannot represent at all; `seq<'T>` is iteration, which JS does have and spells
 differently. D deletes the declaration; A′ keeps it and names the difference.
 
-## C: deferred
+## C: `[<Import>]` + `jsNative` (user, 2026-08-17)
 
 `ops-platform-runtime.js.fsi` and `comparison-runtime.js.fsi` are answered by a committed
-`.mjs`, and an F# body would be a second, divergent implementation of `structuralEquals`. How
-that is best represented is still open (user, 2026-08-16) — **do not design it here**, and do
-not fold it into `Unrepresentable`'s replacement by default.
+`.mjs`, and an F# body would be a second, divergent implementation of `structuralEquals`. The
+answer is Fable's: each val gets a real `.fs` binding whose implementation is DECLARED to be a
+named export of a committed runtime asset —
 
-C is now the ONLY class keeping the bodiless state constructible, so it alone gates the
-type-level half of the headline.
+```fsharp
+[<Import("structuralEquals", "./Vesper.Core.mjs")>]
+let structuralEquals (x: 'T) (y: 'T when 'T: equality) : bool = jsNative
+```
+
+This is the value-level counterpart of the A′ sentinel reprs: an agreed vocabulary between the
+`.fs` that binds it and the checker that reads it. It converts `RuntimeServed` — a derived,
+whole-file, first-asset-only exemption — into a declared, per-binding contract, and the
+bodiless state loses its last inhabitant.
+
+### Decisions
+
+- **`ImportAttribute` lives in `compiler-attributes`** (both targets), the first
+  compiler-recognised attribute with a parameterised ctor: `new: memberName: string * from:
+  string -> ImportAttribute`. Recognised SYNTACTICALLY (as `[<CompiledName>]` is, via
+  `AttributeDecode`), because conformance runs on parsed files with no name resolution.
+- **`jsNative` is a real Vesper value**: `val jsNative<'T> : 'T` in a new
+  `[<AutoOpen>] module JsInterop` of `ops-platform-runtime.js.fsi`, body a throw-IIFE
+  template. `extern`'s C-shaped syntax cannot carry `'T when 'T: equality`, which is why
+  Fable invented `jsNative`; the same reason applies verbatim here. The body never emits —
+  every use sits under `[<Import>]`.
+- **The specifier is `./` + a manifest `runtime` entry**, read relative to the declaring
+  package's output directory. `./` is load-bearing: a bare specifier is ESM's npm/node
+  resolution, a different feature, and is REFUSED here until something needs it.
+- **Emission does not change and does not read the attribute.** A consumer already imports the
+  val by name from the package barrel (`./Vesper.Core/index.mjs`, golden-pinned), and the
+  barrel `export * from` the asset. Emission relies on binding-name = export-name identity;
+  the conformance checks below make that identity enforced instead of coincidental. Wiring the
+  attribute into `JsImports` to import the asset file directly would churn goldens for no
+  semantic gain.
+
+### The checks (all `ConformanceError`, so no new verdict, wire tag or CodeVersion bump)
+
+CST-local, in `Conformance.checkUnit`:
+- `[<Import>]` binding whose body is not exactly `jsNative` — marking a real body deletes it.
+- `jsNative` body without `[<Import>]` — a throw with nothing declared to serve it. The
+  same both-ways discipline as `[<Global>]`.
+- Attribute member name ≠ the binding's emitted name — the emitted import would bind a
+  different export than the one declared.
+- An `[<Import>]` whose arguments do not parse as two strings.
+
+Package-level, in `ConformancePass` (which holds the manifest):
+- The specifier does not name a `[core] runtime` entry of the declaring package, or the file
+  is absent.
+- The asset's scraped exports (the existing `exportedNames` regex, now applied per named
+  asset rather than head-of-list-only) do not contain the member.
+
+`ConformancePass.unpaired` collapses to `SigOnly`: `PairOutcome.RuntimeServed` and the
+first-asset scrape are deleted, and the export-rename pin becomes a missing-export
+conformance error on the pair instead of a silent demotion of the whole file.
+
+### Out of scope, recorded
+
+`EmitJsContext.printfRuntimeRef` hardcodes key AND module for `structuralFormat` /
+`float32ToString` because no front-end symbol resolves to them. `[<Import>]` declarations in
+a `Vesper.Printf` runtime `.fs` are the mechanism that deletes that hardcode; not this change.
 
 ## The mechanical removal, once every class is clear
 
@@ -339,10 +394,9 @@ Follows `96837bff Remove impl-only as a category from source manifests` exactly.
   entry, its `parseManifest` arm. Its `sourceInputs` term is already dead — `sig-only` is
   necessarily a subset of `files`. An unknown key becomes a parse error, which is what makes a
   stale manifest fail loudly instead of quietly losing its exemption.
-- **`ConformancePass`**: `PackageOutcome.SigOnlyExemptions`, the `declaredSigOnly`
-  short-circuit, and `PairOutcome.SigOnly` / `RuntimeServed` — the routes go with the state
-  they described. ~~`Unrepresentable`~~ went with D; `RuntimeServed` cannot go until C is
-  answered.
+- **`ConformancePass`**: `PackageOutcome.SigOnlyExemptions` and `PairOutcome.SigOnly` — the
+  routes go with the state they described. ~~`Unrepresentable`~~ went with D;
+  ~~`RuntimeServed`~~ and the `declaredSigOnly` short-circuit went with C.
 - ~~**`Conformance`**: `SigShape.ImplOptional` and its doc comment~~ — **DONE** with B.
 - ~~**`Intrinsics`**: `IntrinsicSet.get`'s `failwithf`, replaced by an
   `UnsupportedOnTarget`-bearing answer~~ — **DONE** with D, as `getTargetOptional` for the
@@ -361,8 +415,9 @@ The headline is two claims, and only the first is fully scoped:
 
 1. **Delete `sig-only` from the schema.** Needs class A alone. `Vesper.Core` is done; only
    printf's four entries remain, and nothing else blocks it.
-2. **Make the bodiless state unrepresentable.** Needs A, A′, B, D **and C**, which is deferred
-   by decision. A, A′, B and D are done; C alone remains.
+2. **Make the bodiless state unrepresentable.** Needs A, A′, B, D **and C** — all five are
+   done. What keeps the state representable now is only `PairOutcome.SigOnly` plus the
+   `sig-only` schema, which the mechanical removal deletes.
 
 ## What this settles for the fold
 
@@ -372,6 +427,5 @@ case only because this state is representable, so it is claim 2 that matters the
 canonical AND complete rather than canonical for a spine, and the merged list is a mechanical
 interleave with no exceptions.
 
-**Do not let the fold wait indefinitely on C.** If C stays open, the fold should proceed
-carrying `SignatureOnly` and delete the case when claim 2 lands — a case with no inhabitants is
-cheaper to remove than a missing one is to add back.
+**C is landed**, so the fold no longer waits on anything from this plan beyond the mechanical
+removal: the corpus pairing is total today.

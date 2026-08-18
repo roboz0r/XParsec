@@ -321,19 +321,8 @@ let packageConformanceTests =
 
 // ---- The SAME pass, run for JS --------------------------------------------
 // A type JS has no representation for is ABSENT from the js manifest, so its contract is
-// never a pair here; the only accepted companion-less signature is a runtime-served one.
-
-/// The contracts a target accepts because the committed runtime asset exports every value
-/// they declare, with the asset and the values named.
-let private runtimeServedOf (outcome: ConformancePass.PackageOutcome) : (string * string * string list) list =
-    [
-        for p in outcome.Pairs do
-            match p with
-            | ConformancePass.PairOutcome.RuntimeServed(sigFile, asset, values) -> yield sigFile, asset, values
-            | ConformancePass.PairOutcome.Paired _
-            | ConformancePass.PairOutcome.SigOnly _
-            | ConformancePass.PairOutcome.ParseFailed _ -> ()
-    ]
+// never a pair here; a companion-less signature is a hard error. A runtime-asset-served
+// value is a PAIR whose `.fs` binding declares `[<Import>]`.
 
 let private manifestOf (target: string) (package: string) : ReferencedProject.ManifestPath =
     packageManifests target
@@ -359,15 +348,32 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
     finally
         Directory.Delete(dir, true)
 
-/// A one-contract package: a manifest, a contract declaring the single `val` `served`,
-/// and a runtime asset exporting `exportedAs` — the export name is the only variable.
+/// A one-contract package whose `.fs` binds `served` by `[<Import>]` against a runtime
+/// asset exporting `exportedAs` — the export name is the only variable.
 let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
     syntheticOutcome
         [
-            "manifest.js.toml", "[core]\nfiles = [\"served.fsi\"]\nruntime = [\"Asset.mjs\"]\n"
-            "served.fsi", "namespace V\n\nval served: int -> int\n"
+            "manifest.js.toml",
+            "[core]\nfiles = [\"served.fsi\"]\nimpl = [\"served.js.fs\"]\nruntime = [\"Asset.mjs\"]\n"
+            "served.fsi", "module V\n\nval served: x: int -> int\n"
+            "served.js.fs",
+            "module V\n\n[<Import(\"served\", \"./Asset.mjs\")>]\nlet served (x: int) : int = jsNative\n"
             "Asset.mjs", sprintf "export const %s = (x) => x;\n" exportedAs
         ]
+
+/// `runtimeAssetOutcome` with the whole `.fs` under the caller's control.
+let private importImplOutcome (implSource: string) : ConformancePass.PackageOutcome =
+    syntheticOutcome
+        [
+            "manifest.js.toml",
+            "[core]\nfiles = [\"served.fsi\"]\nimpl = [\"served.js.fs\"]\nruntime = [\"Asset.mjs\"]\n"
+            "served.fsi", "module V\n\nval served: x: int -> int\n"
+            "served.js.fs", implSource
+            "Asset.mjs", "export const served = (x) => x;\n"
+        ]
+
+let private enforcedMessages (outcome: ConformancePass.PackageOutcome) : string list =
+    ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
 
 [<Tests>]
 let jsPackageConformanceTests =
@@ -393,8 +399,8 @@ let jsPackageConformanceTests =
 
             test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
                 // A record needs a real `.fs`: absence is missing work, not a statement that
-                // JS cannot represent it. The asset exports the type's NAME, so the
-                // runtime-served hatch is under test too, not merely absent.
+                // JS cannot represent it. The asset exports the type's NAME, and an asset
+                // export still answers no companion-less signature.
                 let outcome =
                     syntheticOutcome
                         [
@@ -402,10 +408,6 @@ let jsPackageConformanceTests =
                             "cell.fsi", "namespace V\n\ntype Cell = { N: int }\n"
                             "Asset.mjs", "export const Cell = 1;\n"
                         ]
-
-                Expect.isEmpty
-                    (runtimeServedOf outcome)
-                    "not served by the runtime asset — an asset export is a value, never a type"
 
                 let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
 
@@ -432,46 +434,100 @@ let jsPackageConformanceTests =
                 Expect.equal actual expected "the js hard-error set"
             }
 
-            test "js: a contract is runtime-served only when the asset exports every val it declares" {
-                // These bodies live in the committed `.mjs`, not in a `.fs`, so no `.fs`
-                // is owed.
-                Expect.equal
-                    (runtimeServedOf (outcomeFor (manifestOf "js" "Vesper.Core")))
-                    [
-                        "ops-platform-runtime.js.fsi",
-                        "Vesper.Core.mjs",
-                        [ "structuralEquals"; "structuralHash"; "checkedDivisor" ]
-                    ]
-                    "Vesper.Core: the equality/divisor runtime, and not int-comparison.fsi"
+            test "js: the runtime contracts PAIR, their bindings `[<Import>]`-served by the committed asset" {
+                // The bodies live in the committed `.mjs`; the `.fs` declares that per
+                // binding, so the pair conforms like any other.
+                let pairedWith (package: string) (sigFile: string) (implFile: string) =
+                    let paired =
+                        [
+                            for p in (outcomeFor (manifestOf "js" package)).Pairs do
+                                match p with
+                                | ConformancePass.PairOutcome.Paired r when r.SigFile = sigFile -> yield r
+                                | _ -> ()
+                        ]
 
-                Expect.equal
-                    (runtimeServedOf (outcomeFor (manifestOf "js" "Vesper.Comparison")))
-                    [
-                        "comparison-runtime.js.fsi", "Vesper.Comparison.mjs", [ "structuralCompare" ]
-                    ]
-                    "Vesper.Comparison: the ordering runtime"
+                    match paired with
+                    | [ r ] ->
+                        Expect.equal r.ImplFile implFile (sprintf "%s pairs with its `[<Import>]` body" sigFile)
+                        Expect.isEmpty r.Errors (sprintf "%s: every import is declared and exported" sigFile)
+                    | _ -> failtestf "%s must pair with %s" sigFile implFile
+
+                pairedWith "Vesper.Core" "ops-platform-runtime.js.fsi" "ops-platform-runtime.js.fs"
+                pairedWith "Vesper.Comparison" "comparison-runtime.js.fsi" "comparison-runtime.js.fs"
             }
 
-            test "js: rename the asset's export and the signature file owes a `.fs` again" {
+            test "js: rename the asset's export and the `[<Import>]` binding is a hard error" {
                 // The whole difference between the two runs is one identifier in the `.mjs`:
-                // the verdict is checked against the asset, not read off the `runtime` key.
-                let served = runtimeAssetOutcome "served"
+                // the verdict is checked against the asset, not read off the attribute.
+                Expect.isEmpty (ConformancePass.enforce (runtimeAssetOutcome "served")) "the declared export exists"
 
-                Expect.equal
-                    (runtimeServedOf served)
-                    [ "served.fsi", "Asset.mjs", [ "served" ] ]
-                    "the asset exports the declared val, so no `.fs` is owed"
+                let errors = enforcedMessages (runtimeAssetOutcome "servedRenamed")
 
-                Expect.isEmpty (ConformancePass.enforce served) "and nothing is enforced about it"
+                Expect.equal (List.length errors) 1 "the pair is a hard error"
+                Expect.stringContains errors.Head "'served'" "naming the import whose export vanished"
+                Expect.stringContains errors.Head "does not export" "as a missing export"
+            }
 
-                let renamed = runtimeAssetOutcome "servedRenamed"
+            test "js: an `[<Import>]` body other than `jsNative` is a hard error" {
+                // The attribute is the implementation; a real body beside it would be
+                // silently discarded.
+                let errors =
+                    importImplOutcome
+                        "module V\n\n[<Import(\"served\", \"./Asset.mjs\")>]\nlet served (x: int) : int = x\n"
+                    |> enforcedMessages
 
-                Expect.isEmpty (runtimeServedOf renamed) "a renamed export serves nothing"
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.stringContains errors.Head "jsNative" "demanding the jsNative body"
+            }
 
-                let errors = ConformancePass.enforce renamed |> List.map (fun d -> d.Message)
+            test "js: a `jsNative` body without `[<Import>]` is a hard error" {
+                let errors =
+                    importImplOutcome "module V\n\nlet served (x: int) : int = jsNative\n"
+                    |> enforcedMessages
 
-                Expect.equal (List.length errors) 1 "the contract is a hard error again"
-                Expect.stringContains errors.Head "served.fsi" "naming the signature file whose export vanished"
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.stringContains errors.Head "[<Import>]" "demanding the declaration that serves it"
+            }
+
+            test "js: an `[<Import>]` selector that is not the binding's name is a hard error" {
+                // Two findings: the mismatch itself, and the declared selector is also
+                // absent from the asset's exports.
+                let errors =
+                    importImplOutcome
+                        "module V\n\n[<Import(\"other\", \"./Asset.mjs\")>]\nlet served (x: int) : int = jsNative\n"
+                    |> enforcedMessages
+
+                Expect.equal (List.length errors) 2 "the mismatch and the missing export"
+                Expect.all errors (fun e -> e.Contains "'other'") "each names the mismatched selector"
+            }
+
+            test "js: an `[<Import>]` path outside `./` + the manifest's runtime list is a hard error" {
+                // A bare specifier is ESM's npm resolution, a different feature, and is
+                // refused; so is a `./` path the manifest's `runtime` key does not list.
+                let bare =
+                    importImplOutcome
+                        "module V\n\n[<Import(\"served\", \"Asset.mjs\")>]\nlet served (x: int) : int = jsNative\n"
+                    |> enforcedMessages
+
+                Expect.equal (List.length bare) 1 "a bare specifier is refused"
+                Expect.stringContains bare.Head "'Asset.mjs'" "naming the path"
+
+                let unlisted =
+                    importImplOutcome
+                        "module V\n\n[<Import(\"served\", \"./Other.mjs\")>]\nlet served (x: int) : int = jsNative\n"
+                    |> enforcedMessages
+
+                Expect.equal (List.length unlisted) 1 "an unlisted asset is refused"
+                Expect.stringContains unlisted.Head "'./Other.mjs'" "naming the path"
+            }
+
+            test "js: an `[<Import>]` whose arguments are not two strings is a hard error" {
+                let errors =
+                    importImplOutcome "module V\n\n[<Import(\"served\")>]\nlet served (x: int) : int = jsNative\n"
+                    |> enforcedMessages
+
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.stringContains errors.Head "two non-empty string literals" "naming the malformed shape"
             }
 
             test "js: capabilities-compat.js.fsi PAIRS, transparent abbreviations and all" {
@@ -646,23 +702,6 @@ let enforcementTests =
 
                 Expect.equal (List.length errors) 1 "one hygiene error"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale exemption"
-            }
-
-            test "a RuntimeServed .fsi → no error, with no exemption declared" {
-                // The bodies are the committed runtime asset's exports, checked against the
-                // asset, so the absent `.fs` is correct rather than waived.
-                let outcome =
-                    mkOutcome
-                        [
-                            ConformancePass.PairOutcome.RuntimeServed(
-                                "ops-platform-runtime.js.fsi",
-                                "Vesper.Core.mjs",
-                                [ "structuralEquals" ]
-                            )
-                        ]
-                        Set.empty
-
-                Expect.isEmpty (ConformancePass.enforce outcome) "a runtime-served contract conforms"
             }
 
             test "a parse failure is a per-contract V244 error, not an abort that masks the rest" {
@@ -955,7 +994,6 @@ let packageUnitsTests =
                                     match p with
                                     | ConformancePass.PairOutcome.Paired r -> yield r.SigFile, r.ImplFile
                                     | ConformancePass.PairOutcome.SigOnly _
-                                    | ConformancePass.PairOutcome.RuntimeServed _
                                     | ConformancePass.PairOutcome.ParseFailed _ -> ()
                             ]
                             |> List.sort

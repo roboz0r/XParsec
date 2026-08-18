@@ -435,21 +435,16 @@ A type that only exists post-pass removes the construction protocol from prose.
 Deletes: the last sentence of the `extCtx` block in `CoverageTests.fs` — *"The trivial file
 initialises what the picker reads."*
 
-## B6. `PairOutcome` cases do not carry their enforcement disposition
+## B6. ~~`PairOutcome` cases do not carry their enforcement disposition~~ — WITHDRAWN
 
-Two `ConformanceTests.fs` blocks restate "this verdict raises nothing" because the
-disposition lives only in `ConformancePass.enforce`'s match, not in the case. Split
-`PairOutcome` so accepted and owed verdicts are distinguishable in the type and each test's
-name suffices.
+The accepted-by-content cases (`Unrepresentable`, `RuntimeServed`) are deleted; every
+remaining case raises, so there is no disposition split left to encode. Both test blocks the
+item wanted deleted are gone.
 
-Deletes: the *"Declared, unrepresentable, accepted…"* block and the *"The bodies are the
-committed runtime asset's exports…"* block.
+## B7. ~~`unrepresentableOf` / `runtimeServedOf` are the same projection twice~~ — WITHDRAWN
 
-## B7. `unrepresentableOf` / `runtimeServedOf` are the same projection twice
-
-Both filter `outcome.Pairs` for one case and spell the other four arms by hand, so a new
-`PairOutcome` case must be added in both. One accessor, or a partial active pattern per case,
-removes the duplication and both docs.
+Both helpers are deleted: `Unrepresentable` went with the retire-sig-only D work, and
+`RuntimeServed` with its C work (`[<Import>]` + `jsNative`).
 
 ## B8. One list-kind-keyed manifest resolver instead of five parallel ones
 

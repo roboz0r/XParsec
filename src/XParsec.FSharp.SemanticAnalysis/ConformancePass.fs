@@ -31,10 +31,6 @@ module ConformancePass =
         | Paired of PairResult
         /// `.fsi` with NO companion `.fs` in the impl set.
         | SigOnly of sigFile: string
-        /// `.fsi` with no companion `.fs` for this target, whose every `val` the target's
-        /// committed RUNTIME ASSET exports (`Vesper.Core.mjs`'s `structuralEquals`), so no
-        /// `.fs` is owed. Renaming an export drops the signature file back to `SigOnly`.
-        | RuntimeServed of sigFile: string * asset: string * values: string list
         /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
         /// conformed. Per signature file, so one malformed file does not abort the package.
         | ParseFailed of sigFile: string * detail: string
@@ -94,38 +90,45 @@ module ConformancePass =
         let m = pkg.Manifest
         let declaredSigOnly = m.SigOnly |> Set.ofList
 
-        // The committed runtime asset and the names it publishes, needed because a signature
-        // file may ship no `.fs` when its bodies live here. Only the FIRST asset counts.
-        let runtimeAsset =
-            match m.Runtime with
-            | rel :: _ ->
-                let abs = Path.Combine(m.Dir, rel)
+        // One scrape per `[<Import>]`-named asset: `ValueNone` for a path outside the
+        // manifest's `runtime` list or a listed file absent on disk.
+        let assetExports =
+            System.Collections.Generic.Dictionary<string, Set<string> voption>()
 
-                if File.Exists abs then
-                    Some(Path.GetFileName rel, exportedNames (File.ReadAllText abs))
-                else
-                    None
-            | [] -> None
+        let exportsOf (assetRel: string) : Set<string> voption =
+            match assetExports.TryGetValue assetRel with
+            | true, v -> v
+            | _ ->
+                let v =
+                    if List.contains assetRel m.Runtime then
+                        let abs = Path.Combine(m.Dir, assetRel)
 
-        // A companion-less `.fsi` owes a `.fs` unless every type declaration is an `extern`
-        // or transparent abbreviation AND every `val` is exported by the committed runtime
-        // asset. A type the target has no representation for is OMITTED from the manifest
-        // instead of declared bodiless, so an all-`extern` val-less signature owes one too.
-        let unpaired (fsiRel: string) (signature: ParseChain.ParsedSignature) : PairOutcome =
-            let decls = Conformance.summariseSig signature.Lexed signature.File
-            let valNames = Conformance.summariseSigVals signature.Lexed signature.File
+                        if File.Exists abs then
+                            ValueSome(exportedNames (File.ReadAllText abs))
+                        else
+                            ValueNone
+                    else
+                        ValueNone
 
-            let bodiless =
-                decls
-                |> List.forall (fun d -> d.Shape.DemandsIntrinsic || d.Shape = Conformance.SigShape.Abbrev)
+                assetExports.[assetRel] <- v
+                v
 
-            if not bodiless || List.isEmpty valNames then
-                PairOutcome.SigOnly fsiRel
+        // The manifest-held half of the `[<Import>]` check; the CST half is `checkUnit`'s.
+        let checkImport (imp: Conformance.ImportBinding) : Conformance.ConformanceError list =
+            let path = imp.Ref.Path
+
+            if not (path.StartsWith "./") then
+                [ Conformance.ConformanceError.ImportUnknownAsset(imp.Name, path) ]
             else
-                match runtimeAsset with
-                | Some(asset, exports) when valNames |> List.forall exports.Contains ->
-                    PairOutcome.RuntimeServed(fsiRel, asset, valNames)
-                | _ -> PairOutcome.SigOnly fsiRel
+                let assetRel = path.Substring 2
+
+                match exportsOf assetRel with
+                | ValueNone -> [ Conformance.ConformanceError.ImportUnknownAsset(imp.Name, path) ]
+                | ValueSome exports when not (exports.Contains imp.Ref.Selector) ->
+                    [
+                        Conformance.ConformanceError.ImportMissingExport(imp.Name, imp.Ref.Selector, assetRel)
+                    ]
+                | ValueSome _ -> []
 
         let outcome (entry: PackageSource.SignatureEntry) : PairOutcome =
             let fsiRel = entry.Signature.Relative
@@ -152,11 +155,9 @@ module ConformancePass =
                                 SigFile = fsiRel
                                 ImplFile = companion.Relative
                                 ModuleMismatch = verdict.ModuleMismatch
-                                Errors = verdict.Errors
+                                Errors = verdict.Errors @ List.collect checkImport verdict.Imports
                             }
-                // A manifest `sig-only` declaration outranks the content split.
-                | ValueNone when declaredSigOnly.Contains fsiRel -> PairOutcome.SigOnly fsiRel
-                | ValueNone -> unpaired fsiRel signature
+                | ValueNone -> PairOutcome.SigOnly fsiRel
 
         {
             Package = m.Name
@@ -188,12 +189,9 @@ module ConformancePass =
                         match p with
                         | PairOutcome.Paired r -> yield r.SigFile
                         | PairOutcome.SigOnly _
-                        | PairOutcome.RuntimeServed _
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
-        // `RuntimeServed` is only reached for a signature file the manifest does NOT declare
-        // `sig-only`, so it cannot be a declared exemption's file.
         let sigOnlySigs =
             set
                 [
@@ -201,7 +199,6 @@ module ConformancePass =
                         match p with
                         | PairOutcome.SigOnly s -> yield s
                         | PairOutcome.Paired _
-                        | PairOutcome.RuntimeServed _
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
@@ -222,8 +219,6 @@ module ConformancePass =
                 | PairOutcome.SigOnly s ->
                     if not (outcome.SigOnlyExemptions.Contains s) then
                         yield err (ConformanceVerdict.SigWithoutImpl s)
-                // ACCEPTED: the committed runtime asset exports every declared value.
-                | PairOutcome.RuntimeServed _ -> ()
                 | PairOutcome.ParseFailed(sigFile, detail) ->
                     yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
 

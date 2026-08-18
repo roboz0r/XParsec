@@ -94,6 +94,21 @@ module Conformance =
         /// `.fs`, the value-granularity FS0240 analogue. The converse is not reported:
         /// F# hides an impl value the signature omits, so a private helper is not drift.
         | ValueMissingInImpl of name: string
+        /// An `[<Import>]` binding whose body is not `jsNative` — the attribute is the
+        /// implementation, so marking a real body would silently discard it.
+        | ImportBodyNotJsNative of name: string
+        /// A `jsNative` body with no `[<Import>]` declaring the export that serves it.
+        | JsNativeWithoutImport of name: string
+        /// The `[<Import>]` selector differs from the binding's emitted name, so the
+        /// emitted import would bind a different export than the one declared.
+        | ImportSelectorMismatch of name: string * selector: string
+        /// An `[<Import>]` whose arguments are not two non-empty string literals.
+        | ImportMalformed of name: string
+        /// The `[<Import>]` path is not `./` plus a `[core] runtime` asset of the
+        /// declaring package, or the named asset file is absent.
+        | ImportUnknownAsset of name: string * path: string
+        /// The named runtime asset exports no binding of the declared selector.
+        | ImportMissingExport of name: string * selector: string * asset: string
 
     let describe (e: ConformanceError) : string =
         match e with
@@ -113,6 +128,28 @@ module Conformance =
                 n
         | ConformanceError.ValueMissingInImpl n ->
             sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
+        | ConformanceError.ImportBodyNotJsNative n ->
+            sprintf
+                "binding '%s' carries [<Import>], whose implementation is the imported export, so its body must be exactly 'jsNative'"
+                n
+        | ConformanceError.JsNativeWithoutImport n ->
+            sprintf "binding '%s' has body 'jsNative' but no [<Import>] declaring the runtime export that serves it" n
+        | ConformanceError.ImportSelectorMismatch(n, selector) ->
+            sprintf
+                "binding '%s' declares [<Import>] selector '%s'; a reference imports the binding's emitted name, so the selector must equal it"
+                n
+                selector
+        | ConformanceError.ImportMalformed n ->
+            sprintf
+                "binding '%s' carries an [<Import>] whose arguments are not two non-empty string literals ([<Import(\"selector\", \"./asset.mjs\")>])"
+                n
+        | ConformanceError.ImportUnknownAsset(n, path) ->
+            sprintf
+                "binding '%s' imports from '%s', which is not './' plus a '[core] runtime' asset of the declaring package"
+                n
+                path
+        | ConformanceError.ImportMissingExport(n, selector, asset) ->
+            sprintf "binding '%s' imports '%s', which '%s' does not export" n selector asset
 
     /// A type declaration writes a single ident, so its last segment is the short name.
     let private typeNameText (lexed: Lexed) (tn: TypeName<SyntaxToken>) : string =
@@ -360,6 +397,69 @@ module Conformance =
 
         List.ofSeq acc
 
+    // ---- `[<Import>]` bindings ---------------------------------------------------
+
+    /// The body is the bare identifier `jsNative`, parens stripped.
+    let rec private isJsNativeBody (lexed: Lexed) (e: Expr<SyntaxToken>) : bool =
+        match e with
+        | Expr.Ident tok -> SyntaxToken.nameIn lexed tok = "jsNative"
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            SyntaxToken.nameIn lexed li.Idents.[0] = "jsNative"
+        | Expr.EnclosedBlock(_, inner, _) -> isJsNativeBody lexed inner
+        | _ -> false
+
+    /// A module-level binding carrying a well-formed `[<Import>]`.
+    [<Struct; NoEquality; NoComparison>]
+    type ImportBinding =
+        {
+            Name: string
+            Ref: AttributeDecode.ImportRef
+        }
+
+    /// The `[<Import>]` bindings of an implementation file, in source order, plus every
+    /// CST-level finding about them: a malformed attribute, a body other than `jsNative`,
+    /// a selector that is not the binding's emitted name, and a `jsNative` body with no
+    /// attribute. The path-vs-manifest half of the check is the caller's, which holds the
+    /// manifest.
+    let summariseImports
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : ImportBinding list * ConformanceError list =
+        let imports = ResizeArray<ImportBinding>()
+        let errors = ResizeArray<ConformanceError>()
+        let nameOf (tok: SyntaxToken) = SyntaxToken.nameIn lexed tok
+
+        for e in CstModuleTree.implFileElems file do
+            match e with
+            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) ->
+                for b in bs do
+                    let name =
+                        match boundName lexed b.pattern with
+                        | ValueSome n -> n
+                        | ValueNone -> ""
+
+                    let emittedName =
+                        match AttributeDecode.tryCompiledName nameOf b.attributes with
+                        | ValueSome n -> n
+                        | ValueNone -> name
+
+                    match AttributeDecode.tryImport nameOf b.attributes with
+                    | AttributeDecode.ImportDecl.NoImport ->
+                        if isJsNativeBody lexed b.expr then
+                            errors.Add(ConformanceError.JsNativeWithoutImport name)
+                    | AttributeDecode.ImportDecl.Malformed -> errors.Add(ConformanceError.ImportMalformed name)
+                    | AttributeDecode.ImportDecl.Import r ->
+                        if not (isJsNativeBody lexed b.expr) then
+                            errors.Add(ConformanceError.ImportBodyNotJsNative name)
+
+                        if r.Selector <> emittedName then
+                            errors.Add(ConformanceError.ImportSelectorMismatch(name, r.Selector))
+
+                        imports.Add { Name = name; Ref = r }
+            | _ -> ()
+
+        List.ofSeq imports, List.ofSeq errors
+
     /// Check that every `.fsi` `val` has a matching `.fs` `let` of the same name.
     /// Errors come in signature source order, one per name.
     let checkValuePresence (sigVals: string list) (implVals: string list) : ConformanceError list =
@@ -412,6 +512,10 @@ module Conformance =
             ModuleMismatch: ModuleDeclMismatch voption
             /// Empty = the implementation answers the signature.
             Errors: ConformanceError list
+            /// The implementation's `[<Import>]` bindings, awaiting the manifest-held half
+            /// of the check: path against the `runtime` list, selector against the asset's
+            /// exports.
+            Imports: ImportBinding list
         }
 
     /// EVERY check over a parsed `.fsi` / `.fs` pair, each with its own `Lexed`: the two files
@@ -433,6 +537,8 @@ module Conformance =
         let valueErrors =
             checkValuePresence (summariseSigVals sigLexed sigFile) (summariseImplVals implLexed implFile)
 
+        let imports, importErrors = summariseImports implLexed implFile
+
         {
             ModuleMismatch =
                 if sigPath = implPath then
@@ -443,5 +549,6 @@ module Conformance =
                             SigDecl = sigPath
                             ImplDecl = implPath
                         }
-            Errors = typeErrors @ valueErrors
+            Errors = typeErrors @ valueErrors @ importErrors
+            Imports = imports
         }

@@ -1,6 +1,13 @@
 namespace Vesper
 
 [<AutoOpen>]
+module JsInterop =
+
+    /// <summary>The body of an <c>[&lt;Import&gt;]</c>-attributed binding, whose
+    /// implementation the attribute names. Throws if evaluated.</summary>
+    val inline jsNative<'T> : 'T
+
+[<AutoOpen>]
 module StructuralRuntime =
 
     /// Structural equality of two values (JS runtime entry for aggregate operands).

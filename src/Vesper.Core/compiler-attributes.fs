@@ -39,3 +39,7 @@ type AllowNullLiteralAttribute() =
 [<Sealed>]
 type GlobalAttribute() =
     inherit Attribute()
+
+[<Sealed>]
+type ImportAttribute(selector: string, path: string) =
+    inherit Attribute()

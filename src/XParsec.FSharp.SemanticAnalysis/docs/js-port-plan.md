@@ -108,8 +108,8 @@ hand-authored:
 | `Vesper.Seq.mjs` | `seq.fs` | `SeqTests.fs` |
 | `Vesper.Option.mjs` | `option.fs` | `OptionTests.fs` |
 | `Vesper.Printf.mjs` | `structural-printer.js.fs` | `StructuralPrinterTests.fs` |
-| `Vesper.Core.mjs` | **hand-authored** | export-presence, via `RuntimeServed` |
-| `Vesper.Comparison.mjs` | **hand-authored** | export-presence, via `RuntimeServed` |
+| `Vesper.Core.mjs` | **hand-authored** | export-presence, per `[<Import>]` binding |
+| `Vesper.Comparison.mjs` | **hand-authored** | export-presence, per `[<Import>]` binding |
 
 The two hand-authored ones are load-bearing: `Vesper.Core.mjs` carries `checkedDivisor`
 (every integral `/` and `%`), `structuralEquals` / `structuralHash` (every `=` / `<>` /

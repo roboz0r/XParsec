@@ -102,6 +102,7 @@ module RuntimeNames =
     let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
     let allowNullLiteralAttributeKey: TypeKey = attributeKey "AllowNullLiteral"
     let globalAttributeKey: TypeKey = attributeKey "Global"
+    let importAttributeKey: TypeKey = attributeKey "Import"
 
     let compilerAttributeKeys: TypeKey list =
         [
@@ -115,6 +116,7 @@ module RuntimeNames =
             customComparisonAttributeKey
             allowNullLiteralAttributeKey
             globalAttributeKey
+            importAttributeKey
         ]
 
     let objAbbrevName: string = "obj"

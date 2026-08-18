@@ -154,10 +154,10 @@ writing the spine/companion-less positioning rule in order to drop it. So this p
 on other plans, two sentinel-repr bodies and two abbreviation bodies (all four gated on
 nothing), and three `.fsi` dropped from `manifest.js.toml` for types js does not have.
 
-**The long pole is the runtime-served pair, deferred by decision — the one class left without
-an answer.** If it stays open, do NOT stall here: proceed carrying `SignatureOnly` and delete
-the case when the pairing becomes total. A case with no inhabitants is cheaper to remove than a
-missing one is to add back.
+**The long pole has landed (2026-08-17): the runtime-served pair is now `[<Import>]` +
+`jsNative` bindings in a real `.fs`, and `PairOutcome.RuntimeServed` is deleted.** Every
+corpus `.fsi` pairs; only the `sig-only` schema removal in
+[retire-sig-only-plan](retire-sig-only-plan.md) still keeps `SignatureOnly` representable.
 
 ## Step 2: one unit type
 
