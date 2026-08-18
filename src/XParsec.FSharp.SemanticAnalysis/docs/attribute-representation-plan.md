@@ -103,7 +103,7 @@ come along.
 ## Consequence for the manifests
 
 **Settled (2026-08-16).** `compiler-attributes.fsi` pairs with `compiler-attributes.fs` on BOTH
-targets and needs no exemption — see [retire-sig-only-plan](retire-sig-only-plan.md).
+targets and needs no exemption; the `sig-only` schema is deleted (landed 2026-08-17).
 
 That surfaced one thing worth carrying into step 1: `prim-types-attr.fsi` declared no `new`,
 so `inherit Attribute()` resolved only by falling through to the platform repr, and only where

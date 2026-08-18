@@ -174,10 +174,10 @@ Paths are already fine: a surface carries relative ones (`OriginPath` = bucket n
 `AssemblyFileId.Relative`), so its hash is checkout-portable.
 
 **Sequencing (user, 2026-08-15).** The consumer is a prototype outside this repo, and its
-integration is not planned until after [retire-sig-only-plan](retire-sig-only-plan.md), whose
-attribute gate reaches back to this plan — so the chain is this plan →
-[attribute-representation](attribute-representation-plan.md) → retire-sig-only → integration,
-and the whole `.fsi` front end lands first.
+integration is not planned until after the retire-sig-only work (landed 2026-08-17: every
+`.fsi` pairs, the `sig-only` schema is gone), whose attribute gate reaches back to this plan —
+so the chain is this plan → [attribute-representation](attribute-representation-plan.md) →
+integration, and the whole `.fsi` front end lands first.
 
 **Constraint on step 3:** the new front end fills a mutable BUILDER and freezes it, as
 `PoolBuilder` → `FrozenPools` already does. What must exist early is only the BOUNDARY —

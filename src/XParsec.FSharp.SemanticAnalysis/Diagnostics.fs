@@ -119,14 +119,10 @@ type TypeCycle =
 type ConformanceVerdict =
     /// A binding the contract declares that the implementation does not satisfy.
     | Unimplemented of sigFile: string * detail: string
-    /// A signature file with no companion implementation, not declared `sig-only`.
+    /// A signature file with no companion implementation.
     | SigWithoutImpl of sigFile: string
     /// The paired files' leading module / namespace declarations disagree.
     | ModulePairingMismatch of sigFile: string * implFile: string * sigDecl: string * implDecl: string
-    /// Declared `sig-only`, but a companion implementation exists.
-    | StaleSigOnly of name: string
-    /// Declared `sig-only`, but no signature file in the package has that name at all.
-    | UnknownSigOnly of name: string
     /// The signature file or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
     /// A declaration the signature makes that the front end could not MODEL, so the signature
@@ -147,8 +143,6 @@ module ConformanceVerdict =
         | ConformanceVerdict.Unimplemented _
         | ConformanceVerdict.SigWithoutImpl _ -> DiagCode.Vesper "V240"
         | ConformanceVerdict.ModulePairingMismatch _ -> DiagCode.Vesper "V241"
-        | ConformanceVerdict.StaleSigOnly _
-        | ConformanceVerdict.UnknownSigOnly _ -> DiagCode.Vesper "V243"
         | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
         | ConformanceVerdict.SignatureNotPublished _ -> DiagCode.Vesper "V245"
         | ConformanceVerdict.SignatureRejected _ -> DiagCode.Vesper "V246"
@@ -157,9 +151,7 @@ module ConformanceVerdict =
         match v with
         | ConformanceVerdict.Unimplemented(sigFile, detail) -> sprintf "%s: %s" sigFile detail
         | ConformanceVerdict.SigWithoutImpl sigFile ->
-            sprintf
-                "the signature file '%s' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                sigFile
+            sprintf "the signature file '%s' has no corresponding implementation file" sigFile
         | ConformanceVerdict.ModulePairingMismatch(sigFile, implFile, sigDecl, implDecl) ->
             sprintf
                 "%s ↔ %s: the paired files' leading module/namespace declarations disagree ('%s' vs '%s')"
@@ -167,12 +159,6 @@ module ConformanceVerdict =
                 implFile
                 sigDecl
                 implDecl
-        | ConformanceVerdict.StaleSigOnly name ->
-            sprintf
-                "'%s' is declared `sig-only` but a companion implementation exists, so remove the stale exemption"
-                name
-        | ConformanceVerdict.UnknownSigOnly name ->
-            sprintf "`sig-only` names '%s', which is not a signature file in this package" name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
         | ConformanceVerdict.SignatureNotPublished detail ->

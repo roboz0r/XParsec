@@ -79,7 +79,7 @@ module Hashing =
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes manifest.Name)
 
         // The manifest's OWN bytes: which files it lists, under which key, in which order,
-        // plus `depends-on` and `sig-only`, none of which is visible in the contents below.
+        // plus `depends-on`, none of which is visible in the contents below.
         appendLengthPrefixed hasher (File.ReadAllBytes manifest.Path.Path)
 
         for rel in ReferencedProject.sourceInputs manifest |> List.sort do

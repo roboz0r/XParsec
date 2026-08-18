@@ -274,8 +274,8 @@ let tests =
         ]
 
 // ---- Manifest-driven conformance over every package (CLR target) -------
-// The `.fsi`↔`.fs` pairs and the impl-free `[core] sig-only` set are both read from
-// each `Vesper.*/manifest.clr.toml`; every discrepancy becomes a hard `Severity.Error`.
+// The `.fsi`↔`.fs` pairs are read from each `Vesper.*/manifest.clr.toml`; every
+// discrepancy becomes a hard `Severity.Error`.
 
 let private vesperSrcDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src")
 
@@ -586,72 +586,22 @@ let jsPackageConformanceTests =
                 Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
 
-            test "every target-ASYMMETRIC `sig-only` entry is pinned, not an open list" {
-                // EMPTY: an entry every target of the package carries is a property of the
-                // contract; one only a single target carries claims the targets diverge, and
-                // no such claim survives. `printf-format.fsi` is exempt on BOTH targets, so it
-                // is symmetric and absent here.
-                let expected: (string * string * string list) list = []
-
-                // `None` is "does not build for this target", which is NOT an empty `sig-only`
-                // list: a package that builds for one target has no divergence to report.
-                let sigOnlyOf (package: string) (target: string) : string list option =
-                    match packageManifests target |> List.tryFind (fun (p, _) -> p = package) with
-                    | None -> None
-                    | Some(_, path) ->
-                        match ReferencedProject.loadManifest path with
-                        | Error e -> failtestf "%s (%s): %s" package target e
-                        | Ok m -> Some m.SigOnly
-
-                let asymmetric (own: string list) (others: string list) : string list =
-                    let elsewhere = Set.ofList others
-                    own |> List.filter (elsewhere.Contains >> not)
-
-                let actual =
-                    [
-                        for package in
-                            packageManifests "clr" @ packageManifests "js"
-                            |> List.map fst
-                            |> List.distinct
-                            |> List.sort do
-                            match sigOnlyOf package "clr", sigOnlyOf package "js" with
-                            | Some clr, Some js ->
-                                match asymmetric clr js with
-                                | [] -> ()
-                                | entries -> yield package, "clr", entries
-
-                                match asymmetric js clr with
-                                | [] -> ()
-                                | entries -> yield package, "js", entries
-                            | _ -> ()
-                    ]
-
-                Expect.equal actual expected "the target-asymmetric `sig-only` entries"
-            }
         ]
 
 // ---- conformance findings are HARD errors ----------------------------
 // `enforce` turns a finding into an FS0240-style error that fails the build. Pinned
 // on a synthetic `PackageOutcome`, so no manifest round-trip is involved.
 
-let private mkOutcome
-    (pairs: ConformancePass.PairOutcome list)
-    (sigOnly: Set<string>)
-    : ConformancePass.PackageOutcome =
-    {
-        Package = "Test"
-        Pairs = pairs
-        SigOnlyExemptions = sigOnly
-    }
+let private mkOutcome (pairs: ConformancePass.PairOutcome list) : ConformancePass.PackageOutcome =
+    { Package = "Test"; Pairs = pairs }
 
 [<Tests>]
 let enforcementTests =
     testList
         "ConformanceEnforcement"
         [
-            test "an un-exempted SigOnly .fsi (a deleted impl) → hard FS0240-style error" {
-                let outcome =
-                    mkOutcome [ ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi" ] Set.empty
+            test "a SigOnly .fsi (a deleted impl) → hard FS0240-style error, unconditionally" {
+                let outcome = mkOutcome [ ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi" ]
 
                 let errors = ConformancePass.enforce outcome
 
@@ -659,15 +609,6 @@ let enforcementTests =
                 Expect.equal errors.Head.Severity Severity.Error "error severity"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V240") "the FS0240 family"
                 Expect.stringContains errors.Head.Message "deleted-impl.fsi" "names the orphaned .fsi"
-            }
-
-            test "a SigOnly .fsi declared `sig-only` in the manifest → no error (exempt)" {
-                let outcome =
-                    mkOutcome
-                        [ ConformancePass.PairOutcome.SigOnly "printf-format.fsi" ]
-                        (Set.ofList [ "printf-format.fsi" ])
-
-                Expect.isEmpty (ConformancePass.enforce outcome) "a recorded impl-free exemption conforms"
             }
 
             test "a MissingInImpl kernel finding on a paired contract → hard FS0240-style error" {
@@ -680,28 +621,11 @@ let enforcementTests =
                             Errors = [ Conformance.ConformanceError.MissingInImpl "bar" ]
                         }
 
-                let errors = ConformancePass.enforce (mkOutcome [ paired ] Set.empty)
+                let errors = ConformancePass.enforce (mkOutcome [ paired ])
 
                 Expect.equal (List.length errors) 1 "one hard error"
                 Expect.equal errors.Head.Severity Severity.Error "error severity"
                 Expect.stringContains errors.Head.Message "bar" "names the missing type"
-            }
-
-            test "a stale `sig-only` exemption (companion .fs exists) → V243 hygiene error" {
-                let paired =
-                    ConformancePass.PairOutcome.Paired
-                        {
-                            SigFile = "paired.fsi"
-                            ImplFile = "paired.fs"
-                            ModuleMismatch = ValueNone
-                            Errors = []
-                        }
-
-                let errors =
-                    ConformancePass.enforce (mkOutcome [ paired ] (Set.ofList [ "paired.fsi" ]))
-
-                Expect.equal (List.length errors) 1 "one hygiene error"
-                Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale exemption"
             }
 
             test "a parse failure is a per-contract V244 error, not an abort that masks the rest" {
@@ -713,7 +637,6 @@ let enforcementTests =
                             ConformancePass.PairOutcome.ParseFailed("broken.fsi", "unexpected token")
                             ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi"
                         ]
-                        Set.empty
 
                 let errors = ConformancePass.enforce outcome
 

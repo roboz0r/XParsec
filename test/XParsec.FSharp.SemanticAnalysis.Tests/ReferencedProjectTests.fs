@@ -722,7 +722,6 @@ let tests =
                                 "[core]\n\
                                  files = [\"contract.fsi\", \"shim.js.fsi\"]\n\
                                  impl = [\"ops.fs\", \"ops.js.fs\"]\n\
-                                 sig-only = [\"shim.js.fsi\"]\n\
                                  runtime = [\"runtime.mjs\"]\n"
 
                         match ReferencedProject.loadManifest path with
@@ -733,7 +732,6 @@ let tests =
                         Expect.equal jsManifest.Target "js" "the file name states the target"
                         Expect.equal jsManifest.Files [ "contract.fsi"; "shim.js.fsi" ] "files"
                         Expect.equal jsManifest.Impl [ "ops.fs"; "ops.js.fs" ] "impl"
-                        Expect.equal jsManifest.SigOnly [ "shim.js.fsi" ] "sig-only"
                         Expect.equal jsManifest.Runtime [ "runtime.mjs" ] "runtime"
                     }
 
@@ -896,7 +894,6 @@ let tests =
                                     "[core]\n\
                                      files = [\"contract.fsi\", \"shim.js.fsi\"]\n\
                                      impl = [\"ops.fs\", \"ops.js.fs\"]\n\
-                                     sig-only = [\"contract.fsi\"]\n\
                                      runtime = [\"x.mjs\"]\n"
                             )
 
@@ -905,7 +902,7 @@ let tests =
                         Expect.equal
                             (List.sort inputs)
                             (List.sort [ "contract.fsi"; "shim.js.fsi"; "ops.fs"; "ops.js.fs" ])
-                            "every list, deduplicated"
+                            "every list"
 
                         Expect.isFalse (List.contains "x.mjs" inputs) "a runtime asset is not a parsed source"
                     }
@@ -965,7 +962,6 @@ let tests =
                             "depends-on", m.DependsOn
                             "files", neutral m m.Files
                             "impl", neutral m m.Impl
-                            "sig-only", neutral m m.SigOnly
                         ]
 
                     test "every divergence is a declared one" {

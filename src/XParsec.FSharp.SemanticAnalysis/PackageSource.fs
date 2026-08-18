@@ -93,7 +93,7 @@ module PackageSource =
 
     /// Every path one manifest lists, read and parsed ONCE and PAIRED once: `[core] files` in
     /// declared order, then `[core] impl`, each entry carrying what the read produced and the
-    /// file across the pairing. No `sig-only` (a subset of `files`) and no `runtime` (never F#).
+    /// file across the pairing. No `runtime` (never F#).
     [<NoEquality; NoComparison>]
     type ParsedPackage =
         {

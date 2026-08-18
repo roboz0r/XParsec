@@ -324,7 +324,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let parsedPackage = PackageSource.readPackage manifest
 
                  // `.fsi`↔`.fs` conformance gates the build: a signature binding with no
-                 // implementation and no manifest `sig-only` declaration is an error.
+                 // implementation is an error.
                  match ConformancePass.enforce (ConformancePass.check parsedPackage) with
                  | [] -> ()
                  | ds ->

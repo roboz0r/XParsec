@@ -80,10 +80,6 @@ module ReferencedProject =
             /// The `.fs` bodies compiled into the package DLL, and the splice sources those
             /// same bodies publish (`[core] impl`).
             Impl: string list
-            /// Signature files that are DELIBERATELY impl-free (`[core] sig-only`): a
-            /// front-end intrinsic lowered inline (`printf-format.fsi`), or one whose
-            /// declarations the BCL resolves (`exceptions.fsi`).
-            SigOnly: string list
             /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
@@ -129,13 +125,12 @@ module ReferencedProject =
     /// Every path the provider build may READ for this manifest, relative to the manifest's
     /// own directory; a path named here need not exist. `Runtime` is omitted: an asset is
     /// never parsed, so determines no frozen tree.
-    let sourceInputs (m: Manifest) : string list =
-        m.Files @ m.Impl @ m.SigOnly |> List.distinct
+    let sourceInputs (m: Manifest) : string list = m.Files @ m.Impl |> List.distinct
 
     /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: read as
     /// silence, it would resolve a stale manifest to a plausible wrong file set.
     let private coreKeys =
-        set [ "name"; "description"; "depends-on"; "files"; "impl"; "sig-only"; "runtime" ]
+        set [ "name"; "description"; "depends-on"; "files"; "impl"; "runtime" ]
 
     let private unknownKey (path: string) (t: TomlTable) : string option =
         t
@@ -193,7 +188,6 @@ module ReferencedProject =
                                     DependsOn = list "depends-on"
                                     Files = files
                                     Impl = list "impl"
-                                    SigOnly = list "sig-only"
                                     Runtime = list "runtime"
                                 }
 

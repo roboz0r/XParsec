@@ -76,21 +76,15 @@ module FrozenCodecDiagnostics =
             w.Write implFile
             w.Write sigDecl
             w.Write implDecl
-        | ConformanceVerdict.StaleSigOnly name ->
-            w.Write 3uy
-            w.Write name
-        | ConformanceVerdict.UnknownSigOnly name ->
-            w.Write 4uy
-            w.Write name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
-            w.Write 5uy
+            w.Write 3uy
             w.Write sigFile
             w.Write detail
         | ConformanceVerdict.SignatureNotPublished detail ->
-            w.Write 6uy
+            w.Write 4uy
             w.Write detail
         | ConformanceVerdict.SignatureRejected detail ->
-            w.Write 7uy
+            w.Write 5uy
             w.Write detail
 
     let private readConformanceVerdict (r: FrozenReader) : ConformanceVerdict =
@@ -104,13 +98,11 @@ module FrozenCodecDiagnostics =
             let implFile = r.ReadString()
             let sigDecl = r.ReadString()
             ConformanceVerdict.ModulePairingMismatch(sigFile, implFile, sigDecl, r.ReadString())
-        | 3uy -> ConformanceVerdict.StaleSigOnly(r.ReadString())
-        | 4uy -> ConformanceVerdict.UnknownSigOnly(r.ReadString())
-        | 5uy ->
+        | 3uy ->
             let sigFile = r.ReadString()
             ConformanceVerdict.PairParseFailure(sigFile, r.ReadString())
-        | 6uy -> ConformanceVerdict.SignatureNotPublished(r.ReadString())
-        | 7uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
+        | 4uy -> ConformanceVerdict.SignatureNotPublished(r.ReadString())
+        | 5uy -> ConformanceVerdict.SignatureRejected(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 
     /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a

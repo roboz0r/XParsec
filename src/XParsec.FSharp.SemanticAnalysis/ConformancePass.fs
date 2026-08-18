@@ -43,10 +43,6 @@ module ConformancePass =
             Package: string
             /// One outcome per signature file, in manifest `files` order.
             Pairs: PairOutcome list
-            /// The `.fsi` files the manifest declares DELIBERATELY impl-free for this target
-            /// (`[core] sig-only`). A `SigOnly` signature file in this set is an accepted
-            /// exemption; one outside it is the FS0240-style hard error.
-            SigOnlyExemptions: Set<string>
         }
 
     // A `[core] runtime` asset is a committed ESM module read as JS TEXT, never
@@ -88,7 +84,6 @@ module ConformancePass =
     /// a file the read could not deliver becomes a `ParseFailed` verdict.
     let check (pkg: PackageSource.ParsedPackage) : PackageOutcome =
         let m = pkg.Manifest
-        let declaredSigOnly = m.SigOnly |> Set.ofList
 
         // One scrape per `[<Import>]`-named asset: `ValueNone` for a path outside the
         // manifest's `runtime` list or a listed file absent on disk.
@@ -162,7 +157,6 @@ module ConformancePass =
         {
             Package = m.Name
             Pairs = pkg.Signatures |> List.map outcome
-            SigOnlyExemptions = declaredSigOnly
         }
 
     /// `check` for a caller holding only the path. `Error` ONLY when the package is wholly
@@ -180,28 +174,6 @@ module ConformancePass =
         let err (verdict: ConformanceVerdict) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
             Diagnostic.nowhere (Kind.Conformance(outcome.Package, verdict))
 
-        // The signature files that DID pair, the basis for catching a `sig-only`
-        // exemption listing a file that in fact has a companion `.fs`.
-        let pairedSigs =
-            set
-                [
-                    for p in outcome.Pairs do
-                        match p with
-                        | PairOutcome.Paired r -> yield r.SigFile
-                        | PairOutcome.SigOnly _
-                        | PairOutcome.ParseFailed _ -> ()
-                ]
-
-        let sigOnlySigs =
-            set
-                [
-                    for p in outcome.Pairs do
-                        match p with
-                        | PairOutcome.SigOnly s -> yield s
-                        | PairOutcome.Paired _
-                        | PairOutcome.ParseFailed _ -> ()
-                ]
-
         [
             for p in outcome.Pairs do
                 match p with
@@ -216,15 +188,7 @@ module ConformancePass =
                                 ConformanceVerdict.ModulePairingMismatch(r.SigFile, r.ImplFile, mm.SigDecl, mm.ImplDecl)
                             )
                     | ValueNone -> ()
-                | PairOutcome.SigOnly s ->
-                    if not (outcome.SigOnlyExemptions.Contains s) then
-                        yield err (ConformanceVerdict.SigWithoutImpl s)
+                | PairOutcome.SigOnly s -> yield err (ConformanceVerdict.SigWithoutImpl s)
                 | PairOutcome.ParseFailed(sigFile, detail) ->
                     yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
-
-            for ex in outcome.SigOnlyExemptions do
-                if pairedSigs.Contains ex then
-                    yield err (ConformanceVerdict.StaleSigOnly ex)
-                elif not (sigOnlySigs.Contains ex) then
-                    yield err (ConformanceVerdict.UnknownSigOnly ex)
         ]

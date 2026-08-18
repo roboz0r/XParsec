@@ -424,6 +424,9 @@ module EmitJsContext =
 
     /// A `Vesper.Printf.mjs` runtime entry the BACKEND synthesises: no front-end symbol resolves
     /// to it, so no provider shape carries its home. Codegen hardcodes both the key and the module.
+    /// An `[<Import>]`-attributed declaration in a `Vesper.Printf` runtime `.fs` (as
+    /// `ops-platform-runtime.js.fs` binds `structuralEquals`) would give these front-end
+    /// symbols and delete this hardcode.
     let private printfRuntimeRef (name: string) : JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.moduleValueKey "Vesper" "StructuralPrinter" name)
