@@ -29,3 +29,5 @@ type float =
         static member inline (~+)(value: float) : float = value
         static member inline (~-)(n: float) : float = (# "-$0" n : float #)
     end
+type single = float32
+type double = float

@@ -6,9 +6,8 @@ declared exemption, and not a verdict derived from content either. Delete this d
 lands (`feedback_plan_docs_ephemeral`).
 
 **Status (2026-08-16): class A is CLEARED — no manifest anywhere carries a `sig-only` key.**
-Claim 1 is unblocked and gated on nothing; only the mechanical removal below is left. B, C
-and D still gate claim 2. The inventory below is the new part; the four gates were already
-known.
+Claim 1 is unblocked and gated on nothing; only the mechanical removal below is left. A, A′ and
+B are done; C and D alone still gate claim 2.
 
 ## Why the key exists at all
 
@@ -36,14 +35,14 @@ Computed by pairing key over every manifest, not from any list. Only the **A** r
 |---|---|---|
 | **A — owes a body, missing** | ~~`compiler-attributes.fsi` (js)~~, ~~`exceptions.js.fsi`~~, ~~`printf-format.fsi` ×2~~, ~~`printf.fsi` ×2~~ | write the `.fs`; it pairs |
 | **A′ — owes a SENTINEL body** | ~~`prim-types-attr.fsi`, `capabilities.fsi` (both js)~~ | write the `.fs`; the repr is a sentinel the backend knows |
-| **B — transparent abbreviation** | `capabilities-compat.js.fsi`, `list-bcl.clr.fsi` | write the `.fs`; it pairs |
+| **B — transparent abbreviation** | ~~`capabilities-compat.js.fsi`, `list-bcl.clr.fsi`~~ | write the `.fs`; it pairs |
 | **C — served by a runtime asset** | `ops-platform-runtime.js.fsi`, `comparison-runtime.js.fsi` | **deferred** — representation still to be decided |
 | **D — the js target has no such type** | `prim-types-decimal.fsi`, `prim-types-nativeint.fsi`, `prim-types-nd-array.fsi` | omit from `manifest.js.toml` entirely |
 
 Every file is classified. C is the only class without an answer.
 
 `list-bcl.clr.fsi`'s `sig-only` entry is **already deleted** — redundant from the day it was
-written, since class B is accepted by content anyway. Four suites green after removing it.
+written, since class B was accepted by content anyway. Four suites green after removing it.
 
 ## A and B: write the body
 
@@ -105,15 +104,46 @@ which is a defect the absent file had been hiding:
 The exception roster is now BCL-shaped and emits real classes — see
 [js-exception-identity-plan](js-exception-identity-plan.md).
 
-**B: an abbreviation needs an implementation file.** `SigShape.Abbrev.ImplOptional` is `true`
-(`Conformance.fs:51-56`) — not a considered divergence from fsc but a hack, hammered in to work
-around the same architecture these plans exist to unravel (user, 2026-08-16). Restating the
-abbreviation in a `.fs` is two lines each and matches fsc, and `ImplOptional` goes with it.
+**B: an abbreviation needs an implementation file.** `SigShape.Abbrev.ImplOptional` was `true`
+— not a considered divergence from fsc but a hack, hammered in to work around the same
+architecture these plans exist to unravel (user, 2026-08-16). Restating the abbreviation in a
+`.fs` matches fsc, and the `Abbrev` route goes with it.
 
-Its doc comment goes too, and is worth quoting because it is the shape of the problem: "F#
+Its doc comment went too, and is worth quoting because it is the shape of the problem: "F#
 resolves it transitively to its target, so a sig-only abbreviation (`ref = Ref<'T>`) is
 conformant with no `.fs` companion of its own." That reads as a semantic justification and is
 in fact a description of what the code happened to do. fsc requires the implementation.
+
+### What B cost (landed 2026-08-16)
+
+**The two-file inventory was an undercount, because the inventory pairs whole FILES and the
+`Abbrev` route exempts individual DECLARATIONS.** Retiring the route surfaced seven more
+abbreviations sitting inside otherwise-paired files — every one of them already restated by the
+CLR body, so the js bodies were the laggards, plus two the CLR omitted as well:
+
+| file | restated |
+|---|---|
+| `prim-types-int.js.fs` | `int8`, `uint8`, `int32`, `uint` |
+| `prim-types-float.js.fs` | `single`, `double` |
+| `prim-types-object.js.fs` | `objnull` — the CLR body already had it |
+| `core-types.fs` | `ref`, on BOTH targets |
+| `printf-format.fs` | `Format`, on BOTH targets |
+
+`ref` and `Format` are the two that mattered: a shared body missing an abbreviation the contract
+declares is drift no target was catching.
+
+**`ImplOptional` is gone outright.** Retiring the `Abbrev` route left `ExternInterface` as its
+one inhabitant: `prim-types-min.fsi` declares `equatable` / `comparable` / `disposable` as
+`extern interface` and js had no body for them — A′ work the class-A′ pass missed, since it went
+by whole files and these three sit inside an otherwise-paired one. `prim-types-min.js.fs` now
+binds the same `"!" + FQN` sentinels `capabilities.js.fs` does, and the member and its call site
+are deleted; `MissingInImpl` is now unconditional on an absent name.
+
+Two `ReferencedProjectTests` pins moved with them, and the direction is the point: the three
+capabilities were `Class`-shaped and CANON-ONLY on js, and now publish as `IntrinsicInterface`
+keyed by the sentinel with the canon beside it — the same shape `seq` / `enumerator` already had.
+Every capability now keys alike on both targets, so "js has no repr here" has no remaining
+inhabitant to hide in.
 
 ### A′: the sentinel-repr cases (user, 2026-08-16)
 
@@ -284,7 +314,7 @@ Follows `96837bff Remove impl-only as a category from source manifests` exactly.
   short-circuit, and `PairOutcome.SigOnly` / `Unrepresentable` / `RuntimeServed` — all four
   routes go with the state they described. `Unrepresentable` goes with D; `RuntimeServed`
   cannot go until C is answered.
-- **`Conformance`**: `SigShape.ImplOptional` and its doc comment, once B lands.
+- ~~**`Conformance`**: `SigShape.ImplOptional` and its doc comment~~ — **DONE** with B.
 - **`Intrinsics`**: `IntrinsicSet.get`'s `failwithf`, replaced by an
   `UnsupportedOnTarget`-bearing answer — the prerequisite for D.
 - **`ConformanceVerdict`**: `StaleSigOnly` / `UnknownSigOnly` / `SigWithoutImpl`, the V240 and
@@ -302,7 +332,7 @@ The headline is two claims, and only the first is fully scoped:
 1. **Delete `sig-only` from the schema.** Needs class A alone. `Vesper.Core` is done; only
    printf's four entries remain, and nothing else blocks it.
 2. **Make the bodiless state unrepresentable.** Needs A, A′, B, D **and C**, which is deferred
-   by decision. A′ is done; B and D are ready to start and gated on nothing.
+   by decision. A, A′ and B are done; D is ready to start and gated on nothing.
 
 ## What this settles for the fold
 

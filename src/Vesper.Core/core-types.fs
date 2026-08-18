@@ -5,3 +5,5 @@ namespace Vesper
 [<ReferenceEquality>]
 [<NoComparison>]
 type Ref<'T> = { mutable contents: 'T }
+
+and 'T ref = Ref<'T>

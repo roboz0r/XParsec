@@ -64,6 +64,7 @@ impl = [
     "ops-platform.js.fs",
     "ops-std.fs",
     "int-comparison.js.fs",
+    "capabilities-compat.js.fs",
     "prim-types-undefined.js.fs",
     "prim-types-dynamic.js.fs",
     "ops-dynamic.js.fs",

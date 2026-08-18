@@ -20,12 +20,10 @@ module Conformance =
         /// `type X = extern class` — a heritable external base, paired with the impl's
         /// `(# class "repr" #)`.
         | ExternClass
-        /// `type X = extern interface with …` — a capability anchor. Its repr is a nominal
-        /// INTERFACE name, which only a target that has interfaces can bind.
+        /// `type X = extern interface with …` — a capability anchor. Its repr names an
+        /// interface, so a target without them binds a sentinel that names nothing.
         | ExternInterface
-        /// `type X = Y` — a transparent abbreviation. F# resolves it transitively to its
-        /// target, so a sig-only abbreviation (`ref = Ref<'T>`) is conformant with no
-        /// `.fs` companion of its own.
+        /// `type X = Y` — a transparent abbreviation, restated by the `.fs` as fsc requires.
         | Abbrev
         /// `type X = | C = v | …`, conforming as a plain nominal type does: no
         /// extern/intrinsic pairing.
@@ -47,17 +45,6 @@ module Conformance =
 
         /// A downstream file may `inherit` it, so the `.fs` must bind `(# class … #)`.
         member this.IsHeritable = this = SigShape.ExternClass
-
-        /// The `.fs` may leave it out altogether: an abbreviation is transparent, and a
-        /// target that binds no capability-anchor repr is answering, not omitting.
-        member this.ImplOptional =
-            match this with
-            | SigShape.Abbrev
-            | SigShape.ExternInterface -> true
-            | SigShape.Extern
-            | SigShape.ExternClass
-            | SigShape.Enum
-            | SigShape.Other _ -> false
 
     /// A type declaration as seen in the `.fs` implementation.
     [<RequireQualifiedAccess>]
@@ -279,9 +266,7 @@ module Conformance =
         for d in sigDecls do
             if seenSig.Add d.Name then
                 match implMap.TryGetValue d.Name with
-                | false, _ ->
-                    if not d.Shape.ImplOptional then
-                        errors.Add(ConformanceError.MissingInImpl d.Name)
+                | false, _ -> errors.Add(ConformanceError.MissingInImpl d.Name)
                 | true, iShape ->
                     match d.Shape.DemandsIntrinsic, iShape.SuppliesIntrinsic with
                     | true, ValueNone -> errors.Add(ConformanceError.ExternWithoutIntrinsic d.Name)

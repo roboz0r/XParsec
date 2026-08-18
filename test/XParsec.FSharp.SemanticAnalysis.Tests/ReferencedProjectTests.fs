@@ -256,22 +256,23 @@ let tests =
             }
 
             test "JS build: capabilities are canon-only; BCL spellings resolve through the compat shim" {
-                // The JS build omits the `.js.fs` capability reprs and appends the
-                // `capabilities-compat.js.fsi` shim, so a capability is CANON-ONLY and the BCL
-                // spelling is quarantined to the shim, reaching the canonical by abbreviation.
+                // The JS bodies bind sentinel reprs and the `capabilities-compat.js.fsi` shim
+                // is appended, so the BCL spelling is quarantined to the shim and reaches the
+                // canonical by abbreviation.
                 let provider, _ = builtProviderJs.Value
 
-                let expectCanonOnly (lookup: string) =
-                    // No `(# … #)` repr binds a platform name here, so it is a plain interface
-                    // `Class`, not the CLR `IntrinsicInterface`.
+                let expectSentinelRepr (lookup: string) (sentinel: string) =
                     match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
-                    | ValueSome(ExternalTypeShape.Class shape) ->
-                        Expect.isTrue shape.IsInterface (sprintf "%s is a canon-only interface Class on JS" lookup)
-                    | other -> failtestf "expected %s as a canon-only Class on JS, got %A" lookup other
+                    | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
+                        Expect.equal
+                            iface.Platform
+                            sentinel
+                            (sprintf "%s binds the sentinel %s, which names no JS global" lookup sentinel)
+                    | other -> failtestf "expected %s as an IntrinsicInterface on JS, got %A" lookup other
 
-                expectCanonOnly "Vesper.disposable"
-                expectCanonOnly "Vesper.equatable`1"
-                expectCanonOnly "Vesper.comparable`1"
+                expectSentinelRepr "Vesper.disposable" "!Vesper.disposable"
+                expectSentinelRepr "Vesper.equatable`1" "!Vesper.equatable"
+                expectSentinelRepr "Vesper.comparable`1" "!Vesper.comparable"
 
                 // The shim abbreviates each BCL spelling to the canonical capability, so
                 // `interface System.IDisposable` records the canonical key on JS.
@@ -289,7 +290,7 @@ let tests =
                 expectShimAbbrev "System.IComparable`1" "Vesper.comparable`1"
             }
 
-            test "JS build: no capability keys by a BCL spelling; seq/enumerator key by a sentinel" {
+            test "JS build: no capability keys by a BCL spelling; every one keys by a sentinel" {
                 // A BCL spelling reaches JS only through the compat shim above, which is an
                 // `Abbrev` that expands at the use. So no capability keys by one, and nothing
                 // downstream may tag a JS type with one.
@@ -314,12 +315,8 @@ let tests =
                         id
                     | ValueNone -> failtestf "%s resolved to ValueNone on JS" name
 
-                let expectCanonOnly name cap bcl canon =
-                    let id = expectMatches name cap bcl canon
-                    Expect.equal id.CanonKey ValueNone (sprintf "%s is canon-only on JS" name)
-
-                // `capabilities.js.fs` binds a `!`-prefixed repr, so the anchor keys by that
-                // sentinel WITH the canon beside it — a spelling no JS global can collide with.
+                // Each JS body binds a `!`-prefixed repr, so the anchor keys by that sentinel
+                // WITH the canon beside it — a spelling no JS global can collide with.
                 let expectSentinel name cap bcl canon sentinel =
                     let id = expectMatches name cap bcl canon
 
@@ -344,9 +341,21 @@ let tests =
                     "Vesper.Collections.enumerator`1"
                     "!Vesper.Collections.enumerator"
 
-                expectCanonOnly "Disposable" caps.Disposable "System.IDisposable" "Vesper.disposable"
-                expectCanonOnly "Equatable" caps.Equatable "System.IEquatable`1" "Vesper.equatable`1"
-                expectCanonOnly "Comparable" caps.Comparable "System.IComparable`1" "Vesper.comparable`1"
+                expectSentinel
+                    "Disposable"
+                    caps.Disposable
+                    "System.IDisposable"
+                    "Vesper.disposable"
+                    "!Vesper.disposable"
+
+                expectSentinel "Equatable" caps.Equatable "System.IEquatable`1" "Vesper.equatable`1" "!Vesper.equatable"
+
+                expectSentinel
+                    "Comparable"
+                    caps.Comparable
+                    "System.IComparable`1"
+                    "Vesper.comparable`1"
+                    "!Vesper.comparable"
             }
 
             test "Fun resolves (qualified) as a Class shape with a non-empty Origin" {

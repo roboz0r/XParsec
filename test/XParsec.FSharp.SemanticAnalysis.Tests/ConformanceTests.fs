@@ -153,7 +153,7 @@ let tests =
 
             test "concrete type declared in .fsi but absent from .fs → MissingInImpl" {
                 // `bar` is a CONCRETE type (a union), so it requires an implementation and
-                // its absence is real drift; a transparent abbreviation would be exempt.
+                // its absence is real drift.
                 let errors =
                     conform
                         "namespace V\n\ntype foo = extern\n\ntype bar = | BarCase"
@@ -187,15 +187,15 @@ let tests =
                     "an impl-only intrinsic with no extern"
             }
 
-            test "sig-only abbreviation needs no impl companion → no error" {
-                // `type myalias = int` resolves transitively to `int`; F# needs no `.fs`
-                // companion for a transparent abbreviation, so it is not MissingInImpl.
+            test "abbreviation declared in .fsi but absent from .fs → MissingInImpl" {
+                // Transparency buys the abbreviation nothing: fsc requires the `.fs` to
+                // restate it, so its absence is drift like any other.
                 let errors =
                     conform
                         "namespace V\n\ntype foo = extern\n\ntype myalias = int"
                         "namespace V\n\ntype foo = (# \"System.Int32\" #)"
 
-                Expect.isEmpty errors "a sig-only abbreviation is conformant"
+                Expect.equal errors [ Conformance.ConformanceError.MissingInImpl "myalias" ] "myalias missing in impl"
             }
 
             test "a matching extern↔intrinsic + shared abbrev conform with no errors" {
@@ -506,16 +506,23 @@ let jsPackageConformanceTests =
                 Expect.stringContains errors.Head "served.fsi" "naming the signature file whose export vanished"
             }
 
-            test "js: capabilities-compat.js.fsi is accepted as pure abbreviation, naming no extern" {
-                // Transparent abbreviations and nothing else. F# needs no `.fs` for an
-                // abbreviation, so the contract owes no body — and it says so with an EMPTY
-                // extern list, unlike the nativeint family.
-                match
-                    unrepresentableOf (outcomeFor (manifestOf "js" "Vesper.Core"))
-                    |> List.tryFind (fun (f, _) -> f = "capabilities-compat.js.fsi")
-                with
-                | None -> failtest "capabilities-compat.js.fsi must owe no `.fs` on js"
-                | Some(_, types) -> Expect.isEmpty types "it declares no extern — every declaration is an abbreviation"
+            test "js: capabilities-compat.js.fsi PAIRS, transparent abbreviations and all" {
+                // Every declaration in it is an abbreviation of a capability, and each is
+                // restated by the body: transparency exempts none of them.
+                let paired =
+                    [
+                        for p in (outcomeFor (manifestOf "js" "Vesper.Core")).Pairs do
+                            match p with
+                            | ConformancePass.PairOutcome.Paired r when r.SigFile = "capabilities-compat.js.fsi" ->
+                                yield r
+                            | _ -> ()
+                    ]
+
+                match paired with
+                | [ r ] ->
+                    Expect.equal r.ImplFile "capabilities-compat.js.fs" "paired with its body"
+                    Expect.isEmpty r.Errors "the BCL spellings and the capabilities they abbreviate conform"
+                | _ -> failtest "capabilities-compat.js.fsi must pair with capabilities-compat.js.fs"
             }
 
             test "js: prim-types-array.fsi PAIRS with its body rather than being waved through" {

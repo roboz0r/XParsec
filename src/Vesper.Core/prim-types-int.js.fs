@@ -48,6 +48,8 @@ type byte =
         static member inline (<<<)(value: byte, shift: int) : byte = (# "($0 << $1) & 0xFF" value shift : byte #)
         static member inline (>>>)(value: byte, shift: int) : byte = (# "$0 >>> $1" value shift : byte #)
     end
+type int8 = sbyte
+type uint8 = byte
 
 type int16 =
     (# "number" #)
@@ -93,6 +95,7 @@ type uint16 =
         static member inline (<<<)(value: uint16, shift: int) : uint16 = (# "($0 << $1) & 0xFFFF" value shift : uint16 #)
         static member inline (>>>)(value: uint16, shift: int) : uint16 = (# "$0 >>> $1" value shift : uint16 #)
     end
+type int32 = int
 
 type uint32 =
     (# "number" #)
@@ -167,3 +170,4 @@ type uint64 =
         // Non-negative by construction, so `>>` zero-fills and stays in range.
         static member inline (>>>)(value: uint64, shift: int) : uint64 = (# "$0 >> BigInt($1)" value shift : uint64 #)
     end
+type uint = uint32

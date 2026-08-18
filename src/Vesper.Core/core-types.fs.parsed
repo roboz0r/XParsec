@@ -25,6 +25,20 @@ namespace        'namespace'       KWNamespace         tok=   0  pos=   0
           Typar.Named:
                  ''T'              TypeParameter       tok=  36  pos= 106
     }            '}'               KWRBrace            tok=  38  pos= 109
+  TypeDefn.Abbrev:
+    PrefixTypar:
+      Typar.Named:
+                 ''T'              TypeParameter       tok=  43  pos= 116
+    TypeName     'ref'             Identifier          tok=  45  pos= 119
+    =            '='               OpEquality          tok=  47  pos= 123
+      GenericType:
+        Ident    'Ref'             Identifier          tok=  49  pos= 125
+        <        '<'               op_LessThan         tok=  50  pos= 128
+        TypeArg.Type:
+          VarType:
+            Typar.Named:
+                 ''T'              TypeParameter       tok=  51  pos= 129
+        >        '>'               op_GreaterThan      tok=  52  pos= 131
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

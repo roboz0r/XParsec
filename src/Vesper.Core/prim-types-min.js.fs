@@ -28,6 +28,12 @@ type int =
 type bool = (# "boolean" #)
 type unit = (# "undefined" #)
 
+// JS has no interfaces, so these name nothing at runtime — `!` is illegal in a JS
+// identifier, and a sentinel reaching emit is a syntax error rather than a wrong global.
+type equatable<'T> = (# "!Vesper.equatable" #)
+type comparable<'T> = (# "!Vesper.comparable" #)
+type disposable = (# "!Vesper.disposable" #)
+
 type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B
 

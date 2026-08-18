@@ -9,8 +9,7 @@ depends-on = ["../Vesper.Core"]
 # Signature files in compile order.
 files = [
     "list.fsi",
-    # A transparent abbreviation for a BCL type. Needs no `sig-only` exemption: every
-    # declaration in it is an abbreviation, which the content split accepts on its own.
+    # A transparent abbreviation for a BCL type.
     "list-bcl.clr.fsi",
 ]
 
@@ -19,4 +18,5 @@ files = [
 # either.
 impl = [
     "list.fs",
+    "list-bcl.clr.fs",
 ]

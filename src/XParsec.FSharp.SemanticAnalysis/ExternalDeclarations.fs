@@ -589,7 +589,8 @@ type IntrinsicInterfaceShape =
         /// capability-matching key, NOT the value-resolution key.
         Canon: TypeKey
         TyparArity: int
-        /// The `.fs` `(# … #)` BCL repr (`"System.IDisposable"`). A bare `string`, not an
+        /// The `.fs` `(# … #)` repr: `"System.IDisposable"` on the CLR, the sentinel
+        /// `"!Vesper.disposable"` on a target with no interfaces. A bare `string`, not an
         /// `IntrinsicPlatform`: a capability is minted only where its `.fs` binds the repr.
         Platform: string
         /// The abstract member surface (`Dispose`).
