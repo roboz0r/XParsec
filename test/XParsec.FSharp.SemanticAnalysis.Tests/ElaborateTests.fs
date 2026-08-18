@@ -353,7 +353,11 @@ let interfaceTests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseSemFor "Vesper.Core" realProvider.Value (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseSemFor
+                        { Name = "Vesper.Core"; Target = "clr" }
+                        realProvider.Value
+                        (Hashing.originSourceOfText lexed)
+                        file
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics for an abstract member"
 

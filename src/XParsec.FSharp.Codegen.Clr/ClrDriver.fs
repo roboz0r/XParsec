@@ -76,7 +76,10 @@ module ClrDriver =
 
                 let tast =
                     Pipeline.analyseFor
-                        inputs.Project.AssemblyName
+                        {
+                            Name = inputs.Project.AssemblyName
+                            Target = Target.Clr
+                        }
                         provider
                         (Hashing.originSourceOfText parsed.Lexed)
                         parsed.File
@@ -140,7 +143,10 @@ module ClrDriver =
                     | Ok parsed ->
                         let tast =
                             Pipeline.analyseFor
-                                inputs.Project.AssemblyName
+                                {
+                                    Name = inputs.Project.AssemblyName
+                                    Target = Target.Clr
+                                }
                                 contract.Provider
                                 (Hashing.originSource path parsed.Lexed)
                                 parsed.File
@@ -171,7 +177,7 @@ module ClrDriver =
         (project: ProjectInfo)
         (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        let assembly: AssemblyFiles.CompilingAssembly =
+        let assembly: CompilingAssembly =
             {
                 Name = project.AssemblyName
                 Target = Target.Clr

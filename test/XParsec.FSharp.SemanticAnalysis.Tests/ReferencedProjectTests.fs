@@ -180,7 +180,8 @@ let tests =
                     | Result.Error e -> failtestf "lex failed: %A" e
                     | Result.Ok lexed -> lexed
 
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+                let ctx =
+                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
 
                 Expect.equal ctx.Intrinsics.Int BuiltinTypes.tyInt "int"
                 Expect.equal ctx.Intrinsics.Int64 BuiltinTypes.tyInt64 "int64"
@@ -416,7 +417,10 @@ let tests =
 
                 let input = "let r = 1 + 2\nlet h = hash 5"
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+                let ctx =
+                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -446,7 +450,10 @@ let tests =
             // the REJECTED direction is testable here; the accepted one needs a full provider.
             let analyseErrors (provider: IExternalSymbolProvider) (input: string) =
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+                let ctx =
+                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -968,12 +975,21 @@ let tests =
                         // NEW entry is two manifests that drifted.
                         let expected =
                             [
-                                // A CLR function value is a nominal `Fun` interface, so adapting
+                                // decimal / nativeint / nd-array are types JS does not have, so
+                                // their contracts are ABSENT from the js manifest; a js program
+                                // writing one is rejected off the language-known key. And a CLR
+                                // function value is a nominal `Fun` interface, so adapting
                                 // flat<->curried needs a reified object; JS applies directly.
                                 {|
                                     Package = "Vesper.Core"
                                     List = "files"
-                                    ClrOnly = [ "fun-adapters.fsi" ]
+                                    ClrOnly =
+                                        [
+                                            "prim-types-decimal.fsi"
+                                            "prim-types-nativeint.fsi"
+                                            "prim-types-nd-array.fsi"
+                                            "fun-adapters.fsi"
+                                        ]
                                     JsOnly = []
                                 |}
                                 // `fun-adapters` follows its `.fsi` above.

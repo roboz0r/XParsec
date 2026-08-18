@@ -133,6 +133,9 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
 /// The assembly name every freeze in these suites is taken under.
 let testAsm = "TestAsm"
 
+/// `testAsm` as a compiling identity: `realProvider` is the clr contract stack.
+let testCompiling: CompilingAssembly = { Name = testAsm; Target = "clr" }
+
 /// Freeze `src` through the whole front end, returning the origin it was analysed FROM —
 /// what a consumer needs to read the frozen templates' positions. The origin is bucketed
 /// under `testAsm`, which the signature projection reads back as the home assembly.
@@ -147,7 +150,7 @@ let freezeWithOrigin (src: string) : OriginSource * FrozenPools =
             }
             lexed
 
-    origin, Pipeline.analyseFor testAsm realProvider.Value origin file
+    origin, Pipeline.analyseFor testCompiling realProvider.Value origin file
 
 /// Freeze `src` through the whole front end: the pooled output the cache stores, the codec
 /// flattens, and the signature projection reads. Raises on lex/parse failure.
@@ -170,7 +173,10 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 /// `Passes.Unification.run` on the returned pair to continue into inference.
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+    let ctx =
+        PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file
     ctx, file

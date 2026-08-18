@@ -9,15 +9,16 @@ module Pipeline =
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
     /// Runs every pass through the `SemType` domain, returning the populated `PassContext`,
-    /// what the region pass decided, and the pre-freeze `TastFile`. `assemblyName` is the
-    /// assembly this file emits into; `""` for the front-end-only paths that never emit.
+    /// what the region pass decided, and the pre-freeze `TastFile`. `assembly` is the
+    /// assembly this file emits into and the compiling target; `CompilingAssembly.none` for
+    /// the front-end-only paths that never emit.
     let analyseSemWithContextForCore
-        (assemblyName: string)
+        (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * RegionVerdicts * TastFile =
-        let ctx = PassContext(provider, source, assemblyName)
+        let ctx = PassContext(provider, source, assembly)
         Desugar.run ctx file
         NameResolution.run ctx file
         Unification.run ctx file
@@ -53,24 +54,24 @@ module Pipeline =
 
     /// Every pass, for a caller with no use for the region verdicts.
     let analyseSemWithContextFor
-        (assemblyName: string)
+        (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        let ctx, _, tast = analyseSemWithContextForCore assemblyName provider source file
+        let ctx, _, tast = analyseSemWithContextForCore assembly provider source file
 
         ctx, tast
 
     /// Every pass plus the final `SemType → FrozenType` freeze: the frozen tree AS POOLS,
     /// which is what codegen consumes. `SemType` consumers use the `…Sem…` variants above.
     let analyseWithContextFor
-        (assemblyName: string)
+        (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * FrozenPools =
-        let ctx, tast = analyseSemWithContextFor assemblyName provider source file
+        let ctx, tast = analyseSemWithContextFor assembly provider source file
         ctx, Freeze.run ctx tast
 
     /// `analyseSemWithContextFor` with no home assembly, for the front-end-only entries
@@ -80,7 +81,7 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        analyseSemWithContextFor "" provider source file
+        analyseSemWithContextFor CompilingAssembly.none provider source file
 
     /// `analyseSemWithContext` keeping what the region pass returned. The escape axis lands on
     /// the context, but the representation axis has no side table to read it off — it is
@@ -90,7 +91,7 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * RegionVerdicts * TastFile =
-        analyseSemWithContextForCore "" provider source file
+        analyseSemWithContextForCore CompilingAssembly.none provider source file
 
     /// `analyseWithContextFor` with no home assembly.
     let analyseWithContext
@@ -98,26 +99,27 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * FrozenPools =
-        analyseWithContextFor "" provider source file
+        analyseWithContextFor CompilingAssembly.none provider source file
 
     /// The `SemType` (pre-freeze) production entry, discarding the `PassContext`.
     let analyseSemFor
-        (assemblyName: string)
+        (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        let _, tast = analyseSemWithContextFor assemblyName provider source file
+        let _, tast = analyseSemWithContextFor assembly provider source file
         tast
 
-    /// The production entry. `assemblyName` is the home assembly for local keys.
+    /// The production entry. `assembly` carries the home assembly for local keys and the
+    /// compiling target.
     let analyseFor
-        (assemblyName: string)
+        (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        let _, tast = analyseWithContextFor assemblyName provider source file
+        let _, tast = analyseWithContextFor assembly provider source file
         tast
 
     let analyseSem
@@ -125,11 +127,11 @@ module Pipeline =
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        analyseSemFor "" provider source file
+        analyseSemFor CompilingAssembly.none provider source file
 
     let analyse
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        analyseFor "" provider source file
+        analyseFor CompilingAssembly.none provider source file

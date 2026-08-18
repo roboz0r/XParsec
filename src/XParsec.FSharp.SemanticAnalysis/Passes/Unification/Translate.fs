@@ -379,12 +379,14 @@ module internal UnificationTranslate =
             | ValueNone ->
                 match resolveExternal name with
                 | ValueSome ty -> ty
-                // `undefined` is a JS-only intrinsic with NO CLR repr. Normally the written
-                // name resolves through the provider's `prim-types-undefined.js` contract;
-                // this arm mints `undefinedKey` for a stack that has not loaded it.
-                | ValueNone when name = RuntimeNames.undefinedTypeName ->
-                    TyConst(RuntimeNames.undefinedKey, EqArray.empty)
-                | ValueNone -> unresolvedRefTy ctx site name
+                | ValueNone ->
+                    // A target-optional primitive (`nativeint`, `decimal`, `undefined`, …)
+                    // resolves to its language-known key even on a stack that declares no
+                    // contract for it; `PlatformTypes` then reports each mention as
+                    // unsupported on the compiling target.
+                    match RuntimeNames.tryTargetOptionalPrimitiveKey name with
+                    | ValueSome key -> TyConst(key, EqArray.empty)
+                    | ValueNone -> unresolvedRefTy ctx site name
 
     /// Resolve a QUALIFIED reference (`A.T`, `N.A.T<int>`) whose external verdict read already
     /// missed: it names a project-local type THROUGH the scope holding it, or it names

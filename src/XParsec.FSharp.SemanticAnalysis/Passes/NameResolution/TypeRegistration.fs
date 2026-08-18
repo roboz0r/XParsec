@@ -381,7 +381,13 @@ module NameResolutionTypeRegistration =
                         match CstKeys.ofTypeRef t with
                         | ValueSome typeRef ->
                             match classifyTypeRef ctx typeRef with
-                            | TypeRefVerdict.UnknownType when typeRef.LongIdent.Idents.Length = 1 ->
+                            | TypeRefVerdict.UnknownType when
+                                typeRef.LongIdent.Idents.Length = 1
+                                // A target-optional primitive name is language-known: it
+                                // resolves to its key with no contract behind it, and
+                                // `PlatformTypes` reports the mention instead.
+                                && (RuntimeNames.tryTargetOptionalPrimitiveKey (ctx.NameOf typeRef.Site.Tok)).IsNone
+                                ->
                                 ctx.UndefinedType(
                                     Site.ofTokenOr (Site.ofLongIdent typeRef.LongIdent) typeRef.Site.Tok,
                                     ctx.NameOf typeRef.Site.Tok

@@ -35,6 +35,10 @@ module internal IntrinsicResolve =
 type IntrinsicSet(tryResolve: string -> SemType option) =
     let cache = Dictionary<TypeKey, SemType>()
 
+    // A TARGET-OPTIONAL identity (`RuntimeNames.isTargetOptionalPrimitiveKey`) whose
+    // contract is absent mints its canon key anyway: the omission is the target not
+    // supporting it, and `PlatformTypes` reports each mention as `UnsupportedOnTarget`.
+    // Only the `prim-types-min` trio must resolve, and a miss there fails loudly.
     let get (canon: TypeKey) : SemType =
         match cache.TryGetValue canon with
         | true, t -> t
@@ -43,6 +47,10 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
 
             match tryResolve name with
             | Some t ->
+                cache.[canon] <- t
+                t
+            | None when RuntimeNames.isTargetOptionalPrimitiveKey canon ->
+                let t = TyConst(canon, EqArray.empty)
                 cache.[canon] <- t
                 t
             | None ->

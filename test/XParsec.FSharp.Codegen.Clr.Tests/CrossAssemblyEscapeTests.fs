@@ -87,7 +87,7 @@ let private producerDll: Lazy<string> =
          let lexed, file = parseFile producerFs
 
          let tast =
-             Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+             Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
          let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -116,7 +116,7 @@ let private runConsumer (expected: string list) (src: string) : unit =
     let lexed, file = parseFile src
 
     let tast =
-        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 

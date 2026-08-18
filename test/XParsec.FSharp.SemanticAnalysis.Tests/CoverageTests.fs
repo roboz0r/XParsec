@@ -1057,21 +1057,28 @@ let tests =
             }
 
             test "qualified name resolves through provider" {
+                // Composed OVER the real contract rather than delegating one channel to it:
+                // the mention walk reads `float`'s shape through the TYPE channel, which a
+                // single-channel wrapper would leave empty.
                 let provider: IExternalSymbolProvider =
-                    ExternalSymbolProviders.ofNamedChannels
-                        { ExternalSymbolProviders.NamedChannels.empty with
-                            TryLookup =
-                                fun name ->
-                                    if name = "Math.pi" then
-                                        ValueSome(
-                                            ExternalSymbols.monoFrozen
-                                                (SymbolKeyOps.inNamespace "")
-                                                name
-                                                (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
-                                        )
-                                    else
-                                        realProvider.Value.TryLookup name
-                        }
+                    ExternalSymbolProviders.composite
+                        [
+                            ExternalSymbolProviders.ofNamedChannels
+                                { ExternalSymbolProviders.NamedChannels.empty with
+                                    TryLookup =
+                                        fun name ->
+                                            if name = "Math.pi" then
+                                                ValueSome(
+                                                    ExternalSymbols.monoFrozen
+                                                        (SymbolKeyOps.inNamespace "")
+                                                        name
+                                                        (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
+                                                )
+                                            else
+                                                ValueNone
+                                }
+                            realProvider.Value
+                        ]
 
                 let input = "let r = Math.pi"
                 let lexed, file = parseFile input
@@ -1315,7 +1322,10 @@ let tests =
                         [ ExternalSymbolProviders.ofNamedChannels stub; realProvider.Value ]
 
                 let lexed, file = parseFile "let _ = 0"
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+                let ctx =
+                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
                 Passes.Desugar.run ctx file
                 Passes.NameResolution.run ctx file
                 Passes.Unification.run ctx file

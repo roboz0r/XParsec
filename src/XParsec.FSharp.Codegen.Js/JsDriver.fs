@@ -107,7 +107,7 @@ module JsDriver =
         (packageName: string)
         (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
-        let assembly: AssemblyFiles.CompilingAssembly =
+        let assembly: CompilingAssembly =
             {
                 Name = packageName
                 Target = Target.Js

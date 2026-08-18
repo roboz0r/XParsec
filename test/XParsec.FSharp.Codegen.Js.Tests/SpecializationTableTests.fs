@@ -29,7 +29,10 @@ type private Analysed =
 /// the same prefix, then flattens the table away and discards it.
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+    let ctx =
+        PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file

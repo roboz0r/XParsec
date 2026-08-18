@@ -320,21 +320,8 @@ let packageConformanceTests =
         ]
 
 // ---- The SAME pass, run for JS --------------------------------------------
-// A contract JS binds no representation for is `Unrepresentable`, derived from the
-// file's own content rather than from a key, so no JS exemption list has to be guessed.
-
-/// The contracts a target accepts as declared-but-unrepresentable, with the `extern`
-/// types each names.
-let private unrepresentableOf (outcome: ConformancePass.PackageOutcome) : (string * string list) list =
-    [
-        for p in outcome.Pairs do
-            match p with
-            | ConformancePass.PairOutcome.Unrepresentable(sigFile, types) -> yield sigFile, types
-            | ConformancePass.PairOutcome.Paired _
-            | ConformancePass.PairOutcome.SigOnly _
-            | ConformancePass.PairOutcome.RuntimeServed _
-            | ConformancePass.PairOutcome.ParseFailed _ -> ()
-    ]
+// A type JS has no representation for is ABSENT from the js manifest, so its contract is
+// never a pair here; the only accepted companion-less signature is a runtime-served one.
 
 /// The contracts a target accepts because the committed runtime asset exports every value
 /// they declare, with the asset and the values named.
@@ -345,7 +332,6 @@ let private runtimeServedOf (outcome: ConformancePass.PackageOutcome) : (string 
             | ConformancePass.PairOutcome.RuntimeServed(sigFile, asset, values) -> yield sigFile, asset, values
             | ConformancePass.PairOutcome.Paired _
             | ConformancePass.PairOutcome.SigOnly _
-            | ConformancePass.PairOutcome.Unrepresentable _
             | ConformancePass.PairOutcome.ParseFailed _ -> ()
     ]
 
@@ -388,17 +374,21 @@ let jsPackageConformanceTests =
     testList
         "PackageConformanceJs"
         [
-            test "js: prim-types-nativeint.fsi is accepted as unrepresentable, naming all five types" {
-                match
-                    unrepresentableOf (outcomeFor (manifestOf "js" "Vesper.Core"))
-                    |> List.tryFind (fun (f, _) -> f.Contains "nativeint")
-                with
-                | None -> failtest "prim-types-nativeint.fsi must be Unrepresentable on js"
-                | Some(_, types) ->
-                    Expect.equal
-                        (List.sort types)
-                        [ "ilsigptr"; "nativeint"; "nativeptr"; "unativeint"; "voidptr" ]
-                        "every type the contract declares is named"
+            test "js: an all-extern, val-less signature with no body is a hard error, not accepted" {
+                // The former `Unrepresentable` route: a type the target has no representation
+                // for is OMITTED from the manifest, so a declared-and-unimplemented contract
+                // owes a body like any other.
+                let outcome =
+                    syntheticOutcome
+                        [
+                            "manifest.js.toml", "[core]\nfiles = [\"widths.fsi\"]\n"
+                            "widths.fsi", "namespace V\n\ntype myint = extern\n"
+                        ]
+
+                let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
+
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.stringContains errors.Head "widths.fsi" "the FS0240-style error names the signature file"
             }
 
             test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
@@ -414,12 +404,8 @@ let jsPackageConformanceTests =
                         ]
 
                 Expect.isEmpty
-                    (unrepresentableOf outcome)
-                    "a body-bearing contract is never accepted as unrepresentable"
-
-                Expect.isEmpty
                     (runtimeServedOf outcome)
-                    "nor as served by the runtime asset — an asset export is a value, never a type"
+                    "not served by the runtime asset — an asset export is a value, never a type"
 
                 let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
 
@@ -429,24 +415,6 @@ let jsPackageConformanceTests =
                     errors.Head
                     "cell.fsi"
                     "the FS0240-style error names the signature file owing a body"
-            }
-
-            test "js: an unrepresentable contract raises no hard error, and needs no exemption to" {
-                for package, manifestPath in packageManifests "js" do
-                    let outcome = outcomeFor manifestPath
-                    let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
-
-                    for sigFile, _ in unrepresentableOf outcome do
-                        Expect.isFalse
-                            (errors |> List.exists (fun m -> m.Contains sigFile))
-                            (sprintf
-                                "%s: %s is unrepresentable on js, so nothing may be enforced about it"
-                                package
-                                sigFile)
-
-                        Expect.isFalse
-                            (outcome.SigOnlyExemptions.Contains sigFile)
-                            (sprintf "%s: %s is accepted by DERIVATION, not by a `sig-only` key" package sigFile)
             }
 
             test "js: the hard-error set is exactly the un-ported library surface" {
@@ -637,19 +605,6 @@ let enforcementTests =
                 Expect.stringContains errors.Head.Message "deleted-impl.fsi" "names the orphaned .fsi"
             }
 
-            test "an Unrepresentable .fsi → no error, with no exemption declared" {
-                // Declared, unrepresentable, accepted: the reject is owed at the use site.
-                // Unlike the `SigOnly` above, it is accepted against an EMPTY exemption set.
-                let outcome =
-                    mkOutcome
-                        [
-                            ConformancePass.PairOutcome.Unrepresentable("prim-types-nativeint.fsi", [ "nativeint" ])
-                        ]
-                        Set.empty
-
-                Expect.isEmpty (ConformancePass.enforce outcome) "an unrepresentable contract conforms"
-            }
-
             test "a SigOnly .fsi declared `sig-only` in the manifest → no error (exempt)" {
                 let outcome =
                     mkOutcome
@@ -752,7 +707,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
 /// typar order is inference's own rather than a hand-built `FrozenType`.
 let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
-    Pipeline.analyseFor "M" realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseFor { Name = "M"; Target = "clr" } realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType =
@@ -1000,7 +955,6 @@ let packageUnitsTests =
                                     match p with
                                     | ConformancePass.PairOutcome.Paired r -> yield r.SigFile, r.ImplFile
                                     | ConformancePass.PairOutcome.SigOnly _
-                                    | ConformancePass.PairOutcome.Unrepresentable _
                                     | ConformancePass.PairOutcome.RuntimeServed _
                                     | ConformancePass.PairOutcome.ParseFailed _ -> ()
                             ]

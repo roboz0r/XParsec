@@ -25,7 +25,16 @@ module PlatformTypes =
                                                              Platform = IntrinsicPlatform.Unsupported target
                                                          }
                                                 }) -> ValueSome target
-        | _ -> ValueNone
+        | ValueSome _ -> ValueNone
+        // A language-known primitive with NO declaration anywhere — no contract entry and no
+        // local `(# … #)` binding — is the target not supporting it: its key mints from a
+        // literal token or a bare written name, never from a declaration.
+        | ValueNone when
+            RuntimeNames.isTargetOptionalPrimitiveKey key
+            && not (ctx.Types.IntrinsicKeys.ContainsKey key.Name)
+            ->
+            ValueSome ctx.Target
+        | ValueNone -> ValueNone
 
     /// Accumulate every nominal in `t` the target has no representation for. Zonks first, so
     /// a `TyVar` already linked to a concrete shape is judged by that shape.

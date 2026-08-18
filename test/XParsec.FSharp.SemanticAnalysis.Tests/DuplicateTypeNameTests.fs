@@ -12,7 +12,12 @@ let private analyse (input: string) =
 /// identifies the UNIT, which is what the own-contract exemption below turns on.
 let private analyseAs (assemblyName: string) (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSemFor assemblyName realProvider.Value (Hashing.originSourceOfText lexed) file
+
+    Pipeline.analyseSemFor
+        { Name = assemblyName; Target = "clr" }
+        realProvider.Value
+        (Hashing.originSourceOfText lexed)
+        file
 
 let private errors (tast: TastFile) =
     [

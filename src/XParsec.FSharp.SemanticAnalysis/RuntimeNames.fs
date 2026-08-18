@@ -347,6 +347,29 @@ module RuntimeNames =
     let referencePrimitiveKeys: TypeKey list =
         [ boolKey; charKey; stringKey; unitKey; objKey; voidptrKey; exnKey ]
 
+    /// The `prim-types-min` contract's data types, which every target declares.
+    let private minContractKeys: TypeKey list = [ intKey; boolKey; unitKey ]
+
+    /// The primitive identities a TARGET may lack: every built-in primitive except the
+    /// `prim-types-min` trio. Each is language-known — a literal token or a bare written
+    /// name reaches its key with no contract declaration — so on a target whose contract
+    /// omits it the key still mints, and `PlatformTypes` reports every mention as
+    /// `UnsupportedOnTarget` rather than the name going undefined.
+    let private targetOptionalPrimitiveKeys: TypeKey list =
+        let mandatory = isKeyIn minContractKeys
+
+        numericKeys @ referencePrimitiveKeys @ [ bigintKey; undefinedKey ]
+        |> List.filter (mandatory >> not)
+
+    let isTargetOptionalPrimitiveKey: TypeKey -> bool =
+        isKeyIn targetOptionalPrimitiveKeys
+
+    /// The identity for a target-optional primitive NAME; `ValueNone` for every other spelling.
+    let tryTargetOptionalPrimitiveKey (name: string) : TypeKey voption =
+        match targetOptionalPrimitiveKeys |> List.tryFind (fun k -> k.Name = name) with
+        | Some k -> ValueSome k
+        | None -> ValueNone
+
     /// The ALIAS spellings of the numeric primitives: the ones with no key of their own
     /// (`type int32 = int`, `type single = float32`). Only the NAME axis meets them, and
     /// only before dealiasing.

@@ -107,7 +107,8 @@ let expectMemberKeyHalvesAgree
         )
 
     let implBodies =
-        (SymbolProviders.inlineBodies contract.Provider (List.map PackageSource.readPackage manifests)).Bodies.Members
+        (SymbolProviders.inlineBodies Target.Js contract.Provider (List.map PackageSource.readPackage manifests))
+            .Bodies.Members
 
     for memberName in members do
         let contractKey =
@@ -142,7 +143,11 @@ let frozenOf (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContext jsProvider.Value (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseSemWithContextFor
+            { Name = ""; Target = Target.Js }
+            jsProvider.Value
+            (Hashing.originSourceOfText lexed)
+            file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -161,7 +166,11 @@ let frozenOfJs (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContext jsProvider.Value (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseSemWithContextFor
+            { Name = ""; Target = Target.Js }
+            jsProvider.Value
+            (Hashing.originSourceOfText lexed)
+            file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -248,7 +257,11 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContext provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseSemWithContextFor
+            { Name = ""; Target = Target.Js }
+            provider
+            (Hashing.originSourceOfText lexed)
+            file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -264,7 +277,14 @@ let frozenOwnImplJs (assemblyName: string) (provider: IExternalSymbolProvider) (
     let lexed, file = parseFile input
 
     let frozen =
-        Pipeline.analyseFor assemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor
+            {
+                Name = assemblyName
+                Target = Target.Js
+            }
+            provider
+            (Hashing.originSourceOfText lexed)
+            file
 
     match frozen.Residue.Diagnostics |> Diagnostic.errors with
     | [] -> frozen
@@ -403,7 +423,8 @@ let contractTs (manifest: Schema.PackageManifest) : SymbolProviders.Contract = c
 let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
-    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
+    let tast =
+        Pipeline.analyseSemFor { Name = ""; Target = Target.Js } provider (Hashing.originSourceOfText lexed) file
 
     tast.Diagnostics |> Diagnostic.errors
 

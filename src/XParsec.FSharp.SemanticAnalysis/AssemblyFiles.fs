@@ -17,10 +17,6 @@ module AssemblyFiles =
 
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// What one run of files compiles into: the assembly its local keys are homed in, and the
-    /// target whose platform reprs a signature's `type t = extern` resolves against.
-    type CompilingAssembly = { Name: string; Target: string }
-
     /// The identity every anchor and diagnostic of one file resolves against: the assembly
     /// it is bucketed under, and the name it is known by within it.
     let fileSource (assemblyName: string) (id: AssemblyFileId) (lexed: Lexed) : OriginSource =
@@ -132,7 +128,7 @@ module AssemblyFiles =
     /// The per-file front-end seam: analyse+freeze one parsed file against a composed
     /// provider. A seam so a probe can wrap it and time each file.
     type AnalyseFile =
-        string -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
+        CompilingAssembly -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
 
     /// The namespaces a file DECLARES. F# implicitly opens a file's own `namespace N` over
     /// its body, and that is what reaches a PRIOR file's namespace-direct declarations,
@@ -348,7 +344,7 @@ module AssemblyFiles =
                     [ composed ]
 
         let origin = fileSource assembly.Name unit.Implementation.Id parsed.Lexed
-        let frozen = analyse assembly.Name scoped origin parsed.File
+        let frozen = analyse assembly scoped origin parsed.File
 
         // The two objects the file publishes. The templates key off `SymbolKey` alone, so
         // replacing the signatures below leaves every one of them reachable.

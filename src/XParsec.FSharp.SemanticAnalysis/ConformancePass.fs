@@ -31,10 +31,6 @@ module ConformancePass =
         | Paired of PairResult
         /// `.fsi` with NO companion `.fs` in the impl set.
         | SigOnly of sigFile: string
-        /// `.fsi` with no companion `.fs` for this target, and NOTHING in it that a `.fs`
-        /// could supply: every declaration is an `extern` or a transparent abbreviation.
-        /// Derived from the file's CONTENT: the absent `.fs` states the target has no repr.
-        | Unrepresentable of sigFile: string * types: string list
         /// `.fsi` with no companion `.fs` for this target, whose every `val` the target's
         /// committed RUNTIME ASSET exports (`Vesper.Core.mjs`'s `structuralEquals`), so no
         /// `.fs` is owed. Renaming an export drops the signature file back to `SigOnly`.
@@ -111,28 +107,20 @@ module ConformancePass =
                     None
             | [] -> None
 
-        // A companion-less `.fsi`, split on its own CONTENT: it owes a `.fs` unless EVERY
-        // declaration is satisfied without one, namely an `extern` or transparent abbreviation
-        // always, and a `val` exactly when the committed runtime asset exports it.
+        // A companion-less `.fsi` owes a `.fs` unless every type declaration is an `extern`
+        // or transparent abbreviation AND every `val` is exported by the committed runtime
+        // asset. A type the target has no representation for is OMITTED from the manifest
+        // instead of declared bodiless, so an all-`extern` val-less signature owes one too.
         let unpaired (fsiRel: string) (signature: ParseChain.ParsedSignature) : PairOutcome =
             let decls = Conformance.summariseSig signature.Lexed signature.File
             let valNames = Conformance.summariseSigVals signature.Lexed signature.File
-
-            let externs =
-                decls
-                |> List.choose (fun d -> if d.Shape.DemandsIntrinsic then Some d.Name else None)
 
             let bodiless =
                 decls
                 |> List.forall (fun d -> d.Shape.DemandsIntrinsic || d.Shape = Conformance.SigShape.Abbrev)
 
-            if not bodiless then
+            if not bodiless || List.isEmpty valNames then
                 PairOutcome.SigOnly fsiRel
-            elif List.isEmpty decls && List.isEmpty valNames then
-                // A signature file that declares nothing states nothing.
-                PairOutcome.SigOnly fsiRel
-            elif List.isEmpty valNames then
-                PairOutcome.Unrepresentable(fsiRel, externs)
             else
                 match runtimeAsset with
                 | Some(asset, exports) when valNames |> List.forall exports.Contains ->
@@ -200,13 +188,12 @@ module ConformancePass =
                         match p with
                         | PairOutcome.Paired r -> yield r.SigFile
                         | PairOutcome.SigOnly _
-                        | PairOutcome.Unrepresentable _
                         | PairOutcome.RuntimeServed _
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
-        // `Unrepresentable` / `RuntimeServed` are only reached for a signature file the manifest
-        // does NOT declare `sig-only`, so neither can be a declared exemption's file.
+        // `RuntimeServed` is only reached for a signature file the manifest does NOT declare
+        // `sig-only`, so it cannot be a declared exemption's file.
         let sigOnlySigs =
             set
                 [
@@ -214,7 +201,6 @@ module ConformancePass =
                         match p with
                         | PairOutcome.SigOnly s -> yield s
                         | PairOutcome.Paired _
-                        | PairOutcome.Unrepresentable _
                         | PairOutcome.RuntimeServed _
                         | PairOutcome.ParseFailed _ -> ()
                 ]
@@ -236,9 +222,6 @@ module ConformancePass =
                 | PairOutcome.SigOnly s ->
                     if not (outcome.SigOnlyExemptions.Contains s) then
                         yield err (ConformanceVerdict.SigWithoutImpl s)
-                // ACCEPTED: the absent `.fs` states that this target represents none of
-                // these types.
-                | PairOutcome.Unrepresentable _
                 // ACCEPTED: the committed runtime asset exports every declared value.
                 | PairOutcome.RuntimeServed _ -> ()
                 | PairOutcome.ParseFailed(sigFile, detail) ->

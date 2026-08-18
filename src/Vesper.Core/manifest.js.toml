@@ -10,10 +10,10 @@ files = [
     "prim-types-string.fsi",
     "prim-types-object.fsi",
     "prim-types-exn.fsi",
-    "prim-types-decimal.fsi",
+    # decimal / nativeint / nd-array are ABSENT: JS has no such types, so their contracts are
+    # not declared here. `decimal` / `nativeint` / `unativeint` stay language-known keys, and
+    # a js program writing one is rejected as unsupported on the target.
     "prim-types-bigint.fsi",
-    "prim-types-nativeint.fsi",
-    "prim-types-nd-array.fsi",
     "prim-types-attr.fsi",
     "compiler-attributes.fsi",
     "core-types.fsi",
@@ -42,7 +42,7 @@ files = [
 
 # The JS bodies: platform reprs and spliced operator templates. There is no whole-package JS
 # build (the runtime is the committed `Vesper.Core.mjs`), so most entries are read as splice
-# source, not compiled. nativeint / decimal / nd-array have no JS body.
+# source, not compiled.
 impl = [
     "prim-types-min.js.fs",
     # JS has iteration but no interfaces, so these bind a `!`-prefixed repr that names nothing

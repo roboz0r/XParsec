@@ -8,7 +8,9 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// Flatten a source string to `(label, prefixes)` per element — the prefixes in force there.
 let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed, "")
+
+    let ctx =
+        PassContext(realProvider.Value, Hashing.originSourceOfText lexed, CompilingAssembly.none)
 
     let label (e: ModuleElem<SyntaxToken>) : string =
         match e with

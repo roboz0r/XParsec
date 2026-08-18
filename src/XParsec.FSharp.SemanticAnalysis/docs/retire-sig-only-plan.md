@@ -5,9 +5,9 @@ make "a signature file with no implementation file" a state ANALYSIS CANNOT REPR
 declared exemption, and not a verdict derived from content either. Delete this doc when it
 lands (`feedback_plan_docs_ephemeral`).
 
-**Status (2026-08-16): class A is CLEARED — no manifest anywhere carries a `sig-only` key.**
-Claim 1 is unblocked and gated on nothing; only the mechanical removal below is left. A, A′ and
-B are done; C and D alone still gate claim 2.
+**Status (2026-08-17): A, A′, B and D are DONE; C alone gates claim 2.** No manifest anywhere
+carries a `sig-only` key, so claim 1 is unblocked and only the mechanical removal below is
+left. `PairOutcome.Unrepresentable` is deleted with D; `RuntimeServed` waits on C.
 
 ## Why the key exists at all
 
@@ -37,7 +37,7 @@ Computed by pairing key over every manifest, not from any list. Only the **A** r
 | **A′ — owes a SENTINEL body** | ~~`prim-types-attr.fsi`, `capabilities.fsi` (both js)~~ | write the `.fs`; the repr is a sentinel the backend knows |
 | **B — transparent abbreviation** | ~~`capabilities-compat.js.fsi`, `list-bcl.clr.fsi`~~ | write the `.fs`; it pairs |
 | **C — served by a runtime asset** | `ops-platform-runtime.js.fsi`, `comparison-runtime.js.fsi` | **deferred** — representation still to be decided |
-| **D — the js target has no such type** | `prim-types-decimal.fsi`, `prim-types-nativeint.fsi`, `prim-types-nd-array.fsi` | omit from `manifest.js.toml` entirely |
+| **D — the js target has no such type** | ~~`prim-types-decimal.fsi`, `prim-types-nativeint.fsi`, `prim-types-nd-array.fsi`~~ | **DONE** — omitted from `manifest.js.toml`; see below |
 
 Every file is classified. C is the only class without an answer.
 
@@ -232,7 +232,36 @@ rule, which is a different claim: a class over an intrinsic-repr base emits no d
 BECAUSE its construction already lowers to the base's repr. Owing a body and emitting one are
 separate questions, and only the second is answered by the walk.
 
-## D: a type the target does not have is ABSENT, not declared-and-unimplemented
+## D: a type the target does not have is ABSENT, not declared-and-unimplemented — LANDED 2026-08-17
+
+**What landed, and where it differs from the sketch below:**
+
+- The three `.fsi`s are out of `manifest.js.toml`. The target reaches `PassContext` as
+  `CompilingAssembly { Name; Target }` (moved to `PassContext.fs` from `AssemblyFiles`), which
+  is now the parameter of the whole `Pipeline.…For` family and of `AnalyseFile`; the
+  target-less variants pass `CompilingAssembly.none`.
+- **Target-optional is every built-in primitive except the `prim-types-min` trio** (user,
+  2026-08-17) — `int` / `bool` / `unit` are the only identities a target MUST declare.
+  `RuntimeNames.targetOptionalPrimitiveKeys` derives from `numericKeys` /
+  `referencePrimitiveKeys` plus `bigint` / `undefined`, minus the trio, rather than naming
+  backends' current gaps. `IntrinsicSet.get` keeps its `failwithf` only for the trio; for a
+  target-optional key with no contract it mints the canon `TyConst`. No `voption` and no
+  diagnostic at the mint: `PlatformTypes` reports the mention, exactly as it already did for
+  a published `IntrinsicPlatform.Unsupported`, now also for a language-known key that
+  nothing declares. The diagnostic site and message are therefore unchanged, and the corpus
+  pins pass as written.
+- A WRITTEN `nativeint` / `unativeint` / `decimal` resolves the same way: the bare-name
+  fallback in `Translate.resolveBareTypeName` (previously the `undefined`-only arm) mints the
+  key, and NameResolution's `classifyingTypeIter` skips its `UndefinedType` report for these
+  names. `undefined` on the CLR now gets `UnsupportedOnTarget` rather than silence, which is
+  the same rule with the targets swapped.
+- `nativeptr` / `ilsigptr` and `nd-array` are built-in-primitive identities of no list, so
+  on js they are plain undefined types; `voidptr` has a key (`referencePrimitiveKeys`) and
+  is refused as unsupported. Pinned in `UnsupportedOnTargetTests`.
+- `PairOutcome.Unrepresentable` is deleted; an all-`extern` val-less companion-less `.fsi` is
+  a `SigWithoutImpl` hard error, pinned by a synthetic-package test in `ConformanceTests`.
+
+The original analysis, kept for the reasoning:
 
 `prim-types-{decimal,nativeint,nd-array}.fsi` come out of `manifest.js.toml`. A `.fsi` that
 exists only to go unimplemented is the same evasion as `sig-only`, one level down.
@@ -311,12 +340,13 @@ Follows `96837bff Remove impl-only as a category from source manifests` exactly.
   necessarily a subset of `files`. An unknown key becomes a parse error, which is what makes a
   stale manifest fail loudly instead of quietly losing its exemption.
 - **`ConformancePass`**: `PackageOutcome.SigOnlyExemptions`, the `declaredSigOnly`
-  short-circuit, and `PairOutcome.SigOnly` / `Unrepresentable` / `RuntimeServed` — all four
-  routes go with the state they described. `Unrepresentable` goes with D; `RuntimeServed`
-  cannot go until C is answered.
+  short-circuit, and `PairOutcome.SigOnly` / `RuntimeServed` — the routes go with the state
+  they described. ~~`Unrepresentable`~~ went with D; `RuntimeServed` cannot go until C is
+  answered.
 - ~~**`Conformance`**: `SigShape.ImplOptional` and its doc comment~~ — **DONE** with B.
-- **`Intrinsics`**: `IntrinsicSet.get`'s `failwithf`, replaced by an
-  `UnsupportedOnTarget`-bearing answer — the prerequisite for D.
+- ~~**`Intrinsics`**: `IntrinsicSet.get`'s `failwithf`, replaced by an
+  `UnsupportedOnTarget`-bearing answer~~ — **DONE** with D, as `getTargetOptional` for the
+  target-optional members only; the mandatory ones keep failing loudly.
 - **`ConformanceVerdict`**: `StaleSigOnly` / `UnknownSigOnly` / `SigWithoutImpl`, the V240 and
   V243 mappings and their messages, with the `FrozenCodecDiagnostics` wire tags renumbered
   densely and `Cache.CodeVersion` bumped.
@@ -332,7 +362,7 @@ The headline is two claims, and only the first is fully scoped:
 1. **Delete `sig-only` from the schema.** Needs class A alone. `Vesper.Core` is done; only
    printf's four entries remain, and nothing else blocks it.
 2. **Make the bodiless state unrepresentable.** Needs A, A′, B, D **and C**, which is deferred
-   by decision. A, A′ and B are done; D is ready to start and gated on nothing.
+   by decision. A, A′, B and D are done; C alone remains.
 
 ## What this settles for the fold
 

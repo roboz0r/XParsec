@@ -413,7 +413,7 @@ let structTests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 

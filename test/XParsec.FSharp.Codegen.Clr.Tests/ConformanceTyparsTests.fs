@@ -26,7 +26,14 @@ let tests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseFor "Vesper.List" analysisProvider (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseFor
+                        {
+                            Name = "Vesper.List"
+                            Target = Target.Clr
+                        }
+                        analysisProvider
+                        (Hashing.originSourceOfText lexed)
+                        file
 
                 Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
@@ -137,7 +144,14 @@ let tests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseFor "Vesper.Printf" analysisProvider (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseFor
+                        {
+                            Name = "Vesper.Printf"
+                            Target = Target.Clr
+                        }
+                        analysisProvider
+                        (Hashing.originSourceOfText lexed)
+                        file
 
                 let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 

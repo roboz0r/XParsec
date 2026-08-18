@@ -43,6 +43,13 @@ let (|TyClass|_|) (t: SemType) =
 /// list literal: `| EqList [ TDecl.Let _ ] -> …`.
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
+/// `project` as the compiling identity the pipeline takes; this suite always compiles clr.
+let compilingClr (project: ProjectInfo) : CompilingAssembly =
+    {
+        Name = project.AssemblyName
+        Target = Target.Clr
+    }
+
 /// A frozen file's declarations as pool handles with the specialization graph expanded,
 /// which is the representation the backend starts from. Until this runs, an inline body
 /// sits behind an edge rather than in the tree.
@@ -231,7 +238,7 @@ let vesperListDll: Lazy<string> =
          let lexed, file = parseFile src
 
          let tast =
-             Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+             Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
          let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
@@ -433,7 +440,7 @@ let private compileContract
     let lexed, file = parseFile input
     // Callers assert on the SemType tree; codegen takes the frozen one.
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseSemWithContextFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let artifact = Codegen.compile provider (withCore project) (Freeze.run ctx tast)
     tast, artifact
@@ -464,7 +471,7 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseSemWithContextFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let frozen = Freeze.run ctx tast
     let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
@@ -712,7 +719,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -769,7 +776,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -927,7 +934,7 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let lexed, file = parseFile src
 
     let tast =
-        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 

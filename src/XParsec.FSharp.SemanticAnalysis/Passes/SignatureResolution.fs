@@ -762,6 +762,15 @@ module SignatureResolution =
         (inputs: SignatureInputs)
         (file: SignatureFile<SyntaxToken>)
         : PublishedSurface * Diagnostic list =
-        let ctx = PassContext(visible, source, inputs.Assembly)
+        let ctx =
+            PassContext(
+                visible,
+                source,
+                {
+                    Name = inputs.Assembly
+                    Target = inputs.Target
+                }
+            )
+
         let surface = run ctx inputs file
         surface, List.ofSeq ctx.Diagnostics

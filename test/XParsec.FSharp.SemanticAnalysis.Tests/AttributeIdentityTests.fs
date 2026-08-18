@@ -11,7 +11,10 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed, "")
+
+    let ctx =
+        PassContext(realProvider.Value, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
     Desugar.run ctx file
     NameResolution.run ctx file
     ctx

@@ -57,6 +57,7 @@ module SymbolProviders =
     /// type-checked and frozen once against `provider`. Manifest/decl order, so a later body
     /// wins a clash.
     let inlineBodies
+        (target: string)
         (provider: IExternalSymbolProvider)
         (packages: PackageSource.ParsedPackage list)
         : CollectedInlineBodies =
@@ -83,7 +84,14 @@ module SymbolProviders =
             // one the package's own symbols are stamped with, so a served key and a resolved
             // one agree.
             let ctx, sem =
-                Pipeline.analyseSemWithContextFor manifest.Name provider origin impl.File
+                Pipeline.analyseSemWithContextFor
+                    {
+                        Name = manifest.Name
+                        Target = target
+                    }
+                    provider
+                    origin
+                    impl.File
 
             // Freezing an errored tree prunes the failed declarations; pooling then
             // trips on side-table entries that outlived them, blaming the file's FIRST
@@ -219,7 +227,7 @@ module SymbolProviders =
                                  let composed =
                                      PackageProviders.composeOrdered platformMetadata packages transitiveDeps
 
-                                 let collected = inlineBodies composed.Provider packages
+                                 let collected = inlineBodies target composed.Provider packages
 
                                  // A later body wins a clash (the list is in manifest/decl order).
                                  let byName =

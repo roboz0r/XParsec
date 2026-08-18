@@ -5,6 +5,15 @@ open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
+/// What one run of files compiles into: the assembly its local keys are homed in, and the
+/// target whose platform reprs a signature's `type t = extern` resolves against.
+type CompilingAssembly = { Name: string; Target: string }
+
+[<RequireQualifiedAccess>]
+module CompilingAssembly =
+    /// A front-end-only run that emits nothing: no home assembly, no target.
+    let none: CompilingAssembly = { Name = ""; Target = "" }
+
 [<Sealed>]
 type KeyedTable<'K, 'V when 'K: equality>() =
     let dict = Dictionary<'K, 'V>(HashIdentity.Structural)
@@ -229,7 +238,7 @@ type CoreAccessIntrinsics =
 /// Single-threaded: the side tables, `Diagnostics` and `TypeVar` graph all mutate in place.
 /// Parallelism is per FILE, so one context each; only the provider crosses threads.
 [<Sealed>]
-type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemblyName: string) =
+type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assembly: CompilingAssembly) =
     // One file re-asks the same queries many times, each walking every composite layer.
     // Shadows the ctor arg, so every member below sees the memoised view.
     let provider = ExternalSymbolProviders.memoize provider
@@ -285,7 +294,11 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
 
     /// The simple name of the assembly this file emits into; `""` where nothing is emitted.
     /// NOT part of any `SymbolKey`: nominal identity is the containment chain alone.
-    member val AssemblyName = assemblyName with get
+    member val AssemblyName = assembly.Name with get
+
+    /// The compiling target (`"clr"` / `"js"`); `""` for a front-end-only run. Names the
+    /// target when a language-known primitive the target does not declare is reported.
+    member val Target = assembly.Target with get
     member _.Diagnostics = diagnostics
 
     /// Run `f` with everything it reports collected APART rather than appended, handed back

@@ -215,9 +215,10 @@ diagnose = { js = "unativeint is not supported on the js target" }
 width = "unativeint"
 operators = ["+", "-", "*", "/", "%", "~+"]
 
-# `decimal` is the width the two backends differ on for the plan's ONE reason: the CLR has a
-# repr for it and JS has none, so the same six declarations on `prim-types-decimal.fsi` are
-# reachable there and unreachable here. It is also the only width whose bodies are BCL CALLS
+# `decimal` is the width the two backends differ on for the plan's ONE reason: the CLR
+# declares it (`prim-types-decimal.fsi`) and the js manifest omits it, so the width exists
+# there and is refused off the language-known key here. It is also the only width whose
+# bodies are BCL CALLS
 # (`Decimal.Add`, …) — no CIL mnemonic adds two decimals — so its golden is what judges that
 # a spliced call answers as a spliced opcode does.
 [[program]]

@@ -160,7 +160,10 @@ let tests =
 
                 let input = "let y = broken"
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+                let ctx =
+                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -202,7 +205,10 @@ let tests =
                     ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]
 
                 let lexed, file = parseFile "let a = broken 1\nlet b = broken 2\nlet c = broken 3"
-                let ctx = PassContext(provider, Hashing.originSourceOfText lexed, "")
+
+                let ctx =
+                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
