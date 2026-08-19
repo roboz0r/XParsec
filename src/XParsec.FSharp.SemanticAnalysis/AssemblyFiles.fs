@@ -28,7 +28,8 @@ module AssemblyFiles =
             lexed
 
     /// One INPUT file of an assembly: its source text, and the name it is known by within that
-    /// assembly, which anchors its diagnostics and keys the frozen cache. Nothing reopens `Id`.
+    /// assembly, which anchors its diagnostics and identifies its frozen tree's nodes. Nothing
+    /// reopens `Id`.
     type SourceFile = { Id: AssemblyFileId; Text: string }
 
     [<RequireQualifiedAccess>]

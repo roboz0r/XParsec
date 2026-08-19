@@ -7,7 +7,7 @@
     <Compile Include="EqArray.fs" />
     <Compile Include="EqSet.fs" />
     <Compile Include="Fifo.fs" />
-    <Compile Include="Cache.fs" />
+    <Compile Include="InputHash.fs" />
     <Compile Include="Compression.fs" />
     <Compile Include="RecordFieldClassifier.fs" />
     <Compile Include="Anchor.fs" />
@@ -106,7 +106,6 @@
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="PackageSource.fs" />
     <Compile Include="Hashing.fs" />
-    <Compile Include="FrozenCache.fs" />
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <Compile Include="FrozenSignature.fs" />

@@ -23,7 +23,6 @@
     <Compile Include="MetadataStructure.fs" />
     <Compile Include="ClrStructuralDigest.fs" />
     <Compile Include="ClrDriverTests.fs" />
-    <Compile Include="FrozenCacheIncrementalTests.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="PrintfPartialTests.fs" />
     <Compile Include="NoFSharpCoreTests.fs" />

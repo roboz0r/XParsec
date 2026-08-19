@@ -312,8 +312,9 @@ module C =
                 | ValueNone -> failtest "file 3's scoped provider did not resolve dup"
             }
 
-            // A name is hashed into the frozen-cache key and never reopened, so one that varies
-            // with the checkout or the host OS freezes the same sources to different trees.
+            // A frozen tree's nodes carry the `OriginPath` their anchors index, and the name is
+            // never reopened, so one that varies with the checkout or the host OS freezes the
+            // same sources to different trees.
             test "a ROOTED name is refused, on every OS rather than the host one" {
                 for rooted in [ "/z.fs"; "\\z.fs"; "C:/work/z.fs"; "D:\\work\\z.fs" ] do
                     match AssemblyFileId.tryOfRelative rooted with
@@ -355,7 +356,7 @@ module C =
 
                     if System.IO.File.Exists(System.IO.Path.Combine(dir, "mixedcase.fs")) then
                         // Case-insensitive: both spellings open ONE file, so both must give the
-                        // one name it has, or its cache key forks on how it was asked for.
+                        // one name it has, or its anchors fork on how it was asked for.
                         Expect.equal
                             (SourceFile.read dir "mixedcase.fs").Id
                             (AssemblyFileId.ofRelative "MixedCase.fs")

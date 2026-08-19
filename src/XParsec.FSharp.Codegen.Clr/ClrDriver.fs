@@ -17,18 +17,6 @@ type ClrCompilation =
         CompilationDefines: Set<string>
     }
 
-/// A `ClrCompilation` resolved ONCE for reuse across its files: the digest half of every file's
-/// cache key, paired with the provider built from the same inputs.
-type PreparedCompilation =
-    private
-        {
-            Inputs: ClrCompilation
-            Digest: Hashing.CompilationDigest
-            /// The reference set already GATED, so a compilation whose contracts failed to
-            /// resolve is refused for the whole run and not once per file.
-            Contract: Result<PackageProviders.AnalyzedManifest, Diagnostic list>
-        }
-
 module ClrCompilation =
 
     /// References packages, defines no primitives of its own. The shape to reach for unless
@@ -105,89 +93,6 @@ module ClrDriver =
                         parsed.File
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast
-
-    /// Everything a cached front end depends on EXCEPT one file's text. Fold it once per
-    /// compilation: reading the reference closure costs what the front end a hit elides does.
-    let compilationDigest (inputs: ClrCompilation) : Hashing.CompilationDigest =
-        Hashing.compilationDigest
-            {
-                HomeAssembly = inputs.Project.AssemblyName
-                Target = Target.Clr
-                ReferenceAssemblies = inputs.ReferenceAssemblies
-                Packages = inputs.Packages
-                SelfPackage = inputs.SelfPackage
-                CompilationDefines = inputs.CompilationDefines
-            }
-
-    /// Resolve a compilation's per-file-invariant work: the digest and the contract provider,
-    /// which each read the dependency closure.
-    let prepare (inputs: ClrCompilation) : PreparedCompilation =
-        {
-            Inputs = inputs
-            Digest = compilationDigest inputs
-            Contract = contractFor inputs |> Result.mapError unanchored
-        }
-
-    /// `compile` through the frozen-compile cache: a HIT skips parse + analyse + freeze, and an
-    /// errored front end comes back as `Error` and is NOT stored. Emission is never elided, so
-    /// the provider serves both paths.
-    let compileCachedWith
-        (store: ICacheStore)
-        (prepared: PreparedCompilation)
-        (source: string)
-        : Result<ClrArtifact, Diagnostic list> =
-        let inputs = prepared.Inputs
-
-        match prepared.Contract with
-        | Error contractErrors -> Error contractErrors
-        | Ok contract ->
-
-            // The key covers the path the frozen tree's nodes name, so a hit cannot serve a tree
-            // anchored elsewhere.
-            let path = Hashing.textOriginPath source
-
-            let key =
-                {
-                    Query = QueryId.Freeze
-                    CodeVersion = Cache.CodeVersion
-                    Input = Hashing.fileInputHash path source prepared.Digest
-                }
-
-            FrozenCache.freezeResult
-                store
-                key
-                (fun () ->
-                    match ParseChain.parseUnrecovered inputs.CompilationDefines source with
-                    | Error diagnostics -> Error diagnostics
-                    | Ok parsed ->
-                        let tast =
-                            Pipeline.analyseFor
-                                {
-                                    Name = inputs.Project.AssemblyName
-                                    Target = Target.Clr
-                                }
-                                contract.Provider
-                                (Hashing.originSource path parsed.Lexed)
-                                parsed.File
-
-                        // The CACHING gate, which shares codegen's predicate: an errored front
-                        // end is not worth a cache entry, and never becomes one.
-                        match FrozenPools.blockingErrors tast with
-                        | [] -> Ok tast
-                        | errors -> Error errors
-                )
-            |> Result.bind (fun frozen ->
-                Codegen.compileWithReferences inputs.ReferenceAssemblies contract.Provider inputs.Project frozen
-            )
-
-    /// `compileCachedWith` for a ONE-FILE compilation, preparing inline. Several files through
-    /// this would re-read the whole dependency closure per file.
-    let compileCached
-        (store: ICacheStore)
-        (inputs: ClrCompilation)
-        (source: string)
-        : Result<ClrArtifact, Diagnostic list> =
-        compileCachedWith store (prepare inputs) source
 
     /// An ordered source-file list analysed as one assembly and emitted as ONE PE, so a
     /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back

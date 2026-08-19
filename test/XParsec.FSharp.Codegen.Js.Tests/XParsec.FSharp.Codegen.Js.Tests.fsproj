@@ -83,7 +83,6 @@
     <Compile Include="ConformanceRoundTripByteIdentityTests.fs" />
     <Compile Include="FrozenCodecRoundTripTests.fs" />
     <Compile Include="FrozenCodecTreeRoundTripTests.fs" />
-    <Compile Include="FrozenCacheHitMissTests.fs" />
     <Compile Include="JsPackageTests.fs" />
     <Compile Include="RuntimeAssetTests.fs" />
     <Compile Include="Program.fs" />

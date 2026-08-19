@@ -992,8 +992,9 @@ let tests =
                     }
                 ]
 
-            // The compile cache key folds `sourceInputs`; the provider build reads only what a
-            // list NAMES. A file in the second set and not the first is a stale cache hit.
+            // `sourceInputs` reports the sources a provider build reads, which is what a list
+            // NAMES and no runtime asset. A caller deriving a package's inputs from it and the
+            // build disagreeing means the caller misses a file the build resolves through.
             testList
                 "sourceInputs covers what the provider build reads"
                 [

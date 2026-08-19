@@ -137,17 +137,33 @@ later, where both sides already are.
 This also makes the conformance follow-up a comparison of two values of one named type
 rather than a cross-representation reconciliation.
 
-### `PublishedSurface` is headed for content-addressed memoization (user, 2026-08-15)
+### `PublishedSurface` serves two axes, and they want different things (user, 2026-08-18)
 
-The goal it serves beyond this plan: key a downstream file on the surface its predecessors
-published, so an edit confined to a non-`inline` body leaves the surface hash unmoved and
-every later file cuts off early. Today's key folds source BYTES — `Hashing.fs:71-74` reads
-the contents of every source a package names — which by construction cannot cut off; and the
-cache is single-file (`ClrDriver.compileCachedWith` takes one `source`), so the multi-file
-stack has no environment in its key at all.
+Two consumers want a published surface, on axes that were conflated in the original version of
+this section and are now separated. The frozen-half work below serves both; the hashing does
+not.
 
-That makes the frozen half a VALUE: immutable, key-ordered, structurally equatable, and
-hashable by canonical serialization. Three things stand between the builder's tables and it:
+**Design-time early cutoff — in memory, structural hashing.** Key a downstream file on the
+surface its predecessors published, so an edit confined to a non-`inline` body leaves the
+surface unmoved and every later file cuts off early. This is `D:\roboz0r\merkle-dag`'s job and
+its `Rule.firewall` is exactly this shape: identity is the content hash of the result, and
+propagation stops where the surface is unchanged. That library takes values inline and has no
+codecs, so this axis needs **no canonical serialization at all** — an earlier draft of this
+section specified `XxHash128` over one, which is wire machinery applied to an in-memory
+problem, the same category error the deleted compile cache made.
+
+**Cross-boundary transport — persisted, canonical serialization.** A surface travelling out of
+the compilation that produced it, to be read by a later process: this is the wire axis, it does
+need a canonical encoding, and `FrozenCodec` is both the precedent and the likely mechanism.
+`XxHash128` over that encoding rather than `GetHashCode` — .NET randomizes string hash codes
+per process, so anything persisted and keyed on it misses after every restart.
+
+No wire consumer exists yet. `FrozenCodec` is dormant, not dead: as of 2026-08-18 nothing in
+`src/` calls `flatten`/`thaw`, and its round-trip and byte-identity tests are what keep the
+format shippable until one arrives.
+
+The frozen half is a VALUE on either axis: immutable, key-ordered, structurally equatable.
+Three things stand between the builder's tables and it:
 
 - **Dictionary fields defeat derived equality.** `Dictionary` does not override `Equals`, so
   a record holding them has per-field REFERENCE equality — it compiles and always
@@ -163,21 +179,21 @@ hashable by canonical serialization. Three things stand between the builder's ta
   exist because `ArgGroupG` is shared with the implementation side, where patterns are real.
   **Unverified:** that the `.fs` half agrees — `FrozenSignature.valReprToDeclaring` copies
   real pattern trees, and what survives into the published grouping needs checking.
-- **Order is not contractual.** A canonical digest needs key-ordered folding, as
-  `Hashing.fs:53` already does for its input set.
+- **Order is not contractual.** Structural equality over the value needs key-ordered fields,
+  and a canonical encoding on the wire axis needs key-ordered folding besides.
 
-The hash comes from `XxHash128` over a canonical serialization, never `GetHashCode`: .NET
-randomizes string hash codes per process, so an on-disk cache keyed on it misses after every
-restart. `FrozenCodec` is the precedent.
+Paths are already fine on both axes: a surface carries relative ones (`OriginPath` = bucket
+name + `AssemblyFileId.Relative`), so it is checkout-portable.
 
-Paths are already fine: a surface carries relative ones (`OriginPath` = bucket name +
-`AssemblyFileId.Relative`), so its hash is checkout-portable.
-
-**Sequencing (user, 2026-08-15).** The consumer is a prototype outside this repo, and its
-integration is not planned until after the retire-sig-only work (landed 2026-08-17: every
-`.fsi` pairs, the `sig-only` schema is gone), whose attribute gate reaches back to this plan —
-so the chain is this plan → [attribute-representation](attribute-representation-plan.md) →
-integration, and the whole `.fsi` front end lands first.
+**Sequencing (user, 2026-08-15, revised 2026-08-18).** Merkle.Dag is a prototype outside this
+repo, and its integration is not planned until after the retire-sig-only work (landed
+2026-08-17: every `.fsi` pairs, the `sig-only` schema is gone), whose attribute gate reaches
+back to this plan — so the chain is this plan →
+[attribute-representation](attribute-representation-plan.md) → integration, and the whole
+`.fsi` front end lands first. The manifest-default migration in
+[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md) precedes integration
+too: a firewall needs the per-file published surface that the multi-file fold already computes
+and the single-file path never had.
 
 **Constraint on step 3:** the new front end fills a mutable BUILDER and freezes it, as
 `PoolBuilder` → `FrozenPools` already does. What must exist early is only the BOUNDARY —

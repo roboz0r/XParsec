@@ -4,10 +4,10 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// A cache key hashes inputs, not the blob, so compression is a pure size optimization and the
-// contract to gate is the exact round-trip `decompress (compress b) = b`.
+// Compression is a pure size optimization over an already-encoded blob, so the contract to
+// gate is the exact round-trip `decompress (compress b) = b`.
 
-/// A real flattened blob — the payload the cache stores.
+/// A real flattened blob — the payload the wire format carries.
 let private realFrozenBlob () : byte[] =
     FrozenCodec.flatten (freezeFor "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n")
 
