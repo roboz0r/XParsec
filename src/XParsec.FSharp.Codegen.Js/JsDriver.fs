@@ -120,7 +120,9 @@ module JsDriver =
             // assembly's own sources join the references' before any file is emitted.
             let origins = OriginSources.addAll analysed.Origins contract.Origins
 
-            let emitted =
+            // Each file's compile keeps its source identity, which is both the module path it
+            // emits to and the file a refusal is blamed on.
+            let compiled =
                 [
                     for file in analysed.Files do
                         let fileId = file.Source.File.Path.Relative
@@ -140,39 +142,68 @@ module JsDriver =
                                         }
                             }
 
-                        let artifact =
-                            Codegen.compileWith
-                                { contract with
-                                    Provider = file.Scoped
-                                    Origins = origins
-                                }
-                                project
-                                file.Frozen
-
-                        if not artifact.IsEmpty then
-                            {
-                                Source = fileId
-                                Path = JsModulePath.ofSource packageName relative
-                                Artifact = artifact
-                            }
+                        {|
+                            Source = fileId
+                            Path = JsModulePath.ofSource packageName relative
+                            Artifact =
+                                Codegen.compileWith
+                                    { contract with
+                                        Provider = file.Scoped
+                                        Origins = origins
+                                    }
+                                    project
+                                    file.Frozen
+                        |}
                 ]
 
-            let assets =
-                emitted
-                |> List.collect (fun m -> m.Artifact.RuntimeModules)
-                |> List.distinctBy (fun (a: JsRuntimeModule) -> a.Path)
+            // Codegen's gate firing on a tree `analyseGated` already passed means the two
+            // disagree; the finding is re-filed against the file that produced it.
+            let refusals =
+                [
+                    for c in compiled do
+                        match c.Artifact with
+                        | Error errors ->
+                            yield!
+                                AssemblyFiles.unpositionedDiagnostics
+                                    c.Source
+                                    [ for d in errors -> Diagnostic.nowhere (Kind.Driver d.Message) ]
+                        | Ok _ -> ()
+                ]
 
-            match modulePathCollisions packageName emitted with
-            | _ :: _ as errors -> Error errors
+            match refusals with
+            | _ :: _ -> Error refusals
             | [] ->
-                checkResolvable packageName emitted assets
+                // A file that lowers to no statements writes no module, so it joins neither
+                // the barrel nor the collision check.
+                let emitted =
+                    [
+                        for c in compiled do
+                            match c.Artifact with
+                            | Ok artifact when not artifact.IsEmpty ->
+                                {
+                                    Source = c.Source
+                                    Path = c.Path
+                                    Artifact = artifact
+                                }
+                            | _ -> ()
+                    ]
 
-                Ok
-                    {
-                        Name = packageName
-                        Modules = emitted
-                        RuntimeAssets = assets
-                    }
+                let assets =
+                    emitted
+                    |> List.collect (fun m -> m.Artifact.RuntimeModules)
+                    |> List.distinctBy (fun (a: JsRuntimeModule) -> a.Path)
+
+                match modulePathCollisions packageName emitted with
+                | _ :: _ as errors -> Error errors
+                | [] ->
+                    checkResolvable packageName emitted assets
+
+                    Ok
+                        {
+                            Name = packageName
+                            Modules = emitted
+                            RuntimeAssets = assets
+                        }
         )
 
     /// Write `package` under the output `root`: its modules and barrel into `<root>/<Name>/`,

@@ -176,6 +176,12 @@ type TypeStore() =
     /// consumed WHOLESALE, so this family clears per-tv through `Set`.
     member val Defaults = PayloadList<SemType>(fun winner loser -> winner @ loser) with get
 
+    /// Every TyVar some binding's `TypeScheme` quantifies. A member of this set is a type
+    /// PARAMETER of the enclosing signature, so a later pass that settles leftover inference
+    /// vars must leave it free. Roots move under later unions, so read it through
+    /// `UnionFind.find` rather than by identity.
+    member val Quantified = System.Collections.Generic.HashSet<TyVarId>() with get
+
     member this.MergePayloads(winner: Rep, loser: Rep) : unit =
         this.Constraints.Join(winner, loser)
         this.Srtp.Join(winner, loser)

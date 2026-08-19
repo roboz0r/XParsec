@@ -226,11 +226,9 @@ let tests =
                 let src =
                     "namespace Vesper.Collections\n\ntype IntList =\n    | Empty\n    | Cons of int * IntList\n\nlet rec sum xs =\n    match xs with\n    | Empty -> 0\n    | Cons(h, t) -> h + sum t"
 
-                let tast = analyse src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
-
                 let project = ProjectInfo.library "Vesper.Collections"
-                let artifact = compileSourceTo project src
+                let tast, artifact = compileSourceTo project src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 expectNoFSharpCore artifact "the union + concrete fold"
 
@@ -382,18 +380,8 @@ let tests =
                 // assembly name; under any other it is a type a reference already claims.
                 let project = ProjectInfo.library "Vesper.List"
 
-                let lexed, file = parseFile src
-
-                let tast =
-                    Pipeline.analyseSemFor
-                        (compilingClr project)
-                        (ClrSymbolProviders.buildContract defaultPackages)
-                        (Hashing.originSourceOfText lexed)
-                        file
-
+                let tast, artifact = compileSourceTo project src
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-
-                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the generic union (int / 'T / self fields)"
 
@@ -465,11 +453,9 @@ let tests =
             test "a generic union with members compiles to a BCL-only library DLL; members reflect + run" {
                 let src = "namespace Vesper.Collections\n\n" + genMemberSrc
 
-                let tast = analyse src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
-
                 let project = ProjectInfo.library "Vesper.Collections.GenMembers"
-                let artifact = compileSourceTo project src
+                let tast, artifact = compileSourceTo project src
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 expectNoFSharpCore artifact "the generic union + instance members"
 

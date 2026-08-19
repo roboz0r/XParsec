@@ -26,6 +26,7 @@ let private compileSeqConsumer (name: string) (input: string) : JsArtifact =
         }
 
     Codegen.compileWith seqConsumerContract.Value project (frozenImplJs seqConsumerContract.Value.Provider input)
+    |> emitted name
 
 /// `Seq.truncate` and `Seq.toArray` are the only external functions; nothing here references the
 /// Array or Core packages, whose assets `Vesper.Seq.mjs` imports on its own account. The

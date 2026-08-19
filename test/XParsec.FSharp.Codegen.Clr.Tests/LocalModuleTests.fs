@@ -119,7 +119,9 @@ let nestedEmission =
         "LocalModule nested emission"
         [
             test "a module-held type binds by its nested metadata name" {
-                let artifact = compileSourceTo (ProjectInfo.library "ModuleHeldType") moduleHeldType
+                let _, artifact =
+                    compileSourceTo (ProjectInfo.library "ModuleHeldType") moduleHeldType
+
                 let bytes = Codegen.toBytes artifact
                 MetadataStructure.assertWellFormed "ModuleHeldType" bytes
 
@@ -133,7 +135,9 @@ let nestedEmission =
             // Module-class discovery reads the emitted TYPES' containment chains, so a
             // module with no `let` at all still gets a class.
             test "a module holding only types still gets its module class" {
-                let artifact = compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
+                let _, artifact =
+                    compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
+
                 let bytes = Codegen.toBytes artifact
 
                 let ts = MetadataStructure.emittedTypes bytes |> List.map (fun t -> t.Name)
@@ -157,7 +161,7 @@ let nestedEmission =
                             "        let twice (n: int) = n + n"
                         ]
 
-                let artifact = compileSourceTo (ProjectInfo.library "NestedModuleClass") src
+                let _, artifact = compileSourceTo (ProjectInfo.library "NestedModuleClass") src
                 let bytes = Codegen.toBytes artifact
                 MetadataStructure.assertWellFormed "NestedModuleClass" bytes
 

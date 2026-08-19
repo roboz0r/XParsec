@@ -253,3 +253,15 @@ module FrozenPools =
     let typarArity (pools: FrozenPools) (boundVar: BoundVarId) : int =
         BoundVarColumn.tryItem pools.BindingTyparArities boundVar
         |> ValueOption.defaultValue 0
+
+    // Qualified for the same reason `FrozenFileResidue.Diagnostics` is: the opened
+    // `XParsec.FSharp.Parser` declares its own `Diagnostic`, which the bare name binds to.
+
+    /// The findings that block emission: the error-severity ones. A tree free of these may
+    /// still carry warnings, and emits with them.
+    let blockingErrors (pools: FrozenPools) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
+        Diagnostic.errors pools.Residue.Diagnostics
+
+    /// `blockingErrors` over a whole assembly's files, in file order.
+    let blockingErrorsOfAll (tasts: FrozenPools list) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
+        List.collect blockingErrors tasts

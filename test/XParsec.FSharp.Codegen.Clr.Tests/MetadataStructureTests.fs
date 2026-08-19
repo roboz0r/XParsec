@@ -65,7 +65,9 @@ let private libraryBytes: Lazy<byte[]> =
                     "    member c.Start = start"
                 ]
 
-         compileSourceTo (ProjectInfo.library "MetaStructLibrary") src |> Codegen.toBytes)
+         compileSourceTo (ProjectInfo.library "MetaStructLibrary") src
+         |> snd
+         |> Codegen.toBytes)
 
 // ---- The teeth: a hand-built, deliberately mis-ordered metadata image ---------
 // The emitter cannot be made to emit a bad PE, so the corrupt image is built here with

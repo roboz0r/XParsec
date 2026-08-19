@@ -26,7 +26,7 @@ let tests =
             test "compiles prim-types-min.clr.fs to a Vesper.Core.dll with the Fun`2 interface and no FSharp.Core" {
                 let src = File.ReadAllText(vesperCoreSource "prim-types-min.clr.fs")
                 let project = ProjectInfo.library "Vesper.Core"
-                let artifact = compileSourceTo project src
+                let _, artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the Fun interface"
 
@@ -93,7 +93,7 @@ let tests =
                     "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
 
                 let project = ProjectInfo.library "Vesper.Mapper"
-                let artifact = compileSourceTo project src
+                let _, artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "a typar-only signature"
 
@@ -134,7 +134,7 @@ let tests =
                     // Distinct assembly names so two same-shaped PEs don't collide
                     // on identity when both are `Assembly.Load`ed in this process.
                     let project = ProjectInfo.library (sprintf "Vesper.G7Box.%s" asmSuffix)
-                    let artifact = compileSourceTo project src
+                    let _, artifact = compileSourceTo project src
 
                     expectNoFSharpCore artifact "a primitive-only interface"
 
@@ -182,7 +182,7 @@ let tests =
                     "namespace Vesper\n\ntype Applier<'A, 'B> =\n    abstract member Apply : f: ('A -> 'B) -> x: 'A -> 'B"
 
                 let project = ProjectInfo.library "Vesper.Applier"
-                let artifact = compileSourceTo project src
+                let _, artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the function-typed parameter is Vesper.Fun"
 
@@ -404,7 +404,7 @@ let tests =
                 "the canonical sample's on-disk bundle ships Vesper.Core + Vesper.List + Vesper.Printf, no FSharp.Core.dll" {
                 let outDir = tmpDir "selfhost-bundle"
                 let project = withCore (ProjectInfo.app "XParsecBundle" outDir)
-                let artifact = compileSourceTo project fullSample
+                let _, artifact = compileSourceTo project fullSample
 
                 expectNoFSharpCore artifact "the canonical sample"
 
@@ -439,7 +439,7 @@ let tests =
             test "a happy-path bundle ships Vesper.Printf + its Vesper.Core / Vesper.List deps, no FSharp.Core" {
                 let outDir = tmpDir "selfhost-happy-bundle"
                 let project = withCore (ProjectInfo.app "XParsecHappy" outDir)
-                let artifact = compileSourceTo project "printfn \"%d\" 42"
+                let _, artifact = compileSourceTo project "printfn \"%d\" 42"
 
                 for stale in [ "FSharp.Core.dll"; "Vesper.Core.dll"; "Vesper.List.dll" ] do
                     let p = Path.Combine(outDir, stale)
@@ -475,7 +475,7 @@ let tests =
                 let tast =
                     Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-                let artifact = Codegen.compile provider project tast
+                let artifact = Codegen.compile provider project tast |> emitted project.AssemblyName
 
                 Expect.contains
                     artifact.ReferencedAssemblies

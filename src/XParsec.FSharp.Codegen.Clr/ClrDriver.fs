@@ -54,10 +54,6 @@ module ClrDriver =
     let private driverDiagnostic (message: string) : Diagnostic =
         Diagnostic.nowhere (Kind.Driver message)
 
-    /// The ANALYSIS diagnostics that block emission.
-    let private blockingErrors (tast: FrozenPools) : Diagnostic list =
-        Diagnostic.errors tast.Residue.Diagnostics
-
     /// The compilation's reference set resolved, GATED on what resolving it found.
     let private contractFor
         (inputs: ClrCompilation)
@@ -78,6 +74,14 @@ module ClrDriver =
                         Kind.Driver(sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
                     )
         ]
+
+    /// Codegen's own gate firing on a tree `analyseGated` already passed, which means the two
+    /// disagree. There is no file left to anchor to, so each finding is re-filed as a driver
+    /// refusal carrying the original message.
+    let private reanchored (diagnostics: Diagnostic list) : AssemblyFiles.AnchoredDiagnostic list =
+        AssemblyFiles.unpositionedDiagnostics
+            AssemblyFileId.nowhere
+            [ for d in diagnostics -> Diagnostic.nowhere (Kind.Driver d.Message) ]
 
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
     /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
@@ -100,9 +104,7 @@ module ClrDriver =
                         (Hashing.originSourceOfText parsed.Lexed)
                         parsed.File
 
-                match blockingErrors tast with
-                | [] -> Ok(Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast)
-                | errors -> Error errors
+                Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast
 
     /// Everything a cached front end depends on EXCEPT one file's text. Fold it once per
     /// compilation: reading the reference closure costs what the front end a hit elides does.
@@ -168,11 +170,13 @@ module ClrDriver =
                                 (Hashing.originSource path parsed.Lexed)
                                 parsed.File
 
-                        match blockingErrors tast with
+                        // The CACHING gate, which shares codegen's predicate: an errored front
+                        // end is not worth a cache entry, and never becomes one.
+                        match FrozenPools.blockingErrors tast with
                         | [] -> Ok tast
                         | errors -> Error errors
                 )
-            |> Result.map (fun frozen ->
+            |> Result.bind (fun frozen ->
                 Codegen.compileWithReferences inputs.ReferenceAssemblies contract.Provider inputs.Project frozen
             )
 
@@ -201,7 +205,7 @@ module ClrDriver =
             }
 
         AssemblyFiles.analyseGated Pipeline.analyseFor assembly external units
-        |> Result.map (fun analysed ->
+        |> Result.bind (fun analysed ->
             // The visibility stack analysis composed, rebuilt: `external` is the floor and
             // `Files` is in file order, so each view pushes on top of the ones it may shadow.
             let symbols =
@@ -210,7 +214,9 @@ module ClrDriver =
                 )
 
             let tasts = [ for f in analysed.Files -> f.Frozen ]
+
             Codegen.compileFilesWithReferences referenceAssemblies symbols project tasts
+            |> Result.mapError reanchored
         )
 
     /// The multi-file counterpart of `compile`, MSBuild-shaped: `ReferenceAssemblies` threaded

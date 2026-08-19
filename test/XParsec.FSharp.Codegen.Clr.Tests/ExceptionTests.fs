@@ -74,10 +74,10 @@ let tests =
 
             test "raise of a non-exception is rejected by the :> exn constraint" {
                 // An `int` argument must fail the coercion constraint on
-                // `raise: exn: 'TException -> 'T when 'TException :> exn`. Compile only:
+                // `raise: exn: 'TException -> 'T when 'TException :> exn`. Front end only:
                 // the assertion is a diagnostic, not a throw.
-                let tast, _ =
-                    compileSource "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
+                let tast =
+                    analyseAs "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
 
                 let msgs = tast.Diagnostics |> List.map (fun d -> d.Message)
 

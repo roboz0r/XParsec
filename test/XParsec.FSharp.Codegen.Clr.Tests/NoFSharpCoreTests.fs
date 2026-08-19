@@ -85,7 +85,7 @@ let tests =
                 if IO.File.Exists coreDst then
                     IO.File.Delete coreDst
 
-                let artifact = compileSourceTo project "printfn \"%d\" 42"
+                let _, artifact = compileSourceTo project "printfn \"%d\" 42"
                 Codegen.materialiseApp project artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecNoCoreApp.dll")

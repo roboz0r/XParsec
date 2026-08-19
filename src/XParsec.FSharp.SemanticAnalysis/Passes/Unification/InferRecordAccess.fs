@@ -297,15 +297,10 @@ module internal UnificationInferRecordAccess =
             | ValueSome info ->
                 // Derived members shadow inherited ones. On a total miss the diagnostic
                 // refers to the object argument's own class rather than some ancestor.
-                match tryClassChainMember ctx clsKey args memberName with
+                match tryClassChainMemberOrField ctx clsKey args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
-                    // An explicit `val x: T` instance field (struct enumerator state),
-                    // instantiated at the object argument's type args as a member would be.
-                    match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
-                    | Some fld -> instantiateMember ctx.Store (info.TypeParams, args) fld.Type
-                    | None ->
-                        resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
+                    resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not project-local, so the class is the provider's (a BCL
                 // `TyClass("…EqualityComparer\`1", [int])` from a prior static access).

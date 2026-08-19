@@ -226,6 +226,10 @@ type ListLiteral =
         Tok: SyntaxToken
     }
 
+/// A `null` expression's type var and its own token, kept because settling runs after the
+/// walk, when the node is gone.
+type NullLiteral = { Var: TyVarId; Tok: SyntaxToken }
+
 /// The Vesper.Core inline ACCESS intrinsics: the index-signature read+write lowering
 /// (`x.[k]`, `x.[k] <- v`). An index signature has no host type to hang an accessor member
 /// on, so these have no member form. `ValueNone` = the name is not in scope.
@@ -446,6 +450,10 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
     /// drives it, otherwise it defaults to `Vesper.Collections.List`.
     member val ListLiterals = ResizeArray<ListLiteral>() with get
 
+    /// Each `null` whose type was left FLEXIBLE: a typed context drives it, otherwise it
+    /// settles at `obj`.
+    member val NullLiterals = ResizeArray<NullLiteral>() with get
+
     /// Whether the cons-list an unpinned literal defaults to is reachable at all: declared by
     /// this compilation (`Vesper.List`'s own sources) or carried by the reference set.
     member _.ConsListInScope: bool =
@@ -586,3 +594,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource, assemb
                 Elem = elem
                 Tok = tok
             }
+
+    /// Register a `null` expression to be settled after the walk.
+    member this.RegisterNullLiteral(var: TyVarId, tok: SyntaxToken) =
+        this.NullLiterals.Add { Var = var; Tok = tok }

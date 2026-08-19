@@ -65,11 +65,27 @@ module Codegen =
         asm.WriteMethods()
         asm.Finalise()
 
+    /// `assemble`, GATED: a tree carrying an error-severity diagnostic has no defined
+    /// lowering, so emission is refused and the findings come back in file order.
+    let private assembleGated
+        (referenceAssemblies: string list)
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tasts: FrozenPools list)
+        : Result<ClrArtifact, Diagnostic list> =
+        match FrozenPools.blockingErrorsOfAll tasts with
+        | _ :: _ as errors -> Error errors
+        | [] -> Ok(assemble referenceAssemblies symbols project tasts)
+
     /// A SEQUENCE of frozen files → one in-memory PE artifact. `symbols` must already carry
     /// every cross-file surface the files reference; the caller composes that view. Only the
     /// LAST file may carry top-level expressions, so it alone owns `Main` and the entry point.
-    let compileFiles (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: FrozenPools list) : ClrArtifact =
-        assemble [] symbols project tasts
+    let compileFiles
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tasts: FrozenPools list)
+        : Result<ClrArtifact, Diagnostic list> =
+        assembleGated [] symbols project tasts
 
     /// `compileFiles` with the compilation's own reference set threaded into the emitted
     /// `AssemblyRef` identity map. `compileFiles` is this with `[]`.
@@ -78,13 +94,17 @@ module Codegen =
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
-        : ClrArtifact =
-        assemble referenceAssemblies symbols project tasts
+        : Result<ClrArtifact, Diagnostic list> =
+        assembleGated referenceAssemblies symbols project tasts
 
     /// TAST + symbol context → in-memory PE artifact; the single-file case of `compileFiles`.
     /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
     /// class exist and whether the PE serialises with an entry point.
-    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: FrozenPools) : ClrArtifact =
+    let compile
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tast: FrozenPools)
+        : Result<ClrArtifact, Diagnostic list> =
         compileFiles symbols project [ tast ]
 
     /// `compile` with the compilation's own reference set (a TFM ref pack + `<Reference>`s) in
@@ -95,7 +115,7 @@ module Codegen =
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tast: FrozenPools)
-        : ClrArtifact =
+        : Result<ClrArtifact, Diagnostic list> =
         compileFilesWithReferences referenceAssemblies symbols project [ tast ]
 
     /// The test seam for a body written with no TAST: assembles a hand-written `Main` that

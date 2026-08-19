@@ -88,12 +88,9 @@ let private producerDll: Lazy<string> =
          let tast =
              Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-         let errs = tast.Residue.Diagnostics |> Diagnostic.errors
+         let artifact =
+             Codegen.compile provider project tast |> emitted "EscapeProducer build"
 
-         if not (List.isEmpty errs) then
-             failwithf "EscapeProducer build: %s" (errs |> List.map (fun d -> d.Message) |> String.concat "; ")
-
-         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath outPath |> ignore
          outPath)
@@ -117,12 +114,9 @@ let private runConsumer (expected: string list) (src: string) : unit =
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-    let errs = tast.Residue.Diagnostics |> Diagnostic.errors
+    let artifact =
+        Codegen.compile provider project tast |> emitted "EscapeConsumer analysis"
 
-    if not (List.isEmpty errs) then
-        failwithf "EscapeConsumer analysis: %s" (errs |> List.map (fun d -> d.Message) |> String.concat "; ")
-
-    let artifact = Codegen.compile provider project tast
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
     let want = String.concat "\n" expected

@@ -17,7 +17,7 @@ let private compileWithMap (input: string) (outputPath: string option) : JsArtif
             Source = Some(jsSource "hi.fsx" input)
         }
 
-    Codegen.compile project (frozenOf input)
+    Codegen.compile project (frozenOf input) |> emitted "Hi"
 
 // ─── Multi-source maps ───────────────────────────────────────────────────
 // A body served by another package splices onto the call site at emit, but its nodes keep
@@ -31,7 +31,7 @@ let private compileMapped (name: string) (input: string) : JsArtifact =
             Source = Some(jsSource (name + ".fsx") input)
         }
 
-    Codegen.compileWith jsContract.Value project (frozenOfJs input)
+    Codegen.compileWith jsContract.Value project (frozenOfJs input) |> emitted name
 
 /// One decoded `mappings` segment. Decoded and not merely counted: a map that published the
 /// right `sources` while encoding every segment against index 0 would look correct outside.
@@ -167,6 +167,7 @@ let tests =
             test "no source text → no map, and the emitted JS is unchanged" {
                 let artifact =
                     Codegen.compile (JsProjectInfo.defaults "Hi") (frozenOf "printfn \"hi\"")
+                    |> emitted "Hi"
 
                 Expect.equal (Codegen.toSource artifact) "console.log(\"hi\");\n" "0a output unchanged"
                 Expect.isNone (Codegen.toSourceMap artifact) "no map without source"

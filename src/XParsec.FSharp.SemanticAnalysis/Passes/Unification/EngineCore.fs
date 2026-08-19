@@ -321,6 +321,26 @@ module UnificationEngineCore =
         | ValueSome cm -> ValueSome cm.MemberTy
         | ValueNone -> ValueNone
 
+    /// `memberName` on a project-local class object argument: the `inherit` chain's members,
+    /// then the class's own explicit `val x: T` instance fields, instantiated at `args`. This
+    /// is what a `.member` access resolves against whether the object argument's type was known
+    /// at the access or only settled later.
+    let tryClassChainMemberOrField
+        (ctx: PassContext)
+        (clsKey: TypeKey)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : SemType voption =
+        match tryClassChainMember ctx clsKey args memberName with
+        | ValueSome ty -> ValueSome ty
+        | ValueNone ->
+            match TypeRegistry.tryClassByKey ctx.Types clsKey with
+            | ValueSome info ->
+                match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
+                | Some fld -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) fld.Type)
+                | None -> ValueNone
+            | ValueNone -> ValueNone
+
     /// The flat `FunN` arity a matched `Fun`(k+1)` interface instantiation denotes.
     /// `Vesper.Fun`2<'A,'B>` through `Vesper.Fun`5<'A,'B,'C,'D,'E>` share one name and
     /// differ only by arity, so the arity is half the identity. Matched by KEY: a user

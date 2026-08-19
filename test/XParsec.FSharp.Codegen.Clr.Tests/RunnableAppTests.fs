@@ -23,7 +23,7 @@ let tests =
                         OutputPath = Some outPath
                     }
 
-                let artifact = compileSourceTo project "printfn \"hi\""
+                let _, artifact = compileSourceTo project "printfn \"hi\""
                 Codegen.materialise artifact
 
                 Expect.isTrue (IO.File.Exists outPath) "PE written to disk"
@@ -43,7 +43,7 @@ let tests =
                 let src =
                     "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
 
-                let artifact = compileSourceTo project src
+                let _, artifact = compileSourceTo project src
                 Codegen.materialiseApp project artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecStaticApp.dll")
@@ -59,7 +59,7 @@ let tests =
                 // `RuntimeFormatState` implements the Core-owned `IFormatSink`.
                 let project = withCore (ProjectInfo.app "XParsecListApp" outDir)
 
-                let artifact = compileSourceTo project "printfn \"%A\" [1; 2; 3]"
+                let _, artifact = compileSourceTo project "printfn \"%A\" [1; 2; 3]"
                 Codegen.materialiseApp project artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecListApp.dll")

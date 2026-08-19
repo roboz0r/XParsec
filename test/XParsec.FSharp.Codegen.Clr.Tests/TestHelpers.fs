@@ -112,6 +112,18 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
+/// The artifact, where codegen accepted the tree. A refusal fails the test carrying the
+/// diagnostics that caused it, so `what` names the compile that was refused.
+let emitted (what: string) (result: Result<ClrArtifact, Diagnostic list>) : ClrArtifact =
+    match result with
+    | Result.Ok artifact -> artifact
+    | Result.Error diagnostics ->
+        failwithf
+            "%s: codegen refused the tree over %d error diagnostic(s):\n%s"
+            what
+            (List.length diagnostics)
+            (diagnostics |> List.map (fun d -> d.Message) |> String.concat "\n")
+
 /// `<repo-root>/tmp/<name>`, created, where the repo root is the directory holding
 /// `claude_tools.cmd`. Artifacts stay inspectable rather than landing in the OS temp dir.
 let tmpDir (name: string) : string =
@@ -242,7 +254,7 @@ let vesperListDll: Lazy<string> =
          let tast =
              Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-         let artifact = Codegen.compile provider project tast
+         let artifact = Codegen.compile provider project tast |> emitted "Vesper.List"
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
@@ -445,13 +457,27 @@ let private compileContract
     let ctx, tast =
         Pipeline.analyseSemWithContextFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-    let artifact = Codegen.compile provider (withCore project) (Freeze.run ctx tast)
+    let artifact =
+        Codegen.compile provider (withCore project) (Freeze.run ctx tast)
+        |> emitted project.AssemblyName
+
     tast, artifact
 
 /// The default compile path: `int` / `hash` / the operators all resolve from the
 /// `Vesper.Core` contract.
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultPackages (ProjectInfo.defaults assemblyName) input
+
+/// `compileSource`'s front end alone, stopping before emission. For a source whose ERROR
+/// diagnostics are the subject: codegen refuses such a tree, so a test asserting on them
+/// must not ask for an artifact. `analyse` differs in carrying no home assembly, which
+/// changes how a locally declared type resolves.
+let analyseAs (assemblyName: string) (input: string) : TastFile =
+    let project = ProjectInfo.defaults assemblyName
+    let provider = ClrSymbolProviders.buildContract defaultPackages
+    let lexed, file = parseFile input
+
+    Pipeline.analyseSemFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
 /// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT codegen.
 /// All three share one parse → analyse → freeze prefix and differ only by the round-trip.
@@ -482,9 +508,9 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let cored = withCore project
 
     {
-        Direct = Codegen.compile provider cored frozen
-        ThawRoundTripped = Codegen.compile provider cored thawRoundTripped
-        PoolRoundTripped = Codegen.compile provider cored poolRoundTripped
+        Direct = Codegen.compile provider cored frozen |> emitted assemblyName
+        ThawRoundTripped = Codegen.compile provider cored thawRoundTripped |> emitted assemblyName
+        PoolRoundTripped = Codegen.compile provider cored poolRoundTripped |> emitted assemblyName
     }
 
 /// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
@@ -494,8 +520,8 @@ let conformanceAssemblyName (program: string) : string =
 
 /// `compileSource` against a caller-supplied `ProjectInfo` (e.g. an on-disk app build via
 /// `ProjectInfo.app`).
-let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
-    compileContract defaultPackages project input |> snd
+let compileSourceTo (project: ProjectInfo) (input: string) : TastFile * ClrArtifact =
+    compileContract defaultPackages project input
 
 /// `compileSource` against an explicit manifest stack instead of `defaultPackages`.
 let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
@@ -724,16 +750,10 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-    let errs = tast.Residue.Diagnostics |> Diagnostic.errors
+    let artifact =
+        Codegen.compile provider project tast
+        |> emitted (sprintf "compileStructuralEngine %s" asmName)
 
-    if not (List.isEmpty errs) then
-        failwithf
-            "compileStructuralEngine %s: %d analysis error(s):\n%s"
-            asmName
-            (List.length errs)
-            (errs |> List.map (fun d -> d.Message) |> String.concat "\n")
-
-    let artifact = Codegen.compile provider project tast
     Codegen.materialise artifact
 
     let alc =
@@ -781,16 +801,10 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-    let errs = tast.Residue.Diagnostics |> Diagnostic.errors
+    let artifact =
+        Codegen.compile provider project tast
+        |> emitted (sprintf "compileFixtureFile %s" asmName)
 
-    if not (List.isEmpty errs) then
-        failwithf
-            "compileFixtureFile %s: %d analysis error(s):\n%s"
-            asmName
-            (List.length errs)
-            (errs |> List.map (fun d -> d.Message) |> String.concat "\n")
-
-    let artifact = Codegen.compile provider project tast
     Codegen.materialise artifact
 
     let alc =
@@ -937,17 +951,8 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-    let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
-
-    if not (List.isEmpty analysisErrors) then
-        failwithf
-            "compilePackages %A: %d analysis error(s) for:\n%s\n--- errors ---\n%s"
-            packages
-            (List.length analysisErrors)
-            src
-            (analysisErrors |> List.map (fun d -> d.Message) |> String.concat "\n")
-
     Codegen.compile provider project tast
+    |> emitted (sprintf "compilePackages %A for:\n%s" packages src)
 
 /// The Vesper-compiled `Vesper.Printf`, registered in `packageAlc` once. `buildPackage`
 /// deliberately leaves it out, so without this a driver run here would reach printf through

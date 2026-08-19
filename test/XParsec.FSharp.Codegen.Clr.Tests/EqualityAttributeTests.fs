@@ -111,7 +111,7 @@ let tests =
                             "let r = a = b"
                         ]
 
-                let useTast, _ = compileSource "EqAttrNoEqUse" useSrc
+                let useTast = analyseAs "EqAttrNoEqUse" useSrc
 
                 let eqErrors =
                     errors useTast |> List.filter (fun d -> d.Message.Contains "equality")
@@ -153,7 +153,7 @@ let tests =
                 let useSrc =
                     String.concat "\n" [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let r = A = A" ]
 
-                let useTast, _ = compileSource "EqAttrUnionNoEqUse" useSrc
+                let useTast = analyseAs "EqAttrUnionNoEqUse" useSrc
 
                 let eqErrors =
                     errors useTast |> List.filter (fun d -> d.Message.Contains "equality")
@@ -253,7 +253,7 @@ let tests =
                             "    override this.GetHashCode() = id"
                         ]
 
-                let tast, _ = compileSource "EqAttrCustomEqMissing" src
+                let tast = analyseAs "EqAttrCustomEqMissing" src
 
                 let customErrs =
                     errors tast |> List.filter (fun d -> d.Message.Contains "IEquatable")
@@ -277,7 +277,7 @@ let tests =
                             "    override this.Equals(o: obj) = false"
                         ]
 
-                let tast, _ = compileSource "EqAttrCustomEqGenericMissing" src
+                let tast = analyseAs "EqAttrCustomEqGenericMissing" src
 
                 let count (s: string) =
                     errors tast |> List.filter (fun d -> d.Message.Contains s) |> List.length
@@ -302,7 +302,7 @@ let tests =
                             "        member this.CompareTo(other: ById) = 0"
                         ]
 
-                let tast, _ = compileSource "EqAttrCustomCmpIncoherent" src
+                let tast = analyseAs "EqAttrCustomCmpIncoherent" src
 
                 let coherenceErrs =
                     errors tast
@@ -317,7 +317,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<CustomEquality; NoComparison>]"; "type R = { x: int }" ]
 
-                let tast, _ = compileSource "EqAttrCustomRecordScope" src
+                let tast = analyseAs "EqAttrCustomRecordScope" src
 
                 let scopeErrs =
                     errors tast
@@ -365,7 +365,7 @@ let tests =
                             "let _ = (a = b)"
                         ]
 
-                let tast, _ = compileSource "EqAttrClassNoEqUse" src
+                let tast = analyseAs "EqAttrClassNoEqUse" src
 
                 let eqErrors = errors tast |> List.filter (fun d -> d.Message.Contains "equality")
 

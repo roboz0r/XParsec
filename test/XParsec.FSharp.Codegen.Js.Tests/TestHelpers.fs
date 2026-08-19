@@ -154,9 +154,22 @@ let frozenOf (input: string) : FrozenPools =
 
     Freeze.run ctx tast
 
+/// The artifact, where codegen accepted the tree. A refusal fails the test carrying the
+/// diagnostics that caused it, so `what` names the compile that was refused.
+let emitted (what: string) (result: Result<JsArtifact, Diagnostic list>) : JsArtifact =
+    match result with
+    | Result.Ok artifact -> artifact
+    | Result.Error diagnostics ->
+        failwithf
+            "%s: codegen refused the tree over %d error diagnostic(s):\n%s"
+            what
+            (List.length diagnostics)
+            (diagnostics |> List.map (fun d -> d.Message) |> String.concat "\n")
+
 /// Compile `input` to JS source text (in-memory).
 let emit (input: string) : string =
     Codegen.compile (JsProjectInfo.defaults "Test") (frozenOf input)
+    |> emitted "Test"
     |> Codegen.toSource
 
 /// Front-end a program through the JS-target provider. Fails on any error diagnostic.
@@ -198,7 +211,10 @@ let emitFrozenJs (name: string) (src: string) (frozen: FrozenPools) : string =
             Source = Some(jsSource (name + ".fsx") src)
         }
 
-    let source = Codegen.compileWith jsContract.Value project frozen |> Codegen.toSource
+    let source =
+        Codegen.compileWith jsContract.Value project frozen
+        |> emitted name
+        |> Codegen.toSource
 
     let idx = source.IndexOf "//# sourceMappingURL"
     if idx >= 0 then source.Substring(0, idx) else source
@@ -212,6 +228,7 @@ let emitJs (input: string) : string =
 
     let src =
         Codegen.compileWith jsContract.Value project (frozenOfJs input)
+        |> emitted "emitJs"
         |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
@@ -227,6 +244,7 @@ let emitJsLibrary (input: string) : string =
 
     let src =
         Codegen.compileWith jsContract.Value project (frozenOfJs input)
+        |> emitted "emitJsLibrary"
         |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
@@ -308,7 +326,10 @@ let private emitLibrarySource
             GeneratedFrom = Some sourceFile
         }
 
-    let src = Codegen.compileWith contract project frozen |> Codegen.toSource
+    let src =
+        Codegen.compileWith contract project frozen
+        |> emitted moduleName
+        |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
@@ -371,6 +392,7 @@ let runJs (name: string) (input: string) : (int * string) option =
         }
 
     Codegen.compileWith jsContract.Value project (frozenOfJs input)
+    |> emitted name
     |> Codegen.materialise
 
     runNode jsPath

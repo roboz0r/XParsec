@@ -348,7 +348,7 @@ let tests =
                             "let r = a < b"
                         ]
 
-                let tast, _ = compileSource "StructCmpNoCmpDiag" src
+                let tast = analyseAs "StructCmpNoCmpDiag" src
 
                 let cmpErrors =
                     errors tast |> List.filter (fun d -> d.Message.Contains "comparison")

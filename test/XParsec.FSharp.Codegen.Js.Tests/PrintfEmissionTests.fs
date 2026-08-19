@@ -24,6 +24,7 @@ let tests =
                             OutputPath = Some jsPath
                         }
                         (frozenOf "printfn \"hi\"")
+                    |> emitted "Hi"
 
                 Codegen.materialise artifact
                 Expect.isTrue (IO.File.Exists jsPath) "the .js was written"

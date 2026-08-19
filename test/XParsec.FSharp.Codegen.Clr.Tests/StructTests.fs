@@ -415,12 +415,8 @@ let structTests =
                 let tast =
                     Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-                let errors = tast.Residue.Diagnostics |> Diagnostic.errors
+                let artifact = Codegen.compile provider project tast |> emitted "consumer"
 
-                if not (List.isEmpty errors) then
-                    failwithf "consumer failed to analyse: %A" (errors |> List.map (fun d -> d.Message))
-
-                let artifact = Codegen.compile provider project tast
                 let bytes = Codegen.toBytes artifact
 
                 let declType =

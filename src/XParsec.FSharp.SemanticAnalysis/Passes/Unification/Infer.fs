@@ -97,8 +97,12 @@ module UnificationInfer =
             | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
                 inferRange infer ctx node.Tok a (ValueSome s) b
             | Expr.Null _ ->
-                // No reference-type bound yet, so a free var lets the context pin it.
-                TyVar(freshTyVar ctx)
+                // No reference-type bound yet, so a free var lets the context pin it. An
+                // `obj`-typed context ABSORBS rather than pins, so register the var to settle
+                // after the walk.
+                let tv = freshTyVar ctx
+                ctx.RegisterNullLiteral(tv, node.Tok)
+                TyVar tv
             | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx node inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone infer ctx node src inits
             | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->

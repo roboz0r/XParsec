@@ -308,4 +308,45 @@ let tests =
                             "let g a b c = a + b + c"
                     }
                 ]
+
+            // An `obj`-typed slot ABSORBS its argument rather than unifying with it, so a
+            // `null` handed to one is pinned by nothing. It settles at `obj` after the walk;
+            // without that it reaches the frozen TAST as a free `TyVar`.
+            testList
+                "NullLiteral"
+                [
+                    test "null into an `obj` parameter" { clean "null-obj-param" "let f (o: obj) = 0\nlet n = f null" }
+
+                    test "null into an `obj` record field" {
+                        clean "null-obj-field" "type Node = { mutable Next: obj }\nlet n = { Next = null }"
+                    }
+
+                    // A typed slot pins it, so the settle must leave these alone.
+                    test "null into a `string` record field types as string" {
+                        clean "null-string-field" "type Node = { mutable Next: string }\nlet n = { Next = null }"
+                    }
+
+                    test "null under an annotation types as the annotation" {
+                        groundsTo "null-annotated" BuiltinTypes.tyString "let s: string = null"
+                    }
+                ]
+
+            // A `.member` access whose object argument is still free parks until the type
+            // settles, and the deferred lookup must find everything the immediate one does —
+            // an explicit `val` field included.
+            testList
+                "DeferredMemberAccess"
+                [
+                    test "`val` field read off a cons-pattern binding" {
+                        clean
+                            "val-field-deferred"
+                            "type Frame =\n    val Kind: int\n    new(kind: int) = { Kind = kind }\n\nlet fs = [ Frame(1) ]\nlet k = match fs with | f :: _ -> f.Kind | [] -> 0"
+                    }
+
+                    test "mutable `val` field written through a cons-pattern binding" {
+                        clean
+                            "val-field-deferred-set"
+                            "type Frame =\n    val mutable Kids: int list\n    new() = { Kids = [] }\n\nlet fs = [ Frame() ]\nlet f () = match fs with | top :: _ -> top.Kids <- [ 1 ] | [] -> ()"
+                    }
+                ]
         ]

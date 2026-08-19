@@ -397,7 +397,7 @@ module UnificationEngine =
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
 
                 for d in pending do
-                    match tryClassChainMember ctx key args d.MemberName with
+                    match tryClassChainMemberOrField ctx key args d.MemberName with
                     | ValueSome ty -> unify ctx d.Use.Tok (TyVar d.ResultTv) ty
                     | ValueNone -> ctx.Report(d.Use.Tok, Kind.NoMember(shown, MemberNoun.InstanceMember, d.MemberName))
             | DotSource.ExternalClass(key, args) ->
