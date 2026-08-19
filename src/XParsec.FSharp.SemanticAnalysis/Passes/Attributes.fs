@@ -252,3 +252,38 @@ module Attributes =
                 report
                     "[<Global>] declares the VALUE a binding introduces to be a target global, but this binding has no single name, so give it one, or drop the attribute"
         | _ -> ()
+
+    /// `[<Import>]`: the binding's implementation IS the named export of a committed runtime
+    /// asset. Checked BOTH ways because a real body beside the attribute would be silently
+    /// discarded, and a `jsNative` body with no attribute emits the throwing template as the
+    /// definition. The selector must equal the emitted name, because a reference imports that.
+    ///
+    /// The BODY is read off the CST, ahead of the inline expansion that turns `jsNative` into
+    /// the template it stands for.
+    let declareImportBinding (ctx: PassContext) (b: Binding<SyntaxToken>) (emittedName: string voption) : unit =
+        let name =
+            match MemberNames.ofBinding ctx b with
+            | ValueSome m -> m.Name
+            | ValueNone -> ""
+
+        let emitted =
+            match emittedName with
+            | ValueSome n -> n
+            | ValueNone -> name
+
+        let report (e: Conformance.ConformanceError) =
+            ctx.Report((CstKeys.siteOfBinding b).Tok, Kind.Message(Conformance.describe e))
+
+        let isJsNative = Conformance.isJsNativeBody ctx.NameOf b.expr
+
+        match AttributeDecode.tryImport ctx.NameOf (ctx.ResolveAttributes b.attributes) with
+        | ImportDecl.NoImport ->
+            if isJsNative then
+                report (Conformance.ConformanceError.JsNativeWithoutImport name)
+        | ImportDecl.Malformed -> report (Conformance.ConformanceError.ImportMalformed name)
+        | ImportDecl.Import r ->
+            if not isJsNative then
+                report (Conformance.ConformanceError.ImportBodyNotJsNative name)
+
+            if r.Selector <> emitted then
+                report (Conformance.ConformanceError.ImportSelectorMismatch(name, r.Selector))

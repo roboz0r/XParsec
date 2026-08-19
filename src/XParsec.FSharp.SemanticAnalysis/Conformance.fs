@@ -9,6 +9,12 @@ open XParsec.FSharp.Parser
 // Conformance of a signature file against its implementation file, over the parsed
 // CSTs: every `type X = extern` is met by a `type X = (# "repr" #)` and vice versa, and
 // every other declared type and `val` is present on both sides. Presence, not signatures.
+//
+// The MANIFEST route's rule set. It reads two parse results and matches on written names, so
+// a `[<CompiledName>]` and a shadowed attribute are invisible to it. `ConformanceSurface`
+// takes the same verdicts by resolved identity for a unit an assembly compiles, and this one
+// retires once the manifest route gains analysed halves too. `ConformanceError` and
+// `describe` are the diagnostic vocabulary of both.
 
 module Conformance =
 
@@ -399,14 +405,12 @@ module Conformance =
 
     // ---- `[<Import>]` bindings ---------------------------------------------------
 
-    // PROVISIONAL, and the wrong level. A `.fsi`/`.fs` pair is checked over the two CSTs
-    // alone, with no symbol table, so the two attributes read here are matched on the long
-    // ident's LAST SEGMENT: a written `Import` and a written `MyOwn.Import` are
-    // indistinguishable, and a shadowing declaration goes unnoticed. Conformance belongs over
-    // the two frozen surfaces, where `ConformanceTypars` already runs and where a resolved
-    // `TypeKey` is available; this reader retires with the rest of the CST rule set when the
-    // package route gains analysed halves. Every attribute reader downstream of name
-    // resolution belongs in `AttributeDecode`, which is key-based.
+    // PROVISIONAL, and the wrong level. This route reads two CSTs with no symbol table, so the
+    // attributes below are matched on the long ident's LAST SEGMENT: a written `Import` and a
+    // written `MyOwn.Import` are indistinguishable, and a shadowing declaration goes unnoticed.
+    // `AttributeDecode.tryImport` is the key-based reader, and `Attributes.declareImportBinding`
+    // already runs it over every analysed implementation; this one retires with the rest of the
+    // CST rule set once the package route gains analysed halves.
 
     /// `Vesper.Import` → `Import`. `ValueNone` for anything that is not a named type.
     let private attributeShortName (nameOf: SyntaxToken -> string) (typ: Type<SyntaxToken>) : string voption =
@@ -490,19 +494,6 @@ module Conformance =
         | ValueSome "" -> ValueNone
         | other -> other
 
-    /// A well-formed `[<Import>]`: the binding's implementation is the export `Selector` of
-    /// the committed runtime asset `Path` names, relative to the declaring package.
-    [<Struct>]
-    type ImportRef = { Selector: string; Path: string }
-
-    /// `[<Import(selector, path)>]` on a binding, as written.
-    [<RequireQualifiedAccess>]
-    type ImportDecl =
-        | Import of ImportRef
-        /// The attribute is present but its arguments are not two non-empty string literals.
-        | Malformed
-        | NoImport
-
     let private tryImport (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : ImportDecl =
         match findAttribute nameOf attrs "Import" with
         | ValueNone -> ImportDecl.NoImport
@@ -516,12 +507,11 @@ module Conformance =
             | _ -> ImportDecl.Malformed
 
     /// The body is the bare identifier `jsNative`, parens stripped.
-    let rec private isJsNativeBody (lexed: Lexed) (e: Expr<SyntaxToken>) : bool =
+    let rec isJsNativeBody (nameOf: SyntaxToken -> string) (e: Expr<SyntaxToken>) : bool =
         match e with
-        | Expr.Ident tok -> SyntaxToken.nameIn lexed tok = "jsNative"
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            SyntaxToken.nameIn lexed li.Idents.[0] = "jsNative"
-        | Expr.EnclosedBlock(_, inner, _) -> isJsNativeBody lexed inner
+        | Expr.Ident tok -> nameOf tok = "jsNative"
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 -> nameOf li.Idents.[0] = "jsNative"
+        | Expr.EnclosedBlock(_, inner, _) -> isJsNativeBody nameOf inner
         | _ -> false
 
     /// A module-level binding carrying a well-formed `[<Import>]`.
@@ -557,11 +547,11 @@ module Conformance =
 
                     match tryImport nameOf b.attributes with
                     | ImportDecl.NoImport ->
-                        if isJsNativeBody lexed b.expr then
+                        if isJsNativeBody nameOf b.expr then
                             errors.Add(ConformanceError.JsNativeWithoutImport name)
                     | ImportDecl.Malformed -> errors.Add(ConformanceError.ImportMalformed name)
                     | ImportDecl.Import r ->
-                        if not (isJsNativeBody lexed b.expr) then
+                        if not (isJsNativeBody nameOf b.expr) then
                             errors.Add(ConformanceError.ImportBodyNotJsNative name)
 
                         if r.Selector <> emittedName then
@@ -631,9 +621,7 @@ module Conformance =
         }
 
     /// EVERY check over a parsed `.fsi` / `.fs` pair, each with its own `Lexed`: the two files
-    /// pair on their leading declaration, then type findings, then value findings. The one
-    /// rule set, so a pair gets the same verdict whether a manifest or a compilation unit
-    /// brought the two halves together.
+    /// pair on their leading declaration, then type findings, then value findings.
     let checkUnit
         (sigLexed: Lexed)
         (sigFile: SignatureFile<SyntaxToken>)

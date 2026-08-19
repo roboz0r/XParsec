@@ -30,6 +30,19 @@ type ResolvedAttributes =
 
     static member None: ResolvedAttributes = { Entries = [] }
 
+/// A well-formed `[<Import>]`: the binding's implementation is the export `Selector` of the
+/// committed runtime asset `Path` names, relative to the declaring package.
+[<Struct>]
+type ImportRef = { Selector: string; Path: string }
+
+/// `[<Import(selector, path)>]` on a binding, as written.
+[<RequireQualifiedAccess>]
+type ImportDecl =
+    | Import of ImportRef
+    /// The attribute is present but its arguments are not two non-empty string literals.
+    | Malformed
+    | NoImport
+
 // The readers over `ResolvedAttributes`: presence by key, arguments off the construction.
 
 module AttributeDecode =
@@ -79,25 +92,36 @@ module AttributeDecode =
 
         sb.ToString()
 
+    /// The text of a string-literal argument; `ValueNone` when the argument is not one.
+    let private stringArgText (nameOf: SyntaxToken -> string) (e: Expr<SyntaxToken>) : string voption =
+        match stripParens e with
+        | Expr.String(_, parts, _) -> ValueSome(stringExprText nameOf parts)
+        | Expr.Const(Constant.Literal tok) -> ValueSome((nameOf tok).Trim([| '"' |]))
+        | _ -> ValueNone
+
     /// The name `[<CompiledName("Foo")>]` gives a declaration, which is what a consumer of
     /// the assembly writes.
     let tryCompiledName (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : string voption =
         match
             attrs.TryFind RuntimeNames.compiledNameAttributeKey
             |> ValueOption.bind constructionExpr
+            |> ValueOption.bind (stringArgText nameOf)
         with
-        | ValueNone -> ValueNone
-        | ValueSome argExpr ->
-            match stripParens argExpr with
-            | Expr.String(_, parts, _) ->
-                match stringExprText nameOf parts with
-                | "" -> ValueNone
-                | s -> ValueSome s
-            | Expr.Const(Constant.Literal tok) ->
-                match (nameOf tok).Trim([| '"' |]) with
-                | "" -> ValueNone
-                | s -> ValueSome s
-            | _ -> ValueNone
+        | ValueSome "" -> ValueNone
+        | other -> other
+
+    /// The `[<Import(selector, path)>]` a binding carries.
+    let tryImport (nameOf: SyntaxToken -> string) (attrs: ResolvedAttributes) : ImportDecl =
+        match attrs.TryFind RuntimeNames.importAttributeKey with
+        | ValueNone -> ImportDecl.NoImport
+        | ValueSome construction ->
+            match constructionExpr construction |> ValueOption.map stripParens with
+            | ValueSome(Expr.Tuple(exprs, _)) when exprs.Length = 2 ->
+                match stringArgText nameOf exprs.[0], stringArgText nameOf exprs.[1] with
+                | ValueSome selector, ValueSome path when selector <> "" && path <> "" ->
+                    ImportDecl.Import { Selector = selector; Path = path }
+                | _ -> ImportDecl.Malformed
+            | _ -> ImportDecl.Malformed
 
     /// True iff the attributes carry
     /// `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]`, which

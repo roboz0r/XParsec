@@ -274,6 +274,187 @@ let tests =
             }
         ]
 
+// ---- The IN-ASSEMBLY route: conformance over the two ANALYSED halves ----
+// The same pairs, resolved: every verdict is taken by identity, so a `[<CompiledName>]`, a
+// `ModuleSuffix` module and a shadowed attribute are settled before the comparison.
+
+let private analysedAsm: CompilingAssembly = { Name = "TestAsm"; Target = "clr" }
+
+/// Every conformance verdict the in-assembly route reports for one `.fsi` / `.fs` pair.
+let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
+    AssemblyFiles.analyseAssembly
+        analysedAsm
+        realProvider.Value
+        Set.empty
+        [
+            AssemblyFiles.SourceUnit.paired
+                (AssemblyFiles.SourceFile.ofText "pair.fsi" sigSrc)
+                (AssemblyFiles.SourceFile.ofText "pair.fs" implSrc)
+        ]
+    |> List.collect (
+        function
+        | Ok f -> AssemblyFiles.fileDiagnostics f
+        | Error e -> failtestf "the pair did not parse: %s" e.Id.Name
+    )
+    |> List.choose (fun a ->
+        match a.Diagnostic.Kind with
+        | Kind.Conformance _ -> Some a.Diagnostic.Message
+        | _ -> None
+    )
+
+/// The error-severity findings of ONE analysed implementation, so a fixture that fails for an
+/// unrelated reason says so rather than passing a conformance assertion vacuously.
+let private analysedErrors (implSrc: string) : string list =
+    AssemblyFiles.analyseAssembly
+        analysedAsm
+        realProvider.Value
+        Set.empty
+        [
+            AssemblyFiles.SourceUnit.ofImplementation (AssemblyFiles.SourceFile.ofText "solo.fs" implSrc)
+        ]
+    |> List.collect (
+        function
+        | Ok f -> AssemblyFiles.fileDiagnostics f
+        | Error e -> failtestf "the implementation did not parse: %s" e.Id.Name
+    )
+    |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
+    |> List.map (fun a -> a.Diagnostic.Message)
+
+let private theOne (what: string) (msgs: string list) : string =
+    match msgs with
+    | [ m ] -> m
+    | other -> failtestf "expected exactly one %s, got %A" what other
+
+[<Tests>]
+let analysedConformanceTests =
+    testList
+        "AnalysedConformance"
+        [
+            test "extern in the .fsi with a non-intrinsic impl → the repr is owed" {
+                let m =
+                    conformAnalysed "namespace V\n\ntype foo = extern" "namespace V\n\ntype foo = int"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "the finding names the identity, not a spelling"
+                Expect.stringContains m "no intrinsic representation" "the extern is unanswered"
+            }
+
+            test "an intrinsic in the .fs with no extern in the .fsi is reported" {
+                let m =
+                    conformAnalysed "namespace V\n\ntype foo = int" "namespace V\n\ntype foo = (# \"System.Int32\" #)"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "names the identity"
+                Expect.stringContains m "not declared 'extern'" "a repr the contract never declares"
+            }
+
+            test "extern class ↔ (# class repr #) conforms" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\ntype Base = extern class"
+                        "namespace V\n\ntype Base = (# class \"System.Attribute\" #)")
+                    "a heritable extern paired with its tagged intrinsic conforms"
+            }
+
+            test "extern class with an untagged repr → heritability disagrees" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\ntype Base = extern class"
+                        "namespace V\n\ntype Base = (# \"System.Attribute\" #)"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.Base" "names the identity"
+                Expect.stringContains m "heritability" "the tag disagrees across the pair"
+            }
+
+            test "bare extern with a (# class repr #) impl → heritability disagrees" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\ntype Base = extern"
+                        "namespace V\n\ntype Base = (# class \"System.Attribute\" #)"
+                    |> theOne "finding"
+
+                Expect.stringContains m "heritability" "the sig is opaque, the impl heritable"
+            }
+
+            test "a union declared in the .fsi and absent from the .fs is missing" {
+                let m =
+                    conformAnalysed "namespace V\n\ntype Bar = | BarCase" "namespace V\n\ntype Other = | OtherCase"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.Bar" "names the union owing a definition"
+                Expect.stringContains m "not defined in the implementation" "the FS0240 analogue"
+            }
+
+            test "a type defined in the .fs and absent from the .fsi is hidden, not drift" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\ntype Bar = | BarCase"
+                        "namespace V\n\ntype Bar = | BarCase\n\ntype Hidden = | H")
+                    "F# hides an implementation type the signature omits"
+            }
+
+            test "a val with no matching let is missing" {
+                let m =
+                    conformAnalysed "namespace V\n\nval foo: int -> int" "namespace V\n\nlet bar (x: int) = x"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.foo" "names the value owing a definition"
+                Expect.stringContains m "not defined in the implementation" "the value-granularity analogue"
+            }
+
+            test "a matching val/let pair, operator included, conforms" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\nval foo: int -> int\n\nval inline (+++): int -> int -> int"
+                        "namespace V\n\nlet foo (x: int) = x\n\nlet inline (+++) (a: int) (b: int) = a")
+                    "a val paired with its let — plain and operator — conforms"
+            }
+
+            test "a [<CompiledName>]'d let answers the val it publishes as" {
+                // The identity the implementation PUBLISHES is `V.foo`, which is the identity
+                // the signature declares. Comparing the written names would call this drift.
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\nval foo: int -> int"
+                        "namespace V\n\n[<CompiledName(\"foo\")>]\nlet bar (x: int) = x")
+                    "the compiled name is the value identity"
+            }
+
+            // ---- `[<Import>]`, read by resolved identity ----
+
+            test "an [<Import>] binding whose body is not jsNative is an error" {
+                let m =
+                    analysedErrors
+                        "namespace V\n\nmodule M =\n\n    [<Import(\"served\", \"./Asset.mjs\")>]\n    let served (x: int) : int = x"
+                    |> theOne "error"
+
+                Expect.stringContains m "jsNative" "the attribute is the implementation"
+            }
+
+            test "an [<Import>] selector that is not the emitted name is an error" {
+                // `jsNative` is a js-only binding, absent from the clr contract stack, so the
+                // body also reports an unresolved name. The selector verdict is the assertion.
+                let errors =
+                    analysedErrors
+                        "namespace V\n\nmodule M =\n\n    [<Import(\"other\", \"./Asset.mjs\")>]\n    let served (x: int) : int = jsNative"
+
+                Expect.isTrue
+                    (errors |> List.exists (fun e -> e.Contains "'other'" && e.Contains "selector"))
+                    (sprintf "the selector must equal the emitted name; got %A" errors)
+            }
+
+            test "a SHADOWING Import declaration is not the compiler's [<Import>]" {
+                // The CST reader matches the long ident's last segment and calls this an
+                // unanswered import; resolving the attribute reaches the local declaration,
+                // whose identity is not `Vesper.ImportAttribute`, so it says nothing.
+                Expect.isEmpty
+                    (analysedErrors
+                        "namespace V\n\ntype ImportAttribute(selector: string, path: string) =\n    inherit Attribute()\n\nmodule M =\n\n    [<Import(\"served\", \"./Asset.mjs\")>]\n    let served (x: int) : int = x")
+                    "a locally-declared marker of the same spelling is a different attribute"
+            }
+        ]
+
 // ---- Manifest-driven conformance over every package (CLR target) -------
 // The `.fsi`↔`.fs` pairs are read from each `Vesper.*/manifest.clr.toml`; every
 // discrepancy becomes a hard `Severity.Error`.

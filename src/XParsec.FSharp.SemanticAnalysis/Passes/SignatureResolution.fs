@@ -221,7 +221,7 @@ module SignatureResolution =
 
     /// `type t = (# "…" #)` written in a SIGNATURE: the same primitive binding it is in an
     /// implementation, and registering its entry already filed the repr below.
-    let private publishIntrinsicAbbrev (sctx: SigCtx) (id: TypeIdentity) : unit =
+    let private publishIntrinsicAbbrev (sctx: SigCtx) (id: TypeIdentity) (rhs: Type<SyntaxToken>) : unit =
         let ctx = sctx.Pass
         let canon = TypeRegistry.intrinsicKeyOf ctx.Types id.Name
 
@@ -230,44 +230,34 @@ module SignatureResolution =
             | true, repr -> IntrinsicPlatform.Repr repr.Platform
             | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
 
+        let declared =
+            match rhs with
+            | Type.ILIntrinsic(kindTag = ValueSome(ExternKind.Class _)) -> DeclaredRepr.Heritable
+            | _ -> DeclaredRepr.Opaque
+
+        PublishedSurfaceBuilder.addDeclaredRepr sctx.Surface canon declared
         publishShape sctx id.Key (ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(canon, id.TyparArity, platform)))
 
     // --- `extern` -------------------------------------------------------------------------
 
     /// Which of the three surfaces an `extern` declares. They publish different shapes, and
     /// its keyword tag is the only thing that says which.
-    [<RequireQualifiedAccess>]
-    type private ExternForm =
-        /// `extern interface`: `disposable` / `equatable` / `comparable`. The capability IS
-        /// the interface and carries its platform spelling on its own identity.
-        | Capability
-        /// `extern class`: `obj` / `exn`, a primitive another type may `inherit`.
-        | HeritableClass
-        /// Untagged: a value with no inheritance and no interface surface of its own.
-        | Scalar
+    let private externFormOfKindTag (kindTag: ExternKind<SyntaxToken> voption) : DeclaredRepr =
+        match kindTag with
+        | ValueSome(ExternKind.Interface _) -> DeclaredRepr.Capability
+        | ValueSome(ExternKind.Class _) -> DeclaredRepr.Heritable
+        | _ -> DeclaredRepr.Opaque
 
-    module private ExternForm =
-
-        let ofKindTag (kindTag: ExternKind<SyntaxToken> voption) : ExternForm =
-            match kindTag with
-            | ValueSome(ExternKind.Interface _) -> ExternForm.Capability
-            | ValueSome(ExternKind.Class _) -> ExternForm.HeritableClass
-            | _ -> ExternForm.Scalar
-
-        /// A capability IS an interface, so its `inherit` clause is interface inheritance and
-        /// its members ride the shape. Both primitives are classes.
-        let isInterface (form: ExternForm) : bool =
-            match form with
-            | ExternForm.Capability -> true
-            | ExternForm.HeritableClass
-            | ExternForm.Scalar -> false
+    /// A capability IS an interface, so its `inherit` clause is interface inheritance and
+    /// its members ride the shape. Both primitives are classes.
+    let private externDeclaresInterface (form: DeclaredRepr) : bool = form = DeclaredRepr.Capability
 
     /// The repr the paired implementation binds for this `extern`. A PRIMITIVE's is FILED on
     /// the intrinsic's own key so a use site resolves the name to it; a capability's is not,
     /// because a capability is a nominal interface that only CARRIES a platform spelling and
     /// has no intrinsic identity to file under. WHICH spelling is the implementation's
     /// business, so a target that binds none still publishes the type, marked unsupported.
-    let private bindExternRepr (sctx: SigCtx) (id: TypeIdentity) (form: ExternForm) : IntrinsicPlatform =
+    let private bindExternRepr (sctx: SigCtx) (id: TypeIdentity) (form: DeclaredRepr) : IntrinsicPlatform =
         match sctx.Inputs.Reprs.TryGetValue id.Name with
         | true, repr ->
             let fileOn (heritable: bool) =
@@ -278,9 +268,9 @@ module SignatureResolution =
                     }
 
             match form with
-            | ExternForm.Capability -> ()
-            | ExternForm.HeritableClass -> fileOn true
-            | ExternForm.Scalar -> fileOn false
+            | DeclaredRepr.Capability -> ()
+            | DeclaredRepr.Heritable -> fileOn true
+            | DeclaredRepr.Opaque -> fileOn false
 
             IntrinsicPlatform.Repr repr
         | _ -> IntrinsicPlatform.Unsupported sctx.Inputs.Target
@@ -433,8 +423,18 @@ module SignatureResolution =
         (members: TypeExtensionElementsSignature<SyntaxToken> voption)
         : unit =
         let ctx = sctx.Pass
-        let form = ExternForm.ofKindTag kindTag
+        let form = externFormOfKindTag kindTag
         let platform = bindExternRepr sctx id form
+
+        // A capability's canon IS its own identity; a primitive's is the intrinsic key its
+        // repr is filed on, which is what an implementation files its binding under.
+        let canon =
+            match form with
+            | DeclaredRepr.Capability -> id.Key
+            | DeclaredRepr.Heritable
+            | DeclaredRepr.Opaque -> TypeRegistry.intrinsicKeyOf ctx.Types id.Name
+
+        PublishedSurfaceBuilder.addDeclaredRepr sctx.Surface canon form
 
         let declared =
             match members with
@@ -446,13 +446,13 @@ module SignatureResolution =
             |> ValueOption.map (fun elems ->
                 requireInlineExternMembers ctx id elems
 
-                publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn (ExternForm.isInterface form) elems)
+                publishBodiedSurface sctx id.Key (bodiedClassSurface sctx id tn (externDeclaresInterface form) elems)
             )
 
         match form with
-        | ExternForm.Capability -> publishCapability sctx id platform surface
-        | ExternForm.HeritableClass -> publishExternPrimitive sctx id platform (heritableSurface platform surface)
-        | ExternForm.Scalar -> publishExternPrimitive sctx id platform (scalarSurface surface)
+        | DeclaredRepr.Capability -> publishCapability sctx id platform surface
+        | DeclaredRepr.Heritable -> publishExternPrimitive sctx id platform (heritableSurface platform surface)
+        | DeclaredRepr.Opaque -> publishExternPrimitive sctx id platform (scalarSurface surface)
 
     // --- class-like ------------------------------------------------------------------------
 
@@ -523,7 +523,7 @@ module SignatureResolution =
         | SigDecl.Union(extensions = ext) -> publishUnion sctx id ext
         | SigDecl.Enum(cases = cases) -> publishEnum sctx id cases
         | SigDecl.Abbrev _ -> publishAbbrev sctx id
-        | SigDecl.IntrinsicAbbrev _ -> publishIntrinsicAbbrev sctx id
+        | SigDecl.IntrinsicAbbrev(rhs = rhs) -> publishIntrinsicAbbrev sctx id rhs
         | SigDecl.Extern(typeName = tn; kindTag = kindTag; members = members) ->
             publishExtern sctx id tn kindTag members
         | SigDecl.ClassLike(typeName = tn; form = form; elements = elems) -> publishClassLike sctx id tn form elems

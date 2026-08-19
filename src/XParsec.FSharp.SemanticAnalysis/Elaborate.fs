@@ -205,6 +205,7 @@ module Elaborate =
         let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
         Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
+        Attributes.declareImportBinding ctx b emittedName
 
         match tpat with
         | TPat.NamedSimple(boundVarKey, _, _) -> recordInlineParamAttrs ctx b boundVarKey valT

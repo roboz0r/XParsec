@@ -316,13 +316,19 @@ module AssemblyFiles =
         IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn lexed) file
         reprs
 
-    /// The implementation checked against what its signature publishes: the CST rule set a
-    /// manifest-paired unit is held to as well, then typar ORDER over the two frozen surfaces.
-    /// The typar half runs only here, because the package route freezes nothing to compare.
+    /// The implementation checked against its signature over the two ANALYSED halves: type and
+    /// value presence, the `extern` ↔ repr pairing, and typar ORDER, each by resolved identity.
+    /// Only here, because the package route freezes nothing to compare and keeps the CST rule
+    /// set instead.
+    ///
+    /// The module-decl pairing stays SYNTACTIC. It asks whether the two files are a pair at
+    /// all, and two halves resolved under different headers publish into different namespaces,
+    /// which every finding below would then be about.
     let private conformanceDiagnostics
         (assembly: string)
         (signature: ParsedHalf<ParseChain.ParsedSignature>)
         (implementation: ParsedHalf<ParseChain.ParsedFile>)
+        (surface: PublishedSurface)
         (published: IExternalSymbolProvider)
         (frozen: FrozenPools)
         : Diagnostic list =
@@ -332,28 +338,27 @@ module AssemblyFiles =
         let unimplemented (detail: string) =
             verdict (ConformanceVerdict.Unimplemented(signature.Id.Name, detail))
 
-        let pair =
-            Conformance.checkUnit
-                signature.Parsed.Lexed
-                signature.Parsed.File
-                implementation.Parsed.Lexed
-                implementation.Parsed.File
+        let sigPath = Conformance.sigDeclPath signature.Parsed.Lexed signature.Parsed.File
+
+        let implPath =
+            Conformance.implDeclPath implementation.Parsed.Lexed implementation.Parsed.File
 
         [
-            match pair.ModuleMismatch with
-            | ValueSome mm ->
+            if sigPath <> implPath then
                 yield
                     verdict (
                         ConformanceVerdict.ModulePairingMismatch(
                             signature.Id.Name,
                             implementation.Id.Name,
-                            mm.SigDecl,
-                            mm.ImplDecl
+                            sigPath,
+                            implPath
                         )
                     )
-            | ValueNone -> ()
 
-            for e in pair.Errors do
+            for e in ConformanceSurface.checkTypes surface frozen do
+                yield unimplemented (Conformance.describe e)
+
+            for e in ConformanceSurface.checkValues surface frozen do
                 yield unimplemented (Conformance.describe e)
 
             for m in ConformanceTypars.checkFile published frozen do
@@ -647,6 +652,7 @@ module AssemblyFiles =
                                         assembly.Name
                                         r.Signature
                                         parsedUnit.Implementation
+                                        r.Surface
                                         homed
                                         impl.Frozen
                                 | Publication.AcrossAssemblies _ -> r.Published, []

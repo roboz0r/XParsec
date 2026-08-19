@@ -21,7 +21,6 @@
     <!-- Ahead of every reader of a `(# … #)` binding: the conformance check, the
          registrar and both front ends stitch the same instruction string through here. -->
     <Compile Include="IntrinsicReprs.fs" />
-    <Compile Include="Conformance.fs" />
     <Compile Include="SymbolKeys.fs" />
     <Compile Include="SemanticScalars.fs" />
     <Compile Include="SemanticInfo.fs" />
@@ -39,6 +38,9 @@
     <Compile Include="OperatorNames.fs" />
     <Compile Include="AccessorNames.fs" />
     <Compile Include="AttributeDecode.fs" />
+    <!-- After the attribute vocabulary it shares with the key-based reader: the CST reader
+         here decodes the same `[<Import>]` arguments into the same shapes. -->
+    <Compile Include="Conformance.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
     <Compile Include="Diagnostics.fs" />
@@ -107,6 +109,9 @@
     <Compile Include="Hashing.fs" />
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
+    <!-- Beside the typar half it runs with: both compare a resolved signature surface
+         against the implementation's frozen declarations. -->
+    <Compile Include="ConformanceSurface.fs" />
     <Compile Include="FrozenSignature.fs" />
     <Compile Include="InlineBodies.fs" />
     <Compile Include="Intrinsics.fs" />
