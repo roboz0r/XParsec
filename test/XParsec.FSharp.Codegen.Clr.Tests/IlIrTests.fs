@@ -100,7 +100,9 @@ let tests =
 
     let runBody (name: string) (body: ILBody) : int =
         let bytes =
-            Codegen.assembleMainEmit coreProvider.Value (ProjectInfo.defaults name) (IlIr.lower body)
+            let symbols = CodegenSymbols.ofProvider coreProvider.Value
+
+            Codegen.assembleMainEmit symbols (ProjectInfo.defaults name) (IlIr.lower body)
             |> Codegen.toBytes
 
         let code, _ = runEntryPoint bytes
@@ -311,11 +313,10 @@ let tests =
                     b.Add ILInstr.Ret
                     IlIr.lower b.Body il
 
+                let symbols = CodegenSymbols.ofProvider coreProvider.Value
+
                 let bytes =
-                    Codegen.assembleMainEmitWithProvider
-                        coreProvider.Value
-                        (ProjectInfo.defaults "IrTryCatch")
-                        buildBody
+                    Codegen.assembleMainEmitWithProvider symbols (ProjectInfo.defaults "IrTryCatch") buildBody
                     |> Codegen.toBytes
 
                 let code, _ = runEntryPoint bytes

@@ -249,12 +249,13 @@ let vesperListDll: Lazy<string> =
          // + binary cons), not by case name. `list.fs` calls `failwith`, an inline operator
          // in the Vesper.Core contract, so that contract must be in the stack to inline it.
          let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
+         let symbols = CodegenSymbols.ofProvider provider
          let lexed, file = parseFile src
 
          let tast =
              Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-         let artifact = Codegen.compile provider project tast |> emitted "Vesper.List"
+         let artifact = Codegen.compile symbols project tast |> emitted "Vesper.List"
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
@@ -452,13 +453,14 @@ let private compileContract
     (input: string)
     : TastFile * ClrArtifact =
     let provider = ClrSymbolProviders.buildContract manifestPaths
+    let symbols = CodegenSymbols.ofProvider provider
     let lexed, file = parseFile input
     // Callers assert on the SemType tree; codegen takes the frozen one.
     let ctx, tast =
         Pipeline.analyseSemWithContextFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
     let artifact =
-        Codegen.compile provider (withCore project) (Freeze.run ctx tast)
+        Codegen.compile symbols (withCore project) (Freeze.run ctx tast)
         |> emitted project.AssemblyName
 
     tast, artifact
@@ -506,11 +508,12 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
     let poolRoundTripped = TastPools.rePool frozen (TastUnpool.ofPools frozen)
     let cored = withCore project
+    let symbols = CodegenSymbols.ofProvider provider
 
     {
-        Direct = Codegen.compile provider cored frozen |> emitted assemblyName
-        ThawRoundTripped = Codegen.compile provider cored thawRoundTripped |> emitted assemblyName
-        PoolRoundTripped = Codegen.compile provider cored poolRoundTripped |> emitted assemblyName
+        Direct = Codegen.compile symbols cored frozen |> emitted assemblyName
+        ThawRoundTripped = Codegen.compile symbols cored thawRoundTripped |> emitted assemblyName
+        PoolRoundTripped = Codegen.compile symbols cored poolRoundTripped |> emitted assemblyName
     }
 
 /// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
@@ -750,8 +753,10 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
+    let symbols = CodegenSymbols.ofProvider provider
+
     let artifact =
-        Codegen.compile provider project tast
+        Codegen.compile symbols project tast
         |> emitted (sprintf "compileStructuralEngine %s" asmName)
 
     Codegen.materialise artifact
@@ -801,8 +806,10 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
+    let symbols = CodegenSymbols.ofProvider provider
+
     let artifact =
-        Codegen.compile provider project tast
+        Codegen.compile symbols project tast
         |> emitted (sprintf "compileFixtureFile %s" asmName)
 
     Codegen.materialise artifact
@@ -951,7 +958,9 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-    Codegen.compile provider project tast
+    let symbols = CodegenSymbols.ofProvider provider
+
+    Codegen.compile symbols project tast
     |> emitted (sprintf "compilePackages %A for:\n%s" packages src)
 
 /// The Vesper-compiled `Vesper.Printf`, registered in `packageAlc` once. `buildPackage`

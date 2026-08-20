@@ -18,7 +18,8 @@ let private ownIntrinsics =
     )
 
 let private provider () =
-    ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbolProviders.nullProvider)
+    let symbols = CodegenSymbols.ofProvider ExternalSymbolProviders.nullProvider
+    ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, symbols)
 
 let private ftConst (name: string) =
     FTConst(RuntimeNames.primitiveKey name, EqArray.empty)

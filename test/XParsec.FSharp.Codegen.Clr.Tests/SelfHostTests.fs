@@ -475,7 +475,8 @@ let tests =
                 let tast =
                     Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-                let artifact = Codegen.compile provider project tast |> emitted project.AssemblyName
+                let symbols = CodegenSymbols.ofProvider provider
+                let artifact = Codegen.compile symbols project tast |> emitted project.AssemblyName
 
                 Expect.contains
                     artifact.ReferencedAssemblies

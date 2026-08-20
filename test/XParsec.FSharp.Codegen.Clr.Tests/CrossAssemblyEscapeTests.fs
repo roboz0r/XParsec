@@ -88,8 +88,10 @@ let private producerDll: Lazy<string> =
          let tast =
              Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
+         let symbols = CodegenSymbols.ofProvider provider
+
          let artifact =
-             Codegen.compile provider project tast |> emitted "EscapeProducer build"
+             Codegen.compile symbols project tast |> emitted "EscapeProducer build"
 
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath outPath |> ignore
@@ -114,8 +116,10 @@ let private runConsumer (expected: string list) (src: string) : unit =
     let tast =
         Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
+    let symbols = CodegenSymbols.ofProvider provider
+
     let artifact =
-        Codegen.compile provider project tast |> emitted "EscapeConsumer analysis"
+        Codegen.compile symbols project tast |> emitted "EscapeConsumer analysis"
 
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()

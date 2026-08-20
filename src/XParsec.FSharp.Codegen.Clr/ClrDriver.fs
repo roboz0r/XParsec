@@ -81,6 +81,7 @@ module ClrDriver =
             | Error diagnostics -> Error diagnostics
             | Ok parsed ->
                 let provider = contract.Provider
+                let symbols = CodegenSymbols.ofProvider provider
 
                 let tast =
                     Pipeline.analyseFor
@@ -92,7 +93,7 @@ module ClrDriver =
                         (Hashing.originSourceOfText parsed.Lexed)
                         parsed.File
 
-                Codegen.compileWithReferences inputs.ReferenceAssemblies provider inputs.Project tast
+                Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast
 
     /// An ordered source-file list analysed as one assembly and emitted as ONE PE, so a
     /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back
@@ -117,6 +118,7 @@ module ClrDriver =
                 ExternalSymbolProviders.composite (
                     analysed.Files |> List.fold (fun stack f -> f.View :: stack) [ external ]
                 )
+                |> CodegenSymbols.ofProvider
 
             let tasts = [ for f in analysed.Files -> f.Frozen ]
 

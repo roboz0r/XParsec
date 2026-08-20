@@ -13,10 +13,10 @@ type ClrProvider
         ctx: MetadataContext,
         reprs: System.Collections.Generic.IReadOnlyDictionary<TypeKey, string>,
         references: Map<string, System.Reflection.AssemblyName>,
-        symbols: IExternalSymbolProvider
+        symbols: ICodegenSymbols
     ) =
 
-    let env = ClrEnv(ctx, reprs, references, CodegenSymbols.ofProvider symbols)
+    let env = ClrEnv(ctx, reprs, references, symbols)
 
     let enc = ClrEncoder(env)
     let generics = ClrGenerics(env, enc)

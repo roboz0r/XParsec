@@ -415,7 +415,8 @@ let structTests =
                 let tast =
                     Pipeline.analyseFor (compilingClr project) provider (Hashing.originSourceOfText lexed) file
 
-                let artifact = Codegen.compile provider project tast |> emitted "consumer"
+                let symbols = CodegenSymbols.ofProvider provider
+                let artifact = Codegen.compile symbols project tast |> emitted "consumer"
 
                 let bytes = Codegen.toBytes artifact
 

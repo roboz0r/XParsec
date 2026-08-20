@@ -6,7 +6,7 @@ module Codegen =
 
     let private assemble
         (referenceAssemblies: string list)
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : ClrArtifact =
@@ -69,7 +69,7 @@ module Codegen =
     /// lowering, so emission is refused and the findings come back in file order.
     let private assembleGated
         (referenceAssemblies: string list)
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : Result<ClrArtifact, Diagnostic list> =
@@ -81,7 +81,7 @@ module Codegen =
     /// every cross-file surface the files reference; the caller composes that view. Only the
     /// LAST file may carry top-level expressions, so it alone owns `Main` and the entry point.
     let compileFiles
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : Result<ClrArtifact, Diagnostic list> =
@@ -91,7 +91,7 @@ module Codegen =
     /// `AssemblyRef` identity map. `compileFiles` is this with `[]`.
     let compileFilesWithReferences
         (referenceAssemblies: string list)
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : Result<ClrArtifact, Diagnostic list> =
@@ -101,7 +101,7 @@ module Codegen =
     /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
     /// class exist and whether the PE serialises with an entry point.
     let compile
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (tast: FrozenPools)
         : Result<ClrArtifact, Diagnostic list> =
@@ -112,7 +112,7 @@ module Codegen =
     /// reference set, not the host's `System.Private.CoreLib`. Identity only, never shipped.
     let compileWithReferences
         (referenceAssemblies: string list)
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (tast: FrozenPools)
         : Result<ClrArtifact, Diagnostic list> =
@@ -120,13 +120,13 @@ module Codegen =
 
     /// The test seam for a body written with no TAST: assembles a hand-written `Main` that
     /// drives the untyped `Il` surface directly.
-    let assembleMainEmit (symbols: IExternalSymbolProvider) (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
+    let assembleMainEmit (symbols: ICodegenSymbols) (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         AssemblerScaffold.assembleWith symbols project (fun _ _ -> build)
 
     /// Provider-aware variant: the build callback sees the wired `ICodegenProvider`, so the
     /// test seam can reference BCL primitives.
     let assembleMainEmitWithProvider
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (build: ICodegenProvider -> Il -> unit)
         : ClrArtifact =

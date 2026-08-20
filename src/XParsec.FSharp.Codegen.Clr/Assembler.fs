@@ -36,8 +36,7 @@ type internal FileEmit =
 /// as data (handle = position), so the *Prepare* phase can build every signature and body
 /// against resolved handles, in any order, and the writers then walk the layout in order.
 type internal Assembler
-    (symbols: IExternalSymbolProvider, project: ProjectInfo, tasts: FrozenPools list, referenceAssemblies: string list)
-    =
+    (symbols: ICodegenSymbols, project: ProjectInfo, tasts: FrozenPools list, referenceAssemblies: string list) =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
@@ -74,7 +73,7 @@ type internal Assembler
     let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals
 
     // The narrow emission-side view of the provider: type/member shapes only.
-    let codegenSymbols = CodegenSymbols.ofProvider symbols
+    let codegenSymbols = symbols
 
     // One body-stream encoder for every method, because `AddMethodBody` realigns per body
     // internally and a fresh encoder per body would leave a tiny body's builder unaligned.

@@ -82,7 +82,7 @@ module internal AssemblerScaffold =
     /// `Main` whose body comes from `build`, the `<Module>` pseudo-type and the "Program"
     /// class.  Primitive reprs are read from the caller's `symbols`.
     let assembleWith
-        (symbols: IExternalSymbolProvider)
+        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (build: MetadataContext -> ClrProvider -> (Il -> unit))
         : ClrArtifact =
