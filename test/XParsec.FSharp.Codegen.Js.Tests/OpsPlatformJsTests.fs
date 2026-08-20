@@ -139,39 +139,33 @@ let tests =
                     "uint64 -> bigint on JS"
             }
 
-            // The bodies above carry the PRODUCER's token indices, so the collection must hand
-            // back the files those indices read against. Asserted against the disk, because a
-            // hash of anything but the parsed text makes every later resolution a hard failure.
-            test "the collection retains the producer files its bodies are anchored in" {
+            // The bodies above carry the DECLARING file's token indices, so the collection must
+            // hand back the files those indices read against. Asserted against the disk, because
+            // retaining anything but the parsed text makes every later resolution a hard failure.
+            test "the collection retains the declaring files its bodies are anchored in" {
                 let sources =
                     JsNativeSymbols.jsNativeInlineSources [ vesperCorePackage ] |> LexedFiles.toList
 
                 Expect.isNonEmpty sources "the JS `impl` files are retained, not dropped after the parse"
 
                 Expect.isTrue
-                    (sources
-                     |> List.exists (fun s -> s.Stamp.Path.Relative.Name.Contains "ops-platform"))
+                    (sources |> List.exists (fun s -> s.Path.Relative.Name.Contains "ops-platform"))
                     "…including the one the arithmetic bodies above come from"
 
                 for s in sources do
-                    let f = s.Stamp
+                    let f = s.Path
 
                     // Resolved the way the collection did, as the package directory plus the
                     // manifest-relative path, because a retained file's IDENTITY says which
                     // file it is, never where this build mounted it.
-                    let path = System.IO.Path.Combine(vesperCorePackage, f.Path.Relative.Name)
+                    let path = System.IO.Path.Combine(vesperCorePackage, f.Relative.Name)
 
-                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Path.Relative.Name)
+                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Relative.Name)
 
                     // Verbatim on both sides: the retained text is the file's bytes as read,
                     // which is what the token offsets index and what a source map publishes.
                     let onDisk = System.IO.File.ReadAllText path
 
-                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Path.Relative.Name)
-
-                    Expect.equal
-                        f.ContentHash
-                        (Hashing.hashString onDisk)
-                        (sprintf "%s's retained hash is the hash of the text that was parsed" f.Path.Relative.Name)
+                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Relative.Name)
             }
         ]

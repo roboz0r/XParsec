@@ -35,7 +35,7 @@ type TSpecializationG<'ty, 'tok, 'id> =
         Key: SpecializationKeyG<'ty>
         /// The file every anchor inside `Decl` is an index into, except under a nested
         /// `CallerExpr` / `InlineCall`, which carries its own.
-        Source: FileStamp
+        Source: AssemblyFilePath
         Decl: TDeclG<'ty, 'tok, 'id>
     }
 

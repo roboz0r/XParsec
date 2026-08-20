@@ -305,9 +305,9 @@ type PassContext(provider: IExternalSymbolProvider, source: LexedFile, assembly:
                  SetIndex = one "SetIndex"
              }) with get
 
-    member val Input = source.Input
-    member val Lexed = source.Lexed
-    member val Stamp = source.Stamp
+    /// The file being analysed: its text, its token table, and the identity every `Anchor`
+    /// this pass mints indexes.
+    member val File: LexedFile = source
 
     /// The simple name of the assembly this file emits into; `""` where nothing is emitted.
     /// NOT part of any `SymbolKey`: nominal identity is the containment chain alone.
@@ -521,7 +521,8 @@ type PassContext(provider: IExternalSymbolProvider, source: LexedFile, assembly:
 
     /// Source text of `token`, a backtick-escaped identifier reading as the name it spells.
     /// Empty for virtual (synthesised) tokens.
-    member this.NameOf(token: SyntaxToken) : string = SyntaxToken.nameIn this.Lexed token
+    member this.NameOf(token: SyntaxToken) : string =
+        SyntaxToken.nameIn this.File.Lexed token
 
     /// Record how the source writes `boundVar`. Idempotent, and must be: a ctor parameter's key
     /// is minted twice from the same identifier. An operator's `(` is no name and records none.
@@ -529,7 +530,7 @@ type PassContext(provider: IExternalSymbolProvider, source: LexedFile, assembly:
         match at.Index with
         | TokenIndex.Virtual -> ()
         | TokenIndex.Regular i ->
-            match this.Lexed.GetIdentifier(i) with
+            match this.File.Lexed.GetIdentifier(i) with
             | "" -> ()
             | name -> this.BoundVarNames.Set(boundVar, { Text = name; At = Anchor.ofToken at })
 
@@ -547,7 +548,7 @@ type PassContext(provider: IExternalSymbolProvider, source: LexedFile, assembly:
     /// Allocation-free `NameOf`: a view of `token`'s source text, no substring copied out.
     member this.ReadableOf(token: SyntaxToken) : ReadableString =
         match token.Index with
-        | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT)
+        | TokenIndex.Regular iT -> this.File.Lexed.GetTokenReadable(iT)
         | TokenIndex.Virtual -> ReadableString.Empty
 
     /// Report `kind` at `tok`. There is no per-severity member: the kind decides the severity.

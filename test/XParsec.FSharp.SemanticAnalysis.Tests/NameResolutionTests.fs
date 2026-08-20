@@ -9,7 +9,7 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -302,7 +302,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx =
-                    PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+                    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -343,7 +343,7 @@ let tests =
                 let lexed, file = parseFile "type Bad = { X: 'a }"
 
                 let ctx =
-                    PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+                    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -814,7 +814,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx =
-                    PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+                    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file

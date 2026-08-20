@@ -9,7 +9,7 @@ let private analyseNR (input: string) =
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -19,7 +19,7 @@ let private analyseUnif (input: string) =
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -30,7 +30,7 @@ let private analyseFull (input: string) =
     let lexed, file = parseFile input
 
     let ctx, _ =
-        Pipeline.analyseSemWithContext realProvider.Value (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseSemWithContext realProvider.Value (LexedFile.ofText lexed) file
 
     ctx
 

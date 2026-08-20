@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Text
+open System.IO.Hashing
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -138,51 +140,62 @@ module AssemblyFileId =
 
         FileId(String.concat "/" onDisk)
 
-/// WHICH FILE a set of `Anchor`s index: the assembly, and the name within it. It is folded into
-/// the per-file input hash.
+/// WHICH FILE a set of `Anchor`s index: the assembly, and the name within it.
 type AssemblyFilePath =
     {
         Assembly: string
         Relative: AssemblyFileId
     }
 
-/// A producer file an `Anchor` may be resolved against: which file, plus a hash of the exact
-/// text whose `Lexed` those indices address. Without the hash, a producer edited between two
-/// builds leaves every index still in range and pointing to a DIFFERENT token, with no error.
-type FileStamp =
-    {
-        Path: AssemblyFilePath
-        ContentHash: InputHash
-    }
-
 [<RequireQualifiedAccess>]
-module FileStamp =
+module AssemblyFilePath =
 
     /// The identity of a pool that is NOBODY's file, bearing only nodes that anchor
     /// `Anchor.nowhere`.
-    let nowhere: FileStamp =
+    let nowhere: AssemblyFilePath =
         {
-            Path =
-                {
-                    Assembly = ""
-                    Relative = AssemblyFileId.nowhere
-                }
-            ContentHash = InputHash.ofBytes [||]
+            Assembly = ""
+            Relative = AssemblyFileId.nowhere
         }
 
-/// A producer file RETAINED past the parse that produced it, so that anchors of a tree unpooled
-/// from it stay readable.
+    let private contentHex (input: string) : string =
+        let bytes = XxHash128.Hash(Encoding.UTF8.GetBytes input)
+        let sb = StringBuilder(bytes.Length * 2)
+
+        for b in bytes do
+            sb.Append(b.ToString("x2")) |> ignore
+
+        sb.ToString()
+
+    /// The identity of text handed over with no file behind it: a script fragment, a driver
+    /// given a string, a test. A hash of the text stands in for the path, so two identical
+    /// texts share one identity and are retained once.
+    let ofText (input: string) : AssemblyFilePath =
+        {
+            Assembly = ""
+            Relative = AssemblyFileId.ofRelative (sprintf "<text:%s>" (contentHex input))
+        }
+
+/// A declaring file RETAINED past the parse that produced it, so that anchors of a tree
+/// unpooled from it stay readable.
 type LexedFile =
     {
-        Stamp: FileStamp
+        Path: AssemblyFilePath
         Lexed: Lexed
     }
 
     member this.Input: string = this.Lexed.Input
 
-/// Every producer file whose anchors a compilation may have to resolve. Keyed by PATH rather
-/// than by the whole `FileStamp`, so a file retained at DIFFERENT contents is found and
-/// faults instead of missing.
+[<RequireQualifiedAccess>]
+module LexedFile =
+
+    let inFile (path: AssemblyFilePath) (lexed: Lexed) : LexedFile = { Path = path; Lexed = lexed }
+
+    /// `inFile` under the identity `AssemblyFilePath.ofText` mints for the lexed text.
+    let ofText (lexed: Lexed) : LexedFile =
+        inFile (AssemblyFilePath.ofText lexed.Input) lexed
+
+/// Every declaring file whose anchors a compilation may have to resolve.
 type LexedFiles =
     private
         {
@@ -194,45 +207,38 @@ module LexedFiles =
 
     let empty: LexedFiles = { ByPath = Map.empty }
 
-    /// Retain one parsed producer file. A later retention of the same path replaces.
-    let add (src: LexedFile) (sources: LexedFiles) : LexedFiles =
+    /// Retain one parsed declaring file. A later retention of the same path replaces.
+    let add (file: LexedFile) (files: LexedFiles) : LexedFiles =
         {
-            ByPath = Map.add src.Stamp.Path src sources.ByPath
+            ByPath = Map.add file.Path file files.ByPath
         }
 
-    let ofSeq (srcs: LexedFile seq) : LexedFiles =
-        Seq.fold (fun acc src -> add src acc) empty srcs
+    let ofSeq (xs: LexedFile seq) : LexedFiles =
+        Seq.fold (fun acc file -> add file acc) empty xs
 
-    /// Every source of `added` retained over `sources`; a path in both keeps `added`'s read.
-    let addAll (added: LexedFiles) (sources: LexedFiles) : LexedFiles =
-        (sources, added.ByPath) ||> Map.fold (fun acc _ src -> add src acc)
+    /// Every file of `added` retained over `files`; a path in both keeps `added`'s read.
+    let addAll (added: LexedFiles) (files: LexedFiles) : LexedFiles =
+        (files, added.ByPath) ||> Map.fold (fun acc _ file -> add file acc)
 
     /// Everything retained, in path order.
-    let toList (sources: LexedFiles) : LexedFile list =
-        [ for KeyValue(_, src) in sources.ByPath -> src ]
+    let toList (files: LexedFiles) : LexedFile list =
+        [ for KeyValue(_, file) in files.ByPath -> file ]
 
-    /// The token `at` names in `file`, taken from that file's retained `Lexed`.
-    let tokenAt (sources: LexedFiles) (file: FileStamp) (at: Anchor) : SyntaxToken =
+    /// The token `at` names in `path`, taken from that file's retained `Lexed`.
+    let tokenAt (files: LexedFiles) (path: AssemblyFilePath) (at: Anchor) : SyntaxToken =
         match at.Index with
         | ValueNone -> SyntaxToken.nowhere
         | ValueSome i ->
-            match Map.tryFind file.Path sources.ByPath with
+            match Map.tryFind path files.ByPath with
             | None ->
                 failwithf
-                    "LexedFiles: no retained source for %s (assembly %s), so a tree anchored in it has no readable positions"
-                    file.Path.Relative.Name
-                    file.Path.Assembly
-            | Some src when src.Stamp.ContentHash <> file.ContentHash ->
-                failwithf
-                    "LexedFiles: %s (assembly %s) has changed since the tree anchored in it was built (anchored against %s, retained %s), so every one of its anchors now names a different token"
-                    file.Path.Relative.Name
-                    file.Path.Assembly
-                    file.ContentHash.Hex
-                    src.Stamp.ContentHash.Hex
-            | Some src when int i >= src.Lexed.Tokens.Length ->
+                    "LexedFiles: no retained file for %s (assembly %s), so a tree anchored in it has no readable positions"
+                    path.Relative.Name
+                    path.Assembly
+            | Some file when int i >= file.Lexed.Tokens.Length ->
                 failwithf
                     "LexedFiles: anchor %d is past the end of %s (%d tokens)"
                     (int i)
-                    file.Path.Relative.Name
-                    src.Lexed.Tokens.Length
-            | Some src -> SyntaxToken.syntaxToken src.Lexed.Tokens.[i] (int i)
+                    path.Relative.Name
+                    file.Lexed.Tokens.Length
+            | Some file -> SyntaxToken.syntaxToken file.Lexed.Tokens.[i] (int i)

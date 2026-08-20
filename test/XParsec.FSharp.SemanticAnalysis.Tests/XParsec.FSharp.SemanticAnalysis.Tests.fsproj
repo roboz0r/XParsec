@@ -11,7 +11,7 @@
     <Compile Include="TastShape.fs" />
     <Compile Include="NodeKeyTests.fs" />
     <Compile Include="CompressionTests.fs" />
-    <Compile Include="HashingTests.fs" />
+    <Compile Include="AssemblyFilePathTests.fs" />
     <Compile Include="TastPoolsTests.fs" />
     <Compile Include="TastPoolBuilderTests.fs" />
     <Compile Include="FrozenBlobSizeTests.fs" />

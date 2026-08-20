@@ -298,13 +298,13 @@ type TExprG<'ty, 'tok, 'id> =
     | InlineCall of
         spec: SpecializationId *
         args: EqArray<TExprG<'ty, 'tok, 'id>> *
-        source: FileStamp *
+        source: AssemblyFilePath *
         ty: 'ty *
         tok: 'tok
     /// Marks a subtree a reduction FUSED into a specialization entry from a call site: its
     /// nodes index `source`, not the file the entry's body was written in: `a && b` outlines
     /// as `if a then ⟨CallerExpr b⟩ else false`. `ty`/`tok` are its body's; expansion unwraps it.
-    | CallerExpr of body: TExprG<'ty, 'tok, 'id> * source: FileStamp * ty: 'ty * tok: 'tok
+    | CallerExpr of body: TExprG<'ty, 'tok, 'id> * source: AssemblyFilePath * ty: 'ty * tok: 'tok
 
 /// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the pattern and the
 /// guard/body expressions are carried: either the trees themselves, or handles identifying them

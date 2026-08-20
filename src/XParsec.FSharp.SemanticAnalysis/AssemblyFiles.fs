@@ -17,16 +17,6 @@ module AssemblyFiles =
 
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// The identity every anchor and diagnostic of one file resolves against: the assembly
-    /// it is bucketed under, and the name it is known by within it.
-    let fileSource (assemblyName: string) (id: AssemblyFileId) (lexed: Lexed) : LexedFile =
-        Hashing.lexedFile
-            {
-                Assembly = assemblyName
-                Relative = id
-            }
-            lexed
-
     /// One INPUT file of an assembly: its source text, and the name it is known by within that
     /// assembly, which anchors its diagnostics and identifies its frozen tree's nodes. Nothing
     /// reopens `Id`.
@@ -254,7 +244,7 @@ module AssemblyFiles =
                     | Site.After t -> lineIndex.GetLineCol(gapAfter t)
 
                 {
-                    Path = file.Stamp.Path.Relative
+                    Path = file.Path.Relative
                     Diagnostic = d
                     Line = line
                     Col = col
@@ -267,7 +257,8 @@ module AssemblyFiles =
         match e.Failure.Lexed with
         // The `""` bucket: no file was analysed, so no assembly claims this one. The
         // source exists only to resolve the positions the parser's diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Id lexed) e.Failure.Diagnostics
+        | ValueSome lexed ->
+            anchorDiagnostics (LexedFile.inFile { Assembly = ""; Relative = e.Id } lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
 
     /// A `.fsi` half's findings, anchored in its own text: recovery's first, then
@@ -457,7 +448,14 @@ module AssemblyFiles =
                     (ns @ composed.AmbientOpenPrefixes |> List.distinct)
                     [ composed ]
 
-        let source = fileSource assembly.Name implementation.Id parsed.Lexed
+        let source =
+            LexedFile.inFile
+                {
+                    Assembly = assembly.Name
+                    Relative = implementation.Id
+                }
+                parsed.Lexed
+
         let frozen = analyse assembly scoped source parsed.File
 
         {
@@ -476,7 +474,13 @@ module AssemblyFiles =
         (signature: ParsedHalf<ParseChain.ParsedSignature>)
         : LexedFile * PublishedSurface * Diagnostic list =
         // Anchored to the signature's OWN token stream: its diagnostics index that text.
-        let source = fileSource assembly.Name signature.Id signature.Parsed.Lexed
+        let source =
+            LexedFile.inFile
+                {
+                    Assembly = assembly.Name
+                    Relative = signature.Id
+                }
+                signature.Parsed.Lexed
 
         let surface, diagnostics =
             SignatureResolution.resolveFile
@@ -643,7 +647,7 @@ module AssemblyFiles =
                                 | Publication.InAssembly ->
                                     let homed =
                                         ExternalSymbolProviders.stack
-                                            (ValueSome(SymbolHome.InFile impl.Source.Stamp.Path))
+                                            (ValueSome(SymbolHome.InFile impl.Source.Path))
                                             []
                                             [ r.Published ]
 

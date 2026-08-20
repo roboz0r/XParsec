@@ -253,7 +253,7 @@ let vesperListDll: Lazy<string> =
          let lexed, file = parseFile src
 
          let tast =
-             Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+             Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
          let artifact = Codegen.compile symbols project tast |> emitted "Vesper.List"
          Codegen.materialise artifact
@@ -282,17 +282,14 @@ let defaultPackages: string list =
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultPackages) (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultPackages) (LexedFile.ofText lexed) file
 
 /// `analyse`, keeping the `PassContext`. `Freeze.run` reads `ctx.Bindings.Scheme` for the
 /// bound variable a residual typar root belongs to; the TAST alone does not carry it.
 let analyseWithCtx (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSemWithContext
-        (ClrSymbolProviders.buildContract defaultPackages)
-        (Hashing.lexedFileOfText lexed)
-        file
+    Pipeline.analyseSemWithContext (ClrSymbolProviders.buildContract defaultPackages) (LexedFile.ofText lexed) file
 
 /// Load context for the package-build harness. `Load` resolves a sibling `Vesper.*`
 /// package from the registry below, so a package binds against THIS harness's copy of its
@@ -457,7 +454,7 @@ let private compileContract
     let lexed, file = parseFile input
     // Callers assert on the SemType tree; codegen takes the frozen one.
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseSemWithContextFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
     let artifact =
         Codegen.compile symbols (withCore project) (Freeze.run ctx tast)
@@ -479,7 +476,7 @@ let analyseAs (assemblyName: string) (input: string) : TastFile =
     let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile input
 
-    Pipeline.analyseSemFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSemFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
 /// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT codegen.
 /// All three share one parse → analyse → freeze prefix and differ only by the round-trip.
@@ -502,7 +499,7 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseSemWithContextFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
     let frozen = Freeze.run ctx tast
     let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
@@ -751,7 +748,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
     let symbols = CodegenSymbols.ofProvider provider
 
@@ -804,7 +801,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
     let symbols = CodegenSymbols.ofProvider provider
 
@@ -956,7 +953,7 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let lexed, file = parseFile src
 
     let tast =
-        Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
     let symbols = CodegenSymbols.ofProvider provider
 
@@ -1014,7 +1011,7 @@ let private analysePackagesErrors (packages: string list) (src: string) : Diagno
     let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
 /// The front-end-only probe: analyse `src` against `packages` and assert NO error
@@ -1053,7 +1050,7 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 let private analyseErrors (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
 /// Analyse `src`; assert an error diagnostic whose message contains `fragment`: bad input

@@ -6,18 +6,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (LexedFile.ofText lexed) file
 
 /// `analyse`, naming the unit being compiled. The assembly name is in no `SymbolKey`; it
 /// identifies the UNIT, which is what the own-contract exemption below turns on.
 let private analyseAs (assemblyName: string) (input: string) =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSemFor
-        { Name = assemblyName; Target = "clr" }
-        realProvider.Value
-        (Hashing.lexedFileOfText lexed)
-        file
+    Pipeline.analyseSemFor { Name = assemblyName; Target = "clr" } realProvider.Value (LexedFile.ofText lexed) file
 
 let private errors (tast: TastFile) =
     [

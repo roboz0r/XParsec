@@ -285,10 +285,10 @@ type ExprPayload =
     | InlineCall of
         {|
             Spec: SpecializationId
-            Source: FileStamp
+            Source: AssemblyFilePath
         |}
     /// The file everything under this node is anchored in.
-    | CallerExpr of source: FileStamp
+    | CallerExpr of source: AssemblyFilePath
 
 [<RequireQualifiedAccess>]
 module ExprPayload =

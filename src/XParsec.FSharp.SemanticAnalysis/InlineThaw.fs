@@ -13,8 +13,8 @@ module InlineThaw =
 
     /// One cache for the WHOLE decl: two occurrences of one typar must land on ONE cell, or a
     /// parameter's type and the uses of that parameter come apart. Tokens stay the PRODUCER's,
-    /// read out of `stamp`'s retained text, so a node still spells where it was written.
-    let bodyAtStamp (store: TypeStore) (sources: LexedFiles) (stamp: FileStamp) (decl: Wire.TDecl) : TDecl =
+    /// read out of `path`'s retained text, so a node still spells where it was written.
+    let bodyAtPath (store: TypeStore) (sources: LexedFiles) (path: AssemblyFilePath) (decl: Wire.TDecl) : TDecl =
         let cache = Dictionary<TyparKey, SemType>()
 
         let mint (key: TyparKey) : SemType =
@@ -30,5 +30,5 @@ module InlineThaw =
                 (fun i -> mint (TyparKey.Declaring i))
                 (fun j -> mint (TyparKey.Method j))
                 (fun scheme k -> mint (TyparKey.Local(scheme, k))))
-            (LexedFiles.tokenAt sources stamp)
+            (LexedFiles.tokenAt sources path)
             decl

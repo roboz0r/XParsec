@@ -227,7 +227,7 @@ let tests =
                         XParsec.FSharp.Codegen.Clr.ClrSymbolProviders.buildContract defaultPackages
 
                     let lexed, file = parseFile src
-                    let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+                    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
 
                     if not (List.isEmpty tast.Diagnostics) then
                         failtestf "diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message))

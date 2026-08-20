@@ -23,7 +23,7 @@ let analyse (provider: IExternalSymbolProvider) (input: string) : Probe =
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed ->
         let ctx, regions, _ =
-            Pipeline.analyseSemWithRegions provider (Hashing.lexedFileOfText parsed.Lexed) parsed.File
+            Pipeline.analyseSemWithRegions provider (LexedFile.ofText parsed.Lexed) parsed.File
 
         {
             Ctx = ctx

@@ -77,14 +77,14 @@ module JsMapSources =
                     Slot = m.Ordered.Count + 1
                     Published =
                         {
-                            Path = src.Stamp.Path.Assembly + "/" + src.Stamp.Path.Relative.Name
+                            Path = src.Path.Assembly + "/" + src.Path.Relative.Name
                             Content = src.Input
                         }
                     Lines = LineIndex.build src.Input
                 }
 
             m.Ordered.Add entry
-            m.ByPath.[src.Stamp.Path] <- entry
+            m.ByPath.[src.Path] <- entry
 
         /// `ValueNone` is a broken invariant, not a position to fall back from: the caller
         /// resolving a node's map position throws rather than reading the consuming file's text.

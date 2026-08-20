@@ -12,7 +12,7 @@ module InlineExpand =
     /// neither half means anything without the other. Held beside the node because the node's
     /// own anchor was moved onto the call site.
     [<Struct>]
-    type NodeOrigin = { File: FileStamp; At: Anchor }
+    type NodeOrigin = { File: AssemblyFilePath; At: Anchor }
 
     /// Every node a rewrite AUTHORED → the node it was authored from. Splicing a body inside a
     /// lambda re-authors that lambda, so a table keyed by node (`FrozenPools.FunVerdicts`,
@@ -83,12 +83,12 @@ module InlineExpand =
         }
 
     /// WHICH FILE the material being walked is anchored in: a producer's, or the consuming
-    /// file's own. Both are `FileStamp`s; the walk is TOLD which by the node it descends
+    /// file's own. Both are `AssemblyFilePath`s; the walk is TOLD which by the node it descends
     /// through, so the comparison happens once per domain entered, not once per node filed.
     [<Struct>]
     type private Domain =
         | Consuming
-        | Producer of FileStamp
+        | Producer of AssemblyFilePath
 
     /// The state of ONE entry-body copy. Per copy, not per expansion: an entry reached from
     /// inside another entry's body takes its own, so the two copies' variables cannot collide;
@@ -132,9 +132,9 @@ module InlineExpand =
         // The one file whose anchors need no provenance is the file being compiled. It has to
         // be the identity the front end stamped onto the nodes — one rebuilt here from a path
         // would compare unequal and file this file's own code as if it were foreign.
-        let compiling = TastPoolBuilder.stamp pool
+        let compiling = TastPoolBuilder.path pool
 
-        let domainOf (stamp: FileStamp) : Domain =
+        let domainOf (stamp: AssemblyFilePath) : Domain =
             if stamp = compiling then Consuming else Producer stamp
 
         let authored (source: TastAccessor.ExprId) (result: TastAccessor.ExprId) : TastAccessor.ExprId =

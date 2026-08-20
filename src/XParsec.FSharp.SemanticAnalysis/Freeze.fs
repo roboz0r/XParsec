@@ -194,4 +194,4 @@ module Freeze =
             | ValueSome ident -> ident
             | ValueNone -> BoundVarIdent.unnamed
 
-        toFrozenFile ctx tast |> TastPools.toPools ctx.Stamp identOf
+        toFrozenFile ctx tast |> TastPools.toPools ctx.File.Path identOf

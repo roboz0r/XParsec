@@ -45,7 +45,7 @@ module InlineExpansion =
             LambdaEnv: Dictionary<NodeKey, FusedLambda>
         }
 
-    let private sourceOf (x: Expander) (at: Descent) : FileStamp = Descent.sourceOf x.Ctx.Stamp at
+    let private sourceOf (x: Expander) (at: Descent) : AssemblyFilePath = Descent.sourceOf x.Ctx.File.Path at
 
     /// This file's module-level `let inline` bindings. Off the INPUT decls, so a reduction takes
     /// the TEMPLATE as elaborated, never this pass's own walked rewrite of it.
@@ -80,7 +80,7 @@ module InlineExpansion =
                             match ctx.InlineParamAttrs.TryGetValue b with
                             | true, a -> a
                             | _ -> EqArray.empty
-                        Source = ctx.Stamp
+                        Source = ctx.File.Path
                     }
             | _ -> ()
 

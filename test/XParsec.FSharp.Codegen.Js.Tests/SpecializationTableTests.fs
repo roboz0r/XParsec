@@ -30,8 +30,7 @@ type private Analysed =
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+    let ctx = PassContext(provider, LexedFile.ofText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -79,9 +78,9 @@ let private heapSharedCount (input: string) (walkTable: bool) : int =
     |> Seq.length
 
 /// The file the harness analyses `input` under, off the same mint the harness uses.
-let private compilingOrigin (input: string) : FileStamp =
+let private compilingOrigin (input: string) : AssemblyFilePath =
     let lexed, _ = parseFile input
-    (Hashing.lexedFileOfText lexed).Stamp
+    (LexedFile.ofText lexed).Path
 
 /// The recursive-inline verdicts among `ds`, as the binding each closes on and the way round.
 let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
@@ -93,7 +92,7 @@ let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
     ]
 
 /// A synthetic PRODUCER package written under `tmp/`. A package is the only route to a body
-/// with a retained `FileStamp`, and no working library can hold these bodies: an inline
+/// with a retained `AssemblyFilePath`, and no working library can hold these bodies: an inline
 /// binding that calls itself breaks every consumer that touches it.
 let private recursiveProducer: Lazy<IExternalSymbolProvider> =
     lazy
@@ -464,7 +463,7 @@ let tests =
                 let bounceSlot = slotOf "bounce"
 
                 Expect.equal
-                    table.[memberSlot].Source.Path.Relative.Name
+                    table.[memberSlot].Source.Relative.Name
                     "array-cycle.js.fs"
                     "the member entry is anchored in the file the member was WRITTEN in, not the consuming one"
 
@@ -560,7 +559,7 @@ let tests =
                         Expect.equal
                             (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
                             tok
-                            "an entry node resolves against the file its `FileStamp` names"
+                            "an entry node resolves against the file its `AssemblyFilePath` names"
 
                 Expect.isGreaterThan
                     (List.max indices)
@@ -654,7 +653,7 @@ let tests =
                         Expect.equal
                             (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
                             tok
-                            "an unmarked node resolves against the file the entry's `FileStamp` names"
+                            "an unmarked node resolves against the file the entry's `AssemblyFilePath` names"
 
                 // The discriminating half: the two sets cannot be one index space, because the
                 // producer's indices run past the end of a consuming file this short. Without it,
@@ -867,7 +866,7 @@ let tests =
                         Expect.equal
                             (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
                             tok
-                            "every unmarked node of the entry — the edge included — reads against its `FileStamp`"
+                            "every unmarked node of the entry — the edge included — reads against its `AssemblyFilePath`"
 
                 Expect.isGreaterThan
                     (List.min (tokenIndices ownToks))

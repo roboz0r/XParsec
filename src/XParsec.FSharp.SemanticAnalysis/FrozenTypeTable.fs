@@ -36,10 +36,10 @@ type SymbolId = | SymbolId of int
 [<Struct>]
 type TypeId = | TypeId of int
 
-/// A row of the file's file-stamp table: the producer file a specialization entry's anchors
-/// point into. Interned because a realistic program draws many entries from ONE producer.
+/// A row of the file's file-path table: the declaring file a specialization entry's anchors
+/// point into. Interned because a realistic program draws many entries from ONE such file.
 [<Struct>]
-type FileStampId = | FileStampId of int
+type FilePathId = | FilePathId of int
 
 [<RequireQualifiedAccess>]
 type ModuleContainerRow =
@@ -142,14 +142,8 @@ type TypeRow =
     | LocalTypar of scheme: SchemeId * index: int
     | Unknown of reason: UnknownReasonRow
 
-/// The content hash rides as a heap string, re-parsed on materialisation: two entries drawn
-/// from one producer carry the same text and so the same hex, and intern to one row.
-type FileStampRow =
-    {
-        Assembly: StrId
-        Relative: StrId
-        ContentHex: StrId
-    }
+/// Two entries drawn from one declaring file carry the same pair and intern to one row.
+type FilePathRow = { Assembly: StrId; Relative: StrId }
 
 /// The file's tables as STORED. Each array is in MINT order, so a row's children are rows of
 /// a table already at least this far built; nothing here is sorted or canonicalised after the
@@ -164,7 +158,7 @@ type FrozenTypeRows =
         Members: ImmutableArray<MemberKeyRow>
         Symbols: ImmutableArray<SymbolRow>
         Types: ImmutableArray<TypeRow>
-        FileStamps: ImmutableArray<FileStampRow>
+        FilePaths: ImmutableArray<FilePathRow>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -180,7 +174,7 @@ module FrozenTypeRows =
             Members = ImmutableArray.Empty
             Symbols = ImmutableArray.Empty
             Types = ImmutableArray.Empty
-            FileStamps = ImmutableArray.Empty
+            FilePaths = ImmutableArray.Empty
         }
 
 /// Rows in mint order, plus the index that answers a repeat with the id its first occurrence
@@ -237,18 +231,17 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let members = RowTable<MemberKeyRow, MemberKeyId>(MemberKeyId, rows.Members)
     let symbols = RowTable<SymbolRow, SymbolId>(SymbolId, rows.Symbols)
     let types = RowTable<TypeRow, TypeId>(TypeId, rows.Types)
-    let fileStamps = RowTable<FileStampRow, FileStampId>(FileStampId, rows.FileStamps)
+    let filePaths = RowTable<FilePathRow, FilePathId>(FilePathId, rows.FilePaths)
 
     let str (s: string) = strings.Intern s
 
     // Not in the key/type recursive group below: nothing in the type domain reaches a
-    // file stamp, nor the reverse.
-    let fileStamp (f: FileStamp) =
-        fileStamps.Intern
+    // file path, nor the reverse.
+    let filePath (f: AssemblyFilePath) =
+        filePaths.Intern
             {
-                Assembly = str f.Path.Assembly
-                Relative = str f.Path.Relative.Name
-                ContentHex = str f.ContentHash.Hex
+                Assembly = str f.Assembly
+                Relative = str f.Relative.Name
             }
 
     let namespaceKey (ns: NamespaceKey) =
@@ -371,7 +364,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
     member _.InternModule(m: ModuleKey) : ModuleId = moduleKey m
 
-    member _.InternFileStamp(f: FileStamp) : FileStampId = fileStamp f
+    member _.InternFilePath(f: AssemblyFilePath) : FilePathId = filePath f
 
     new() = FrozenTypeTableBuilder(FrozenTypeRows.empty)
 
@@ -391,7 +384,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             Members = members.ToImmutable()
             Symbols = symbols.ToImmutable()
             Types = types.ToImmutable()
-            FileStamps = fileStamps.ToImmutable()
+            FilePaths = filePaths.ToImmutable()
         }
 
 /// A file's interned type and key tables, READ SIDE: an id resolves back to the very
@@ -406,24 +399,20 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
     let memberCache: MemberKey[] = Array.zeroCreate rows.Members.Length
     let symbolCache: SymbolKey[] = Array.zeroCreate rows.Symbols.Length
     let typeCache: FrozenType[] = Array.zeroCreate rows.Types.Length
-    let stampCache: FileStamp[] = Array.zeroCreate rows.FileStamps.Length
+    let pathCache: AssemblyFilePath[] = Array.zeroCreate rows.FilePaths.Length
 
     let str (StrId i) = rows.Strings.[i]
 
-    let fileStamp (FileStampId i) : FileStamp =
+    let filePath (FilePathId i) : AssemblyFilePath =
         Materialise.get
-            stampCache
+            pathCache
             i
             (fun () ->
-                let row = rows.FileStamps.[i]
+                let row = rows.FilePaths.[i]
 
                 {
-                    Path =
-                        {
-                            Assembly = str row.Assembly
-                            Relative = AssemblyFileId.ofStored (str row.Relative)
-                        }
-                    ContentHash = InputHash.ofHex (str row.ContentHex)
+                    Assembly = str row.Assembly
+                    Relative = AssemblyFileId.ofStored (str row.Relative)
                 }
             )
 
@@ -592,7 +581,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
         with get (id: ModuleId): ModuleKey = moduleKey id
 
     member _.Item
-        with get (id: FileStampId): FileStamp = fileStamp id
+        with get (id: FilePathId): AssemblyFilePath = filePath id
 
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows)
 

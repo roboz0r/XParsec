@@ -237,10 +237,10 @@ module FrozenCodec =
         | ExprPayload.InlineCall p ->
             w.Write 39uy
             writeSpecializationId w p.Spec
-            writeFileStampRef w p.Source
+            writeFilePathRef w p.Source
         | ExprPayload.CallerExpr source ->
             w.Write 40uy
-            writeFileStampRef w source
+            writeFilePathRef w source
         | ExprPayload.ArrayLit -> w.Write 41uy
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
@@ -363,9 +363,9 @@ module FrozenCodec =
             ExprPayload.InlineCall
                 {|
                     Spec = spec
-                    Source = readFileStampRef r
+                    Source = readFilePathRef r
                 |}
-        | 40uy -> ExprPayload.CallerExpr(readFileStampRef r)
+        | 40uy -> ExprPayload.CallerExpr(readFilePathRef r)
         | 41uy -> ExprPayload.ArrayLit
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
@@ -463,7 +463,7 @@ module FrozenCodec =
     /// Every column and side table, in `FrozenPools` declaration order, but NOT the tables
     /// the types in them are ids into, which `writePools` puts in front of this.
     let private writeBody (w: FrozenWriter) (p: FrozenPools) =
-        writeFileStampRef w p.Stamp
+        writeFilePathRef w p.Path
         writeArrayWith w writeTypeId p.ExprTys
         writeArrayWith w writeAnchor p.ExprToks
         writeChildColumn w writeExprPoolId p.ExprChildren
@@ -505,7 +505,7 @@ module FrozenCodec =
         // rebound to the file's own before a single column is touched.
         let types = FrozenTypeTable.OfRows(readTypeRows r)
         let r = { r with Types = types }
-        let stamp = readFileStampRef r
+        let path = readFilePathRef r
         let exprTys = readArrayWith r readTypeId
         let exprToks = readArrayWith r readAnchor
         let exprChildren = readChildColumn r readExprPoolId
@@ -542,7 +542,7 @@ module FrozenCodec =
         checkSlots "DeclPatChildren" declPayloads.Length declPatChildren
 
         {
-            Stamp = stamp
+            Path = path
             Types = types
             ExprTys = exprTys
             ExprToks = exprToks

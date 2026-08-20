@@ -300,7 +300,12 @@ module M =
                     | Result.Ok parsed ->
                         Passes.SignatureResolution.resolveFile
                             realProvider.Value
-                            (AssemblyFiles.fileSource "P" (AssemblyFileId.ofRelative "p.fsi") parsed.Lexed)
+                            (LexedFile.inFile
+                                {
+                                    Assembly = "P"
+                                    Relative = AssemblyFileId.ofRelative "p.fsi"
+                                }
+                                parsed.Lexed)
                             {
                                 Assembly = "P"
                                 Target = "none"

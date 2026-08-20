@@ -169,9 +169,9 @@ module TastPools =
 
     /// Pool a tree, assigning each reachable node a dense id and recording its child edges
     /// as ids. `identOf` fills the two bound-variable columns, `anchor` narrows the tree's
-    /// spelling of a position to the stored form, `stamp` is the file those indices index.
+    /// spelling of a position to the stored form, `path` is the file those indices index.
     let private fill
-        (stamp: FileStamp)
+        (path: AssemblyFilePath)
         (identOf: BoundVarKeyG<'id> -> BoundVarIdent)
         (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
@@ -367,7 +367,7 @@ module TastPools =
         // Every column is snapshotted here; the derived table below only READS the pools.
         let pools =
             {
-                Stamp = stamp
+                Path = path
                 Types = FrozenTypeTable.OfRows typeTable.Rows
                 ExprTys = exprTys.ToArray()
                 ExprToks = exprToks.ToArray()
@@ -407,12 +407,12 @@ module TastPools =
             BindingValReprs = bindingValReprs pools
         }
 
-    /// Pool a source-shaped frozen file: its tokens become indices against `stamp`, and
+    /// Pool a source-shaped frozen file: its tokens become indices against `path`, and
     /// `idents` records how the source writes each bound variable's name, verbatim.
-    let toPools (stamp: FileStamp) (idents: BoundVarKey -> BoundVarIdent) (file: Frozen.TastFile) : FrozenPools =
-        fill stamp idents Anchor.ofToken file
+    let toPools (path: AssemblyFilePath) (idents: BoundVarKey -> BoundVarIdent) (file: Frozen.TastFile) : FrozenPools =
+        fill path idents Anchor.ofToken file
 
-    /// Pool a tree that was UNPOOLED from `pools`: the names and the stamp come back off
+    /// Pool a tree that was UNPOOLED from `pools`: the names and the path come back off
     /// the pool it came out of, and its anchors are already in the stored form.
     let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
         let identOf (b: BoundVarKeyG<BoundVarId>) =
@@ -423,4 +423,4 @@ module TastPools =
                 At = pools.BoundVarToks.[i]
             }
 
-        fill pools.Stamp identOf id file
+        fill pools.Path identOf id file

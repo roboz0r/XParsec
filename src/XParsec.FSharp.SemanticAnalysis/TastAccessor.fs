@@ -442,25 +442,25 @@ module TastAccessor =
         expect "TastAccessor.exprInlineCallSpec: not an InlineCall node" (|EInlineCall|_|) e
 
     [<return: Struct>]
-    let private (|EInlineCallSource|_|) (e: ExprId) : FileStamp voption =
+    let private (|EInlineCallSource|_|) (e: ExprId) : AssemblyFilePath voption =
         match payload e with
         | ExprPayload.InlineCall p -> ValueSome p.Source
         | _ -> ValueNone
 
     /// The file an `InlineCall`'s own anchor is read against, and its arguments' too, they being
     /// CALLER material. NOT the entry's: the entry states its own origin.
-    let exprInlineCallSource (e: ExprId) : FileStamp =
+    let exprInlineCallSource (e: ExprId) : AssemblyFilePath =
         expect "TastAccessor.exprInlineCallSource: not an InlineCall node" (|EInlineCallSource|_|) e
 
     [<return: Struct>]
-    let private (|ECallerExprSource|_|) (e: ExprId) : FileStamp voption =
+    let private (|ECallerExprSource|_|) (e: ExprId) : AssemblyFilePath voption =
         match payload e with
         | ExprPayload.CallerExpr origin -> ValueSome origin
         | _ -> ValueNone
 
     /// The file the subtree under a `CallerExpr` is anchored in: the node marks material
     /// written at a CALL SITE and moved into an entry's body.
-    let exprCallerExprSource (e: ExprId) : FileStamp =
+    let exprCallerExprSource (e: ExprId) : AssemblyFilePath =
         expect "TastAccessor.exprCallerExprSource: not a CallerExpr node" (|ECallerExprSource|_|) e
 
     /// The arms re-nested out of this node's child columns. `lead` is how many leading expr

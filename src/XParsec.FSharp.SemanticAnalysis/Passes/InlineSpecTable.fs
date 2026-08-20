@@ -78,12 +78,12 @@ module InlineSpecTable =
             Shareable: bool
             /// The file the entry's nodes stay anchored in: the template's, which for a
             /// template of this file is the file being compiled.
-            Source: FileStamp
+            Source: AssemblyFilePath
             /// The position, anchor domain and result type of the EDGE, taken from the call site
             /// and never read off the entry: a reused entry's types belong to the thaw that built
             /// it, where this node belongs to the material the call was written in.
             EdgeTok: SyntaxToken
-            EdgeSource: FileStamp
+            EdgeSource: AssemblyFilePath
             EdgeTy: SemType
             /// The edge's arguments when an interned entry is REUSED. A thunk because walking
             /// them is an expansion in its own right; the minting path uses the survivors instead.

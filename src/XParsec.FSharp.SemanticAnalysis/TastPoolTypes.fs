@@ -113,7 +113,7 @@ type PooledInlineValue =
 type PooledSpecialization =
     {
         Key: Frozen.SpecializationKey
-        Source: FileStamp
+        Source: AssemblyFilePath
         Decl: DeclPoolId
     }
 
@@ -136,7 +136,7 @@ type FrozenFileResidue =
 type FrozenPools =
     {
         /// WHICH FILE the `Anchor` columns index: expr, pat and bound variable token alike.
-        Stamp: FileStamp
+        Path: AssemblyFilePath
         /// The file's own interned type and key tables, which the `ty` columns index.
         /// Interning is injective on structural equality, so equal types share a row.
         Types: FrozenTypeTable
@@ -209,7 +209,7 @@ module FrozenPools =
     /// The zero column set, a pool that is nobody's file.
     let empty: FrozenPools =
         {
-            Stamp = FileStamp.nowhere
+            Path = AssemblyFilePath.nowhere
             Types = FrozenTypeTable.Empty
             ExprTys = [||]
             ExprToks = [||]

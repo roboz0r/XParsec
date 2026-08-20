@@ -473,7 +473,7 @@ let tests =
                 // The front-end assembly name must equal codegen's `project.AssemblyName`, so a
                 // local type's home-assembly key matches its `userTypes` registration.
                 let tast =
-                    Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+                    Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
                 let symbols = CodegenSymbols.ofProvider provider
                 let artifact = Codegen.compile symbols project tast |> emitted project.AssemblyName

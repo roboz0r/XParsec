@@ -53,8 +53,7 @@ let private provider: IExternalSymbolProvider =
 let private analyse (input: string) =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+    let ctx = PassContext(provider, LexedFile.ofText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file

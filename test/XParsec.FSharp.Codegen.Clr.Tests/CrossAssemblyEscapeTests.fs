@@ -86,7 +86,7 @@ let private producerDll: Lazy<string> =
          let lexed, file = parseFile producerFs
 
          let tast =
-             Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+             Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
          let symbols = CodegenSymbols.ofProvider provider
 
@@ -114,7 +114,7 @@ let private runConsumer (expected: string list) (src: string) : unit =
     let lexed, file = parseFile src
 
     let tast =
-        Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
     let symbols = CodegenSymbols.ofProvider provider
 

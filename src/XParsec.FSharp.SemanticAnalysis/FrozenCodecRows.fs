@@ -39,10 +39,10 @@ module FrozenCodecRows =
     let writeTypeId (w: FrozenWriter) (TypeId i) = w.Write i
     let readTypeId (r: FrozenReader) : TypeId = TypeId(r.ReadInt32())
 
-    /// A row of the file's origin table. Public: a specialization entry writes the producer
-    /// file its anchors index as one.
-    let writeFileStampId (w: FrozenWriter) (FileStampId i) = w.Write i
-    let readFileStampId (r: FrozenReader) : FileStampId = FileStampId(r.ReadInt32())
+    /// A row of the file's file-path table. Public: a specialization entry writes the file
+    /// its anchors index as one.
+    let writeFilePathId (w: FrozenWriter) (FilePathId i) = w.Write i
+    let readFilePathId (r: FrozenReader) : FilePathId = FilePathId(r.ReadInt32())
 
     let private writeTypeIds (w: FrozenWriter) (xs: EqArray<TypeId>) = writeEqArrayWith w writeTypeId xs
 
@@ -338,20 +338,17 @@ module FrozenCodecRows =
         | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
         | b -> failwithf "FrozenCodec: unknown TypeRow tag %d" b
 
-    let private writeFileStampRow (w: FrozenWriter) (row: FileStampRow) =
+    let private writeFilePathRow (w: FrozenWriter) (row: FilePathRow) =
         writeStrId w row.Assembly
         writeStrId w row.Relative
-        writeStrId w row.ContentHex
 
-    let private readFileStampRow (r: FrozenReader) : FileStampRow =
+    let private readFilePathRow (r: FrozenReader) : FilePathRow =
         let assembly = readStrId r
         let relative = readStrId r
-        let contentHex = readStrId r
 
         {
             Assembly = assembly
             Relative = relative
-            ContentHex = contentHex
         }
 
     // ── the nine arrays ────────────────────────────────────────────────────
@@ -368,7 +365,7 @@ module FrozenCodecRows =
         writeImmutableWith w writeMemberKeyRow rows.Members
         writeImmutableWith w writeSymbolRow rows.Symbols
         writeImmutableWith w writeTypeRow rows.Types
-        writeImmutableWith w writeFileStampRow rows.FileStamps
+        writeImmutableWith w writeFilePathRow rows.FilePaths
 
     let readTypeRows (r: FrozenReader) : FrozenTypeRows =
         let strings = readImmutableWith r (fun r -> r.ReadString())
@@ -379,7 +376,7 @@ module FrozenCodecRows =
         let members = readImmutableWith r readMemberKeyRow
         let symbols = readImmutableWith r readSymbolRow
         let types = readImmutableWith r readTypeRow
-        let origins = readImmutableWith r readFileStampRow
+        let filePaths = readImmutableWith r readFilePathRow
 
         {
             Strings = strings
@@ -390,5 +387,5 @@ module FrozenCodecRows =
             Members = members
             Symbols = symbols
             Types = types
-            FileStamps = origins
+            FilePaths = filePaths
         }

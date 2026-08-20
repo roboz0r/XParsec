@@ -31,7 +31,7 @@ module TastNodeViews =
     type Specialization =
         {
             Key: Frozen.SpecializationKey
-            Source: FileStamp
+            Source: AssemblyFilePath
             /// The abstraction this entry's edges apply: the lambda chain an edge's
             /// arguments are positional against.
             Value: ExprId

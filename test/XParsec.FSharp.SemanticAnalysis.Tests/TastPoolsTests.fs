@@ -307,7 +307,7 @@ let unitStampTests =
             test "the freeze stamps the origin it was analysed under" {
                 let origin, frozen = freezeWithOrigin "let a = 1\n"
 
-                Expect.equal frozen.Stamp origin.Stamp "the pools name the file the anchors were taken from"
+                Expect.equal frozen.Path origin.Path "the pools name the file the anchors were taken from"
             }
 
             test "re-pooling an unpooled tree keeps it" {
@@ -316,8 +316,8 @@ let unitStampTests =
                 let origin, frozen = freezeWithOrigin "let a = 1\n"
 
                 Expect.equal
-                    (TastPools.rePool frozen (TastUnpool.ofPools frozen)).Stamp
-                    origin.Stamp
+                    (TastPools.rePool frozen (TastUnpool.ofPools frozen)).Path
+                    origin.Path
                     "the re-fill kept the file, rather than defaulting to nobody's"
             }
         ]

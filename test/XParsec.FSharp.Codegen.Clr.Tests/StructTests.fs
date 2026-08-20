@@ -413,7 +413,7 @@ let structTests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseFor (compilingClr project) provider (Hashing.lexedFileOfText lexed) file
+                    Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
 
                 let symbols = CodegenSymbols.ofProvider provider
                 let artifact = Codegen.compile symbols project tast |> emitted "consumer"

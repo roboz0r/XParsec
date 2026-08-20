@@ -101,7 +101,7 @@ module PackageProviders =
                 failwithf
                     "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
                     assembly.Name
-                    source.Stamp.Path.Relative.Name
+                    source.Path.Relative.Name
                     e.Message
                     pruned
 

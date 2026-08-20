@@ -103,7 +103,7 @@ module TastWalk =
     /// Mark `body` as CALLER material: an expression written in `stamp` that a reduction
     /// FUSED into a specialization entry anchored in some other file. Its `ty`/`tok` ARE
     /// its body's by definition, so a mint never supplies them separately.
-    let callerExpr (stamp: FileStamp) (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
+    let callerExpr (stamp: AssemblyFilePath) (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
         TExprG.CallerExpr(body, stamp, exprTy body, exprTok body)
 
     /// The node under any caller marks. `CallerExpr` is semantically transparent, so a SHAPE

@@ -102,7 +102,7 @@ let private analyse (body: string) : Diagnostic list =
     let input = prelude + "\n" + body + "\n"
     let lexed, file = parseFile input
 
-    let tast = Pipeline.analyseSem idProvider (Hashing.lexedFileOfText lexed) file
+    let tast = Pipeline.analyseSem idProvider (LexedFile.ofText lexed) file
 
     tast.Diagnostics |> Diagnostic.errors
 

@@ -125,7 +125,7 @@ module JsDriver =
             let compiled =
                 [
                     for file in analysed.Files do
-                        let fileId = file.Source.Stamp.Path.Relative
+                        let fileId = file.Source.Path.Relative
                         let relative = fileId.Name
 
                         let project =

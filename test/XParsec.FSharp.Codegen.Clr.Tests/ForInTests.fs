@@ -96,7 +96,7 @@ let forInTests =
 
                 let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
-                let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+                let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors |> Seq.toList
 
@@ -203,7 +203,7 @@ let forInTests =
 
                 let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
-                let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+                let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors |> Seq.toList
 
@@ -432,7 +432,7 @@ let forInTests =
 
                 let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
-                let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+                let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors |> Seq.toList
 

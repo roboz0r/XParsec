@@ -32,7 +32,7 @@ module InlineReduction =
             ParamAttrs: EqArray<ParamAttrs>
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the producer's for a served one.
-            Source: FileStamp
+            Source: AssemblyFilePath
         }
 
     /// WHICH inline binding a reduction is expanding: the identity a RECURSION is detected on,
@@ -52,7 +52,7 @@ module InlineReduction =
             Template: TemplateId
             /// The anchor domain of the body this frame expands. It rides the chain so a walk
             /// cannot be handed material under a domain the chain disagrees with.
-            Source: FileStamp
+            Source: AssemblyFilePath
             /// The table slot this expansion reserved: what a re-entering call is answered with.
             Spec: SpecializationId
         }
@@ -110,7 +110,7 @@ module InlineReduction =
 
         /// The file the expressions being walked here were WRITTEN in, whose token array their
         /// anchors index: the producer's inside a served body, `compiling` outside one.
-        let sourceOf (compiling: FileStamp) (d: Descent) : FileStamp =
+        let sourceOf (compiling: AssemblyFilePath) (d: Descent) : AssemblyFilePath =
             match d.Frames with
             | [] -> compiling
             | f :: _ -> f.Source
@@ -133,7 +133,7 @@ module InlineReduction =
         /// Go INSIDE the body this call targets: the descent its own expressions are walked at
         /// (this binding pushed onto the caller's), beside the one the call site's arguments
         /// stay at, because they are the caller's expressions and never enter anything.
-        let enter (d: Descent) (call: PendingCall) (source: FileStamp) (spec: SpecializationId) : InFlight =
+        let enter (d: Descent) (call: PendingCall) (source: AssemblyFilePath) (spec: SpecializationId) : InFlight =
             {
                 Own =
                     {
@@ -276,7 +276,7 @@ module InlineReduction =
     /// fate: the half of the reduction needing no recursion, so it runs before a specialization
     /// slot is reserved. `caller` marks a substituted argument, which has left the file it was in.
     let internal classifyApplication
-        (caller: FileStamp)
+        (caller: AssemblyFilePath)
         (paramAttrs: EqArray<ParamAttrs>)
         (expanded: TExpr)
         (args: (TExpr * SemType * SyntaxToken) list)
@@ -375,9 +375,9 @@ module InlineReduction =
 
                 {
                     Key = key
-                    Decl = InlineThaw.bodyAtStamp ctx.Store sources ib.Source.Stamp ib.Decl
+                    Decl = InlineThaw.bodyAtPath ctx.Store sources ib.Source.Path ib.Decl
                     ParamAttrs = ib.ParamAttrs
-                    Source = ib.Source.Stamp
+                    Source = ib.Source.Path
                 }
             )
         | ValueNone -> ValueNone

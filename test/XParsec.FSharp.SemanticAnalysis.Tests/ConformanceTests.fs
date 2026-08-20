@@ -846,7 +846,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
 /// typar order is inference's own rather than a hand-built `FrozenType`.
 let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
-    Pipeline.analyseFor { Name = "M"; Target = "clr" } realProvider.Value (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseFor { Name = "M"; Target = "clr" } realProvider.Value (LexedFile.ofText lexed) file
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType =

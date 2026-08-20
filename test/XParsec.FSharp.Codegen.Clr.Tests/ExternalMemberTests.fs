@@ -15,13 +15,13 @@ let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
 let private analyseWith (provider: IExternalSymbolProvider) (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSem provider (LexedFile.ofText lexed) file
 
 /// `analyseWith` keeping the `PassContext`, so a test can zonk a live `TyVar` against
 /// the per-file `TypeStore`.
 let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
 let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 

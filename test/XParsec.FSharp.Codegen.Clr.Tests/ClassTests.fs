@@ -707,8 +707,7 @@ let staticTests =
 
                 let lexed, file = parseFile src
 
-                let _, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                let _, tast = Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
@@ -1640,7 +1639,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
 
                 let ctx, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                    Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
@@ -1675,8 +1674,7 @@ let interfaceImplTests =
 
                 let lexed, file = parseFile src
 
-                let _, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                let _, tast = Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -1707,7 +1705,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
 
                 let ctx, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                    Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
@@ -1749,7 +1747,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
 
                 let ctx, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                    Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -1784,8 +1782,7 @@ let interfaceImplTests =
 
                 let lexed, file = parseFile src
 
-                let _, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                let _, tast = Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -1810,8 +1807,7 @@ let interfaceImplTests =
 
                 let lexed, file = parseFile src
 
-                let _, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+                let _, tast = Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
                 let errors = Diagnostic.errors tast.Diagnostics
 
@@ -2563,8 +2559,7 @@ let coercionTests =
         let provider = ClrSymbolProviders.buildContract defaultPackages
         let lexed, file = parseFile src
 
-        let _, tast =
-            Pipeline.analyseSemWithContext provider (Hashing.lexedFileOfText lexed) file
+        let _, tast = Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
 
         tast.Diagnostics |> Diagnostic.errors
 

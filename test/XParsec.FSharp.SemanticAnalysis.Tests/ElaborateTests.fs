@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (LexedFile.ofText lexed) file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
@@ -356,7 +356,7 @@ let interfaceTests =
                     Pipeline.analyseSemFor
                         { Name = "Vesper.Core"; Target = "clr" }
                         realProvider.Value
-                        (Hashing.lexedFileOfText lexed)
+                        (LexedFile.ofText lexed)
                         file
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics for an abstract member"

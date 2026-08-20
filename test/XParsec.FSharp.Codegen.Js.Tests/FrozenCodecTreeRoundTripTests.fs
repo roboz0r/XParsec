@@ -59,12 +59,8 @@ let private withSpecialization () : FrozenPools =
     // recovered it from the entry would still round-trip if the two agreed.
     let consumer =
         {
-            Path =
-                {
-                    Assembly = "App"
-                    Relative = AssemblyFileId.ofRelative "m.fs"
-                }
-            ContentHash = Hashing.hashString "module M\n"
+            Assembly = "App"
+            Relative = AssemblyFileId.ofRelative "m.fs"
         }
 
     let payloads = Array.copy pools.ExprPayloads
@@ -92,12 +88,8 @@ let private withSpecialization () : FrozenPools =
                     // source is recoverable from the key. Synthetic: no anchor is resolved here.
                     Source =
                         {
-                            Path =
-                                {
-                                    Assembly = "Lib"
-                                    Relative = AssemblyFileId.ofRelative "n.fs"
-                                }
-                            ContentHash = Hashing.hashString "module N\n\nlet inline f x = x + 1\n"
+                            Assembly = "Lib"
+                            Relative = AssemblyFileId.ofRelative "n.fs"
                         }
                     Decl = template.Decl
                 }
@@ -106,7 +98,7 @@ let private withSpecialization () : FrozenPools =
 
 /// The same graft with a SECOND entry carrying the same producer file: one template grounded
 /// two ways. The two entries differ only in the grounding, so the source is what they share.
-let private withSharedStamp () : FrozenPools =
+let private withSharedFilePath () : FrozenPools =
     let pools = withSpecialization ()
 
     let first =
@@ -233,28 +225,28 @@ let tests =
                 Expect.isTrue (survivesRoundTrip grafted) "the grafted file survived flatten/thaw structurally"
             }
 
-            // The file's OWN stamp is the one field no structural comparison can reach: the
+            // The file's OWN path is the one field no structural comparison can reach: the
             // unpooled tree has no field for it, so a writer that dropped it passes every gate
-            // above, and a file carrying no stamp calls all of its own code foreign.
-            test "the file's own stamp survives flatten/thaw" {
+            // above, and a file carrying no path calls all of its own code foreign.
+            test "the file's own path survives flatten/thaw" {
                 let frozen = frozenOfJs "module M\n\nlet y = 1 + 2\n"
 
                 Expect.notEqual
-                    frozen.Stamp
-                    FileStamp.nowhere
-                    "the freeze stamped a real file, or what follows is vacuous"
+                    frozen.Path
+                    AssemblyFilePath.nowhere
+                    "the freeze recorded a real file, or what follows is vacuous"
 
                 Expect.equal
-                    (FrozenCodec.thaw (FrozenCodec.flatten frozen)).Stamp
-                    frozen.Stamp
+                    (FrozenCodec.thaw (FrozenCodec.flatten frozen)).Path
+                    frozen.Path
                     "the compiling file's identity came back off the wire"
             }
 
-            // The stamp is a REF into a table of its own, and one reference exercises the ref
+            // The path is a REF into a table of its own, and one reference exercises the ref
             // but not the interning. Asserted on the decoded row array, where the sharing is
-            // observable: references carrying equal `FileStamp` values decode alike either way.
-            test "every reference to a file resolves to ONE file-stamp row" {
-                let grafted = withSharedStamp ()
+            // observable: references carrying equal `AssemblyFilePath` values decode alike either way.
+            test "every reference to a file resolves to ONE file-path row" {
+                let grafted = withSharedFilePath ()
                 let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
 
                 Expect.equal (rt.Specializations.Length) 2 "both entries survived the wire"
@@ -281,7 +273,7 @@ let tests =
                     "the fixture must name more than one file, else sharing is vacuous"
 
                 Expect.equal
-                    (rt.Types.Rows.FileStamps.Length)
+                    (rt.Types.Rows.FilePaths.Length)
                     referenced.Length
                     "each file occupies ONE row, not one per reference that names it"
             }

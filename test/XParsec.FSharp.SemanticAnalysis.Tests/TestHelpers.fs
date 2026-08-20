@@ -117,7 +117,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
 /// Realise a WIRE inline body against the file it was published from: the body carries the
 /// producer's own token indices, and only that file can resolve them.
 let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TDecl =
-    InlineThaw.bodyAtStamp store (LexedFiles.ofSeq [ source ]) source.Stamp decl
+    InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
 
 /// Lex + parse a signature (`.fsi`) source string and return Lexed + a
 /// SignatureFile. Raises on failure.
@@ -145,10 +145,10 @@ let freezeWithOrigin (src: string) : LexedFile * FrozenPools =
     let lexed, file = parseFile src
 
     let origin =
-        Hashing.lexedFile
+        LexedFile.inFile
             {
                 Assembly = testAsm
-                Relative = (Hashing.textAssemblyFilePath src).Relative
+                Relative = (AssemblyFilePath.ofText src).Relative
             }
             lexed
 
@@ -176,8 +176,7 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
+    let ctx = PassContext(provider, LexedFile.ofText lexed, CompilingAssembly.none)
 
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file

@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (LexedFile.ofText lexed) file
 
 let private enumShape (tast: TastFile) : string =
     match tast.Decls with

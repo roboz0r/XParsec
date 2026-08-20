@@ -20,7 +20,7 @@ let private dummyTok: Anchor = Anchor.nowhere
 /// resolves without consulting a retained source, so the empty text below is never read.
 let private nowhereSource: LexedFile =
     {
-        Stamp = FileStamp.nowhere
+        Path = AssemblyFilePath.nowhere
         Lexed =
             match Lexing.lexString "" with
             | Result.Ok l -> l
@@ -44,7 +44,12 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeK
     let surface, _ =
         Passes.SignatureResolution.resolveFile
             TestHelpers.jsProvider.Value
-            (AssemblyFiles.fileSource "Widgets" (AssemblyFileId.ofRelative "widget.fsi") parsed.Lexed)
+            (LexedFile.inFile
+                {
+                    Assembly = "Widgets"
+                    Relative = AssemblyFileId.ofRelative "widget.fsi"
+                }
+                parsed.Lexed)
             {
                 Assembly = "Widgets"
                 Target = Target.Js
@@ -554,7 +559,7 @@ let tests =
                      \x20   end\n"
 
                 let lexed, file = TestHelpers.parseFile input
-                let source = Hashing.lexedFileOfText lexed
+                let source = LexedFile.ofText lexed
                 let tast = Pipeline.analyse TestHelpers.jsProvider.Value source file
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 

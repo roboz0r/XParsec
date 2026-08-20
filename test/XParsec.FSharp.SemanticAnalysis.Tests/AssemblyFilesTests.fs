@@ -376,7 +376,7 @@ module C =
 
                 let frozenAs (spelling: string) =
                     match analyseAssembly asm realProvider.Value [ impl spelling source ] with
-                    | [ Ok f ] -> f.Source.Stamp
+                    | [ Ok f ] -> f.Source.Path
                     | other -> failtestf "expected one analysed file, got %A" other
 
                 Expect.equal
@@ -890,7 +890,7 @@ module N =
 
                 match List.ofArray twiceEntries with
                 | [ entry ] ->
-                    Expect.equal entry.Source all.[0].Source.Stamp "the entry is anchored in the DECLARING file"
+                    Expect.equal entry.Source all.[0].Source.Path "the entry is anchored in the DECLARING file"
                 | other -> failtestf "expected exactly one `twice` specialization entry, got %d" (List.length other)
 
                 // The call-site EDGE is file 2's own node, so its origin is file 2 while the
@@ -903,7 +903,7 @@ module N =
                             | _ -> ()
                     ]
 
-                match edgeOrigins |> List.filter (fun o -> o = consumer.Source.Stamp) with
+                match edgeOrigins |> List.filter (fun o -> o = consumer.Source.Path) with
                 | [ _ ] -> ()
                 | other ->
                     failtestf

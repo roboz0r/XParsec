@@ -214,12 +214,12 @@ module EmitJsContext =
 
             match InlineExpand.Derivation.tryFind ctx.Derivation ctx.NodeOrigins e with
             | ValueSome origin ->
-                match MapSources.tryFind origin.File.Path ctx.MapSources with
+                match MapSources.tryFind origin.File ctx.MapSources with
                 | ValueNone ->
                     failwithf
                         "EmitJs: the node's origin file %s (assembly %s) was reached but never published to the map, so its position is readable only against the consuming file, because the provider that served the body and the retained anchor domain are not the same contract"
-                        origin.File.Path.Relative.Name
-                        origin.File.Path.Assembly
+                        origin.File.Relative.Name
+                        origin.File.Assembly
                 | ValueSome producer ->
                     // Faults on a producer file edited since the tree was anchored against it:
                     // otherwise a well-formed position read against the wrong text.

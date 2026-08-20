@@ -34,10 +34,10 @@ module FrozenCodecTypes =
     /// The file a set of anchors index, which need NOT be the file the blob is keyed by, so
     /// that file's identity, and a hash of the contents the indices were taken against, have
     /// to be in the blob. A reference like the three above: interned once per file.
-    let writeFileStampRef (w: FrozenWriter) (f: FileStamp) =
-        writeFileStampId w (w.Types.InternFileStamp f)
+    let writeFilePathRef (w: FrozenWriter) (f: AssemblyFilePath) =
+        writeFilePathId w (w.Types.InternFilePath f)
 
-    let readFileStampRef (r: FrozenReader) : FileStamp = r.Types.[readFileStampId r]
+    let readFilePathRef (r: FrozenReader) : AssemblyFilePath = r.Types.[readFilePathId r]
 
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
 

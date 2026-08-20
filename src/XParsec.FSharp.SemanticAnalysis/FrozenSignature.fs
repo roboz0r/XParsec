@@ -36,7 +36,7 @@ module FrozenSignature =
     let toSurface (producer: LexedFile) (frozen: FrozenPools) : PublishedSurface =
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
-                Home = SymbolHome.InFile producer.Stamp.Path
+                Home = SymbolHome.InFile producer.Path
                 Namespace = ns
             }
 

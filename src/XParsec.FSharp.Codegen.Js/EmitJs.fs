@@ -971,7 +971,7 @@ module EmitJs =
 
         for KeyValue(node, origin) in expansion.Origins do
             ctx.NodeOrigins.[node] <- origin
-            reached.Add origin.File.Path |> ignore
+            reached.Add origin.File |> ignore
 
         InlineExpand.Derivation.absorb ctx.Derivation expansion.Derived
 
@@ -982,7 +982,7 @@ module EmitJs =
         | ValueNone -> ()
         | ValueSome r ->
             for src in LexedFiles.toList r.Sources do
-                if reached.Contains src.Stamp.Path then
+                if reached.Contains src.Path then
                     MapSources.publish src ctx.MapSources
 
         // Class decls (with their attached instance methods) are built now, because their method

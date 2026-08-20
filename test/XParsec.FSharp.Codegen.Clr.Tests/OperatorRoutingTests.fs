@@ -71,7 +71,7 @@ let private coreOnly = lazy (ClrSymbolProviders.buildContract [ vesperCorePackag
 
 let private analyseCoreOnly (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem coreOnly.Value (Hashing.lexedFileOfText lexed) file
+    Pipeline.analyseSem coreOnly.Value (LexedFile.ofText lexed) file
 
 [<Tests>]
 let tests =
