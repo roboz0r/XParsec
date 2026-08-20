@@ -45,7 +45,7 @@ module JsDriver =
     let BarrelFileName = JsModulePath.BarrelFileName
 
     /// The resolution contract for a compilation that IS a package, over the JS-native stubs.
-    let contractForSelf (selfPackage: string) (references: string list) : PackageProviders.AnalyzedManifest =
+    let contractForSelf (selfPackage: string) (references: string list) : PackageProviders.AnalysedManifest =
         JsNativeSymbols.jsNativeContract (SymbolProviders.selfStack (Some selfPackage) references)
 
     /// The sources that claim one `.mjs`, blamed individually. A module path is a base name,
@@ -103,9 +103,9 @@ module JsDriver =
 
     /// Compile an ordered source-file list as ONE assembly named `packageName`.
     let compileAssemblyWith
-        (contract: PackageProviders.AnalyzedManifest)
+        (contract: PackageProviders.AnalysedManifest)
         (packageName: string)
-        (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
+        (units: AssemblyFiles.AssemblyUnit list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         let assembly: CompilingAssembly =
             {
@@ -113,8 +113,8 @@ module JsDriver =
                 Target = Target.Js
             }
 
-        PackageProviders.AnalyzedManifest.gate contract
-        |> Result.bind (fun gated -> AssemblyFiles.analyseGated Pipeline.analyseFor assembly gated.Provider units)
+        PackageProviders.AnalysedManifest.gate contract
+        |> Result.bind (fun gated -> CompileAssembly.analyseGated Pipeline.analyseFor assembly gated.Provider units)
         |> Result.bind (fun analysed ->
             // A spliced node reads only against its declaring file's own text, so the
             // assembly's own sources join the references' before any file is emitted.

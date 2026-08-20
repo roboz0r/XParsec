@@ -19,12 +19,12 @@ module ParseChain =
     type Parsed<'Tree> =
         {
             Lexed: Lexed
-            File: 'Tree
+            Tree: 'Tree
             Diagnostics: Diagnostic list
         }
 
     /// A parsed implementation file.
-    type ParsedFile = Parsed<ImplementationFile<SyntaxToken>>
+    type ParsedImplementation = Parsed<ImplementationFile<SyntaxToken>>
 
     /// A parsed signature file: the tree the `.fsi` front end walks.
     type ParsedSignature = Parsed<SignatureFile<SyntaxToken>>
@@ -106,7 +106,7 @@ module ParseChain =
                     Ok
                         {
                             Lexed = lexed
-                            File = file
+                            Tree = file
                             Diagnostics = ofParseDiagnostics reader.State.Diagnostics
                         }
                 | ValueNone -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" ast))
@@ -114,7 +114,7 @@ module ParseChain =
     /// The front-end parse chain for an implementation file: a bare-expression
     /// `ScriptFragment` wraps as an `AnonymousModule`. `compilationDefines` are the symbols
     /// the file's `#if` directives resolve against.
-    let parse (compilationDefines: Set<string>) (source: string) : Result<ParsedFile, ParseFailure> =
+    let parse (compilationDefines: Set<string>) (source: string) : Result<ParsedImplementation, ParseFailure> =
         parseAs
             FSharpAst.parse
             (function
@@ -138,7 +138,10 @@ module ParseChain =
     /// `parse`, refusing a tree the parser had to PATCH: every inserted delimiter and every
     /// `Expr.Missing` is a hole the source did not fill, so a recovered parse is not a
     /// compilable one.
-    let parseUnrecovered (compilationDefines: Set<string>) (source: string) : Result<ParsedFile, Diagnostic list> =
+    let parseUnrecovered
+        (compilationDefines: Set<string>)
+        (source: string)
+        : Result<ParsedImplementation, Diagnostic list> =
         match parse compilationDefines source with
         | Error f -> Error f.Diagnostics
         | Ok parsed ->

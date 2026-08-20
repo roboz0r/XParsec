@@ -311,7 +311,7 @@ module M =
                                 Target = "none"
                                 Reprs = System.Collections.Generic.Dictionary()
                             }
-                            parsed.File
+                            parsed.Tree
                         |> fst
 
                 let fsiSymbolBySuffix (name: string) : ExternalSymbol option =

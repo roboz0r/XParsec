@@ -69,6 +69,11 @@ module ReferencedProject =
             Kind: SourceFileKind
         }
 
+    /// One `[core] files` compilation unit: an implementation entry, under the signature
+    /// entry listed immediately ahead of it. `ValueNone` where the manifest lists an
+    /// implementation entry alone.
+    type ManifestUnit = SourceUnit<ManifestFile, ManifestFile>
+
     /// A parsed package `manifest.<target>.toml`: one flat `[core]` table, each list already
     /// in compile order for this manifest's target. A package that builds for two targets
     /// writes two files.
@@ -83,11 +88,10 @@ module ReferencedProject =
             /// RELATIVE TO THIS PACKAGE'S DIRECTORY (`"../Vesper.Core"`), because a package
             /// outside `src/` must be able to reference one inside it.
             DependsOn: string list
-            /// Every source file in compile order (`[core] files`): each `.fsi` contract
-            /// immediately ahead of its companion `.fs`, and no entry twice — the parse
-            /// rejects any other shape. The `.fs` entries are the bodies compiled into the
-            /// package DLL, and the splice sources those same bodies publish.
-            Files: ManifestFile list
+            /// Every `[core] files` entry in compile order, PAIRED: the parse rejects a
+            /// duplicate entry, a `.fsi` listed other than immediately ahead of its companion,
+            /// and a `.fsi` with no companion. The implementations are the DLL's bodies.
+            Units: ManifestUnit list
             /// Hand-authored runtime *asset* modules: not sources the front end parses, but
             /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
@@ -98,6 +102,17 @@ module ReferencedProject =
         member this.Target = this.Path.Target
         /// The directory the manifest sits in, which every list entry is relative to.
         member this.Dir = this.Path.PackageDir
+
+        /// `Units` flattened back to the `[core] files` order the manifest spells.
+        member this.Files: ManifestFile list =
+            [
+                for u in this.Units do
+                    match u.Signature with
+                    | ValueSome s -> s
+                    | ValueNone -> ()
+
+                    u.Implementation
+            ]
 
     let private asString (v: TomlValue) : string option =
         match v with
@@ -136,23 +151,18 @@ module ReferencedProject =
     let sourceInputs (m: Manifest) : string list =
         m.Files |> List.map (fun f -> f.Relative)
 
-    /// The `.fsi` entries of `Files`, in list order.
+    /// The `.fsi` entries, in list order.
     let signatureFiles (m: Manifest) : string list =
         [
-            for f in m.Files do
-                match f.Kind with
-                | SourceFileKind.Signature -> f.Relative
-                | SourceFileKind.Implementation -> ()
+            for u in m.Units do
+                match u.Signature with
+                | ValueSome s -> s.Relative
+                | ValueNone -> ()
         ]
 
-    /// The `.fs` entries of `Files`, in list order: the package's compile order.
+    /// The `.fs` entries, in list order: the package's compile order.
     let implementationFiles (m: Manifest) : string list =
-        [
-            for f in m.Files do
-                match f.Kind with
-                | SourceFileKind.Implementation -> f.Relative
-                | SourceFileKind.Signature -> ()
-        ]
+        [ for u in m.Units -> u.Implementation.Relative ]
 
     /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: read as
     /// silence, it would resolve a stale manifest to a plausible wrong file set.
@@ -168,11 +178,10 @@ module ReferencedProject =
             sprintf "[core] unknown key `%s` (expected one of: %s)" key (coreKeys |> Set.toList |> String.concat ", ")
         )
 
-    /// Each `files` entry classified by extension, with the list's shape checked: no entry
-    /// twice, and each `.fsi` immediately ahead of its companion `.fs`. Any violation is a
-    /// parse ERROR: read as silence it would resolve a stale manifest to a plausible wrong
-    /// file set.
-    let private classifyFiles (target: string) (files: string list) : Result<ManifestFile list, string> =
+    /// Each `files` entry classified by extension and paired into units: no entry twice, and
+    /// each `.fsi` immediately ahead of the one companion `.fs` it keys with. Any violation is
+    /// a parse ERROR, and every later stage takes this pairing rather than re-deriving it.
+    let private classifyFiles (target: string) (files: string list) : Result<ManifestUnit list, string> =
         let rec classify acc rest =
             match rest with
             | [] -> Ok(List.rev acc)
@@ -188,25 +197,49 @@ module ReferencedProject =
 
         // Adjacency makes key pairing and list layout provably agree: a `.fsi` whose sole
         // key-mate is the next entry pairs with it under either reading.
-        let checkAdjacency (classified: ManifestFile list) : Result<ManifestFile list, string> =
+        let pairUp (classified: ManifestFile list) : Result<ManifestUnit list, string> =
             let implementations =
                 classified
                 |> List.filter (fun f -> f.Kind = SourceFileKind.Implementation)
                 |> List.groupBy (fun f -> pairingKey target f.Relative)
                 |> Map.ofList
 
-            let rec go entries =
+            let rec go acc entries =
                 match entries with
-                | [] -> Ok classified
+                | [] -> Ok(List.rev acc)
                 | (f: ManifestFile) :: rest ->
                     match f.Kind with
-                    | SourceFileKind.Implementation -> go rest
+                    | SourceFileKind.Implementation ->
+                        go
+                            ({
+                                Signature = ValueNone
+                                Implementation = f
+                             }
+                             :: acc)
+                            rest
                     | SourceFileKind.Signature ->
                         match Map.tryFind (pairingKey target f.Relative) implementations with
-                        | None -> go rest
+                        | None ->
+                            // A `.fsi` alone declares a surface with no body compiled for this
+                            // target, so every later stage would have to invent one.
+                            Error(
+                                sprintf
+                                    "[core] files: `%s` has no companion implementation (expected `%s.fs` or `%s.%s.fs`)"
+                                    f.Relative
+                                    (pairingKey target f.Relative)
+                                    (pairingKey target f.Relative)
+                                    target
+                            )
                         | Some [ companion ] ->
                             match rest with
-                            | next :: _ when next.Relative = companion.Relative -> go rest
+                            | next :: rest when next.Relative = companion.Relative ->
+                                go
+                                    ({
+                                        Signature = ValueSome f
+                                        Implementation = next
+                                     }
+                                     :: acc)
+                                    rest
                             | _ ->
                                 Error(
                                     sprintf
@@ -224,11 +257,11 @@ module ReferencedProject =
                                      |> String.concat " and ")
                             )
 
-            go classified
+            go [] classified
 
         match duplicated with
         | Some rel -> Error(sprintf "[core] files lists `%s` twice" rel)
-        | None -> classify [] files |> Result.bind checkAdjacency
+        | None -> classify [] files |> Result.bind pairUp
 
     /// The `[core]` table, gated: the document's sole table, carrying known keys alone. A
     /// second table or an unknown key read as silence would resolve a stale manifest to a
@@ -277,7 +310,7 @@ module ReferencedProject =
                 match classifyFiles mp.Target files, packageName core dirName with
                 | Error e, _
                 | _, Error e -> malformed e
-                | Ok files, Ok name ->
+                | Ok units, Ok name ->
                     let list key =
                         findStringList core key |> Option.defaultValue []
 
@@ -286,7 +319,7 @@ module ReferencedProject =
                             Path = mp
                             Name = name
                             DependsOn = list "depends-on"
-                            Files = files
+                            Units = units
                             Runtime = list "runtime"
                         }
 

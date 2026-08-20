@@ -6,28 +6,30 @@ namespace XParsec.FSharp.SemanticAnalysis
 type AssemblySources =
     {
         Assembly: CompilingAssembly
-        Units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list
+        Units: AssemblyFiles.AssemblyUnit list
     }
 
 [<RequireQualifiedAccess>]
 module AssemblySources =
 
     /// Name and target off the manifest, units in its file order.
-    let ofPackage (pkg: PackageSource.ParsedPackage) : AssemblySources =
+    let ofParsedManifest (parsed: ParsedManifest) : AssemblySources =
         {
             Assembly =
                 {
-                    Name = AssemblyName pkg.Manifest.Name
-                    Target = pkg.Manifest.Target
+                    Name = AssemblyName parsed.Manifest.Name
+                    Target = parsed.Manifest.Target
                 }
-            Units = PackageUnits.ofPackage pkg
+            Units =
+                parsed.Units
+                |> List.map (AssemblyFiles.AssemblyUnit.ofReadUnit parsed.Manifest.Name)
         }
 
-    /// `ofPackage` for a caller holding only the path: it reads the package itself. Whether
-    /// the pairing conforms is the caller's own check.
+    /// `ofParsedManifest` for a caller holding only the path: it reads the manifest itself.
+    /// Whether the pairing conforms is the caller's own check.
     let ofManifest (mp: ReferencedProject.ManifestPath) : Result<AssemblySources, PackageSetFault> =
         ReferencedProject.loadManifest mp
-        |> Result.map (PackageSource.readPackage >> ofPackage)
+        |> Result.map (ParsedManifest.ofManifest >> ofParsedManifest)
 
     /// Sources held as TEXT under a caller-supplied assembly: a driver handed a string, a
     /// test. A half with no tree faults its own unit alone.
@@ -43,5 +45,5 @@ module AssemblySources =
                     Name = AssemblyName name
                     Target = target
                 }
-            Units = List.map (AssemblyFiles.parseUnit compilationDefines) units
+            Units = List.map (AssemblyFiles.AssemblyUnit.parse compilationDefines) units
         }

@@ -14,7 +14,7 @@ module PackageProviders =
     /// anchor domain from another resolves a served body's position against a file that was
     /// never retained, and the wrong answer is in range.
     [<NoEquality; NoComparison>]
-    type AnalyzedManifest =
+    type AnalysedManifest =
         {
             /// The `[core] runtime` assets of the set, which back a compiled program's
             /// imports, keyed by package name.
@@ -37,12 +37,12 @@ module PackageProviders =
         }
 
     [<RequireQualifiedAccess>]
-    module AnalyzedManifest =
+    module AnalysedManifest =
 
         /// The EMPTY manifest set: nothing resolves, nothing is served, nothing is anchored
         /// but the compiling file. A real value, so no consumer carries a
         /// "there is no contract" arm.
-        let empty: AnalyzedManifest =
+        let empty: AnalysedManifest =
             {
                 RuntimeAssets = Map.empty
                 Provider = ExternalSymbolProviders.nullProvider
@@ -53,7 +53,7 @@ module PackageProviders =
             }
 
         /// A whole-set fault, raised before the set got as far as having a package or a file.
-        let ofSetFault (fault: PackageSetFault) : AnalyzedManifest =
+        let ofSetFault (fault: PackageSetFault) : AnalysedManifest =
             { empty with
                 Diagnostics = AssemblyFiles.setFaultDiagnostics fault
             }
@@ -61,7 +61,7 @@ module PackageProviders =
         /// The manifest, refused if resolving it failed. Ungated, a set that publishes LESS
         /// than its `.fsi` files say surfaces as an unresolved name in the COMPILING file,
         /// which blames the wrong file for it.
-        let gate (m: AnalyzedManifest) : Result<AnalyzedManifest, AssemblyFiles.AnchoredDiagnostic list> =
+        let gate (m: AnalysedManifest) : Result<AnalysedManifest, AssemblyFiles.AnchoredDiagnostic list> =
             match m.Diagnostics |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error) with
             | [] -> Ok m
             | errors -> Error errors
@@ -115,9 +115,9 @@ module PackageProviders =
     let buildProviderSeeded
         (platformMetadata: IntrinsicTypeMap -> IExternalSymbolProvider list)
         (depProviders: IExternalSymbolProvider list)
-        (pkg: PackageSource.ParsedPackage)
-        : AnalyzedManifest =
-        let manifest = pkg.Manifest
+        (parsed: ParsedManifest)
+        : AnalysedManifest =
+        let manifest = parsed.Manifest
 
         let depIntrinsics = ExternalSymbolProviders.mergeIntrinsics depProviders
 
@@ -131,31 +131,28 @@ module PackageProviders =
                 )
             )
 
-        let folded =
-            AssemblyFiles.foldUnits
+        let analysedUnits =
+            AssemblyAnalysis.analyseUnits
                 analysePackageFile
                 {
                     Name = AssemblyName manifest.Name
                     Target = manifest.Target
                 }
                 (ExternalSymbolProviders.composite (depProviders @ platformMetadata depIntrinsics))
-                (AssemblyFiles.Publication.AcrossAssemblies bodyExternal)
-                (pkg.Units |> List.map (AssemblyFiles.ClassifiedUnit.ofPackageUnit manifest.Name))
+                (AssemblyAnalysis.Publication.AcrossAssemblies bodyExternal)
+                (parsed.Units |> List.map (AssemblyFiles.AssemblyUnit.ofReadUnit manifest.Name))
 
         let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
         let surfaces = ResizeArray<PublishedSurface>()
         let published = ResizeArray<IExternalSymbolProvider>()
-        let analysed = ResizeArray<AssemblyFiles.AnalysedUnit>()
+        let analysed = ResizeArray<AssemblyAnalysis.AnalysedUnit>()
 
-        for unit in folded do
-            diagnostics.AddRange(AssemblyFiles.FoldedUnit.surfaced unit)
+        for unit in analysedUnits do
+            diagnostics.AddRange(AssemblyAnalysis.UnitOutcome.surfaced unit)
 
             match unit with
-            | AssemblyFiles.FoldedUnit.Failed _ -> ()
-            | AssemblyFiles.FoldedUnit.SignatureOnly r ->
-                surfaces.Add r.Surface
-                published.Add r.Published
-            | AssemblyFiles.FoldedUnit.Analysed u ->
+            | AssemblyAnalysis.UnitOutcome.Failed _ -> ()
+            | AssemblyAnalysis.UnitOutcome.Analysed u ->
                 surfaces.Add u.Surface
                 published.Add u.Published
                 analysed.Add u
@@ -195,11 +192,8 @@ module PackageProviders =
 
     /// `buildProviderSeeded` with no platform metadata, over one already-composed dependency
     /// provider.
-    let buildProviderWith
-        (dependencies: IExternalSymbolProvider)
-        (pkg: PackageSource.ParsedPackage)
-        : AnalyzedManifest =
-        buildProviderSeeded (fun _ -> []) [ dependencies ] pkg
+    let buildProviderWith (dependencies: IExternalSymbolProvider) (parsed: ParsedManifest) : AnalysedManifest =
+        buildProviderSeeded (fun _ -> []) [ dependencies ] parsed
 
     /// Stand up a referenced project in isolation: nothing in scope but the package's own
     /// files. For a package with no `depends-on`.
@@ -209,7 +203,7 @@ module PackageProviders =
         ReferencedProject.loadManifest mp
         |> Result.map (fun manifest ->
             let bp =
-                buildProviderWith ExternalSymbolProviders.nullProvider (PackageSource.readPackage manifest)
+                buildProviderWith ExternalSymbolProviders.nullProvider (ParsedManifest.ofManifest manifest)
 
             bp.Provider, bp.Diagnostics
         )
@@ -228,12 +222,12 @@ module PackageProviders =
     /// nominal type constructor kinds at bake time.
     let composeOrdered
         (platformMetadata: PlatformMetadataFactory)
-        (orderedPackages: PackageSource.ParsedPackage list)
+        (orderedManifests: ParsedManifest list)
         (transitiveDeps: ReferencedProject.ManifestPath -> ReferencedProject.ManifestPath list)
-        : AnalyzedManifest =
+        : AnalysedManifest =
         // `byPath` indexes each built provider by its manifest, so a package's dependency
         // providers resolve in O(closure).
-        let builtPackages = ResizeArray<AnalyzedManifest>()
+        let builtPackages = ResizeArray<AnalysedManifest>()
         let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
 
         let byPath =
@@ -244,8 +238,8 @@ module PackageProviders =
         // CS0433-equivalent. The overlap with the platform metadata is diagnosed downstream.
         let seenTypeHomes = Dictionary<string, string>(System.StringComparer.Ordinal)
 
-        for pkg in orderedPackages do
-            let manifest = pkg.Manifest
+        for parsed in orderedManifests do
+            let manifest = parsed.Manifest
 
             let depProviders =
                 transitiveDeps manifest.Path
@@ -258,7 +252,7 @@ module PackageProviders =
             // The signatures resolve seeded with the deps' intrinsic axis, so a dependency's
             // BCL member sigs canonicalize while this package resolves; the bodies re-seed
             // with the package's own axis as well.
-            let bp = buildProviderSeeded platformMetadata depProviders pkg
+            let bp = buildProviderSeeded platformMetadata depProviders parsed
             diagnostics.AddRange bp.Diagnostics
 
             for KeyValue(typeName, home) in bp.TypeHomes do
@@ -282,7 +276,7 @@ module PackageProviders =
             InlineBodies.concat [ for bp in builtPackages -> bp.InlineBodies ]
 
         {
-            RuntimeAssets = ReferencedProject.runtimeModules [ for pkg in orderedPackages -> pkg.Manifest ]
+            RuntimeAssets = ReferencedProject.runtimeModules [ for parsed in orderedManifests -> parsed.Manifest ]
             Provider =
                 ExternalSymbolProviders.composite (
                     builtList @ platformMetadata (ExternalSymbolProviders.mergeIntrinsics builtList)
@@ -297,20 +291,20 @@ module PackageProviders =
         }
 
     /// `composeOrdered` over a raw, unordered manifest set: the ordering is taken here and not
-    /// handed back. `readPackage` is the per-manifest read, so a caller already holding one
+    /// handed back. `readManifest` is the per-manifest read, so a caller already holding one
     /// package's trees hands them over instead of reading them again.
     let composeContractWith
-        (readPackage: ReferencedProject.Manifest -> PackageSource.ParsedPackage)
+        (readManifest: ReferencedProject.Manifest -> ParsedManifest)
         (platformMetadata: PlatformMetadataFactory)
         (manifests: ReferencedProject.ManifestPath list)
-        : AnalyzedManifest =
+        : AnalysedManifest =
         match ReferencedProject.buildClosureWithDeps manifests with
-        | Ok(ordered, transitiveDeps) -> composeOrdered platformMetadata (List.map readPackage ordered) transitiveDeps
-        | Error fault -> AnalyzedManifest.ofSetFault fault
+        | Ok(ordered, transitiveDeps) -> composeOrdered platformMetadata (List.map readManifest ordered) transitiveDeps
+        | Error fault -> AnalysedManifest.ofSetFault fault
 
     /// `composeContractWith`, reading every package from disk.
     let composeContract
         (platformMetadata: PlatformMetadataFactory)
         (manifests: ReferencedProject.ManifestPath list)
-        : AnalyzedManifest =
-        composeContractWith PackageSource.readPackage platformMetadata manifests
+        : AnalysedManifest =
+        composeContractWith ParsedManifest.ofManifest platformMetadata manifests

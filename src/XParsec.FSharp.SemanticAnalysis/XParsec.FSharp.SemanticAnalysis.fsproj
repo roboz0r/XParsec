@@ -103,8 +103,9 @@
     <Compile Include="OpenSignature.fs" />
     <Compile Include="BuiltinTypes.fs" />
     <Compile Include="SourceFileKind.fs" />
+    <Compile Include="SourceUnit.fs" />
     <Compile Include="ReferencedProject.fs" />
-    <Compile Include="PackageSource.fs" />
+    <Compile Include="ParsedManifest.fs" />
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <!-- Beside the typar half it runs with: both compare a resolved signature surface
@@ -194,10 +195,11 @@
     <Compile Include="Passes\SignatureResolution.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="AssemblyFiles.fs" />
+    <Compile Include="AssemblyAnalysis.fs" />
+    <Compile Include="CompileAssembly.fs" />
     <!-- After the `.fsi` front end and the per-file anchoring it shares with an assembly's
-         units: a package is that same fold over the files a manifest lists. -->
+         units: a package is that same analysis over the files a manifest lists. -->
     <Compile Include="PackageProviders.fs" />
-    <Compile Include="PackageUnits.fs" />
     <Compile Include="AssemblySources.fs" />
   </ItemGroup>
   <ItemGroup>

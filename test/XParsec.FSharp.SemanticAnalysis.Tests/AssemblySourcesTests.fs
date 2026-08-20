@@ -18,8 +18,9 @@ let private parsedNames (sources: AssemblySources) : string list =
     [
         for u in sources.Units do
             match u with
-            | Ok u -> u.Implementation.Id.Name
-            | Error e -> failtestf "unit %s yielded no tree: %A" e.Id.Name e.Failure.Diagnostics
+            | AssemblyUnit.Analysable u -> u.Implementation.Id.Name
+            | AssemblyUnit.Faulted(leading, _) ->
+                failtestf "unit %s yielded no tree: %A" leading.Id.Name leading.Failure.Diagnostics
     ]
 
 /// A body inside `#if FOO` that the parser has to recover from, so the branch taken shows in
@@ -34,7 +35,7 @@ let y = 1
 
 let private recoveryDiagnostics (sources: AssemblySources) : Diagnostic list =
     match sources.Units with
-    | [ Ok u ] -> u.Implementation.Parsed.Diagnostics
+    | [ AssemblyUnit.Analysable u ] -> u.Implementation.Parsed.Diagnostics
     | other -> failtestf "expected one parsed unit, got %i" (List.length other)
 
 [<Tests>]

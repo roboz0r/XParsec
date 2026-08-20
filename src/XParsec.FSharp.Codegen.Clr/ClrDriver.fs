@@ -45,9 +45,9 @@ module ClrDriver =
     /// The compilation's reference set resolved, GATED on what resolving it found.
     let private contractFor
         (inputs: ClrCompilation)
-        : Result<PackageProviders.AnalyzedManifest, AssemblyFiles.AnchoredDiagnostic list> =
+        : Result<PackageProviders.AnalysedManifest, AssemblyFiles.AnchoredDiagnostic list> =
         ClrSymbolProviders.compilationContract inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
-        |> PackageProviders.AnalyzedManifest.gate
+        |> PackageProviders.AnalysedManifest.gate
 
     /// A gate refusal as the FLAT diagnostics a single-file entry returns. A positioned
     /// diagnostic keeps its file and position, rendered into the message; a whole-set fault
@@ -92,7 +92,7 @@ module ClrDriver =
                         // No path was handed over, so the text names the file; the assembly IS
                         // known and is stamped rather than left blank.
                         (LexedFile.inAssembly home (AssemblyFileId.ofText parsed.Lexed.Input) parsed.Lexed)
-                        parsed.File
+                        parsed.Tree
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast
 
@@ -103,7 +103,7 @@ module ClrDriver =
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
+        (units: AssemblyFiles.AssemblyUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let assembly: CompilingAssembly =
             {
@@ -111,7 +111,7 @@ module ClrDriver =
                 Target = Target.Clr
             }
 
-        AssemblyFiles.analyseGated Pipeline.analyseFor assembly external units
+        CompileAssembly.analyseGated Pipeline.analyseFor assembly external units
         |> Result.bind (fun analysed ->
             // The visibility stack analysis composed, rebuilt: `external` is the floor and
             // `Files` is in file order, so each view pushes on top of the ones it may shadow.
@@ -139,7 +139,7 @@ module ClrDriver =
                 inputs.ReferenceAssemblies
                 contract.Provider
                 inputs.Project
-                (List.map (AssemblyFiles.parseUnit inputs.CompilationDefines) units)
+                (List.map (AssemblyFiles.AssemblyUnit.parse inputs.CompilationDefines) units)
         )
 
     /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is

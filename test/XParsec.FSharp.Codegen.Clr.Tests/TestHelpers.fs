@@ -116,7 +116,7 @@ let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
-    | Result.Ok parsed -> parsed.Lexed, parsed.File
+    | Result.Ok parsed -> parsed.Lexed, parsed.Tree
 
 /// The artifact, where codegen accepted the tree. A refusal fails the test carrying the
 /// diagnostics that caused it, so `what` names the compile that was refused.
@@ -179,9 +179,9 @@ let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : st
 /// and not an unresolved name three files later.
 let private gatedContract
     (label: string)
-    (contract: PackageProviders.AnalyzedManifest)
-    : PackageProviders.AnalyzedManifest =
-    match PackageProviders.AnalyzedManifest.gate contract with
+    (contract: PackageProviders.AnalysedManifest)
+    : PackageProviders.AnalysedManifest =
+    match PackageProviders.AnalysedManifest.gate contract with
     | Ok contract -> contract
     | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
 
@@ -190,7 +190,7 @@ let private gatedContractForSelf
     (label: string)
     (selfPackage: string)
     (packageDirs: string list)
-    : PackageProviders.AnalyzedManifest =
+    : PackageProviders.AnalysedManifest =
     gatedContract label (ClrSymbolProviders.contractForSelf (Some selfPackage) packageDirs)
 
 /// The `.fs` files a package's CLR manifest lists, in manifest order, relative to the
@@ -345,11 +345,11 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // Read ONCE: the conformance gate and the unit list below both work off these
                  // trees, and off the pairing taken with them, so no file of the package is
                  // parsed or paired twice.
-                 let parsedPackage = PackageSource.readPackage manifest
+                 let parsedManifest = ParsedManifest.ofManifest manifest
 
                  // `.fsi`↔`.fs` conformance gates the build: a signature binding with no
                  // implementation is an error.
-                 match ConformancePass.enforce (ConformancePass.check parsedPackage) with
+                 match ConformancePass.enforce (ConformancePass.check parsedManifest) with
                  | [] -> ()
                  | ds ->
                      failwithf
@@ -375,12 +375,12 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let contract =
                      gatedContract
                          (sprintf "buildPackage %s" pkg)
-                         (ClrSymbolProviders.contractForSelfParsed (srcPackage pkg) depManifests parsedPackage)
+                         (ClrSymbolProviders.contractForSelfParsed (srcPackage pkg) depManifests parsedManifest)
 
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
                  // on any error-severity diagnostic instead of emitting a degraded DLL.
-                 let sources = AssemblySources.ofPackage parsedPackage
+                 let sources = AssemblySources.ofParsedManifest parsedManifest
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")

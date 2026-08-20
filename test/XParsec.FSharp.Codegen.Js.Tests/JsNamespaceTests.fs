@@ -81,7 +81,7 @@ let private bProviderRaw: IExternalSymbolProvider =
     TsManifestProvider.providerOfManifest manifestB
 
 /// Emit with NO injected runtime modules: a global pack records no import, so it needs none.
-let private emitGlobal (contract: PackageProviders.AnalyzedManifest) (input: string) : string =
+let private emitGlobal (contract: PackageProviders.AnalysedManifest) (input: string) : string =
     emitWith contract Map.empty false input
 
 [<Tests>]

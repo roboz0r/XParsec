@@ -73,7 +73,7 @@ module Codegen =
     /// is the anchor domain those nodes index. Mixed from two contracts, a served body's file has
     /// no retained source and emission throws rather than reporting a plausible wrong position.
     let private emit
-        (contract: PackageProviders.AnalyzedManifest)
+        (contract: PackageProviders.AnalysedManifest)
         (project: JsProjectInfo)
         (tast: FrozenPools)
         : JsArtifact =
@@ -161,7 +161,7 @@ module Codegen =
     /// `emit`, GATED: a tree carrying an error-severity diagnostic has no defined lowering,
     /// so emission is refused and the findings come back.
     let compileWith
-        (contract: PackageProviders.AnalyzedManifest)
+        (contract: PackageProviders.AnalysedManifest)
         (project: JsProjectInfo)
         (tast: FrozenPools)
         : Result<JsArtifact, Diagnostic list> =
@@ -172,7 +172,7 @@ module Codegen =
     /// `compileWith` over the empty contract: a program that references no external
     /// union/record and imports no package runtime, so its map has the one source.
     let compile (project: JsProjectInfo) (tast: FrozenPools) : Result<JsArtifact, Diagnostic list> =
-        compileWith PackageProviders.AnalyzedManifest.empty project tast
+        compileWith PackageProviders.AnalysedManifest.empty project tast
 
     let toSource (artifact: JsArtifact) : string = artifact.Source
     let toSourceMap (artifact: JsArtifact) : string option = artifact.Map

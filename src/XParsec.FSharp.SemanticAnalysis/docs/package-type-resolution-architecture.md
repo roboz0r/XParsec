@@ -12,8 +12,11 @@ This document describes the steady-state design. For the layering it sits inside
 
 ## The problem this solves
 
-A package is a `manifest.<target>.toml` plus a set of contract `.fsi` files. A signature
-in one package routinely names a type defined in another:
+A project is a `manifest.<target>.toml` plus a set of contract `.fsi` files. ("Package"
+throughout the rest of this document means *project* in that sense; the word now names the
+distributable artifact, and the sweep has not reached this doc. See
+`.claude/skills/comment-hygiene/vocabulary.md`.) A signature in one project routinely names a
+type defined in another:
 `Vesper.Result`'s `.fsi` mentions a `Vesper.Core` type, `Vesper.List.fold`'s
 signature mentions `'T list`, and so on.
 

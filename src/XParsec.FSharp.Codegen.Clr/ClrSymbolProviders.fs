@@ -40,13 +40,9 @@ module ClrSymbolProviders =
     /// One package read at most once per contract build: the seed compose and the stack
     /// compose share one set of trees, and a `preloaded` package's trees are served over a
     /// read of its directory.
-    let private memoisedRead
-        (preloaded: PackageSource.ParsedPackage list)
-        : SymbolProviders.Manifest -> PackageSource.ParsedPackage =
+    let private memoisedRead (preloaded: ParsedManifest list) : SymbolProviders.Manifest -> ParsedManifest =
         let cache =
-            System.Collections.Generic.Dictionary<SymbolProviders.ManifestPath, PackageSource.ParsedPackage>(
-                HashIdentity.Structural
-            )
+            System.Collections.Generic.Dictionary<SymbolProviders.ManifestPath, ParsedManifest>(HashIdentity.Structural)
 
         for p in preloaded do
             cache[p.Manifest.Path] <- p
@@ -55,7 +51,7 @@ module ClrSymbolProviders =
             match cache.TryGetValue m.Path with
             | true, p -> p
             | _ ->
-                let p = PackageSource.readPackage m
+                let p = ParsedManifest.ofManifest m
                 cache[m.Path] <- p
                 p
 
@@ -72,13 +68,13 @@ module ClrSymbolProviders =
     /// The intrinsic axis of the package being compiled, as a consumer of it would see it,
     /// because it is read off that package's own composed contract sources.
     let private selfSeed
-        (readPackage: SymbolProviders.Manifest -> PackageSource.ParsedPackage)
+        (readManifest: SymbolProviders.Manifest -> ParsedManifest)
         (selfPackage: string option)
         : IntrinsicTypeMap =
         match selfPackage with
         | None -> IntrinsicTypeMap.empty
         | Some dir ->
-            (SymbolProviders.buildContractWith readPackage dotnetMetadata Target.Clr [ dir ]).Provider.IntrinsicTypeMap
+            (SymbolProviders.buildContractWith readManifest dotnetMetadata Target.Clr [ dir ]).Provider.IntrinsicTypeMap
 
     /// `selfSeed` as an introspection seam for tests, reading from disk.
     let selfIntrinsics (selfPackage: string option) : IntrinsicTypeMap = selfSeed (memoisedRead []) selfPackage
@@ -98,20 +94,20 @@ module ClrSymbolProviders =
     /// resolution stack, and `platformMetadata` is the compilation's own layer 2. The seed
     /// axis always reads over the host TPA, whatever layer 2 the bodies get.
     let private selfContractWith
-        (readPackage: SymbolProviders.Manifest -> PackageSource.ParsedPackage)
+        (readManifest: SymbolProviders.Manifest -> ParsedManifest)
         (platformMetadata: SymbolProviders.PlatformMetadataFactory)
         (selfPackage: string option)
         (packageDirs: string list)
-        : PackageProviders.AnalyzedManifest =
+        : PackageProviders.AnalysedManifest =
         SymbolProviders.buildContractWith
-            readPackage
-            (seeded (selfSeed readPackage selfPackage) platformMetadata)
+            readManifest
+            (seeded (selfSeed readManifest selfPackage) platformMetadata)
             Target.Clr
             (SymbolProviders.selfStack selfPackage packageDirs)
 
     /// `buildContract` for a compilation that IS a package, over the host TPA rather than
     /// an explicit reference set.
-    let contractForSelf (selfPackage: string option) (packageDirs: string list) : PackageProviders.AnalyzedManifest =
+    let contractForSelf (selfPackage: string option) (packageDirs: string list) : PackageProviders.AnalysedManifest =
         selfContractWith (memoisedRead []) dotnetMetadata selfPackage packageDirs
 
     /// `contractForSelf` for a caller that already READ the self package: `self`'s trees back
@@ -119,8 +115,8 @@ module ClrSymbolProviders =
     let contractForSelfParsed
         (selfPackageDir: string)
         (packageDirs: string list)
-        (self: PackageSource.ParsedPackage)
-        : PackageProviders.AnalyzedManifest =
+        (self: ParsedManifest)
+        : PackageProviders.AnalysedManifest =
         selfContractWith (memoisedRead [ self ]) dotnetMetadata (Some selfPackageDir) packageDirs
 
     /// `contractForSelf`'s provider with its diagnostics DROPPED: an introspection seam for a
@@ -140,7 +136,7 @@ module ClrSymbolProviders =
         (selfPackage: string option)
         (dllPaths: string list)
         (packageDirs: string list)
-        : PackageProviders.AnalyzedManifest =
+        : PackageProviders.AnalysedManifest =
         selfContractWith (memoisedRead []) (dotnetMetadataWith dllPaths) selfPackage packageDirs
 
     /// `compilationContract`'s provider alone.

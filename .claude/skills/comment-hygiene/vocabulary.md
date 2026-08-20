@@ -142,8 +142,36 @@ no contract" becomes *owes no signature file*; "per-contract" becomes *per signa
 ``an `.fsi` contract's rebuilt pattern`` the pattern does come from the analysed contract, so
 drop the ``.fsi`` rather than renaming.
 
-`PackageSource` types are `SignatureEntry` and `ImplementationEntry` with a `Companion` field,
-and `ParsedPackage` fields are `Signatures` and `Implementations`.
+`ParsedManifest` holds `ReadSourceUnit list`, each half a `ReadFile<_>`.
+
+## `package`
+
+Names the distributable artifact: a compiled assembly with the supporting parts a consumer links
+against. `JsPackage` — modules, runtime assets and the `index.mjs` barrel — is the one this repo
+builds today, and a NuGet package is the CLR equivalent when one exists. npm's `package.json`
+sense is the same sense.
+
+An input on disk is a **project**: a directory holding `manifest.<target>.toml` and the sources
+it lists, compiled from source on every build. The unit being compiled is an **assembly**, and a
+pre-built dependency read as metadata is a **reference assembly**. Four words, four things, and
+`ExternalSymbolProviders` already draws the line — "a referenced project beats a referenced
+assembly".
+
+| sense | term |
+| --- | --- |
+| a directory with a manifest and the sources it lists | *project* (`ReferencedProject`, `ProjectInfo`) |
+| the manifest's file list read and parsed | `ParsedManifest` |
+| that read resolved to symbol providers | `AnalysedManifest` |
+| the unit being compiled | *assembly* (`CompilingAssembly`, `AssemblySources`) |
+| a pre-built dependency read as metadata | *reference assembly* (layer 2) |
+| the emitted, consumable artifact | *package* (`JsPackage`) |
+
+Legitimate and untouched: `JsPackage`, `JsPackageModule`, `JsPackageOutput`,
+`Vesper.Ts.Manifest.Schema.PackageManifest`, `PackageJsonInfoCache`.
+
+Unswept, each naming a project or a project set: `PackageSetFault`, `PackageProviders`,
+`ConformancePass.PackageOutcome`, `packageDir`, `packageName`, `selfPackage`, `buildPackage`.
+Add no more.
 
 ## `harvest`
 

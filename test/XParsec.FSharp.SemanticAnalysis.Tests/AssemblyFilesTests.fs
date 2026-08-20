@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
+open XParsec.FSharp.SemanticAnalysis.CompileAssembly
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // Cross-file name resolution: file N+1 resolves file N's symbols through file N's
@@ -23,22 +24,22 @@ let private asm: CompilingAssembly =
 let private impl (id: string) (text: string) : SourceUnit =
     SourceUnit.ofImplementation (SourceFile.ofText id text)
 
-/// `AssemblyFiles.analyseAssembly` under no compilation defines. No source in this suite
+/// `CompileAssembly.analyseAssembly` under no compilation defines. No source in this suite
 /// carries a `#if`, so every file here parses one way.
 let private analyseAssembly
     (assembly: CompilingAssembly)
     (external: IExternalSymbolProvider)
     (units: SourceUnit list)
-    : Result<FrozenFile, UnparsedFile> list =
-    AssemblyFiles.analyseAssembly assembly external Set.empty units
+    : Result<FrozenFile, UnparsedFile list> list =
+    CompileAssembly.analyseAssembly assembly external Set.empty units
 
 /// The `Ok` files of an assembly run, or a test failure citing the first parse error.
-let private files (results: Result<FrozenFile, UnparsedFile> list) : FrozenFile list =
+let private files (results: Result<FrozenFile, UnparsedFile list> list) : FrozenFile list =
     results
     |> List.map (
         function
         | Ok f -> f
-        | Error e -> failtestf "file %s failed to parse: %A" e.Id.Name e.Failure.Diagnostics
+        | Error faults -> failtestf "unit failed to parse: %A" [ for e in faults -> e.Id.Name, e.Failure.Diagnostics ]
     )
 
 /// A file's unresolved-symbol errors — both the bare and the qualified miss say "Unresolved".

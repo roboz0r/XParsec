@@ -18,7 +18,7 @@ open XParsec.FSharp.Codegen.Js
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
-    | Result.Ok parsed -> parsed.Lexed, parsed.File
+    | Result.Ok parsed -> parsed.Lexed, parsed.Tree
 
 /// The assembly name every compile in this suite is taken under, matching the
 /// `JsProjectInfo.defaults "Test"` the emit helpers pass.
@@ -86,7 +86,7 @@ let jsPackages: string list =
 /// The JS-target contract for `jsPackages`, BCL-free: the provider a program is analysed
 /// against, the declaring files its served inline bodies are anchored in, and the manifest set
 /// backing its runtime imports.
-let jsContract: Lazy<PackageProviders.AnalyzedManifest> =
+let jsContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract jsPackages
 
 /// `jsContract`'s provider, for the front-end helpers: analysis resolves symbols and reads no
@@ -97,7 +97,7 @@ let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 /// inline-body store is keyed by the WHOLE member key. Assert the two halves agree for each of
 /// `members`, so an `ArgSig` divergence is reported here instead of surfacing as an absent body.
 let expectMemberKeyHalvesAgree
-    (contract: PackageProviders.AnalyzedManifest)
+    (contract: PackageProviders.AnalysedManifest)
     (implPackages: string list)
     (declKey: TypeKey)
     (members: string list)
@@ -112,7 +112,7 @@ let expectMemberKeyHalvesAgree
     let implBodies =
         manifests
         |> List.collect (fun m ->
-            (PackageProviders.buildProviderWith contract.Provider (PackageSource.readPackage m)).InlineBodies.Members
+            (PackageProviders.buildProviderWith contract.Provider (ParsedManifest.ofManifest m)).InlineBodies.Members
         )
 
     for memberName in members do
@@ -253,18 +253,18 @@ let emitJsLibrary (input: string) : string =
 /// because `compileLibrary` compiles under `testAsm` rather than the package's own name, so its
 /// declarations would be a second claimant of the types the impl declares; `compileOwnLibrary`
 /// names the package and takes them both.
-let coreDepsJsContract: Lazy<PackageProviders.AnalyzedManifest> =
+let coreDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage ]
 
 /// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest, because `array.fs` splices
 /// `NewArray` out of the per-target `array-prelude.js.fs`. Safe only because `Vesper.Array`
 /// declares no in-file types; one that does (`Vesper.List`) takes the deps-only contract above.
-let arrayDepsJsContract: Lazy<PackageProviders.AnalyzedManifest> =
+let arrayDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage; srcPackage "Vesper.Array" ]
 
 /// Contract for `Vesper.Seq`'s impl: `Vesper.Array` for `toArray`'s buffer, and the
 /// package's own manifest for the `SeqPrelude.truncate` its `seq.fs` forwards to.
-let seqDepsJsContract: Lazy<PackageProviders.AnalyzedManifest> =
+let seqDepsJsContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage; srcPackage "Vesper.Array"; srcPackage "Vesper.Seq" ]
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
@@ -306,7 +306,7 @@ let frozenOwnImplJs (assemblyName: string) (provider: IExternalSymbolProvider) (
 /// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.fs`), recorded
 /// both in the source map and in the emitted `// Generated from …` header.
 let private emitLibrarySource
-    (contract: PackageProviders.AnalyzedManifest)
+    (contract: PackageProviders.AnalysedManifest)
     (moduleName: string)
     (sourceFile: string)
     (input: string)
@@ -334,7 +334,7 @@ let private emitLibrarySource
 /// DEPENDENCIES. The impl is analysed against the same contract it is emitted through, so
 /// a body spliced out of a dependency resolves against the file it was written in.
 let compileLibrary
-    (contract: PackageProviders.AnalyzedManifest)
+    (contract: PackageProviders.AnalysedManifest)
     (moduleName: string)
     (sourceFile: string)
     (input: string)
@@ -344,7 +344,7 @@ let compileLibrary
 /// `compileLibrary` for an impl compiled as its OWN package, so `moduleName` is both the
 /// emitted module and the home assembly the contract's own declarations are attributed to.
 let compileOwnLibrary
-    (contract: PackageProviders.AnalyzedManifest)
+    (contract: PackageProviders.AnalysedManifest)
     (moduleName: string)
     (sourceFile: string)
     (input: string)
@@ -427,13 +427,13 @@ let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvid
 /// The EMIT contract of a `stackTsMany` stack: that stack as the provider, re-seated in
 /// `jsContract`, so it carries the JS-native stubs' retention as its anchor domain. A TS
 /// manifest serves no inline body, so those stubs are the only layer a served body comes from.
-let contractTsMany (manifests: Schema.PackageManifest list) : PackageProviders.AnalyzedManifest =
+let contractTsMany (manifests: Schema.PackageManifest list) : PackageProviders.AnalysedManifest =
     { jsContract.Value with
         Provider = stackTsMany manifests
     }
 
 /// `contractTsMany` for one manifest: the emit contract behind `stackTs`.
-let contractTs (manifest: Schema.PackageManifest) : PackageProviders.AnalyzedManifest = contractTsMany [ manifest ]
+let contractTs (manifest: Schema.PackageManifest) : PackageProviders.AnalysedManifest = contractTsMany [ manifest ]
 
 /// Analyse `input` through the self-host front end; returns only the ERROR diagnostics.
 let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
@@ -452,7 +452,7 @@ let errorText (ds: Diagnostic list) : string =
 /// table AND its line starts, since an anchor is an index into the former). `exportTopLevel`
 /// selects script (`false`) vs library.
 let private jsEmissionInputs
-    (contract: PackageProviders.AnalyzedManifest)
+    (contract: PackageProviders.AnalysedManifest)
     (runtime: Map<string, JsPackageOutput>)
     (exportTopLevel: bool)
     (input: string)
@@ -480,7 +480,7 @@ let private jsEmissionInputs
 /// modules. Analysed and emitted through the SAME contract, so a body spliced out of a
 /// dependency resolves its position against the file it was written in.
 let emitWith
-    (contract: PackageProviders.AnalyzedManifest)
+    (contract: PackageProviders.AnalysedManifest)
     (runtime: Map<string, JsPackageOutput>)
     (exportTopLevel: bool)
     (input: string)

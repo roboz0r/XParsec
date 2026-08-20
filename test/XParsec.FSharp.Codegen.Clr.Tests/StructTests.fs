@@ -391,17 +391,19 @@ let structTests =
                 // resolves against, so it must equal the manifest `name` below.
                 let outDir = tmpDir "Vesper.PointPkg"
                 let manifestPath = System.IO.Path.Combine(outDir, "manifest.clr.toml")
-                let fsiPath = System.IO.Path.Combine(outDir, "point.fsi")
 
                 System.IO.File.WriteAllText(
                     manifestPath,
-                    "[core]\nname = \"Vesper.PointPkg\"\ndepends-on = []\nfiles = [\"point.fsi\"]\n"
+                    "[core]\nname = \"Vesper.PointPkg\"\ndepends-on = []\nfiles = [\"point.fsi\", \"point.fs\"]\n"
                 )
 
-                System.IO.File.WriteAllText(
-                    fsiPath,
+                // The `.fsi` and its companion spell the struct identically, so the pair
+                // conforms; a listed `.fsi` owes a companion either way.
+                let point =
                     "namespace Vesper\n\ntype Point =\n    struct\n        val X: int\n        val Y: int\n    end\n"
-                )
+
+                System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "point.fsi"), point)
+                System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "point.fs"), point)
 
                 let provider = ClrSymbolProviders.buildContract [ vesperCorePackage; outDir ]
 

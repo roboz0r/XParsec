@@ -124,7 +124,7 @@ let stagesFor (depth: ChainDepth) : Stage list =
 /// Analyse one stage, returning every file's result. `analyse` is a seam so the probe can
 /// inject a timing wrapper.
 let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
-    AssemblyFiles.analyseAssemblyWith
+    CompileAssembly.analyseAssemblyWith
         analyse
         {
             Name = AssemblyName s.Name
@@ -137,12 +137,13 @@ let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
 /// Count error-severity diagnostics across a stage's results (parse failures + analysis
 /// errors). The green-workload guard: a bench on an erroring workload measures the error
 /// path, so a non-zero count is a setup crash, not a silent number.
-let stageErrorCount (results: Result<AssemblyFiles.FrozenFile, AssemblyFiles.UnparsedFile> list) : int =
+let stageErrorCount (results: Result<AssemblyFiles.FrozenFile, AssemblyFiles.UnparsedFile list> list) : int =
     results
     |> List.sumBy (
         function
-        | Error e ->
-            e.Failure.Diagnostics
+        | Error faults ->
+            faults
+            |> List.collect (fun e -> e.Failure.Diagnostics)
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
         // A file that parsed only because RECOVERY patched it is not a green workload

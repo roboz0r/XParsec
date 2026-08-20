@@ -12,8 +12,7 @@ open XParsec.FSharp.Codegen.Common.Tests
 
 /// `src/Vesper.Core`, found by walking up from the test assembly.
 let private vesperCorePackage =
-    let testDir =
-        Path.GetDirectoryName(typeof<PackageSource.ParsedPackage>.Assembly.Location)
+    let testDir = Path.GetDirectoryName(typeof<ParsedManifest>.Assembly.Location)
 
     let mutable dir = DirectoryInfo testDir
     let mutable found = None
@@ -76,17 +75,17 @@ let private writeSyntheticManifest (name: string) (dependsOn: string list) : Ref
     let deps = dependsOn |> List.map (sprintf "\"../%s\"") |> String.concat ", "
     writeManifest name (sprintf "[core]\nname = \"%s\"\ndepends-on = [%s]\nfiles = []\n" name deps)
 
-/// Writes a synthetic package whose `contract.fsi` declares `fsiBody` under `ns` — for the
-/// duplicate-type tests, which need two packages declaring one name.
-let private writeSyntheticPackageWithType
-    (name: string)
-    (ns: string)
-    (fsiBody: string)
-    : ReferencedProject.ManifestPath =
+/// Writes a synthetic package declaring `body` under `ns` — for the duplicate-type tests,
+/// which need two packages declaring one name. `body` is a union, so the `.fsi` and its
+/// companion `.fs` spell it identically and the pair conforms.
+let private writeSyntheticPackageWithType (name: string) (ns: string) (body: string) : ReferencedProject.ManifestPath =
     let dir = Path.Combine(tmpSrc, name)
     Directory.CreateDirectory dir |> ignore
-    File.WriteAllText(Path.Combine(dir, "contract.fsi"), sprintf "namespace %s\n%s\n" ns fsiBody)
-    writeManifest name (sprintf "[core]\nname = \"%s\"\nfiles = [\"contract.fsi\"]\n" name)
+    let source = sprintf "namespace %s\n%s\n" ns body
+    File.WriteAllText(Path.Combine(dir, "contract.fsi"), source)
+    File.WriteAllText(Path.Combine(dir, "contract.fs"), source)
+
+    writeManifest name (sprintf "[core]\nname = \"%s\"\nfiles = [\"contract.fsi\", \"contract.fs\"]\n" name)
 
 let private builtProvider =
     lazy
@@ -100,7 +99,7 @@ let private builtProviderJs =
         (let bp =
             PackageProviders.buildProviderWith
                 ExternalSymbolProviders.nullProvider
-                (PackageSource.readPackage (loadOrFail vesperCoreJsManifest))
+                (ParsedManifest.ofManifest (loadOrFail vesperCoreJsManifest))
 
          bp.Provider, bp.Diagnostics)
 
@@ -728,34 +727,53 @@ let tests =
                                 "js"
                                 "FlatLists"
                                 "[core]\n\
-                                 files = [\"contract.fsi\", \"shim.js.fsi\", \"ops.fs\", \"ops.js.fs\"]\n\
+                                 files = [\"contract.fsi\", \"contract.js.fs\", \"shim.js.fsi\", \"shim.js.fs\", \"ops.fs\"]\n\
                                  runtime = [\"runtime.mjs\"]\n"
                         )
 
-                    test "the file list is read verbatim, each entry classified by extension" {
+                    let sig' rel =
+                        {
+                            ReferencedProject.Relative = rel
+                            ReferencedProject.Kind = SourceFileKind.Signature
+                        }
+
+                    let impl rel =
+                        {
+                            ReferencedProject.Relative = rel
+                            ReferencedProject.Kind = SourceFileKind.Implementation
+                        }
+
+                    test "the file list is paired into units, each entry classified by extension" {
                         Expect.equal jsManifest.Target "js" "the file name states the target"
+
+                        Expect.equal
+                            jsManifest.Units
+                            [
+                                {
+                                    Signature = ValueSome(sig' "contract.fsi")
+                                    Implementation = impl "contract.js.fs"
+                                }
+                                {
+                                    Signature = ValueSome(sig' "shim.js.fsi")
+                                    Implementation = impl "shim.js.fs"
+                                }
+                                {
+                                    Signature = ValueNone
+                                    Implementation = impl "ops.fs"
+                                }
+                            ]
+                            "units, in declared order, each `.fsi` over the companion it precedes"
 
                         Expect.equal
                             jsManifest.Files
                             [
-                                {
-                                    ReferencedProject.Relative = "contract.fsi"
-                                    ReferencedProject.Kind = SourceFileKind.Signature
-                                }
-                                {
-                                    ReferencedProject.Relative = "shim.js.fsi"
-                                    ReferencedProject.Kind = SourceFileKind.Signature
-                                }
-                                {
-                                    ReferencedProject.Relative = "ops.fs"
-                                    ReferencedProject.Kind = SourceFileKind.Implementation
-                                }
-                                {
-                                    ReferencedProject.Relative = "ops.js.fs"
-                                    ReferencedProject.Kind = SourceFileKind.Implementation
-                                }
+                                sig' "contract.fsi"
+                                impl "contract.js.fs"
+                                sig' "shim.js.fsi"
+                                impl "shim.js.fs"
+                                impl "ops.fs"
                             ]
-                            "files, in declared order"
+                            "flattened back to the order the manifest spells"
 
                         Expect.equal
                             (ReferencedProject.signatureFiles jsManifest)
@@ -764,10 +782,25 @@ let tests =
 
                         Expect.equal
                             (ReferencedProject.implementationFiles jsManifest)
-                            [ "ops.fs"; "ops.js.fs" ]
+                            [ "contract.js.fs"; "shim.js.fs"; "ops.fs" ]
                             "the implementation half"
 
                         Expect.equal jsManifest.Runtime [ "runtime.mjs" ] "runtime"
+                    }
+
+                    // A `.fsi` alone declares a surface this target compiles no body for, which
+                    // is a stale manifest rather than a package that ships contracts only.
+                    test "a .fsi with no companion .fs is rejected" {
+                        match
+                            ReferencedProject.loadManifest (
+                                writeManifest "OrphanSig" "[core]\nfiles = [\"deleted-impl.fsi\", \"ops.fs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected an orphan-signature rejection, got Ok %A" m
+                        | Result.Error e ->
+                            let e = PackageSetFault.describe e
+                            Expect.stringContains e "`deleted-impl.fsi`" "the error names the orphaned signature file"
+                            Expect.stringContains e "deleted-impl.fs" "and the companion it expected"
                     }
 
                     // The typed list is total over `.fsi`/`.fs`; anything else read as silence
@@ -1004,7 +1037,7 @@ let tests =
                                     "js"
                                     "AllLists"
                                     "[core]\n\
-                                     files = [\"contract.fsi\", \"shim.js.fsi\", \"ops.fs\", \"ops.js.fs\"]\n\
+                                     files = [\"contract.fsi\", \"contract.js.fs\", \"shim.js.fsi\", \"shim.js.fs\", \"ops.fs\"]\n\
                                      runtime = [\"x.mjs\"]\n"
                             )
 
@@ -1012,7 +1045,7 @@ let tests =
 
                         Expect.equal
                             (List.sort inputs)
-                            (List.sort [ "contract.fsi"; "shim.js.fsi"; "ops.fs"; "ops.js.fs" ])
+                            (List.sort [ "contract.fsi"; "contract.js.fs"; "shim.js.fsi"; "shim.js.fs"; "ops.fs" ])
                             "every file-list entry"
 
                         Expect.isFalse (List.contains "x.mjs" inputs) "a runtime asset is not a parsed source"

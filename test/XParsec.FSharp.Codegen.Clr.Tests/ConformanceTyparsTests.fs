@@ -61,7 +61,7 @@ let tests =
                     )
 
                 let analysed =
-                    AssemblyFiles.analyseAssembly
+                    CompileAssembly.analyseAssembly
                         {
                             Name = AssemblyName "Vesper.Core"
                             Target = Target.Clr
@@ -77,7 +77,10 @@ let tests =
                         for result in analysed do
                             match result with
                             | Ok file -> yield! ConformanceTypars.checkFile provider file.Frozen
-                            | Error e -> failwithf "Vesper.Core: %s did not parse" e.Id.Name
+                            | Error faults ->
+                                failwithf
+                                    "Vesper.Core: %s did not parse"
+                                    (faults |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
                     ]
 
                 let mismatches = sweep contract

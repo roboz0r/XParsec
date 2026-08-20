@@ -14,7 +14,7 @@ There are three ways into the front end, and they disagree about what a compilat
 
 | Tier | Entry | Gate | Diagnostics | Home assembly |
 |---|---|---|---|---|
-| 1 | `AssemblyFiles.analyseGated` | errors refuse the assembly (`AssemblyFiles.fs:797-802`) | anchored per file | yes |
+| 1 |  `CompileAssembly.analyseGated` | errors refuse the assembly (`AssemblyFiles.fs:797-802`) | anchored per file | yes |
 | 2 | `ClrDriver.compile` / `compileApp` / `compileForTfm` | codegen-level, added 2026-08-18 | flat, unanchored | yes |
 | 3 | `Pipeline.analyseSem` / `analyseSemFor` called directly | none | none | tier 3 mostly not |
 
@@ -103,19 +103,19 @@ prevented one. The gate lives here, once, at the only boundary where a broken tr
 /// compile order.
 type AssemblySources =
     { Assembly: CompilingAssembly
-      Units: Result<ParsedUnit, UnparsedFile> list }
+      Units: AssemblyUnit list }
 
 module AssemblySources =
     /// Name and target off the manifest, units in its file order.
-    val ofPackage : PackageSource.ParsedPackage -> AssemblySources
-    /// `ofPackage` for a caller holding only the path.
+    val ofParsedManifest : ParsedManifest -> AssemblySources
+    /// `ofParsedManifest` for a caller holding only the path.
     val ofManifest : ReferencedProject.ManifestPath -> Result<AssemblySources, PackageSetFault>
     /// In-memory sources compiled under a caller-supplied name.
     val synthetic : name: string -> target: string -> Set<string> -> SourceUnit list -> AssemblySources
 
 /// Every unit of the assembly as analysed, in manifest order.
 type AnalysedAssembly =
-    { Units: FoldedUnit list }
+    { Units: UnitOutcome list }
     /// Every unit's findings, each anchored in its own file.
     member Diagnostics : AnchoredDiagnostic list
 
@@ -127,9 +127,9 @@ module AnalysedAssembly =
     val gate : AnalysedAssembly -> Result<EmittableAssembly, AnchoredDiagnostic list>
 ```
 
-`AssemblySources` takes its name from the existing `SourceFile` / `SourceUnit` / `PackageSource`,
-where "source" is the INPUT text. `Retained` is the retained-`Lexed` collection an anchor is read
-through. The two are distinct and neither is spelled `Source` alone.
+`AssemblySources` takes its name from the existing `SourceFile` / `SourceUnit`, where "source" is
+the INPUT text. `Retained` is the retained-`Lexed` collection an anchor is read through. The two
+are distinct and neither is spelled `Source` alone.
 
 ```fsharp
 // each backend
@@ -141,7 +141,7 @@ val ClrDriver.compile : string list -> ProjectInfo -> AnalysedAssembly
 ### What the shape buys
 
 **The assembly name stops being an argument.** `CompilingAssembly` is derived inside
-`AssemblySources.ofPackage` from `Manifest.Name` (`ReferencedProject.fs:76-79`, `[core] name`
+`AssemblySources.ofParsedManifest` from `Manifest.Name` (`ReferencedProject.fs:76-79`, `[core] name`
 else the manifest's directory name) and `Manifest.Path.Target`. A caller cannot pair a name with
 another package's units. `synthetic` demands the name because it has no manifest to read one
 from.
@@ -214,19 +214,21 @@ This step harvests the resolution findings without touching what any test assert
 
 ### 2. `AssemblySources` — LANDED 2026-08-19
 
-`AssemblySources.fs`, after `PackageUnits.fs`: `ofPackage` over `PackageSource.ParsedPackage`
-(units via the existing `PackageUnits.ofPackage`), `ofManifest` for a caller holding only the
-path, and `synthetic` for in-memory sources.
+`AssemblySources.fs`, last in compile order: `ofParsedManifest` over `ParsedManifest`,
+`ofManifest` for a caller holding only the path, and `synthetic` for in-memory sources.
+
+`Units` is `AssemblyFiles.AssemblyUnit list` — the same type `AssemblyAnalysis.analyseUnits` takes, so both
+routes hand the analysis what they built and nothing re-widens on the way in.
 
 `ManifestPath` is minted only by `resolveManifest`, which is what makes a manifest's files and
 its target agree. `synthetic` therefore mints an `AssemblySources` directly rather than a
 synthetic `Manifest`.
 
-`ofManifest` moved off `PackageUnits` and kept its `ManifestPath` parameter rather than taking
-target and package directory: `JsPackageTests` and `ConformanceTests` hold a resolved
-`ManifestPath` already, and re-resolving one from its parts would read the manifest twice.
+`ofManifest` kept its `ManifestPath` parameter rather than taking target and package directory:
+`JsPackageTests` and `ConformanceTests` hold a resolved `ManifestPath` already, and re-resolving
+one from its parts would read the manifest twice.
 
-Every `PackageUnits.ofManifest` / `ofPackage` caller now goes through `AssemblySources` and
+Every caller now goes through `AssemblySources` and
 passes `.Units` on to the driver, which still derives its `CompilingAssembly` from
 `ProjectInfo.AssemblyName` — step 3 is where the driver takes the pairing instead.
 `JsPackageTests` already drops its `loadManifest` and names the package from
@@ -235,7 +237,7 @@ manifest file order, and that `synthetic` parses under the compilation defines i
 
 ### 3. Total `analyse`, `gate`, `EmittableAssembly`
 
-`analyse` is `foldUnits` with the two filters of `analyseGated:783-812` lifted out into `gate`.
+`analyse` is `analyseUnits` with the two filters of `analyseGated:783-812` lifted out into `gate`.
 Today's `AnalysedAssembly` is renamed `EmittableAssembly`; the name `AnalysedAssembly` moves to
 the total result. `analyseGated`, `analyseWith`, `analyseAssemblyWith` and `analyseAssembly`
 collapse into `analyse`.

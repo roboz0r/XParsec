@@ -101,7 +101,7 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
-    | Result.Ok parsed -> parsed.Lexed, parsed.File
+    | Result.Ok parsed -> parsed.Lexed, parsed.Tree
 
 /// `parseFile` for a source whose parse is EXPECTED to need recovery: the tree comes out
 /// patched, and what analysis makes of it is the point of the test. Fails if the source
@@ -112,7 +112,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
     | Result.Ok parsed ->
         match parsed.Diagnostics with
         | [] -> failwith "expected a parse that needed recovery; nothing was reported"
-        | _ -> parsed.Lexed, parsed.File
+        | _ -> parsed.Lexed, parsed.Tree
 
 /// Realise a WIRE inline body against the file it was published from: the body carries the
 /// declaring file's own token indices, and only that file can resolve them.

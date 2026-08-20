@@ -106,7 +106,7 @@ module JsNativeSymbols =
     /// projections below are for callers that only resolve or introspect.
     /// The one place this backend states its target: it RESOLVES each package directory to
     /// `manifest.js.toml`, so a set for another target is not something a caller can hand it.
-    let jsNativeContract (packageDirs: string list) : PackageProviders.AnalyzedManifest =
+    let jsNativeContract (packageDirs: string list) : PackageProviders.AnalysedManifest =
         SymbolProviders.buildContract jsNativeMetadata Target.Js packageDirs
 
     /// The JS-native contract provider, for a caller that only RESOLVES symbols.

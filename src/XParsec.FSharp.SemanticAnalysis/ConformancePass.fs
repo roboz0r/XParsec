@@ -29,8 +29,6 @@ module ConformancePass =
     type PairOutcome =
         /// `.fsi` with a companion `.fs`.
         | Paired of PairResult
-        /// `.fsi` with NO companion `.fs`.
-        | SigOnly of sigFile: string
         /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
         /// conformed. Per signature file, so one malformed file does not abort the package.
         | ParseFailed of sigFile: string * detail: string
@@ -74,16 +72,16 @@ module ConformancePass =
         |> Set.remove ""
 
     /// Why a manifest-named path yielded no tree, in the FAULT's own words.
-    let private faultDetail (package: string) (relative: string) (fault: PackageSource.FileFault) : string =
-        (PackageSource.FileFault.toFailure package relative fault).Diagnostics
+    let private faultDetail (package: string) (relative: string) (fault: FileFault) : string =
+        (FileFault.toFailure package relative fault).Diagnostics
         |> List.map (fun d -> d.Message)
         |> String.concat "; "
 
     /// Conform every signature file a package manifest lists against its implementation
     /// companion, over the package as READ: no F# source is re-read and no pairing re-taken, so
     /// a file the read could not deliver becomes a `ParseFailed` verdict.
-    let check (pkg: PackageSource.ParsedPackage) : PackageOutcome =
-        let m = pkg.Manifest
+    let check (parsed: ParsedManifest) : PackageOutcome =
+        let m = parsed.Manifest
 
         // One scrape per `[<Import>]`-named asset: `ValueNone` for a path outside the
         // manifest's `runtime` list or a listed file absent on disk.
@@ -126,8 +124,8 @@ module ConformancePass =
                 | ValueSome _ -> []
 
         let pair
-            (signatureFile: PackageSource.ReadFile<ParseChain.ParsedSignature>)
-            (implementationFile: PackageSource.ReadFile<ParseChain.ParsedFile>)
+            (signatureFile: ReadFile<ParseChain.ParsedSignature>)
+            (implementationFile: ReadFile<ParseChain.ParsedImplementation>)
             : PairOutcome =
             let fsiRel = signatureFile.Relative
 
@@ -140,7 +138,7 @@ module ConformancePass =
                 | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name implementationFile.Relative fault)
                 | Ok implementation ->
                     let verdict =
-                        Conformance.checkUnit signature.Lexed signature.File implementation.Lexed implementation.File
+                        Conformance.checkUnit signature.Lexed signature.Tree implementation.Lexed implementation.Tree
 
                     PairOutcome.Paired
                         {
@@ -154,18 +152,11 @@ module ConformancePass =
             Package = m.Name
             Pairs =
                 [
-                    for unit in pkg.Units do
-                        match unit with
-                        | PackageSource.PackageUnit.UnpairedSignature signature ->
-                            match signature.Outcome with
-                            | Error fault ->
-                                PairOutcome.ParseFailed(signature.Relative, faultDetail m.Name signature.Relative fault)
-                            | Ok _ -> PairOutcome.SigOnly signature.Relative
-                        | PackageSource.PackageUnit.Source source ->
-                            match source.Signature with
-                            | ValueSome signature -> pair signature source.Implementation
-                            // A `.fs` owes no `.fsi`.
-                            | ValueNone -> ()
+                    for unit in parsed.Units do
+                        match unit.Signature with
+                        | ValueSome signature -> pair signature unit.Implementation
+                        // A `.fs` owes no `.fsi`.
+                        | ValueNone -> ()
                 ]
         }
 
@@ -173,7 +164,7 @@ module ConformancePass =
     /// un-checkable, meaning a malformed or absent MANIFEST.
     let checkManifest (mp: ReferencedProject.ManifestPath) : Result<PackageOutcome, PackageSetFault> =
         ReferencedProject.loadManifest mp
-        |> Result.map (PackageSource.readPackage >> check)
+        |> Result.map (ParsedManifest.ofManifest >> check)
 
     // ---- Enforcement: conformance findings become hard errors ------------------
 
@@ -198,7 +189,6 @@ module ConformancePass =
                                 ConformanceVerdict.ModulePairingMismatch(r.SigFile, r.ImplFile, mm.SigDecl, mm.ImplDecl)
                             )
                     | ValueNone -> ()
-                | PairOutcome.SigOnly s -> yield err (ConformanceVerdict.SigWithoutImpl s)
                 | PairOutcome.ParseFailed(sigFile, detail) ->
                     yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
         ]

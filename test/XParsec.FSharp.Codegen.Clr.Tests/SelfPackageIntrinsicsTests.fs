@@ -29,7 +29,7 @@ module ConcatProbe =
 
         core.Units
         @ [
-            AssemblyFiles.parseUnit
+            AssemblyFiles.AssemblyUnit.parse
                 Set.empty
                 (AssemblyFiles.SourceUnit.ofImplementation (
                     AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource
@@ -42,7 +42,7 @@ module ConcatProbe =
         // GATED, so a contract that failed to resolve is reported as itself rather than as the
         // missing-overload verdict this test is about.
         ClrSymbolProviders.contractForSelf selfManifest []
-        |> PackageProviders.AnalyzedManifest.gate
+        |> PackageProviders.AnalysedManifest.gate
         |> Result.bind (fun contract ->
             ClrDriver.compileAssemblyWith
                 []

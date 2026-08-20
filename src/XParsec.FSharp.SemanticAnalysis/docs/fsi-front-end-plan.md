@@ -256,8 +256,8 @@ checking that against fsc.
   ambient prefixes; the package caller homes `SymbolHome.InAssembly` and publishes its
   `[<AutoOpen>]` prefixes.
 
-All three are discharged by `AssemblyFiles.foldUnits`, the single fold both callers
-(`PackageProviders.buildProviderSeeded` and `AssemblyFiles.analyseWith`) now use.
+All three are discharged by `AssemblyAnalysis.analyseUnits`, which both callers
+(`PackageProviders.buildProviderSeeded` and `CompileAssembly.analyseWith`) now use.
 
 ## Steps
 
@@ -402,11 +402,11 @@ signature binding.
 `PackageProviders.buildProviderWith` folds each `.fsi` over the provider stack — its
 dependencies plus the package's own earlier files, nearest first — exactly as
 `analyseAssemblyWith` does over `.fs` units. `VesperLib.fs`, `VesperLib/TypeTranslate.fs` and
-`VesperLib/TyparCapture.fs` are gone; `VesperLib/Manifest.fs` survives as `PackageSource.fs`,
+`VesperLib/TyparCapture.fs` are gone; `VesperLib/Manifest.fs` survives as `ParsedManifest.fs`,
 the one reader that turns a manifest-named path into a parsed tree.
 
 **The provider half of `ReferencedProject` had to move.** Everything the front end needs sits
-below `PassContext` in compile order, and `ConformancePass` / `PackageUnits` sit above it — but
+below `PassContext` in compile order, and `ConformancePass` / `AssemblySources` sit above it — but
 every one of those reads MANIFESTS only. So the split is by what a caller wants:
 `ReferencedProject` resolves, parses and orders manifests where it always did, and
 `PackageProviders` (after `AssemblyFiles`, whose `anchorDiagnostics` it shares) turns them into

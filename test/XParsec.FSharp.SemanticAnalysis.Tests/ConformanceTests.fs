@@ -286,7 +286,7 @@ let private analysedAsm: CompilingAssembly =
 
 /// Every conformance verdict the in-assembly route reports for one `.fsi` / `.fs` pair.
 let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
-    AssemblyFiles.analyseAssembly
+    CompileAssembly.analyseAssembly
         analysedAsm
         realProvider.Value
         Set.empty
@@ -298,7 +298,8 @@ let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
     |> List.collect (
         function
         | Ok f -> AssemblyFiles.fileDiagnostics f
-        | Error e -> failtestf "the pair did not parse: %s" e.Id.Name
+        | Error faults ->
+            failtestf "the pair did not parse: %s" (faults |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
     )
     |> List.choose (fun a ->
         match a.Diagnostic.Kind with
@@ -309,7 +310,7 @@ let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
 /// The error-severity findings of ONE analysed implementation, so a fixture that fails for an
 /// unrelated reason says so rather than passing a conformance assertion vacuously.
 let private analysedErrors (implSrc: string) : string list =
-    AssemblyFiles.analyseAssembly
+    CompileAssembly.analyseAssembly
         analysedAsm
         realProvider.Value
         Set.empty
@@ -319,7 +320,10 @@ let private analysedErrors (implSrc: string) : string list =
     |> List.collect (
         function
         | Ok f -> AssemblyFiles.fileDiagnostics f
-        | Error e -> failtestf "the implementation did not parse: %s" e.Id.Name
+        | Error faults ->
+            failtestf
+                "the implementation did not parse: %s"
+                (faults |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
     )
     |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
     |> List.map (fun a -> a.Diagnostic.Message)
@@ -514,8 +518,9 @@ let private manifestOf (target: string) (package: string) : ReferencedProject.Ma
     |> Option.defaultWith (fun () -> failtestf "%s %s manifest not found" package target)
 
 /// Materialise a throwaway package from `files` (file name → content, `manifest.js.toml`
-/// among them) and run the js pass over it.
-let private syntheticOutcome (files: (string * string) list) : ConformancePass.PackageOutcome =
+/// among them) and run the js pass over it. `Error` is a refusal of the MANIFEST, which is
+/// where a `[core] files` shape violation is caught.
+let private syntheticChecked (files: (string * string) list) : Result<ConformancePass.PackageOutcome, PackageSetFault> =
     let dir =
         Path.Combine(Path.GetTempPath(), "vesper.synthetic." + System.Guid.NewGuid().ToString("N"))
 
@@ -527,9 +532,18 @@ let private syntheticOutcome (files: (string * string) list) : ConformancePass.P
 
         ReferencedProject.resolveManifest "js" dir
         |> PackageFaults.okOrFail "resolveManifest"
-        |> outcomeFor
+        |> ConformancePass.checkManifest
     finally
         Directory.Delete(dir, true)
+
+let private syntheticOutcome (files: (string * string) list) : ConformancePass.PackageOutcome =
+    syntheticChecked files |> PackageFaults.okOrFail "checkManifest"
+
+/// The manifest refusal a `[core] files` shape violation produces, or a test failure.
+let private syntheticRefusal (files: (string * string) list) : string =
+    match syntheticChecked files with
+    | Result.Ok outcome -> failtestf "expected the manifest to be refused, got %A" outcome.Pairs
+    | Result.Error fault -> PackageSetFault.describe fault
 
 /// A one-contract package whose `.fs` binds `served` by `[<Import>]` against a runtime
 /// asset exporting `exportedAs` — the export name is the only variable.
@@ -564,40 +578,30 @@ let jsPackageConformanceTests =
             test "js: an all-extern, val-less signature with no body is a hard error, not accepted" {
                 // The former `Unrepresentable` route: a type the target has no representation
                 // for is OMITTED from the manifest, so a declared-and-unimplemented contract
-                // owes a body like any other.
-                let outcome =
-                    syntheticOutcome
+                // owes a body like any other. The manifest parse is where that is refused.
+                let refusal =
+                    syntheticRefusal
                         [
                             "manifest.js.toml", "[core]\nfiles = [\"widths.fsi\"]\n"
                             "widths.fsi", "namespace V\n\ntype myint = extern\n"
                         ]
 
-                let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
-
-                Expect.equal (List.length errors) 1 "one hard error"
-                Expect.stringContains errors.Head "widths.fsi" "the FS0240-style error names the signature file"
+                Expect.stringContains refusal "widths.fsi" "the refusal names the signature file"
             }
 
             test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
                 // A record needs a real `.fs`: absence is missing work, not a statement that
                 // JS cannot represent it. The asset exports the type's NAME, and an asset
                 // export still answers no companion-less signature.
-                let outcome =
-                    syntheticOutcome
+                let refusal =
+                    syntheticRefusal
                         [
                             "manifest.js.toml", "[core]\nfiles = [\"cell.fsi\"]\nruntime = [\"Asset.mjs\"]\n"
                             "cell.fsi", "namespace V\n\ntype Cell = { N: int }\n"
                             "Asset.mjs", "export const Cell = 1;\n"
                         ]
 
-                let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
-
-                Expect.equal (List.length errors) 1 "one hard error"
-
-                Expect.stringContains
-                    errors.Head
-                    "cell.fsi"
-                    "the FS0240-style error names the signature file owing a body"
+                Expect.stringContains refusal "cell.fsi" "the refusal names the signature file owing a body"
             }
 
             test "js: the hard-error set is exactly the un-ported library surface" {
@@ -781,17 +785,6 @@ let enforcementTests =
     testList
         "ConformanceEnforcement"
         [
-            test "a SigOnly .fsi (a deleted impl) → hard FS0240-style error, unconditionally" {
-                let outcome = mkOutcome [ ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi" ]
-
-                let errors = ConformancePass.enforce outcome
-
-                Expect.equal (List.length errors) 1 "one hard error"
-                Expect.equal errors.Head.Severity Severity.Error "error severity"
-                Expect.equal errors.Head.Code (DiagCode.Vesper "V240") "the FS0240 family"
-                Expect.stringContains errors.Head.Message "deleted-impl.fsi" "names the orphaned .fsi"
-            }
-
             test "a MissingInImpl kernel finding on a paired contract → hard FS0240-style error" {
                 let paired =
                     ConformancePass.PairOutcome.Paired
@@ -816,12 +809,18 @@ let enforcementTests =
                     mkOutcome
                         [
                             ConformancePass.PairOutcome.ParseFailed("broken.fsi", "unexpected token")
-                            ConformancePass.PairOutcome.SigOnly "deleted-impl.fsi"
+                            ConformancePass.PairOutcome.Paired
+                                {
+                                    SigFile = "sibling.fsi"
+                                    ImplFile = "sibling.fs"
+                                    ModuleMismatch = ValueNone
+                                    Errors = [ Conformance.ConformanceError.MissingInImpl "bar" ]
+                                }
                         ]
 
                 let errors = ConformancePass.enforce outcome
 
-                Expect.equal (List.length errors) 2 "the parse failure does not mask the orphaned .fsi"
+                Expect.equal (List.length errors) 2 "the parse failure does not mask the sibling's drift"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V244") "the parse-failure family"
                 Expect.stringContains errors.Head.Message "broken.fsi" "names the unparseable signature file"
                 Expect.equal errors.[1].Code (DiagCode.Vesper "V240") "the sibling drift still surfaces"
@@ -1054,24 +1053,21 @@ let memberTyparConformanceTests =
 
 /// Each unit as `(signature, implementation)` relative paths, the signature `""` when the
 /// body carries none.
-let private unitPaths
-    (units: Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list)
-    : (string * string) list =
+let private unitPaths (units: AssemblyFiles.AssemblyUnit list) : (string * string) list =
     [
         for u in units do
             match u with
-            | Ok u ->
+            | AssemblyFiles.AssemblyUnit.Analysable u ->
                 yield
                     (match u.Signature with
                      | ValueSome s -> s.Id.Name
                      | ValueNone -> ""),
                     u.Implementation.Id.Name
-            | Error e -> failtestf "the package read did not deliver %s" e.Id.Name
+            | AssemblyFiles.AssemblyUnit.Faulted(leading, _) ->
+                failtestf "the manifest read did not deliver %s" leading.Id.Name
     ]
 
-let private unitsOf
-    (mp: ReferencedProject.ManifestPath)
-    : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
+let private unitsOf (mp: ReferencedProject.ManifestPath) : AssemblyFiles.AssemblyUnit list =
     let sources =
         AssemblySources.ofManifest mp
         |> PackageFaults.okOrFail (sprintf "AssemblySources.ofManifest %s" mp.Path)
@@ -1079,9 +1075,9 @@ let private unitsOf
     sources.Units
 
 [<Tests>]
-let packageUnitsTests =
+let manifestUnitsTests =
     testList
-        "PackageUnits"
+        "ManifestUnits"
         [
             for target in [ "clr"; "js" ] do
                 for package, manifestPath in packageManifests target do
@@ -1103,7 +1099,6 @@ let packageUnitsTests =
                                 for p in (outcomeFor manifestPath).Pairs do
                                     match p with
                                     | ConformancePass.PairOutcome.Paired r -> yield r.SigFile, r.ImplFile
-                                    | ConformancePass.PairOutcome.SigOnly _
                                     | ConformancePass.PairOutcome.ParseFailed _ -> ()
                             ]
                             |> List.sort

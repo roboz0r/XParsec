@@ -15,7 +15,7 @@ type Probe =
     {
         Ctx: PassContext
         Regions: RegionVerdicts
-        File: ImplementationFile<SyntaxToken>
+        Tree: ImplementationFile<SyntaxToken>
     }
 
 let analyse (assembly: CompilingAssembly) (provider: IExternalSymbolProvider) (input: string) : Probe =
@@ -23,12 +23,12 @@ let analyse (assembly: CompilingAssembly) (provider: IExternalSymbolProvider) (i
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed ->
         let ctx, regions, _ =
-            Pipeline.analyseSemWithContextForCore assembly provider (LexedFile.ofText parsed.Lexed) parsed.File
+            Pipeline.analyseSemWithContextForCore assembly provider (LexedFile.ofText parsed.Lexed) parsed.Tree
 
         {
             Ctx = ctx
             Regions = regions
-            File = parsed.File
+            Tree = parsed.Tree
         }
 
 let private moduleElems (file: ImplementationFile<SyntaxToken>) : ModuleElems<SyntaxToken> voption =
@@ -71,7 +71,7 @@ let patternKeyOf (p: Probe) (name: string) : NodeKey =
 
         found
 
-    match moduleElems p.File |> ValueOption.bind tryElems with
+    match moduleElems p.Tree |> ValueOption.bind tryElems with
     | ValueSome k -> k
     | ValueNone -> failwithf "binding %s not found at module level" name
 
@@ -101,7 +101,7 @@ let rec private findLetKey (ctx: PassContext) (name: string) (e: Expr<SyntaxToke
 
 /// The first module-level binding, whose RHS and argument patterns the nested lookups walk.
 let firstBinding (p: Probe) : Binding<SyntaxToken> =
-    match moduleElems p.File |> ValueOption.bind (fun elems -> letBindingsAt elems 0) with
+    match moduleElems p.Tree |> ValueOption.bind (fun elems -> letBindingsAt elems 0) with
     | ValueSome bs -> bs.[0]
     | ValueNone -> failwith "expected a module-level let"
 

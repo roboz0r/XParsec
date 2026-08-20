@@ -27,26 +27,26 @@ module SymbolProviders =
         | None -> packageDirs
 
     /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 FACTORY. Common
-    /// is platform-neutral; each backend injects its own reader. `readPackage` is the
+    /// is platform-neutral; each backend injects its own reader. `readManifest` is the
     /// per-manifest read, so a caller already holding a package's trees hands them over
     /// instead of reading them again.
     let buildContractWith
-        (readPackage: Manifest -> PackageSource.ParsedPackage)
+        (readManifest: Manifest -> ParsedManifest)
         (platformMetadata: PlatformMetadataFactory)
         (target: string)
         (packageDirs: string list)
-        : PackageProviders.AnalyzedManifest =
+        : PackageProviders.AnalysedManifest =
         match ReferencedProject.resolveAll target packageDirs with
-        | Result.Ok resolved -> PackageProviders.composeContractWith readPackage platformMetadata resolved
-        | Result.Error fault -> PackageProviders.AnalyzedManifest.ofSetFault fault
+        | Result.Ok resolved -> PackageProviders.composeContractWith readManifest platformMetadata resolved
+        | Result.Error fault -> PackageProviders.AnalysedManifest.ofSetFault fault
 
     /// `buildContractWith`, reading every package from disk.
     let buildContract
         (platformMetadata: PlatformMetadataFactory)
         (target: string)
         (packageDirs: string list)
-        : PackageProviders.AnalyzedManifest =
-        buildContractWith PackageSource.readPackage platformMetadata target packageDirs
+        : PackageProviders.AnalysedManifest =
+        buildContractWith ParsedManifest.ofManifest platformMetadata target packageDirs
 
     /// `buildContract` over a FIXED provider list, wrapped as a constant factory: for a
     /// backend whose platform metadata reads nothing from the intrinsic axis.

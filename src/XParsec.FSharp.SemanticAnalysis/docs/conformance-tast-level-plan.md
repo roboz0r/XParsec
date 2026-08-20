@@ -8,7 +8,7 @@ compare.
 | Route | Entry | What it holds | Rules applied |
 |---|---|---|---|
 | In-assembly | `AssemblyFiles.conformanceDiagnostics`, live under `Publication.InAssembly` | the signature's `PublishedSurface` and provider, and the implementation frozen | `ConformanceSurface` + `ConformanceTypars`, over resolved identities |
-| Package / manifest | `ConformancePass.checkManifest` → `check` | parse results only (`PackageSource.ReadFile<ParsedSignature>`) | the CST rule set, plus the manifest half of the `[<Import>]` check |
+| Package / manifest | `ConformancePass.checkManifest` → `check` | parse results only (`ReadFile<ParsedSignature>`) | the CST rule set, plus the manifest half of the `[<Import>]` check |
 
 The CST rule set re-derives, off syntax, facts that name resolution and Freeze have already
 established — type identity, value identity, compiled names, attribute identity. Two

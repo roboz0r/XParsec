@@ -1,5 +1,26 @@
 # XParsec.FSharp.SemanticAnalysis
 
+## Package, project, assembly
+
+A *package* is the distributable artifact: a compiled assembly with its supporting parts, as
+`JsPackage` is, and as a NuGet package would be. An input on disk is a *project* — a directory
+holding `manifest.<target>.toml` and the sources it lists, which `ReferencedProject` resolves
+and `ParsedManifest` reads. The unit being compiled is an *assembly*; a pre-built dependency
+read as metadata is a *reference assembly*.
+
+`PackageSetFault`, `PackageProviders` and the `package*` locals still name projects and are
+being swept. Add no more.
+
+## One unit type, from every producer
+
+`AssemblyFiles.AssemblyUnit` is what `AssemblyAnalysis.analyseUnits` takes, whatever built it — text
+parsed by `AssemblyUnit.parse`, or a manifest read by `AssemblyUnit.ofReadUnit`. A producer that
+narrows it to a `Result` and a consumer that widens it back would disagree about the cases the
+round trip cannot produce, so neither exists.
+
+A `.fsi` with no companion `.fs` is refused by the manifest parse (`ReferencedProject`), which
+is why `ManifestUnit`, `ReadSourceUnit` and `AssemblyUnit` have no unpaired-signature case.
+
 ## Levelling
 
 A pass here must not know about a backend. When a gate appears to know about FSharp.Core, a

@@ -66,7 +66,7 @@ let resolveFsiWith
                 Target = "none"
                 Reprs = reprTable reprs
             }
-            parsed.File
+            parsed.Tree
 
     {
         Surface = surface

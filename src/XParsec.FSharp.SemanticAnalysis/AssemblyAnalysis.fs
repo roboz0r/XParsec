@@ -1,0 +1,378 @@
+namespace XParsec.FSharp.SemanticAnalysis
+
+open System.Collections.Generic
+open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
+open XParsec.FSharp.SemanticAnalysis.Passes
+open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
+
+// An assembly is a LINEAR composition of per-file provider views, ahead of the external
+// (package/BCL) provider. A `.fsi` replaces its file's signatures and leaves the bodies
+// alone: a declaration it withholds still splices as a `member inline` into later files.
+
+module AssemblyAnalysis =
+
+    type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
+
+    /// The namespaces a file DECLARES. F# implicitly opens a file's own `namespace N` over its
+    /// body, which is how a PRIOR file's namespace-direct declarations resolve, including
+    /// through provider-layer probes whose visibility stops at the external scope.
+    let private declaredNamespaces (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
+        match file with
+        | ImplementationFile.Namespaces groups ->
+            [
+                for g in groups do
+                    match g with
+                    | NamespaceDeclGroup.Named(longIdent = li) ->
+                        let path = li.Idents |> Seq.map (SyntaxToken.nameIn lexed) |> String.concat "."
+
+                        if path.Length > 0 then
+                            yield path
+                    | NamespaceDeclGroup.Global _ -> ()
+            ]
+            |> List.distinct
+        | _ -> []
+
+
+    /// Which side of the assembly boundary the analysis publishes for.
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type Publication =
+        /// Compiling these units: each file homes in itself, the frozen `.fs` is kept for
+        /// codegen, and a `.fsi` half is held to the conformance rules.
+        | InAssembly
+        /// Reading them as a reference: the published surfaces alone cross, and the caller
+        /// stamps every symbol's home with the assembly. `bodyExternal` maps the intrinsic
+        /// axis published so far to the platform metadata a BODY analyses over.
+        | AcrossAssemblies of bodyExternal: (IntrinsicTypeMap -> IExternalSymbolProvider)
+
+    /// The language prelude as a SOURCE: the ambient prefixes every file is written against,
+    /// serving no symbols itself. The FLOOR of the visibility stack, so a `.fsi`
+    /// resolves `unit` the same way whatever reference set it is compiled against.
+    let private prelude =
+        ExternalSymbolProviders.stack ValueNone RuntimeNames.preludeNamespaces []
+
+    /// Short name ⇒ intrinsic repr, read off the unit's own implementation tree, so the
+    /// `.fsi`'s `type t = extern` picks `Repr` over `Unsupported`.
+    let private implementationReprs
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : Dictionary<string, string> =
+        let reprs = Dictionary<string, string>(System.StringComparer.Ordinal)
+        IntrinsicReprs.ofImplementationInto reprs (SyntaxToken.nameIn lexed) file
+        reprs
+
+    /// The implementation checked against its signature over the two ANALYSED halves: type and
+    /// value presence, the `extern` ↔ repr pairing, and typar ORDER, each by resolved identity.
+    /// The module-decl pairing alone stays SYNTACTIC.
+    let private conformanceDiagnostics
+        (assembly: AssemblyName)
+        (signature: ParsedFile<ParseChain.ParsedSignature>)
+        (implementation: ParsedFile<ParseChain.ParsedImplementation>)
+        (surface: PublishedSurface)
+        (published: IExternalSymbolProvider)
+        (frozen: FrozenPools)
+        : Diagnostic list =
+        let verdict (v: ConformanceVerdict) =
+            Diagnostic.nowhere (Kind.Conformance(assembly.Name, v))
+
+        let unimplemented (detail: string) =
+            verdict (ConformanceVerdict.Unimplemented(signature.Id.Name, detail))
+
+        let sigPath = Conformance.sigDeclPath signature.Parsed.Lexed signature.Parsed.Tree
+
+        let implPath =
+            Conformance.implDeclPath implementation.Parsed.Lexed implementation.Parsed.Tree
+
+        [
+            if sigPath <> implPath then
+                yield
+                    verdict (
+                        ConformanceVerdict.ModulePairingMismatch(
+                            signature.Id.Name,
+                            implementation.Id.Name,
+                            sigPath,
+                            implPath
+                        )
+                    )
+
+            for e in ConformanceSurface.checkTypes surface frozen do
+                yield unimplemented (Conformance.describe e)
+
+            for e in ConformanceSurface.checkValues surface frozen do
+                yield unimplemented (Conformance.describe e)
+
+            for m in ConformanceTypars.checkFile published frozen do
+                yield unimplemented (ConformanceTypars.describe m)
+
+            for m in ConformanceTypars.checkMembers published frozen do
+                yield unimplemented (ConformanceTypars.describeMember m)
+        ]
+
+    /// One analysed unit of an assembly: the frozen file, the surface it publishes across the
+    /// assembly boundary — its `.fsi`'s when it has one, else the one its implementation
+    /// infers — and its splice templates.
+    [<NoEquality; NoComparison>]
+    type AnalysedUnit =
+        {
+            File: FrozenFile
+            Surface: PublishedSurface
+            Bodies: InlineBodies.FileInlineBodies
+            /// The provider this unit pushed onto the visibility stack: later units resolve
+            /// through it, and a package build composes its outward provider from it.
+            Published: IExternalSymbolProvider
+            /// The diagnostics this unit surfaces to the caller, anchored in their
+            /// own files. When compiling, everything both halves reported; when referencing,
+            /// the `.fsi`'s findings, or for a `.fs` without one its analysis ERRORS.
+            Surfaced: AnchoredDiagnostic list
+        }
+
+    /// A signature file resolved against the units before it, and its surface published.
+    [<NoEquality; NoComparison>]
+    type ResolvedSignature =
+        {
+            /// The parsed half the surface was resolved from; its `Parsed.Diagnostics` are
+            /// recovery's findings.
+            Signature: ParsedFile<ParseChain.ParsedSignature>
+            Retained: LexedFile
+            Surface: PublishedSurface
+            /// What resolving the signature found.
+            Diagnostics: Diagnostic list
+            /// `Surface` wrapped as a provider.
+            Published: IExternalSymbolProvider
+        }
+
+    /// What analysing one unit produced.
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type UnitOutcome =
+        | Analysed of AnalysedUnit
+        /// Every half of the unit that yielded no tree, the implementation's leading.
+        | Failed of leading: UnparsedFile * rest: UnparsedFile list
+
+    [<RequireQualifiedAccess>]
+    module UnitOutcome =
+
+        /// The diagnostics a unit surfaces to its consumer, anchored in their own files.
+        let surfaced (unit: UnitOutcome) : AnchoredDiagnostic list =
+            match unit with
+            | UnitOutcome.Analysed u -> u.Surfaced
+            | UnitOutcome.Failed(leading, rest) -> List.collect failureDiagnostics (leading :: rest)
+
+    /// One implementation file analysed and frozen against `composed`, with its splice
+    /// templates collected.
+    [<NoEquality; NoComparison>]
+    type private ImplAnalysis =
+        {
+            Retained: LexedFile
+            Frozen: FrozenPools
+            Scoped: IExternalSymbolProvider
+            Bodies: InlineBodies.FileInlineBodies
+        }
+
+    let private analyseImplementation
+        (analyse: AnalyseFile)
+        (assembly: CompilingAssembly)
+        (composed: IExternalSymbolProvider)
+        (implementation: ParsedFile<ParseChain.ParsedImplementation>)
+        : ImplAnalysis =
+        let parsed = implementation.Parsed
+
+        // This file's own `namespace N` ahead of whatever prelude the external surface
+        // carries, so a bare `bool` finds the `N.bool` an earlier file of the SAME package
+        // declared.
+        let scoped =
+            match declaredNamespaces parsed.Lexed parsed.Tree with
+            | [] -> composed
+            | ns ->
+                ExternalSymbolProviders.stack
+                    ValueNone
+                    (ns @ composed.AmbientOpenPrefixes |> List.distinct)
+                    [ composed ]
+
+        let retained = LexedFile.inAssembly assembly.Name implementation.Id parsed.Lexed
+
+        let frozen = analyse assembly scoped retained parsed.Tree
+
+        {
+            Retained = retained
+            Frozen = frozen
+            Scoped = scoped
+            // The templates key off `SymbolKey` alone, so a `.fsi` replacing the file's
+            // signatures leaves every one of them reachable.
+            Bodies = InlineBodies.collect retained frozen
+        }
+
+    let private resolveSignatureFile
+        (assembly: CompilingAssembly)
+        (composed: IExternalSymbolProvider)
+        (reprs: Dictionary<string, string>)
+        (signature: ParsedFile<ParseChain.ParsedSignature>)
+        : LexedFile * PublishedSurface * Diagnostic list =
+        // Anchored to the signature's OWN token stream: its diagnostics index that text.
+        let retained =
+            LexedFile.inAssembly assembly.Name signature.Id signature.Parsed.Lexed
+
+        let surface, diagnostics =
+            SignatureResolution.resolveFile
+                composed
+                retained
+                {
+                    Assembly = assembly.Name
+                    Target = assembly.Target
+                    Reprs = reprs
+                }
+                signature.Parsed.Tree
+
+        retained, surface, diagnostics
+
+    /// Analyse a unit list in manifest order over `external`, with the language prelude at the
+    /// visibility floor. Every implementation is analysed ONCE, one with no `.fsi` publishes
+    /// the surface it infers, and each unit resolves only the units BEFORE it, nearest first.
+    let analyseUnits
+        (analyse: AnalyseFile)
+        (assembly: CompilingAssembly)
+        (external: IExternalSymbolProvider)
+        (publication: Publication)
+        (units: AssemblyUnit list)
+        : UnitOutcome list =
+        // The units' published views so far, NEAREST first; `external` and the prelude are
+        // the floor beneath them.
+        let mutable own: IExternalSymbolProvider list = []
+
+        let signatureFloor () =
+            ExternalSymbolProviders.composite (own @ [ external; prelude ])
+
+        let resolveSignature (reprs: Dictionary<string, string>) (signature: ParsedFile<ParseChain.ParsedSignature>) =
+            let retained, surface, diagnostics =
+                resolveSignatureFile assembly (signatureFloor ()) reprs signature
+
+            {
+                Signature = signature
+                Retained = retained
+                Surface = surface
+                Diagnostics = diagnostics
+                Published = PublishedSurface.toProvider surface
+            }
+
+        // What a BODY analyses over: the signature floor when compiling; when referencing,
+        // platform metadata re-seeded with the intrinsics published so far PLUS the unit's
+        // own, which BCL member canonicalisation reads.
+        let bodyProvider (sigPublished: IExternalSymbolProvider voption) : IExternalSymbolProvider =
+            match publication with
+            | Publication.InAssembly -> signatureFloor ()
+            | Publication.AcrossAssemblies bodyExternal ->
+                let axis =
+                    ExternalSymbolProviders.mergeIntrinsics (
+                        match sigPublished with
+                        | ValueSome p -> p :: own
+                        | ValueNone -> own
+                    )
+
+                ExternalSymbolProviders.composite (own @ [ bodyExternal axis; prelude ])
+
+        [
+            for unit in units ->
+                match unit with
+                | AssemblyUnit.Faulted(leading, rest) -> UnitOutcome.Failed(leading, rest)
+                | AssemblyUnit.Analysable parsedUnit ->
+                    // The unit's `.fsi` resolves against the units BEFORE it, and is not
+                    // pushed until the body has analysed: neither half sees the other's
+                    // names.
+                    let resolvedSignature =
+                        parsedUnit.Signature
+                        |> ValueOption.map (
+                            resolveSignature (
+                                implementationReprs
+                                    parsedUnit.Implementation.Parsed.Lexed
+                                    parsedUnit.Implementation.Parsed.Tree
+                            )
+                        )
+
+                    let impl =
+                        analyseImplementation
+                            analyse
+                            assembly
+                            (bodyProvider (resolvedSignature |> ValueOption.map (fun r -> r.Published)))
+                            parsedUnit.Implementation
+
+                    let surface, published, signatureFile =
+                        match resolvedSignature with
+                        | ValueSome r ->
+                            // Homed in the IMPLEMENTATION file when compiling, so a later
+                            // file of the same assembly resolves it as a local; bare when
+                            // referencing, the caller stamping the assembly home once.
+                            let published, conformance =
+                                match publication with
+                                | Publication.InAssembly ->
+                                    let homed =
+                                        ExternalSymbolProviders.stack
+                                            (ValueSome(SymbolHome.InFile impl.Retained.Path))
+                                            []
+                                            [ r.Published ]
+
+                                    homed,
+                                    conformanceDiagnostics
+                                        assembly.Name
+                                        r.Signature
+                                        parsedUnit.Implementation
+                                        r.Surface
+                                        homed
+                                        impl.Frozen
+                                | Publication.AcrossAssemblies _ -> r.Published, []
+
+                            r.Surface,
+                            published,
+                            ValueSome
+                                {
+                                    Retained = r.Retained
+                                    ParseDiagnostics = r.Signature.Parsed.Diagnostics
+                                    Diagnostics = r.Diagnostics @ conformance
+                                }
+                        | ValueNone ->
+                            let surface = FrozenSignature.toSurface impl.Retained impl.Frozen
+                            surface, PublishedSurface.toProvider surface, ValueNone
+
+                    let view =
+                        ExternalSymbolProviders.withInlineBodies (InlineBodies.index impl.Bodies) published
+
+                    // Pushed on top of the units it may shadow; later units resolve through
+                    // it. The full view crosses only inside a compiling assembly: across the
+                    // boundary the surface alone does, with the splice templates beside it.
+                    let pushed =
+                        match publication with
+                        | Publication.InAssembly -> view
+                        | Publication.AcrossAssemblies _ -> published
+
+                    own <- pushed :: own
+
+                    let file =
+                        {
+                            Retained = impl.Retained
+                            ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
+                            Frozen = impl.Frozen
+                            Scoped = impl.Scoped
+                            View = view
+                            Signature = signatureFile
+                        }
+
+                    let surfaced =
+                        match publication with
+                        | Publication.InAssembly -> fileDiagnostics file
+                        | Publication.AcrossAssemblies _ ->
+                            match signatureFile with
+                            | ValueSome s -> signatureFileDiagnostics s
+                            | ValueNone ->
+                                // The inferred surface IS what the unit publishes, so its
+                                // analysis errors are findings about it. A unit with a
+                                // `.fsi` keeps its tolerance: analysis feeds templates.
+                                implementationFileDiagnostics file
+                                |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error)
+
+                    UnitOutcome.Analysed
+                        {
+                            File = file
+                            Surface = surface
+                            Bodies = impl.Bodies
+                            Published = pushed
+                            Surfaced = surfaced
+                        }
+        ]

@@ -55,7 +55,7 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeK
                 Target = Target.Js
                 Reprs = reprs
             }
-            parsed.File
+            parsed.Tree
 
     let key =
         surface.ShapesByKey
@@ -145,7 +145,7 @@ let private widgetPackage: string =
 /// The JS-native contract with the `widget` fixture layered ahead. The WHOLE contract, not
 /// just its provider: a spliced body's positions read only against this set's retained
 /// declaring files, and `widget.js.fs` is in this retention and in no other.
-let private widgetFixtureContract: Lazy<PackageProviders.AnalyzedManifest> =
+let private widgetFixtureContract: Lazy<PackageProviders.AnalysedManifest> =
     lazy JsNativeSymbols.jsNativeContract (widgetPackage :: TestHelpers.jsPackages)
 
 /// Emit a consumer snippet through the widget-inclusive contract. No runtime module is
