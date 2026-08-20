@@ -1609,4 +1609,80 @@ type prim = extern
                     Expect.equal platform "System.Int32" "the repr came from the sibling `.fs`"
                 | other -> failtestf "expected Test.A.prim to publish its repr, got %A" other
             }
+
+            test "file 2 resolves a type abbreviation file 1 declares with no `.fsi`" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type myalias = int
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let f (x: Test.A.myalias) : Test.A.myalias = x
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (definitionErrors f2)
+                    (sprintf "file 2 resolves the abbreviation (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
+
+                Expect.isEmpty
+                    (f2.Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    "file 2 leaves no unresolved TyVar behind the abbreviation"
+
+                match
+                    (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.myalias"
+                    |> ExternalSymbols.typeShapeOf
+                with
+                | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
+                    Expect.equal arity 0 "`myalias` takes no type parameter"
+                | other -> failtestf "expected Test.A.myalias to publish as an abbreviation, got %A" other
+            }
+
+            test "file 2 expands a GENERIC abbreviation file 1 declares with no `.fsi`" {
+                let file1 =
+                    "\
+namespace Test.A
+
+type pair<'T> = 'T * 'T
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let swap (p: Test.A.pair<int>) : int * int =
+        let (a, b) = p
+        b, a
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ impl "file1.fs" file1; impl "file2.fs" file2 ]
+                    |> files
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (f2.Frozen.Residue.Diagnostics |> List.filter Diagnostic.isError)
+                    (sprintf "file 2 expands `pair<int>` to `int * int` (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
+
+                match
+                    (all.[0].View :> IExternalSymbolResolver).TryLookupType "Test.A.pair`1"
+                    |> ExternalSymbols.typeShapeOf
+                with
+                | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
+                    Expect.equal arity 1 "`pair` takes one type parameter"
+                | other -> failtestf "expected Test.A.pair to publish as an abbreviation, got %A" other
+            }
         ]

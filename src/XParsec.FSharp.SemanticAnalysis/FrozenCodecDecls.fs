@@ -204,6 +204,9 @@ module FrozenCodecDecls =
         | TTypeKindG.Enum cases ->
             w.Write 4uy
             writeEqArrayWith w writeEnumCase cases
+        | TTypeKindG.Abbrev body ->
+            w.Write 5uy
+            writeTypeRef w body
 
     and private readTypeKind (r: FrozenReader) : TTypeKindG<FrozenType, Anchor, BoundVarId, ExprPoolId> =
         match r.ReadByte() with
@@ -221,6 +224,7 @@ module FrozenCodecDecls =
             TTypeKindG.Record(fields, members, interfaces, valueKind)
         | 3uy -> TTypeKindG.Class(readClass r)
         | 4uy -> TTypeKindG.Enum(EqArray.ofArray (readArrayWith r readEnumCase))
+        | 5uy -> TTypeKindG.Abbrev(readTypeRef r)
         | b -> failwithf "FrozenCodec: unknown TTypeKind tag %d" b
 
     // Each `interfaces` entry pairs a resolved interface type with its typed member

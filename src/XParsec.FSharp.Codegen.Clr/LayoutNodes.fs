@@ -109,6 +109,9 @@ module internal LayoutNodes =
                             ValueKind = c.ValueKind
                             HasPrimaryCtor = c.HasPrimaryCtor
                         }
+                // A transparent alias: every use site already expanded to the body, so no
+                // type is emitted for the name.
+                | TTypeKindG.Abbrev _ -> ()
             | _ -> ()
 
         {

@@ -300,6 +300,7 @@ module TastConvert =
         // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so the
         // case identifier's token is all the mapping can touch.
         | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase m.Tok) cases)
+        | TTypeKindG.Abbrev body -> TTypeKindG.Abbrev(fTy body)
         | TTypeKindG.Class c ->
             TTypeKindG.Class
                 {

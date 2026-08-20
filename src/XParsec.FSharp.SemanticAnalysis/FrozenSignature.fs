@@ -292,6 +292,10 @@ module FrozenSignature =
 
                     register (ExternalTypeShape.Enum(caseShapes, origin)) ValueNone
 
+                // The frozen RHS already carries the declaring typars on the `Declaring`
+                // axis, which is the axis a use site instantiates against.
+                | TTypeKindG.Abbrev body -> register (ExternalTypeShape.Abbrev(arity, body)) ValueNone
+
             | _ -> ()
 
         // --- module values + inline values --------------------------------------------

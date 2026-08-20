@@ -111,6 +111,10 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'id, 'body> =
     /// compile-time literal (`| C = v`). An enum is `'ty`-free: a case value is an integer or
     /// string literal, never a typed term. Numeric / string / mixed is derived, not stored.
     | Enum of cases: EqArray<TEnumCaseG<'tok>>
+    /// `type t = body`, a transparent alias: `body` is the right-hand side over the
+    /// declaration's own typars, and a use of the name expands to it. No runtime type
+    /// answers to the name, so a backend emits nothing for this kind.
+    | Abbrev of body: 'ty
 
 /// The payload of `TTypeKindG.Class`. No `'tok`: a class bears no token of its own, `Enum`'s
 /// case identifiers being the only tokens under a type declaration.
@@ -293,7 +297,8 @@ module TTypeKindG =
         | TTypeKindG.Union(_, members, _) -> members
         | TTypeKindG.Record(_, members, _, _) -> members
         | TTypeKindG.Interface _
-        | TTypeKindG.Enum _ -> EqArray.empty
+        | TTypeKindG.Enum _
+        | TTypeKindG.Abbrev _ -> EqArray.empty
 
     /// The `interface IFace with member …` bodies a type kind carries, flattened across
     /// every implemented interface. With `members`, every member body under a type decl.
@@ -309,7 +314,8 @@ module TTypeKindG =
         | TTypeKindG.Union(_, _, ifaces) -> flatten ifaces
         | TTypeKindG.Record(_, _, ifaces, _) -> flatten ifaces
         | TTypeKindG.Interface _
-        | TTypeKindG.Enum _ -> Seq.empty
+        | TTypeKindG.Enum _
+        | TTypeKindG.Abbrev _ -> Seq.empty
 
 /// One projection per way a definition site comes to exist: a pattern introduces it, an
 /// expression introduces it with no pattern behind it, a declaration MINTS it because no
@@ -427,7 +433,8 @@ module BoundVarKey =
             | TTypeKindG.Interface _
             | TTypeKindG.Union _
             | TTypeKindG.Record _
-            | TTypeKindG.Enum _ -> ()
+            | TTypeKindG.Enum _
+            | TTypeKindG.Abbrev _ -> ()
         }
 
     /// Widen to the tree's own identity axis, for a lookup driven by a REFERENCE: a

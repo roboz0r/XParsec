@@ -58,11 +58,7 @@ module ConformanceSurface =
         // A GAP the signature published in place of a type (a delegate, a type extension): it
         // claims no identity for an implementation to answer. The first USE of one reports.
         | ExternalTypeShape.Unmodelled _ -> false
-        // UNDER-REPORTS, and the fix is upstream: `TTypeKindG` has no abbreviation case, so a
-        // `.fs` abbreviation reaches no frozen declaration and this route has no evidence
-        // either way. The same hole makes an abbreviation declared in an unsigned `.fs`
-        // unresolvable from the next file of the assembly.
-        | ExternalTypeShape.Abbrev _ -> false
+        | ExternalTypeShape.Abbrev _
         | ExternalTypeShape.Record _
         | ExternalTypeShape.Union _
         | ExternalTypeShape.Enum _

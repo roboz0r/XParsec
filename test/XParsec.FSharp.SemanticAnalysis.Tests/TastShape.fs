@@ -875,6 +875,9 @@ type private Renderer() =
                     match c.Value with
                     | ValueSome lit -> push (litStr lit)
                     | ValueNone -> push "<unresolved>"
+            | TTypeKind.Abbrev body ->
+                push " = "
+                push (tyStr body)
 
 let prettyExpr (e: TExpr) : string =
     let r = Renderer()

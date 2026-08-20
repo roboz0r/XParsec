@@ -398,6 +398,21 @@ let analysedConformanceTests =
                     "F# hides an implementation type the signature omits"
             }
 
+            test "an abbreviation declared in the .fsi and absent from the .fs is missing" {
+                let m =
+                    conformAnalysed "namespace V\n\ntype alias = int" "namespace V\n\ntype other = int"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.alias" "names the abbreviation owing a definition"
+                Expect.stringContains m "not defined in the implementation" "the FS0240 analogue"
+            }
+
+            test "a matching abbreviation pair conforms" {
+                Expect.isEmpty
+                    (conformAnalysed "namespace V\n\ntype alias = int" "namespace V\n\ntype alias = int")
+                    "the implementation's abbreviation answers the one the signature publishes"
+            }
+
             test "a val with no matching let is missing" {
                 let m =
                     conformAnalysed "namespace V\n\nval foo: int -> int" "namespace V\n\nlet bar (x: int) = x"

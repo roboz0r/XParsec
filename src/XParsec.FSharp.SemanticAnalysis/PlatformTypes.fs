@@ -130,6 +130,7 @@ module PlatformTypes =
                 add iface
         // An enum case value is an integer or string literal, never a typed term.
         | TTypeKindG.Enum _ -> ()
+        | TTypeKindG.Abbrev body -> add body
 
     let private walkDecl (ctx: PassContext) (d: TDecl) : unit =
         let acc = HashSet<Unsupported>()

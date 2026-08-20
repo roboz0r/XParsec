@@ -554,6 +554,36 @@ module internal ElaborateTypeDecls =
                 List.ofSeq env
             )
 
+    /// Surface a transparent `type t = body` as a `TDecl.Type`. The RHS comes from the
+    /// registry entry the group close fills, so the decl and every use site expand the one
+    /// resolved body. `None` for a cyclic abbreviation, whose fill already reported.
+    let private tryAbbrevType
+        (ctx: PassContext)
+        (ns: string option)
+        (name: string)
+        (arity: int)
+        : (TDecl * (TyVarId * SemType) list) option =
+        match TypeRegistry.tryAbbrevByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
+        | ValueNone -> None
+        | ValueSome info ->
+            match info.Body with
+            | ValueNone -> None
+            | ValueSome body ->
+                Some(
+                    mkTypeDecl
+                        name
+                        info.TypeKey
+                        ns
+                        (EqArray.ofSeq (seq { for (n, _) in info.TypeParams -> n }))
+                        // RQA, equality and comparison are unread for a transparent alias:
+                        // every verdict is the body's.
+                        false
+                        (TTypeKind.Abbrev body)
+                        EqualityVerdict.Structural
+                        ComparisonVerdict.NoComparison,
+                    mkDeclTyparEnv ctx.Store info.TypeParams
+                )
+
     /// An INTERNAL artifact for `type X = (# … #) with member …`, consumed only by
     /// member-inline lifting and NEVER emitted. Each member's `ThisTy` is the abbrev's
     /// intrinsic `TyConst`, not a `TyClass`; `Class` is only the inertest container kind.
@@ -657,7 +687,12 @@ module internal ElaborateTypeDecls =
         | TypeDefn.Record(typeName = tn; extensions = ext) ->
             tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx c (typeNameSimple ctx tn) cases
-        // A plain abbrev has no host in `IntrinsicAbbrevHost` and surfaces `None`; an
-        // inline intrinsic-abbrev with `with member …` surfaces its members (lift-only).
-        | TypeDefn.Abbrev(typeName = tn; extensions = ext) -> tryIntrinsicAbbrevType ctx ns (typeNameSimple ctx tn) ext
+        // A transparent alias surfaces its resolved RHS; an inline intrinsic-abbrev has a
+        // host in `IntrinsicAbbrevHost` and surfaces its members instead (lift-only).
+        | TypeDefn.Abbrev(typeName = tn; extensions = ext) ->
+            let name = typeNameSimple ctx tn
+
+            match tryIntrinsicAbbrevType ctx ns name ext with
+            | Some result -> Some result
+            | None -> tryAbbrevType ctx ns name (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
         | _ -> None

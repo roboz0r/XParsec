@@ -26,7 +26,7 @@ The costs that remain, on the manifest route only:
 
 | Check | On the CST (manifest route) | On the analysed halves (in-assembly route) |
 |---|---|---|
-| Type presence (`MissingInImpl`) | `summariseSig`/`summariseImpl`, name strings | `ConformanceSurface.checkTypes`, by `TypeKey`. Abbreviations and delegates excepted — Gaps 1 and 2 |
+| Type presence (`MissingInImpl`) | `summariseSig`/`summariseImpl`, name strings | `ConformanceSurface.checkTypes`, by `TypeKey`. Delegates excepted — Gap 2 |
 | `extern`/repr pairing, heritability | CST species off `TypeSignature`/`TypeDefn` | `PublishedSurface.DeclaredReprs` against `Residue.IntrinsicReprKeys` |
 | Value presence (`checkValuePresence`) | identifier text | `ConformanceSurface.checkValues`, by `BindingKey` |
 | Typar count/order | not checked — nothing frozen to compare | `ConformanceTypars.checkFile`/`checkMembers` |
@@ -50,8 +50,14 @@ green, so the two rule sets agree on the real contracts. `AnalysedConformance` i
 including the two cases the CST rules get wrong: a `[<CompiledName>]`'d `let` answering the
 `val` it publishes as, and a shadowing local `ImportAttribute` that is not the compiler's.
 
-**Stage 1a — the TAST carries type ABBREVIATIONS.** The prerequisite for every stage below, and
-a live defect in its own right rather than a conformance concession. See "Gap 1".
+**Stage 1a — the TAST carries type ABBREVIATIONS. LANDED.** `TTypeKindG.Abbrev of body: 'ty`
+holds the resolved RHS; `ElaborateTypeDecls.tryAbbrevType` emits it from the registry entry the
+group close fills, `FrozenSignature.toSurface` publishes it as `ExternalTypeShape.Abbrev`, and
+`ConformanceSurface.demandsDeclaration` treats it like any other nominal. See "Gap 1".
+
+Acceptance evidence: `AssemblyFilesTests` compiles `type myalias = int` in an unsigned `.fs`
+against a second file annotating with it, plain and generic; `AnalysedConformance` reports a
+`.fsi` abbreviation the `.fs` omits and accepts a matching pair.
 
 **Stage 2 — the package route gains analysed halves.** Route `ConformancePass.check` through
 `AssemblyFiles.foldUnits` rather than over bare parse results. `ed575bc6` on `semantic-analysis`
@@ -76,32 +82,29 @@ conformance here, `FrozenSignature.toSurface` for the next file in the assembly,
 package extractor. Each gap below is therefore a hole in the frozen record, sited where the
 declaration is dropped rather than where a reader notices.
 
-### Gap 1 — a type abbreviation reaches no frozen declaration. Fix in Stage 1a, before Stage 3.
+### Gap 1 — a type abbreviation reaches no frozen declaration. CLOSED by Stage 1a.
 
-`TTypeKindG` has cases for `Record`, `Union`, `Class`, `Interface` and `Enum` and none for an
-abbreviation, and `Elaborate.TypeDecls` answers `None` for a `TypeDefn.Abbrev` whose RHS is not
-`(# … #)`. So `type myalias = int` in a `.fs` produces no `TDecl` at all.
-
-This is not only a conformance gap. `FrozenSignature.toSurface` publishes what `Decls` holds,
-so an abbreviation declared in an unsigned `.fs` is invisible to the next file of the same
-assembly. Two files, `type myalias = int` then `let f (x: myalias) = x`, report:
+`TTypeKindG` had cases for `Record`, `Union`, `Class`, `Interface` and `Enum` and none for an
+abbreviation, and `Elaborate.TypeDecls` answered `None` for a `TypeDefn.Abbrev` whose RHS is not
+`(# … #)`, so `type myalias = int` in a `.fs` produced no `TDecl` at all. Because
+`FrozenSignature.toSurface` publishes what `Decls` holds, an abbreviation declared in an
+unsigned `.fs` was invisible to the next file of the same assembly. Two files,
+`type myalias = int` then `let f (x: myalias) = x`, reported:
 
 ```
 two.fs: The type 'myalias' is not defined
 two.fs: internal compiler error: the frozen TAST holds 1 unresolved TyVar(s)
 ```
 
-A union in the same position resolves. The abbreviation is reachable today only through a
-`.fsi`, which is why the `Vesper.*` corpus never hits it: every package file has one.
+The abbreviation was reachable only through a `.fsi`, which is why the `Vesper.*` corpus never
+hit it: every package file has one.
 
-The fix is a `TTypeKindG.Abbrev of body: 'ty` case, emitted by `Elaborate.TypeDecls` from the
-registry entry the group close already forces, and published by `FrozenSignature.toSurface` as
-the `ExternalTypeShape.Abbrev` a `.fsi` publishes. Conformance then drops the `Abbrev` exception
-in `ConformanceSurface.demandsDeclaration` and the cross-file case starts working; a test that
-the two files above compile is what pins it.
-
-Cost: a new `TTypeKindG` case reaches `TastConvert`, the pool fill/unpool, `FrozenCodec` and
-every `match` over the kind. That is the price of the fact being in the type system.
+`TTypeKindG.Abbrev of body: 'ty` now carries the RHS, over the `Declaring` typar axis a use
+site instantiates against. `ElaborateTypeDecls.tryAbbrevType` reads it off the registry entry
+the group close forces and declines a cyclic abbreviation, whose fill already reported;
+`FrozenSignature.toSurface` publishes it as the `ExternalTypeShape.Abbrev` a `.fsi` publishes;
+`ConformanceSurface.demandsDeclaration` no longer excepts it. Both backends ignore the kind,
+because every use site expanded to the body.
 
 ### Gap 2 — a `delegate` declaration claims no identity. Decide before Stage 3.
 
@@ -173,9 +176,13 @@ went red: every finding the surface rules take is one the CST rules also take on
 and the two cases where they disagree (`[<CompiledName>]`, a shadowed attribute) are ones no
 fixture pinned.
 
-Stage 1a is the widest of the remaining changes, because a `TTypeKindG` case reaches the pools
-and the codec, and it is the one that fixes a live defect. Stage 2 changes what a package check
-costs and is the stage to land alone. Stage 3 is deletion.
+Stage 1a touched `TastDecl.fs`, `TastConvert.fs`, `FrozenCodecDecls.fs` (kind tag `5uy`),
+`Elaborate/TypeDecls.fs`, `FrozenSignature.fs`, `ConformanceSurface.fs`, `PlatformTypes.fs`,
+`Codegen.Clr/LayoutNodes.fs`, and the `TastShape` renderer. No existing test went red, and the
+`Vesper.*` corpus compiles unchanged through both backends: every abbreviation there is
+`.fsi`-declared, so the new implementation-side declaration answers a shape already published.
+
+Stage 2 changes what a package check costs and is the stage to land alone. Stage 3 is deletion.
 
 ## Correction owed to another doc
 
