@@ -116,8 +116,8 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
 
 /// Realise a WIRE inline body against the file it was published from: the body carries the
 /// producer's own token indices, and only that file can resolve them.
-let thawPublished (store: TypeStore) (source: OriginSource) (decl: Wire.TDecl) : TDecl =
-    InlineThaw.bodyAtOrigin store (OriginSources.ofSeq [ source ]) source.File decl
+let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TDecl =
+    InlineThaw.bodyAtStamp store (LexedFiles.ofSeq [ source ]) source.Stamp decl
 
 /// Lex + parse a signature (`.fsi`) source string and return Lexed + a
 /// SignatureFile. Raises on failure.
@@ -141,14 +141,14 @@ let testCompiling: CompilingAssembly = { Name = testAsm; Target = "clr" }
 /// Freeze `src` through the whole front end, returning the origin it was analysed FROM —
 /// what a consumer needs to read the frozen templates' positions. The origin is bucketed
 /// under `testAsm`, which the signature projection reads back as the home assembly.
-let freezeWithOrigin (src: string) : OriginSource * FrozenPools =
+let freezeWithOrigin (src: string) : LexedFile * FrozenPools =
     let lexed, file = parseFile src
 
     let origin =
-        Hashing.originSource
+        Hashing.lexedFile
             {
-                BucketName = testAsm
-                Relative = (Hashing.textOriginPath src).Relative
+                Assembly = testAsm
+                Relative = (Hashing.textAssemblyFilePath src).Relative
             }
             lexed
 
@@ -177,7 +177,7 @@ let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassCon
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+        PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file

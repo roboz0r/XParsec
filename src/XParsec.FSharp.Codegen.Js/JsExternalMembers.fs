@@ -60,7 +60,7 @@ module JsExternalMembers =
         | ValueSome(ExternalTypeShape.Record(origin = o))
         | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
         | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
-        | _ -> Origin.Unstamped
+        | _ -> SymbolHome.Unstamped
         |> JsHome.ofOrigin (sprintf "%s (key %A)" what key)
 
     /// The ONE lookup the flags accessor and the dispatch classifier both project.

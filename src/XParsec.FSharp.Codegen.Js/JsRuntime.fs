@@ -148,7 +148,7 @@ module JsImports =
             rt.Path, ValueSome rt
 
         match home.Where with
-        | JsHomeWhere.InFile f -> JsModulePath.ofSource f.BucketName f.Relative.Name, ValueNone
+        | JsHomeWhere.InFile f -> JsModulePath.ofSource f.Assembly f.Relative.Name, ValueNone
         | JsHomeWhere.Package -> committed fst
         | JsHomeWhere.RuntimeAsset ->
             committed (fun (_, files) ->

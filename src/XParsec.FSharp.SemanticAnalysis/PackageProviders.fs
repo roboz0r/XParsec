@@ -26,11 +26,11 @@ module PackageProviders =
             /// the types that would first-hit-shadow a peer package's same-named type.
             TypeHomes: Map<string, string>
             /// The splice templates in manifest then declaration order, so a later body
-            /// wins a clash, anchored in the producer files `Origins` retains.
+            /// wins a clash, anchored in the producer files `Sources` retains.
             InlineBodies: InlineBodies.FileInlineBodies
             /// The producer files the collected bodies were unpooled from, retained so their
             /// anchors stay readable. Re-parsing to recover them would give a second answer.
-            Origins: OriginSources
+            Sources: LexedFiles
             /// What resolving found: a manifest listing a file it has not got, a declaration
             /// a contract could not publish.
             Diagnostics: AssemblyFiles.AnchoredDiagnostic list
@@ -48,7 +48,7 @@ module PackageProviders =
                 Provider = ExternalSymbolProviders.nullProvider
                 TypeHomes = Map.empty
                 InlineBodies = InlineBodies.empty
-                Origins = OriginSources.empty
+                Sources = LexedFiles.empty
                 Diagnostics = []
             }
 
@@ -87,8 +87,8 @@ module PackageProviders =
     /// error, rethrown naming the package and file with the analysis errors the freeze pruned,
     /// because those are usually its cause.
     let private analysePackageFile: AssemblyFiles.AnalyseFile =
-        fun assembly provider origin file ->
-            let ctx, sem = Pipeline.analyseSemWithContextFor assembly provider origin file
+        fun assembly provider source file ->
+            let ctx, sem = Pipeline.analyseSemWithContextFor assembly provider source file
 
             try
                 Freeze.run ctx sem
@@ -101,7 +101,7 @@ module PackageProviders =
                 failwithf
                     "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
                     assembly.Name
-                    origin.File.Path.Relative.Name
+                    source.Stamp.Path.Relative.Name
                     e.Message
                     pruned
 
@@ -179,7 +179,7 @@ module PackageProviders =
             // `SymbolOrigin.Empty`, and a package spans as many namespaces as its files declare.
             Provider =
                 ExternalSymbolProviders.stack
-                    (ValueSome(Origin.InAssembly(AssemblyName manifest.Name)))
+                    (ValueSome(SymbolHome.InAssembly(AssemblyName manifest.Name)))
                     ambient
                     [ ExternalSymbolProviders.composite own ]
             Diagnostics = List.ofSeq diagnostics
@@ -190,7 +190,7 @@ module PackageProviders =
                             for typeName in declaredTypeNames s -> typeName, manifest.Name
                     ]
             InlineBodies = InlineBodies.concat [ for u in analysed -> u.Bodies ]
-            Origins = OriginSources.ofSeq [ for u in analysed -> u.File.Source ]
+            Sources = LexedFiles.ofSeq [ for u in analysed -> u.File.Source ]
         }
 
     /// `buildProviderSeeded` with no platform metadata, over one already-composed dependency
@@ -291,9 +291,9 @@ module PackageProviders =
             TypeHomes = Map.ofSeq [ for KeyValue(typeName, home) in seenTypeHomes -> typeName, home ]
             InlineBodies = inlineBodies
             Diagnostics = List.ofSeq diagnostics
-            Origins =
-                (OriginSources.empty, builtPackages)
-                ||> Seq.fold (fun acc bp -> OriginSources.addAll bp.Origins acc)
+            Sources =
+                (LexedFiles.empty, builtPackages)
+                ||> Seq.fold (fun acc bp -> LexedFiles.addAll bp.Sources acc)
         }
 
     /// `composeOrdered` over a raw, unordered manifest set: the ordering is taken here and not

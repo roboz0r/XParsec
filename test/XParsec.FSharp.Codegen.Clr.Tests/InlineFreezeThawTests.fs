@@ -90,17 +90,17 @@ let private freezePools (src: string) : FrozenPools =
 
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
-/// The `OriginSource` a body frozen from `src` is anchored in, derived from the text, so
+/// The `LexedFile` a body frozen from `src` is anchored in, derived from the text, so
 /// rebuilding it here yields the identity the analysis stamped.
-let private sourceOf (src: string) : OriginSource =
+let private sourceOf (src: string) : LexedFile =
     let lexed, _ = parseFile src
-    Hashing.originSourceOfText lexed
+    Hashing.lexedFileOfText lexed
 
 /// Realise a wire body against the file it was frozen from: a `Wire.TDecl`'s anchors index
 /// the producer's tokens, so without that file the indices mean nothing.
 let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
     let source = sourceOf src
-    InlineThaw.bodyAtOrigin store (OriginSources.ofSeq [ source ]) source.File decl
+    InlineThaw.bodyAtStamp store (LexedFiles.ofSeq [ source ]) source.Stamp decl
 
 /// The frozen `let` decl of a single-binding program, unpooled as a provider serves a body
 /// (`declTree`), the form `thawFrom` takes.
@@ -249,7 +249,7 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
     let lexed, file = parseFile src
 
     let tast =
-        TastUnpool.ofPools (Pipeline.analyse provider (Hashing.originSourceOfText lexed) file)
+        TastUnpool.ofPools (Pipeline.analyse provider (Hashing.lexedFileOfText lexed) file)
 
     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for:\n%s" src)
 

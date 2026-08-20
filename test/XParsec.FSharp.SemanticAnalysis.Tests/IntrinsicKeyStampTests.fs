@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 let private assertStamped (name: string) (input: string) =
     let tast = analyse input

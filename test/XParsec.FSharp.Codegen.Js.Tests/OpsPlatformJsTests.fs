@@ -143,19 +143,18 @@ let tests =
             // back the files those indices read against. Asserted against the disk, because a
             // hash of anything but the parsed text makes every later resolution a hard failure.
             test "the collection retains the producer files its bodies are anchored in" {
-                let origins =
-                    JsNativeSymbols.jsNativeInlineOrigins [ vesperCorePackage ]
-                    |> OriginSources.toList
+                let sources =
+                    JsNativeSymbols.jsNativeInlineSources [ vesperCorePackage ] |> LexedFiles.toList
 
-                Expect.isNonEmpty origins "the JS `impl` files are retained, not dropped after the parse"
+                Expect.isNonEmpty sources "the JS `impl` files are retained, not dropped after the parse"
 
                 Expect.isTrue
-                    (origins
-                     |> List.exists (fun s -> s.File.Path.Relative.Name.Contains "ops-platform"))
+                    (sources
+                     |> List.exists (fun s -> s.Stamp.Path.Relative.Name.Contains "ops-platform"))
                     "…including the one the arithmetic bodies above come from"
 
-                for s in origins do
-                    let f = s.File
+                for s in sources do
+                    let f = s.Stamp
 
                     // Resolved the way the collection did, as the package directory plus the
                     // manifest-relative path, because a retained file's IDENTITY says which
@@ -171,7 +170,7 @@ let tests =
                     Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Path.Relative.Name)
 
                     Expect.equal
-                        f.Content
+                        f.ContentHash
                         (Hashing.hashString onDisk)
                         (sprintf "%s's retained hash is the hash of the text that was parsed" f.Path.Relative.Name)
             }

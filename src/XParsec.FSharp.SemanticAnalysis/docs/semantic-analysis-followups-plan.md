@@ -552,10 +552,10 @@ arguments. A `KindRegistry<'Info>` bundling the two would delete the per-field "
 `Exact: 'cand voption` plus `ExactCount: int` encode a single three-state result, which is why
 both fields needed docs. `NoMatch | Unique of 'cand | Ambiguous of int` collapses it.
 
-### `Anchor.fs:74` — `OriginFile.nowhere` is a sentinel, not a case
+### `Anchor.fs:74` — `FileStamp.nowhere` is a sentinel, not a case
 
-Distinguished by `BucketName = ""` / `Relative = ""`. The "no file is spelled `""`" invariant
-is unchecked; `OriginPath` could be a DU, or the fields a non-empty-string type.
+Distinguished by `Assembly = ""` / `Relative = ""`. The "no file is spelled `""`" invariant
+is unchecked; `AssemblyFilePath` could be a DU, or the fields a non-empty-string type.
 
 Deletes: "Distinguishable from every real origin, which names a path: no file is spelled `""`."
 
@@ -603,7 +603,7 @@ would enforce it.
 The invariant "this is `hashString` of `Lexed.Input`" holds by convention at `Hashing.fs:48`;
 `FrozenTypeTable.fs:504` builds an `InputHash` from hex with no such tie. A distinct type per
 hashed thing would make the mismatch a compile error rather than a runtime fault in
-`OriginSources.tokenAt`.
+`LexedFiles.tokenAt`.
 
 ### `CstKeys.fs` — the CST does not retain the `type` / `and` keyword
 
@@ -1550,7 +1550,7 @@ those five docs currently spends restating it.
 ### `AssemblyFiles.fs:101` — the cross-file "same assembly" waiver is an untyped string round-trip
 
 `analyseAssemblyWith` stamps each file's provider view through `fileSource assemblyName path`,
-which lands `assemblyName` in `OriginPath.BucketName`; the duplicate-type check then reads it
+which lands `assemblyName` in `AssemblyFilePath.Assembly`; the duplicate-type check then reads it
 back out via `Origin.AssemblyOption` and compares it to `ctx.AssemblyName` as a plain string.
 Nothing connects the two ends, so a driver passing a differently-spelled assembly name to
 `analyse` than to `fileSource` turns every prior file's export into a spurious "already exists in

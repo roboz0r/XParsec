@@ -10,7 +10,7 @@ let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(realProvider.Value, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+        PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
     let label (e: ModuleElem<SyntaxToken>) : string =
         match e with

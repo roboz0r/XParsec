@@ -97,7 +97,7 @@ let tests =
                 let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
                 let lexed, file = parseFile src
 
-                Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
+                Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
                 |> fun tast -> tast.Diagnostics |> Diagnostic.errors
 
             let expectMissingListDep (src: string) =

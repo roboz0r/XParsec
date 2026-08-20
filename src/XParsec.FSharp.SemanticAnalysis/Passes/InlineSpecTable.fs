@@ -78,12 +78,12 @@ module InlineSpecTable =
             Shareable: bool
             /// The file the entry's nodes stay anchored in: the template's, which for a
             /// template of this file is the file being compiled.
-            Origin: OriginFile
+            Source: FileStamp
             /// The position, anchor domain and result type of the EDGE, taken from the call site
             /// and never read off the entry: a reused entry's types belong to the thaw that built
             /// it, where this node belongs to the material the call was written in.
             EdgeTok: SyntaxToken
-            EdgeOrigin: OriginFile
+            EdgeSource: FileStamp
             EdgeTy: SemType
             /// The edge's arguments when an interned entry is REUSED. A thunk because walking
             /// them is an expansion in its own right; the minting path uses the survivors instead.
@@ -207,7 +207,7 @@ module InlineSpecTable =
             Interned: Dictionary<Grounding, SpecializationId>
             /// Producer files a served body arrived with, retained for the whole run so that an
             /// entry's foreign anchors stay readable.
-            mutable Origins: OriginSources
+            mutable Sources: LexedFiles
             Report: SyntaxToken -> Kind -> unit
             Mint: unit -> NodeKey
         }
@@ -219,7 +219,7 @@ module InlineSpecTable =
             {
                 Entries = ResizeArray()
                 Interned = Dictionary()
-                Origins = OriginSources.empty
+                Sources = LexedFiles.empty
                 Report = report
                 Mint = mint
             }
@@ -227,9 +227,9 @@ module InlineSpecTable =
         /// Retain the producer file a served body arrived with, and hand back everything
         /// retained so far, which is what a foreign anchor is READ through. Keyed by path, so a
         /// file serving many templates is retained once.
-        let retainOrigin (src: OriginSource) (t: SpecTable) : OriginSources =
-            t.Origins <- OriginSources.add src t.Origins
-            t.Origins
+        let retainSource (src: LexedFile) (t: SpecTable) : LexedFiles =
+            t.Sources <- LexedFiles.add src t.Sources
+            t.Sources
 
         /// The entry `grounding` is already interned at, if a previous site minted one. `shareable` is
         /// false when the reduction fused the site's own material, or when non-ground type
@@ -273,7 +273,7 @@ module InlineSpecTable =
                 ValueSome
                     {
                         Key = o.Grounding.Key
-                        Origin = o.Origin
+                        Source = o.Source
                         // Every consumer matches on the VALUE alone, so this bound variable is
                         // minted rather than taken from anything.
                         Decl =
@@ -299,7 +299,7 @@ module InlineSpecTable =
                     let spec, survivors = mintEntry o t
                     spec, [ for p in survivors -> p.Arg ]
 
-            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgeOrigin, o.EdgeTy, o.EdgeTok)
+            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgeSource, o.EdgeTy, o.EdgeTok)
 
         /// Materialise the table, and discharge the two facts about it that no single entry can
         /// see: acyclicity, and that a fused entry is named by exactly one edge. `declExprs` is

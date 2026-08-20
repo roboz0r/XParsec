@@ -184,7 +184,7 @@ let tests =
                     | Result.Ok lexed -> lexed
 
                 let ctx =
-                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+                    PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
                 Expect.equal ctx.Intrinsics.Int BuiltinTypes.tyInt "int"
                 Expect.equal ctx.Intrinsics.Int64 BuiltinTypes.tyInt64 "int64"
@@ -422,7 +422,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx =
-                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+                    PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -455,7 +455,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx =
-                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+                    PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file

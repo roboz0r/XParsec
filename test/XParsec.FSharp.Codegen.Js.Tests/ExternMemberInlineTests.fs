@@ -16,11 +16,11 @@ open XParsec.FSharp.Codegen.Js
 /// position.
 let private dummyTok: Anchor = Anchor.nowhere
 
-/// The origin a lift of such a body carries. Every node anchors `Anchor.nowhere`, which
+/// The source a lift of such a body carries. Every node anchors `Anchor.nowhere`, which
 /// resolves without consulting a retained source, so the empty text below is never read.
-let private nowhereSource: OriginSource =
+let private nowhereSource: LexedFile =
     {
-        File = OriginFile.nowhere
+        Stamp = FileStamp.nowhere
         Lexed =
             match Lexing.lexString "" with
             | Result.Ok l -> l
@@ -554,7 +554,7 @@ let tests =
                      \x20   end\n"
 
                 let lexed, file = TestHelpers.parseFile input
-                let source = Hashing.originSourceOfText lexed
+                let source = Hashing.lexedFileOfText lexed
                 let tast = Pipeline.analyse TestHelpers.jsProvider.Value source file
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 

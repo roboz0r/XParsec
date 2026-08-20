@@ -31,7 +31,7 @@ let private expandedWith (provider: IExternalSymbolProvider) (input: string) : A
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+        PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -79,9 +79,9 @@ let private heapSharedCount (input: string) (walkTable: bool) : int =
     |> Seq.length
 
 /// The file the harness analyses `input` under, off the same mint the harness uses.
-let private compilingOrigin (input: string) : OriginFile =
+let private compilingOrigin (input: string) : FileStamp =
     let lexed, _ = parseFile input
-    (Hashing.originSourceOfText lexed).File
+    (Hashing.lexedFileOfText lexed).Stamp
 
 /// The recursive-inline verdicts among `ds`, as the binding each closes on and the way round.
 let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
@@ -93,7 +93,7 @@ let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
     ]
 
 /// A synthetic PRODUCER package written under `tmp/`. A package is the only route to a body
-/// with a retained `OriginFile`, and no working library can hold these bodies: an inline
+/// with a retained `FileStamp`, and no working library can hold these bodies: an inline
 /// binding that calls itself breaks every consumer that touches it.
 let private recursiveProducer: Lazy<IExternalSymbolProvider> =
     lazy
@@ -464,7 +464,7 @@ let tests =
                 let bounceSlot = slotOf "bounce"
 
                 Expect.equal
-                    table.[memberSlot].Origin.Path.Relative.Name
+                    table.[memberSlot].Source.Path.Relative.Name
                     "array-cycle.js.fs"
                     "the member entry is anchored in the file the member was WRITTEN in, not the consuming one"
 
@@ -540,7 +540,7 @@ let tests =
                     | [ e ] -> e
                     | other -> failtestf "expected exactly one `int` `(+)` witness entry, got %d" (List.length other)
 
-                let origins = jsContract.Value.Origins
+                let sources = jsContract.Value.Sources
 
                 let indices = positions entry |> tokenIndices
                 Expect.isNonEmpty indices "the entry actually carries positions"
@@ -558,9 +558,9 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular i ->
                         Expect.equal
-                            (OriginSources.tokenAt origins entry.Origin (Anchor.ofToken tok))
+                            (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
                             tok
-                            "an entry node resolves against the file its `OriginFile` names"
+                            "an entry node resolves against the file its `FileStamp` names"
 
                 Expect.isGreaterThan
                     (List.max indices)
@@ -629,7 +629,7 @@ let tests =
                     | other -> failtestf "expected exactly one `(&&)` entry, got %d" (List.length other)
 
                 let value = entryValue entry
-                let origins = jsContract.Value.Origins
+                let sources = jsContract.Value.Sources
 
                 let markedIndices = callerMarked value |> List.collect exprPositions |> tokenIndices
 
@@ -652,9 +652,9 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular _ ->
                         Expect.equal
-                            (OriginSources.tokenAt origins entry.Origin (Anchor.ofToken tok))
+                            (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
                             tok
-                            "an unmarked node resolves against the file the entry's `OriginFile` names"
+                            "an unmarked node resolves against the file the entry's `FileStamp` names"
 
                 // The discriminating half: the two sets cannot be one index space, because the
                 // producer's indices run past the end of a consuming file this short. Without it,
@@ -761,7 +761,7 @@ let tests =
                     | other -> failtestf "expected exactly one `(&&)` entry, got %d" other.Length
 
                 Expect.notEqual
-                    entry.Origin
+                    entry.Source
                     compiling
                     "the fixture must reach a body from ANOTHER file, else every origin agrees and nothing is being tested"
 
@@ -769,7 +769,7 @@ let tests =
                     entryValue entry
                     |> TastWalk.chooseExpr (fun e ->
                         match e with
-                        | TExpr.CallerExpr(origin = o) -> ValueSome o
+                        | TExpr.CallerExpr(source = o) -> ValueSome o
                         | _ -> ValueNone
                     )
 
@@ -787,7 +787,7 @@ let tests =
                                     value
                                     |> TastWalk.chooseExpr (fun e ->
                                         match e with
-                                        | TExpr.InlineCall(origin = o) -> ValueSome o
+                                        | TExpr.InlineCall(source = o) -> ValueSome o
                                         | _ -> ValueNone
                                     )
                             | _ -> ()
@@ -821,7 +821,7 @@ let tests =
                     TExpr.InlineCall(
                         spec,
                         EqArray.empty,
-                        entry.Origin,
+                        entry.Source,
                         TastWalk.exprTy (entryValue entry),
                         SyntaxToken.nowhere
                     )
@@ -843,7 +843,7 @@ let tests =
                 let input = "let b = true\nlet a = b |> not\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
-                let origins = jsContract.Value.Origins
+                let sources = jsContract.Value.Sources
 
                 let entry =
                     match entriesFor "op_PipeRight" expanded.Specializations with
@@ -865,9 +865,9 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular _ ->
                         Expect.equal
-                            (OriginSources.tokenAt origins entry.Origin (Anchor.ofToken tok))
+                            (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
                             tok
-                            "every unmarked node of the entry — the edge included — reads against its `OriginFile`"
+                            "every unmarked node of the entry — the edge included — reads against its `FileStamp`"
 
                 Expect.isGreaterThan
                     (List.min (tokenIndices ownToks))

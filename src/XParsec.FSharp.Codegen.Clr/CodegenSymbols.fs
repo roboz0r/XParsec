@@ -88,7 +88,7 @@ module CodegenSymbols =
                 | ValueSome sym ->
                     // A project-local symbol has no home assembly for a ref to point to; the
                     // caller falls back.
-                    if sym.Origin.Home = Origin.Unstamped then
+                    if sym.Origin.Home = SymbolHome.Unstamped then
                         ValueNone
                     else
                         let os = OpenSignature.ofSymbol sym

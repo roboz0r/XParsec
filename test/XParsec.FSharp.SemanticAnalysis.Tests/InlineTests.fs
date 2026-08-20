@@ -8,14 +8,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 /// Resolving a trait call needs a `PassContext` to mint the dispatched operator's key.
 /// These expansions are all primitive-`int`, so no nominal dispatch reaches the minter and
 /// an empty context is never read.
 let private ctx0: PassContext =
     let lexed, _ = parseFile "module M"
-    PassContext(realProvider.Value, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+    PassContext(realProvider.Value, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input
@@ -36,7 +36,7 @@ let private declType (tast: TastFile) : SemType =
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
-    let source = Hashing.originSourceOfText lexed
+    let source = Hashing.lexedFileOfText lexed
     // The vocabulary is a pool root array; unpooling it gives the DU form the wire speaks.
     let pools = Pipeline.analyse realProvider.Value source file
 
@@ -59,13 +59,13 @@ let private editedProducerSrc =
     "namespace Ns\n\nmodule M =\n    let inline twice x = x + x\n    let inline sq x = x * x\n"
 
 /// A producer file retained the way a real collection retains one: hashed off the very text
-/// that was parsed, so its hash is the one an entry's `OriginFile` is checked against.
-let private retainedSource (input: string) : OriginSource =
+/// that was parsed, so its hash is the one an entry's `FileStamp` is checked against.
+let private retainedSource (input: string) : LexedFile =
     let lexed, _ = parseFile input
 
-    Hashing.originSource
+    Hashing.lexedFile
         {
-            BucketName = "Producer"
+            Assembly = "Producer"
             Relative = AssemblyFileId.ofRelative "sq.fs"
         }
         lexed
@@ -118,8 +118,7 @@ let private expandedCore (tast: TastFile) (d: TDecl) : string =
 let private publishedTemplate () : Wire.TDecl =
     let lexed, file = parseFile producerSrc
 
-    let pools =
-        Pipeline.analyse realProvider.Value (Hashing.originSourceOfText lexed) file
+    let pools = Pipeline.analyse realProvider.Value (Hashing.lexedFileOfText lexed) file
 
     let pool = TastPoolBuilder.openOver pools
 
@@ -135,10 +134,10 @@ let tests =
             test "a wire body thawed at its origin keeps every token it was written at" {
                 let body = publishedTemplate ()
                 let source = retainedSource producerSrc
-                let sources = OriginSources.ofSeq [ source ]
+                let sources = LexedFiles.ofSeq [ source ]
 
                 let atOrigin =
-                    InlineThaw.bodyAtOrigin (TypeStore()) sources source.File body
+                    InlineThaw.bodyAtStamp (TypeStore()) sources source.Stamp body
                     |> positions
                     |> tokenIndices
 
@@ -157,24 +156,24 @@ let tests =
             test "a producer edited since the body was anchored FAULTS rather than re-attributing it" {
                 let body = publishedTemplate ()
                 // What the entry recorded, against what the same path now holds.
-                let anchoredAgainst = (retainedSource producerSrc).File
+                let anchoredAgainst = (retainedSource producerSrc).Stamp
                 let onDisk = retainedSource editedProducerSrc
 
                 Expect.equal
                     anchoredAgainst.Path
-                    onDisk.File.Path
+                    onDisk.Stamp.Path
                     "the fixture is the SAME file — a differing path would fault for the wrong reason"
 
                 Expect.notEqual
-                    anchoredAgainst.Content
-                    onDisk.File.Content
+                    anchoredAgainst.ContentHash
+                    onDisk.Stamp.ContentHash
                     "…at different contents, which is the whole of the difference"
 
                 // The MESSAGE is asserted: a missing file or an out-of-range index throws here
                 // too, and a bare `throws` would call the guard proven by either.
                 Expect.throwsC
                     (fun () ->
-                        InlineThaw.bodyAtOrigin (TypeStore()) (OriginSources.ofSeq [ onDisk ]) anchoredAgainst body
+                        InlineThaw.bodyAtStamp (TypeStore()) (LexedFiles.ofSeq [ onDisk ]) anchoredAgainst body
                         |> ignore
                     )
                     (fun e ->
@@ -187,11 +186,11 @@ let tests =
 
             test "a producer that was never retained FAULTS rather than yielding positionless nodes" {
                 let body = publishedTemplate ()
-                let anchoredAgainst = (retainedSource producerSrc).File
+                let anchoredAgainst = (retainedSource producerSrc).Stamp
 
                 Expect.throwsC
                     (fun () ->
-                        InlineThaw.bodyAtOrigin (TypeStore()) OriginSources.empty anchoredAgainst body
+                        InlineThaw.bodyAtStamp (TypeStore()) LexedFiles.empty anchoredAgainst body
                         |> ignore
                     )
                     (fun e ->
@@ -474,7 +473,7 @@ let tests =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 
                 let lexed, file = parseFile input
-                let source = Hashing.originSourceOfText lexed
+                let source = Hashing.lexedFileOfText lexed
                 let sem = Pipeline.analyseSem realProvider.Value source file
                 let pools = Pipeline.analyse realProvider.Value source file
                 let pool = TastPoolBuilder.openOver pools
@@ -535,7 +534,7 @@ let tests =
                 // rewrite can bake in, so the template publishes.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
-                let source = Hashing.originSourceOfText lexed
+                let source = Hashing.lexedFileOfText lexed
                 let sem = Pipeline.analyseSem realProvider.Value source file
                 let _, pools = Pipeline.analyseWithContext realProvider.Value source file
                 let frozen = TastUnpool.ofPools pools
@@ -594,7 +593,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let _, pools =
-                    Pipeline.analyseWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseWithContext realProvider.Value (Hashing.lexedFileOfText lexed) file
 
                 let frozen = TastUnpool.ofPools pools
 

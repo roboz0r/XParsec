@@ -162,7 +162,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx =
-                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+                    PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -207,7 +207,7 @@ let tests =
                 let lexed, file = parseFile "let a = broken 1\nlet b = broken 2\nlet c = broken 3"
 
                 let ctx =
-                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+                    PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file

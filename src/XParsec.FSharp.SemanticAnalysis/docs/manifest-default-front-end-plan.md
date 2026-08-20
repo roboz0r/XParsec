@@ -1,7 +1,8 @@
 # Manifest-driven analysis as the only front end
 
-Status: proposed, 2026-08-18. The cache deletion in "Root cause" below has landed; everything
-under "Staged plan" has not started.
+Status: revised 2026-08-19. The cache deletion under "Root cause" has landed; the staged plan
+has not started. This revision replaces the earlier gated/ungated pair with an `analyse` /
+`compile` split.
 
 ## Root cause
 
@@ -14,21 +15,23 @@ There are three ways into the front end, and they disagree about what a compilat
 | 3 | `Pipeline.analyseSem` / `analyseSemFor` called directly | none | none | tier 3 mostly not |
 
 Tier 2 has **no caller under `src/`** — it is a test API with a production name. Tier 3 is
-called directly from roughly 50 test files. So the invariant "no error diagnostics reach
-codegen" already held at tier 1 by construction, and enforcing it across tiers 2 and 3 is what
-made commit `a57405a4` touch 28 test files.
+called from 47 test files. So the invariant "no error diagnostics reach codegen" already held at
+tier 1 by construction, and enforcing it across tiers 2 and 3 is what made commit `a57405a4`
+touch 28 test files.
 
-The divergence is semantic, not merely procedural. `Pipeline.analyseSem` carries no
-`CompilingAssembly`, which changes how a locally declared type resolves — a type the home
-assembly declares versus one a reference claims. `UnionTests.fs:380` already hit this and
-worked around it by hand-rolling `analyseSemFor` with an explicit `compilingClr project`; the
-workaround was replaced by a `compileSourceTo` call in `a57405a4`. Nothing establishes that it
-was the only instance.
+### What the home assembly changes
 
-The target shape already exists and is load-bearing: `TestHelpers.fs:213-227` (`vesperCoreDll`)
-runs `resolveManifest` → `PackageUnits.ofManifest` → `compileAssemblyWith`, and it does so for
-the hardest case in the repo — `Vesper.Core`, which declares its own primitives and seeds its
-own intrinsic axis. This plan promotes that path to the default rather than inventing one.
+`Pipeline.analyseSem` carries `CompilingAssembly.none`. Within the pass chain that value is read
+at exactly two sites:
+
+- `NameResolution/TypeRegistration.fs:179` — `asm <> ctx.AssemblyName` waives the CS0433 analogue
+  for a type this compilation declares itself. Under `Name = ""` nothing is waived, so a locally
+  declared type that a reference also answers for is refused. `UnionTests.fs:380` hit this.
+- `PlatformTypes.fs:36` — `ctx.Target` names the target in "primitive not supported on X". Under
+  `Target = ""` the message is wrong; nothing resolves differently.
+
+`AssemblyFiles` reads it in two more places (`fileSource assembly.Name` at `:460`/`:479`, and
+`SignatureResolution` inputs at `:486`), reachable only through the fold.
 
 ### Landed already: the compile cache is deleted (2026-08-18)
 
@@ -45,57 +48,142 @@ deleted layer survives the transition. See the two-axis split in
 
 `FrozenCodec` and `Compression` stay, dormant, for the wire axis.
 
+## The shape
+
+Two entries named for what they do, rather than one entry duplicated by whether it refuses.
+
+**`analyse` is total.** It runs the front end over every unit a manifest names, in manifest
+order, and returns what came out. A parse failure and an error diagnostic are members of the
+result. Design time reads this: as much information as is recoverable, including from a file the
+parser had to patch and from the files after one that yielded no tree.
+
+**`compile` takes `analyse`'s output** and returns either an artifact or the errors that
+prevented one. The gate lives here, once, at the only boundary where a broken tree matters.
+
+```fsharp
+// SemanticAnalysis — target-parameterised, backend-independent.
+
+/// An assembly's inputs as the front end takes them: what it emits into, and its units in
+/// compile order.
+type AssemblySources =
+    { Assembly: CompilingAssembly
+      Units: Result<ParsedUnit, UnparsedFile> list }
+
+module AssemblySources =
+    /// Name and target off the manifest, units in its file order.
+    val ofPackage : PackageSource.ParsedPackage -> AssemblySources
+    /// In-memory sources compiled under a caller-supplied name.
+    val synthetic : name: string -> target: string -> Set<string> -> SourceUnit list -> AssemblySources
+
+/// Every unit of the assembly as analysed, in manifest order.
+type AnalysedAssembly =
+    { Units: FoldedUnit list }
+    /// Every unit's findings, each anchored in its own file.
+    member Diagnostics : AnchoredDiagnostic list
+
+/// An assembly with every file analysed and no error-severity finding. Minted only by `gate`.
+type EmittableAssembly = { Files: FrozenFile list; Sources: LexedFiles }
+
+module AnalysedAssembly =
+    val analyse : AnalyseFile -> IExternalSymbolProvider -> AssemblySources -> AnalysedAssembly
+    val gate : AnalysedAssembly -> Result<EmittableAssembly, AnchoredDiagnostic list>
+```
+
+```fsharp
+// each backend
+val ClrDriver.emit    : string list -> ProjectInfo -> EmittableAssembly -> ClrArtifact
+val ClrDriver.compile : string list -> ProjectInfo -> AnalysedAssembly
+                        -> Result<ClrArtifact, AnchoredDiagnostic list>
+```
+
+### What the shape buys
+
+**The assembly name stops being an argument.** `CompilingAssembly` is derived inside
+`AssemblySources.ofPackage` from `Manifest.Name` (`ReferencedProject.fs:76-79`, `[core] name`
+else the manifest's directory name) and `Manifest.Path.Target`. A caller cannot pair a name with
+another package's units. `synthetic` demands the name because it has no manifest to read one
+from.
+
+**`EmittableAssembly` deletes the codegen gate rather than proving it unreachable.**
+`Codegen.compileFilesWithReferences` taking a type only `gate` mints makes the residue check
+unrepresentable, and `emit` becomes total. That removes `ClrDriver.reanchored` (`:78-84`) and
+its `AssemblyFileId.nowhere` filing, `JsDriver.fs:125-189`'s staging list and second `Ok`-matching
+pass, and both `Kind.Driver d.Message` re-wraps.
+
+**Most of the tier-3 pull disappears.** Of ~310 `ctx.*` reads across the test suite, 182 are
+`ctx.Diagnostics` — the `PassContext` used as a diagnostic bag. `AnalysedAssembly.Diagnostics`
+serves those directly. The remaining ~130 (`ctx.Store` 34, `ctx.Types` 30, `ctx.Resolution` 21,
+`ctx.Bindings` 20, `ctx.Intrinsics` 11) are pass-internal side tables belonging to tests of a
+pass rather than of a compilation.
+
+**Analysis needs no DLL.** A `depends-on` entry contributes through its package directory, read
+and analysed under `Publication.AcrossAssemblies` (`PackageProviders.fs:142`). The `dllPaths` in
+`compilationContract` (`ClrSymbolProviders.fs:139-145`) feed the .NET metadata reader alone. So
+a dependency chain analyses without any DLL existing, and DLLs enter at `emit`, for the
+`AssemblyRef`.
+
+### Where a pass-level entry survives
+
+`Pipeline.analyseSemWithContextFor` stays, as the single-file entry for a test inspecting a
+pass's side tables. It keeps its `CompilingAssembly` parameter and gains no default. The
+division is then: `analyse` / `compile` compiles, `analyseSemWithContextFor` inspects — not two
+tiers of the same job.
+
 ## Staged plan
 
-### 1. A one-file manifest entry point, gated and ungated
+### 1. Delete the no-assembly entries
 
-Until analysing one file through a manifest is as cheap to call as `compileSource`, tiers 2 and
-3 regrow. Two functions, because a test whose subject IS a diagnostic must still be able to
-analyse a program that fails:
+`Pipeline.analyseSem`, `analyse`, `analyseSemWithContext`, `analyseWithContext`,
+`analyseSemWithRegions` (`Pipeline.fs:79-102, 125-137`) and `CompilingAssembly.none`
+(`PassContext.fs:15`). Every caller then names an assembly and a target: 67 `Pipeline.analyse*`
+sites across 47 files, plus 21 hand-built `PassContext(…)` sites across 14 files.
 
-- gated: assembly name + sources → `Result<ClrArtifact, AnchoredDiagnostic list>`, through
-  `compileAssemblyWith`.
-- ungated: the same inputs → the analysed files and their diagnostics, no refusal.
+Mechanical per site, and the red is the deliverable — a test that only passed under `Name = ""`
+is a `UnionTests.fs:380` finding about `diagnoseExternalClaim`, and one that only passed under
+`Target = ""` is asserting on a malformed message. Do not batch-convert silently; the
+disposition per case is fix the front end / fix the test / pin a `ptest` gap.
 
-Both name the assembly and take an ordered file list, one entry being the common case. Ship
-both in this step: bolting the ungated one on later is what produced tier 3.
+This step harvests the resolution findings without touching what any test asserts on.
 
-### 2. Migrate the direct `Pipeline.analyse*` callers
+### 2. `AssemblySources`
 
-Roughly 50 test files. Mechanical per file, but expect red, and the red is the deliverable —
-each migrated test gains the gate, the per-file anchoring and the home assembly at once, and a
-test that only passed under "no home assembly" is a finding of the `UnionTests.fs:380` kind.
+`ofPackage` over `PackageSource.ParsedPackage` (units via the existing `PackageUnits.ofPackage`),
+and `synthetic` for in-memory sources. `PackageUnits.ofManifest` becomes
+`resolveManifest >> loadManifest >> readPackage >> AssemblySources.ofPackage`.
 
-Do not batch-convert silently. A test that goes red here is evidence about resolution, and the
-disposition (fix the front end / fix the test / pin a `ptest` gap) is per-case.
+`ManifestPath` is minted only by `resolveManifest`, which is what makes a manifest's files and
+its target agree. `synthetic` therefore mints an `AssemblySources` directly rather than a
+synthetic `Manifest`.
 
-### 3. Delete the single-file driver path
+### 3. Total `analyse`, `gate`, `EmittableAssembly`
+
+`analyse` is `foldUnits` with the two filters of `analyseGated:783-812` lifted out into `gate`.
+Today's `AnalysedAssembly` is renamed `EmittableAssembly`; the name `AnalysedAssembly` moves to
+the total result. `analyseGated`, `analyseWith`, `analyseAssemblyWith` and `analyseAssembly`
+collapse into `analyse`.
+
+`Codegen.compileFilesWithReferences` and the JS peer take `EmittableAssembly` and stop returning
+`Result`.
+
+`gate` reports every error-severity finding, parse failures first in file order, and truncates
+nothing. The suppression at `analyseGated:791-794` goes: design time reads `analyse`, where a
+parse failure sits on its own file and the cascade it caused sits on the others.
+
+### 4. Migrate the compile-shaped tests
+
+The tests whose subject is a compiled artifact or an assembly's diagnostics move to
+`AssemblySources.synthetic` → `analyse` → `compile`. `compileSource` and its family
+(`test/…Clr.Tests/TestHelpers.fs:449-540`) become thin wrappers over that, which is where the
+`defaultPackages` contract and `withCore` references stay wired.
+
+Tests inspecting a pass's side tables stay on `analyseSemWithContextFor` and are not touched
+beyond step 1.
+
+### 5. Delete the single-file driver path
 
 `ClrDriver.compile`, `compileApp`, `compileForTfm`, and the `Codegen.compile` / `compileWith`
-single-file wrappers once nothing calls them.
-
-### 4. Remove the codegen-level gate
-
-With tier 1 the only way in, the gate `a57405a4` added to `Codegen.compileFiles*` is
-unreachable: `analyseGated` refuses on `u.Surfaced` filtered to `Severity.Error`
-(`AssemblyFiles.fs:797-802`), `Surfaced` under `Publication.InAssembly` is `fileDiagnostics`
-(`:689-691`), and that includes `Frozen.Residue.Diagnostics` (`:279-287`) — a strict superset
-of the gate's `Diagnostic.errors pools.Residue.Diagnostics`.
-
-Deleting it collapses, in order of value:
-
-- `JsDriver.fs:125-189` — back to one comprehension. The anonymous-record staging list, the
-  `refusals` pass and the second `Ok`-matching pass exist only for the impossible branch.
-- `ClrDriver.reanchored` (`:78-84`) — which files findings under `AssemblyFileId.nowhere`,
-  because `FrozenPools.blockingErrorsOfAll` flattens a per-file list and loses the file. JS
-  gets this right by gating per file; the CLR side cannot, which is itself evidence the gate
-  sits at the wrong granularity.
-- Both `Kind.Driver d.Message` re-wraps, which flatten a structured `Kind` into prose.
-
-If a belt-and-braces check is still wanted on the assembly path, make it a `failwith`, matching
-the precedent `unpositionedDiagnostics` sets at `AssemblyFiles.fs:216` for exactly this class of
-internal contradiction. An impossible state does not deserve a `Result` branch plumbed through
-two drivers.
+single-file wrappers once nothing calls them. `ClrDriver.compileAssembly` /
+`compileAssemblyWith` are subsumed by step 3's `compile`.
 
 ## Independent findings
 
@@ -154,21 +242,28 @@ cover all of them.
 
 ## Scope and risk
 
-Step 2 is the bulk and the only step with real uncertainty: the count of tests that fail once
-they carry a home assembly is unknown, and each is a separate judgement. Steps 1, 3 and 4 are
-mechanical and each leaves the tree green on its own.
+Step 1 is the bulk and carries the only real uncertainty: the count of tests that fail once they
+carry a home assembly is unknown, and each is a separate judgement. Steps 2, 3 and 5 are
+mechanical. Step 4 is bounded by how many tests are compile-shaped rather than pass-shaped.
 
-Nothing here changes emitted code. Step 4 changes diagnostic SHAPE on the assembly path (a
-refusal stops being re-filed as `Kind.Driver` under `nowhere`), which no current test asserts on
-because the branch is unreachable.
+Nothing here changes emitted code. Step 3 changes diagnostic SHAPE on the assembly path twice: a
+codegen refusal stops being re-filed as `Kind.Driver` under `nowhere` (no current test asserts on
+it, the branch being unreachable), and a parse failure stops suppressing the other units'
+findings.
+
+Sequencing note: a test migrated in step 4 is touched twice, once in step 1. Step 1 runs first
+regardless, because it is what produces the resolution findings and it produces them without
+depending on any of the new shape.
 
 ## Assumptions for confirmation
 
 1. **The single-file path has no consumer this repo cannot see.** `ClrDriver.compile` and
-   friends have no `src/` caller; if an out-of-repo driver binds to them, step 3 is breaking.
-2. **`analyseAs`'s "no home assembly changes resolution" is the whole divergence** between
-   tiers 1 and 3, rather than one symptom of several.
+   friends have no `src/` caller; if an out-of-repo driver binds to them, step 5 is breaking.
+2. **`gate` truncates nothing.** A missing early file can cascade into spurious unresolved-name
+   errors across every later unit, and `analyseGated:791-794` exists to hide that cascade behind
+   the parse failure. Under this plan `gate` returns all of them, parse failures first, and
+   whether to stop at the first faulted file is the caller's presentation choice.
 3. **Merkle.Dag is the design-time answer**, so no replacement for the deleted cache is wanted
-   in the interim and steps 1-4 need not preserve a caching seam.
+   in the interim and steps 1-5 need not preserve a caching seam.
 4. **The printf specifier gaps are front-end work**, not codegen work — i.e. the fix is to type
    `%d`/`%g` over a numeric-family typar rather than to widen at the call.

@@ -15,12 +15,12 @@ module EmitJsContext =
 
     /// What a node's anchor resolves through on the way to a source-map position. Both fields
     /// or neither: an anchor is an INDEX, meaningless without the `Lexed` that numbered it.
-    /// The pair is the CONSUMING file's, at source index 0; `Origins` is every producer file.
+    /// The pair is the CONSUMING file's, at source index 0; `Sources` is every producer file.
     type Resolution =
         {
             Lexed: Lexed
             Lines: LineIndex
-            Origins: OriginSources
+            Sources: LexedFiles
         }
 
     /// `ValueNone` disables maps: no source text was supplied for an anchor to resolve against.
@@ -217,13 +217,13 @@ module EmitJsContext =
                 match MapSources.tryFind origin.File.Path ctx.MapSources with
                 | ValueNone ->
                     failwithf
-                        "EmitJs: the node's origin file %s (package %s) was reached but never published to the map, so its position is readable only against the consuming file, because the provider that served the body and the retained anchor domain are not the same contract"
+                        "EmitJs: the node's origin file %s (assembly %s) was reached but never published to the map, so its position is readable only against the consuming file, because the provider that served the body and the retained anchor domain are not the same contract"
                         origin.File.Path.Relative.Name
-                        origin.File.Path.BucketName
+                        origin.File.Path.Assembly
                 | ValueSome producer ->
                     // Faults on a producer file edited since the tree was anchored against it:
                     // otherwise a well-formed position read against the wrong text.
-                    let tok = OriginSources.tokenAt r.Origins origin.File origin.At
+                    let tok = LexedFiles.tokenAt r.Sources origin.File origin.At
 
                     match tok.Index with
                     | TokenIndex.Regular _ -> ValueSome(LineIndex.resolve producer.Lines producer.Slot tok.StartIndex)

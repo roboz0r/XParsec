@@ -33,10 +33,10 @@ module FrozenSignature =
     /// Project a frozen implementation file's INTERNAL-or-better signature to the surface it
     /// publishes. `producer` is the file `frozen` was analysed FROM: every anchor in every
     /// published `ValRepr` indexes that file's `Lexed`.
-    let toSurface (producer: OriginSource) (frozen: FrozenPools) : PublishedSurface =
+    let toSurface (producer: LexedFile) (frozen: FrozenPools) : PublishedSurface =
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
-                Home = Origin.InFile producer.File.Path
+                Home = SymbolHome.InFile producer.Stamp.Path
                 Namespace = ns
             }
 
@@ -381,5 +381,5 @@ module FrozenSignature =
         PublishedSurface.ofBuilder surface
 
     /// `toSurface` as a provider view.
-    let toSignatures (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
+    let toSignatures (producer: LexedFile) (frozen: FrozenPools) : IExternalSymbolProvider =
         PublishedSurface.toProvider (toSurface producer frozen)

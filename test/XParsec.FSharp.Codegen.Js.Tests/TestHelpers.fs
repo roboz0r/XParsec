@@ -144,7 +144,7 @@ let frozenOf (input: string) : FrozenPools =
         Pipeline.analyseSemWithContextFor
             { Name = ""; Target = Target.Js }
             jsProvider.Value
-            (Hashing.originSourceOfText lexed)
+            (Hashing.lexedFileOfText lexed)
             file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
@@ -180,7 +180,7 @@ let frozenOfJs (input: string) : FrozenPools =
         Pipeline.analyseSemWithContextFor
             { Name = ""; Target = Target.Js }
             jsProvider.Value
-            (Hashing.originSourceOfText lexed)
+            (Hashing.lexedFileOfText lexed)
             file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
@@ -276,7 +276,7 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
         Pipeline.analyseSemWithContextFor
             { Name = ""; Target = Target.Js }
             provider
-            (Hashing.originSourceOfText lexed)
+            (Hashing.lexedFileOfText lexed)
             file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
@@ -299,7 +299,7 @@ let frozenOwnImplJs (assemblyName: string) (provider: IExternalSymbolProvider) (
                 Target = Target.Js
             }
             provider
-            (Hashing.originSourceOfText lexed)
+            (Hashing.lexedFileOfText lexed)
             file
 
     match frozen.Residue.Diagnostics |> Diagnostic.errors with
@@ -444,7 +444,7 @@ let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic
     let lexed, file = parseFile input
 
     let tast =
-        Pipeline.analyseSemFor { Name = ""; Target = Target.Js } provider (Hashing.originSourceOfText lexed) file
+        Pipeline.analyseSemFor { Name = ""; Target = Target.Js } provider (Hashing.lexedFileOfText lexed) file
 
     tast.Diagnostics |> Diagnostic.errors
 
@@ -469,7 +469,7 @@ let private jsEmissionInputs
                 {
                     Lexed = lexed
                     Lines = JsMapSources.LineIndex.build input
-                    Origins = contract.Origins
+                    Sources = contract.Sources
                 }
         | Result.Error _ -> ValueNone
 

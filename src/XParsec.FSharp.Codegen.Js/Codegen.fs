@@ -88,7 +88,7 @@ module Codegen =
                     {
                         Lexed = src.Lexed
                         Lines = JsMapSources.LineIndex.build src.Content
-                        Origins = contract.Origins
+                        Sources = contract.Sources
                     }
             | None -> ValueNone
 

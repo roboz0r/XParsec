@@ -257,7 +257,7 @@ module internal TsManifestMembers =
 
             let origin: SymbolOrigin =
                 {
-                    Home = Origin.InAssembly(AssemblyName structuralHome)
+                    Home = SymbolHome.InAssembly(AssemblyName structuralHome)
                     Namespace = SymbolKeyOps.namespaceKey structuralHome
                 }
 

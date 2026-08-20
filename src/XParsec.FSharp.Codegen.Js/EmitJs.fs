@@ -967,7 +967,7 @@ module EmitJs =
 
         // Where each spliced node was WRITTEN, plus the authorship chain those origins are keyed
         // along. The walk keeps deriving nodes, so it takes that relation over unfinished.
-        let reached = System.Collections.Generic.HashSet<OriginPath>()
+        let reached = System.Collections.Generic.HashSet<AssemblyFilePath>()
 
         for KeyValue(node, origin) in expansion.Origins do
             ctx.NodeOrigins.[node] <- origin
@@ -981,8 +981,8 @@ module EmitJs =
         match ctx.Resolver with
         | ValueNone -> ()
         | ValueSome r ->
-            for src in OriginSources.toList r.Origins do
-                if reached.Contains src.File.Path then
+            for src in LexedFiles.toList r.Sources do
+                if reached.Contains src.Stamp.Path then
                     MapSources.publish src ctx.MapSources
 
         // Class decls (with their attached instance methods) are built now, because their method

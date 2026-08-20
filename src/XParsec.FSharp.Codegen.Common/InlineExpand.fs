@@ -12,7 +12,7 @@ module InlineExpand =
     /// neither half means anything without the other. Held beside the node because the node's
     /// own anchor was moved onto the call site.
     [<Struct>]
-    type NodeOrigin = { File: OriginFile; At: Anchor }
+    type NodeOrigin = { File: FileStamp; At: Anchor }
 
     /// Every node a rewrite AUTHORED → the node it was authored from. Splicing a body inside a
     /// lambda re-authors that lambda, so a table keyed by node (`FrozenPools.FunVerdicts`,
@@ -83,12 +83,12 @@ module InlineExpand =
         }
 
     /// WHICH FILE the material being walked is anchored in: a producer's, or the consuming
-    /// file's own. Both are `OriginFile`s; the walk is TOLD which by the node it descends
+    /// file's own. Both are `FileStamp`s; the walk is TOLD which by the node it descends
     /// through, so the comparison happens once per domain entered, not once per node filed.
     [<Struct>]
     type private Domain =
         | Consuming
-        | Producer of OriginFile
+        | Producer of FileStamp
 
     /// The state of ONE entry-body copy. Per copy, not per expansion: an entry reached from
     /// inside another entry's body takes its own, so the two copies' variables cannot collide;
@@ -132,10 +132,10 @@ module InlineExpand =
         // The one file whose anchors need no provenance is the file being compiled. It has to
         // be the identity the front end stamped onto the nodes — one rebuilt here from a path
         // would compare unequal and file this file's own code as if it were foreign.
-        let compiling = TastPoolBuilder.origin pool
+        let compiling = TastPoolBuilder.stamp pool
 
-        let domainOf (origin: OriginFile) : Domain =
-            if origin = compiling then Consuming else Producer origin
+        let domainOf (stamp: FileStamp) : Domain =
+            if stamp = compiling then Consuming else Producer stamp
 
         let authored (source: TastAccessor.ExprId) (result: TastAccessor.ExprId) : TastAccessor.ExprId =
             Derivation.authored derived source result
@@ -199,7 +199,7 @@ module InlineExpand =
                 // The marked subtree is the CALLER's, moved into the entry, so it is walked at
                 // the caller's site and in the caller's domain — a producer's if that site was
                 // itself inside an entry. Sound only because a fusing entry has ONE call edge.
-                let caller = domainOf (TastAccessor.exprCallerExprOrigin e)
+                let caller = domainOf (TastAccessor.exprCallerExprSource e)
 
                 // The entry stack pops with the material: `a && (c && d)` puts a second edge to
                 // one specialization inside the first one's marked subtree, so without the pop
@@ -276,7 +276,7 @@ module InlineExpand =
             // The node states the domain of its own anchor; the descent derives the same thing
             // from the edges it came through. A disagreement is the only warning: an anchor read
             // in the wrong file's index space resolves in range and points to an unrelated token.
-            let stated = domainOf (TastAccessor.exprInlineCallOrigin e)
+            let stated = domainOf (TastAccessor.exprInlineCallSource e)
 
             if stated <> domain then
                 failwithf
@@ -305,7 +305,7 @@ module InlineExpand =
             // The body is the ENTRY's, and the entry states where it was written.
             let body =
                 go
-                    (domainOf entry.Origin)
+                    (domainOf entry.Source)
                     ({ Spec = spec; CallerSite = site } :: entered)
                     (Copied
                         {

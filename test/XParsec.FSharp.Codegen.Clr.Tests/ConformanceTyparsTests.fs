@@ -32,7 +32,7 @@ let tests =
                             Target = Target.Clr
                         }
                         analysisProvider
-                        (Hashing.originSourceOfText lexed)
+                        (Hashing.lexedFileOfText lexed)
                         file
 
                 Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
@@ -151,7 +151,7 @@ let tests =
                             Target = Target.Clr
                         }
                         analysisProvider
-                        (Hashing.originSourceOfText lexed)
+                        (Hashing.lexedFileOfText lexed)
                         file
 
                 let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors

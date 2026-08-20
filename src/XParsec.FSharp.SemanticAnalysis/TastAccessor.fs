@@ -442,26 +442,26 @@ module TastAccessor =
         expect "TastAccessor.exprInlineCallSpec: not an InlineCall node" (|EInlineCall|_|) e
 
     [<return: Struct>]
-    let private (|EInlineCallOrigin|_|) (e: ExprId) : OriginFile voption =
+    let private (|EInlineCallSource|_|) (e: ExprId) : FileStamp voption =
         match payload e with
-        | ExprPayload.InlineCall p -> ValueSome p.Origin
+        | ExprPayload.InlineCall p -> ValueSome p.Source
         | _ -> ValueNone
 
     /// The file an `InlineCall`'s own anchor is read against, and its arguments' too, they being
     /// CALLER material. NOT the entry's: the entry states its own origin.
-    let exprInlineCallOrigin (e: ExprId) : OriginFile =
-        expect "TastAccessor.exprInlineCallOrigin: not an InlineCall node" (|EInlineCallOrigin|_|) e
+    let exprInlineCallSource (e: ExprId) : FileStamp =
+        expect "TastAccessor.exprInlineCallSource: not an InlineCall node" (|EInlineCallSource|_|) e
 
     [<return: Struct>]
-    let private (|ECallerExprOrigin|_|) (e: ExprId) : OriginFile voption =
+    let private (|ECallerExprSource|_|) (e: ExprId) : FileStamp voption =
         match payload e with
         | ExprPayload.CallerExpr origin -> ValueSome origin
         | _ -> ValueNone
 
     /// The file the subtree under a `CallerExpr` is anchored in: the node marks material
     /// written at a CALL SITE and moved into an entry's body.
-    let exprCallerExprOrigin (e: ExprId) : OriginFile =
-        expect "TastAccessor.exprCallerExprOrigin: not a CallerExpr node" (|ECallerExprOrigin|_|) e
+    let exprCallerExprSource (e: ExprId) : FileStamp =
+        expect "TastAccessor.exprCallerExprSource: not a CallerExpr node" (|ECallerExprSource|_|) e
 
     /// The arms re-nested out of this node's child columns. `lead` is how many leading expr
     /// children belong to the node itself rather than to an arm (`Match`'s scrutinee,
@@ -811,7 +811,7 @@ module TastAccessor =
 
         {
             Key = entry.Key
-            Origin = entry.Origin
+            Source = entry.Source
             Value =
                 match declKind decl with
                 | DeclShape.Let -> (declLet decl).Value

@@ -144,7 +144,7 @@ module internal TsManifestTranslate =
     /// SPECIFIER, not the package name; `Namespace` is the path within the module.
     let originFor (ctx: TranslateCtx) (nsPath: string) : SymbolOrigin =
         {
-            Home = Origin.InAssembly(AssemblyName ctx.ModuleSpec)
+            Home = SymbolHome.InAssembly(AssemblyName ctx.ModuleSpec)
             Namespace = SymbolKeyOps.namespaceKey nsPath
         }
 

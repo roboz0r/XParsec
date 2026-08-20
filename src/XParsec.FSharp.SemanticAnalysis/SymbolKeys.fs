@@ -18,26 +18,26 @@ type AssemblyName =
 /// containment chain + namespace + name. `Unstamped` is "no home": the compilation being
 /// analysed, or a contract scrape.
 [<RequireQualifiedAccess>]
-type Origin =
+type SymbolHome =
     | Unstamped
     | InAssembly of asm: AssemblyName
     /// `InAssembly` REFINED to the declaring source file. The path carries its own
-    /// `BucketName`, so the assembly is read off the file, not supplied a second time.
-    | InFile of file: OriginPath
+    /// `Assembly`, so the assembly is read off the file, not supplied a second time.
+    | InFile of file: AssemblyFilePath
 
     member this.AssemblyOption: string voption =
         match this with
-        | Origin.Unstamped -> ValueNone
-        | Origin.InAssembly a -> ValueSome a.Name
-        | Origin.InFile f -> ValueSome f.BucketName
+        | SymbolHome.Unstamped -> ValueNone
+        | SymbolHome.InAssembly a -> ValueSome a.Name
+        | SymbolHome.InFile f -> ValueSome f.Assembly
 
     /// `ValueNone` wherever the producer knew only the assembly: a contract view or
     /// a metadata scrape.
-    member this.DeclaringFile: OriginPath voption =
+    member this.DeclaringFile: AssemblyFilePath voption =
         match this with
-        | Origin.Unstamped
-        | Origin.InAssembly _ -> ValueNone
-        | Origin.InFile f -> ValueSome f
+        | SymbolHome.Unstamped
+        | SymbolHome.InAssembly _ -> ValueNone
+        | SymbolHome.InFile f -> ValueSome f
 
 /// A namespace, the root container. `Path` is SEGMENTED (`["System"; "Collections"]`), so
 /// prefix relations are segment-list tests. The EMPTY path IS the global namespace.
@@ -175,13 +175,13 @@ type DisplayName = | DisplayName of string
 /// declaring type is not here; containment is the key's job.
 type SymbolOrigin =
     {
-        Home: Origin
+        Home: SymbolHome
         Namespace: NamespaceKey
     }
 
     static member Empty =
         {
-            Home = Origin.Unstamped
+            Home = SymbolHome.Unstamped
             Namespace = NamespaceKey.Global
         }
 

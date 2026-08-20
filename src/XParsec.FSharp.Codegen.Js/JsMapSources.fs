@@ -57,7 +57,7 @@ module JsMapSources =
         private
             {
                 Ordered: ResizeArray<ProducerSource>
-                ByPath: Dictionary<OriginPath, ProducerSource>
+                ByPath: Dictionary<AssemblyFilePath, ProducerSource>
             }
 
     module MapSources =
@@ -71,24 +71,24 @@ module JsMapSources =
         /// The emitted map's `"sources"` opens with the file being compiled, so the first
         /// `publish` here takes slot 1: `["app.fs", "Vesper.Core/math/z.fs", …]`. Paths are
         /// package-qualified because two packages may each ship a `math/z.fs`.
-        let publish (src: OriginSource) (m: MapSources) : unit =
+        let publish (src: LexedFile) (m: MapSources) : unit =
             let entry =
                 {
                     Slot = m.Ordered.Count + 1
                     Published =
                         {
-                            Path = src.File.Path.BucketName + "/" + src.File.Path.Relative.Name
+                            Path = src.Stamp.Path.Assembly + "/" + src.Stamp.Path.Relative.Name
                             Content = src.Input
                         }
                     Lines = LineIndex.build src.Input
                 }
 
             m.Ordered.Add entry
-            m.ByPath.[src.File.Path] <- entry
+            m.ByPath.[src.Stamp.Path] <- entry
 
         /// `ValueNone` is a broken invariant, not a position to fall back from: the caller
         /// resolving a node's map position throws rather than reading the consuming file's text.
-        let tryFind (file: OriginPath) (m: MapSources) : ProducerSource voption =
+        let tryFind (file: AssemblyFilePath) (m: MapSources) : ProducerSource voption =
             match m.ByPath.TryGetValue file with
             | true, entry -> ValueSome entry
             | _ -> ValueNone

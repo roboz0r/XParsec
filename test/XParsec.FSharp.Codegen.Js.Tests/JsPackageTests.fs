@@ -434,7 +434,7 @@ let private writePickPackage (name: string) (order: string list) : string =
 /// The file that produced the body `jsNativeInlineBodies` serves for `pick` from `dir`'s package.
 let private pickWinner (dir: string) : string =
     match JsNativeSymbols.jsNativeInlineBodies [ dir ] |> Map.tryFind "pick" with
-    | Some body -> body.Origin.File.Path.Relative.Name
+    | Some body -> body.Source.Stamp.Path.Relative.Name
     | None -> failtest "no inline body collected for 'pick'"
 
 [<Tests>]

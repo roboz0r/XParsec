@@ -12,7 +12,8 @@ module JsNativeSymbols =
     [<Literal>]
     let private RuntimeAssembly = "Vesper.Js.Runtime"
 
-    let private runtimeHome: Origin = Origin.InAssembly(AssemblyName RuntimeAssembly)
+    let private runtimeHome: SymbolHome =
+        SymbolHome.InAssembly(AssemblyName RuntimeAssembly)
 
     let private errorOrigin: SymbolOrigin =
         {
@@ -117,4 +118,4 @@ module JsNativeSymbols =
         (jsNativeContract packageDirs).InlineBodies |> InlineBodies.valuesByName
 
     /// The producer files the contract's inline bodies were unpooled from, alone.
-    let jsNativeInlineOrigins (packageDirs: string list) : OriginSources = (jsNativeContract packageDirs).Origins
+    let jsNativeInlineSources (packageDirs: string list) : LexedFiles = (jsNativeContract packageDirs).Sources

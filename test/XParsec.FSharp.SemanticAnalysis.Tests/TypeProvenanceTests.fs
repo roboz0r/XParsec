@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSemWithContext realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 /// The trailing `let`'s bound variable NodeKey (its declared/inferred query target).
 let private lastBoundVarKey (tast: TastFile) : NodeKey =

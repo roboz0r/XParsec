@@ -297,7 +297,7 @@ module TastPoolBuilder =
 
     /// The file this pool's `Anchor`s index: the base's, because an overlay derives nodes onto
     /// the very file it was opened over.
-    let origin (b: PoolBuilder) : OriginFile = b.Base.Origin
+    let stamp (b: PoolBuilder) : FileStamp = b.Base.Stamp
 
     /// This file's OWN intrinsic-repr type declarations. A backend reads it to tell a
     /// declaration of a PLATFORM REPRESENTATION, which already exists on the target, from one

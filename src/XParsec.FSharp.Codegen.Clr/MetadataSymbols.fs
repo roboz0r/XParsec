@@ -294,7 +294,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             Home =
                 match t.Assembly.GetName().Name with
                 | null -> failwithf "MetadataSymbols: reflected type '%s' has a null assembly simple name" t.FullName
-                | name -> Origin.InAssembly(AssemblyName name)
+                | name -> SymbolHome.InAssembly(AssemblyName name)
             Namespace =
                 SymbolKeyOps.namespaceKey (
                     match t.Namespace with
@@ -718,7 +718,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
 module MetadataSymbols =
 
-    /// Host runtime TPA, so a stamped `Origin` resolves to `System.Private.CoreLib`
+    /// Host runtime TPA, so a stamped `SymbolHome` resolves to `System.Private.CoreLib`
     /// (impl), not `System.Runtime` (ref).
     let runtimeAssemblyPaths () : string list =
         match AppContext.GetData "TRUSTED_PLATFORM_ASSEMBLIES" with

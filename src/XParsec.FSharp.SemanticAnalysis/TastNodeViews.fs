@@ -26,12 +26,12 @@ module TastNodeViews =
     type SecondaryCtor = TSecondaryCtorG<FrozenType, BoundVarId, ExprId>
     type BaseCtorCall = TBaseCtorCallG<FrozenType, BoundVarId, ExprId>
 
-    /// One resolved-specialization table entry as a consumer of the TREE reads it. `Origin`
+    /// One resolved-specialization table entry as a consumer of the TREE reads it. `Source`
     /// says which file the anchors inside the entry are indices into.
     type Specialization =
         {
             Key: Frozen.SpecializationKey
-            Origin: OriginFile
+            Source: FileStamp
             /// The abstraction this entry's edges apply: the lambda chain an edge's
             /// arguments are positional against.
             Value: ExprId

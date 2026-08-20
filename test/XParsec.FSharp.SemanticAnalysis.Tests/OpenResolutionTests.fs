@@ -54,7 +54,7 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
 
     let ctx =
-        PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+        PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
     Desugar.run ctx file
     NameResolution.run ctx file

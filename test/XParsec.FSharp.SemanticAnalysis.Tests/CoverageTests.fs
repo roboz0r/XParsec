@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 /// Every instance/static method-call key in the file's value bindings, in pre-order.
 let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
@@ -1082,7 +1082,7 @@ let tests =
                 let input = "let r = Math.pi"
                 let lexed, file = parseFile input
 
-                let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
+                let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
 
                 Expect.equal (declType tast) BuiltinTypes.tyFloat "r : float"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -1323,7 +1323,7 @@ let tests =
                 let lexed, file = parseFile "let _ = 0"
 
                 let ctx =
-                    PassContext(provider, Hashing.originSourceOfText lexed, CompilingAssembly.none)
+                    PassContext(provider, Hashing.lexedFileOfText lexed, CompilingAssembly.none)
 
                 Passes.Desugar.run ctx file
                 Passes.NameResolution.run ctx file

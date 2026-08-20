@@ -108,12 +108,12 @@ type PooledInlineValue =
         ParamAttrs: EqArray<ParamAttrs>
     }
 
-/// One entry of the pooled RESOLVED-SPECIALIZATION table. `Origin` is the file the entry's
+/// One entry of the pooled RESOLVED-SPECIALIZATION table. `Source` is the file the entry's
 /// anchors index, so without it they cannot be read.
 type PooledSpecialization =
     {
         Key: Frozen.SpecializationKey
-        Origin: OriginFile
+        Source: FileStamp
         Decl: DeclPoolId
     }
 
@@ -136,7 +136,7 @@ type FrozenFileResidue =
 type FrozenPools =
     {
         /// WHICH FILE the `Anchor` columns index: expr, pat and bound variable token alike.
-        Origin: OriginFile
+        Stamp: FileStamp
         /// The file's own interned type and key tables, which the `ty` columns index.
         /// Interning is injective on structural equality, so equal types share a row.
         Types: FrozenTypeTable
@@ -209,7 +209,7 @@ module FrozenPools =
     /// The zero column set, a pool that is nobody's file.
     let empty: FrozenPools =
         {
-            Origin = OriginFile.nowhere
+            Stamp = FileStamp.nowhere
             Types = FrozenTypeTable.Empty
             ExprTys = [||]
             ExprToks = [||]

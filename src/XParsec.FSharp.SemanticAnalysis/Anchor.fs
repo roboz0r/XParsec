@@ -138,97 +138,100 @@ module AssemblyFileId =
 
         FileId(String.concat "/" onDisk)
 
-/// WHICH FILE a set of `Anchor`s index: the package and the name within it. It is folded into
+/// WHICH FILE a set of `Anchor`s index: the assembly, and the name within it. It is folded into
 /// the per-file input hash.
-type OriginPath =
+type AssemblyFilePath =
     {
-        BucketName: string
+        Assembly: string
         Relative: AssemblyFileId
     }
 
 /// A producer file an `Anchor` may be resolved against: which file, plus a hash of the exact
 /// text whose `Lexed` those indices address. Without the hash, a producer edited between two
 /// builds leaves every index still in range and pointing to a DIFFERENT token, with no error.
-type OriginFile =
-    { Path: OriginPath; Content: InputHash }
+type FileStamp =
+    {
+        Path: AssemblyFilePath
+        ContentHash: InputHash
+    }
 
 [<RequireQualifiedAccess>]
-module OriginFile =
+module FileStamp =
 
     /// The identity of a pool that is NOBODY's file, bearing only nodes that anchor
     /// `Anchor.nowhere`.
-    let nowhere: OriginFile =
+    let nowhere: FileStamp =
         {
             Path =
                 {
-                    BucketName = ""
+                    Assembly = ""
                     Relative = AssemblyFileId.nowhere
                 }
-            Content = InputHash.ofBytes [||]
+            ContentHash = InputHash.ofBytes [||]
         }
 
 /// A producer file RETAINED past the parse that produced it, so that anchors of a tree unpooled
 /// from it stay readable.
-type OriginSource =
+type LexedFile =
     {
-        File: OriginFile
+        Stamp: FileStamp
         Lexed: Lexed
     }
 
     member this.Input: string = this.Lexed.Input
 
 /// Every producer file whose anchors a compilation may have to resolve. Keyed by PATH rather
-/// than by the whole `OriginFile`, so a file retained at DIFFERENT contents is found and
+/// than by the whole `FileStamp`, so a file retained at DIFFERENT contents is found and
 /// faults instead of missing.
-type OriginSources =
+type LexedFiles =
     private
         {
-            ByPath: Map<OriginPath, OriginSource>
+            ByPath: Map<AssemblyFilePath, LexedFile>
         }
 
 [<RequireQualifiedAccess>]
-module OriginSources =
+module LexedFiles =
 
-    let empty: OriginSources = { ByPath = Map.empty }
+    let empty: LexedFiles = { ByPath = Map.empty }
 
     /// Retain one parsed producer file. A later retention of the same path replaces.
-    let add (src: OriginSource) (sources: OriginSources) : OriginSources =
+    let add (src: LexedFile) (sources: LexedFiles) : LexedFiles =
         {
-            ByPath = Map.add src.File.Path src sources.ByPath
+            ByPath = Map.add src.Stamp.Path src sources.ByPath
         }
 
-    let ofSeq (srcs: OriginSource seq) : OriginSources =
+    let ofSeq (srcs: LexedFile seq) : LexedFiles =
         Seq.fold (fun acc src -> add src acc) empty srcs
 
     /// Every source of `added` retained over `sources`; a path in both keeps `added`'s read.
-    let addAll (added: OriginSources) (sources: OriginSources) : OriginSources =
+    let addAll (added: LexedFiles) (sources: LexedFiles) : LexedFiles =
         (sources, added.ByPath) ||> Map.fold (fun acc _ src -> add src acc)
 
     /// Everything retained, in path order.
-    let toList (sources: OriginSources) : OriginSource list =
+    let toList (sources: LexedFiles) : LexedFile list =
         [ for KeyValue(_, src) in sources.ByPath -> src ]
 
     /// The token `at` names in `file`, taken from that file's retained `Lexed`.
-    let tokenAt (sources: OriginSources) (file: OriginFile) (at: Anchor) : SyntaxToken =
+    let tokenAt (sources: LexedFiles) (file: FileStamp) (at: Anchor) : SyntaxToken =
         match at.Index with
         | ValueNone -> SyntaxToken.nowhere
         | ValueSome i ->
             match Map.tryFind file.Path sources.ByPath with
             | None ->
                 failwithf
-                    "OriginSources: no retained source for %s (package %s), so a tree anchored in it has no readable positions"
+                    "LexedFiles: no retained source for %s (assembly %s), so a tree anchored in it has no readable positions"
                     file.Path.Relative.Name
-                    file.Path.BucketName
-            | Some src when src.File.Content <> file.Content ->
+                    file.Path.Assembly
+            | Some src when src.Stamp.ContentHash <> file.ContentHash ->
                 failwithf
-                    "OriginSources: %s (package %s) has changed since the tree anchored in it was built (anchored against %s, retained %s), so every one of its anchors now names a different token"
+                    "LexedFiles: %s (assembly %s) has changed since the tree anchored in it was built (anchored against %s, retained %s), so every one of its anchors now names a different token"
                     file.Path.Relative.Name
-                    file.Path.BucketName
-                    file.Content.Hex
-                    src.File.Content.Hex
+                    file.Path.Assembly
+                    file.ContentHash.Hex
+                    src.Stamp.ContentHash.Hex
             | Some src when int i >= src.Lexed.Tokens.Length ->
                 failwithf
-                    "OriginSources: anchor %d is past the end of %s (%d tokens)"
+                    "LexedFiles: anchor %d is past the end of %s (%d tokens)"
                     (int i)
                     file.Path.Relative.Name
                     src.Lexed.Tokens.Length

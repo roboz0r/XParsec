@@ -45,7 +45,7 @@ module InlineExpansion =
             LambdaEnv: Dictionary<NodeKey, FusedLambda>
         }
 
-    let private originOf (x: Expander) (at: Descent) : OriginFile = Descent.originOf x.Ctx.Origin at
+    let private sourceOf (x: Expander) (at: Descent) : FileStamp = Descent.sourceOf x.Ctx.Stamp at
 
     /// This file's module-level `let inline` bindings. Off the INPUT decls, so a reduction takes
     /// the TEMPLATE as elaborated, never this pass's own walked rewrite of it.
@@ -80,7 +80,7 @@ module InlineExpansion =
                             match ctx.InlineParamAttrs.TryGetValue b with
                             | true, a -> a
                             | _ -> EqArray.empty
-                        Origin = ctx.Origin
+                        Source = ctx.Stamp
                     }
             | _ -> ()
 
@@ -94,7 +94,7 @@ module InlineExpansion =
             TExpr.InlineCall(
                 reentered.Spec,
                 EqArray.ofList [ for (a, _, _) in call.Args -> call.Walk a ],
-                originOf x at,
+                sourceOf x at,
                 call.Ty,
                 call.Tok
             )
@@ -203,9 +203,9 @@ module InlineExpansion =
                         Arity = 0
                     }
                 Shareable = SemTypeQuery.isGround x.Ctx.Store call.Ty
-                Origin = template.Origin
+                Source = template.Source
                 EdgeTok = call.Tok
-                EdgeOrigin = originOf x at
+                EdgeSource = sourceOf x at
                 EdgeTy = call.Ty
                 ReuseArgs = fun () -> []
                 Build = fun _ -> { Body = body; Survivors = [] }
@@ -216,7 +216,7 @@ module InlineExpansion =
     /// inside it resolves, and fuse in the call-site material the classification marked.
     let rec private reduceClassified (x: Expander) (inFlight: InFlight) (peeled: Peeled) : Reduced =
         // Every fusion below is the CALLER's material, so it carries the caller's domain.
-        let caller = originOf x inFlight.Caller
+        let caller = sourceOf x inFlight.Caller
 
         let fusedLambdas =
             peeled.Params |> List.filter (fun p -> p.Disposition = Disposition.FuseLambda)
@@ -270,7 +270,7 @@ module InlineExpansion =
             call
             (fun () ->
                 let resolved = resolveAt x.Ctx x.Mint call.Tok template.Decl call.Args
-                let caller = originOf x at
+                let caller = sourceOf x at
                 let peeled = classifyApplication caller template.ParamAttrs resolved.Body call.Args
 
                 SpecTable.outline
@@ -288,12 +288,12 @@ module InlineExpansion =
                         Shareable =
                             Peeled.isClosed peeled
                             && resolved.TypeArgs |> Array.forall (SemTypeQuery.isGround x.Ctx.Store)
-                        Origin = template.Origin
+                        Source = template.Source
                         EdgeTok = call.Tok
-                        EdgeOrigin = caller
+                        EdgeSource = caller
                         EdgeTy = call.Ty
                         ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt x at p.Arg)
-                        Build = fun spec -> reduceClassified x (Descent.enter at call template.Origin spec) peeled
+                        Build = fun spec -> reduceClassified x (Descent.enter at call template.Source spec) peeled
                     }
                     x.Specs
             )

@@ -117,7 +117,7 @@ module SignatureResolutionMembers =
             ctx.Report(
                 Site.Nowhere,
                 Kind.Conformance(
-                    ctx.Origin.Path.BucketName,
+                    ctx.Stamp.Path.Assembly,
                     ConformanceVerdict.SignatureNotPublished(sprintf "%s: %s" (what ()) (Kind.message refusal.Kind))
                 )
             )

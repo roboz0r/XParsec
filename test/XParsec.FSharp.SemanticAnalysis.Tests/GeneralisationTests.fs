@@ -7,11 +7,11 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 let private analyseWithCtx (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSemWithContext realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
@@ -116,7 +116,7 @@ let tests =
                 let input = "let r = let f = myId in f 1, f true"
                 let lexed, file = parseFile input
 
-                let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
+                let tast = Pipeline.analyseSem provider (Hashing.lexedFileOfText lexed) file
 
                 Expect.equal
                     (declType tast)

@@ -19,10 +19,10 @@ module AssemblyFiles =
 
     /// The identity every anchor and diagnostic of one file resolves against: the assembly
     /// it is bucketed under, and the name it is known by within it.
-    let fileSource (assemblyName: string) (id: AssemblyFileId) (lexed: Lexed) : OriginSource =
-        Hashing.originSource
+    let fileSource (assemblyName: string) (id: AssemblyFileId) (lexed: Lexed) : LexedFile =
+        Hashing.lexedFile
             {
-                BucketName = assemblyName
+                Assembly = assemblyName
                 Relative = id
             }
             lexed
@@ -79,7 +79,7 @@ module AssemblyFiles =
     /// file's `View`; what is left here is everything anchored to the signature's own text.
     type FrozenSignatureFile =
         {
-            Source: OriginSource
+            Source: LexedFile
             /// What RECOVERY reported parsing the signature.
             ParseDiagnostics: Diagnostic list
             /// Where the implementation failed to answer the signature, and where the
@@ -91,7 +91,7 @@ module AssemblyFiles =
     /// later files resolve its exports through.
     type FrozenFile =
         {
-            Source: OriginSource
+            Source: LexedFile
             /// What RECOVERY reported while parsing. Analysis runs regardless, so these
             /// ride alongside the analysis residue rather than short-circuiting the file.
             ParseDiagnostics: Diagnostic list
@@ -129,7 +129,7 @@ module AssemblyFiles =
     /// The per-file front-end seam: analyse+freeze one parsed file against a composed
     /// provider. A seam so a probe can wrap it and time each file.
     type AnalyseFile =
-        CompilingAssembly -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
+        CompilingAssembly -> IExternalSymbolProvider -> LexedFile -> ImplementationFile<SyntaxToken> -> FrozenPools
 
     /// The namespaces a file DECLARES. F# implicitly opens a file's own `namespace N` over
     /// its body, and that is what reaches a PRIOR file's namespace-direct declarations,
@@ -229,7 +229,7 @@ module AssemblyFiles =
     /// Anchor a file's bare diagnostics to its path and text: a `Site` points to tokens of THIS
     /// file's `Lexed`, whose `StartIndex` is a char offset into `file.Input`, turned into a
     /// (line, col) by one `LineIndex`. `Site.Nowhere` renders at line 1, col 1.
-    let anchorDiagnostics (file: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+    let anchorDiagnostics (file: LexedFile) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         let lexed = file.Lexed
         let source = file.Input
         let lineIndex = XParsec.LineIndex.OfString source
@@ -254,7 +254,7 @@ module AssemblyFiles =
                     | Site.After t -> lineIndex.GetLineCol(gapAfter t)
 
                 {
-                    Path = file.File.Path.Relative
+                    Path = file.Stamp.Path.Relative
                     Diagnostic = d
                     Line = line
                     Col = col
@@ -398,7 +398,7 @@ module AssemblyFiles =
             /// The parsed half the surface was resolved from; its `Parsed.Diagnostics` are
             /// recovery's findings.
             Signature: ParsedHalf<ParseChain.ParsedSignature>
-            Source: OriginSource
+            Source: LexedFile
             Surface: PublishedSurface
             /// What resolving the signature found.
             Diagnostics: Diagnostic list
@@ -431,7 +431,7 @@ module AssemblyFiles =
     [<NoEquality; NoComparison>]
     type private ImplAnalysis =
         {
-            Origin: OriginSource
+            Source: LexedFile
             Frozen: FrozenPools
             Scoped: IExternalSymbolProvider
             Bodies: InlineBodies.FileInlineBodies
@@ -457,16 +457,16 @@ module AssemblyFiles =
                     (ns @ composed.AmbientOpenPrefixes |> List.distinct)
                     [ composed ]
 
-        let origin = fileSource assembly.Name implementation.Id parsed.Lexed
-        let frozen = analyse assembly scoped origin parsed.File
+        let source = fileSource assembly.Name implementation.Id parsed.Lexed
+        let frozen = analyse assembly scoped source parsed.File
 
         {
-            Origin = origin
+            Source = source
             Frozen = frozen
             Scoped = scoped
             // The templates key off `SymbolKey` alone, so a `.fsi` replacing the file's
             // signatures leaves every one of them reachable.
-            Bodies = InlineBodies.collect origin frozen
+            Bodies = InlineBodies.collect source frozen
         }
 
     let private resolveSignatureFile
@@ -474,7 +474,7 @@ module AssemblyFiles =
         (composed: IExternalSymbolProvider)
         (reprs: Dictionary<string, string>)
         (signature: ParsedHalf<ParseChain.ParsedSignature>)
-        : OriginSource * PublishedSurface * Diagnostic list =
+        : LexedFile * PublishedSurface * Diagnostic list =
         // Anchored to the signature's OWN token stream: its diagnostics index that text.
         let source = fileSource assembly.Name signature.Id signature.Parsed.Lexed
 
@@ -643,7 +643,7 @@ module AssemblyFiles =
                                 | Publication.InAssembly ->
                                     let homed =
                                         ExternalSymbolProviders.stack
-                                            (ValueSome(Origin.InFile impl.Origin.File.Path))
+                                            (ValueSome(SymbolHome.InFile impl.Source.Stamp.Path))
                                             []
                                             [ r.Published ]
 
@@ -666,7 +666,7 @@ module AssemblyFiles =
                                     Diagnostics = r.Diagnostics @ conformance
                                 }
                         | ValueNone ->
-                            let surface = FrozenSignature.toSurface impl.Origin impl.Frozen
+                            let surface = FrozenSignature.toSurface impl.Source impl.Frozen
                             surface, PublishedSurface.toProvider surface, ValueNone
 
                     let view =
@@ -685,7 +685,7 @@ module AssemblyFiles =
 
                     let file =
                         {
-                            Source = impl.Origin
+                            Source = impl.Source
                             ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
                             Frozen = impl.Frozen
                             Scoped = impl.Scoped
@@ -767,7 +767,7 @@ module AssemblyFiles =
     type AnalysedAssembly =
         {
             Files: FrozenFile list
-            Origins: OriginSources
+            Sources: LexedFiles
         }
 
     /// `analyseWith`, GATED: every file must have parsed, and no analysed file may carry
@@ -811,5 +811,5 @@ module AssemblyFiles =
                 Ok
                     {
                         Files = [ for u in analysed -> u.File ]
-                        Origins = analysed |> List.map (fun u -> u.File.Source) |> OriginSources.ofSeq
+                        Sources = analysed |> List.map (fun u -> u.File.Source) |> LexedFiles.ofSeq
                     }

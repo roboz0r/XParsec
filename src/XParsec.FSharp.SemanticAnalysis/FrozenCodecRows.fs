@@ -41,8 +41,8 @@ module FrozenCodecRows =
 
     /// A row of the file's origin table. Public: a specialization entry writes the producer
     /// file its anchors index as one.
-    let writeOriginId (w: FrozenWriter) (OriginId i) = w.Write i
-    let readOriginId (r: FrozenReader) : OriginId = OriginId(r.ReadInt32())
+    let writeFileStampId (w: FrozenWriter) (FileStampId i) = w.Write i
+    let readFileStampId (r: FrozenReader) : FileStampId = FileStampId(r.ReadInt32())
 
     let private writeTypeIds (w: FrozenWriter) (xs: EqArray<TypeId>) = writeEqArrayWith w writeTypeId xs
 
@@ -338,18 +338,18 @@ module FrozenCodecRows =
         | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
         | b -> failwithf "FrozenCodec: unknown TypeRow tag %d" b
 
-    let private writeOriginRow (w: FrozenWriter) (row: OriginRow) =
-        writeStrId w row.BucketName
+    let private writeFileStampRow (w: FrozenWriter) (row: FileStampRow) =
+        writeStrId w row.Assembly
         writeStrId w row.Relative
         writeStrId w row.ContentHex
 
-    let private readOriginRow (r: FrozenReader) : OriginRow =
-        let bucketName = readStrId r
+    let private readFileStampRow (r: FrozenReader) : FileStampRow =
+        let assembly = readStrId r
         let relative = readStrId r
         let contentHex = readStrId r
 
         {
-            BucketName = bucketName
+            Assembly = assembly
             Relative = relative
             ContentHex = contentHex
         }
@@ -368,7 +368,7 @@ module FrozenCodecRows =
         writeImmutableWith w writeMemberKeyRow rows.Members
         writeImmutableWith w writeSymbolRow rows.Symbols
         writeImmutableWith w writeTypeRow rows.Types
-        writeImmutableWith w writeOriginRow rows.Origins
+        writeImmutableWith w writeFileStampRow rows.FileStamps
 
     let readTypeRows (r: FrozenReader) : FrozenTypeRows =
         let strings = readImmutableWith r (fun r -> r.ReadString())
@@ -379,7 +379,7 @@ module FrozenCodecRows =
         let members = readImmutableWith r readMemberKeyRow
         let symbols = readImmutableWith r readSymbolRow
         let types = readImmutableWith r readTypeRow
-        let origins = readImmutableWith r readOriginRow
+        let origins = readImmutableWith r readFileStampRow
 
         {
             Strings = strings
@@ -390,5 +390,5 @@ module FrozenCodecRows =
             Members = members
             Symbols = symbols
             Types = types
-            Origins = origins
+            FileStamps = origins
         }

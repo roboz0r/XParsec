@@ -300,14 +300,14 @@ let tests =
 // it and the round-trip gate above passes with it dropped. It must be the identity the analysis
 // ran under: one rebuilt downstream from a path compares unequal, reading as "all foreign".
 [<Tests>]
-let unitOriginTests =
+let unitStampTests =
     testList
         "TastPools states which file the anchors index"
         [
             test "the freeze stamps the origin it was analysed under" {
                 let origin, frozen = freezeWithOrigin "let a = 1\n"
 
-                Expect.equal frozen.Origin origin.File "the pools name the file the anchors were taken from"
+                Expect.equal frozen.Stamp origin.Stamp "the pools name the file the anchors were taken from"
             }
 
             test "re-pooling an unpooled tree keeps it" {
@@ -316,8 +316,8 @@ let unitOriginTests =
                 let origin, frozen = freezeWithOrigin "let a = 1\n"
 
                 Expect.equal
-                    (TastPools.rePool frozen (TastUnpool.ofPools frozen)).Origin
-                    origin.File
+                    (TastPools.rePool frozen (TastUnpool.ofPools frozen)).Stamp
+                    origin.Stamp
                     "the re-fill kept the file, rather than defaulting to nobody's"
             }
         ]

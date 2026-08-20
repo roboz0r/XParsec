@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private originIn (asm: string) (ns: string) : SymbolOrigin =
     {
-        Home = Origin.InAssembly(AssemblyName asm)
+        Home = SymbolHome.InAssembly(AssemblyName asm)
         Namespace = SymbolKeyOps.namespaceKey ns
     }
 
@@ -205,7 +205,7 @@ let tests =
             // "No home" is answered as `ValueNone`, never a placeholder name the caller would
             // have to recognise.
             test "an unstamped origin has no home assembly, a stamped one has its name" {
-                Expect.equal Origin.Unstamped.AssemblyOption ValueNone "Origin.Unstamped has no home assembly"
+                Expect.equal SymbolHome.Unstamped.AssemblyOption ValueNone "SymbolHome.Unstamped has no home assembly"
 
                 let unstamped = SymbolOrigin.Empty
 
@@ -215,7 +215,7 @@ let tests =
                     "SymbolOrigin.Empty is unstamped, so it has no home assembly"
 
                 Expect.equal
-                    (Origin.InAssembly(AssemblyName "Vesper.Core")).AssemblyOption
+                    (SymbolHome.InAssembly(AssemblyName "Vesper.Core")).AssemblyOption
                     (ValueSome "Vesper.Core")
                     "a stamped origin returns its home assembly name"
             }

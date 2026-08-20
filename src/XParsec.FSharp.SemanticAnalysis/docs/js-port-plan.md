@@ -246,7 +246,7 @@ the driver template and `CrossFileTests` runs it end to end.
 and `JsImports` keys both its runtime map and its entries by assembly name (failing with
 "has no JS runtime module"). A cross-file reference therefore resolves to "somewhere in
 `Vesper.Core`" with no way to name `core-types.mjs`. The fact EXISTS at analysis time —
-`AssemblyFiles` mints a per-file `OriginSource` and hands it to the view projection — it just
+`AssemblyFiles` mints a per-file `LexedFile` and hands it to the view projection — it just
 never reaches the symbol. So the spine of the tranche is: carry the declaring file onto the
 symbol origin (additive, with the usual central alias), then key imports on (assembly, file)
 and render `./<Package>/<name>.mjs`. Cross-file TYPE references ride the same path, so

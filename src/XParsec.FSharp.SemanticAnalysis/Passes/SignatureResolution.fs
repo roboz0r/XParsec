@@ -756,7 +756,7 @@ module SignatureResolution =
     /// than accumulating on a context the caller kept.
     let resolveFile
         (visible: IExternalSymbolProvider)
-        (source: OriginSource)
+        (source: LexedFile)
         (inputs: SignatureInputs)
         (file: SignatureFile<SyntaxToken>)
         : PublishedSurface * Diagnostic list =

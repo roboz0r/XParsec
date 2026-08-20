@@ -11,13 +11,13 @@ module InlineBodies =
     /// Mint the `this`-first inline `TDecl.Let` for a `member inline`: an accessor
     /// `member inline _.M p0 p1 = body` IS the inline function `M this p0 p1 = body`, `this`
     /// the OUTERMOST curried param (a static member, `ThisKey = ValueNone`, prepends none).
-    let liftMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
+    let liftMemberBody (source: LexedFile) (m: TastAccessor.TypeMember) : InlineBody option =
         if not m.IsInline then
             None
         else
             let pool = m.Body.Pool
             // Every node minted below takes the body's own anchor, so the lifted tree indexes
-            // exactly one file and the collection can stamp ONE origin over the whole thing.
+            // exactly one file and the collection can stamp ONE source over the whole thing.
             let bodyTok = TastAccessor.exprTok m.Body
 
             let curried =
@@ -56,7 +56,7 @@ module InlineBodies =
             // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.
             let paramAttrs = EqArray.init curried.Length (fun _ -> ParamAttrs.Default)
 
-            Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
+            Some(InlineBody.anchoredIn source (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
 
     type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
 
@@ -80,12 +80,12 @@ module InlineBodies =
 
     /// Read every splice template out of one frozen file, anchored to the file it was
     /// declared in, since a spliced node resolves only against that file's own text.
-    let collect (origin: OriginSource) (tast: FrozenPools) : FileInlineBodies =
+    let collect (source: LexedFile) (tast: FrozenPools) : FileInlineBodies =
         // The file's trees as columns, plus an append-only overlay for the wrapper lambdas.
         // The overlay dies with this call.
         let pool = TastPoolBuilder.openOver tast
 
-        let anchored = InlineBody.anchoredIn origin
+        let anchored = InlineBody.anchoredIn source
 
         // Unpooled off their own pool roots: the wire form is DU-typed because a pool id
         // means nothing in the consuming file's pool.
@@ -108,7 +108,7 @@ module InlineBodies =
                         let tdecl = TastAccessor.declType d
 
                         for m in TTypeKindG.members tdecl.Kind do
-                            match liftMemberBody origin m with
+                            match liftMemberBody source m with
                             | Some body ->
                                 let kind =
                                     match m.Kind with

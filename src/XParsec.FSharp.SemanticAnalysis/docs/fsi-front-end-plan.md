@@ -32,13 +32,13 @@ replace `TypeTranslate.fs`'s `resolveTypeName` (`:176`) outright.
 **Feasibility, checked.** The resolver half of `PassContext` does not depend on `Desugar`:
 `UseSiteAt` (`PassContext.fs:472-477`) reads only walk-maintained resolution state, and
 `Resolver` (`:255`) is the provider itself. So a walk over the `.fsi`'s CST, on a
-`PassContext` built from the `.fsi`'s own `OriginSource`, can drive the real resolver with no
+`PassContext` built from the `.fsi`'s own `LexedFile`, can drive the real resolver with no
 pass running first.
 
 The two are a matched pair, not interchangeable: `ParseChain.ParsedSignature` carries the CST
 that gets walked and the `Lexed` every `SyntaxToken` in it indexes into. The context needs the `Lexed` because `NodeKey`s derive from token
 offsets and identifier text is read out of it. `analyseSignature` already mints that
-`OriginSource` (`AssemblyFiles.fs:329`), today only to anchor the signature's diagnostics.
+`LexedFile` (`AssemblyFiles.fs:329`), today only to anchor the signature's diagnostics.
 
 **One context per half.** `NodeKey` offsets are per-file and nothing `NodeKey`-keyed is
 merged across files (`AssemblyFiles.fs:7-9`), so a paired unit has two contexts and the
@@ -183,7 +183,7 @@ Three things stand between the builder's tables and it:
 - **Order is not contractual.** Structural equality over the value needs key-ordered fields,
   and a canonical encoding on the wire axis needs key-ordered folding besides.
 
-Paths are already fine on both axes: a surface carries relative ones (`OriginPath` = bucket
+Paths are already fine on both axes: a surface carries relative ones (`AssemblyFilePath` = bucket
 name + `AssemblyFileId.Relative`), so it is checkout-portable.
 
 **Sequencing (user, 2026-08-15, revised 2026-08-18).** Merkle.Dag is a prototype outside this
@@ -307,7 +307,7 @@ Pure refactor. Whole suite green with no test edits.
 ### 3. The signature front end, wired to the in-assembly caller only — LANDED
 
 `Passes/SignatureResolution.fs` walks the `.fsi` on a `PassContext` built from its own
-`OriginSource` and fills a `PublishedSurfaceBuilder` that freezes to a `PublishedSurface`.
+`LexedFile` and fills a `PublishedSurfaceBuilder` that freezes to a `PublishedSurface`.
 `signatureView` (`AssemblyFiles.fs`) runs it; `buildProviderWith` still runs `VesperLib`.
 
 **ONE walk, over both grammars.** A pair's two halves key off the containment the walk

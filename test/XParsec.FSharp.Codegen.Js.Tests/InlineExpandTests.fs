@@ -59,7 +59,7 @@ let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, In
             | _ ->
                 owners.[e] <-
                     {
-                        File = entry.Origin
+                        File = entry.Source
                         At = TastAccessor.exprTok e
                     }
 

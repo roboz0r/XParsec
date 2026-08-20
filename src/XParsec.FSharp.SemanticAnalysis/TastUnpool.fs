@@ -134,7 +134,7 @@ module TastUnpool =
             let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
-        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Origin, ty, tok)
+        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Source, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =
                 clauseConstraints
@@ -307,7 +307,7 @@ module TastUnpool =
             |> Array.map (fun s ->
                 {
                     TSpecializationG.Key = s.Key
-                    Origin = s.Origin
+                    Source = s.Source
                     Decl = fromDecl s.Decl
                 }
             )

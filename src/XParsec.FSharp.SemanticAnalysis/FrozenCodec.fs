@@ -237,10 +237,10 @@ module FrozenCodec =
         | ExprPayload.InlineCall p ->
             w.Write 39uy
             writeSpecializationId w p.Spec
-            writeOriginRef w p.Origin
-        | ExprPayload.CallerExpr origin ->
+            writeFileStampRef w p.Source
+        | ExprPayload.CallerExpr source ->
             w.Write 40uy
-            writeOriginRef w origin
+            writeFileStampRef w source
         | ExprPayload.ArrayLit -> w.Write 41uy
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
@@ -363,9 +363,9 @@ module FrozenCodec =
             ExprPayload.InlineCall
                 {|
                     Spec = spec
-                    Origin = readOriginRef r
+                    Source = readFileStampRef r
                 |}
-        | 40uy -> ExprPayload.CallerExpr(readOriginRef r)
+        | 40uy -> ExprPayload.CallerExpr(readFileStampRef r)
         | 41uy -> ExprPayload.ArrayLit
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
@@ -463,7 +463,7 @@ module FrozenCodec =
     /// Every column and side table, in `FrozenPools` declaration order, but NOT the tables
     /// the types in them are ids into, which `writePools` puts in front of this.
     let private writeBody (w: FrozenWriter) (p: FrozenPools) =
-        writeOriginRef w p.Origin
+        writeFileStampRef w p.Stamp
         writeArrayWith w writeTypeId p.ExprTys
         writeArrayWith w writeAnchor p.ExprToks
         writeChildColumn w writeExprPoolId p.ExprChildren
@@ -505,7 +505,7 @@ module FrozenCodec =
         // rebound to the file's own before a single column is touched.
         let types = FrozenTypeTable.OfRows(readTypeRows r)
         let r = { r with Types = types }
-        let origin = readOriginRef r
+        let stamp = readFileStampRef r
         let exprTys = readArrayWith r readTypeId
         let exprToks = readArrayWith r readAnchor
         let exprChildren = readChildColumn r readExprPoolId
@@ -542,7 +542,7 @@ module FrozenCodec =
         checkSlots "DeclPatChildren" declPayloads.Length declPatChildren
 
         {
-            Origin = origin
+            Stamp = stamp
             Types = types
             ExprTys = exprTys
             ExprToks = exprToks

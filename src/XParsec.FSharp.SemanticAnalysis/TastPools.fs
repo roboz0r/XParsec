@@ -169,9 +169,9 @@ module TastPools =
 
     /// Pool a tree, assigning each reachable node a dense id and recording its child edges
     /// as ids. `identOf` fills the two bound-variable columns, `anchor` narrows the tree's
-    /// spelling of a position to the stored form, `origin` is the file those indices index.
+    /// spelling of a position to the stored form, `stamp` is the file those indices index.
     let private fill
-        (origin: OriginFile)
+        (stamp: FileStamp)
         (identOf: BoundVarKeyG<'id> -> BoundVarIdent)
         (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
@@ -289,7 +289,7 @@ module TastPools =
             |> Array.map (fun s ->
                 {
                     Key = s.Key
-                    Origin = s.Origin
+                    Source = s.Source
                     Decl = poolDecl sink s.Decl
                 }
             )
@@ -367,7 +367,7 @@ module TastPools =
         // Every column is snapshotted here; the derived table below only READS the pools.
         let pools =
             {
-                Origin = origin
+                Stamp = stamp
                 Types = FrozenTypeTable.OfRows typeTable.Rows
                 ExprTys = exprTys.ToArray()
                 ExprToks = exprToks.ToArray()
@@ -407,12 +407,12 @@ module TastPools =
             BindingValReprs = bindingValReprs pools
         }
 
-    /// Pool a source-shaped frozen file: its tokens become indices against `origin`, and
+    /// Pool a source-shaped frozen file: its tokens become indices against `stamp`, and
     /// `idents` records how the source writes each bound variable's name, verbatim.
-    let toPools (origin: OriginFile) (idents: BoundVarKey -> BoundVarIdent) (file: Frozen.TastFile) : FrozenPools =
-        fill origin idents Anchor.ofToken file
+    let toPools (stamp: FileStamp) (idents: BoundVarKey -> BoundVarIdent) (file: Frozen.TastFile) : FrozenPools =
+        fill stamp idents Anchor.ofToken file
 
-    /// Pool a tree that was UNPOOLED from `pools`: the names and the origin come back off
+    /// Pool a tree that was UNPOOLED from `pools`: the names and the stamp come back off
     /// the pool it came out of, and its anchors are already in the stored form.
     let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
         let identOf (b: BoundVarKeyG<BoundVarId>) =
@@ -423,4 +423,4 @@ module TastPools =
                 At = pools.BoundVarToks.[i]
             }
 
-        fill pools.Origin identOf id file
+        fill pools.Stamp identOf id file

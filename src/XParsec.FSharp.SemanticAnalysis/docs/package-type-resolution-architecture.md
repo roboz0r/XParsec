@@ -33,7 +33,7 @@ each package a provider over its dependencies' already-built surfaces.
 There is no separate signature extractor. A `.fsi` — whether it is a referenced
 package's contract or the sibling of a `.fs` in the assembly being compiled — goes
 through [`SignatureResolution.run`](../Passes/SignatureResolution.fs) on a
-`PassContext` built from its own `OriginSource`, driving the same `OpenScope`,
+`PassContext` built from its own `LexedFile`, driving the same `OpenScope`,
 `TypeRegistry` and `translateType` every other pass drives. What it returns is a
 [`PublishedSurface`](../PublishedSurface.fs), the same value a frozen `.fs` file
 projects to, which becomes an `IExternalSymbolProvider`.

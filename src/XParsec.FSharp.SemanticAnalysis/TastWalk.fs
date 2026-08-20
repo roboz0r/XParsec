@@ -100,11 +100,11 @@ module TastWalk =
         | TExprG.CallerExpr(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
 
-    /// Mark `body` as CALLER material: an expression written in `origin` that a reduction
+    /// Mark `body` as CALLER material: an expression written in `stamp` that a reduction
     /// FUSED into a specialization entry anchored in some other file. Its `ty`/`tok` ARE
     /// its body's by definition, so a mint never supplies them separately.
-    let callerExpr (origin: OriginFile) (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
-        TExprG.CallerExpr(body, origin, exprTy body, exprTok body)
+    let callerExpr (stamp: FileStamp) (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
+        TExprG.CallerExpr(body, stamp, exprTy body, exprTok body)
 
     /// The node under any caller marks. `CallerExpr` is semantically transparent, so a SHAPE
     /// test (is this an `External`? an applied function?) must read through it, and marks
@@ -667,7 +667,7 @@ module TastWalk =
                     TExpr.TypeTest(src', testTy', ty', tok)
             // The type map does NOT reach the entry's body: the table is a separate root
             // and is mapped as one. From here it would rewrite a shared entry per call site.
-            | TExpr.InlineCall(spec, args, origin, ty, tok) ->
+            | TExpr.InlineCall(spec, args, stamp, ty, tok) ->
                 let ty' = f ty
 
                 match EqArray.mapPreserve pe args with
@@ -675,12 +675,12 @@ module TastWalk =
                     if refEq ty' ty then
                         e
                     else
-                        TExpr.InlineCall(spec, args, origin, ty', tok)
-                | ValueSome args' -> TExpr.InlineCall(spec, args', origin, ty', tok)
-            | TExpr.CallerExpr(body, origin, _, _) ->
+                        TExpr.InlineCall(spec, args, stamp, ty', tok)
+                | ValueSome args' -> TExpr.InlineCall(spec, args', stamp, ty', tok)
+            | TExpr.CallerExpr(body, stamp, _, _) ->
                 let body' = pe body
 
-                if refEq body' body then e else callerExpr origin body'
+                if refEq body' body then e else callerExpr stamp body'
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
         match m.OverrideArm m arm with

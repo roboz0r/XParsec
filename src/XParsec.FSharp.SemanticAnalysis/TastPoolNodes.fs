@@ -285,10 +285,10 @@ type ExprPayload =
     | InlineCall of
         {|
             Spec: SpecializationId
-            Origin: OriginFile
+            Source: FileStamp
         |}
     /// The file everything under this node is anchored in.
-    | CallerExpr of origin: OriginFile
+    | CallerExpr of source: FileStamp
 
 [<RequireQualifiedAccess>]
 module ExprPayload =
@@ -396,7 +396,7 @@ module ExprPayload =
         | ExprPayload.Downcast
         | ExprPayload.TypeTest _
         | ExprPayload.TraitCall _
-        // An `Origin` is a file IDENTITY and not an `Anchor`, because a MOVE that remapped it
+        // A `Source` is a file IDENTITY and not an `Anchor`, because a MOVE that remapped it
         // would be claiming the subtree came from somewhere it did not.
         | ExprPayload.InlineCall _
         | ExprPayload.CallerExpr _ -> p

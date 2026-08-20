@@ -24,19 +24,19 @@ let tests =
             // Two fragments that collided here would share an anchor domain, and each one's
             // token indices would resolve against the other's text.
             testList
-                "textOriginPath"
+                "textAssemblyFilePath"
                 [
                     test "the same text yields the same identity" {
                         Expect.equal
-                            (Hashing.textOriginPath "let x = 1")
-                            (Hashing.textOriginPath "let x = 1")
+                            (Hashing.textAssemblyFilePath "let x = 1")
+                            (Hashing.textAssemblyFilePath "let x = 1")
                             "identity is a function of the text"
                     }
 
                     test "different texts yield different identities" {
                         Expect.notEqual
-                            (Hashing.textOriginPath "let x = 1")
-                            (Hashing.textOriginPath "let x = 2")
+                            (Hashing.textAssemblyFilePath "let x = 1")
+                            (Hashing.textAssemblyFilePath "let x = 2")
                             "two fragments are two anchor domains"
                     }
                 ]

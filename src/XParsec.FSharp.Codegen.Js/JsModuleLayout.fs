@@ -95,7 +95,7 @@ module JsModulePath =
 [<RequireQualifiedAccess>]
 type JsHomeWhere =
     /// The declaring source file's own module, inside the package's output directory.
-    | InFile of file: OriginPath
+    | InFile of file: AssemblyFilePath
     /// The package as a whole, a consumer resolving a dependency knowing only which one
     /// declared the symbol.
     | Package
@@ -110,25 +110,25 @@ type JsHome =
 
 module JsHome =
 
-    /// The backend home a provider `Origin` identifies. `ValueNone` for one carrying no assembly.
-    let tryOfOrigin (home: Origin) : JsHome voption =
+    /// The backend home a provider `SymbolHome` identifies. `ValueNone` for one carrying no assembly.
+    let tryOfOrigin (home: SymbolHome) : JsHome voption =
         match home with
-        | Origin.Unstamped -> ValueNone
-        | Origin.InAssembly a ->
+        | SymbolHome.Unstamped -> ValueNone
+        | SymbolHome.InAssembly a ->
             ValueSome
                 {
                     Assembly = a.Name
                     Where = JsHomeWhere.Package
                 }
-        | Origin.InFile f ->
+        | SymbolHome.InFile f ->
             ValueSome
                 {
-                    Assembly = f.BucketName
+                    Assembly = f.Assembly
                     Where = JsHomeWhere.InFile f
                 }
 
-    /// The home an `Origin` identifies; fails when it carries no assembly, quoting `what`.
-    let ofOrigin (what: string) (home: Origin) : JsHome =
+    /// The home an `SymbolHome` identifies; fails when it carries no assembly, quoting `what`.
+    let ofOrigin (what: string) (home: SymbolHome) : JsHome =
         match tryOfOrigin home with
         | ValueSome h -> h
         | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what

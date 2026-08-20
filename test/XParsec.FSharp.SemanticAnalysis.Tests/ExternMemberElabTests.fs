@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 let private widgetSource =
     "module Widgets\n\
@@ -164,7 +164,7 @@ let tests =
                      let addW (a: widget) (b: widget) : widget = a + b\n"
 
                 let lexed, file = parseFile source
-                let origin = Hashing.originSourceOfText lexed
+                let origin = Hashing.lexedFileOfText lexed
                 let ctx, tast = Pipeline.analyseSemWithContext realProvider.Value origin file
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 

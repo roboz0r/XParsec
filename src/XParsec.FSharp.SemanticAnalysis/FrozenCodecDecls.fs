@@ -529,13 +529,13 @@ module FrozenCodecDecls =
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
         writeEqArrayWith w writeTypeRef s.Key.TypeArgs
-        writeOriginRef w s.Origin
+        writeFileStampRef w s.Source
         writeDeclPoolId w s.Decl
 
     and readSpecialization (r: FrozenReader) : PooledSpecialization =
         let template = readSymbolRef r
         let typeArgs = EqArray.ofArray (readArrayWith r readTypeRef)
-        let origin = readOriginRef r
+        let origin = readFileStampRef r
         let decl = readDeclPoolId r
 
         {
@@ -544,7 +544,7 @@ module FrozenCodecDecls =
                     Template = template
                     TypeArgs = typeArgs
                 }
-            Origin = origin
+            Source = origin
             Decl = decl
         }
 

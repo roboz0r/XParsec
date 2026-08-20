@@ -108,10 +108,10 @@ module TastConvert =
             TExprG.TraitCall(f supportTy, n, EqArray.map pe args, f ty, tk tok)
         | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tk tok)
         // The `spec` index is domain-free: the table it indexes is remapped whole alongside
-        // the tree. An `origin` is a file IDENTITY, not a position, so `tk` never sees it.
-        | TExprG.InlineCall(spec, args, origin, ty, tok) ->
-            TExprG.InlineCall(spec, EqArray.map pe args, origin, f ty, tk tok)
-        | TExprG.CallerExpr(body, origin, ty, tok) -> TExprG.CallerExpr(pe body, origin, f ty, tk tok)
+        // the tree. An `stamp` is a file IDENTITY, not a position, so `tk` never sees it.
+        | TExprG.InlineCall(spec, args, stamp, ty, tok) ->
+            TExprG.InlineCall(spec, EqArray.map pe args, stamp, f ty, tk tok)
+        | TExprG.CallerExpr(body, stamp, ty, tok) -> TExprG.CallerExpr(pe body, stamp, f ty, tk tok)
 
     and arm
         (f: 'a -> 'b)
@@ -399,9 +399,9 @@ module TastConvert =
                     Template = s.Key.Template
                     TypeArgs = EqArray.map f s.Key.TypeArgs
                 }
-            // NOT mapped by `fTok`: the origin identifies which file the anchors index, and a change
+            // NOT mapped by `fTok`: the stamp identifies which file the anchors index, and a change
             // of the position REPRESENTATION does not move the body to another file.
-            Origin = s.Origin
+            Source = s.Source
             Decl = decl f fTok s.Decl
         }
 

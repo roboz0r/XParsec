@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
 let private isUnresolvedTyVars (d: Diagnostic) =
     match d.Kind with
@@ -57,7 +57,7 @@ let tests =
                 let lexed, file = parseFile "let x = 1"
 
                 let ctx, _ =
-                    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseSemWithContext realProvider.Value (Hashing.lexedFileOfText lexed) file
 
                 let freeTv = ctx.Store.NewTypeVar()
                 let freeTy = TyVar freeTv
@@ -106,7 +106,7 @@ let tests =
                 let lexed, file = parseFile "let id = fun x -> x"
 
                 let ctx, tast =
-                    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
+                    Pipeline.analyseSemWithContext realProvider.Value (Hashing.lexedFileOfText lexed) file
 
                 let idKey =
                     match tast.Decls with
@@ -167,7 +167,7 @@ let tests =
                     let lexed, file = parseFile src
 
                     let tast =
-                        Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
+                        Pipeline.analyseSem realProvider.Value (Hashing.lexedFileOfText lexed) file
 
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _), _, _, _) ] -> ty

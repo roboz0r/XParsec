@@ -55,16 +55,16 @@ let private withSpecialization () : FrozenPools =
         )
 
     // The two grafted nodes are CALL-SITE material, so their domain is the consuming file and
-    // deliberately NOT the entry's producer: a codec that dropped a node's own origin and
+    // deliberately NOT the entry's producer: a codec that dropped a node's own source and
     // recovered it from the entry would still round-trip if the two agreed.
     let consumer =
         {
             Path =
                 {
-                    BucketName = "App"
+                    Assembly = "App"
                     Relative = AssemblyFileId.ofRelative "m.fs"
                 }
-            Content = Hashing.hashString "module M\n"
+            ContentHash = Hashing.hashString "module M\n"
         }
 
     let payloads = Array.copy pools.ExprPayloads
@@ -73,7 +73,7 @@ let private withSpecialization () : FrozenPools =
         ExprPayload.InlineCall
             {|
                 Spec = SpecializationId 0
-                Origin = consumer
+                Source = consumer
             |}
 
     payloads.[unary] <- ExprPayload.CallerExpr consumer
@@ -89,15 +89,15 @@ let private withSpecialization () : FrozenPools =
                             TypeArgs = EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
                         }
                     // A file OTHER than the one the blob is keyed by, so nothing about the
-                    // origin is recoverable from the key. Synthetic: no anchor is resolved here.
-                    Origin =
+                    // source is recoverable from the key. Synthetic: no anchor is resolved here.
+                    Source =
                         {
                             Path =
                                 {
-                                    BucketName = "Lib"
+                                    Assembly = "Lib"
                                     Relative = AssemblyFileId.ofRelative "n.fs"
                                 }
-                            Content = Hashing.hashString "module N\n\nlet inline f x = x + 1\n"
+                            ContentHash = Hashing.hashString "module N\n\nlet inline f x = x + 1\n"
                         }
                     Decl = template.Decl
                 }
@@ -105,8 +105,8 @@ let private withSpecialization () : FrozenPools =
     }
 
 /// The same graft with a SECOND entry carrying the same producer file: one template grounded
-/// two ways. The two entries differ only in the grounding, so the origin is what they share.
-let private withSharedOrigin () : FrozenPools =
+/// two ways. The two entries differ only in the grounding, so the source is what they share.
+let private withSharedStamp () : FrozenPools =
     let pools = withSpecialization ()
 
     let first =
@@ -233,43 +233,43 @@ let tests =
                 Expect.isTrue (survivesRoundTrip grafted) "the grafted file survived flatten/thaw structurally"
             }
 
-            // The file's OWN origin is the one field no structural comparison can reach: the
+            // The file's OWN stamp is the one field no structural comparison can reach: the
             // unpooled tree has no field for it, so a writer that dropped it passes every gate
-            // above, and a file carrying no origin calls all of its own code foreign.
-            test "the file's own origin survives flatten/thaw" {
+            // above, and a file carrying no stamp calls all of its own code foreign.
+            test "the file's own stamp survives flatten/thaw" {
                 let frozen = frozenOfJs "module M\n\nlet y = 1 + 2\n"
 
                 Expect.notEqual
-                    frozen.Origin
-                    OriginFile.nowhere
+                    frozen.Stamp
+                    FileStamp.nowhere
                     "the freeze stamped a real file, or what follows is vacuous"
 
                 Expect.equal
-                    (FrozenCodec.thaw (FrozenCodec.flatten frozen)).Origin
-                    frozen.Origin
+                    (FrozenCodec.thaw (FrozenCodec.flatten frozen)).Stamp
+                    frozen.Stamp
                     "the compiling file's identity came back off the wire"
             }
 
-            // The origin is a REF into a table of its own, and one reference exercises the ref
+            // The stamp is a REF into a table of its own, and one reference exercises the ref
             // but not the interning. Asserted on the decoded row array, where the sharing is
-            // observable: references carrying equal `OriginFile` values decode alike either way.
-            test "every reference to a file resolves to ONE origin row" {
-                let grafted = withSharedOrigin ()
+            // observable: references carrying equal `FileStamp` values decode alike either way.
+            test "every reference to a file resolves to ONE file-stamp row" {
+                let grafted = withSharedStamp ()
                 let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
 
                 Expect.equal (rt.Specializations.Length) 2 "both entries survived the wire"
-                Expect.equal rt.Specializations grafted.Specializations "…each with the origin it was written with"
+                Expect.equal rt.Specializations grafted.Specializations "…each with the source it was written with"
 
                 // Counted rather than assumed: two entries reference the producer and the two
                 // grafted nodes the consumer, on top of whatever the freeze itself anchored.
                 let referenced =
                     [
                         for s in rt.Specializations do
-                            yield s.Origin
+                            yield s.Source
 
                         for p in rt.ExprPayloads do
                             match p with
-                            | ExprPayload.InlineCall c -> yield c.Origin
+                            | ExprPayload.InlineCall c -> yield c.Source
                             | ExprPayload.CallerExpr o -> yield o
                             | _ -> ()
                     ]
@@ -281,7 +281,7 @@ let tests =
                     "the fixture must name more than one file, else sharing is vacuous"
 
                 Expect.equal
-                    (rt.Types.Rows.Origins.Length)
+                    (rt.Types.Rows.FileStamps.Length)
                     referenced.Length
                     "each file occupies ONE row, not one per reference that names it"
             }

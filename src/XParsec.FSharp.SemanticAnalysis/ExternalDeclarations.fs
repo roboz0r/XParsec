@@ -65,17 +65,17 @@ type InlineBody =
         ParamAttrs: EqArray<ParamAttrs>
         /// The producer file's anchors: its text and token table. `Decl`'s nodes carry
         /// token INDICES into that file, unreadable without it.
-        Origin: OriginSource
+        Source: LexedFile
     }
 
 [<RequireQualifiedAccess>]
 module InlineBody =
 
-    let anchoredIn (origin: OriginSource) (decl: Wire.TDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
+    let anchoredIn (origin: LexedFile) (decl: Wire.TDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
         {
             Decl = decl
             ParamAttrs = paramAttrs
-            Origin = origin
+            Source = origin
         }
 
 type ExternalSymbol =

@@ -24,7 +24,7 @@ module InlineReduction =
         }
 
     /// An inline body as this pass consumes it, in this file's `SemType` domain. A template of
-    /// this file and one another file served are the same record; only `Origin` tells them apart.
+    /// this file and one another file served are the same record; only `Source` tells them apart.
     type internal TemplateBody =
         {
             Key: SymbolKey
@@ -32,7 +32,7 @@ module InlineReduction =
             ParamAttrs: EqArray<ParamAttrs>
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
             /// the producer's for a served one.
-            Origin: OriginFile
+            Source: FileStamp
         }
 
     /// WHICH inline binding a reduction is expanding: the identity a RECURSION is detected on,
@@ -52,7 +52,7 @@ module InlineReduction =
             Template: TemplateId
             /// The anchor domain of the body this frame expands. It rides the chain so a walk
             /// cannot be handed material under a domain the chain disagrees with.
-            Origin: OriginFile
+            Source: FileStamp
             /// The table slot this expansion reserved: what a re-entering call is answered with.
             Spec: SpecializationId
         }
@@ -110,10 +110,10 @@ module InlineReduction =
 
         /// The file the expressions being walked here were WRITTEN in, whose token array their
         /// anchors index: the producer's inside a served body, `compiling` outside one.
-        let originOf (compiling: OriginFile) (d: Descent) : OriginFile =
+        let sourceOf (compiling: FileStamp) (d: Descent) : FileStamp =
             match d.Frames with
             | [] -> compiling
-            | f :: _ -> f.Origin
+            | f :: _ -> f.Source
 
         /// The frame already expanding `template`, if the walk is inside one: this call has
         /// reached a binding that reaches itself, and is answered from that frame instead of
@@ -133,14 +133,14 @@ module InlineReduction =
         /// Go INSIDE the body this call targets: the descent its own expressions are walked at
         /// (this binding pushed onto the caller's), beside the one the call site's arguments
         /// stay at, because they are the caller's expressions and never enter anything.
-        let enter (d: Descent) (call: PendingCall) (origin: OriginFile) (spec: SpecializationId) : InFlight =
+        let enter (d: Descent) (call: PendingCall) (source: FileStamp) (spec: SpecializationId) : InFlight =
             {
                 Own =
                     {
                         Frames =
                             {
                                 Template = call.Template
-                                Origin = origin
+                                Source = source
                                 Spec = spec
                             }
                             :: d.Frames
@@ -276,7 +276,7 @@ module InlineReduction =
     /// fate: the half of the reduction needing no recursion, so it runs before a specialization
     /// slot is reserved. `caller` marks a substituted argument, which has left the file it was in.
     let internal classifyApplication
-        (caller: OriginFile)
+        (caller: FileStamp)
         (paramAttrs: EqArray<ParamAttrs>)
         (expanded: TExpr)
         (args: (TExpr * SemType * SyntaxToken) list)
@@ -371,13 +371,13 @@ module InlineReduction =
         | ValueSome key ->
             ExternalSymbolProviders.tryInlineBody ctx.Provider key
             |> ValueOption.map (fun ib ->
-                let sources = SpecTable.retainOrigin ib.Origin specs
+                let sources = SpecTable.retainSource ib.Source specs
 
                 {
                     Key = key
-                    Decl = InlineThaw.bodyAtOrigin ctx.Store sources ib.Origin.File ib.Decl
+                    Decl = InlineThaw.bodyAtStamp ctx.Store sources ib.Source.Stamp ib.Decl
                     ParamAttrs = ib.ParamAttrs
-                    Origin = ib.Origin.File
+                    Source = ib.Source.Stamp
                 }
             )
         | ValueNone -> ValueNone

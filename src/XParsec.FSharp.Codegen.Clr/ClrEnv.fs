@@ -376,7 +376,7 @@ type internal ClrEnv
             | _ -> 0
         | _ -> 0
 
-    let externalAsmRef (origin: Origin) : EntityHandle =
+    let externalAsmRef (origin: SymbolHome) : EntityHandle =
         // The CLR emits ONE PE per assembly, so a home refined to its declaring file
         // scopes to the same `AssemblyRef`, and the assembly is all this reads.
         match origin.AssemblyOption with
@@ -448,7 +448,9 @@ type internal ClrEnv
     /// Referenced-assembly record shape by key + arity.
     let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Record(a, fields, origin, _)) when a = arity && origin.Home <> Origin.Unstamped ->
+        | ValueSome(ExternalTypeShape.Record(a, fields, origin, _)) when
+            a = arity && origin.Home <> SymbolHome.Unstamped
+            ->
             ValueSome(fields, origin)
         | _ -> ValueNone
 
@@ -466,7 +468,7 @@ type internal ClrEnv
     /// construction (`Some` / `None`).
     let externalUnionShape (key: TypeKey) (arity: int) : (EqArray<ExternalCaseShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
+        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home <> SymbolHome.Unstamped ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 

@@ -90,7 +90,7 @@ module ClrDriver =
                             Target = Target.Clr
                         }
                         provider
-                        (Hashing.originSourceOfText parsed.Lexed)
+                        (Hashing.lexedFileOfText parsed.Lexed)
                         parsed.File
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast

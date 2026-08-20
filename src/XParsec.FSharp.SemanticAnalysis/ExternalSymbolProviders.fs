@@ -272,7 +272,7 @@ module ExternalSymbolProviders =
     /// `stampHome` onto each resolved entry's `SymbolOrigin.Home`. The origin's NAMESPACE
     /// is never stamped, because a package spans as many as its files declare.
     let stack
-        (stampHome: Origin voption)
+        (stampHome: SymbolHome voption)
         (ambient: string list)
         (sources: IExternalSymbolProvider list)
         : IExternalSymbolProvider =
@@ -307,7 +307,7 @@ module ExternalSymbolProviders =
                 ExternalTypeShape.Intrinsic { shape with Class = surface }
             | _ -> hit
 
-        let inline home (origin: SymbolOrigin) (h: Origin) = { origin with Home = h }
+        let inline home (origin: SymbolOrigin) (h: SymbolHome) = { origin with Home = h }
 
         let stampSymbol =
             match stampHome with
@@ -338,7 +338,7 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.IntrinsicInterface s ->
                     ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
                 | ExternalTypeShape.Abbrev _
-                // An intrinsic carries no `Origin`: its identity is the canon.
+                // An intrinsic carries no `SymbolOrigin`: its identity is the canon.
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Unmodelled _ -> shape
 
