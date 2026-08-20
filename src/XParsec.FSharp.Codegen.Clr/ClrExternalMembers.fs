@@ -131,17 +131,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declArgs, methodArgs =
                 recoverOpenTypars declTyparArity methodTyparArity (ExternalSignature.openTemplate sig_) memberTy
 
-            // A cross-file member whose declaring type is emitted INTO this assembly parents on
-            // that type's local `TypeDef`; reaching `externalClassRef` here would instead emit
-            // an `AssemblyRef`-scoped `TypeRef` back to our own assembly.
             let tref =
-                match env.UserTypes.TryGetValue declKey with
-                | true, localHandle -> localHandle
-                | _ ->
-                    match externalClassRef declKey with
-                    | ValueSome t -> t
-                    | ValueNone ->
-                        failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
+                match env.ClassOrigin declKey with
+                | ClassOrigin.Local t
+                | ClassOrigin.Foreign t -> t
+                | ClassOrigin.Unresolved ->
+                    failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
             let parent = externalTypeSpec declKey tref (declArgs)
 
@@ -235,9 +230,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     let declArgs, _ = recoverOpenTypars declTyparArity 0 openFieldTy memberTy
 
                     let tref =
-                        match externalClassRef declKey with
-                        | ValueSome t -> t
-                        | ValueNone ->
+                        match env.ClassOrigin declKey with
+                        | ClassOrigin.Local t
+                        | ClassOrigin.Foreign t -> t
+                        | ClassOrigin.Unresolved ->
                             failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
                     externalTypeSpec declKey tref declArgs
@@ -373,9 +369,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match symbols.TryLookupCtor(key, chosen, List.length argTypes) with
         | ValueNone -> ValueNone
         | ValueSome chosenCtor ->
-            match externalClassRef key with
-            | ValueNone -> ValueNone
-            | ValueSome tref ->
+            // FOREIGN only: a class this compilation emits reaches its ctor through the emitted
+            // `classes` registry instead.
+            match env.ClassOrigin key with
+            | ClassOrigin.Local _
+            | ClassOrigin.Unresolved -> ValueNone
+            | ClassOrigin.Foreign tref ->
                 let parent = externalTypeSpec key tref tyArgs
 
                 let paramTys =
@@ -431,13 +430,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 let substitutedTy = substituteDeclaring (List.toArray args) openFieldTy
                 ValueSome(handle, substitutedTy)
 
-    /// Mint the parameterless `.ctor()` `MemberRef` of a heritable external base class
-    /// (`System.Attribute`), directly off the `TypeRef`: a base ctor is often `protected` and
-    /// not surfaced, yet `call`ing it from a subclass ctor is legal.
+    /// The parameterless `.ctor()` `MemberRef` of a heritable FOREIGN base class
+    /// (`System.Attribute`), minted directly off the `TypeRef`, because a base ctor is often
+    /// `protected` and unsurfaced yet legal to `call` from a subclass ctor.
     let externalParameterlessBaseCtor (key: TypeKey) : EntityHandle voption =
-        match externalClassRef key with
-        | ValueNone -> ValueNone
-        | ValueSome tref ->
+        match env.ClassOrigin key with
+        | ClassOrigin.Local _
+        | ClassOrigin.Unresolved -> ValueNone
+        | ClassOrigin.Foreign tref ->
             let s = BlobBuilder()
 
             BlobEncoder(s)
@@ -464,9 +464,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// The raw external `TypeRef` for `key`. The Extends column of a derived type wants the
-    /// bare ref for a non-generic external base, not a `TypeSpec`. `ValueNone` ⇒ not a class.
-    member _.ExternalClassTypeRef(key) = externalClassRef key
+    member _.ClassOrigin(key) = env.ClassOrigin key
 
     member _.ExternalMemberReturnsVoid(key: SymbolKey) : bool =
         let mk = SymbolKeyOps.asMemberKey "ClrProvider: external member return" key

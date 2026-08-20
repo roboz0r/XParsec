@@ -5,6 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Each of `&&& ||| ^^^ <<< >>> ~~~` is a bare trait call in
 // `Vesper.Core/ops-platform.clr.fs`; which widths support it and what IL each lowers to
@@ -43,7 +44,7 @@ let tests =
                             "printfn \"%d\" (~~~0)" // -1
                         ]
 
-                let _, artifact = compileSource "BitwiseLogic" src
+                let artifact = compileSource "BitwiseLogic" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -60,7 +61,7 @@ let tests =
                             "printfn \"%d\" (13 <<< 2)" // 52
                         ]
 
-                let _, artifact = compileSource "BitwiseShift" src
+                let artifact = compileSource "BitwiseShift" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -68,7 +69,7 @@ let tests =
             }
 
             test "bitwise ops pin no FSharp.Core dependency (no runtime library)" {
-                let _, artifact = compileSource "BitwiseNoDep" "printfn \"%d\" (13 &&& 11 ||| 4)"
+                let artifact = compileSource "BitwiseNoDep" "printfn \"%d\" (13 &&& 11 ||| 4)"
 
                 expectNoFSharpCore artifact "primitive bitwise"
 
@@ -90,7 +91,7 @@ let tests =
                             "printfn \"%d\" (combineHash 3 11)"
                         ]
 
-                let _, artifact = compileSource "BitwiseDeferred" src
+                let artifact = compileSource "BitwiseDeferred" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

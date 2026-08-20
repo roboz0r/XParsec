@@ -4,6 +4,7 @@ open System
 open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `Vesper.Array` is the first generic intrinsic (`'T[]`) to emit end-to-end. Its whole
 // surface is built from counted index loops, indexed read (`arr.[i]` → `ldelem`) and

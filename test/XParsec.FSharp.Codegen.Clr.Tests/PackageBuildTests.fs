@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.PackageBuildTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // The manifest-driven `buildPackage` harness: each anchor compiles a package's `impl`
 // `.fs` to a BCL-only DLL and loads it with its expected public types, resolving the

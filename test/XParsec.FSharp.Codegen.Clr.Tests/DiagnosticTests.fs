@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.DiagnosticTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // The negative direction: the suite is almost entirely happy-path, so a regression that
 // ACCEPTS bad input goes unseen. Each row is a program that must be rejected, pinned on a

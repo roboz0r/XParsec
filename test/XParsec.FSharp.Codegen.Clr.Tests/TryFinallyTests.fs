@@ -27,7 +27,7 @@ let tryFinallyTests =
                             "run ()"
                         ]
 
-                let _, artifact = compileSource "TryFinallyOrder" src
+                let artifact = compileSource "TryFinallyOrder" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -53,7 +53,7 @@ let tryFinallyTests =
                             "printfn \"%d\" (compute ())"
                         ]
 
-                let _, artifact = compileSource "TryFinallyResult" src
+                let artifact = compileSource "TryFinallyResult" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -81,7 +81,7 @@ let tryFinallyTests =
                             "printfn \"%d\" (run 0)"
                         ]
 
-                let _, artifact = compileSource "TryFinallyThrow" src
+                let artifact = compileSource "TryFinallyThrow" src
 
                 let thrown =
                     try

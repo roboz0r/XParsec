@@ -6,6 +6,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `for x in src do body` lowers to `let e = src.GetEnumerator()` / `try while e.MoveNext()
 // do (let x = e.Current in body)` / `finally if e <> null then e.Dispose()`. Which types
@@ -30,7 +32,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "ForInEmpty" src
+                let artifact = compileSource "ForInEmpty" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -43,7 +45,7 @@ let forInTests =
                 let src =
                     String.concat "\n" [ "for x in System.Linq.Enumerable.Range(1, 3) do"; "    printfn \"%d\" x" ]
 
-                let _, artifact = compileSource "ForInPopulated" src
+                let artifact = compileSource "ForInPopulated" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -63,7 +65,7 @@ let forInTests =
                             "    printfn \"%d\" x"
                         ]
 
-                let _, artifact = compileSource "ForInStructEnum" src
+                let artifact = compileSource "ForInStructEnum" src
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
 
@@ -119,7 +121,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "ResizeArrayCtor" src
+                let artifact = compileSource "ResizeArrayCtor" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -138,7 +140,7 @@ let forInTests =
                             "    printfn \"%d\" x"
                         ]
 
-                let _, artifact = compileSource "GenericTake" src
+                let artifact = compileSource "GenericTake" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -167,7 +169,7 @@ let forInTests =
                             "printfn \"%d\" (c.ComputeHashCode())"
                         ]
 
-                let _, artifact = compileSource "GenericForInShift" src
+                let artifact = compileSource "GenericForInShift" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 // `hash` of an int is the int. e=1: (0<<<1)+1+631=632;
@@ -237,7 +239,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "UserDuckTyped" src
+                let artifact = compileSource "UserDuckTyped" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -269,7 +271,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "UserDuckTypedStruct" src
+                let artifact = compileSource "UserDuckTypedStruct" src
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
 
@@ -317,7 +319,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "UserDuckTypedDisposable" src
+                let artifact = compileSource "UserDuckTypedDisposable" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -344,7 +346,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "UserSourceExternalEnum" src
+                let artifact = compileSource "UserSourceExternalEnum" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -383,7 +385,7 @@ let forInTests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "ValueTypeSource" src
+                let artifact = compileSource "ValueTypeSource" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -475,8 +477,7 @@ let forInTests =
                             "    printfn \"%d\" x"
                         ]
 
-                let tast, artifact = compileSource "RecordForIn" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecordForIn" src
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 

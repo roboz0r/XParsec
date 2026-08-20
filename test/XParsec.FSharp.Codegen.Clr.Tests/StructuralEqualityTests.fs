@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // A monomorphic user DU gets `Equals(object)` / `GetHashCode()` overrides walking
 // each case's fields through `EqualityComparer<F>.Default` / `System.HashCode`.
@@ -59,7 +60,7 @@ let tests =
         "StructuralEquality"
         [
             test "a monomorphic DU emits Equals(object) + GetHashCode() overrides on its own class" {
-                let _, artifact = compileSource "EqMeta" shapeSrc
+                let artifact = compileSource "EqMeta" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
                 Expect.isNotNull ty "the assembly contains the union type Shape"
@@ -71,13 +72,13 @@ let tests =
             }
 
             test "DU equality does not pin an FSharp.Core dependency" {
-                let _, artifact = compileSource "EqNoDep" shapeSrc
+                let artifact = compileSource "EqNoDep" shapeSrc
 
                 expectNoFSharpCore artifact "generated Equals/GetHashCode reference only the BCL"
             }
 
             test "nullary cases are equal once their tags match; unequal across cases" {
-                let _, artifact = compileSource "EqNullary" shapeSrc
+                let artifact = compileSource "EqNullary" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -91,7 +92,7 @@ let tests =
             }
 
             test "a payload case compares by its field; equal iff the fields are equal" {
-                let _, artifact = compileSource "EqPayload" shapeSrc
+                let artifact = compileSource "EqPayload" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -104,7 +105,7 @@ let tests =
             }
 
             test "two cases with the same payload are distinguished by tag" {
-                let _, artifact = compileSource "EqTag" shapeSrc
+                let artifact = compileSource "EqTag" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -115,7 +116,7 @@ let tests =
             }
 
             test "a multi-field case compares every field" {
-                let _, artifact = compileSource "EqMultiField" shapeSrc
+                let artifact = compileSource "EqMultiField" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -128,7 +129,7 @@ let tests =
             }
 
             test "equal values hash equal; distinct cases / payloads hash apart" {
-                let _, artifact = compileSource "EqHash" shapeSrc
+                let artifact = compileSource "EqHash" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -143,7 +144,7 @@ let tests =
             }
 
             test "a field of the union's own type recurses into the nested override" {
-                let _, artifact = compileSource "EqNested" treeSrc
+                let artifact = compileSource "EqNested" treeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Tree"
 
@@ -173,7 +174,7 @@ let tests =
             }
 
             test "a monomorphic DU implements IEquatable<Self> with a typed Equals(Self)" {
-                let _, artifact = compileSource "EqIEquatable" shapeSrc
+                let artifact = compileSource "EqIEquatable" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -187,7 +188,7 @@ let tests =
             }
 
             test "the typed Equals(Self) compares structurally and rejects null" {
-                let _, artifact = compileSource "EqTyped" shapeSrc
+                let artifact = compileSource "EqTyped" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -203,7 +204,7 @@ let tests =
             }
 
             test "EqualityComparer<Self>.Default selects the IEquatable-based comparer and walks correctly" {
-                let _, artifact = compileSource "EqComparer" shapeSrc
+                let artifact = compileSource "EqComparer" shapeSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -276,7 +277,7 @@ let genericTests =
         "GenericStructuralEquality"
         [
             test "a generic DU emits the equality triple + IEquatable<Self> on its `1 type" {
-                let _, artifact = compileSource "GenEqMeta" boxSrc
+                let artifact = compileSource "GenEqMeta" boxSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxTy = asm.GetType "Box`1"
                 Expect.isNotNull boxTy "the assembly contains the generic union Box`1"
@@ -302,7 +303,7 @@ let genericTests =
             }
 
             test "a typar-typed field (`'T`) compares via EqualityComparer<!0> at int and string instantiations" {
-                let _, artifact = compileSource "GenEqField" boxSrc
+                let artifact = compileSource "GenEqField" boxSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxTy = asm.GetType "Box`1"
 
@@ -331,7 +332,7 @@ let genericTests =
             }
 
             test "Equals(object) rejects null and a different instantiation (isinst on the type's own TypeSpec)" {
-                let _, artifact = compileSource "GenEqIsinst" boxSrc
+                let artifact = compileSource "GenEqIsinst" boxSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxTy = asm.GetType "Box`1"
 
@@ -347,7 +348,7 @@ let genericTests =
             }
 
             test "a self-recursive generic DU compares + hashes structurally through EqualityComparer<Lst<!0>>" {
-                let _, artifact = compileSource "GenEqLst" lstSrc
+                let artifact = compileSource "GenEqLst" lstSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let lstTy = asm.GetType "Lst`1"
                 let lstInt = lstTy.MakeGenericType typeof<int>
@@ -371,7 +372,7 @@ let genericTests =
             }
 
             test "EqualityComparer<Box<int>>.Default selects the IEquatable-based comparer" {
-                let _, artifact = compileSource "GenEqComparer" boxSrc
+                let artifact = compileSource "GenEqComparer" boxSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let boxTy = asm.GetType "Box`1"
                 let boxInt = boxTy.MakeGenericType typeof<int>
@@ -388,7 +389,7 @@ let genericTests =
             }
 
             test "generic DU equality does not pin an FSharp.Core dependency" {
-                let _, artifact = compileSource "GenEqNoDep" lstSrc
+                let artifact = compileSource "GenEqNoDep" lstSrc
 
                 expectNoFSharpCore artifact "generated generic triple references only the BCL"
             }
@@ -409,7 +410,7 @@ let genericTests =
                             "printfn \"%d\" (if x <> y then 1 else 0)"
                         ]
 
-                let _, artifact = compileSource "GenEqUseSite" src
+                let artifact = compileSource "GenEqUseSite" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

@@ -9,6 +9,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // A `let mutable` captured by an escaping closure (Regions verdict `HeapShared`) is
 // rewritten to a `Vesper.Ref<'T>` heap cell the closure and the outer frame share. The
@@ -149,7 +150,7 @@ let tests =
                 // so the consumer's `Vesper.Ref\`1` AssemblyRef resolves at load.
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "VesperRefConsumer" src
+                let artifact = compileSource "VesperRefConsumer" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
 
@@ -185,7 +186,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkCounter" src
+                let artifact = compileSource "MkCounter" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
@@ -216,7 +217,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "TwoClosuresShareCell" src
+                let artifact = compileSource "TwoClosuresShareCell" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
@@ -427,7 +428,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkConst" src
+                let artifact = compileSource "MkConst" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
@@ -456,7 +457,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkConstTwoInsts" src
+                let artifact = compileSource "MkConstTwoInsts" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 (sprintf "Main returns 0 (output: %s)" output)
@@ -473,7 +474,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkConstIL" src
+                let artifact = compileSource "MkConstIL" src
                 let bytes = Codegen.toBytes artifact
 
                 use peReader = openPe bytes
@@ -514,7 +515,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkConstILField" src
+                let artifact = compileSource "MkConstILField" src
                 let bytes = Codegen.toBytes artifact
 
                 use peReader = openPe bytes
@@ -568,7 +569,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkConstILIface" src
+                let artifact = compileSource "MkConstILIface" src
                 let bytes = Codegen.toBytes artifact
 
                 use peReader = openPe bytes
@@ -636,7 +637,7 @@ let tests =
 
                 vesperCoreDll.Value |> ignore
 
-                let _, artifact = compileSource "MkPair" src
+                let artifact = compileSource "MkPair" src
                 let bytes = Codegen.toBytes artifact
 
                 let exitCode, output = runEntryPoint bytes

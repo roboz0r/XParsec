@@ -83,15 +83,7 @@ let private producerDll: Lazy<string> =
              }
 
          let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-         let lexed, file = parseFile producerFs
-
-         let tast =
-             Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-         let symbols = CodegenSymbols.ofProvider provider
-
-         let artifact =
-             Codegen.compile symbols project tast |> emitted "EscapeProducer build"
+         let artifact = compileAgainst provider project producerFs
 
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath outPath |> ignore
@@ -111,15 +103,7 @@ let private runConsumer (expected: string list) (src: string) : unit =
             References = baseProject.References @ [ dll ]
         }
 
-    let lexed, file = parseFile src
-
-    let tast =
-        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-    let symbols = CodegenSymbols.ofProvider provider
-
-    let artifact =
-        Codegen.compile symbols project tast |> emitted "EscapeConsumer analysis"
+    let artifact = compileAgainst provider project src
 
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()

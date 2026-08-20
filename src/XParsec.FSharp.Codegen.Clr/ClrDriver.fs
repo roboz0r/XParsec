@@ -88,6 +88,27 @@ module ClrDriver =
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast
 
+    /// An ordered source-file list analysed as one assembly under `assemblyName`, stopping
+    /// before the gate. Every finding stays anchored to the file that produced it. Resolution
+    /// comes from `external` alone.
+    let analyseAssemblyWith
+        (external: IExternalSymbolProvider)
+        (assemblyName: string)
+        (units: AssemblyFiles.AssemblyUnit list)
+        : AnalysedAssembly =
+        AssemblySources.ofUnits assemblyName Target.Clr units
+        |> AnalysedAssembly.analyse Pipeline.analyseFor external
+
+    /// An analysed assembly gated and emitted as ONE PE. `referenceAssemblies` and
+    /// `project.References` together supply the emitted `AssemblyRef` identities.
+    let emitAnalysed
+        (referenceAssemblies: string list)
+        (project: ProjectInfo)
+        (analysed: AnalysedAssembly)
+        : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
+        AnalysedAssembly.gate analysed
+        |> Result.map (Codegen.emitAssembly referenceAssemblies project)
+
     /// An ordered source-file list analysed as one assembly and emitted as ONE PE.
     /// Diagnostics come back anchored to their own file rather than thrown.
     let compileAssemblyWith
@@ -96,10 +117,8 @@ module ClrDriver =
         (project: ProjectInfo)
         (units: AssemblyFiles.AssemblyUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        AssemblySources.ofUnits project.AssemblyName Target.Clr units
-        |> AnalysedAssembly.analyse Pipeline.analyseFor external
-        |> AnalysedAssembly.gate
-        |> Result.map (Codegen.emitAssembly referenceAssemblies project)
+        analyseAssemblyWith external project.AssemblyName units
+        |> emitAnalysed referenceAssemblies project
 
     /// The multi-file counterpart of `compile`, MSBuild-shaped: `ReferenceAssemblies` threaded
     /// into both the contract provider and `AssemblyRef` identity.

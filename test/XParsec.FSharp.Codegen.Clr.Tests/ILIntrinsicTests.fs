@@ -49,7 +49,7 @@ let tests =
                             "printfn \"%d\" (if eqi 2 3 then 1 else 0)"
                         ]
 
-                let _, artifact = compileSource "ILIntrinsicCeq" src
+                let artifact = compileSource "ILIntrinsicCeq" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -65,7 +65,7 @@ let tests =
                             "printfn \"%d\" (addi 40 2)"
                         ]
 
-                let _, artifact = compileSource "ILIntrinsicAdd" src
+                let artifact = compileSource "ILIntrinsicAdd" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

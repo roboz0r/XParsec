@@ -6,8 +6,6 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
-
 // `use x = e in body` lowers to `let x = e in try body finally x.Dispose()`, the finally
 // being an IL-IR exception region around the body. Each test asserts on captured stdout:
 // "body" then "disposed" proves `Dispose` ran, and that it ran after the body.
@@ -31,7 +29,7 @@ let useTests =
                             "run ()"
                         ]
 
-                let _, artifact = compileSource "UseDispose" src
+                let artifact = compileSource "UseDispose" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -58,8 +56,7 @@ let useTests =
                             "run ()"
                         ]
 
-                let tast, artifact = compileSource "UseDisposeCanonical" src
-                Expect.isEmpty (errors tast) "no analysis errors: `use` accepts the canonical disposable"
+                let artifact = compileSource "UseDisposeCanonical" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -86,7 +83,7 @@ let useTests =
                             "run ()"
                         ]
 
-                let _, artifact = compileSource "UseWildcard" src
+                let artifact = compileSource "UseWildcard" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -113,7 +110,7 @@ let useTests =
                             "printfn \"%d\" (compute ())"
                         ]
 
-                let _, artifact = compileSource "UseResult" src
+                let artifact = compileSource "UseResult" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -138,7 +135,7 @@ let useTests =
                             "run ()"
                         ]
 
-                let _, artifact = compileSource "UseExternalDispose" src
+                let artifact = compileSource "UseExternalDispose" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

@@ -4,6 +4,7 @@ open System
 open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Reflection over the built `Vesper.Option.dll`: values come from the union's emitted
 // static case factories, and results are asserted as BCL types. Combinators taking a

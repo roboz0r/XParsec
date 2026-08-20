@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 [<Tests>]
 let monoTests =
@@ -25,7 +26,7 @@ let monoTests =
                             "printfn \"%d\" p.X"
                         ]
 
-                let _, artifact = compileSource "RecLitFieldGet" src
+                let artifact = compileSource "RecLitFieldGet" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "7" "p.X returns the field value the literal stored"
@@ -44,8 +45,7 @@ let monoTests =
                             "printfn \"%d\" n"
                         ]
 
-                let tast, artifact = compileSource "RecObjFieldBox" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecObjFieldBox" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "7" "the boxed int reads back as 7"
@@ -66,8 +66,7 @@ let monoTests =
                             "printfn \"%d\" b.Z"
                         ]
 
-                let tast, artifact = compileSource "RecArityOverload" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecArityOverload" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -88,7 +87,7 @@ let monoTests =
                             "printfn \"%d\" c.Count"
                         ]
 
-                let _, artifact = compileSource "RecFieldSet" src
+                let artifact = compileSource "RecFieldSet" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "42" "c.Count round-trips through FieldSet/FieldGet"
@@ -106,7 +105,7 @@ let monoTests =
                             "printfn \"%d\" p2.X"
                         ]
 
-                let _, artifact = compileSource "RecClone" src
+                let artifact = compileSource "RecClone" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -127,14 +126,14 @@ let monoTests =
                             "printfn \"%d\" s"
                         ]
 
-                let _, artifact = compileSource "RecPat" src
+                let artifact = compileSource "RecPat" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "30" "TPat.Record bound both fields and summed them"
             }
 
             test "an emitted record type has a public ctor + one public field per record field" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecMeta"
                         (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
@@ -153,7 +152,7 @@ let monoTests =
             }
 
             test "a record's bytes do not pin FSharp.Core (BCL-only equality + IL)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecNoDep"
                         (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
@@ -162,7 +161,7 @@ let monoTests =
             }
 
             test "an all-immutable record emits the structural-equality triple + IEquatable<Self>" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecEqMeta"
                         (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
@@ -188,7 +187,7 @@ let monoTests =
             }
 
             test "two records with equal fields compare equal + hash equal" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecEqValue"
                         (String.concat "\n" [ "type Point = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ])
@@ -218,7 +217,7 @@ let monoTests =
             }
 
             test "a record with a mutable field does NOT declare its own equality triple" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecEqMutSkip"
                         (String.concat "\n" [ "type Counter = { mutable Count: int }"; "let c = { Count = 0 }" ])
@@ -248,7 +247,7 @@ let genericTests =
         "RecordGeneric"
         [
             test "a generic record `Box<'T>` is emitted as a generic TypeDefinition" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecGenMeta"
                         (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
@@ -273,7 +272,7 @@ let genericTests =
             }
 
             test "Box<int> compares structurally through `EqualityComparer<!0>` (the typar-typed field)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecGenIntEq"
                         (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
@@ -307,7 +306,7 @@ let genericTests =
             }
 
             test "Box<string> uses the same emitted members (the `!0` encoding works for any element)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecGenStrEq"
                         (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
@@ -338,7 +337,7 @@ let genericTests =
             }
 
             test "Equals(object) on Box<int> rejects null and a different instantiation" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecGenIsinst"
                         (String.concat "\n" [ "type Box<'T> = { Value: 'T }"; "let b = { Value = 0 }" ])
@@ -364,7 +363,7 @@ let genericTests =
             // The `Box<'T>` tests above are all single-field, so nothing there reaches a
             // generic field at index >= 1, where the ctor's `stfld` needs its own ref.
             test "a multi-field generic record round-trips its non-first field (Pair<int>.Second = 3)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "RecGenTwoField"
                         (String.concat
@@ -410,8 +409,7 @@ let interfaceImplTests =
                             "printfn \"%d\" ((r :> IRank).Rank())"
                         ]
 
-                let tast, artifact = compileSource "RecIfaceRank" src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "RecIfaceRank" src
 
                 let bytes = Codegen.toBytes artifact
 
@@ -446,8 +444,7 @@ let interfaceImplTests =
                             "printfn \"%d\" (({ N = 5 } :> IRank).Rank())"
                         ]
 
-                let tast, artifact = compileSource "RecIfaceAndEq" src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "RecIfaceAndEq" src
 
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
@@ -508,8 +505,7 @@ let interfaceImplTests =
                             "printfn \"%d\" (sum { Items = [| 1; 2; 3 |] })"
                         ]
 
-                let tast, artifact = compileSource "RecordSeqCapability" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecordSeqCapability" src
 
                 let bytes = Codegen.toBytes artifact
 
@@ -623,8 +619,7 @@ let instanceMemberTests =
                             "printfn \"%d\" (v.Sum())"
                         ]
 
-                let tast, artifact = compileSource "RecInstMethod" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecInstMethod" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "7" "v.Sum() computes X+Y (=7) via the member body, not a field read"
@@ -642,8 +637,7 @@ let instanceMemberTests =
                             "printfn \"%d\" (v.AddN 10)"
                         ]
 
-                let tast, artifact = compileSource "RecInstMethodArg" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecInstMethodArg" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "17" "v.AddN 10 computes X+Y+n (=17)"
@@ -663,8 +657,7 @@ let instanceMemberTests =
                             "printfn \"%d\" v.Doubled"
                         ]
 
-                let tast, artifact = compileSource "RecInstProperty" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecInstProperty" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "6" "v.Doubled reads the member (X*2=6), not a field"
@@ -684,8 +677,7 @@ let instanceMemberTests =
                             "printfn \"%d\" v.Doubled"
                         ]
 
-                let tast, artifact = compileSource "RecFieldAndMember" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "RecFieldAndMember" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 

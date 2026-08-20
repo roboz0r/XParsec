@@ -5,6 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // Inline expansion splices an operator's contract body at the use site before freeze.
 // `(=)` is `EqualityComparer<^T>.Default.Equals(x, y)` under a `when ^T: int = (# "ceq" #)`
@@ -132,7 +133,7 @@ let tests =
                             "printfn \"%d\" (if eq (Tag 1) (Tag 2) then 1 else 0)"
                         ]
 
-                let _, artifact = compileSource "OpEqGenericDU" src
+                let artifact = compileSource "OpEqGenericDU" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -153,7 +154,7 @@ let tests =
                             "printfn \"%d\" (if f 2 3 then 1 else 0)"
                         ]
 
-                let _, artifact = compileSource "OpRoutingEq" src
+                let artifact = compileSource "OpRoutingEq" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -162,7 +163,7 @@ let tests =
 
             test "primitive equality does not pin an FSharp.Core dependency" {
                 // `=` on ints is a bare `ceq`, with no metadata and no comparer call.
-                let _, artifact =
+                let artifact =
                     compileSource "OpRoutingEqNoDep" "printfn \"%d\" (if 2 = 2 then 1 else 0)"
 
                 expectNoFSharpCore artifact "primitive `=`"
@@ -182,7 +183,7 @@ let tests =
                             "printfn \"%d\" (if f 2 3 then 1 else 0)"
                         ]
 
-                let _, artifact = compileSource "OpRoutingNeq" src
+                let artifact = compileSource "OpRoutingNeq" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -205,7 +206,7 @@ let tests =
                             "printfn \"%d\" (if 2 >= 3 then 1 else 0)" // 0
                         ]
 
-                let _, artifact = compileSource "OpRoutingOrdering" src
+                let artifact = compileSource "OpRoutingOrdering" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -213,7 +214,7 @@ let tests =
             }
 
             test "a nested mix of arithmetic + equality lowers and runs (one IL path for the whole surface)" {
-                let _, artifact =
+                let artifact =
                     compileSource "OpRoutingMixed" "printfn \"%d\" (if (1 + 2) * 3 = 9 then 1 else 0)"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -258,7 +259,7 @@ let tests =
                             "printfn \"%d\" (if x <> y then 1 else 0)" // → 0
                         ]
 
-                let _, artifact = compileSource "OpEqDUStructural" src
+                let artifact = compileSource "OpEqDUStructural" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -285,7 +286,7 @@ let tests =
                             "printfn \"done\""
                         ]
 
-                let _, artifact = compileSource "IgnoreNonUnit" src
+                let artifact = compileSource "IgnoreNonUnit" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -355,7 +356,7 @@ let tests =
                 // The eta'd operator closure-converts exactly as a hand-written
                 // `fun x y -> x + y` would: a curried `Vesper.Fun`2` pair whose innermost
                 // `Invoke` carries the spliced `add` (CIL 0x58), calling out to nothing.
-                let _, artifact =
+                let artifact =
                     compileSource "EtaClosureShape" "printfn \"%d\" (List.fold (+) 0 [1; 2; 3])"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)

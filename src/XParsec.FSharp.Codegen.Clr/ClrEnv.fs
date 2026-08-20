@@ -447,6 +447,16 @@ type internal ClrEnv
                 ValueSome(typeRefOf key)
             | _ -> ValueNone
 
+    /// A self-host `Vesper.Collections.List` and a referenced one share a key, so `userTypes`
+    /// membership is what separates `Local` from `Foreign`.
+    let classOrigin (key: TypeKey) : ClassOrigin =
+        match userTypes.TryGetValue key with
+        | true, handle -> ClassOrigin.Local handle
+        | _ ->
+            match externalClassRef key with
+            | ValueSome tref -> ClassOrigin.Foreign tref
+            | ValueNone -> ClassOrigin.Unresolved
+
     /// Referenced-assembly record shape by key + arity.
     let externalRecordShape (key: TypeKey) (arity: int) : (EqArray<ExternalFieldShape> * SymbolOrigin) voption =
         match lookupTypeByKey key with
@@ -562,6 +572,7 @@ type internal ClrEnv
     member _.ExternalAsmRef asm = externalAsmRef asm
     member _.ExternalModuleRef(origin: SymbolOrigin, m: ModuleKey) = externalModuleRef origin m
     member _.ExternalClassRef key = externalClassRef key
+    member _.ClassOrigin key = classOrigin key
     member _.LookupTypeByKey key = lookupTypeByKey key
     /// Drives the `VALUETYPE` vs `CLASS` element tag an encoded type spec carries.
     member _.ExternalIsValueType key = CodegenSymbols.isValueType symbols key

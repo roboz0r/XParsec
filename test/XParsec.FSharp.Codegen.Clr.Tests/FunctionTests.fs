@@ -6,6 +6,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // Function definition + application forms, one row per form; the anchors beneath pin the
 // emission strategy (top-level fn → static method, capturing fn → closure).
@@ -77,7 +78,7 @@ let tests =
             // ---- emission strategy: static method vs closure ---
             yield
                 test "a top-level function is emitted as a static method with one real Param row" {
-                    let _, artifact =
+                    let artifact =
                         compileSource "FnStatic" "let twice x = x + x\nprintfn \"%d\" (twice 21)"
 
                     let bytes = Codegen.toBytes artifact
@@ -99,7 +100,7 @@ let tests =
                     let src =
                         "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
 
-                    let _, artifact = compileSource "FnRec" src
+                    let artifact = compileSource "FnRec" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -112,7 +113,7 @@ let tests =
                     let src =
                         "let inc x = x + 1\nlet add3 x = inc (inc (inc x))\nprintfn \"%d\" (add3 10)"
 
-                    let _, artifact = compileSource "FnCross" src
+                    let artifact = compileSource "FnCross" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -126,7 +127,7 @@ let tests =
             yield
                 test "a lambda capturing a function parameter is a closure (curried mk; prints 15)" {
                     let src = "let mk n = (fun x -> x + n)\nlet addN = mk 10\nprintfn \"%d\" (addN 5)"
-                    let _, artifact = compileSource "FnCapture" src
+                    let artifact = compileSource "FnCapture" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -145,7 +146,7 @@ let tests =
                     let src =
                         "let start = 0\nmodule M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)"
 
-                    let _, artifact = compileSource "FnNestedMod" src
+                    let artifact = compileSource "FnNestedMod" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -161,7 +162,7 @@ let tests =
                     let src =
                         "module M =\n    let rec sumTo n =\n        match n with\n        | 0 -> 0\n        | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
 
-                    let _, artifact = compileSource "FnNestedRec" src
+                    let artifact = compileSource "FnNestedRec" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -191,7 +192,7 @@ let tests =
                                 "printfn \"%d\" (apply addOne 41)"
                             ]
 
-                    let _, artifact = compileSource "FnEscapeExport" src
+                    let artifact = compileSource "FnEscapeExport" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -223,7 +224,7 @@ let tests =
                                 "printfn \"%d\" (apply addOne 41)"
                             ]
 
-                    let _, artifact = compileSource "FnEscapeUnnamedModule" src
+                    let artifact = compileSource "FnEscapeUnnamedModule" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -261,7 +262,7 @@ let tests =
                                 "printfn \"%d\" (M.addPair (3, 4))"
                             ]
 
-                    let _, artifact = compileSource "FnTupled" src
+                    let artifact = compileSource "FnTupled" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -307,7 +308,7 @@ let tests =
                                 "printfn \"%d\" (M.f ((1, 2), 3))"
                             ]
 
-                    let _, artifact = compileSource "FnNestedTuple" src
+                    let artifact = compileSource "FnNestedTuple" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"
@@ -336,7 +337,7 @@ let tests =
                                 "    member _.M = 0"
                             ]
 
-                    let _, artifact = compileSource "StaticVoid" src
+                    let artifact = compileSource "StaticVoid" src
                     let bytes = Codegen.toBytes artifact
                     let asm = loadAssembly bytes
                     let c = asm.GetType "C"
@@ -361,7 +362,7 @@ let tests =
                                 "printfn \"%d\" (M.useIt 41)"
                             ]
 
-                    let _, artifact = compileSource "ModFnVoid" src
+                    let artifact = compileSource "ModFnVoid" src
                     let bytes = Codegen.toBytes artifact
                     let exitCode, output = runEntryPoint bytes
                     Expect.equal exitCode 0 "Main returns 0"

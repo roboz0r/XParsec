@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // The equality-triple emission gate on a record / union is the type's decoded
 // attribute verdict. One test per verdict path, decl side and `=` use-site side.
@@ -28,8 +29,6 @@ let tests =
         let iface = typedefof<IEquatable<_>>.MakeGenericType ty
         iface.IsAssignableFrom ty
 
-    let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
-
     testList
         "Equality verdicts"
         [
@@ -43,7 +42,7 @@ let tests =
                             "let c = { Count = 0 }"
                         ]
 
-                let _, artifact = compileSource "EqAttrMutStruct" src
+                let artifact = compileSource "EqAttrMutStruct" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Counter"
 
@@ -73,7 +72,7 @@ let tests =
                             "let p = { X = 0; Y = 0 }"
                         ]
 
-                let _, artifact = compileSource "EqAttrImmRef" src
+                let artifact = compileSource "EqAttrImmRef" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Point"
 
@@ -87,8 +86,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<NoEquality>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
-                let tast, artifact = compileSource "EqAttrNoEq" src
-                Expect.isEmpty (errors tast) "decl alone ⇒ no equality diagnostic"
+                let artifact = compileSource "EqAttrNoEq" src
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Sealed"
@@ -111,21 +109,20 @@ let tests =
                             "let r = a = b"
                         ]
 
-                let useTast = analyseAs "EqAttrNoEqUse" useSrc
+                let diagnostics = diagnoseSourceErrors "EqAttrNoEqUse" useSrc
 
-                let eqErrors =
-                    errors useTast |> List.filter (fun d -> d.Message.Contains "equality")
+                let eqErrors = mentioning "equality" diagnostics
 
                 Expect.isNonEmpty
                     eqErrors
-                    (sprintf "expected an 'Equality' constraint error for `=` on Sealed; got %A" (errors useTast))
+                    (sprintf "expected an 'Equality' constraint error for `=` on Sealed; got %A" diagnostics)
             }
 
             test "default verdict for a union is unchanged (triple emitted)" {
                 let src =
                     String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
-                let _, artifact = compileSource "EqAttrUnionDefault" src
+                let artifact = compileSource "EqAttrUnionDefault" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Tag"
 
@@ -139,8 +136,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
-                let tast, artifact = compileSource "EqAttrUnionNoEq" src
-                Expect.isEmpty (errors tast) "decl alone ⇒ no equality diagnostic"
+                let artifact = compileSource "EqAttrUnionNoEq" src
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Tag"
@@ -153,14 +149,13 @@ let tests =
                 let useSrc =
                     String.concat "\n" [ "[<NoEquality>]"; "type Tag ="; "    | A"; "    | B of int"; "let r = A = A" ]
 
-                let useTast = analyseAs "EqAttrUnionNoEqUse" useSrc
+                let diagnostics = diagnoseSourceErrors "EqAttrUnionNoEqUse" useSrc
 
-                let eqErrors =
-                    errors useTast |> List.filter (fun d -> d.Message.Contains "equality")
+                let eqErrors = mentioning "equality" diagnostics
 
                 Expect.isNonEmpty
                     eqErrors
-                    (sprintf "expected an 'Equality' constraint error for `=` on Tag; got %A" (errors useTast))
+                    (sprintf "expected an 'Equality' constraint error for `=` on Tag; got %A" diagnostics)
             }
 
             test "the decoder accepts the `Attribute` suffix" {
@@ -168,7 +163,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<NoEqualityAttribute>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
-                let _, artifact = compileSource "EqAttrSuffix" src
+                let artifact = compileSource "EqAttrSuffix" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Sealed"
 
@@ -187,7 +182,7 @@ let tests =
                             "let p = { X = 0 }"
                         ]
 
-                let _, artifact = compileSource "EqAttrQualified" src
+                let artifact = compileSource "EqAttrQualified" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Point"
 
@@ -208,12 +203,11 @@ let tests =
                             "let p = { X = 0 }"
                         ]
 
-                let tast, artifact = compileSource "EqAttrUnresolvedQualified" src
+                let artifact = compileSource "EqAttrUnresolvedQualified" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Point"
 
                 Expect.isNotNull (equalsObj ty) "an unresolved attribute leaves the structural default"
-                Expect.isEmpty (errors tast) "an unresolved attribute is not an error"
             }
 
             test "[<CustomEquality>] class WITH IEquatable<Self> ⇒ no diagnostic" {
@@ -230,15 +224,9 @@ let tests =
                             "        member this.Equals(other: ById) = false"
                         ]
 
-                let tast, _ = compileSource "EqAttrCustomEqOk" classSrc
-
-                let customErrs =
-                    errors tast
-                    |> List.filter (fun d -> d.Message.Contains "IEquatable" || d.Message.Contains "CustomEquality")
-
-                Expect.isEmpty
-                    customErrs
-                    (sprintf "class implementing IEquatable<Self> ⇒ no custom-eq diagnostic; got %A" (errors tast))
+                // The clean compile IS the assertion: a class declaring `IEquatable<Self>`
+                // draws no custom-equality finding.
+                compileSource "EqAttrCustomEqOk" classSrc |> ignore
             }
 
             test "[<CustomEquality>] class WITHOUT IEquatable<Self> ⇒ must-implement error" {
@@ -253,14 +241,13 @@ let tests =
                             "    override this.GetHashCode() = id"
                         ]
 
-                let tast = analyseAs "EqAttrCustomEqMissing" src
+                let diagnostics = diagnoseSourceErrors "EqAttrCustomEqMissing" src
 
-                let customErrs =
-                    errors tast |> List.filter (fun d -> d.Message.Contains "IEquatable")
+                let customErrs = mentioning "IEquatable" diagnostics
 
                 Expect.isNonEmpty
                     customErrs
-                    (sprintf "missing IEquatable<Self> ⇒ must-implement error; got %A" (errors tast))
+                    (sprintf "missing IEquatable<Self> ⇒ must-implement error; got %A" diagnostics)
             }
 
             // The registries are keyed by `TypeKey`, one entry per type, so the
@@ -277,10 +264,9 @@ let tests =
                             "    override this.Equals(o: obj) = false"
                         ]
 
-                let tast = analyseAs "EqAttrCustomEqGenericMissing" src
+                let diagnostics = diagnoseSourceErrors "EqAttrCustomEqGenericMissing" src
 
-                let count (s: string) =
-                    errors tast |> List.filter (fun d -> d.Message.Contains s) |> List.length
+                let count (s: string) = mentioning s diagnostics |> List.length
 
                 Expect.equal (count "IEquatable") 1 "one must-implement-IEquatable error, not one per registry entry"
 
@@ -302,28 +288,24 @@ let tests =
                             "        member this.CompareTo(other: ById) = 0"
                         ]
 
-                let tast = analyseAs "EqAttrCustomCmpIncoherent" src
+                let diagnostics = diagnoseSourceErrors "EqAttrCustomCmpIncoherent" src
 
-                let coherenceErrs =
-                    errors tast
-                    |> List.filter (fun d -> d.Message.Contains "must also have [<CustomEquality>]")
+                let coherenceErrs = mentioning "must also have [<CustomEquality>]" diagnostics
 
                 Expect.isNonEmpty
                     coherenceErrs
-                    (sprintf "custom comparison without custom equality ⇒ coherence error; got %A" (errors tast))
+                    (sprintf "custom comparison without custom equality ⇒ coherence error; got %A" diagnostics)
             }
 
             test "[<CustomEquality>] on a record ⇒ wrap-in-a-class scope error" {
                 let src =
                     String.concat "\n" [ "[<CustomEquality; NoComparison>]"; "type R = { x: int }" ]
 
-                let tast = analyseAs "EqAttrCustomRecordScope" src
+                let diagnostics = diagnoseSourceErrors "EqAttrCustomRecordScope" src
 
-                let scopeErrs =
-                    errors tast
-                    |> List.filter (fun d -> d.Message.Contains "wrap the type in a class")
+                let scopeErrs = mentioning "wrap the type in a class" diagnostics
 
-                Expect.isNonEmpty scopeErrs (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
+                Expect.isNonEmpty scopeErrs (sprintf "custom equality on a record ⇒ scope error; got %A" diagnostics)
             }
 
             test "[<CustomEquality>] class supports `=` at a use site (no constraint diagnostic)" {
@@ -343,13 +325,9 @@ let tests =
                             "let _ = (a = b)"
                         ]
 
-                let tast, _ = compileSource "EqAttrClassCustomUse" src
-
-                let eqErrors = errors tast |> List.filter (fun d -> d.Message.Contains "equality")
-
-                Expect.isEmpty
-                    eqErrors
-                    (sprintf "Custom class supports `=` ⇒ no equality diagnostic; got %A" (errors tast))
+                // The clean compile IS the assertion: `=` over a class with custom equality
+                // draws no constraint finding at the use site.
+                compileSource "EqAttrClassCustomUse" src |> ignore
             }
 
             test "[<NoEquality>] class at a `=` use site is rejected" {
@@ -365,12 +343,12 @@ let tests =
                             "let _ = (a = b)"
                         ]
 
-                let tast = analyseAs "EqAttrClassNoEqUse" src
+                let diagnostics = diagnoseSourceErrors "EqAttrClassNoEqUse" src
 
-                let eqErrors = errors tast |> List.filter (fun d -> d.Message.Contains "equality")
+                let eqErrors = mentioning "equality" diagnostics
 
                 Expect.isNonEmpty
                     eqErrors
-                    (sprintf "[<NoEquality>] class at `=` ⇒ equality constraint error; got %A" (errors tast))
+                    (sprintf "[<NoEquality>] class at `=` ⇒ equality constraint error; got %A" diagnostics)
             }
         ]

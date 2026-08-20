@@ -208,6 +208,17 @@ type FormatSinkHandles =
         Child: EntityHandle
     }
 
+/// Where a class key's metadata token comes from.
+[<RequireQualifiedAccess>]
+type ClassOrigin =
+    /// The `TypeDef` this compilation emits, including one declared by another file of the
+    /// same assembly.
+    | Local of EntityHandle
+    /// The referenced-assembly `TypeRef` for a class declared outside this compilation.
+    | Foreign of EntityHandle
+    /// The key does not resolve to a class in either domain.
+    | Unresolved
+
 /// Resolves compiled names to emission recipes for one target.
 type ICodegenProvider =
     /// `fnTy` is the applied function's full curried type: a multi-typar call can't recover its type args
@@ -326,9 +337,7 @@ type ICodegenProvider =
     /// to instead of `System.Object::.ctor`. Minted off the `TypeRef`: it may be `protected`.
     abstract ExternalParameterlessBaseCtor: key: TypeKey -> EntityHandle voption
 
-    /// The raw external `TypeRef` for `key` (a heritable external base class), the token a
-    /// derived type's `extends` column points to. `ValueNone` ⇒ `key` is not an external class.
-    abstract ExternalClassTypeRef: key: TypeKey -> EntityHandle voption
+    abstract ClassOrigin: key: TypeKey -> ClassOrigin
 
     /// Resolve an intrinsic-CLASS `inherit` parent to its platform external key
     /// (`System.Exception`) plus its raw `TypeRef`, the derived type's `extends` token.

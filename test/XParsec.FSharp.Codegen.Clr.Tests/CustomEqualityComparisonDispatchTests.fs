@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // `=` / `<` lower to `EqualityComparer<^T>.Default.Equals` /
 // `Comparer<^T>.Default.Compare`, which dispatch to a `[<CustomEquality>]` /
@@ -13,8 +14,6 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 [<Tests>]
 let tests =
-    let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
-
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
 
@@ -59,8 +58,7 @@ let tests =
                             "printfn \"%b\" (a = a)"
                         ]
 
-                let tast, artifact = compileSource "CustomEqDispatchCanonical" src
-                Expect.isEmpty (errors tast) "no analysis errors: [<CustomEquality>] accepts the canonical equatable"
+                let artifact = compileSource "CustomEqDispatchCanonical" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -94,8 +92,7 @@ let tests =
                             "printfn \"%b\" (a = a)" // true  — custom (id matches)
                         ]
 
-                let tast, artifact = compileSource "CustomEqDispatch" src
-                Expect.isEmpty (errors tast) "no diagnostics on custom-equality class + `=` use sites"
+                let artifact = compileSource "CustomEqDispatch" src
 
                 // Metadata: the user interface impl landed; no synthesized typed Equals.
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -142,8 +139,7 @@ let tests =
                             "printfn \"%b\" (a >= a)" // true  — equal sorts >=
                         ]
 
-                let tast, artifact = compileSource "CustomCmpDispatch" src
-                Expect.isEmpty (errors tast) "no diagnostics on custom-comparison class + ordering use sites"
+                let artifact = compileSource "CustomCmpDispatch" src
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Ranked"
@@ -178,7 +174,7 @@ let tests =
                             "let t = Tagged(1, 10)"
                         ]
 
-                let _, artifact = compileSource "CustomEqNoPair" src
+                let artifact = compileSource "CustomEqNoPair" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Tagged"
 

@@ -5,6 +5,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `let inline (+) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (+) …))` in
 // `ops-platform.clr.fs` is a bare trait call, so the types DECLARING the member are the
@@ -271,7 +273,7 @@ let tests =
             }
 
             test "primitive arithmetic does not pin an FSharp.Core dependency (no runtime library)" {
-                let _, artifact = compileSource "ArithNoDep" "printfn \"%d\" (2 + 2 * 3)"
+                let artifact = compileSource "ArithNoDep" "printfn \"%d\" (2 + 2 * 3)"
 
                 expectNoFSharpCore artifact "primitive arithmetic"
 
@@ -335,7 +337,7 @@ let tests =
             // recognisers, repr lookup and literal inference all key on `int` being
             // `TyConst`, so a `TyClass` int fails on any arithmetic program at all.
             test "declaring a member on int leaves its use-site identity a TyConst intrinsic" {
-                let _, artifact = compileSource "IntStillIntrinsic" "printfn \"%d\" (40 + 2)"
+                let artifact = compileSource "IntStillIntrinsic" "printfn \"%d\" (40 + 2)"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -345,7 +347,7 @@ let tests =
             // The witness is a type-level statement, not a runtime method: its body is
             // spliced at the use site, so no `op_Addition` row reaches the emitted PE.
             test "the int operator witness is spliced, never emitted as a method row" {
-                let _, artifact = compileSource "IntOpNotEmitted" "printfn \"%d\" (40 + 2)"
+                let artifact = compileSource "IntOpNotEmitted" "printfn \"%d\" (40 + 2)"
 
                 let emitted =
                     peMethodNames (Codegen.toBytes artifact)

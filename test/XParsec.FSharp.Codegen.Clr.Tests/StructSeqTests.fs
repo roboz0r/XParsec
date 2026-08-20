@@ -8,6 +8,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Vertical slice toward the zero-allocation struct `Seq` module, standing in for
 // `src/Vesper.Seq`. Each test's program is a standalone file under `data/`; the map/fold
@@ -22,7 +24,7 @@ let structSeqTests =
             // to a combinator generic over `'TF :> Fun<int,int>`: `.Invoke` lowers to
             // `constrained. !TF callvirt Vesper.Fun::Invoke`, addressing the struct with no box.
             test "a struct closure implementing Vesper.Fun dispatches via constrained callvirt with no box" {
-                let _, artifact = compileSourceData "StructClosureFunDispatch"
+                let artifact = compileSourceData "StructClosureFunDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -46,9 +48,7 @@ let structSeqTests =
             // binds to the function type `int -> int` and the heap closure (a System.Object
             // subclass) dispatches `callvirt Fun::Invoke`. Accept + run only; no IL assertions.
             test "source lambda into a constrained 'TF :> Fun slot compiles + runs" {
-                let tast, artifact = compileSourceData "SourceLambdaFunSlot"
-
-                Expect.isEmpty tast.Diagnostics (sprintf "front-end diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "SourceLambdaFunSlot"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -60,8 +60,7 @@ let structSeqTests =
             // singleton field set by a `.cctor` and every construction site `ldsfld`s it.
             // `apply` takes a plain `int -> int`, not a `'TF :> Fun` typar: hence the heap path.
             test "a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
-                let tast, artifact = compileSourceData "NonCapturingLambdaCachedSingleton"
-                Expect.isEmpty tast.Diagnostics (sprintf "cached-singleton diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "NonCapturingLambdaCachedSingleton"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -82,8 +81,7 @@ let structSeqTests =
             // allocates only in a `.cctor`. Asserted as: every emitted closure type's
             // `.cctor` newobjs exactly once.
             test "the same non-capturing lambda at two sites allocates once" {
-                let tast, artifact = compileSourceData "NonCapturingLambdaTwoSites"
-                Expect.isEmpty tast.Diagnostics (sprintf "two-site diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "NonCapturingLambdaTwoSites"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -104,8 +102,7 @@ let structSeqTests =
             // the heap path (`apply` takes a plain `int -> int`) it still `newobj`s per
             // construction, with no `.cctor` and no cached field.
             test "a capturing lambda is NOT cached (still newobjs per construction)" {
-                let tast, artifact = compileSourceData "CapturingLambdaNotCached"
-                Expect.isEmpty tast.Diagnostics (sprintf "capturing-lambda diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "CapturingLambdaNotCached"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -129,7 +126,7 @@ let structSeqTests =
             // the hand-written shape a stateless `fun x -> x + 1` lowers to. The struct
             // closure above carries a `val N`/`new`; this one has nothing to address.
             test "a CAPTURELESS struct closure (no field) dispatches via constrained callvirt with no box" {
-                let _, artifact = compileSourceData "CapturelessStructClosure"
+                let artifact = compileSourceData "CapturelessStructClosure"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -155,8 +152,7 @@ let structSeqTests =
             // synthesised as a `System.ValueType` closure and the call site instantiates `!TF`
             // at that struct, the same no-box shape as the hand-written `[<Struct>]` above.
             test "a captureless source lambda lowers to a no-box value-struct closure" {
-                let tast, artifact = compileSourceData "CapturelessLambdaValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "captureless-lambda diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "CapturelessLambdaValueStruct"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -201,8 +197,7 @@ let structSeqTests =
             // slot. Unlike the captureless case it has one field, so construction is
             // `ldloca; <push n>; call .ctor` rather than `initobj`. `n` is `mk`'s parameter.
             test "a capturing source lambda lowers to a no-box value-struct closure" {
-                let tast, artifact = compileSourceData "CapturingLambdaValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "capturing-lambda diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "CapturingLambdaValueStruct"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -271,9 +266,7 @@ let structSeqTests =
             // parameter 2, so instantiating `!TF` off the group index picks `b: int` and the
             // closure lands on the `Fun`2` interface (a box) instead of its own struct.
             test "a value-struct closure behind a tupled group instantiates its own struct" {
-                let tast, artifact = compileSourceData "TupledGroupBeforeLambdaValueStruct"
-
-                Expect.isEmpty tast.Diagnostics (sprintf "tupled-group-before-lambda diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "TupledGroupBeforeLambdaValueStruct"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -292,8 +285,7 @@ let structSeqTests =
             // `'TF :> Fun<int,int,int>` slot peels to ONE value-struct closure with a single
             // flat `Invoke(a,b)`, and no nested inner closure for the second parameter.
             test "a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let tast, artifact = compileSourceData "Flat2ArgLambdaValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "flat-2 lambda diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "Flat2ArgLambdaValueStruct"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -361,8 +353,7 @@ let structSeqTests =
             // peels both inner lambdas into one value-struct closure with a flat
             // `Invoke(a,b,c)`, implementing `Vesper.Fun`4<a,b,c,r>`.
             test "a saturated 3-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let tast, artifact = compileSourceData "Flat3ArgLambdaValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "arity-3 front-end diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "Flat3ArgLambdaValueStruct"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -427,8 +418,7 @@ let structSeqTests =
             // slot peels all three inner lambdas into one value-struct closure with a flat
             // `Invoke(a,b,c,d)`, implementing `Vesper.Fun`5<a,b,c,d,r>`, the widest flat form.
             test "a saturated 4-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let tast, artifact = compileSourceData "Flat4ArgLambdaValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "arity-4 front-end diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "Flat4ArgLambdaValueStruct"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -493,7 +483,7 @@ let structSeqTests =
             // external `Vesper.Fun` at the struct's own typars), applied as `this.F.Invoke(x)`
             // in a member body. Unlike the tests above the object argument is a field, not a param.
             test "generic struct field 'TFunc :> Fun<'T,'U> dispatches this.F.Invoke via constrained callvirt" {
-                let _, artifact = compileSourceData "StructFieldTFuncDispatch"
+                let artifact = compileSourceData "StructFieldTFuncDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -514,7 +504,7 @@ let structSeqTests =
             // interface (`'T :> IGetVal`), so the member is looked up through the interface and
             // emitted as `constrained. <typar> callvirt`.
             test "typar object argument constrained to a local interface dispatches via constrained callvirt" {
-                let _, artifact = compileSourceData "TyparInterfaceDispatch"
+                let artifact = compileSourceData "TyparInterfaceDispatch"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -528,7 +518,7 @@ let structSeqTests =
             // addresses the struct (`ldloca`) and `constrained. !!T callvirt`s the interface
             // slot, so the JIT resolves the impl directly and nothing boxes.
             test "constrained typar dispatch on a struct arg does not box" {
-                let _, artifact = compileSourceData "TyparInterfaceStructDispatch"
+                let artifact = compileSourceData "TyparInterfaceStructDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -551,7 +541,7 @@ let structSeqTests =
             // so the interface slot must be minted on the instantiated `IBox`1<int>` TypeSpec
             // rather than on the bare definition.
             test "constrained typar dispatch on a generic interface (concrete arg) does not box" {
-                let _, artifact = compileSourceData "GenericIfaceConcreteDispatch"
+                let artifact = compileSourceData "GenericIfaceConcreteDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -576,7 +566,7 @@ let structSeqTests =
             // (`'S :> IBox<'T>`), so the slot is minted on `IBox`1<!T>`, whose argument is a
             // generic parameter of the instantiation, not a concrete type.
             test "generic struct dispatches through a typar field constrained to a generic interface (typar arg)" {
-                let _, artifact = compileSourceData "GenericStructTyparIface"
+                let artifact = compileSourceData "GenericStructTyparIface"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -590,7 +580,7 @@ let structSeqTests =
             // (`Current`): the impl's getter must be wired by MethodImpl to the interface's
             // getter slot, else the runtime raises TypeLoadException at load.
             test "struct implements an interface with an abstract property and dispatches" {
-                let _, artifact = compileSourceData "StructIfaceProperty"
+                let artifact = compileSourceData "StructIfaceProperty"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -604,7 +594,7 @@ let structSeqTests =
             // (`Box<'T> : IBox<'T>`): the impl member's return type `'T` must stay in scope
             // and be emitted as a generic MethodImpl. Boxing to `IBox` and calling `Unwrap`.
             test "a generic struct implements a generic local interface at its own typar and dispatches" {
-                let _, artifact = compileSourceData "GenericStructGenericIface"
+                let artifact = compileSourceData "GenericStructGenericIface"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -618,7 +608,7 @@ let structSeqTests =
             // fixtures elsewhere use BCL interfaces, which are found through the external
             // provider), dispatched through the interface.
             test "project-local class implements a project-local interface and dispatches" {
-                let _, artifact = compileSourceData "LocalInterfaceImpl"
+                let artifact = compileSourceData "LocalInterfaceImpl"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "local interface dispatch returns the impl value"
@@ -628,7 +618,7 @@ let structSeqTests =
             // `App(LongIdent[this; I; Get], ())`, so the 3-segment chain must be recognised as
             // a method call and not as a property `Get` over-applied to `()`.
             test "chained this.field.Method() call (3-segment) resolves and runs" {
-                let _, artifact = compileSourceData "StructFieldGet"
+                let artifact = compileSourceData "StructFieldGet"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "7" "chained method call on a struct field works"
@@ -638,7 +628,7 @@ let structSeqTests =
             // fields, mutating the innermost, which exercises the recursive `ldflda`
             // addressing (`this` → `ldflda A` → `ldflda B` → call by address).
             test "4-segment chained method call through nested struct fields mutates in place" {
-                let _, artifact = compileSourceData "NestedStructChain"
+                let artifact = compileSourceData "NestedStructChain"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -650,7 +640,7 @@ let structSeqTests =
 
             // A chain anchored on an ordinary local (not `this`): `o.I.Get()`.
             test "chained method call anchored on a local variable resolves" {
-                let _, artifact = compileSourceData "LocallyAnchoredChain"
+                let artifact = compileSourceData "LocallyAnchoredChain"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "locally anchored chained method call works"
@@ -660,7 +650,7 @@ let structSeqTests =
             // interface): `GetEnumerator` dispatches `constrained. !S callvirt ISeq::GetEnumerator`.
             // The enumerator is a concrete struct, so the loop body stays the by-address walk.
             test "for-in over a generic typar source via a custom interface (concrete enumerator)" {
-                let _, artifact = compileSourceData "TyparSeqSource"
+                let artifact = compileSourceData "TyparSeqSource"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -674,7 +664,7 @@ let structSeqTests =
             // (`'S :> IStructSeq<ArrayEnumerator>`): the slot is minted on the instantiated
             // `IStructSeq`1<ArrayEnumerator>` TypeSpec.
             test "for-in over a generic typar source via a generic interface (concrete enumerator)" {
-                let _, artifact = compileSourceData "GenericIfaceTyparSeqSource"
+                let artifact = compileSourceData "GenericIfaceTyparSeqSource"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -688,7 +678,7 @@ let structSeqTests =
             // (`'S :> IStructSeq<'E> and 'E :> IStructEnumerator`), so `GetEnumerator` AND the
             // enumerator's `MoveNext`/`Current` all dispatch `constrained. callvirt`.
             test "for-in over a fully generic struct seq source" {
-                let _, artifact = compileSourceData "FullyGenericStructSeq"
+                let artifact = compileSourceData "FullyGenericStructSeq"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -702,7 +692,7 @@ let structSeqTests =
             // a reference-type closure, walked by `for y in s`, a value-type source with
             // chained struct-field dispatch (`this.Source.GetEnumerator()`/`.MoveNext()`).
             test "concrete struct MapSeq pipeline maps and folds" {
-                let _, artifact = compileSourceData "StructMapSeq"
+                let artifact = compileSourceData "StructMapSeq"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "2\n4\n6\ndone" "maps the struct pipeline in order"
@@ -712,7 +702,7 @@ let structSeqTests =
             // concrete `ArraySeq`: `this.Source.GetEnumerator()` is a constrained-typar
             // dispatch, while `for y in s` walks the concrete `MapSeq`1<ArraySeq>` by address.
             test "for-in over a generic MapSeq wrapping a concrete ArraySeq" {
-                let _, artifact = compileSourceData "GenericMapSeqConcreteSource"
+                let artifact = compileSourceData "GenericMapSeqConcreteSource"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -726,7 +716,7 @@ let structSeqTests =
             // enumerator typar `'E`, so `MapEnumerator<'E>.MoveNext`/`.Current` dispatch on a
             // TYPAR FIELD via `constrained. !E callvirt`. The for-in source is concrete.
             test "fully generic struct map pipeline chains a generic enumerator" {
-                let _, artifact = compileSourceData "FullyGenericMapPipeline"
+                let artifact = compileSourceData "FullyGenericMapPipeline"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "12" "fully generic map pipeline sums the mapped values"
@@ -736,7 +726,7 @@ let structSeqTests =
             // `IEnumerable<'T>`/`IEnumerator<'T>`/`IEnumerator`/`IDisposable`, so it boxes
             // transparently when upcast to `IEnumerable<int>` and handed to a .NET API.
             test "generic struct seq implements IEnumerable<'T> escape hatch and enumerates" {
-                let _, artifact = compileSourceData "StructSeqEscapeHatch"
+                let artifact = compileSourceData "StructSeqEscapeHatch"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "6" "escape-hatch enumerates via IEnumerable<'T>"
@@ -746,7 +736,7 @@ let structSeqTests =
             // and enumerator `'E`, threading a state accumulator through a reference-type
             // closure per element. Every fixture above instead sums inline.
             test "fold over a fully generic struct seq threads state through a closure" {
-                let _, artifact = compileSourceData "StructSeqFold"
+                let artifact = compileSourceData "StructSeqFold"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -760,9 +750,8 @@ let structSeqTests =
             // saturated `Invoke(a,b)`; `curryFun`'s upcast over `Curried`, re-dispatching
             // `f.Invoke(a,b)`; and `flatten`, whose `Invoke(a,b)` walks `f.Invoke(a).Invoke(b)`.
             test "Fun flat dispatch + curryFun/flatten adapters round-trip" {
-                let tast, artifact = compileSourceData "FunAdapters"
+                let artifact = compileSourceData "FunAdapters"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -776,9 +765,8 @@ let structSeqTests =
             // Fun<int,int>` for map, `SumAcc : Fun<int,int,int>` for fold): map dispatches
             // through a `'TFunc` FIELD, fold through a `'TFunc` PARAMETER in one flat 2-arg call.
             test "struct-closure-typar map/fold pipeline runs non-allocating" {
-                let tast, artifact = compileSourceData "StructSeqTyparClosurePipeline"
+                let artifact = compileSourceData "StructSeqTyparClosurePipeline"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 // (1+1)+(2+1)+(3+1)+(4+1) = 2+3+4+5 = 14
@@ -821,8 +809,7 @@ let structSeqTests =
             // Fun<int,int>) -> Holder<'TF>`, `let h = mk (fun x -> x+1)`) must lay its `'TF`
             // slot out as the `<closure>$` value-struct, not as the `Fun`2` interface.
             test "a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
-                let tast, artifact = compileSourceData "StoredFunTyparSlotHolder"
-                Expect.isEmpty tast.Diagnostics (sprintf "stored-module class diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "StoredFunTyparSlotHolder"
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -873,9 +860,8 @@ let structSeqTests =
             // by SOURCE lambdas (`map (fun x -> x + 1)`, `fold (fun acc x -> acc + x)`), via a
             // STORED `let s1`. Both lower to value-struct closures; output is still 14.
             test "SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
-                let tast, artifact = compileSourceData "StructSeqSourceLambdaPipeline"
+                let artifact = compileSourceData "StructSeqSourceLambdaPipeline"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "source-lambda pipeline diagnostics: %A" tast.Diagnostics)
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -917,9 +903,8 @@ let structSeqTests =
             // `let s1`: `fold (fun acc x -> acc + x) 0 (map (fun x -> x + 1) (ofArray xs))`.
             // The mapped seq is a temp slot rather than a module-value field. Still 14, no box.
             test "nested-temp source-lambda map/fold pipeline runs non-allocating" {
-                let tast, artifact = compileSourceData "StructSeqNestedTempPipeline"
+                let artifact = compileSourceData "StructSeqNestedTempPipeline"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "nested pipeline diagnostics: %A" tast.Diagnostics)
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -960,8 +945,7 @@ let structSeqTests =
             // isolated from the map/fold pipeline above: the combinator here stands in for the
             // eventual external `StructSeq.fold`.
             test "a SOURCE lambda through fold's Fun slot lowers to a no-box value-struct" {
-                let tast, artifact = compileSourceData "FoldSourceLambdaValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "fold source-lambda diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSourceData "FoldSourceLambdaValueStruct"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -975,9 +959,8 @@ let structSeqTests =
             // (`fun x -> x + 1` then `fun x -> x * 2`), so a type-keyed closure table would
             // bind both `'TFunc` slots to one closure. Only node identity keeps them apart.
             test "multi-map chain lowers each closure to its OWN value-struct slot" {
-                let tast, artifact = compileSourceData "StructSeqMultiMapChain"
+                let artifact = compileSourceData "StructSeqMultiMapChain"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "multi-map diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "28" "(x+1)*2 mapped then summed = 28"
@@ -987,9 +970,8 @@ let structSeqTests =
             // nesting level, so a type-keyed table can survive it by luck. At three, `s3`'s
             // own slot and the once- and twice-nested source slots are indistinguishable by type.
             test "three-map chain keeps each same-typed closure in its OWN slot" {
-                let tast, artifact = compileSourceData "StructSeqThreeMapChain"
+                let artifact = compileSourceData "StructSeqThreeMapChain"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "three-map diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "40" "((x+1)*2)+3 mapped then summed = 40"

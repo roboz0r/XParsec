@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.ComparisonModuleTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `< > <= >=` from `Vesper.Comparison`. Every declaration there is `inline`, so
 // the operators splice at each use site and there is no DLL to reflect: one CIL

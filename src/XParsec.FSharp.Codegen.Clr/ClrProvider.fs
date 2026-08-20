@@ -136,15 +136,10 @@ type ClrProvider
     member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
-            // LOCAL-FIRST: a same-assembly CROSS-FILE interface resolves as `External` home-stamped
-            // to our OWN assembly, yet its `InterfaceImpl` row must point to the registered `TypeDef`,
-            // not an `AssemblyRef`-scoped `TypeRef` back to ourselves.
-            match env.UserTypes.TryGetValue key with
-            | true, h -> h
-            | false, _ ->
-                match env.ExternalClassRef(key) with
-                | ValueSome tref -> tref
-                | ValueNone -> enc.TypeSpecOf ty
+            match env.ClassOrigin key with
+            | ClassOrigin.Local handle
+            | ClassOrigin.Foreign handle -> handle
+            | ClassOrigin.Unresolved -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
 
     /// The flat `instance resultTy Invoke(paramTys…)` signature of a `Fun`(N+1)` closure.
@@ -272,7 +267,7 @@ type ClrProvider
     interface ICodegenProvider with
         member _.ObjectType = env.EObject.Value
         member _.ExternalParameterlessBaseCtor(key) = ext.ExternalParameterlessBaseCtor(key)
-        member _.ExternalClassTypeRef(key) = ext.ExternalClassTypeRef(key)
+        member _.ClassOrigin(key) = ext.ClassOrigin(key)
         member _.IntrinsicClassBase(canon) = ext.IntrinsicClassBase(canon)
         member _.TypeToken(ty) = recipes.TypeToken(ty)
         member _.ValueTupleRefs(elemTys) = enc.ValueTupleRefs elemTys

@@ -25,7 +25,7 @@ let tests =
         [
             for p in gated do
                 test p.Name {
-                    let _, artifact = compileSource (conformanceAssemblyName p.Name) p.Source
+                    let artifact = compileSource (conformanceAssemblyName p.Name) p.Source
                     let digest = ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)
                     Goldens.check (Path.Combine(goldensDir, p.Name + ".clr.txt")) (p.Name + ".clr.txt") digest
                 }
@@ -37,8 +37,8 @@ let tests =
             match gated with
             | p :: _ ->
                 test "structural digest is MVID-invariant" {
-                    let _, a1 = compileSource (conformanceAssemblyName p.Name) p.Source
-                    let _, a2 = compileSource (conformanceAssemblyName p.Name) p.Source
+                    let a1 = compileSource (conformanceAssemblyName p.Name) p.Source
+                    let a2 = compileSource (conformanceAssemblyName p.Name) p.Source
                     let b1 = Codegen.toBytes a1
                     let b2 = Codegen.toBytes a2
 

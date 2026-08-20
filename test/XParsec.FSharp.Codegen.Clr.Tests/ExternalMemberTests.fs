@@ -277,7 +277,7 @@ let tests =
                 let src =
                     "printfn \"%d\" (System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5)"
 
-                let _, artifact = compileSource "P4ExternalMemberFq" src
+                let artifact = compileSource "P4ExternalMemberFq" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -335,7 +335,7 @@ let tests =
                             "printfn \"%d\" (if EqualityComparer<int>.Default.Equals(1, 2) then 1 else 0)" // 0
                         ]
 
-                let _, artifact = compileSource "P4ExternalEquals2Arg" src
+                let artifact = compileSource "P4ExternalEquals2Arg" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -347,7 +347,7 @@ let tests =
             // `String.Concat` is heavily overloaded, so the pick has to narrow by arity and
             // then by betterness: `(string,string)` beats `(object,object)`.
             test "a 2-arg external static method with overloads (String.Concat) resolves + runs" {
-                let _, artifact =
+                let artifact =
                     compileSource "P4ExternalConcat2Arg" "printfn \"%s\" (System.String.Concat(\"a\", \"b\"))"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
@@ -362,7 +362,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "let t = (\"a\", \"b\")"; "printfn \"%s\" (System.String.Concat t)" ]
 
-                let _, artifact = compileSource "P4ExternalConcatTupleVar" src
+                let artifact = compileSource "P4ExternalConcatTupleVar" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -387,7 +387,7 @@ let tests =
                             "printfn \"%s\" ((objArg ()).Replace(arg ()).ToString())"
                         ]
 
-                let _, artifact = compileSource "P4ExternalTupleValueOrder" src
+                let artifact = compileSource "P4ExternalTupleValueOrder" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -398,7 +398,7 @@ let tests =
                 let src =
                     "open System.Collections.Generic\nprintfn \"%d\" (EqualityComparer<int>.Default.GetHashCode 42)"
 
-                let _, artifact = compileSource "P4ExternalMemberShort" src
+                let artifact = compileSource "P4ExternalMemberShort" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -487,7 +487,7 @@ let tests =
 
             test "a non-generic external static property emits and runs" {
                 let src = "printfn \"%d\" System.Environment.ProcessorCount"
-                let _, artifact = compileSource "NonGenericStaticProp" src
+                let artifact = compileSource "NonGenericStaticProp" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -505,7 +505,7 @@ let tests =
                 // Printed directly (`%s`) to isolate the `ldsfld`: chaining an intrinsic
                 // like `.Length` off it would bring in a second emission path.
                 let src = "printfn \"[%s]\" System.String.Empty"
-                let _, artifact = compileSource "ExternalStaticField" src
+                let artifact = compileSource "ExternalStaticField" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

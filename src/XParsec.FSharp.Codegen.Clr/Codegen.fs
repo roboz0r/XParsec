@@ -91,19 +91,9 @@ module Codegen =
             project
             [ for f in assembly.Files -> f.Frozen ]
 
-    /// TAST + symbol context → in-memory PE artifact; the single-file case of `emitAssembly`.
-    /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
-    /// class exist and whether the PE serialises with an entry point.
-    let compile
-        (symbols: ICodegenSymbols)
-        (project: ProjectInfo)
-        (tast: FrozenPools)
-        : Result<ClrArtifact, Diagnostic list> =
-        assembleGated [] symbols project [ tast ]
-
-    /// `compile` with the compilation's own reference set (a TFM ref pack + `<Reference>`s) in
-    /// the emitted-`AssemblyRef` identity map, so `System.Runtime` / `System.Console` bind the
-    /// reference set, not the host's `System.Private.CoreLib`. Identity only, never shipped.
+    /// The single-file case of `emitAssembly`, with the compilation's own reference set (a TFM
+    /// ref pack + `<Reference>`s) in the emitted-`AssemblyRef` identity map: `System.Runtime` /
+    /// `System.Console` bind the reference set rather than the host's `System.Private.CoreLib`.
     let compileWithReferences
         (referenceAssemblies: string list)
         (symbols: ICodegenSymbols)

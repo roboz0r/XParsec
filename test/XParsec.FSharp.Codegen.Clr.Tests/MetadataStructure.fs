@@ -8,6 +8,7 @@ open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 /// Widen a metadata handle to `EntityHandle`. `op_Implicit` also has a `-> Handle`
 /// overload, and spelling the target explicitly stays off the implicit-conversion warning.

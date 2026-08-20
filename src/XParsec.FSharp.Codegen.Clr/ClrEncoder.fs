@@ -35,32 +35,45 @@ type internal ClrEncoder(env: ClrEnv) =
     let valueTupleRefsCache =
         Dictionary<FrozenType list, ValueTupleHandles>(HashIdentity.Structural)
 
-    // Referenced-assembly nominal recognisers: each looks the `TypeRef` up ONCE and matches on
-    // the whole node, so the pattern can read `args` for the arity probe.
-    let (|ExternalClass|_|) (t: FrozenType) =
-        match t with
-        | FTClass(key, args) ->
-            match externalClassRef key with
-            // A struct external type (`List`1+Enumerator`) must encode as a
-            // `VALUETYPE` element; every reference type stays `false`.
-            | ValueSome tref -> Some(tref, externalIsValueType key, args)
-            | ValueNone -> None
-        | _ -> None
+    // Nominal token recognisers, one per flavour: the token that encodes `key`, and whether it
+    // tags `VALUETYPE`.
 
-    let (|ExternalRecord|_|) (t: FrozenType) =
-        match t with
-        | FTRecord(key, args) ->
-            match externalRecordRef (key, args.Length) with
-            | ValueSome(tref, _) -> Some(tref, args)
-            | ValueNone -> None
-        | _ -> None
-
-    let (|ExternalUnion|_|) (t: FrozenType) =
+    /// A union encodes `CLASS` in either domain.
+    let (|UnionToken|_|) (t: FrozenType) =
         match t with
         | FTUnion(key, args) ->
-            match externalUnionRef (key, args.Length) with
-            | ValueSome(tref, _) -> Some(tref, args)
-            | ValueNone -> None
+            match userTypes.TryGetValue key with
+            | true, handle -> Some(handle, args)
+            // The Vesper cons-list encodes as `Vesper.Collections.List`1<elem>`.
+            | _ when RuntimeNames.isVesperListKey key && args.Length = 1 -> Some(eVesperList1.Value, args)
+            | _ ->
+                match externalUnionRef (key, args.Length) with
+                | ValueSome(tref, _) -> Some(tref, args)
+                | ValueNone -> None
+        | _ -> None
+
+    let (|RecordToken|_|) (t: FrozenType) =
+        match t with
+        | FTRecord(key, args) ->
+            match userTypes.TryGetValue key with
+            // A `[<Struct>]` record encodes `ELEMENT_TYPE_VALUETYPE` so a signature matches its
+            // value-type `TypeDefinition`; a reference record is `ELEMENT_TYPE_CLASS`.
+            | true, handle -> Some(handle, userValueTypes.Contains key, args)
+            | _ ->
+                match externalRecordRef (key, args.Length) with
+                | ValueSome(tref, _) -> Some(tref, false, args)
+                | ValueNone -> None
+        | _ -> None
+
+    let (|ClassToken|_|) (t: FrozenType) =
+        match t with
+        | FTClass(key, args) ->
+            match env.ClassOrigin key with
+            | ClassOrigin.Local handle -> Some(handle, userValueTypes.Contains key, args)
+            // A struct external type (`List`1+Enumerator`) must encode as a
+            // `VALUETYPE` element; every reference type stays `false`.
+            | ClassOrigin.Foreign tref -> Some(tref, externalIsValueType key, args)
+            | ClassOrigin.Unresolved -> None
         | _ -> None
 
     /// Encode a `FrozenType` into a metadata signature slot. Context-free: open typars are
@@ -82,74 +95,9 @@ type internal ClrEncoder(env: ClrEnv) =
             let g = te.GenericInstantiation(eFun2 (), 2, false)
             encodeType (g.AddArgument()) a
             encodeType (g.AddArgument()) b
-        // `userTypes` holds exactly the types emitted into THIS assembly. A self-host
-        // `Vesper.Collections.List` and a referenced one share a key; membership is the only
-        // thing separating the emitted `TypeDef` from the cached external `eVesperList1`.
-        | FTUnion(key, args) when userTypes.ContainsKey key ->
-            let handle = userTypes.[key]
-
-            if args.IsEmpty then
-                te.Type(handle, false)
-            else
-                let g = te.GenericInstantiation(handle, args.Length, false)
-
-                for a in args do
-                    encodeType (g.AddArgument()) a
-        | FTUnion(key, args) when RuntimeNames.isVesperListKey key && args.Length = 1 ->
-            // The Vesper cons-list ≡ `Vesper.Collections.List`1<elem>`, so no FSharp.Core dep.
-            let elem = args.[0]
-            let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
-            encodeType (g.AddArgument()) elem
-        | FTRecord(key, args) when userTypes.ContainsKey key ->
-            let handle = userTypes.[key]
-            // A `[<Struct>]` record encodes `ELEMENT_TYPE_VALUETYPE` so a signature matches its
-            // value-type `TypeDefinition`; a reference record is `ELEMENT_TYPE_CLASS`.
-            let isVt = userValueTypes.Contains key
-
-            if args.IsEmpty then
-                te.Type(handle, isVt)
-            else
-                let g = te.GenericInstantiation(handle, args.Length, isVt)
-
-                for a in args do
-                    encodeType (g.AddArgument()) a
-        | FTClass(key, args) when userTypes.ContainsKey key ->
-            let handle = userTypes.[key]
-            let isVt = userValueTypes.Contains key
-
-            if args.IsEmpty then
-                te.Type(handle, isVt)
-            else
-                let g = te.GenericInstantiation(handle, args.Length, isVt)
-
-                for a in args do
-                    encodeType (g.AddArgument()) a
-        | ExternalClass(tref, vt, args) ->
-            if args.IsEmpty then
-                te.Type(tref, vt)
-            else
-                let g = te.GenericInstantiation(tref, args.Length, vt)
-
-                for a in args do
-                    encodeType (g.AddArgument()) a
-        | ExternalRecord(tref, args) ->
-            if args.IsEmpty then
-                te.Type(tref, false)
-            else
-                let g = te.GenericInstantiation(tref, args.Length, false)
-
-                for a in args do
-                    encodeType (g.AddArgument()) a
-        | ExternalUnion(tref, args) ->
-            // A referenced-package union (`Vesper.Option<int>`) is a reference type, never
-            // `VALUETYPE`.
-            if args.IsEmpty then
-                te.Type(tref, false)
-            else
-                let g = te.GenericInstantiation(tref, args.Length, false)
-
-                for a in args do
-                    encodeType (g.AddArgument()) a
+        | UnionToken(handle, args) -> encodeNominal te handle false args
+        | RecordToken(handle, isVt, args)
+        | ClassToken(handle, isVt, args) -> encodeNominal te handle isVt args
         | FTUnknown reason ->
             // The two reasons a contract bakes are reported at `unify`; a value carrying any of
             // the rest is skipped before emit. So nothing untyped reaches signature encoding.
@@ -255,16 +203,27 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 match externalClassRef platformKey with
                 // The repr's OWN value-ness: a struct encoded as `class X` only dies at JIT time.
-                | ValueSome tref when args.IsEmpty -> te.Type(tref, externalIsValueType platformKey)
-                | ValueSome tref ->
-                    let g = te.GenericInstantiation(tref, args.Length, externalIsValueType platformKey)
-
-                    for a in args do
-                        encodeType (g.AddArgument()) a
+                | ValueSome tref -> encodeNominal te tref (externalIsValueType platformKey) args
                 | ValueNone ->
                     let (DisplayName name) = SymbolKeyOps.typeSimpleName key
                     failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
+
+    /// Encode `handle` applied to `args`: the bare type at arity 0, a `GENERICINST` otherwise.
+    /// `isVt` selects the `VALUETYPE` element tag over `CLASS`.
+    and encodeNominal
+        (te: SignatureTypeEncoder)
+        (handle: EntityHandle)
+        (isVt: bool)
+        (args: EqArray<FrozenType>)
+        : unit =
+        if args.IsEmpty then
+            te.Type(handle, isVt)
+        else
+            let g = te.GenericInstantiation(handle, args.Length, isVt)
+
+            for a in args do
+                encodeType (g.AddArgument()) a
 
     /// Fill both open-typar axes' slots by structurally matching a member's OPEN signature
     /// template (carrying `FTTypar(axis, i)` nodes) against its INSTANTIATED, already-ground

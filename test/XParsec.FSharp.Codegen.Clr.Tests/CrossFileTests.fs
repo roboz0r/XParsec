@@ -5,6 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // A compilation is an ordered SEQUENCE of frozen files emitted into ONE assembly: two files
 // compiled together and RUN. A cross-file reference that failed to re-home to a LOCAL
@@ -284,6 +285,50 @@ printfn \"%d\" (r.X + r.Y)
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "42" "cross-file record construction builds and reads the record"
+            }
+
+            // gap: name resolution reaches intrinsic and platform classes only, so a prior
+            // file's CLASS resolves from neither `inherit Shape(t)` nor a bare `Shape(42)`.
+            // Records, interfaces and module functions cross a file boundary; classes do not.
+            ptest "two files run: file 2 INHERITS a class declared in file 1 (extends re-homes local)" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Shape(x: int) =
+        member this.Raw = x
+"
+
+                // File 2 (entry, last): derives from file 1's class, chains its ctor, and reads
+                // the inherited member back.
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+type Circle(r: int, t: int) =
+    inherit Shape(t)
+
+    member this.Radius = r
+
+let c = Circle(11, 31)
+printfn \"%d\" (c.Radius + c.Raw)
+"
+
+                let asmName = "CrossFileInherit"
+                let bytes = compileTwoFiles asmName file1 file2
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the derived ctor chains to file 1's base and the inherited member reads back"
             }
 
             // Cross-file INTERFACE dispatch: the frozen `Interface` arm decurries each abstract

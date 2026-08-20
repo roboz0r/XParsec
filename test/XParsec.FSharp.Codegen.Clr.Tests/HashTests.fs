@@ -78,7 +78,7 @@ let tests =
                             "printfn \"%d\" (hash 42)" // 42
                         ]
 
-                let _, artifact = compileSourceContract "HashInt" src
+                let artifact = compileSourceContract "HashInt" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -94,7 +94,7 @@ let tests =
                             "printfn \"%d\" (hash false)" // 0
                         ]
 
-                let _, artifact = compileSourceContract "HashBool" src
+                let artifact = compileSourceContract "HashBool" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -112,7 +112,7 @@ let tests =
                             "printfn \"%d\" (if (hash 'A') = (hash 'B') then 1 else 0)" // 0
                         ]
 
-                let _, artifact = compileSourceContract "HashCharConsistency" src
+                let artifact = compileSourceContract "HashCharConsistency" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -120,7 +120,7 @@ let tests =
             }
 
             test "`hash` does not pin an FSharp.Core dependency (it rides the BCL comparer)" {
-                let _, artifact = compileSourceContract "HashNoDep" "printfn \"%d\" (hash 5)"
+                let artifact = compileSourceContract "HashNoDep" "printfn \"%d\" (hash 5)"
 
                 expectNoFSharpCore artifact "primitive `hash`"
 

@@ -5,6 +5,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 /// A `Star` width (a runtime `%*d`) has no static value, so it projects to `None`.
 let private alignToOpt (a: PrintfHoleForm.Alignment) : int option =
@@ -90,7 +91,7 @@ let private runParity (name: string) (src: string) (expected: string) =
 /// F#'s throw (`PadLeft` rejects a negative `%*d` width as its `totalWidth`) invokes directly.
 let private entryPointThrew (src: string) : (string * string option) option =
     withPrintfAlc (fun alc ->
-        let _, artifact = compileSource "PHpStarThrow" src
+        let artifact = compileSource "PHpStarThrow" src
         use ms = new System.IO.MemoryStream(Codegen.toBytes artifact)
         let asm = alc.LoadFromStream ms
         let entry = asm.EntryPoint

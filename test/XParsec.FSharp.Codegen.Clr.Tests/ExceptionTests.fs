@@ -6,6 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // `raise` / `failwith` / `invalidArg` are cross-package inline operators in
 // `Vesper.Core/ops-platform.clr.fs`, not TAST nodes: `raise e` splices to
@@ -17,9 +18,7 @@ let private lines xs = String.concat "\n" xs
 /// `TargetInvocationException`. Every `src` here writes `let boom (n: int) : int = …`:
 /// the ignored `int` parameter is what makes it a plain static method to invoke.
 let private thrownBy (assemblyName: string) (src: string) : exn =
-    let tast, artifact = compileSource assemblyName src
-
-    Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+    let artifact = compileSource assemblyName src
 
     let fn = programClassMethods (Codegen.toBytes artifact) |> Array.exactlyOne
 
@@ -76,10 +75,9 @@ let tests =
                 // An `int` argument must fail the coercion constraint on
                 // `raise: exn: 'TException -> 'T when 'TException :> exn`. Front end only:
                 // the assertion is a diagnostic, not a throw.
-                let tast =
-                    analyseAs "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
-
-                let msgs = tast.Diagnostics |> List.map (fun d -> d.Message)
+                let msgs =
+                    diagnoseSource "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])
+                    |> diagnosticMessages
 
                 Expect.isNonEmpty msgs "raising a non-exception must produce a diagnostic"
 
@@ -123,17 +121,14 @@ let tests =
             }
 
             test "a BCL exception upcasts to exn and to obj without diagnostics" {
-                let tast, _ =
-                    compileSource
-                        "ExnUpcastRoots"
-                        (lines
-                            [
-                                "let toExn (e: System.InvalidOperationException) : exn = e"
-                                "let toObj (e: System.InvalidOperationException) : obj = e"
-                            ])
-
-                let msgs = tast.Diagnostics |> List.map (fun d -> d.Message)
-
-                Expect.isEmpty msgs (sprintf "upcasting a BCL exception to the exn / obj roots type-checks: %A" msgs)
+                // The clean compile IS the assertion: both upcasts type-check.
+                compileSource
+                    "ExnUpcastRoots"
+                    (lines
+                        [
+                            "let toExn (e: System.InvalidOperationException) : exn = e"
+                            "let toObj (e: System.InvalidOperationException) : obj = e"
+                        ])
+                |> ignore
             }
         ]

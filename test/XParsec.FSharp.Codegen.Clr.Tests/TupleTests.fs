@@ -9,6 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 /// `int` → `System.Int32` and `string` → `System.String`: the element reprs the
 /// tuple encodings below need, with no assembly emitted around them.
@@ -121,7 +122,7 @@ let constructTests =
         "Tuple representation: construct a tuple value"
         [
             test "a function returning (n, n+1) yields a ValueTuple`2 with the constructed fields" {
-                let _, artifact = compileSource "TupleStep3" "let pair (n: int) = (n, n + 1)"
+                let artifact = compileSource "TupleStep3" "let pair (n: int) = (n, n + 1)"
                 let m = theStaticFn (Codegen.toBytes artifact)
                 let result = m.Invoke(null, [| box 5 |])
 
@@ -139,7 +140,7 @@ let constructTests =
             }
 
             test "a heterogeneous (int, string) tuple constructs with both element types" {
-                let _, artifact = compileSource "TupleStep3b" "let tag (n: int) = (n, \"x\")"
+                let artifact = compileSource "TupleStep3b" "let tag (n: int) = (n, \"x\")"
                 let m = theStaticFn (Codegen.toBytes artifact)
                 let result = m.Invoke(null, [| box 7 |])
 
@@ -154,7 +155,7 @@ let constructTests =
             }
 
             test "an 8-tuple constructs as ValueTuple`8 whose Rest holds the 8th element" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TupleStep3c"
                         "let octet (n: int) = (n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7)"
@@ -180,7 +181,7 @@ let constructTests =
 [<Tests>]
 let destructureTests =
     let invokeIntFn (source: string) (arg: int) : int =
-        let _, artifact = compileSource "TupleStep4" source
+        let artifact = compileSource "TupleStep4" source
         let m = programClassMethods (Codegen.toBytes artifact) |> Array.head
 
         m.Invoke(null, [| box arg |]) :?> int
@@ -237,7 +238,7 @@ let destructureTests =
 [<Tests>]
 let lambdaParamTests =
     let invokeIntFn (source: string) (arg: int) : int =
-        let _, artifact = compileSource "TupleStep5" source
+        let artifact = compileSource "TupleStep5" source
         let m = programClassMethods (Codegen.toBytes artifact) |> Array.head
 
         m.Invoke(null, [| box arg |]) :?> int

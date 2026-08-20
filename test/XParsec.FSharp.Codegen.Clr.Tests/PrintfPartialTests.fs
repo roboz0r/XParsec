@@ -48,7 +48,7 @@ let tests =
             // The closure's `Invoke` is the Vesper format unroll dispatched through
             // `Vesper.Fun`, so nothing references `PrintfModule` / `PrintfFormat`.
             test "a lowered `printfn \"%d\"` partial references no FSharp.Core construct" {
-                let _, artifact = compileSource "DepsPartialPrintf" "let p = printfn \"%d\"\np 3"
+                let artifact = compileSource "DepsPartialPrintf" "let p = printfn \"%d\"\np 3"
 
                 expectNoFSharpCore artifact "the printf partial is pure Vesper"
             }

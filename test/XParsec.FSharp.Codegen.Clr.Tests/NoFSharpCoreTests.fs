@@ -4,6 +4,8 @@ open System
 open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Nothing the backend emits references an FSharp.Core construct, so the invariant is asserted on
 // the ARTIFACT: no `AssemblyRef` row in the PE, no `FSharp.Core.dll` beside a materialised app.
@@ -45,7 +47,7 @@ let tests =
                 [
                     for name, src in nativeFormats do
                         test src {
-                            let _, artifact = compileSource ("Deps" + name) src
+                            let artifact = compileSource ("Deps" + name) src
 
                             expectNoFSharpCore artifact src
                         }
@@ -64,7 +66,7 @@ let tests =
             // The provider's refs are `lazy`, so an `AssemblyRef` row is added only when one
             // is actually forced, so an empty use-set leaves no dead reference row.
             test "an emitted executable does not carry an FSharp.Core reference row" {
-                let _, artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
+                let artifact = compileSource "DepsCleanExe" "printfn \"%d\" 42"
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let refs = asm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
@@ -85,7 +87,7 @@ let tests =
                 if IO.File.Exists coreDst then
                     IO.File.Delete coreDst
 
-                let _, artifact = compileSourceTo project "printfn \"%d\" 42"
+                let artifact = compileSourceTo project "printfn \"%d\" 42"
                 Codegen.materialiseApp project artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecNoCoreApp.dll")

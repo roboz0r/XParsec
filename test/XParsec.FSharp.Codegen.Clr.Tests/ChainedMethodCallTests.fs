@@ -38,8 +38,7 @@ let chainedMethodCallTests =
                             "printfn \"%d\" r"
                         ]
 
-                let tast, artifact = compileSource "ChainInIfaceMember" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "ChainInIfaceMember" src
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -63,8 +62,7 @@ let chainedMethodCallTests =
                             "printfn \"%d\" (chain (AddCurried() :> Fun<int, Fun<int, int>>) 20 22)"
                         ]
 
-                let tast, artifact = compileSource "ChainAtTopLevel" src
-                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let artifact = compileSource "ChainAtTopLevel" src
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"

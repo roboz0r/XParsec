@@ -65,7 +65,7 @@ let tests =
             }
 
             test "`printfn \"%A\" [1]` prints [1] (one Cons over Empty + list-typed Invoke)" {
-                let _, artifact = compileSource "ListSingle" "printfn \"%A\" [1]"
+                let artifact = compileSource "ListSingle" "printfn \"%A\" [1]"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -73,7 +73,7 @@ let tests =
             }
 
             test "`printfn \"%A\" [1; 2; 3]` prints [1; 2; 3] (recursive tail + post-order calls)" {
-                let _, artifact = compileSource "ListChain" "printfn \"%A\" [1; 2; 3]"
+                let artifact = compileSource "ListChain" "printfn \"%A\" [1; 2; 3]"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -81,8 +81,7 @@ let tests =
             }
 
             test "`let nums = [1; 2; 3]` / `printfn \"%A\" nums` prints [1; 2; 3] (list-typed local)" {
-                let _, artifact =
-                    compileSource "ListLocal" "let nums = [1; 2; 3]\nprintfn \"%A\" nums"
+                let artifact = compileSource "ListLocal" "let nums = [1; 2; 3]\nprintfn \"%A\" nums"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
@@ -135,11 +134,7 @@ let tests =
                             "printfn \"%d\" (sum [1; 2; 3])"
                         ]
 
-                let tast, artifact = compileSource "ListLitOwnUnion" src
-
-                Expect.isEmpty
-                    tast.Diagnostics
-                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+                let artifact = compileSource "ListLitOwnUnion" src
 
                 expectNoFSharpCore artifact "a `[1;2;3]` over our own list + a concrete printf"
 

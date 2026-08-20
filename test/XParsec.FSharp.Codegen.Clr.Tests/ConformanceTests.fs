@@ -19,7 +19,7 @@ let private clrBackend: Backend =
         // and that throw is the fault surface reported as `Faulted`.
         CompileAndRun =
             fun name src ->
-                let _, artifact = compileSource (conformanceAssemblyName name) src
+                let artifact = compileSource (conformanceAssemblyName name) src
                 let bytes = Codegen.toBytes artifact
 
                 // Outside the `try`, like the compile: a backend that cannot emit a

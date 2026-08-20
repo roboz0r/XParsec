@@ -4,6 +4,7 @@ open System
 open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `list.fs`'s `[]`/`::` operator cases compile to FSharpList's shape: `[]` → a static
 // `Empty` factory, `(::)` → a static `Cons` factory plus `Cons_0`/`Cons_1` payload

@@ -7,6 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // Class emission, asserted by reflecting over the emitted PE.
 
@@ -31,7 +32,7 @@ let monoTests =
             // Ctor-param backing fields are generated storage, not declared API, so
             // they emit `assembly`, matching FSC.
             test "an emitted class type has a public ctor + one assembly-visible field per primary-ctor parameter" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsMeta"
                         (String.concat
@@ -63,7 +64,7 @@ let monoTests =
             }
 
             test "a class with `member this.M () = 1` emits an instance method that returns 1" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsM1"
                         (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
@@ -81,7 +82,7 @@ let monoTests =
             }
 
             test "a class instance member reads a ctor-param backing field (Magnitude(3,4) returns 25)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsMag"
                         (String.concat
@@ -104,7 +105,7 @@ let monoTests =
             }
 
             test "a class auto-property (member this.X = x) round-trips the ctor param" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsProp"
                         (String.concat
@@ -134,7 +135,7 @@ let monoTests =
             // `Add(a, b)` is one tuple argument pattern in source, but F# compiles it
             // to a method with two scalar params, not a `Tuple<int,int>` one.
             test "a two-parameter instance member binds both args (Add(3,4) returns 7)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsAdd2"
                         (String.concat
@@ -159,7 +160,7 @@ let monoTests =
             }
 
             test "a class with no ctor params + a capture-free method emits cleanly" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsNullary"
                         (String.concat "\n" [ "type C() ="; "    member this.M () = 42"; "let c = C()" ])
@@ -177,7 +178,7 @@ let monoTests =
             }
 
             test "a class is reference-equal by default: no IEquatable<Self> + no synthesised Equals override" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsRefEq"
                         (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
@@ -198,7 +199,7 @@ let monoTests =
             }
 
             test "a class emission does not pin FSharp.Core" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsNoDep"
                         (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
@@ -209,7 +210,7 @@ let monoTests =
             // A class is open by default so inheritance can derive from it;
             // `[<Sealed>]` flips `TypeAttributes.Sealed` on.
             test "a class without [<Sealed>] is not sealed" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsOpen"
                         (String.concat "\n" [ "type C() ="; "    member this.M () = 1"; "let c = C()" ])
@@ -221,7 +222,7 @@ let monoTests =
             }
 
             test "a class with [<Sealed>] has TypeAttributes.Sealed set" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsSealed"
                         (String.concat "\n" [ "[<Sealed>]"; "type C() ="; "    member this.M () = 1"; "let c = C()" ])
@@ -242,7 +243,7 @@ let monoTests =
             // Each member names its own self-identifier, so `member a.First` and
             // `member b.Second` are both legal on one type and `a.Second` resolves.
             test "two instance members with distinct self-ids resolve (First reads a.Second)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsSelfIds"
                         (String.concat
@@ -280,7 +281,7 @@ let staticTests =
         "ClassStatic"
         [
             test "a class static method emits with the Static flag and returns 1" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsStaticM"
                         (String.concat "\n" [ "type C() ="; "    static member M () = 1"; "let c = C()" ])
@@ -299,7 +300,7 @@ let staticTests =
 
             // The same tuple-pattern flattening on the static axis.
             test "a two-parameter static member binds both args (M(3,4) returns 7)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsStaticAdd2"
                         (String.concat "\n" [ "type T ="; "    static member M(a: int, b: int) : int = a + b" ])
@@ -319,7 +320,7 @@ let staticTests =
             // A module-level `let x = e` is a `public static` field on its module class
             // (`Helper` below), set by that class's `.cctor` and read as `ldsfld`.
             test "an instance member reads a module-level value via a static field (Get() = 42)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ModuleValMember"
                         (String.concat
@@ -347,7 +348,7 @@ let staticTests =
             }
 
             test "a generic class `static let` reads a module value through the cctor (SeedV() = 42)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ModuleValGenericStaticLet"
                         (String.concat
@@ -375,7 +376,7 @@ let staticTests =
             }
 
             test "a module function reading a module value emits as a static method (get() = 42)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ModuleValFn"
                         (String.concat
@@ -393,7 +394,7 @@ let staticTests =
 
             // The cctor evaluates initialisers in declaration order.
             test "a module value initialised from an earlier module value (cctor order: b = 2)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ModuleValChain"
                         (String.concat "\n" [ "module Helper ="; "    let a : int = 1"; "    let b : int = a + 1" ])
@@ -438,7 +439,7 @@ let staticTests =
             // module class has no typar to type it, so it lowers to a zero-arg generic
             // static method that each reference `call`s at its own instantiation.
             test "a generic module value lowers to a generic method read across contexts (null)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "GenericModuleVal"
                         (String.concat
@@ -489,7 +490,7 @@ let staticTests =
             }
 
             test "a class `static let` becomes a static field initialised by the cctor (Get() = 42)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsStaticLet"
                         (String.concat
@@ -514,7 +515,7 @@ let staticTests =
 
             // A `static let` is in scope for instance members too (F# §8.7).
             test "an instance member reads a `static let` field (this.Get() = 7)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsStaticLetInst"
                         (String.concat
@@ -548,7 +549,7 @@ let staticTests =
             // stores straight to it: `stsfld` (0x80), against the `ldsfld` (0x7E) a
             // read emits.
             test "a write to a `static let mutable` emits `stsfld` (accumulates to 7)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsStaticLetMutable"
                         (String.concat
@@ -579,7 +580,7 @@ let staticTests =
             // instantiation; both the `.cctor` store and the member-body read mint a
             // `MemberRef` on the self-`TypeSpec` (`Box\`1<!0>::tag`), not a `Def` token.
             test "a generic class `static let` reads back at two instantiations (Box<int>/Box<string>.Tag() = 99)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsStaticLetGeneric"
                         (String.concat
@@ -656,7 +657,7 @@ let staticTests =
             // The `(+)` body's applications (`a.N + b.N`, the `V(…)` ctor) only freeze
             // once the body is inferred; the member emits as `op_Addition`.
             test "a static operator member's body is inferred (op_Addition(V 3, V 4).N = 7)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsOpMember"
                         (String.concat
@@ -799,7 +800,7 @@ let staticTests =
             // a `static initonly` Program field set by the `.cctor` in declaration
             // order, so `let b = a + 5` reads an already-set `a`.
             test "leading top-level values are Program-class initonly fields, cctor-initialised in order" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TopLevelLeading"
                         (String.concat
@@ -830,7 +831,7 @@ let staticTests =
             }
 
             test "a member reads a top-level (leading) value via a Program-class initonly field" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TopLevelValMember"
                         (String.concat
@@ -864,7 +865,7 @@ let staticTests =
             // The same rule as for a generic module value, on the Program class:
             // `let empty : 'T list = []` becomes a zero-arg generic static method.
             test "a generic top-level value is a generic static method on Program (not a field)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TopLevelGeneric"
                         (String.concat
@@ -905,7 +906,7 @@ let staticTests =
             // initonly) Program static that `Main` `stsfld`s in source order, rather
             // than one the pre-`Main` `.cctor` hoists.
             test "a top-level value after a statement is a Main-written mutable static field (trailing)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TopLevelTrailing"
                         (String.concat
@@ -966,7 +967,7 @@ let secondaryCtorTests =
         [
             // A secondary ctor emits as a `.ctor` overload chaining to the primary one.
             test "a secondary ctor `new() = C(0)` chains to the primary ctor (C().X = 0, C(5).X = 5)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsSecCtor"
                         (String.concat
@@ -1001,7 +1002,7 @@ let secondaryCtorTests =
             // `new(x) = C2(x, 0)` chains to a *different-arity* primary, feeding the
             // overload's own param alongside a constant.
             test "a secondary ctor forwards its parameter to the primary chain (C2(9).Sum = 9)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsSecCtorFwd"
                         (String.concat
@@ -1028,7 +1029,7 @@ let secondaryCtorTests =
             // self-`TypeSpec`. `new(v) = Box(v, 1)` sends its `'a` param to the first
             // field and a constant to the second, so the non-first field is covered too.
             test "a generic class secondary ctor chains through the open self-TypeSpec (Box(7).V = 7, .N = 1)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsSecCtorGen"
                         (String.concat
@@ -1076,7 +1077,7 @@ let typeAppTests =
         "ClassTypeApp"
         [
             test "module-level explicit type-app construction (Box<int>(5)) round-trips" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TyAppMod"
                         (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box<int>(5)" ])
@@ -1090,7 +1091,7 @@ let typeAppTests =
 
             // Here the explicit `<'T>` is the enclosing type's own typar, in scope.
             test "explicit type-app construction at the declaring typar inside a member (Holder<'T>(v)) round-trips" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "TyAppMember"
                         (String.concat
@@ -1133,7 +1134,7 @@ let genericTests =
         "ClassGeneric"
         [
             test "a generic class `Box<'T>` is emitted as a generic TypeDefinition" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenMeta"
                         (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
@@ -1153,7 +1154,7 @@ let genericTests =
             }
 
             test "Box<int>(42).V returns 42" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenIntV"
                         (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
@@ -1172,7 +1173,7 @@ let genericTests =
             }
 
             test "Box<string>(\"hi\").V returns \"hi\": the same emitted body works at any instantiation" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenStrV"
                         (String.concat "\n" [ "type Box<'a>(v: 'a) ="; "    member this.V = v"; "let b = Box(0)" ])
@@ -1190,7 +1191,7 @@ let genericTests =
             // index >= 1, where a generic ctor `stfld` / member-body `ldfld` could
             // resolve the wrong slot.
             test "Box<int>(7, 3).N returns 3: a generic class round-trips its non-first field" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenTwoField"
                         (String.concat
@@ -1226,7 +1227,7 @@ let genericMethodTests =
         "ClassGenericMethod"
         [
             test "a generic method on a monomorphic class round-trips at two instantiations" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenMethMono"
                         (String.concat "\n" [ "type C() ="; "    member this.Id<'b> (x: 'b) = x"; "let c = C()" ])
@@ -1248,7 +1249,7 @@ let genericMethodTests =
             }
 
             test "Box<int>(0).Echo<string>(\"hi\") = \"hi\": a method typar rides param + return" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenMethEcho"
                         (String.concat
@@ -1278,7 +1279,7 @@ let genericMethodTests =
             // `First<'b> (x: 'b) = v` mixes both in one signature: the `'b` param is
             // `!!0`, the `'a` return is `!0`.
             test "a generic method's own typar (!!0) and its class's typar (!0) stay distinct" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsGenMethMixed"
                         (String.concat
@@ -1320,7 +1321,7 @@ let castTests =
         "ClassCast"
         [
             test "`this :? C` emits isinst and returns true for the instance itself" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ClsTypeTest"
                         (String.concat "\n" [ "type C() ="; "    member this.IsC () = this :? C"; "let c = C()" ])
@@ -1335,8 +1336,10 @@ let castTests =
             }
 
             test "`(this :?> C).M ()` emits castclass then dispatches the member" {
-                let _, artifact =
-                    compileSource
+                // `this` is already a `C`, so the cast is emitted under a redundancy warning.
+                let artifact =
+                    compileSourceWarning
+                        "Downcast is redundant"
                         "ClsDowncast"
                         (String.concat
                             "\n"
@@ -1371,7 +1374,7 @@ let inheritanceTests =
         "ClassInheritance"
         [
             test "a derived class's IL base type is its declared parent" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhBaseType"
                         (String.concat
@@ -1393,7 +1396,7 @@ let inheritanceTests =
             }
 
             test "constructing a derived instance chains to the base ctor (inherited member reads the base-ctor arg)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhBaseCtor"
                         (String.concat
@@ -1426,7 +1429,7 @@ let inheritanceTests =
             // them, but the `.cctor` has already run, so `k` there is in scope and must
             // rewrite to a static-field load rather than a bare local read.
             test "a `static let` referenced in the `inherit` arguments loads from the static field" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhStaticLetArg"
                         (String.concat
@@ -1450,7 +1453,7 @@ let inheritanceTests =
             }
 
             test "a two-level chain (Loud : Shape : Object) constructs and the override is selected on the derived type" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhOverride"
                         (String.concat
@@ -1484,7 +1487,7 @@ let inheritanceTests =
             // the base `.ctor` a `MemberRef` on it.
             test
                 "a mono class inheriting an instantiated generic base (Box<int>) constructs and reads through the chain" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhGenericBase"
                         (String.concat
@@ -1519,7 +1522,7 @@ let inheritanceTests =
             // With `inherit SetTree<'T>(h)` the base `TypeSpec` carries `!0` instead.
             test
                 "a generic class inheriting a generic base at its own typar (SetTreeNode<'T> : SetTree<'T>) round-trips" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhGenericChain"
                         (String.concat
@@ -1593,7 +1596,7 @@ let inheritanceTests =
             // re-enter the override and stack-overflow, so returning 2 at all is the
             // assertion.
             test "`base.M()` in an override calls the parent's method, not itself (non-virtual dispatch)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "InhBaseCall"
                         (String.concat
@@ -1863,7 +1866,7 @@ let interfaceImplCodegenTests =
         "ClassInterfaceImplCodegen"
         [
             test "a class implementing IEnumerable<int> + IEnumerable emits both InterfaceImpl rows and enumerates" {
-                let _, artifact = compileSource "ClsIEnum" src
+                let artifact = compileSource "ClsIEnum" src
                 let bytes = Codegen.toBytes artifact
 
                 Expect.equal
@@ -1911,7 +1914,7 @@ let interfaceImplCodegenTests =
                             "        member this.GetEnumerator() : System.Collections.IEnumerator = e :> System.Collections.IEnumerator"
                         ]
 
-                let _, artifact = compileSource "ClsIEnumGen" gsrc
+                let artifact = compileSource "ClsIEnumGen" gsrc
                 let bytes = Codegen.toBytes artifact
 
                 Expect.equal
@@ -1968,7 +1971,7 @@ let interfaceImplCodegenTests =
                             "        member this.GetHashCode(comparer) = 0"
                         ]
 
-                let _, artifact = compileSource "ClsStructEq" src
+                let artifact = compileSource "ClsStructEq" src
                 let bytes = Codegen.toBytes artifact
 
                 // A mismatched slot surfaces here, as a TypeLoadException.
@@ -2022,7 +2025,7 @@ let interfaceImplCodegenTests =
                             "    member _.HashVia(c: IEqualityComparer) = c.GetHashCode(x)"
                         ]
 
-                let _, artifact = compileSource "HolderObjArg" src
+                let artifact = compileSource "HolderObjArg" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("Holder`1", throwOnError = true)
@@ -2053,7 +2056,7 @@ let interfaceImplCodegenTests =
                             "    member this.Probe() = this.M(5)"
                         ]
 
-                let _, artifact = compileSource "ObjParamInstanceCall" src
+                let artifact = compileSource "ObjParamInstanceCall" src
                 let bytes = Codegen.toBytes artifact
                 let il = peMethodIl bytes "C" "Probe"
 
@@ -2083,7 +2086,7 @@ let interfaceImplCodegenTests =
                             "        this.Q"
                         ]
 
-                let _, artifact = compileSource "ClsGetSet" src
+                let artifact = compileSource "ClsGetSet" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C", throwOnError = true)
@@ -2133,7 +2136,7 @@ let interfaceImplCodegenTests =
                             "    member this.Read() = q"
                         ]
 
-                let _, artifact = compileSource "ClsWriteOnlyProp" src
+                let artifact = compileSource "ClsWriteOnlyProp" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType("C", throwOnError = true)
 
@@ -2165,7 +2168,7 @@ let interfaceImplCodegenTests =
                             "        C.P"
                         ]
 
-                let _, artifact = compileSource "ClsStaticSetter" src
+                let artifact = compileSource "ClsStaticSetter" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C", throwOnError = true)
@@ -2205,7 +2208,7 @@ let interfaceImplCodegenTests =
                             "    static member Read() = q"
                         ]
 
-                let _, artifact = compileSource "ClsStaticWriteOnlyProp" src
+                let artifact = compileSource "ClsStaticWriteOnlyProp" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType("C", throwOnError = true)
 
@@ -2234,7 +2237,7 @@ let interfaceImplCodegenTests =
                             "    abstract Item: int -> int with get"
                         ]
 
-                let _, artifact = compileSource "IfaceAbstractProp" src
+                let artifact = compileSource "IfaceAbstractProp" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType("IBox", throwOnError = true)
 
@@ -2267,7 +2270,7 @@ let interfaceImplCodegenTests =
                             "        c.[i]"
                         ]
 
-                let _, artifact = compileSource "ClsIndexer" src
+                let artifact = compileSource "ClsIndexer" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
                 let ty = asm.GetType("C", throwOnError = true)
@@ -2314,7 +2317,7 @@ let interfaceImplCodegenTests =
                             "        c.[i]"
                         ]
 
-                let _, artifact = compileSource "InhIndexer" src
+                let artifact = compileSource "InhIndexer" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
 
@@ -2365,7 +2368,7 @@ let interfaceImplCodegenTests =
                             "        t.Q"
                         ]
 
-                let _, artifact = compileSource "InhSetter" src
+                let artifact = compileSource "InhSetter" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
                 let declaredOnTagged =
@@ -2410,7 +2413,7 @@ let interfaceImplCodegenTests =
                             "        b.[k]"
                         ]
 
-                let _, artifact = compileSource "InhIndexerOverload" src
+                let artifact = compileSource "InhIndexerOverload" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let driver = asm.GetType("Driver", throwOnError = true)
                 let instance = Activator.CreateInstance driver
@@ -2444,7 +2447,7 @@ let interfaceImplCodegenTests =
                             "        o.[i]"
                         ]
 
-                let _, artifact = compileSource "InhIndexerHiding" src
+                let artifact = compileSource "InhIndexerHiding" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let driver = asm.GetType("Driver", throwOnError = true)
                 let instance = Activator.CreateInstance driver
@@ -2476,7 +2479,7 @@ let interfaceImplCodegenTests =
                             "        s.P"
                         ]
 
-                let _, artifact = compileSource "PlainOverIndexedSetter" src
+                let artifact = compileSource "PlainOverIndexedSetter" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let driver = asm.GetType("Driver", throwOnError = true)
                 let instance = Activator.CreateInstance driver
@@ -2499,7 +2502,7 @@ let interfaceImplCodegenTests =
                             "        xs.[i]"
                         ]
 
-                let _, artifact = compileSource "ArrIndexUnchanged" src
+                let artifact = compileSource "ArrIndexUnchanged" src
                 let bytes = Codegen.toBytes artifact
                 let probe = peMethodIl bytes "Arr" "Probe"
 
@@ -2529,7 +2532,7 @@ let interfaceImplCodegenTests =
                             "        member this.Dispose() = raise (System.NotSupportedException(\"nope\"))"
                         ]
 
-                let _, artifact = compileSource "ClsVoidRaise" src
+                let artifact = compileSource "ClsVoidRaise" src
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes
                 let ty = asm.GetType "C"
@@ -2682,7 +2685,7 @@ let coercionTests =
             }
 
             test "`(this :> Shape)` upcasts a derived class to its base and round-trips" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "UpcastBase"
                         (String.concat
@@ -2728,7 +2731,7 @@ let classPreambleTests =
         "ClassPreamble"
         [
             test "an instance `let` reading a ctor param backs an assembly initonly field a member reads" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "PreambleLet"
                         (String.concat
@@ -2760,7 +2763,7 @@ let classPreambleTests =
             // A `let mutable` is an ordinary mutable FIELD, never a ref cell, so the
             // function-`let` closure and every member body share one storage location.
             test "a `let mutable` mutated through a function-`let` persists across calls" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "PreambleMutable"
                         (String.concat
@@ -2831,7 +2834,7 @@ let classPreambleTests =
             }
 
             test "a class whose static preamble is only `static do` still gets a cctor" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "PreambleStaticDoOnly"
                         (String.concat

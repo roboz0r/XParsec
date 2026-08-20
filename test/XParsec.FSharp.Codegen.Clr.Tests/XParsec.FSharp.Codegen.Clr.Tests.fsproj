@@ -19,7 +19,9 @@
     <None Include="data\**\*.fs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="PeInspection.fs" />
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="PackageHarness.fs" />
     <Compile Include="MetadataStructure.fs" />
     <Compile Include="ClrStructuralDigest.fs" />
     <Compile Include="ClrDriverTests.fs" />

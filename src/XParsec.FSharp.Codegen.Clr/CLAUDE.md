@@ -14,7 +14,7 @@ assembly when the question is "did we emit the right metadata" rather than "does
 
 ## Loading an emitted PE
 
-Load through `TestHelpers.loadAssembly`, which uses a fresh `AssemblyLoadContext` and
+Load through `PeInspection.loadAssembly`, which uses a fresh `AssemblyLoadContext` and
 `LoadFromStream`, rather than `Assembly.Load bytes`. Two `Assembly.Load(byte[])` calls on the
 same bytes produce two distinct assemblies, so a reflection round-trip that builds a value via
 one and passes it into the other throws `"Object of type X cannot be converted to type X"`.

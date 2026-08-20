@@ -7,6 +7,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // Ordering on records and unions, opt-in via `[<StructuralComparison>]`: the emit
 // side ships `int CompareTo(Self)` + `int CompareTo(object)` with `IComparable<Self>`
@@ -26,8 +27,6 @@ let tests =
     let implementsIComparable (ty: Type) =
         let generic = typedefof<IComparable<_>>.MakeGenericType ty
         generic.IsAssignableFrom ty && typeof<IComparable>.IsAssignableFrom ty
-
-    let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
     /// The typed `CompareTo(Self)`, so the test sees the raw `int` the body returns.
     let compareTyped (ty: Type) (a: obj) (b: obj) : int =
@@ -55,8 +54,7 @@ let tests =
                             "let p = { X = 0; Y = 0 }"
                         ]
 
-                let tast, artifact = compileSource "StructCmpRecField" src
-                Expect.isEmpty (errors tast) "no diagnostics on the opted-in decl"
+                let artifact = compileSource "StructCmpRecField" src
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Pair"
@@ -88,7 +86,7 @@ let tests =
                             "let p = { X = 0; Y = 0 }"
                         ]
 
-                let _, artifact = compileSource "StructCmpRecLex" src
+                let artifact = compileSource "StructCmpRecLex" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Pair"
 
@@ -114,7 +112,7 @@ let tests =
                             "let s = Square 0"
                         ]
 
-                let _, artifact = compileSource "StructCmpUnionTag" src
+                let artifact = compileSource "StructCmpUnionTag" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Shape"
 
@@ -150,7 +148,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 
-                let _, artifact = compileSource "StructCmpBoxedEntry" src
+                let artifact = compileSource "StructCmpBoxedEntry" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Holder"
 
@@ -172,7 +170,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 
-                let _, artifact = compileSource "StructCmpBoxedThrow" src
+                let artifact = compileSource "StructCmpBoxedThrow" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Holder"
 
@@ -198,7 +196,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<StructuralComparison>]"; "type Holder = { N: int }"; "let h = { N = 0 }" ]
 
-                let _, artifact = compileSource "StructCmpNullArg" src
+                let artifact = compileSource "StructCmpNullArg" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Holder"
                 let h = Activator.CreateInstance(ty, [| box 7 |])
@@ -211,8 +209,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "[<NoComparison>]"; "type Sealed = { X: int }"; "let s = { X = 0 }" ]
 
-                let tast, artifact = compileSource "StructCmpNoCmp" src
-                Expect.isEmpty (errors tast) "decl alone ⇒ no diagnostic"
+                let artifact = compileSource "StructCmpNoCmp" src
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Sealed"
@@ -227,7 +224,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "type Pair = { X: int; Y: int }"; "let p = { X = 0; Y = 0 }" ]
 
-                let _, artifact = compileSource "StructCmpDefault" src
+                let artifact = compileSource "StructCmpDefault" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Pair"
 
@@ -242,7 +239,7 @@ let tests =
                 let src =
                     String.concat "\n" [ "type Tag ="; "    | A"; "    | B of int"; "let t = A" ]
 
-                let _, artifact = compileSource "StructCmpUnionDefault" src
+                let artifact = compileSource "StructCmpUnionDefault" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Tag"
 
@@ -263,7 +260,7 @@ let tests =
                             "let t = A"
                         ]
 
-                let _, artifact = compileSource "StructCmpUnionOptIn" src
+                let artifact = compileSource "StructCmpUnionOptIn" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Tag"
 
@@ -283,7 +280,7 @@ let tests =
                             "let p = { X = 0 }"
                         ]
 
-                let _, artifact = compileSource "StructCmpAttrSuffix" suffixSrc
+                let artifact = compileSource "StructCmpAttrSuffix" suffixSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Pair"
 
@@ -298,7 +295,7 @@ let tests =
                             "let p = { X = 0 }"
                         ]
 
-                let _, artifact2 = compileSource "StructCmpAttrQualified" qualifiedSrc
+                let artifact2 = compileSource "StructCmpAttrQualified" qualifiedSrc
                 let asm2 = loadAssembly (Codegen.toBytes artifact2)
                 let ty2 = asm2.GetType "Pair2"
 
@@ -324,8 +321,7 @@ let tests =
                             "printfn \"%b\" (a >= a)" // true — equal sorts >=
                         ]
 
-                let tast, artifact = compileSource "StructCmpOpRouting" src
-                Expect.isEmpty (errors tast) "no diagnostics on `<` against an opted-in record"
+                let artifact = compileSource "StructCmpOpRouting" src
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -348,16 +344,14 @@ let tests =
                             "let r = a < b"
                         ]
 
-                let tast = analyseAs "StructCmpNoCmpDiag" src
-
-                let cmpErrors =
-                    errors tast |> List.filter (fun d -> d.Message.Contains "comparison")
+                let diagnostics = diagnoseSourceErrors "StructCmpNoCmpDiag" src
+                let cmpErrors = mentioning "comparison" diagnostics
 
                 Expect.isNonEmpty
                     cmpErrors
                     (sprintf
                         "expected a 'Comparison' constraint error for `<` on unannotated record; got %A"
-                        (errors tast))
+                        diagnostics)
             }
 
             test "generic record with [<StructuralComparison>] emits the pair via Comparer<!0>" {
@@ -372,7 +366,7 @@ let tests =
                             "let b = { Value = 0 }"
                         ]
 
-                let _, artifact = compileSource "StructCmpGeneric" src
+                let artifact = compileSource "StructCmpGeneric" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let openTy = asm.GetType "Box`1"
 

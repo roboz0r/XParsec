@@ -5,6 +5,7 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // A numeric enum emits a `System.Enum` subclass with one `static literal` field
 // per case; a string or mixed enum emits a `[<Struct>]` wrapper instead.
@@ -15,7 +16,7 @@ let enumTests =
         "Enum"
         [
             test "a numeric enum emits as a sealed System.Enum subclass with int underlying type" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "EnumIntShape"
                         (String.concat "\n" [ "type Color = | Red = 0 | Green = 1 | Blue = 2"; "let c = Color.Green" ])
@@ -37,7 +38,7 @@ let enumTests =
             }
 
             test "an authored byte-width enum emits System.Byte as its underlying type" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "EnumByteShape"
                         (String.concat "\n" [ "type Flags = | A = 1uy | B = 2uy"; "let f = Flags.B" ])
@@ -112,7 +113,7 @@ let enumTests =
             // constructing the wrapper from the case's string literal. No use site here:
             // the wrapped string reading back is what proves the cctor ran.
             test "a string enum emits a static-initonly struct field, cctor-initialised, readable" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "StringEnumSeq"
                         (String.concat "\n" [ "type Dir = | Up = \"up\" | Down = \"down\""; "let x = 1" ])
@@ -187,7 +188,7 @@ let enumTests =
             }
 
             test "a string enum loads as a value type (.IsValueType)" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "StringEnumIsValue"
                         (String.concat "\n" [ "type Dir = | Up = \"up\" | Down = \"down\""; "let d = Dir.Up" ])
@@ -200,7 +201,8 @@ let enumTests =
 
             // A mixed enum wraps `obj`, so both widths ride one backing field.
             test "a mixed enum match distinguishes int and string cases at runtime" {
-                runsLines
+                runsLinesWarning
+                    "mixes integer and string case values"
                     [ "isA"; "isB"; "isA" ]
                     (String.concat
                         "\n"
@@ -219,7 +221,8 @@ let enumTests =
             }
 
             test "mixed enum equality compares the boxed values structurally" {
-                runsLines
+                runsLinesWarning
+                    "mixes integer and string case values"
                     [ "eq"; "ne" ]
                     (String.concat
                         "\n"
@@ -232,8 +235,11 @@ let enumTests =
             }
 
             test "a mixed enum wraps obj and round-trips its boxed int / string" {
-                let _, artifact =
-                    compileSource "MixedEnumSeq" (String.concat "\n" [ "type M = | A = 1 | B = \"x\""; "let m = M.A" ])
+                let artifact =
+                    compileSourceWarning
+                        "mixes integer and string case values"
+                        "MixedEnumSeq"
+                        (String.concat "\n" [ "type M = | A = 1 | B = \"x\""; "let m = M.A" ])
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "M"

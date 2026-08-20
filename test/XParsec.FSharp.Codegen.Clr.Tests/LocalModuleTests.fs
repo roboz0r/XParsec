@@ -4,6 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 /// The source analyses with no errors. Acceptance alone cannot tell two same-named types
 /// apart, so every caller pairs this with an assertion on the resolved identity.
@@ -119,8 +120,7 @@ let nestedEmission =
         "LocalModule nested emission"
         [
             test "a module-held type binds by its nested metadata name" {
-                let _, artifact =
-                    compileSourceTo (ProjectInfo.library "ModuleHeldType") moduleHeldType
+                let artifact = compileSourceTo (ProjectInfo.library "ModuleHeldType") moduleHeldType
 
                 let bytes = Codegen.toBytes artifact
                 MetadataStructure.assertWellFormed "ModuleHeldType" bytes
@@ -135,8 +135,7 @@ let nestedEmission =
             // Module-class discovery reads the emitted TYPES' containment chains, so a
             // module with no `let` at all still gets a class.
             test "a module holding only types still gets its module class" {
-                let _, artifact =
-                    compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
+                let artifact = compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
 
                 let bytes = Codegen.toBytes artifact
 
@@ -161,7 +160,7 @@ let nestedEmission =
                             "        let twice (n: int) = n + n"
                         ]
 
-                let _, artifact = compileSourceTo (ProjectInfo.library "NestedModuleClass") src
+                let artifact = compileSourceTo (ProjectInfo.library "NestedModuleClass") src
                 let bytes = Codegen.toBytes artifact
                 MetadataStructure.assertWellFormed "NestedModuleClass" bytes
 
@@ -223,7 +222,7 @@ let moduleIsPartOfTypeIdentity =
 
             yield
                 test "each sibling module's T is emitted, nested in ITS OWN module class" {
-                    let _, artifact = compileSource "SiblingModuleTypeIdentity" recordPair
+                    let artifact = compileSource "SiblingModuleTypeIdentity" recordPair
                     let bytes = Codegen.toBytes artifact
 
                     let ts =
@@ -274,7 +273,7 @@ let moduleIsPartOfTypeIdentity =
                             [ "type T(n: int) ="; "    member _.N = n" ]
                             [ "type T(s: string) ="; "    member _.S = s" ]
 
-                    let _, artifact = compileSource "SiblingModuleClassIdentity" src
+                    let artifact = compileSource "SiblingModuleClassIdentity" src
                     let bytes = Codegen.toBytes artifact
 
                     let asm = loadAssembly bytes
@@ -306,7 +305,7 @@ let moduleIsPartOfTypeIdentity =
                                 "    let read (v: A.T) = v.N"
                             ])
 
-                    let _, artifact = compileSource "QualifiedModuleTypeCtor" src
+                    let artifact = compileSource "QualifiedModuleTypeCtor" src
                     let bytes = Codegen.toBytes artifact
                     MetadataStructure.assertWellFormed "QualifiedModuleTypeCtor" bytes
 

@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.SeqModuleTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `Vesper.Seq` over `seq<'T>` (= `IEnumerable<'T>`). Every function takes a real
 // `seq<'T>`, so these run driver programs rather than reflecting members out of

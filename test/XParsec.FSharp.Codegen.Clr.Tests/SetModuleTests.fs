@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.SetModuleTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 [<Tests>]
 let tests =

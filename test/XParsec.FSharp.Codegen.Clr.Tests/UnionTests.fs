@@ -5,6 +5,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 let private lines xs = String.concat "\n" xs
 
@@ -167,7 +168,7 @@ let tests =
             }
 
             test "construct `Cons(7, Nil)` and read its head via match (prints 7)" {
-                let _, artifact = compileSource "UnionHead" unionSrc
+                let artifact = compileSource "UnionHead" unionSrc
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "7" "Cons head extracted by the `| Cons(h, _)` arm"
@@ -177,7 +178,7 @@ let tests =
                 let src =
                     "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet n =\n    match Nil with\n    | Nil -> 0\n    | Cons(h, _) -> h\nprintfn \"%d\" n"
 
-                let _, artifact = compileSource "UnionNil" src
+                let artifact = compileSource "UnionNil" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "0" "the Nil arm matched on a constructed Nil"
@@ -204,7 +205,7 @@ let tests =
             }
 
             test "recursive `sumList` folds a 3-element list (prints 6)" {
-                let _, artifact = compileSource "UnionRecursion" recSrc
+                let artifact = compileSource "UnionRecursion" recSrc
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "6" "sumList [1;2;3] = 6 via self-recursive static call"
@@ -214,7 +215,7 @@ let tests =
                 let src =
                     "type Lst =\n    | Nil\n    | Cons of int * Lst\nlet second =\n    match Cons(10, Cons(20, Nil)) with\n    | Cons(_, Cons(y, _)) -> y\n    | _ -> -1\nprintfn \"%d\" second"
 
-                let _, artifact = compileSource "UnionNested" src
+                let artifact = compileSource "UnionNested" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Trim()) "20" "the nested `Cons(_, Cons(y, _))` bound the tail's head"
@@ -227,8 +228,7 @@ let tests =
                     "namespace Vesper.Collections\n\ntype IntList =\n    | Empty\n    | Cons of int * IntList\n\nlet rec sum xs =\n    match xs with\n    | Empty -> 0\n    | Cons(h, t) -> h + sum t"
 
                 let project = ProjectInfo.library "Vesper.Collections"
-                let tast, artifact = compileSourceTo project src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the union + concrete fold"
 
@@ -311,11 +311,7 @@ let tests =
                             "printfn \"%d\" s.Head"
                         ]
 
-                let tast, artifact = compileSource "UnionMembers" src
-
-                Expect.isEmpty
-                    tast.Diagnostics
-                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+                let artifact = compileSource "UnionMembers" src
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -332,7 +328,7 @@ let tests =
             }
 
             test "an instance member is emitted as a real method (get_IsEmpty) on the union" {
-                let _, artifact = compileSource "UnionMemberMeta" memberUnionSrc
+                let artifact = compileSource "UnionMemberMeta" memberUnionSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let listTy = asm.GetType "Lst"
                 Expect.isNotNull listTy "the assembly contains the union type Lst"
@@ -349,11 +345,7 @@ let tests =
             }
 
             test "a generic union constructs + match-deconstructs at runtime via a recursive fold (prints 6)" {
-                let tast, artifact = compileSource "GenUnion" genUnionSrc
-
-                Expect.isEmpty
-                    tast.Diagnostics
-                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+                let artifact = compileSource "GenUnion" genUnionSrc
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -380,8 +372,7 @@ let tests =
                 // assembly name; under any other it is a type a reference already claims.
                 let project = ProjectInfo.library "Vesper.List"
 
-                let tast, artifact = compileSourceTo project src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the generic union (int / 'T / self fields)"
 
@@ -430,11 +421,7 @@ let tests =
                             "printfn \"%d\" xs.Tail.Head"
                         ]
 
-                let tast, artifact = compileSource "GenMembers" src
-
-                Expect.isEmpty
-                    tast.Diagnostics
-                    (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+                let artifact = compileSource "GenMembers" src
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -454,8 +441,7 @@ let tests =
                 let src = "namespace Vesper.Collections\n\n" + genMemberSrc
 
                 let project = ProjectInfo.library "Vesper.Collections.GenMembers"
-                let tast, artifact = compileSourceTo project src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the generic union + instance members"
 
@@ -500,8 +486,7 @@ let tests =
             }
 
             test "a generic match over a generic union returns the head (prints 7)" {
-                let tast, artifact = compileSource "GenericHd" hdSrc
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "GenericHd" hdSrc
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -509,8 +494,7 @@ let tests =
             }
 
             test "a recursive generic function self-calls via MethodSpec (prints 3)" {
-                let tast, artifact = compileSource "GenericLastOr" lastOrSrc
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "GenericLastOr" lastOrSrc
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -518,8 +502,7 @@ let tests =
             }
 
             test "a generic recursive `foldl<'State,'T>` over a generic union folds to 15 (generic static method)" {
-                let tast, artifact = compileSource "GenericFoldl" foldlSrc
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "GenericFoldl" foldlSrc
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -531,7 +514,7 @@ let tests =
             }
 
             test "the generic static method reflects as a 2-typar generic method" {
-                let _, artifact = compileSource "GenericFoldlShape" foldlSrc
+                let artifact = compileSource "GenericFoldlShape" foldlSrc
                 let asm = loadAssembly (Codegen.toBytes artifact)
 
                 let foldl =
@@ -563,8 +546,7 @@ let tests =
                             "printfn \"%d\" ((lo :> IRank).Rank())"
                         ]
 
-                let tast, artifact = compileSource "UnionIfaceRank" src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "UnionIfaceRank" src
 
                 let bytes = Codegen.toBytes artifact
 
@@ -606,8 +588,7 @@ let tests =
                             "printfn \"%d\" ((Hi 5 :> IRank).Rank())"
                         ]
 
-                let tast, artifact = compileSource "UnionIfaceAndEq" src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                let artifact = compileSource "UnionIfaceAndEq" src
 
                 let bytes = Codegen.toBytes artifact
                 let asm = loadAssembly bytes

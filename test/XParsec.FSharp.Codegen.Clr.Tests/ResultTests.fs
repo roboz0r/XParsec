@@ -4,6 +4,7 @@ open System
 open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Reflection over the built `Vesper.Result.dll` for the pure-data surface; driver
 // programs for the combinators, whose `Vesper.Fun` argument a lambda builds naturally.

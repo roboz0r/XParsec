@@ -93,7 +93,7 @@ let tests =
                             "printfn \"%d\" (kindOf true)" // catch-all    → 0
                         ]
 
-                let _, artifact = compileSource "StaticOptKindOf" src
+                let artifact = compileSource "StaticOptKindOf" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -116,7 +116,7 @@ let tests =
                             "printfn \"%d\" (if eq3 true true then 1 else 0)" // catch-all false → 0
                         ]
 
-                let _, artifact = compileSource "StaticOptEq3" src
+                let artifact = compileSource "StaticOptEq3" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"
@@ -138,7 +138,7 @@ let tests =
                             "printfn \"%d\" (kindOf 5 + kindOf 5.0)" // 1 + 2 = 3
                         ]
 
-                let _, artifact = compileSource "StaticOptIndependent" src
+                let artifact = compileSource "StaticOptIndependent" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 
                 Expect.equal exitCode 0 "Main returns 0"

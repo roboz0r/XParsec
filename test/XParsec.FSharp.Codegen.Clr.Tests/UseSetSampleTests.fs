@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.UseSetSampleTests
 open System.IO
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Reads the committed sample from disk rather than inlining it, so the exact source
 // shipped in `samples/UseSet/` is what runs here.

@@ -4,6 +4,7 @@ open System
 open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // `Vesper.Choice` has no module and no instance members, so reflection reads the `_tag`
 // and payload fields directly, and a driver program observes a constructed value only

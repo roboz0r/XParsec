@@ -5,6 +5,8 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
+open XParsec.FSharp.Codegen.Clr.Tests.PackageHarness
 
 // Two project-local type definitions sharing a name at different generic arity
 // (`Fun<'a,'b>` and `Fun<'a,'b,'c>`) must coexist and resolve apart: the registry claims
@@ -63,7 +65,7 @@ let tests =
             // Constructed with explicit `new Box<…>(…)` so the front end resolves each by
             // its arity-qualified key rather than by written arity at the application.
             test "two same-named classes of different arity emit as Box`1 / Box`2 and dispatch correctly" {
-                let _, artifact =
+                let artifact =
                     compileSource
                         "ArityBox"
                         (String.concat

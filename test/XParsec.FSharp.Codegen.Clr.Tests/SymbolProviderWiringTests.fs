@@ -76,8 +76,7 @@ let tests =
             test "a program compiles + runs through the contract-backed stack" {
                 // One contract-backed provider across both phases, with operators and
                 // printf coming from the contract.
-                let _, artifact =
-                    compileSourceWith defaultPackages "ManifestWiring" "printfn \"%d\" (1 + 2)"
+                let artifact = compileSource "ManifestWiring" "printfn \"%d\" (1 + 2)"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
 

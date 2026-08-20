@@ -1,7 +1,7 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have steps 1-3
-of the staged plan; steps 4-5 have not started. This revision replaces the earlier gated/ungated
+Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have steps 1-4
+of the staged plan; step 5 has not started. This revision replaces the earlier gated/ungated
 pair with an `analyse` / `compile` split, and carries the type names the source-identity rename
 settled on.
 
@@ -274,20 +274,69 @@ single-file entry until step 5 deletes it, and only then can the pair be renamed
 The bench fixtures moved with the tests — `SemanticAnalysisFixtures.analyseStage` and
 `stageErrorCount` now speak `UnitOutcome` rather than `Result<FrozenFile, UnparsedFile list>`.
 
-### 4. Migrate the compile-shaped tests
+### 4. Migrate the compile-shaped tests — LANDED 2026-08-20
 
-The tests whose subject is a compiled artifact or an assembly's diagnostics move to
-`AssemblySources.synthetic` → `analyse` → `compile`. `compileSource` and its family
-(`test/…Clr.Tests/TestHelpers.fs:449-540`) become thin wrappers over that, which is where the
-`defaultPackages` contract and `withCore` references stay wired.
+`TestHelpers.compileAgainst` is the one seam every compile-shaped helper reaches emission
+through, and it is `ClrDriver.compileAssemblyWith` of a single unit, so the suite pins the
+production composition rather than a copy of it. The driver splits into
+`analyseAssemblyWith` (stopping before the gate, for a caller that wants the diagnostics) and
+`emitAnalysed` (gate → `Codegen.emitAssembly`), with `compileAssemblyWith` their composition.
+`analyseAssemblyWith` takes the assembly NAME, not a `ProjectInfo`: resolution reaches analysis
+through the provider built from a reference set, so a `ProjectInfo` parameter would have offered
+a `References` field that analysis never reads and let a caller analyse under one project and
+emit under another.
+`compileAgainst` replaced seven open-coded `parseFile` → `Pipeline.analyseFor` →
+`CodegenSymbols.ofProvider` → `Codegen.compile` copies (`vesperListDll`,
+`compileStructuralEngine`, `compileFixtureFile`, `compilePackages`, `CrossAssemblyEscapeTests`
+twice, `SelfHostTests`, `StructTests`), so `TestHelpers.compilingClr` is deleted and
+`Codegen.compile` is deleted outright, ahead of step 5.
 
-Tests inspecting a pass's side tables stay on `analyseSemWithContextFor` and are not touched
-beyond step 1.
+`compileSource` and its family return `ClrArtifact` rather than `TastFile * ClrArtifact`, which
+is what let 287 sites drop `let _,`. The 56 sites that read the tast asserted only that its
+diagnostics were empty, so the family is SILENT by default: a warning refuses the compile.
+Measured across the suite, exactly four tests warn, over two messages — the heterogeneous-enum
+notice and a redundant downcast. Those four name what they tolerate through
+`compileSourceWarning` / `runsLinesWarning`, which also require the warning to be PRESENT, so
+two messages nothing used to pin are now covered. `analyseAs` became `diagnoseSource` /
+`diagnoseSourceErrors`, returning the assembly's `AnchoredDiagnostic`s, with `mentioning` and
+`diagnosticMessages` beside them for the message filters its callers ran.
+
+Tests inspecting a pass's side tables stay on `analyseSemWithContextFor`.
+
+**The finding:** nine class-inheritance tests went red with "inherits external base … but no
+'.ctor' overload matches". `Codegen.emitAssembly` composes its `ICodegenSymbols` from
+`EmittableAssembly.Visibility`, which carries every unit's own published view, so a class the
+compilation itself declares is now answerable through the provider. `NominalEmit`'s base-class
+classification assumed the opposite ("a project-local key is never in the provider's external
+table") and filed a same-assembly base as external, minting an `AssemblyRef` back to ourselves.
+`ClrProvider.InterfaceHandleOf` and `ClrExternalMembers` had each already open-coded a
+local-first guard against exactly this, and `ClrEncoder` a fourth encoding of it as match-arm
+ORDERING. The fix is one three-way answer, `ClassOrigin` (`Local` handle / `Foreign` handle /
+`Unresolved`), computed by `ClrEnv.classOrigin` and routed through all four sites.
+`BaseShape.LocalMono` carries the handle it was re-deriving through `provider.UserTypeHandle`,
+and `Unresolved` — which used to reach `UserTypes.[key]` and throw `KeyNotFoundException` — is
+now a diagnosed arm.
+
+The encoder went one step further: `ClrEncoder` had probed `userTypes` in a match-arm guard AND
+again inside the external recogniser beneath it. `(|UnionToken|_|)` / `(|RecordToken|_|)` /
+`(|ClassToken|_|)` each answer "which token, and does it tag `VALUETYPE`" for one nominal
+flavour, so local-vs-foreign precedence is stated once per flavour rather than carried by arm
+order, and `encodeNominal` absorbs the seven transcriptions of the arity-0-or-`GENERICINST`
+body. `ClrExternalMembers` routes its FIELD declaring type through `ClassOrigin` too — it had
+kept the old foreign-only lookup under the same failure message — and `externalCtor` /
+`externalParameterlessBaseCtor` now say `Foreign` where they used to reach past the DU.
+
+**Second finding, NOT fixed:** the multi-file half of that bug is unreachable, because a CLASS
+declared by a prior file resolves from no position in a later one. `inherit Shape(t)` reports
+"Cannot inherit from unknown type 'Shape'" (`MemberRegistration.fs:797`) and a bare `Shape(42)`
+fails the same way: `resolveThroughProvider` reaches intrinsic and platform classes only, with
+no arm for an ordinary class a prior file published. Records, interfaces and module functions
+all cross a file boundary. `CrossFileTests` carries the case as a `ptest`.
 
 ### 5. Delete the single-file driver path
 
-`ClrDriver.compile`, `compileApp`, `compileForTfm`, and the `Codegen.compile` / `compileWith`
-single-file wrappers once nothing calls them. `ClrDriver.compileAssembly` /
+`ClrDriver.compile`, `compileApp`, `compileForTfm`, and `Codegen.compileWithReferences` once
+nothing calls them (`Codegen.compile` went in step 4). `ClrDriver.compileAssembly` /
 `compileAssemblyWith` are subsumed by step 3's `compile`.
 
 ## Independent findings
@@ -313,11 +362,9 @@ bound and still uses it on the next line, but the new helper (`EngineCore.fs:326
 `TypeRegistry.tryClassByKey` internally. The extraction is right — `Engine.fs:400` needed it —
 but that call site pays a second registry lookup on the miss path.
 
-**`compileSourceTo` widened for the minority.** 15 call sites; 12 now open `let _, artifact =`
-or `|> snd` so 3 in `UnionTests` can reach the tast. Restore `ProjectInfo -> string ->
-ClrArtifact` and give the 3 a separate helper. Related: the surviving
-`Expect.isEmpty tast.Diagnostics` at `UnionTests.fs:231,384,458` now covers warnings only,
-since `compileSourceTo` fails on errors through `emitted` — say so or drop it.
+~~**`compileSourceTo` widened for the minority.**~~ Fixed by step 4: the whole `compileSource`
+family returns `ClrArtifact`, and the sites that read the tast only to assert its diagnostics
+were empty went onto the `…Clean` variants.
 
 **Two printf specifier gaps are now hard failures.** `printfn "%d" 200uy` and `%g` on a
 `float32` compiled and printed correctly before the gate; they are `ptest`s as of `a57405a4`
@@ -349,17 +396,17 @@ must cover all of them. (What survives of that file is `AssemblyFilePathTests.fs
 ## Scope and risk
 
 Step 1 was the bulk and carried the only real uncertainty: the count of tests failing once they
-carry a home assembly turned out to be zero. Steps 2, 3 and 5 are mechanical. Step 4 is bounded
-by how many tests are compile-shaped rather than pass-shaped.
+carry a home assembly turned out to be zero. Steps 2, 3 and 5 are mechanical. Step 4 turned out
+to be 343 call sites across 43 files, all of them compile-shaped.
 
-Nothing here changes emitted code. Step 3 changes diagnostic SHAPE on the assembly path twice: a
-codegen refusal stops being re-filed as `Kind.Driver` under `nowhere` (no current test asserts on
-it, the branch being unreachable), and a parse failure stops suppressing the other units'
-findings.
+Step 3 changes diagnostic SHAPE on the assembly path twice: a codegen refusal stops being
+re-filed as `Kind.Driver` under `nowhere` (no current test asserts on it, the branch being
+unreachable), and a parse failure stops suppressing the other units' findings.
 
-Sequencing note: a test migrated in step 4 is touched twice, once in step 1. Step 1 runs first
-regardless, because it is what produces the resolution findings and it produces them without
-depending on any of the new shape.
+Step 4 changes emitted code, which the plan did not anticipate: a base class declared by the
+compilation itself was reached through an `AssemblyRef` back to our own assembly. The fix is
+under step 4 above; the same rule was already open-coded for interfaces and for a cross-file
+member's declaring type.
 
 ## Assumptions for confirmation
 

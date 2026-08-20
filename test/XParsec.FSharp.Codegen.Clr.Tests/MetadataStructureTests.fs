@@ -41,10 +41,7 @@ let private representative =
         ]
 
 let private representativeBytes: Lazy<byte[]> =
-    lazy
-        (compileSource "MetaStructRepresentative" representative
-         |> snd
-         |> Codegen.toBytes)
+    lazy (compileSource "MetaStructRepresentative" representative |> Codegen.toBytes)
 
 /// The same declarations as a LIBRARY (no `Main`, no `Program` slot at all).
 let private libraryBytes: Lazy<byte[]> =
@@ -65,9 +62,7 @@ let private libraryBytes: Lazy<byte[]> =
                     "    member c.Start = start"
                 ]
 
-         compileSourceTo (ProjectInfo.library "MetaStructLibrary") src
-         |> snd
-         |> Codegen.toBytes)
+         compileSourceTo (ProjectInfo.library "MetaStructLibrary") src |> Codegen.toBytes)
 
 // ---- The teeth: a hand-built, deliberately mis-ordered metadata image ---------
 // The emitter cannot be made to emit a bad PE, so the corrupt image is built here with

@@ -7,6 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // `[<Struct>]` value-type emission, asserted by reflecting over the emitted PE.
 // Each test's program is a standalone file under `data/`; a `//#include _x.fs`
@@ -21,7 +22,7 @@ let structTests =
         "Struct"
         [
             test "a `[<Struct>]` record emits as a System.ValueType-based value type" {
-                let _, artifact = compileSourceData "StructRecordShape"
+                let artifact = compileSourceData "StructRecordShape"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "P"
@@ -44,7 +45,7 @@ let structTests =
             }
 
             test "a `[<Struct>]` type emits as a System.ValueType-based value type" {
-                let _, artifact = compileSourceData "StructShape"
+                let artifact = compileSourceData "StructShape"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "SPoint"
@@ -62,7 +63,7 @@ let structTests =
             }
 
             test "a struct ctor stores ctor params + a member reads one back (boxed dispatch)" {
-                let _, artifact = compileSourceData "StructCtorRead"
+                let artifact = compileSourceData "StructCtorRead"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Holder"
@@ -76,7 +77,7 @@ let structTests =
             }
 
             test "a struct `val mutable` field mutates through a boxed method and persists" {
-                let _, artifact = compileSourceData "StructMutable"
+                let artifact = compileSourceData "StructMutable"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Counter"
@@ -100,7 +101,7 @@ let structTests =
                 // `p.Sum()` on a `let`-bound struct needs the `this` *pointer*
                 // (`ldloca` + `constrained. callvirt`), because a by-value `callvirt` on an
                 // unboxed value type is invalid IL.
-                let _, artifact = compileSourceData "StructUnboxedCall"
+                let artifact = compileSourceData "StructUnboxedCall"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "SPoint"
@@ -110,7 +111,7 @@ let structTests =
             }
 
             test "a property get on an unboxed struct local dispatches by address" {
-                let _, artifact = compileSourceData "StructUnboxedProp"
+                let artifact = compileSourceData "StructUnboxedProp"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "SPoint"
@@ -122,7 +123,7 @@ let structTests =
             test "a mutating method on an unboxed struct local persists (in-place addressing)" {
                 // `this` must be `ldloca` of the slot itself: a spill-to-temp copy per
                 // call would mutate a throwaway and `Get()` would read the original.
-                let _, artifact = compileSourceData "StructUnboxedMutate"
+                let artifact = compileSourceData "StructUnboxedMutate"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Counter"
@@ -134,7 +135,7 @@ let structTests =
             // `Counter()` lowers to `ldloca; initobj; ldloc` on a scratch local, not a
             // `newobj` against the synthesised parameterless `.ctor`.
             test "a parameterless struct construction zero-inits its fields via initobj" {
-                let _, artifact = compileSourceData "StructInitObj"
+                let artifact = compileSourceData "StructInitObj"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Counter"
@@ -144,7 +145,7 @@ let structTests =
             }
 
             test "a struct upcast `:>` to an interface boxes (round-trips through the interface)" {
-                let _, artifact = compileSourceData "StructUpcast"
+                let artifact = compileSourceData "StructUpcast"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Holder"
@@ -158,7 +159,7 @@ let structTests =
             }
 
             test "`:> obj` boxes every value-type shape — unit, tuple and enum" {
-                let _, artifact = compileSourceData "ValueUpcast"
+                let artifact = compileSourceData "ValueUpcast"
                 let bytes = Codegen.toBytes artifact
 
                 for fn in [ "unitAsObj"; "tupleAsObj"; "enumAsObj" ] do
@@ -193,7 +194,7 @@ let structTests =
             }
 
             test "a two-parameter static member on a struct binds both args (SumOf(3,4) returns 7)" {
-                let _, artifact = compileSourceData "StructStaticAdd2"
+                let artifact = compileSourceData "StructStaticAdd2"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "SPoint"
@@ -206,7 +207,7 @@ let structTests =
             // A secondary ctor of the explicit field-init form `new(args) = { f = e; … }`.
             // Unlike a chain-form `new`, it stores directly into `val` fields (no primary-`.ctor` chain).
             test "a struct secondary ctor with an explicit field-init block initialises val fields" {
-                let _, artifact = compileSourceData "StructFieldInit"
+                let artifact = compileSourceData "StructFieldInit"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Pair"
@@ -228,7 +229,7 @@ let structTests =
             test "a field-init ctor runs its let-preamble before storing fields" {
                 // In `new(a) = let d = a + a in { A = a; B = d }` the let runs ahead of
                 // the `stfld` stores, so `B` sees `d`.
-                let _, artifact = compileSourceData "StructFieldInitLet"
+                let artifact = compileSourceData "StructFieldInitLet"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "LetPair"
@@ -243,7 +244,7 @@ let structTests =
             // An immutable `val x: T` (no `mutable`) emits as `InitOnly`.
             // `stfld` in a ctor is legal on InitOnly; writes elsewhere are forbidden.
             test "an immutable struct val field emits as InitOnly and is set by a field-init ctor" {
-                let _, artifact = compileSourceData "StructInitOnly"
+                let artifact = compileSourceData "StructInitOnly"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Ro"
@@ -259,7 +260,7 @@ let structTests =
             }
 
             test "a field-init ctor mixes a param-sourced field and a bool-literal field" {
-                let _, artifact = compileSourceData "StructFieldInitMixed"
+                let artifact = compileSourceData "StructFieldInitMixed"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Iter"
@@ -277,7 +278,7 @@ let structTests =
             // A generic value type's self-`TypeSpec` (base type, ctor field `MemberRef`s,
             // signature encoding) must carry the VALUETYPE tag throughout.
             test "a generic `[<Struct>]` type emits as a generic value type" {
-                let _, artifact = compileSourceData "GenericStructShape"
+                let artifact = compileSourceData "GenericStructShape"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Box`1"
@@ -298,7 +299,7 @@ let structTests =
             test "a generic struct dispatches a member that reads a generic ctor-param field (boxed)" {
                 // The ctor stores into the open `Box\`1<!0>::value` field and `Get()`
                 // reads it back, so the self-`TypeSpec` must be VALUETYPE-tagged.
-                let _, artifact = compileSourceData "GenericStructMember"
+                let artifact = compileSourceData "GenericStructMember"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let inst = (asm.GetType "Box`1").MakeGenericType [| typeof<int> |]
@@ -309,7 +310,7 @@ let structTests =
             }
 
             test "a generic struct with a val field + field-init ctor round-trips boxed to an interface" {
-                let _, artifact = compileSourceData "GenericStructIter"
+                let artifact = compileSourceData "GenericStructIter"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let openTy = asm.GetType "Cell`1"
@@ -335,7 +336,7 @@ let structTests =
             }
 
             test "a generic struct enumerator implements the three IEnumerator interfaces and advances boxed" {
-                let _, artifact = compileSourceData "StructEnumerator"
+                let artifact = compileSourceData "StructEnumerator"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let openTy = asm.GetType "OnceEnum`1"
@@ -358,7 +359,7 @@ let structTests =
             }
 
             test "a class GetEnumerator constructs a struct enumerator and returns it boxed (yields the element)" {
-                let _, artifact = compileSourceData "StructEnumeratorSeq"
+                let artifact = compileSourceData "StructEnumeratorSeq"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let seqTy = (asm.GetType "OnceSeq`1").MakeGenericType [| typeof<int> |]
@@ -375,7 +376,7 @@ let structTests =
             // At `OnceEnum<'T>(x)` the secondary ctor's type args ground from both the
             // explicit `<'T>` and the value arg, rather than leaking as a free `TyVar`.
             test "a class GetEnumerator constructs the struct enumerator with explicit type args (Set<'T> shape)" {
-                let _, artifact = compileSourceData "StructEnumeratorTypeApp"
+                let artifact = compileSourceData "StructEnumeratorTypeApp"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let seqTy = (asm.GetType "OnceSeq`1").MakeGenericType [| typeof<int> |]
@@ -412,13 +413,7 @@ let structTests =
                     "namespace App\n\nopen Vesper\n\nmodule Consumer =\n    let echo (p: Point) : Point = p\n"
 
                 let project = ProjectInfo.library "StructXPkgConsumer"
-                let lexed, file = parseFile src
-
-                let tast =
-                    Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-                let symbols = CodegenSymbols.ofProvider provider
-                let artifact = Codegen.compile symbols project tast |> emitted "consumer"
+                let artifact = compileAgainst provider project src
 
                 let bytes = Codegen.toBytes artifact
 
@@ -437,7 +432,7 @@ let structTests =
             // The `=` here sits inside an `interface … with member …` body, so desugar
             // has to walk interface member bodies, not only the type's own members.
             test "an infix operator inside a struct interface member resolves (SetIterator.MoveNext shape)" {
-                let _, artifact = compileSourceData "StructIfaceInfix"
+                let artifact = compileSourceData "StructIfaceInfix"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Iter"
@@ -456,7 +451,7 @@ let structTests =
             // In `this.Stack.IsEmpty` the intermediate step `Stack` is a `val` field,
             // not a member, so the object argument for `IsEmpty` types as `int list`.
             test "a chained property on a struct val field types the object argument as the field, not the property" {
-                let _, artifact = compileSourceData "StructFieldChainProp"
+                let artifact = compileSourceData "StructFieldChainProp"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Wrap"
@@ -476,7 +471,7 @@ let structTests =
             // `[<Struct; IsByRefLike>]` emits the `IsByRefLikeAttribute` marker so the
             // CLR confines the type to the stack.
             test "a `[<Struct; IsByRefLike>]` type emits a byref-like value type" {
-                let _, artifact = compileSourceData "RefStructShape"
+                let artifact = compileSourceData "RefStructShape"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "RPoint"
@@ -487,7 +482,7 @@ let structTests =
 
             // The marker is opt-in: `IsByRefLikeAttribute` must not leak onto plain `[<Struct>]` types.
             test "a plain `[<Struct>]` type is not byref-like" {
-                let _, artifact = compileSourceData "PlainStructNotRefLike"
+                let artifact = compileSourceData "PlainStructNotRefLike"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "NPoint"

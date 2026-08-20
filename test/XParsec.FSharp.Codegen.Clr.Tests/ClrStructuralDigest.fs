@@ -8,6 +8,7 @@ open System.Security.Cryptography
 open System.Reflection.Metadata
 open System.Reflection.PortableExecutable
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 let private feedInt (h: IncrementalHash) (n: int) = h.AppendData(BitConverter.GetBytes n)
 

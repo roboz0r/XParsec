@@ -20,12 +20,13 @@ module internal NominalEmit =
     type private BaseShape =
         /// No `inherit` clause: `extends Object`, or `System.ValueType` for a struct.
         | NoBase
-        /// A non-generic external base (`inherit exn` → `System.Exception`): `tref` is
-        /// the `extends` token; `key` is the PLATFORM key that mints the chained
-        /// base `.ctor`.
+        /// A non-generic FOREIGN base (`inherit exn` → `System.Exception`): `tref` is the
+        /// `extends` token, and `key` is the PLATFORM key the chained base `.ctor` is minted
+        /// against.
         | ExternalBase of key: TypeKey * tref: EntityHandle
-        /// A non-generic project-local base: `extends` its `TypeDefinition` token.
-        | LocalMono of key: TypeKey
+        /// A non-generic base this compilation emits: `handle` is its `TypeDefinition` token,
+        /// and `key` reaches its ctor through the emitted `classes` registry.
+        | LocalMono of key: TypeKey * handle: EntityHandle
         /// A generic parent (`Box<int>`), or any non-`FTClass` base: `extends` a
         /// `GENERICINST` `TypeSpec` encoded against this class's typars.
         | Generic of ft: FrozenType
@@ -343,8 +344,6 @@ module internal NominalEmit =
             let baseCtorCall = cd.BaseCtorCall
             let isStruct = cd.ValueKind <> ClassValueKind.RefType
 
-            // External detection keys off `ExternalClassTypeRef` returning a token, because
-            // a project-local key is never in the provider's external table.
             let baseShape =
                 match baseType with
                 | ValueNone -> BaseShape.NoBase
@@ -354,9 +353,11 @@ module internal NominalEmit =
                 | ValueSome b ->
                     match b.Frozen with
                     | FTClass _ ->
-                        match icodegen.ExternalClassTypeRef(b.Key) with
-                        | ValueSome tref -> BaseShape.ExternalBase(b.Key, tref)
-                        | ValueNone -> BaseShape.LocalMono b.Key
+                        match icodegen.ClassOrigin b.Key with
+                        | ClassOrigin.Foreign tref -> BaseShape.ExternalBase(b.Key, tref)
+                        | ClassOrigin.Local handle -> BaseShape.LocalMono(b.Key, handle)
+                        | ClassOrigin.Unresolved ->
+                            failwithf "Emit: class '%s' inherits %A, which resolves to no class" td.Name b.Key
                     // An intrinsic-class parent (`inherit exn`) arrives as the canon
                     // `FTConst`, not an `FTClass`, so resolve it to its platform class
                     // (`System.Exception`).
@@ -372,8 +373,8 @@ module internal NominalEmit =
             | BaseShape.NoBase ->
                 if isStruct then
                     baseTypeHandle <- provider.ValueTypeBase
-            | BaseShape.ExternalBase(_, tref) -> baseTypeHandle <- tref
-            | BaseShape.LocalMono baseKey -> baseTypeHandle <- provider.UserTypeHandle baseKey
+            | BaseShape.ExternalBase(_, handle)
+            | BaseShape.LocalMono(_, handle) -> baseTypeHandle <- handle
             | BaseShape.Generic bt -> baseTypeHandle <- icodegen.TypeToken bt
 
             let emitPrimaryCtor = isStruct || cd.HasPrimaryCtor || List.isEmpty secondaryCtors
@@ -425,7 +426,7 @@ module internal NominalEmit =
                 | _, ValueSome bcc ->
                     let baseKey, baseArgs =
                         match baseShape with
-                        | BaseShape.LocalMono k -> k, []
+                        | BaseShape.LocalMono(k, _) -> k, []
                         | BaseShape.Generic(FTClass(n, xs)) -> n, EqArray.toList xs
                         | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 

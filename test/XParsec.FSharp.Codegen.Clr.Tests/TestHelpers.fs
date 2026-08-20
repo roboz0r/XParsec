@@ -11,6 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Common.Tests
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // `SemType`'s nominal cases carry a `SymbolKey`; these shadow the constructors and
 // project the name back out, so tests construct and match by string name.
@@ -43,13 +44,6 @@ let (|TyClass|_|) (t: SemType) =
 /// Project an `EqArray<'T>` as a `'T list` inside a pattern match, so a test arm can be a
 /// list literal: `| EqList [ TDecl.Let _ ] -> …`.
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
-
-/// `project` as the compiling identity the pipeline takes; this suite always compiles clr.
-let compilingClr (project: ProjectInfo) : CompilingAssembly =
-    {
-        Name = AssemblyName project.AssemblyName
-        Target = Target.Clr
-    }
 
 /// The assembly name a helper that builds no `ProjectInfo` of its own compiles under.
 let testAsm = AssemblyName "Test"
@@ -118,18 +112,6 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.Tree
 
-/// The artifact, where codegen accepted the tree. A refusal fails the test carrying the
-/// diagnostics that caused it, so `what` names the compile that was refused.
-let emitted (what: string) (result: Result<ClrArtifact, Diagnostic list>) : ClrArtifact =
-    match result with
-    | Result.Ok artifact -> artifact
-    | Result.Error diagnostics ->
-        failwithf
-            "%s: codegen refused the tree over %d error diagnostic(s):\n%s"
-            what
-            (List.length diagnostics)
-            (diagnostics |> List.map (fun d -> d.Message) |> String.concat "\n")
-
 /// `<repo-root>/tmp/<name>`, created, where the repo root is the directory holding
 /// `claude_tools.cmd`. Artifacts stay inspectable rather than landing in the OS temp dir.
 let tmpDir (name: string) : string =
@@ -184,6 +166,34 @@ let private gatedContract
     match PackageProviders.AnalysedManifest.gate contract with
     | Ok contract -> contract
     | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
+
+/// `input` as the ONE unit of an assembly named `assemblyName`. The unit carries that name as
+/// its file name, which is what a failure message prints beside each finding. Compilation
+/// defines are empty: a source here carries no `#if`.
+let private oneUnit (assemblyName: string) (input: string) : AssemblyFiles.AssemblyUnit list =
+    [
+        AssemblyFiles.SourceFile.ofText (assemblyName + ".fs") input
+        |> AssemblyFiles.SourceUnit.ofImplementation
+        |> AssemblyFiles.AssemblyUnit.parse Set.empty
+    ]
+
+/// The artifact, or a test failure carrying the findings that refused it. `label` identifies
+/// the compile in that message.
+let private emitted (label: string) (result: Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list>) : ClrArtifact =
+    match result with
+    | Ok artifact -> artifact
+    | Error diagnostics ->
+        failwithf
+            "%s: the front end refused the assembly over %d error diagnostic(s):\n%s"
+            label
+            (List.length diagnostics)
+            (anchoredDiagText diagnostics)
+
+/// Compile one in-memory source as a whole assembly against `external`, through the production
+/// driver. The emitted `AssemblyRef` identities come from `project.References` alone.
+let compileAgainst (external: IExternalSymbolProvider) (project: ProjectInfo) (input: string) : ClrArtifact =
+    ClrDriver.compileAssemblyWith [] external project (oneUnit project.AssemblyName input)
+    |> emitted project.AssemblyName
 
 /// The self-package contract, GATED.
 let private gatedContractForSelf
@@ -255,13 +265,7 @@ let vesperListDll: Lazy<string> =
          // + binary cons), not by case name. `list.fs` calls `failwith`, an inline operator
          // in the Vesper.Core contract, so that contract must be in the stack to inline it.
          let provider = ClrSymbolProviders.buildContract [ vesperCorePackage ]
-         let symbols = CodegenSymbols.ofProvider provider
-         let lexed, file = parseFile src
-
-         let tast =
-             Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-         let artifact = Codegen.compile symbols project tast |> emitted "Vesper.List"
+         let artifact = compileAgainst provider project src
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath listPath |> ignore
          listPath)
@@ -308,7 +312,7 @@ let analyseWithCtx (input: string) : PassContext * TastFile =
 /// Load context for the package-build harness. `Load` resolves a sibling `Vesper.*`
 /// package from the registry below, so a package binds against THIS harness's copy of its
 /// dependencies; everything else returns `null` and falls through to Default.
-type private PackageLoadContext() =
+type PackageLoadContext() =
     inherit AssemblyLoadContext("xparsec-package-build", isCollectible = false)
 
     let built =
@@ -321,7 +325,9 @@ type private PackageLoadContext() =
         | true, asm -> asm
         | _ -> null
 
-let private packageAlc = PackageLoadContext()
+/// The ONE load context every `buildPackage` artifact and every package-harness driver run
+/// shares, so driver, dependencies and printf resolve a single `Vesper.Core` identity.
+let packageAlc = PackageLoadContext()
 
 let private packageBuildCache =
     Collections.Concurrent.ConcurrentDictionary<string, Lazy<Assembly * ClrArtifact>>(StringComparer.Ordinal)
@@ -455,45 +461,90 @@ let withCore (project: ProjectInfo) : ProjectInfo =
             |> ensure "Vesper.Printf" vesperPrintfDll
     }
 
-/// Build the symbol stack + its cross-package inline bodies once (cached per manifest set)
-/// and run both phases against it: an `External(name)` whose body lives in a referenced
+/// `input` analysed against `manifestPaths`' symbol stack and its cross-package inline bodies,
+/// built once and cached per manifest set: an `External(name)` whose body lives in a referenced
 /// `.fs` splices in pre-freeze. `[]` manifests ⇒ the .NET metadata reader alone.
+let private analyseContract (manifestPaths: string list) (assemblyName: string) (input: string) : AnalysedAssembly =
+    ClrDriver.analyseAssemblyWith
+        (ClrSymbolProviders.buildContract manifestPaths)
+        assemblyName
+        (oneUnit assemblyName input)
+
+/// What the front end may report about a compile.
+type private Expected =
+    | Silent
+    /// At least one finding, every one of them a WARNING mentioning `fragment`.
+    | Warning of fragment: string
+
+/// The findings that refuse the compile, given what it expects.
+let private unexpected
+    (expected: Expected)
+    (diagnostics: AssemblyFiles.AnchoredDiagnostic list)
+    : AssemblyFiles.AnchoredDiagnostic list =
+    match expected with
+    | Silent -> diagnostics
+    | Warning fragment ->
+        match diagnostics with
+        | [] -> failwithf "expected a warning mentioning '%s'; the front end reported none" fragment
+        // An ERROR carrying `fragment` is unexpected too: it would otherwise pass here and die
+        // at the gate, whose message mentions neither the fragment nor the test's intent.
+        | ds ->
+            ds
+            |> List.filter (fun d -> Diagnostic.isError d.Diagnostic || not (d.Diagnostic.Message.Contains fragment))
+
+/// `input` compiled against `manifestPaths`' contract, with `withCore`'s DLLs in the emitted
+/// `AssemblyRef` set. Refused where a finding falls outside `expected`.
 let private compileContract
+    (expected: Expected)
     (manifestPaths: string list)
     (project: ProjectInfo)
     (input: string)
-    : TastFile * ClrArtifact =
-    let provider = ClrSymbolProviders.buildContract manifestPaths
-    let symbols = CodegenSymbols.ofProvider provider
-    let lexed, file = parseFile input
-    // Callers assert on the SemType tree; codegen takes the frozen one.
-    let ctx, tast =
-        Pipeline.analyseSemWithContextFor (compilingClr project) provider (LexedFile.ofText lexed) file
+    : ClrArtifact =
+    let analysed = analyseContract manifestPaths project.AssemblyName input
 
-    let artifact =
-        Codegen.compile symbols (withCore project) (Freeze.run ctx tast)
+    match unexpected expected analysed.Diagnostics with
+    | [] ->
+        ClrDriver.emitAnalysed [] (withCore project) analysed
         |> emitted project.AssemblyName
+    | diagnostics ->
+        failwithf
+            "%s: the front end reported %d unexpected diagnostic(s):\n%s"
+            project.AssemblyName
+            (List.length diagnostics)
+            (anchoredDiagText diagnostics)
 
-    tast, artifact
+/// The default compile path: `int` / `hash` / the operators all resolve from the `Vesper.Core`
+/// contract, and the front end reports nothing.
+let compileSource (assemblyName: string) (input: string) : ClrArtifact =
+    compileContract Silent defaultPackages (ProjectInfo.defaults assemblyName) input
 
-/// The default compile path: `int` / `hash` / the operators all resolve from the
-/// `Vesper.Core` contract.
-let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileContract defaultPackages (ProjectInfo.defaults assemblyName) input
+/// `compileSource` for a source that warns, where every warning mentions `fragment`.
+let compileSourceWarning (fragment: string) (assemblyName: string) (input: string) : ClrArtifact =
+    compileContract (Warning fragment) defaultPackages (ProjectInfo.defaults assemblyName) input
 
-/// `compileSource`'s front end alone, stopping before emission. For a source whose ERROR
-/// diagnostics are the subject: codegen refuses such a tree, so a test asserting on them
-/// must not ask for an artifact. `analyse` differs in compiling under `testAsm`, which
+/// `compileSource`'s front end alone, stopping before emission: every finding the assembly
+/// surfaced, anchored in its own file. `analyse` differs in compiling under `testAsm`, which
 /// changes how a locally declared type resolves.
-let analyseAs (assemblyName: string) (input: string) : TastFile =
-    let project = ProjectInfo.defaults assemblyName
-    let provider = ClrSymbolProviders.buildContract defaultPackages
-    let lexed, file = parseFile input
+let diagnoseSource (assemblyName: string) (input: string) : AssemblyFiles.AnchoredDiagnostic list =
+    (analyseContract defaultPackages assemblyName input).Diagnostics
 
-    Pipeline.analyseSemFor (compilingClr project) provider (LexedFile.ofText lexed) file
+/// The error-severity half of `diagnoseSource`.
+let diagnoseSourceErrors (assemblyName: string) (input: string) : AssemblyFiles.AnchoredDiagnostic list =
+    diagnoseSource assemblyName input |> AssemblyFiles.AnchoredDiagnostic.errors
+
+/// The findings whose message mentions `fragment`.
+let mentioning
+    (fragment: string)
+    (diagnostics: AssemblyFiles.AnchoredDiagnostic list)
+    : AssemblyFiles.AnchoredDiagnostic list =
+    diagnostics |> List.filter (fun d -> d.Diagnostic.Message.Contains fragment)
+
+/// Every finding's message.
+let diagnosticMessages (diagnostics: AssemblyFiles.AnchoredDiagnostic list) : string list =
+    diagnostics |> List.map (fun d -> d.Diagnostic.Message)
 
 /// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT codegen.
-/// All three share one parse → analyse → freeze prefix and differ only by the round-trip.
+/// All three come off one analysed assembly and differ only by the round-trip.
 type ConformanceRoundTripArtifacts =
     {
         /// Codegen from the direct frozen tree.
@@ -505,26 +556,31 @@ type ConformanceRoundTripArtifacts =
         PoolRoundTripped: ClrArtifact
     }
 
-/// Produce the round-trip artifacts a frozen-tree gate reconciles. One freeze, one provider
-/// and one project, so an artifact differs from `Direct` only by its round-trip.
+/// Produce the round-trip artifacts a frozen-tree gate reconciles. One analysis, one gate and
+/// one project, so an artifact differs from `Direct` only by its round-trip.
 let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ConformanceRoundTripArtifacts =
     let project = ProjectInfo.defaults assemblyName
-    let provider = ClrSymbolProviders.buildContract defaultPackages
-    let lexed, file = parseFile input
 
-    let ctx, tast =
-        Pipeline.analyseSemWithContextFor (compilingClr project) provider (LexedFile.ofText lexed) file
+    let emittable =
+        match AnalysedAssembly.gate (analyseContract defaultPackages assemblyName input) with
+        | Ok emittable -> emittable
+        | Error ds -> failwithf "%s: %d error diagnostic(s):\n%s" assemblyName (List.length ds) (anchoredDiagText ds)
 
-    let frozen = Freeze.run ctx tast
-    let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
-    let poolRoundTripped = TastPools.rePool frozen (TastUnpool.ofPools frozen)
+    let file = List.exactlyOne emittable.Files
     let cored = withCore project
-    let symbols = CodegenSymbols.ofProvider provider
+
+    let over (frozen: FrozenPools) =
+        Codegen.emitAssembly
+            []
+            cored
+            { emittable with
+                Files = [ { file with Frozen = frozen } ]
+            }
 
     {
-        Direct = Codegen.compile symbols cored frozen |> emitted assemblyName
-        ThawRoundTripped = Codegen.compile symbols cored thawRoundTripped |> emitted assemblyName
-        PoolRoundTripped = Codegen.compile symbols cored poolRoundTripped |> emitted assemblyName
+        Direct = over file.Frozen
+        ThawRoundTripped = over (FrozenCodec.thaw (FrozenCodec.flatten file.Frozen))
+        PoolRoundTripped = over (TastPools.rePool file.Frozen (TastUnpool.ofPools file.Frozen))
     }
 
 /// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
@@ -534,16 +590,12 @@ let conformanceAssemblyName (program: string) : string =
 
 /// `compileSource` against a caller-supplied `ProjectInfo` (e.g. an on-disk app build via
 /// `ProjectInfo.app`).
-let compileSourceTo (project: ProjectInfo) (input: string) : TastFile * ClrArtifact =
-    compileContract defaultPackages project input
-
-/// `compileSource` against an explicit manifest stack instead of `defaultPackages`.
-let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileContract manifestPaths (ProjectInfo.defaults assemblyName) input
+let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
+    compileContract Silent defaultPackages project input
 
 /// Contract-backed compile against the real `Vesper.Core` manifest.
-let compileSourceContract (assemblyName: string) (input: string) : TastFile * ClrArtifact =
-    compileContract [ vesperCorePackage ] (ProjectInfo.defaults assemblyName) input
+let compileSourceContract (assemblyName: string) (input: string) : ClrArtifact =
+    compileContract Silent [ vesperCorePackage ] (ProjectInfo.defaults assemblyName) input
 
 /// Run a materialised app out-of-process via the `dotnet` host. On a non-zero exit stderr
 /// is appended, so a host failure (missing runtimeconfig, unresolved reference) is visible.
@@ -560,14 +612,6 @@ let runOnDisk (dllPath: string) : int * string =
     let err = p.StandardError.ReadToEnd()
     p.WaitForExit()
     (p.ExitCode, (if p.ExitCode = 0 then out else out + err))
-
-/// Load emitted PE bytes into a FRESH `AssemblyLoadContext`. Loading the same bytes twice
-/// gives two assemblies, and mixing them throws "Object of type X cannot be converted to
-/// type X", so reflect every member through the ONE `Assembly` this returns.
-let loadAssembly (bytes: byte[]) : Assembly =
-    let alc = AssemblyLoadContext("xparsec-codegen-test", isCollectible = true)
-    use ms = new IO.MemoryStream(bytes)
-    alc.LoadFromStream ms
 
 /// Serialises the `Console.Out` capture below: Expecto runs tests in parallel and
 /// `Console.Out` is process-global, so concurrent captures would redirect each other.
@@ -671,7 +715,7 @@ let private diffDriverCounter = ref 0
 /// + stdout. The driver's `Vesper.Printf` reference binds to whatever `alc` resolves.
 let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
     let n = Threading.Interlocked.Increment diffDriverCounter
-    let _, artifact = compileSource (sprintf "DiffDriver%d" n) src
+    let artifact = compileSource (sprintf "DiffDriver%d" n) src
     use ms = new IO.MemoryStream(Codegen.toBytes artifact)
     let asm = alc.LoadFromStream ms
     runLoadedEntryPoint asm
@@ -759,17 +803,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
             References = depDlls
         }
 
-    let lexed, file = parseFile source
-
-    let tast =
-        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-    let symbols = CodegenSymbols.ofProvider provider
-
-    let artifact =
-        Codegen.compile symbols project tast
-        |> emitted (sprintf "compileStructuralEngine %s" asmName)
-
+    let artifact = compileAgainst provider project source
     Codegen.materialise artifact
 
     let alc =
@@ -812,17 +846,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
 
     let source = IO.File.ReadAllText(IO.Path.Combine(__SOURCE_DIRECTORY__, fileName))
 
-    let lexed, file = parseFile source
-
-    let tast =
-        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-    let symbols = CodegenSymbols.ofProvider provider
-
-    let artifact =
-        Codegen.compile symbols project tast
-        |> emitted (sprintf "compileFixtureFile %s" asmName)
-
+    let artifact = compileAgainst provider project source
     Codegen.materialise artifact
 
     let alc =
@@ -835,10 +859,9 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
 // "run this source, get this stdout, exit 0". Every failure message carries `src`, and
 // they `failwithf` rather than reference `Expecto.Expect`.
 
-/// Compile `src` as a bare program, run it in-process, and assert exit 0 and
-/// that trimmed, CRLF-normalised stdout equals `expected`.
-let runs (expected: string) (src: string) : unit =
-    let _, artifact = compileSource "Layer1Corpus" src
+/// Run `artifact` in-process and assert exit 0 and that trimmed, CRLF-normalised stdout
+/// equals `expected`. `src` goes into the failure message.
+let private ranPrinting (artifact: ClrArtifact) (expected: string) (src: string) : unit =
     let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
     let actual = output.Replace("\r", "").Trim()
 
@@ -848,8 +871,17 @@ let runs (expected: string) (src: string) : unit =
     if actual <> expected then
         failwithf "expected %A but got %A for:\n%s" expected actual src
 
+/// Compile `src` as a bare program, run it in-process, and assert exit 0 and
+/// that trimmed, CRLF-normalised stdout equals `expected`.
+let runs (expected: string) (src: string) : unit =
+    ranPrinting (compileSource "Layer1Corpus" src) expected src
+
 /// `runs` for a multi-line expected block (joined with "\n").
 let runsLines (expected: string list) (src: string) : unit = runs (String.concat "\n" expected) src
+
+/// `runsLines` for a program whose every finding mentions `fragment`.
+let runsLinesWarning (fragment: string) (expected: string list) (src: string) : unit =
+    ranPrinting (compileSourceWarning fragment "Layer1Corpus" src) (String.concat "\n" expected) src
 
 // ---- Externalised program sources (`data/*.fs`) ------------------------------
 // Probe programs live under `data/` as `<None Include>` text, compiled through this
@@ -890,7 +922,7 @@ let dataSource (name: string) : string =
 
 /// `compileSource` with the program read from `data/<name>.fs`; the file's base name
 /// doubles as the assembly name.
-let compileSourceData (name: string) : TastFile * ClrArtifact = compileSource name (dataSource name)
+let compileSourceData (name: string) : ClrArtifact = compileSource name (dataSource name)
 
 /// `runsLines` with the program read from `data/<name>.fs`.
 let runsDataLines (expected: string list) (name: string) : unit = runsLines expected (dataSource name)
@@ -899,7 +931,7 @@ let runsDataLines (expected: string list) (name: string) : unit = runsLines expe
 /// `expectedTypeFragment` (e.g. `"DivideByZero"`), matched against the `failwithf` message
 /// `runEntryPoint` builds, which embeds the inner exception's full type name.
 let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
-    let _, artifact = compileSource "Layer1Corpus" src
+    let artifact = compileSource "Layer1Corpus" src
 
     let thrown =
         try
@@ -913,565 +945,3 @@ let runtimeThrows (expectedTypeFragment: string) (src: string) : unit =
     | Some msg ->
         failwithf "expected a runtime %s but got a different failure:\n%s\nfor:\n%s" expectedTypeFragment msg src
     | None -> failwithf "expected a runtime %s but the program completed for:\n%s" expectedTypeFragment src
-
-// ---- Declarative package harness (one core, many wrappers) -------------------
-// Name the Vesper packages a snippet links against; the contract stack, the reference
-// DLLs and the whole `depends-on` graph are derived, with the default stack unioned in.
-
-/// `defaultPackages` by package name: what every driver implicitly links.
-let private defaultPackageNames =
-    [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
-
-/// Transitive `depends-on` closure of `roots`, dependencies before dependents, deduped.
-/// Drives both the contract stack and the `References` DLL list.
-let private transitivePackages (roots: string list) : string list =
-    let acc = System.Collections.Generic.List<string>()
-
-    let rec go (pkg: string) =
-        if not (acc.Contains pkg) then
-            let m =
-                ReferencedProject.resolveManifest Target.Clr (srcPackage pkg)
-                |> Result.bind ReferencedProject.loadManifest
-                |> PackageFaults.okOrFail (sprintf "transitivePackages %s" pkg)
-
-            m.DependsOn |> List.map dependencyName |> List.iter go
-
-            if not (acc.Contains pkg) then
-                acc.Add pkg
-
-    roots |> List.iter go
-    List.ofSeq acc
-
-/// Uniquifies a per-call driver assembly name: Expecto runs in parallel and `packageAlc`
-/// is process-persistent, so two identically-named loads would collide on identity.
-let private driverCounter = ref 0
-
-/// Compile `src` against `packages` unioned with the default stack. Every package in the
-/// transitive `depends-on` closure is built once and registered in `packageAlc`; its `.fsi`
-/// joins the contract stack, its DLL the `References`. Front end: `analyseFor`, a consumer.
-let compilePackages (packages: string list) (src: string) : ClrArtifact =
-    let allPackages = transitivePackages (defaultPackageNames @ packages)
-
-    let depDlls =
-        allPackages |> List.choose (fun p -> ((buildPackage p).Value |> snd).OutputPath)
-
-    let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
-
-    let n = System.Threading.Interlocked.Increment driverCounter
-
-    let project =
-        { ProjectInfo.defaults (sprintf "PkgDriver%d" n) with
-            References = depDlls
-        }
-
-    let lexed, file = parseFile src
-
-    let tast =
-        Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-    let symbols = CodegenSymbols.ofProvider provider
-
-    Codegen.compile symbols project tast
-    |> emitted (sprintf "compilePackages %A for:\n%s" packages src)
-
-/// The Vesper-compiled `Vesper.Printf`, registered in `packageAlc` once. `buildPackage`
-/// deliberately leaves it out, so without this a driver run here would reach printf through
-/// Default, which implements a DIFFERENT `Vesper.Core` identity than its own package types.
-let private packageAlcPrintf: Lazy<unit> =
-    lazy
-        (let path =
-            match ((buildPackage "Vesper.Printf").Value |> snd).OutputPath with
-            | Some p -> p
-            | None -> failwith "buildPackage Vesper.Printf produced no OutputPath"
-
-         use ms = new IO.MemoryStream(IO.File.ReadAllBytes path)
-         packageAlc.Register("Vesper.Printf", packageAlc.LoadFromStream ms))
-
-/// Compile `src` against `packages` and run its entry point inside `packageAlc`, so driver,
-/// dependencies and printf share ONE `Vesper.Core` identity. Returns (exitCode, stdout)
-/// plus the emitted bytes, for a caller asserting on the IL in the same pass as the run.
-let runPackagesInspect (packages: string list) (src: string) : (int * string) * byte[] =
-    packageAlcPrintf.Value
-    let artifact = compilePackages packages src
-    let bytes = Codegen.toBytes artifact
-    use ms = new IO.MemoryStream(bytes)
-    let asm = packageAlc.LoadFromStream ms
-    runLoadedEntryPoint asm, bytes
-
-/// `runPackagesInspect` without the bytes.
-let runPackages (packages: string list) (src: string) : int * string = runPackagesInspect packages src |> fst
-
-/// Compile + run `src` against `packages`; assert exit 0 and trimmed, CRLF-normalised
-/// stdout equals `expected`.
-let runsPackages (packages: string list) (expected: string) (src: string) : unit =
-    let exitCode, output = runPackages packages src
-    let actual = output.Replace("\r", "").Trim()
-
-    if exitCode <> 0 then
-        failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
-
-    if actual <> expected then
-        failwithf "expected %A but got %A for:\n%s" expected actual src
-
-/// `runsPackages` for a multi-line expected block (joined with "\n").
-let runsPackagesLines (packages: string list) (expected: string list) (src: string) : unit =
-    runsPackages packages (String.concat "\n" expected) src
-
-/// Analyse `src` against the default stack plus `packages`, no codegen, and return the
-/// error-severity diagnostics.
-let private analysePackagesErrors (packages: string list) (src: string) : Diagnostic list =
-    let allPackages = transitivePackages (defaultPackageNames @ packages)
-
-    let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
-
-    let lexed, file = parseFile src
-
-    let tast =
-        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
-
-    tast.Diagnostics |> Diagnostic.errors
-
-/// The front-end-only probe: analyse `src` against `packages` and assert NO error
-/// diagnostics, without running it.
-let typeChecksPackages (packages: string list) (src: string) : unit =
-    match analysePackagesErrors packages src with
-    | [] -> ()
-    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
-
-/// Analyse `src` against `packages`; assert an error diagnostic whose message
-/// contains `fragment`.
-let failsWithPackages (packages: string list) (fragment: string) (src: string) : unit =
-    match analysePackagesErrors packages src with
-    | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
-    | errors ->
-        if not (errors |> List.exists (fun d -> d.Message.Contains fragment)) then
-            failwithf
-                "expected an error containing %A but got %A for:\n%s"
-                fragment
-                (errors |> List.map (fun d -> d.Message))
-                src
-
-// ---- Per-package wrappers over the declarative core --------------------------
-// A new package needs one wrapper line: no DLL lazy, no contract plumbing.
-
-/// Vesper.Option — the option type + `Option` module (counterpart of `runs`).
-let runsOption (expected: string) (src: string) : unit =
-    runsPackages [ "Vesper.Option" ] expected src
-
-/// `runsOption` for a multi-line expected block.
-let runsOptionLines (expected: string list) (src: string) : unit =
-    runsPackagesLines [ "Vesper.Option" ] expected src
-
-/// Analyse `src` through the default contract stack (no codegen) and return the
-/// error-severity diagnostics, because analysis collects them rather than throwing.
-let private analyseErrors (src: string) : Diagnostic list =
-    let provider = ClrSymbolProviders.buildContract defaultPackages
-    let lexed, file = parseFile src
-
-    let tast =
-        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
-
-    tast.Diagnostics |> Diagnostic.errors
-
-/// Analyse `src`; assert an error diagnostic whose message contains `fragment`: bad input
-/// is rejected, and rejected for the stated reason.
-let failsWith (fragment: string) (src: string) : unit =
-    match analyseErrors src with
-    | [] -> failwithf "expected an error containing %A but analysis produced none for:\n%s" fragment src
-    | errors ->
-        if not (errors |> List.exists (fun d -> d.Message.Contains fragment)) then
-            failwithf
-                "expected an error containing %A but got %A for:\n%s"
-                fragment
-                (errors |> List.map (fun d -> d.Message))
-                src
-
-/// Analyse `src`; assert NO error diagnostics, without running it, for front-end-only
-/// coverage where codegen is deferred.
-let typeChecks (src: string) : unit =
-    match analyseErrors src with
-    | [] -> ()
-    | errors -> failwithf "expected no errors but got %A for:\n%s" (errors |> List.map (fun d -> d.Message)) src
-
-/// Vesper.Option front-end-only probes (`typeChecks` / `failsWith` twins).
-let typeChecksOption (src: string) : unit =
-    typeChecksPackages [ "Vesper.Option" ] src
-
-let failsWithOption (fragment: string) (src: string) : unit =
-    failsWithPackages [ "Vesper.Option" ] fragment src
-
-// ---- Vesper.Result wrappers --------------------------------------------------
-
-/// Compile a `Vesper.Result` consumer and return the `ClrArtifact` without running it,
-/// for `expectNoFSharpCore` assertions, e.g. that a `%A` of an external Vesper union
-/// lowers on the structural engine.
-let compileResultArtifact (src: string) : ClrArtifact = compilePackages [ "Vesper.Result" ] src
-
-/// Vesper.Result — the result type + `Result` module (counterpart of `runsOption`).
-let runsResult (expected: string) (src: string) : unit =
-    runsPackages [ "Vesper.Result" ] expected src
-
-let runsResultLines (expected: string list) (src: string) : unit =
-    runsPackagesLines [ "Vesper.Result" ] expected src
-
-let typeChecksResult (src: string) : unit =
-    typeChecksPackages [ "Vesper.Result" ] src
-
-let failsWithResult (fragment: string) (src: string) : unit =
-    failsWithPackages [ "Vesper.Result" ] fragment src
-
-// ---- Vesper.Choice wrappers --------------------------------------------------
-// Choice is a pure-data struct union with NO module, so `runsChoice` exercises
-// construction + `match`, never a module call.
-
-let runsChoice (expected: string) (src: string) : unit =
-    runsPackages [ "Vesper.Choice" ] expected src
-
-let runsChoiceLines (expected: string list) (src: string) : unit =
-    runsPackagesLines [ "Vesper.Choice" ] expected src
-
-let typeChecksChoice (src: string) : unit =
-    typeChecksPackages [ "Vesper.Choice" ] src
-
-let failsWithChoice (fragment: string) (src: string) : unit =
-    failsWithPackages [ "Vesper.Choice" ] fragment src
-
-// ---- Vesper.Array wrappers ---------------------------------------------------
-// BCL-only: `arr.[i]` / `arr.Length` / `Array.zeroCreate` / `[| … |]` lower to `ldelem` /
-// `ldlen` / `newarr`.
-
-let runsArray (expected: string) (src: string) : unit =
-    runsPackages [ "Vesper.Array" ] expected src
-
-let runsArrayLines (expected: string list) (src: string) : unit =
-    runsPackagesLines [ "Vesper.Array" ] expected src
-
-let typeChecksArray (src: string) : unit =
-    typeChecksPackages [ "Vesper.Array" ] src
-
-// ---- Vesper.Seq wrappers -----------------------------------------------------
-// A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)`, a real BCL
-// `IEnumerable<int>`.
-
-let runsSeq (expected: string) (src: string) : unit =
-    runsPackages [ "Vesper.Seq" ] expected src
-
-let runsSeqLines (expected: string list) (src: string) : unit =
-    runsPackagesLines [ "Vesper.Seq" ] expected src
-
-let typeChecksSeq (src: string) : unit = typeChecksPackages [ "Vesper.Seq" ] src
-
-// ---- Vesper.Set wrappers -----------------------------------------------------
-// A driver's HOF argument (`Set.fold` / `partition`'s folder) must be written CURRIED:
-// `fun s -> fun x -> …`.
-
-let runsSet (expected: string) (src: string) : unit =
-    runsPackages [ "Vesper.Set" ] expected src
-
-let runsSetLines (expected: string list) (src: string) : unit =
-    runsPackagesLines [ "Vesper.Set" ] expected src
-
-// ---- PE inspection helpers ---------------------------------------------------
-// Read the emitted PE through `System.Reflection.Metadata` (method/field tokens, the
-// AssemblyRef table, raw IL) without going through the runtime loader.
-
-open System.Reflection.Metadata
-open System.Reflection.PortableExecutable
-
-/// Open a PE byte stream as a metadata reader. The caller disposes the `PEReader`; the
-/// `MetadataReader` it yields is valid only for that lifetime.
-let openPe (bytes: byte[]) : PEReader =
-    new PEReader(System.Collections.Immutable.ImmutableArray.Create<byte>(bytes))
-
-/// The base-type full name of the FIRST type-def whose simple name satisfies `nameMatches`,
-/// resolving the handle through a `TypeReference` or a sibling `TypeDefinition`.
-/// `System.ValueType` vs `System.Object` distinguishes a struct closure from a heap one.
-let peTypeBaseTypeName (bytes: byte[]) (nameMatches: string -> bool) : string voption =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let nameOf (ns: string) (n: string) =
-        if System.String.IsNullOrEmpty ns then
-            n
-        else
-            sprintf "%s.%s" ns n
-
-    md.TypeDefinitions
-    |> Seq.tryPick (fun tdh ->
-        let td = md.GetTypeDefinition tdh
-
-        if nameMatches (md.GetString td.Name) then
-            let bt = td.BaseType
-
-            if bt.IsNil then
-                Some ValueNone
-            else
-                match bt.Kind with
-                | HandleKind.TypeReference ->
-                    let r = md.GetTypeReference(TypeReferenceHandle.op_Explicit bt)
-                    Some(ValueSome(nameOf (md.GetString r.Namespace) (md.GetString r.Name)))
-                | HandleKind.TypeDefinition ->
-                    let d = md.GetTypeDefinition(TypeDefinitionHandle.op_Explicit bt)
-                    Some(ValueSome(nameOf (md.GetString d.Namespace) (md.GetString d.Name)))
-                | _ -> Some ValueNone
-        else
-            None
-    )
-    |> Option.defaultValue ValueNone
-
-/// The base-type SIMPLE name (`ValueType` / `Object`) of EVERY `<closure>$…` type-def in
-/// the PE, one entry per closure, so a test can assert all closures are value types.
-/// `<none>` when the base handle is not a `TypeReference`.
-let peClosureBaseTypeNames (bytes: byte[]) : string list =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    md.TypeDefinitions
-    |> Seq.choose (fun tdh ->
-        let td = md.GetTypeDefinition tdh
-
-        if (md.GetString td.Name).StartsWith "<closure>$" then
-            match td.BaseType.Kind with
-            | HandleKind.TypeReference ->
-                Some(md.GetString (md.GetTypeReference(TypeReferenceHandle.op_Explicit td.BaseType)).Name)
-            | _ -> Some "<none>"
-        else
-            None
-    )
-    |> Seq.toList
-
-/// Every method-def's `(declaringType, methodName)`, the declaring type named
-/// `Namespace.Name`, so a NESTED type appears under its bare simple name, not `Outer+Inner`.
-let peMethodNames (bytes: byte[]) : (string * string) list =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    [
-        for tdHandle in md.TypeDefinitions do
-            let td = md.GetTypeDefinition tdHandle
-            let typeName = md.GetString td.Name
-
-            if typeName <> "<Module>" then
-                let ns = md.GetString td.Namespace
-
-                let qualified =
-                    if System.String.IsNullOrEmpty ns then
-                        typeName
-                    else
-                        sprintf "%s.%s" ns typeName
-
-                for mdh in td.GetMethods() do
-                    let m = md.GetMethodDefinition mdh
-                    yield qualified, md.GetString m.Name
-    ]
-
-/// Every AssemblyRef name in the PE, the dependency surface the loader resolves, read
-/// straight off the bytes with no `AssemblyLoadContext`.
-let peAssemblyRefs (bytes: byte[]) : string list =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    [
-        for h in md.AssemblyReferences do
-            let r = md.GetAssemblyReference h
-            md.GetString r.Name
-    ]
-
-/// Total `InterfaceImpl` rows across every type-def, one per `: IFace` entry actually
-/// emitted. `GetInterfaces` folds in inherited ones, so only this count separates
-/// "emitted both `IEnumerable<int>` and `IEnumerable`" from "emitted just the generic".
-let peInterfaceImplCount (bytes: byte[]) : int =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    md.TypeDefinitions
-    |> Seq.sumBy (fun h -> (md.GetTypeDefinition h).GetInterfaceImplementations().Count)
-
-/// Raw IL bytes of the FIRST method on `declaringType` whose name satisfies `nameMatches`,
-/// for when the caller cannot pin an exact name (a top-level function on "Program",
-/// `n <> "Main"`). `[||]` for a body-less method; throws if none matches.
-let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[] =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let typeMatches (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        let qualified =
-            if System.String.IsNullOrEmpty ns then
-                name
-            else
-                sprintf "%s.%s" ns name
-
-        qualified = declaringType
-
-    let methodHandle =
-        md.TypeDefinitions
-        |> Seq.tryPick (fun tdh ->
-            let td = md.GetTypeDefinition tdh
-
-            if typeMatches td then
-                td.GetMethods()
-                |> Seq.tryFind (fun mdh -> nameMatches (md.GetString(md.GetMethodDefinition(mdh).Name)))
-            else
-                None
-        )
-
-    match methodHandle with
-    | None -> failwithf "peMethodIlWhere: no matching method on type '%s'" declaringType
-    | Some mdh ->
-        let m = md.GetMethodDefinition mdh
-
-        if m.RelativeVirtualAddress = 0 then
-            [||]
-        else
-            let body = peReader.GetMethodBody m.RelativeVirtualAddress
-            let ilReader = body.GetILReader()
-            let buf = Array.zeroCreate ilReader.RemainingBytes
-            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
-            buf
-
-/// `peMethodIlWhere` for EVERY matching method, when the caller picks the right one by
-/// inspecting the IL (e.g. "the one containing a `constrained.` prefix").
-let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[][] =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let typeMatches (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        let qualified =
-            if System.String.IsNullOrEmpty ns then
-                name
-            else
-                sprintf "%s.%s" ns name
-
-        qualified = declaringType
-
-    [|
-        for tdh in md.TypeDefinitions do
-            let td = md.GetTypeDefinition tdh
-
-            if typeMatches td then
-                for mdh in td.GetMethods() do
-                    let m = md.GetMethodDefinition mdh
-
-                    if nameMatches (md.GetString m.Name) then
-                        if m.RelativeVirtualAddress = 0 then
-                            yield [||]
-                        else
-                            let body = peReader.GetMethodBody m.RelativeVirtualAddress
-                            let ilReader = body.GetILReader()
-                            let buf = Array.zeroCreate ilReader.RemainingBytes
-                            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
-                            yield buf
-    |]
-
-/// Every static method on the anonymous "Program" class (where a binding that declares no
-/// module lands), minus the synthesised entry point; `[||]` if there is no Program class.
-/// Takes the loaded `Assembly` so a caller reflecting types out of the same PE holds ONE.
-let programClassMethodsOf (asm: Assembly) : MethodInfo[] =
-    match asm.GetType "Program" with
-    | null -> [||]
-    | program ->
-        program.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-        |> Array.filter (fun m -> m.Name <> "Main")
-
-/// `programClassMethodsOf` for a caller that reflects nothing else out of the PE.
-let programClassMethods (bytes: byte[]) : MethodInfo[] =
-    programClassMethodsOf (loadAssembly bytes)
-
-/// Raw IL bytes of the method named `methodName` on `declaringType`, for asserting an
-/// opcode sequence. `[||]` for an abstract method (no body); throws if not found.
-let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let typeMatches (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        let qualified =
-            if System.String.IsNullOrEmpty ns then
-                name
-            else
-                sprintf "%s.%s" ns name
-
-        qualified = declaringType
-
-    let methodHandle =
-        md.TypeDefinitions
-        |> Seq.tryPick (fun tdh ->
-            let td = md.GetTypeDefinition tdh
-
-            if typeMatches td then
-                td.GetMethods()
-                |> Seq.tryFind (fun mdh -> md.GetString(md.GetMethodDefinition(mdh).Name) = methodName)
-            else
-                None
-        )
-
-    match methodHandle with
-    | None -> failwithf "peMethodIl: no method '%s' on type '%s'" methodName declaringType
-    | Some mdh ->
-        let m = md.GetMethodDefinition mdh
-
-        if m.RelativeVirtualAddress = 0 then
-            [||]
-        else
-            let body = peReader.GetMethodBody m.RelativeVirtualAddress
-            let ilReader = body.GetILReader()
-            let buf = Array.zeroCreate ilReader.RemainingBytes
-            ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
-            buf
-
-/// The return type's `ELEMENT_TYPE_*` tag from a method's MethodDef signature blob. For a
-/// nominal return type that is the encoder's value-vs-class decision: `0x11`
-/// (ELEMENT_TYPE_VALUETYPE) vs `0x12` (ELEMENT_TYPE_CLASS). Throws if not found.
-let peMethodReturnElementType (bytes: byte[]) (declaringType: string) (methodName: string) : byte =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    let qualifiedOf (td: TypeDefinition) =
-        let name = md.GetString td.Name
-        let ns = md.GetString td.Namespace
-
-        if System.String.IsNullOrEmpty ns then
-            name
-        else
-            sprintf "%s.%s" ns name
-
-    let methodHandle =
-        md.TypeDefinitions
-        |> Seq.tryPick (fun tdh ->
-            let td = md.GetTypeDefinition tdh
-
-            if qualifiedOf td = declaringType then
-                td.GetMethods()
-                |> Seq.tryFind (fun mdh -> md.GetString(md.GetMethodDefinition(mdh).Name) = methodName)
-            else
-                None
-        )
-
-    match methodHandle with
-    | None -> failwithf "peMethodReturnElementType: no method '%s' on type '%s'" methodName declaringType
-    | Some mdh ->
-        let mutable r = md.GetBlobReader((md.GetMethodDefinition mdh).Signature)
-        r.ReadSignatureHeader() |> ignore // calling convention (HASTHIS etc.)
-        r.ReadCompressedInteger() |> ignore // parameter count
-        r.ReadByte() // return type's ELEMENT_TYPE_* tag
-
-/// Format a PE byte array as a hex string (`"02 00 01 …"`), capped so a test
-/// failure message stays readable.
-let formatIlBytes (bytes: byte[]) : string =
-    bytes
-    |> Array.truncate 64
-    |> Array.map (sprintf "%02x")
-    |> String.concat " "
-    |> fun s ->
-        if bytes.Length > 64 then
-            s + sprintf " ... (%d bytes total)" bytes.Length
-        else
-            s

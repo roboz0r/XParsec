@@ -9,6 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Clr.Tests.PeInspection
 
 // The self-hosting bootstrap is FSharp.Core-free. These anchors pin the emission surface:
 // `Vesper.Core.dll`'s `Fun`2` / `Ref`1`, provider-encoded interface signatures, function
@@ -26,7 +27,7 @@ let tests =
             test "compiles prim-types-min.clr.fs to a Vesper.Core.dll with the Fun`2 interface and no FSharp.Core" {
                 let src = File.ReadAllText(vesperCoreSource "prim-types-min.clr.fs")
                 let project = ProjectInfo.library "Vesper.Core"
-                let _, artifact = compileSourceTo project src
+                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the Fun interface"
 
@@ -93,7 +94,7 @@ let tests =
                     "namespace Vesper\n\ntype Mapper<'A> =\n    abstract member Map<'B> : arg: 'A -> 'B"
 
                 let project = ProjectInfo.library "Vesper.Mapper"
-                let _, artifact = compileSourceTo project src
+                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "a typar-only signature"
 
@@ -134,7 +135,7 @@ let tests =
                     // Distinct assembly names so two same-shaped PEs don't collide
                     // on identity when both are `Assembly.Load`ed in this process.
                     let project = ProjectInfo.library (sprintf "Vesper.G7Box.%s" asmSuffix)
-                    let _, artifact = compileSourceTo project src
+                    let artifact = compileSourceTo project src
 
                     expectNoFSharpCore artifact "a primitive-only interface"
 
@@ -165,7 +166,7 @@ let tests =
                 let src =
                     "type myint = (# \"System.Int32\" #)\nlet boxId : myint -> myint = fun x -> x\nprintfn \"ok\""
 
-                let _, artifact = compileSource "G7ExeOverlay" src
+                let artifact = compileSource "G7ExeOverlay" src
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -182,7 +183,7 @@ let tests =
                     "namespace Vesper\n\ntype Applier<'A, 'B> =\n    abstract member Apply : f: ('A -> 'B) -> x: 'A -> 'B"
 
                 let project = ProjectInfo.library "Vesper.Applier"
-                let _, artifact = compileSourceTo project src
+                let artifact = compileSourceTo project src
 
                 expectNoFSharpCore artifact "the function-typed parameter is Vesper.Fun"
 
@@ -234,7 +235,7 @@ let tests =
             test "a closure program references Vesper.Core (for Fun), not FSharp.Core, and runs" {
                 // A lambda capturing a genuine local (`mk`'s parameter `n`) is synthesised as a
                 // closure, whereas one capturing only a top-level VALUE lowers to a static method.
-                let _, artifact =
+                let artifact =
                     compileSource "R1Closure" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
                 expectNoFSharpCore artifact "a plain closure"
@@ -254,7 +255,7 @@ let tests =
             }
 
             test "the synthesised closure derives from System.Object and implements Vesper.Fun`2" {
-                let _, artifact =
+                let artifact =
                     compileSource "R1ClosureShape" "let mk n = (fun x -> x + n)\nlet f = mk 1\nprintfn \"%d\" (f 41)"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
@@ -274,7 +275,7 @@ let tests =
             }
 
             test "an eta-reified curried operator value (`let add = (+)`) runs through nested Fun closures" {
-                let _, artifact = compileSource "R1Eta" "let add = (+)\nprintfn \"%d\" (add 40 2)"
+                let artifact = compileSource "R1Eta" "let add = (+)\nprintfn \"%d\" (add 40 2)"
 
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
@@ -379,7 +380,7 @@ let tests =
             // The list literal builds a `Vesper.Collections.List` and `List.fold` is emitted
             // inline over it, so the sample is BCL + `Vesper.Core` + `Vesper.List`.
             test "the canonical sample compiles, runs in-process, prints 15 with no FSharp.Core" {
-                let _, artifact = compileSource "CanonicalSample" fullSample
+                let artifact = compileSource "CanonicalSample" fullSample
 
                 expectNoFSharpCore artifact "the canonical sample"
 
@@ -404,7 +405,7 @@ let tests =
                 "the canonical sample's on-disk bundle ships Vesper.Core + Vesper.List + Vesper.Printf, no FSharp.Core.dll" {
                 let outDir = tmpDir "selfhost-bundle"
                 let project = withCore (ProjectInfo.app "XParsecBundle" outDir)
-                let _, artifact = compileSourceTo project fullSample
+                let artifact = compileSourceTo project fullSample
 
                 expectNoFSharpCore artifact "the canonical sample"
 
@@ -439,7 +440,7 @@ let tests =
             test "a happy-path bundle ships Vesper.Printf + its Vesper.Core / Vesper.List deps, no FSharp.Core" {
                 let outDir = tmpDir "selfhost-happy-bundle"
                 let project = withCore (ProjectInfo.app "XParsecHappy" outDir)
-                let _, artifact = compileSourceTo project "printfn \"%d\" 42"
+                let artifact = compileSourceTo project "printfn \"%d\" 42"
 
                 for stale in [ "FSharp.Core.dll"; "Vesper.Core.dll"; "Vesper.List.dll" ] do
                     let p = Path.Combine(outDir, stale)
@@ -466,17 +467,10 @@ let tests =
             test "a referenced Vesper package drives the emitted reference identity" {
                 let project = withCore (ProjectInfo.defaults "XParsecRefIdentity")
                 let src = "let xs = [1; 2; 3]"
-                let lexed, file = parseFile src
                 // Resolve `int` from the real contract stack, because `MockBuiltins` carries
                 // no primitive reprs.
                 let provider = ClrSymbolProviders.buildContract defaultPackages
-                // The front-end assembly name must equal codegen's `project.AssemblyName`, so a
-                // local type's home-assembly key matches its `userTypes` registration.
-                let tast =
-                    Pipeline.analyseFor (compilingClr project) provider (LexedFile.ofText lexed) file
-
-                let symbols = CodegenSymbols.ofProvider provider
-                let artifact = Codegen.compile symbols project tast |> emitted project.AssemblyName
+                let artifact = compileAgainst provider project src
 
                 Expect.contains
                     artifact.ReferencedAssemblies
