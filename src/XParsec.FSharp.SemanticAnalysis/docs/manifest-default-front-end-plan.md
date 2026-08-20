@@ -1,8 +1,8 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-19. The cache deletion under "Root cause" has landed; the staged plan
-has not started. This revision replaces the earlier gated/ungated pair with an `analyse` /
-`compile` split.
+Status: revised 2026-08-19. Everything under "Landed already" has landed; the staged plan has
+not started. This revision replaces the earlier gated/ungated pair with an `analyse` / `compile`
+split, and carries the type names the source-identity rename settled on.
 
 ## Root cause
 
@@ -30,14 +30,46 @@ at exactly two sites:
 - `PlatformTypes.fs:36` — `ctx.Target` names the target in "primitive not supported on X". Under
   `Target = ""` the message is wrong; nothing resolves differently.
 
-`AssemblyFiles` reads it in two more places (`fileSource assembly.Name` at `:460`/`:479`, and
-`SignatureResolution` inputs at `:486`), reachable only through the fold.
+`AssemblyFiles` reads it in three more places, reachable only through the fold: the two
+`LexedFile.inFile { Assembly = assembly.Name; … }` identities at `:452`/`:478`, and the
+`SignatureInputs.Assembly` at `:490`.
 
-### Landed already: the compile cache is deleted (2026-08-18)
+### The `""` assembly is one sentinel, not three
 
-`Cache.fs`, `FrozenCache.fs`, `ClrDriver.compileCachedWith` / `compileCached` / `prepare` /
-`PreparedCompilation` / `compilationDigest`, and the key half of `Hashing.fs` are gone, with
-their four test files. `InputHash` moved to `InputHash.fs`, which is now source-identity only.
+`CompilingAssembly.none` is where the empty name originates, and it flows outward:
+`AssemblyFiles.fs:452`/`:478` pipe `assembly.Name` straight into `AssemblyFilePath.Assembly`, so
+under `none` every file that fold produces carries `Assembly = ""` as well. Two further sites
+mint it directly — `AssemblyFilePath.nowhere` and `AssemblyFilePath.ofText`
+(`Anchor.fs:157`/`:175`) — plus the parse-failure identity at `AssemblyFiles.fs:261`.
+
+Those three cases are not the same fact. `none` means *unknown*, and is the one that misresolves
+(below). The other two mean *genuinely no assembly*: text handed over with no file behind it, and
+a file that failed to parse so no assembly claims it. Typing the field as `AssemblyName voption`
+splits them; typing it as `AssemblyName` with an empty string inside does not. Step 1 retires all
+of them together, because typing `AssemblyFilePath.Assembly` while `CompilingAssembly.Name` stays
+a bare `string` just moves the seam one call up.
+
+### Landed already: the compile cache and the content hash are deleted
+
+**2026-08-18.** `Cache.fs`, `FrozenCache.fs`, `ClrDriver.compileCachedWith` / `compileCached` /
+`prepare` / `PreparedCompilation` / `compilationDigest`, and the key half of `Hashing.fs` are
+gone, with their four test files.
+
+**2026-08-19** (`50ff4f41`). What survived of `Hashing.fs` was source identity: a content hash on
+every retained file, checked in `LexedFiles.tokenAt` before an anchor was read. That check answers
+a cross-BUILD question — a file edited between two builds leaves every index in range and pointing
+at a different token — and only the cache created one. In-process a file is lexed once and the
+`LexedFile` retained, so the hash on a tree and the hash on the retained file are the same value
+by construction and the branch could not fire.
+
+So `InputHash.fs` and `Hashing.fs` are deleted, and `FileStamp` degenerated to the
+`AssemblyFilePath` it wrapped. `FilePathRow` lost its `ContentHex`, shrinking the wire tables. The
+one thing the hash still does is mint a distinct `<text:…>` identity for text with no file behind
+it, which is now private to `AssemblyFilePath.ofText`.
+
+Reviving the wire axis re-introduces the stamp: a persisted tree thawed against a re-read file is
+exactly the case the check covered. That is a cost of the revival, not a reason to carry the
+field now.
 
 The cache served a design-time incremental need with wire machinery — `flatten` → `compress` →
 store → `decompress` → `thaw` — which is why its key folded source bytes over the whole package
@@ -82,12 +114,16 @@ type AnalysedAssembly =
     member Diagnostics : AnchoredDiagnostic list
 
 /// An assembly with every file analysed and no error-severity finding. Minted only by `gate`.
-type EmittableAssembly = { Files: FrozenFile list; Sources: LexedFiles }
+type EmittableAssembly = { Files: FrozenFile list; Retained: LexedFiles }
 
 module AnalysedAssembly =
     val analyse : AnalyseFile -> IExternalSymbolProvider -> AssemblySources -> AnalysedAssembly
     val gate : AnalysedAssembly -> Result<EmittableAssembly, AnchoredDiagnostic list>
 ```
+
+`AssemblySources` takes its name from the existing `SourceFile` / `SourceUnit` / `PackageSource`,
+where "source" is the INPUT text. `Retained` is the retained-`Lexed` collection an anchor is read
+through. The two are distinct and neither is spelled `Source` alone.
 
 ```fsharp
 // each backend
@@ -131,17 +167,35 @@ tiers of the same job.
 
 ## Staged plan
 
-### 1. Delete the no-assembly entries
+### 1. Delete the no-assembly entries and type the assembly name
 
 `Pipeline.analyseSem`, `analyse`, `analyseSemWithContext`, `analyseWithContext`,
 `analyseSemWithRegions` (`Pipeline.fs:79-102, 125-137`) and `CompilingAssembly.none`
-(`PassContext.fs:15`). Every caller then names an assembly and a target: 67 `Pipeline.analyse*`
-sites across 47 files, plus 21 hand-built `PassContext(…)` sites across 14 files.
+(`PassContext.fs:15`). Every caller then names an assembly and a target: 67 no-assembly
+`Pipeline.analyse*` sites across 39 files, plus 21 hand-built `PassContext(…)` sites across 14
+test files.
 
 Mechanical per site, and the red is the deliverable — a test that only passed under `Name = ""`
 is a `UnionTests.fs:380` finding about `diagnoseExternalClaim`, and one that only passed under
 `Target = ""` is asserting on a malformed message. Do not batch-convert silently; the
 disposition per case is fix the front end / fix the test / pin a `ptest` gap.
+
+With `none` gone, the remaining `""` assemblies are the two that mean it, so the field can carry
+the fact:
+
+- `AssemblyFilePath.Assembly : string` becomes `AssemblyName voption`. `AssemblyName`
+  (`SymbolKeys.fs:12`) already models this and is already the payload of `SymbolHome.InAssembly`,
+  which sits three lines from the `SymbolHome.InFile` that reaches the untyped one. It moves up
+  into `Anchor.fs` (item 13 in the `.fsproj`, ahead of `SymbolKeys.fs` at 24) with no other
+  reordering.
+- `SymbolHome.AssemblyOption` then returns `AssemblyName voption` rather than collapsing the
+  typed case to a string, and `TypeRegistration.fs:179`'s `asm <> ctx.AssemblyName` becomes a
+  typed compare.
+- `CompilingAssembly.Name : string` becomes `AssemblyName`, since it feeds
+  `AssemblyFilePath.Assembly` directly at `AssemblyFiles.fs:452`/`:478`.
+
+`ValueNone` then means "no assembly claims this file" at exactly two sites —
+`AssemblyFilePath.ofText` and the parse-failure identity — and nothing means "unknown".
 
 This step harvests the resolution findings without touching what any test asserts on.
 
@@ -223,9 +277,10 @@ rather than two disabled tests.
 
 ## Determinants of a compiled file
 
-Captured from `HashingTests.fs` before its deletion, because these are facts about the compiler
-and not about the cache that once hashed them. Whatever computes a firewall's identity must
-cover all of them.
+Captured from `HashingTests.fs` before it was cut down, because these are facts about the
+compiler and not about the cache that once hashed them. Whatever computes a firewall's identity
+must cover all of them. (What survives of that file is `AssemblyFilePathTests.fs`, pinning that
+`AssemblyFilePath.ofText` is a function of the text.)
 
 - The home assembly name, and the backend target.
 - The reference assemblies, by identity and IN ORDER — resolution is first-hit by name, so a
@@ -264,6 +319,8 @@ depending on any of the new shape.
    the parse failure. Under this plan `gate` returns all of them, parse failures first, and
    whether to stop at the first faulted file is the caller's presentation choice.
 3. **Merkle.Dag is the design-time answer**, so no replacement for the deleted cache is wanted
-   in the interim and steps 1-5 need not preserve a caching seam.
+   in the interim and steps 1-5 need not preserve a caching seam. This now also covers the
+   deleted content hash: if the dormant wire axis is revived, a per-file stamp comes back with
+   it, and the "Determinants" list above is what such a stamp has to cover.
 4. **The printf specifier gaps are front-end work**, not codegen work — i.e. the fix is to type
    `%d`/`%g` over a numeric-family typar rather than to widen at the call.

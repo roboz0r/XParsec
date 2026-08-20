@@ -252,8 +252,8 @@ checking that against fsc.
   so `type t = extern` picks `IntrinsicPlatform.Repr` over `Unsupported` (`signatureView` and
   `companionReprs`, which are the same read spelled twice).
 - **Declared order within a package.**
-- **Homing stays a parameter.** The in-assembly caller homes `Origin.InFile` and publishes no
-  ambient prefixes; the package caller homes `Origin.InAssembly` and publishes its
+- **Homing stays a parameter.** The in-assembly caller homes `SymbolHome.InFile` and publishes no
+  ambient prefixes; the package caller homes `SymbolHome.InAssembly` and publishes its
   `[<AutoOpen>]` prefixes.
 
 All three are discharged by `AssemblyFiles.foldUnits`, the single fold both callers
@@ -406,11 +406,11 @@ dependencies plus the package's own earlier files, nearest first — exactly as
 the one reader that turns a manifest-named path into a parsed tree.
 
 **The provider half of `ReferencedProject` had to move.** Everything the front end needs sits
-below `PassContext` in compile order, and `Hashing` / `ConformancePass` / `PackageUnits` sit
-above it — but every one of those reads MANIFESTS only. So the split is by what a caller
-wants: `ReferencedProject` resolves, parses and orders manifests where it always did, and
-`PackageProviders` (after `AssemblyFiles`, whose `fileSource` / `anchorDiagnostics` it shares)
-turns them into providers.
+below `PassContext` in compile order, and `ConformancePass` / `PackageUnits` sit above it — but
+every one of those reads MANIFESTS only. So the split is by what a caller wants:
+`ReferencedProject` resolves, parses and orders manifests where it always did, and
+`PackageProviders` (after `AssemblyFiles`, whose `anchorDiagnostics` it shares) turns them into
+providers.
 
 `buildProviderWith` takes a dependency PROVIDER rather than a name→shape function and a prefix
 list, because that is what a `PassContext` resolves against. `BuiltPackage.Diagnostics` became

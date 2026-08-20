@@ -580,27 +580,6 @@ ref-struct predicate `LocalStack ∧ StackOnlyEligible` is stated in prose in tw
 
 Deletes: both axis banners and the `Axis-2` prefixes on the `reprOf` / `reprOfNested` docs.
 
-## B22. `CompilationInputs` coverage is a hand-maintained list, stated three times
-
-The obligation — every field of `CompilationInputs` and every path of the manifest source set
-moves the cache key — is enforced only by a hand-written list of `test` cases whose
-completeness nothing checks. A field added to the record silently gets no test. A per-field
-perturbation fold total over the record, read by both the fold and the test, makes adding a
-field break the build.
-
-Deletes: both `testList` coverage headers in `HashingTests.fs` and `Hashing.fs:100`'s *"This
-set must be COMPLETE: a determinant the front end reads and this omits is a silent stale hit"*.
-
-## B23. Target-blindness of the source-input fold is visible only in a test
-
-`dependencySignatureHash` takes only a manifest path, so target-blindness shows in the
-signature — but that the manifest's per-target sections are ALL deliberately folded lives
-nowhere in `ReferencedProject.sourceInputs`' own type or doc. A target-blind-by-name accessor
-carries it.
-
-Deletes: the retained `TARGET-BLIND` comment in `"an edited per-target body changes the
-signature hash"`.
-
 ## B24. `TExpr.External`'s key should not be a `voption`
 
 `IntrinsicKeyStampTests` exists to assert a field is populated that the type permits to be

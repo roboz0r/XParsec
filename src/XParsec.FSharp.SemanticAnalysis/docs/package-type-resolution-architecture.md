@@ -152,7 +152,7 @@ into one table. A contract commits `type exn = extern` and leaves the spelling t
 implementation, so the repr has to be available when the `extern` is published.
 
 What the package publishes is the composite of its own files' surfaces, stamped
-with `Origin.InAssembly` and carrying its `[<AutoOpen>]` prefixes ahead of the
+with `SymbolHome.InAssembly` and carrying its `[<AutoOpen>]` prefixes ahead of the
 prelude.
 
 ### Kinding a type constructor

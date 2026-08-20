@@ -398,11 +398,6 @@ the message.
 "Bound by a local scheme" and "unexplained metavar" are distinguished only by a string. The
 63-line essay in `Freeze.fs` was almost entirely about keeping those two apart by convention.
 
-### `Hashing.fs` — `CompilationInputs`' completeness obligation is enforced by nothing
-
-"A determinant the front end reads and this omits is a silent stale cache hit" was stated in
-prose only. Nothing ties the record to the set of inputs the front end actually consults.
-
 ### `TypeInfos.fs:427` — `AbbreviationInfo` encodes one state machine in two mutable fields
 
 `Body : SemType voption` and `Status : AbbreviationStatus` vary independently, so `Filled` with
@@ -552,12 +547,15 @@ arguments. A `KindRegistry<'Info>` bundling the two would delete the per-field "
 `Exact: 'cand voption` plus `ExactCount: int` encode a single three-state result, which is why
 both fields needed docs. `NoMatch | Unique of 'cand | Ambiguous of int` collapses it.
 
-### `Anchor.fs:74` — `FileStamp.nowhere` is a sentinel, not a case
+### `Anchor.fs:155` — `AssemblyFilePath.nowhere` is a sentinel, not a case
 
 Distinguished by `Assembly = ""` / `Relative = ""`. The "no file is spelled `""`" invariant
 is unchecked; `AssemblyFilePath` could be a DU, or the fields a non-empty-string type.
 
-Deletes: "Distinguishable from every real origin, which names a path: no file is spelled `""`."
+The `Assembly` half is scheduled: step 1 of
+[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md) types it as
+`AssemblyName voption` alongside retiring `CompilingAssembly.none`, which is where the empty
+name originates. `Relative` is not covered there.
 
 ### `SymbolKeys.fs:110` — `TypeKey`'s capability duality is enforced by prose
 
@@ -597,13 +595,6 @@ the elaborator and the CLR backend come to disagree about an enum's underlying t
 The protocol ("bump when the wire format changes") is carried by nothing but the prose that
 used to sit on it. A codec-shape hash, or a golden test that fails when the encoding moves,
 would enforce it.
-
-### `Anchor.fs:65` — `InputHash` does not encode WHICH text it hashes
-
-The invariant "this is `hashString` of `Lexed.Input`" holds by convention at `Hashing.fs:48`;
-`FrozenTypeTable.fs:504` builds an `InputHash` from hex with no such tie. A distinct type per
-hashed thing would make the mismatch a compile error rather than a runtime fault in
-`LexedFiles.tokenAt`.
 
 ### `CstKeys.fs` — the CST does not retain the `type` / `and` keyword
 
@@ -1547,16 +1538,20 @@ positional `true`. A two-case type named for the choice (FSharp.Core list vs Ves
 would make the entry points readable without their docs and would delete the sentence each of
 those five docs currently spends restating it.
 
-### `AssemblyFiles.fs:101` — the cross-file "same assembly" waiver is an untyped string round-trip
+### `AssemblyFiles.fs:452` — the cross-file "same assembly" waiver is an untyped string round-trip
 
-`analyseAssemblyWith` stamps each file's provider view through `fileSource assemblyName path`,
-which lands `assemblyName` in `AssemblyFilePath.Assembly`; the duplicate-type check then reads it
-back out via `Origin.AssemblyOption` and compares it to `ctx.AssemblyName` as a plain string.
-Nothing connects the two ends, so a driver passing a differently-spelled assembly name to
-`analyse` than to `fileSource` turns every prior file's export into a spurious "already exists in
-the referenced assembly" error. The deleted header comment got this wrong in a way that shows the
-coupling is not readable: it claimed the view stamps `Origin.InAssembly`, when the code stamps
-`Origin.InFile` and relies on the bucket to carry the assembly.
+The fold lands `assembly.Name` in `AssemblyFilePath.Assembly` (`:452`/`:478`); the duplicate-type
+check reads it back out via `SymbolHome.AssemblyOption` and compares it to `ctx.AssemblyName`
+(`TypeRegistration.fs:179`) as a plain string. Nothing connects the two ends, so a driver passing
+a differently-spelled assembly name to `analyse` than to the fold turns every prior file's export
+into a spurious "already exists in the referenced assembly" error. The deleted header comment got
+this wrong in a way that shows the coupling is not readable: it claimed the view stamps
+`SymbolHome.InAssembly`, when the code stamps `SymbolHome.InFile` and relies on the path to carry
+the assembly.
+
+Scheduled as step 1 of
+[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md), which types both ends
+as `AssemblyName`.
 
 ### `StringLiterals.fs:22` — `decodeEscape` throws on escapes the string lexer accepts
 

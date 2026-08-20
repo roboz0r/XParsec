@@ -265,7 +265,7 @@ passed as a unit — would carry the invariant in the type and delete the doc li
 ### `FrozenSignature.fs:36` — the backend clause was prose only; the code is backend-neutral
 
 Removed a comment on `originIn` justifying the origin stamp by what "a per-file backend needs".
-The code below it stamps `Origin.InFile producer.File.Path` and nothing more, and `Origin.InFile`
+The code below it stamps `SymbolHome.InFile declaredIn.Path` and nothing more, and `SymbolHome.InFile`
 is documented at its declaration (`SymbolKeys.fs:24`) as `InAssembly` refined to a file, with the
 assembly read off the path. No code change is owed here — recording it only so a later reader does
 not go looking for the backend coupling the deleted sentence implied.
