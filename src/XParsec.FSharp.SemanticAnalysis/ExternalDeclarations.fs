@@ -57,25 +57,25 @@ type ImportForm =
     /// `import * as ns from …` with member access `ns.x` (`import * as fs from "fs"`).
     | Namespace
 
-/// A published inline body as the provider serves it: the producing file's own template,
+/// A published inline body as the provider serves it: the declaring file's own template,
 /// handed across the boundary VERBATIM for the consumer to thaw.
 type InlineBody =
     {
         Decl: Wire.TDecl
         ParamAttrs: EqArray<ParamAttrs>
-        /// The producer file's anchors: its text and token table. `Decl`'s nodes carry
+        /// The declaring file's anchors: its text and token table. `Decl`'s nodes carry
         /// token INDICES into that file, unreadable without it.
-        Source: LexedFile
+        File: LexedFile
     }
 
 [<RequireQualifiedAccess>]
 module InlineBody =
 
-    let anchoredIn (origin: LexedFile) (decl: Wire.TDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
+    let anchoredIn (file: LexedFile) (decl: Wire.TDecl) (paramAttrs: EqArray<ParamAttrs>) : InlineBody =
         {
             Decl = decl
             ParamAttrs = paramAttrs
-            Source = origin
+            File = file
         }
 
 type ExternalSymbol =

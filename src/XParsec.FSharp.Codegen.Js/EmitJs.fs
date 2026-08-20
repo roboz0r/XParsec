@@ -971,19 +971,19 @@ module EmitJs =
 
         for KeyValue(node, origin) in expansion.Origins do
             ctx.NodeOrigins.[node] <- origin
-            reached.Add origin.File |> ignore
+            reached.Add origin.Path |> ignore
 
         InlineExpand.Derivation.absorb ctx.Derivation expansion.Derived
 
-        // The producer files this program reached get a slot in the map's `sources[]`. It walks
+        // The declaring files this program reached get a slot in the map's `sources[]`. It walks
         // the RETENTION, which yields in path order, keeping what the expansion reached but not
         // the expansion's dictionary order, so two builds of one program publish the same map.
         match ctx.Resolver with
         | ValueNone -> ()
         | ValueSome r ->
-            for src in LexedFiles.toList r.Sources do
-                if reached.Contains src.Path then
-                    MapSources.publish src ctx.MapSources
+            for file in LexedFiles.toList r.Retained do
+                if reached.Contains file.Path then
+                    MapSources.publish file ctx.MapSources
 
         // Class decls (with their attached instance methods) are built now, because their method
         // bodies need the full ctx, unlike record/union decls, which carry no bodies.

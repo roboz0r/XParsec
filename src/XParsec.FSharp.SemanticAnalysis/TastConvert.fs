@@ -401,7 +401,7 @@ module TastConvert =
                 }
             // NOT mapped by `fTok`: the stamp identifies which file the anchors index, and a change
             // of the position REPRESENTATION does not move the body to another file.
-            Source = s.Source
+            Path = s.Path
             Decl = decl f fTok s.Decl
         }
 

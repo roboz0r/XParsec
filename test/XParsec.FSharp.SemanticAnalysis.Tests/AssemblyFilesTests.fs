@@ -376,7 +376,7 @@ module C =
 
                 let frozenAs (spelling: string) =
                     match analyseAssembly asm realProvider.Value [ impl spelling source ] with
-                    | [ Ok f ] -> f.Source.Path
+                    | [ Ok f ] -> f.Retained.Path
                     | other -> failtestf "expected one analysed file, got %A" other
 
                 Expect.equal
@@ -855,7 +855,7 @@ module N =
 
             test "a prior file's inline template is OUTLINED, not spliced" {
                 // The specialization entry is anchored in the declaring file: it keeps the
-                // producer's positions, which a spliced body could not.
+                // declaring file's positions, which a spliced body could not.
                 let file1 =
                     "\
 namespace Test.A
@@ -890,7 +890,7 @@ module N =
 
                 match List.ofArray twiceEntries with
                 | [ entry ] ->
-                    Expect.equal entry.Source all.[0].Source.Path "the entry is anchored in the DECLARING file"
+                    Expect.equal entry.Path all.[0].Retained.Path "the entry is anchored in the DECLARING file"
                 | other -> failtestf "expected exactly one `twice` specialization entry, got %d" (List.length other)
 
                 // The call-site EDGE is file 2's own node, so its origin is file 2 while the
@@ -899,11 +899,11 @@ module N =
                     [
                         for p in consumer.Frozen.ExprPayloads do
                             match p with
-                            | ExprPayload.InlineCall c -> yield c.Source
+                            | ExprPayload.InlineCall c -> yield c.Path
                             | _ -> ()
                     ]
 
-                match edgeOrigins |> List.filter (fun o -> o = consumer.Source.Path) with
+                match edgeOrigins |> List.filter (fun o -> o = consumer.Retained.Path) with
                 | [ _ ] -> ()
                 | other ->
                     failtestf

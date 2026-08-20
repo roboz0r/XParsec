@@ -756,14 +756,14 @@ module SignatureResolution =
     /// than accumulating on a context the caller kept.
     let resolveFile
         (visible: IExternalSymbolProvider)
-        (source: LexedFile)
+        (lexed: LexedFile)
         (inputs: SignatureInputs)
         (file: SignatureFile<SyntaxToken>)
         : PublishedSurface * Diagnostic list =
         let ctx =
             PassContext(
                 visible,
-                source,
+                lexed,
                 {
                     Name = inputs.Assembly
                     Target = inputs.Target

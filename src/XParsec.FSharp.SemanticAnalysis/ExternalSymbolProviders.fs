@@ -261,34 +261,34 @@ module ExternalSymbolProviders =
             member this.IntrinsicTypeMap = this.IntrinsicTypeMap
             member this.Platform = this.Platform
 
-    /// The composed intrinsic axis of `sources`, EARLIEST source nearest: what `stack`
+    /// The composed intrinsic axis of `providers`, EARLIEST source nearest: what `stack`
     /// publishes, exposed for a caller that must seed a later source with it before composing.
-    let mergeIntrinsics (sources: IExternalSymbolProvider seq) : IntrinsicTypeMap =
-        sources
+    let mergeIntrinsics (providers: IExternalSymbolProvider seq) : IntrinsicTypeMap =
+        providers
         |> Seq.collect (fun s -> IntrinsicTypeMap.entries s.IntrinsicTypeMap)
         |> IntrinsicTypeMap.ofSeq
 
-    /// First-hit-wins composition over `sources`, surfacing `ambient` and stamping
+    /// First-hit-wins composition over `providers`, surfacing `ambient` and stamping
     /// `stampHome` onto each resolved entry's `SymbolOrigin.Home`. The origin's NAMESPACE
     /// is never stamped, because a package spans as many as its files declare.
     let stack
         (stampHome: SymbolHome voption)
         (ambient: string list)
-        (sources: IExternalSymbolProvider list)
+        (providers: IExternalSymbolProvider list)
         : IExternalSymbolProvider =
         // Snapshot to an array so the hot lookup is an index loop, not list
         // traversal, on a provider hit from many parallel PassContexts.
-        let sources = List.toArray sources
+        let providers = List.toArray providers
 
-        let intrinsics = mergeIntrinsics sources
+        let intrinsics = mergeIntrinsics providers
 
         // The array-valued lookups keep their own loop: their empty sentinel is `[||]`.
         let inline firstHit (f: IExternalSymbolProvider -> 'a voption) : 'a voption =
             let mutable result = ValueNone
             let mutable i = 0
 
-            while result.IsNone && i < sources.Length do
-                result <- f sources.[i]
+            while result.IsNone && i < providers.Length do
+                result <- f providers.[i]
                 i <- i + 1
 
             result
@@ -298,7 +298,7 @@ module ExternalSymbolProviders =
             | ExternalTypeShape.Intrinsic shape ->
                 let mutable surface = shape.Class
 
-                for s in sources do
+                for s in providers do
                     match s.TryLookupType key with
                     | ValueSome(ExternalTypeShape.Intrinsic other) ->
                         surface <- IntrinsicClassSurface.merge surface other.Class
@@ -378,7 +378,7 @@ module ExternalSymbolProviders =
               member _.TryRecordsWithField fieldName =
                   EqArray.ofSeq
                       [
-                          for s in sources do
+                          for s in providers do
                               for c in s.TryRecordsWithField fieldName do
                                   stampRecordCandidate c
                       ]
@@ -395,8 +395,8 @@ module ExternalSymbolProviders =
                   let mutable result = EqArray.empty
                   let mutable i = 0
 
-                  while result.IsEmpty && i < sources.Length do
-                      result <- sources.[i].TryLookupMembers(key, memberName)
+                  while result.IsEmpty && i < providers.Length do
+                      result <- providers.[i].TryLookupMembers(key, memberName)
                       i <- i + 1
 
                   match stampHome with
@@ -412,8 +412,8 @@ module ExternalSymbolProviders =
                   let mutable result = []
                   let mutable i = 0
 
-                  while List.isEmpty result && i < sources.Length do
-                      result <- sources.[i].TryLookupIndexSignature key
+                  while List.isEmpty result && i < providers.Length do
+                      result <- providers.[i].TryLookupIndexSignature key
                       i <- i + 1
 
                   result
@@ -430,9 +430,9 @@ module ExternalSymbolProviders =
 
     /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
     /// deduplicated keeping the FIRST sighting: packages share prelude prefixes.
-    let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
+    let private collectAmbient (providers: IExternalSymbolProvider seq) : string list =
         [
-            for s in sources do
+            for s in providers do
                 yield! s.AmbientOpenPrefixes
         ]
         |> List.distinct
@@ -440,11 +440,11 @@ module ExternalSymbolProviders =
     /// `stack` with no origin stamping. List order encodes shadowing among *external*
     /// sources only (a referenced project beats a referenced assembly); project-local
     /// symbols resolve before the provider is consulted at all.
-    let composite (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
-        match sources with
+    let composite (providers: IExternalSymbolProvider list) : IExternalSymbolProvider =
+        match providers with
         | [] -> nullProvider
         | [ single ] -> single
-        | _ -> stack ValueNone (collectAmbient sources) sources
+        | _ -> stack ValueNone (collectAmbient providers) providers
 
     /// Rebuild a provider so every `FrozenType` a VALUE can have (a parameter, a return, a
     /// field) passes through `transform` at that position's ROOT variance. A caller needing

@@ -59,7 +59,7 @@ let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, In
             | _ ->
                 owners.[e] <-
                     {
-                        File = entry.Source
+                        Path = entry.Path
                         At = TastAccessor.exprTok e
                     }
 
@@ -171,11 +171,11 @@ let tests =
                     [
                         for KeyValue(node, _) in expansion.Origins ->
                             match InlineExpand.Derivation.tryFind expansion.Derived owners node with
-                            | ValueSome written -> written.File
+                            | ValueSome written -> written.Path
                             | ValueNone -> failtest "a copied node belongs to no entry"
                     ]
 
-                Expect.isGreaterThan (reached |> List.distinct |> List.length) 0 "at least one producer file is named"
+                Expect.isGreaterThan (reached |> List.distinct |> List.length) 0 "at least one declaring file is named"
 
                 Expect.isGreaterThan (expansion.Origins.Count) 1 "more than one node came out of the table"
             }
@@ -199,8 +199,8 @@ let tests =
                     | ds -> failtestf "expected one `let` declaration, got %d" (List.length ds)
 
                 // The operator node as the EXPANSION left it: under every bound-variable `let`,
-                // and the node the producer origin is filed against. Walked rather than counted,
-                // since the chain's length is a fact about the producer's body, not about origins.
+                // and the node the declaring file origin is filed against. Walked rather than counted,
+                // since the chain's length is a fact about the declaring file's body, not about origins.
                 let rec underBoundVars (e: TastAccessor.ExprId) =
                     match TastAccessor.exprKind e with
                     | ExprShape.Let -> underBoundVars (TastAccessor.exprLet e).Body

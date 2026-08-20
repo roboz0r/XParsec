@@ -8,11 +8,11 @@ open XParsec.FSharp.SemanticAnalysis
 /// WRITTEN in (`NodeOrigin`) while its own anchor moves to the call site.
 module InlineExpand =
 
-    /// The producer file a node was written in, and its index into THAT file's tokens —
+    /// The declaring file a node was written in, and its index into THAT file's tokens —
     /// neither half means anything without the other. Held beside the node because the node's
     /// own anchor was moved onto the call site.
     [<Struct>]
-    type NodeOrigin = { File: AssemblyFilePath; At: Anchor }
+    type NodeOrigin = { Path: AssemblyFilePath; At: Anchor }
 
     /// Every node a rewrite AUTHORED → the node it was authored from. Splicing a body inside a
     /// lambda re-authors that lambda, so a table keyed by node (`FrozenPools.FunVerdicts`,
@@ -82,13 +82,13 @@ module InlineExpand =
             Derived: Derivation
         }
 
-    /// WHICH FILE the material being walked is anchored in: a producer's, or the consuming
-    /// file's own. Both are `AssemblyFilePath`s; the walk is TOLD which by the node it descends
+    /// WHICH FILE the material being walked is anchored in: a declaring file's, or the file being
+    /// compiled. Both are `AssemblyFilePath`s; the walk is TOLD which by the node it descends
     /// through, so the comparison happens once per domain entered, not once per node filed.
     [<Struct>]
     type private Domain =
-        | Consuming
-        | Producer of AssemblyFilePath
+        | Compiling
+        | Declaring of AssemblyFilePath
 
     /// The state of ONE entry-body copy. Per copy, not per expansion: an entry reached from
     /// inside another entry's body takes its own, so the two copies' variables cannot collide;
@@ -96,11 +96,11 @@ module InlineExpand =
     type private Copy =
         {
             /// The call-site anchor every node of this copy is moved onto: an `Anchor` indexes
-            /// one file's tokens, so a producer's node sitting in the consuming file's tree
+            /// one file's tokens, so a declaring file's node sitting in the compiling file's tree
             /// must be readable against that file. Where it came from is `NodeOrigin`.
             At: Anchor
             /// This copy's own bound variables, old → new. One not in it is FREE in the body —
-            /// a reference to the consuming scope — and passes through: a use is always
+            /// a reference to the call site's scope — and passes through: a use is always
             /// lexically inside the scope binding it, so a pre-order copy has bound it first.
             BoundVars: Dictionary<BoundVarId, BoundVarId>
         }
@@ -134,8 +134,8 @@ module InlineExpand =
         // would compare unequal and file this file's own code as if it were foreign.
         let compiling = TastPoolBuilder.path pool
 
-        let domainOf (stamp: AssemblyFilePath) : Domain =
-            if stamp = compiling then Consuming else Producer stamp
+        let domainOf (path: AssemblyFilePath) : Domain =
+            if path = compiling then Compiling else Declaring path
 
         let authored (source: TastAccessor.ExprId) (result: TastAccessor.ExprId) : TastAccessor.ExprId =
             Derivation.authored derived source result
@@ -154,15 +154,15 @@ module InlineExpand =
             | _ -> b
 
         // Where `source` was written, filed against the node that landed. Nothing is filed for
-        // the consuming file's own material — including a COPY of it, so an inlined body of this
+        // the compiling file's own material — including a COPY of it, so an inlined body of this
         // file's own template reads at the call site that asked for it, as a debugger wants.
         let record (domain: Domain) (source: TastAccessor.ExprId) (landed: TastAccessor.ExprId) =
             match domain with
-            | Consuming -> ()
-            | Producer file ->
+            | Compiling -> ()
+            | Declaring path ->
                 origins.[landed] <-
                     {
-                        File = file
+                        Path = path
                         At = TastAccessor.exprTok source
                     }
 
@@ -197,7 +197,7 @@ module InlineExpand =
             | ExprShape.InlineCall -> expandEdge domain entered site e
             | ExprShape.CallerExpr ->
                 // The marked subtree is the CALLER's, moved into the entry, so it is walked at
-                // the caller's site and in the caller's domain — a producer's if that site was
+                // the caller's site and in the caller's domain — a declaring file's if that site was
                 // itself inside an entry. Sound only because a fusing entry has ONE call edge.
                 let caller = domainOf (TastAccessor.exprCallerExprSource e)
 
@@ -305,7 +305,7 @@ module InlineExpand =
             // The body is the ENTRY's, and the entry states where it was written.
             let body =
                 go
-                    (domainOf entry.Source)
+                    (domainOf entry.Path)
                     ({ Spec = spec; CallerSite = site } :: entered)
                     (Copied
                         {
@@ -335,7 +335,7 @@ module InlineExpand =
                 | other -> failwithf "InlineExpand: over-application of an inline body, at a %A" other
 
         {
-            Decls = decls |> List.map (TastAccessor.mapDeclBodies (go Consuming [] InPlace))
+            Decls = decls |> List.map (TastAccessor.mapDeclBodies (go Compiling [] InPlace))
             Origins = origins
             Derived = derived
         }

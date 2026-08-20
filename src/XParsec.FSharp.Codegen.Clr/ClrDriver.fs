@@ -90,7 +90,12 @@ module ClrDriver =
                             Target = Target.Clr
                         }
                         provider
-                        (LexedFile.ofText parsed.Lexed)
+                        // No path was handed over, so the text names the file; the assembly IS
+                        // known and is stamped rather than left blank.
+                        (LexedFile.inAssembly
+                            inputs.Project.AssemblyName
+                            (AssemblyFileId.ofText parsed.Lexed.Input)
+                            parsed.Lexed)
                         parsed.File
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast

@@ -31,8 +31,8 @@ module InlineReduction =
             Decl: TDecl
             ParamAttrs: EqArray<ParamAttrs>
             /// The file every anchor in `Decl` indexes: this file's own for a local template,
-            /// the producer's for a served one.
-            Source: AssemblyFilePath
+            /// the declaring file's for a served one.
+            Path: AssemblyFilePath
         }
 
     /// WHICH inline binding a reduction is expanding: the identity a RECURSION is detected on,
@@ -52,7 +52,7 @@ module InlineReduction =
             Template: TemplateId
             /// The anchor domain of the body this frame expands. It rides the chain so a walk
             /// cannot be handed material under a domain the chain disagrees with.
-            Source: AssemblyFilePath
+            Path: AssemblyFilePath
             /// The table slot this expansion reserved: what a re-entering call is answered with.
             Spec: SpecializationId
         }
@@ -109,11 +109,11 @@ module InlineReduction =
         let top: Descent = { Frames = []; Site = ValueNone }
 
         /// The file the expressions being walked here were WRITTEN in, whose token array their
-        /// anchors index: the producer's inside a served body, `compiling` outside one.
-        let sourceOf (compiling: AssemblyFilePath) (d: Descent) : AssemblyFilePath =
+        /// anchors index: the declaring file's inside a served body, `compiling` outside one.
+        let pathOf (compiling: AssemblyFilePath) (d: Descent) : AssemblyFilePath =
             match d.Frames with
             | [] -> compiling
-            | f :: _ -> f.Source
+            | f :: _ -> f.Path
 
         /// The frame already expanding `template`, if the walk is inside one: this call has
         /// reached a binding that reaches itself, and is answered from that frame instead of
@@ -133,14 +133,14 @@ module InlineReduction =
         /// Go INSIDE the body this call targets: the descent its own expressions are walked at
         /// (this binding pushed onto the caller's), beside the one the call site's arguments
         /// stay at, because they are the caller's expressions and never enter anything.
-        let enter (d: Descent) (call: PendingCall) (source: AssemblyFilePath) (spec: SpecializationId) : InFlight =
+        let enter (d: Descent) (call: PendingCall) (path: AssemblyFilePath) (spec: SpecializationId) : InFlight =
             {
                 Own =
                     {
                         Frames =
                             {
                                 Template = call.Template
-                                Source = source
+                                Path = path
                                 Spec = spec
                             }
                             :: d.Frames
@@ -361,7 +361,7 @@ module InlineReduction =
 
     /// Reach a cross-file body by EXACT `SymbolKey`, never by a name lookup whose best-by-arity
     /// collapse could serve a sibling overload's body. The THAW happens per lookup, so two call
-    /// sites of one template never share an inference cell; the body keeps the producer's positions.
+    /// sites of one template never share an inference cell; the body keeps the declaring file's positions.
     let internal lookupExternal
         (ctx: PassContext)
         (specs: SpecTable)
@@ -371,13 +371,13 @@ module InlineReduction =
         | ValueSome key ->
             ExternalSymbolProviders.tryInlineBody ctx.Provider key
             |> ValueOption.map (fun ib ->
-                let sources = SpecTable.retainSource ib.Source specs
+                let sources = SpecTable.retain ib.File specs
 
                 {
                     Key = key
-                    Decl = InlineThaw.bodyAtPath ctx.Store sources ib.Source.Path ib.Decl
+                    Decl = InlineThaw.bodyAtPath ctx.Store sources ib.File.Path ib.Decl
                     ParamAttrs = ib.ParamAttrs
-                    Source = ib.Source.Path
+                    Path = ib.File.Path
                 }
             )
         | ValueNone -> ValueNone

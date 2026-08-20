@@ -54,8 +54,8 @@ let private withSpecialization () : FrozenPools =
             && ChildColumn.count pools.ExprPatChildren i = 0
         )
 
-    // The two grafted nodes are CALL-SITE material, so their domain is the consuming file and
-    // deliberately NOT the entry's producer: a codec that dropped a node's own source and
+    // The two grafted nodes are CALL-SITE material, so their domain is the compiling file and
+    // deliberately NOT the entry's declaring file: a codec that dropped a node's own path and
     // recovered it from the entry would still round-trip if the two agreed.
     let consumer =
         {
@@ -68,8 +68,8 @@ let private withSpecialization () : FrozenPools =
     payloads.[leaf] <-
         ExprPayload.InlineCall
             {|
+                Path = consumer
                 Spec = SpecializationId 0
-                Source = consumer
             |}
 
     payloads.[unary] <- ExprPayload.CallerExpr consumer
@@ -86,7 +86,7 @@ let private withSpecialization () : FrozenPools =
                         }
                     // A file OTHER than the one the blob is keyed by, so nothing about the
                     // source is recoverable from the key. Synthetic: no anchor is resolved here.
-                    Source =
+                    Path =
                         {
                             Assembly = "Lib"
                             Relative = AssemblyFileId.ofRelative "n.fs"
@@ -96,7 +96,7 @@ let private withSpecialization () : FrozenPools =
             |]
     }
 
-/// The same graft with a SECOND entry carrying the same producer file: one template grounded
+/// The same graft with a SECOND entry carrying the same declaring file: one template grounded
 /// two ways. The two entries differ only in the grounding, so the source is what they share.
 let private withSharedFilePath () : FrozenPools =
     let pools = withSpecialization ()
@@ -252,16 +252,16 @@ let tests =
                 Expect.equal (rt.Specializations.Length) 2 "both entries survived the wire"
                 Expect.equal rt.Specializations grafted.Specializations "…each with the source it was written with"
 
-                // Counted rather than assumed: two entries reference the producer and the two
+                // Counted rather than assumed: two entries reference the declaring file and the two
                 // grafted nodes the consumer, on top of whatever the freeze itself anchored.
                 let referenced =
                     [
                         for s in rt.Specializations do
-                            yield s.Source
+                            yield s.Path
 
                         for p in rt.ExprPayloads do
                             match p with
-                            | ExprPayload.InlineCall c -> yield c.Source
+                            | ExprPayload.InlineCall c -> yield c.Path
                             | ExprPayload.CallerExpr o -> yield o
                             | _ -> ()
                     ]

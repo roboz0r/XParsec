@@ -144,7 +144,8 @@ let tests =
             // retaining anything but the parsed text makes every later resolution a hard failure.
             test "the collection retains the declaring files its bodies are anchored in" {
                 let sources =
-                    JsNativeSymbols.jsNativeInlineSources [ vesperCorePackage ] |> LexedFiles.toList
+                    JsNativeSymbols.jsNativeInlineRetained [ vesperCorePackage ]
+                    |> LexedFiles.toList
 
                 Expect.isNonEmpty sources "the JS `impl` files are retained, not dropped after the parse"
 

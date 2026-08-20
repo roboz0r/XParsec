@@ -69,7 +69,7 @@ module AssemblyFiles =
     /// file's `View`; what is left here is everything anchored to the signature's own text.
     type FrozenSignatureFile =
         {
-            Source: LexedFile
+            Retained: LexedFile
             /// What RECOVERY reported parsing the signature.
             ParseDiagnostics: Diagnostic list
             /// Where the implementation failed to answer the signature, and where the
@@ -81,7 +81,7 @@ module AssemblyFiles =
     /// later files resolve its exports through.
     type FrozenFile =
         {
-            Source: LexedFile
+            Retained: LexedFile
             /// What RECOVERY reported while parsing. Analysis runs regardless, so these
             /// ride alongside the analysis residue rather than short-circuiting the file.
             ParseDiagnostics: Diagnostic list
@@ -257,19 +257,18 @@ module AssemblyFiles =
         match e.Failure.Lexed with
         // The `""` bucket: no file was analysed, so no assembly claims this one. The
         // source exists only to resolve the positions the parser's diagnostics carry.
-        | ValueSome lexed ->
-            anchorDiagnostics (LexedFile.inFile { Assembly = ""; Relative = e.Id } lexed) e.Failure.Diagnostics
+        | ValueSome lexed -> anchorDiagnostics (LexedFile.inAssembly "" e.Id lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
 
     /// A `.fsi` half's findings, anchored in its own text: recovery's first, then
     /// resolution's and conformance's.
     let signatureFileDiagnostics (s: FrozenSignatureFile) : AnchoredDiagnostic list =
-        anchorDiagnostics s.Source (s.ParseDiagnostics @ s.Diagnostics)
+        anchorDiagnostics s.Retained (s.ParseDiagnostics @ s.Diagnostics)
 
     /// An analysed implementation's findings, anchored in its own text: recovery's first,
     /// then the analysis residue.
     let implementationFileDiagnostics (f: FrozenFile) : AnchoredDiagnostic list =
-        anchorDiagnostics f.Source (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
+        anchorDiagnostics f.Retained (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
 
     /// Both halves' findings, the signature's first.
     let fileDiagnostics (f: FrozenFile) : AnchoredDiagnostic list =
@@ -389,7 +388,7 @@ module AssemblyFiles =
             /// The parsed half the surface was resolved from; its `Parsed.Diagnostics` are
             /// recovery's findings.
             Signature: ParsedHalf<ParseChain.ParsedSignature>
-            Source: LexedFile
+            Retained: LexedFile
             Surface: PublishedSurface
             /// What resolving the signature found.
             Diagnostics: Diagnostic list
@@ -414,7 +413,8 @@ module AssemblyFiles =
         let surfaced (unit: FoldedUnit) : AnchoredDiagnostic list =
             match unit with
             | FoldedUnit.Analysed u -> u.Surfaced
-            | FoldedUnit.SignatureOnly r -> anchorDiagnostics r.Source (r.Signature.Parsed.Diagnostics @ r.Diagnostics)
+            | FoldedUnit.SignatureOnly r ->
+                anchorDiagnostics r.Retained (r.Signature.Parsed.Diagnostics @ r.Diagnostics)
             | FoldedUnit.Failed(leading, rest) -> List.collect failureDiagnostics (leading :: rest)
 
     /// One implementation file analysed and frozen against `composed`, with its splice
@@ -422,7 +422,7 @@ module AssemblyFiles =
     [<NoEquality; NoComparison>]
     type private ImplAnalysis =
         {
-            Source: LexedFile
+            Retained: LexedFile
             Frozen: FrozenPools
             Scoped: IExternalSymbolProvider
             Bodies: InlineBodies.FileInlineBodies
@@ -448,23 +448,17 @@ module AssemblyFiles =
                     (ns @ composed.AmbientOpenPrefixes |> List.distinct)
                     [ composed ]
 
-        let source =
-            LexedFile.inFile
-                {
-                    Assembly = assembly.Name
-                    Relative = implementation.Id
-                }
-                parsed.Lexed
+        let retained = LexedFile.inAssembly assembly.Name implementation.Id parsed.Lexed
 
-        let frozen = analyse assembly scoped source parsed.File
+        let frozen = analyse assembly scoped retained parsed.File
 
         {
-            Source = source
+            Retained = retained
             Frozen = frozen
             Scoped = scoped
             // The templates key off `SymbolKey` alone, so a `.fsi` replacing the file's
             // signatures leaves every one of them reachable.
-            Bodies = InlineBodies.collect source frozen
+            Bodies = InlineBodies.collect retained frozen
         }
 
     let private resolveSignatureFile
@@ -474,18 +468,13 @@ module AssemblyFiles =
         (signature: ParsedHalf<ParseChain.ParsedSignature>)
         : LexedFile * PublishedSurface * Diagnostic list =
         // Anchored to the signature's OWN token stream: its diagnostics index that text.
-        let source =
-            LexedFile.inFile
-                {
-                    Assembly = assembly.Name
-                    Relative = signature.Id
-                }
-                signature.Parsed.Lexed
+        let retained =
+            LexedFile.inAssembly assembly.Name signature.Id signature.Parsed.Lexed
 
         let surface, diagnostics =
             SignatureResolution.resolveFile
                 composed
-                source
+                retained
                 {
                     Assembly = assembly.Name
                     Target = assembly.Target
@@ -493,7 +482,7 @@ module AssemblyFiles =
                 }
                 signature.Parsed.File
 
-        source, surface, diagnostics
+        retained, surface, diagnostics
 
     let private noReprs () =
         Dictionary<string, string>(System.StringComparer.Ordinal)
@@ -578,12 +567,12 @@ module AssemblyFiles =
             ExternalSymbolProviders.composite (own @ [ external; prelude ])
 
         let resolveSignature (reprs: Dictionary<string, string>) (signature: ParsedHalf<ParseChain.ParsedSignature>) =
-            let source, surface, diagnostics =
+            let retained, surface, diagnostics =
                 resolveSignatureFile assembly (signatureFloor ()) reprs signature
 
             {
                 Signature = signature
-                Source = source
+                Retained = retained
                 Surface = surface
                 Diagnostics = diagnostics
                 Published = PublishedSurface.toProvider surface
@@ -647,7 +636,7 @@ module AssemblyFiles =
                                 | Publication.InAssembly ->
                                     let homed =
                                         ExternalSymbolProviders.stack
-                                            (ValueSome(SymbolHome.InFile impl.Source.Path))
+                                            (ValueSome(SymbolHome.InFile impl.Retained.Path))
                                             []
                                             [ r.Published ]
 
@@ -665,12 +654,12 @@ module AssemblyFiles =
                             published,
                             ValueSome
                                 {
-                                    Source = r.Source
+                                    Retained = r.Retained
                                     ParseDiagnostics = r.Signature.Parsed.Diagnostics
                                     Diagnostics = r.Diagnostics @ conformance
                                 }
                         | ValueNone ->
-                            let surface = FrozenSignature.toSurface impl.Source impl.Frozen
+                            let surface = FrozenSignature.toSurface impl.Retained impl.Frozen
                             surface, PublishedSurface.toProvider surface, ValueNone
 
                     let view =
@@ -689,7 +678,7 @@ module AssemblyFiles =
 
                     let file =
                         {
-                            Source = impl.Source
+                            Retained = impl.Retained
                             ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
                             Frozen = impl.Frozen
                             Scoped = impl.Scoped
@@ -765,14 +754,16 @@ module AssemblyFiles =
     /// come first: they are what the tree the analysis ran on was patched up from.
     let consolidatedDiagnostics (files: FrozenFile list) : AnchoredDiagnostic list = List.collect fileDiagnostics files
 
-    /// A whole assembly that passed the gate: its files in manifest order, plus their
-    /// retained sources as one domain, because a backend needs those to read the anchors of a
-    /// node spliced out of a prior file.
+    /// A whole assembly that passed the gate: its files in manifest order.
     type AnalysedAssembly =
         {
             Files: FrozenFile list
-            Sources: LexedFiles
         }
+
+        /// Every file's retained text as ONE domain, which is what a backend reads the anchors
+        /// of a node spliced out of a prior file through.
+        member this.Retained: LexedFiles =
+            LexedFiles.ofSeq [ for f in this.Files -> f.Retained ]
 
     /// `analyseWith`, GATED: every file must have parsed, and no analysed file may carry
     /// an error-severity diagnostic. A parse failure is fatal for the whole assembly and is
@@ -815,5 +806,4 @@ module AssemblyFiles =
                 Ok
                     {
                         Files = [ for u in analysed -> u.File ]
-                        Sources = analysed |> List.map (fun u -> u.File.Source) |> LexedFiles.ofSeq
                     }

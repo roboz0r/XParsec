@@ -11,7 +11,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // The RESOLVED-SPECIALIZATION table inline expansion builds: what it interns, what it shares,
 // and where an entry's nodes are anchored. In this suite rather than SemanticAnalysis because
-// only the codegen contract retains producer files, so only it can serve an anchored body.
+// only the codegen contract retains declaring files, so only it can serve an anchored body.
 
 /// The front end run up to (and including) inline expansion.
 type private Analysed =
@@ -91,10 +91,10 @@ let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
             | _ -> ()
     ]
 
-/// A synthetic PRODUCER package written under `tmp/`. A package is the only route to a body
+/// A synthetic DECLARING package written under `tmp/`. A package is the only route to a body
 /// with a retained `AssemblyFilePath`, and no working library can hold these bodies: an inline
 /// binding that calls itself breaks every consumer that touches it.
-let private recursiveProducer: Lazy<IExternalSymbolProvider> =
+let private recursivePackage: Lazy<IExternalSymbolProvider> =
     lazy
         let dir = tmpDir "Cycle.Probe"
 
@@ -136,10 +136,10 @@ module Probe =
 
         JsNativeSymbols.buildJsNativeContract (jsPackages @ [ dir ])
 
-/// A producer whose recursion closes on a MEMBER. `'T[]`'s `get_Item` is OVERRIDDEN rather than
+/// A declaring package whose recursion closes on a MEMBER. `'T[]`'s `get_Item` is OVERRIDDEN rather than
 /// a fresh type declared (a later manifest's body wins), because a member inline body cannot
 /// reference its own type's member; reaching it through `bounce` is what makes the reference keyed.
-let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
+let private recursiveMemberPackage: Lazy<IExternalSymbolProvider> =
     lazy
         let dir = tmpDir "Cycle.Member"
 
@@ -358,7 +358,7 @@ let tests =
                         Expanded = expanded
                         Diagnostics = ds
                     } =
-                    expandedWith recursiveProducer.Value "let a = selfLoop 1\n"
+                    expandedWith recursivePackage.Value "let a = selfLoop 1\n"
 
                 Expect.equal
                     (cyclicInlines ds)
@@ -392,7 +392,7 @@ let tests =
                         Expanded = expanded
                         Diagnostics = ds
                     } =
-                    expandedWith recursiveProducer.Value "let a = fusedLoop 1 2\n"
+                    expandedWith recursivePackage.Value "let a = fusedLoop 1 2\n"
 
                 Expect.equal (cyclicInlines ds) [ "fusedLoop", [] ] "the fused path reaches the same verdict"
 
@@ -415,7 +415,7 @@ let tests =
                         Expanded = expanded
                         Diagnostics = ds
                     } =
-                    expandedWith recursiveMemberProducer.Value "let a = [| 1; 2; 3 |]\nlet x = a.[1]\n"
+                    expandedWith recursiveMemberPackage.Value "let a = [| 1; 2; 3 |]\nlet x = a.[1]\n"
 
                 Expect.equal
                     (cyclicInlines ds)
@@ -463,7 +463,7 @@ let tests =
                 let bounceSlot = slotOf "bounce"
 
                 Expect.equal
-                    table.[memberSlot].Source.Relative.Name
+                    table.[memberSlot].Path.Relative.Name
                     "array-cycle.js.fs"
                     "the member entry is anchored in the file the member was WRITTEN in, not the consuming one"
 
@@ -525,7 +525,7 @@ let tests =
                 | other -> failtestf "…and two witnesses, one per width; got %d" (List.length other)
             }
 
-            test "an entry's nodes keep the PRODUCER's anchors, not the call site's" {
+            test "an entry's nodes keep the DECLARING file's anchors, not the call site's" {
                 // A very short consuming file, so a body collapsed onto the call site could not
                 // possibly carry an index past its end.
                 let input = "let a = 1 + 2\n"
@@ -533,13 +533,13 @@ let tests =
                 let lexed, _ = parseFile input
 
                 // The WITNESS, not the operator: `int`'s own `(+)` is where the template text
-                // lives, so it is the entry with producer tokens to read back.
+                // lives, so it is the entry with declaring-file tokens to read back.
                 let entry =
                     match witnessEntriesFor "op_Addition" expanded.Specializations with
                     | [ e ] -> e
                     | other -> failtestf "expected exactly one `int` `(+)` witness entry, got %d" (List.length other)
 
-                let sources = jsContract.Value.Sources
+                let sources = jsContract.Value.Retained
 
                 let indices = positions entry |> tokenIndices
                 Expect.isNonEmpty indices "the entry actually carries positions"
@@ -549,7 +549,7 @@ let tests =
                     1
                     "…more than one of them, or a collapse onto a single token would be indistinguishable from keeping them"
 
-                // Every one of those integers reads back, against the PRODUCER file the entry
+                // Every one of those integers reads back, against the DECLARING file the entry
                 // points to, as exactly the token the node carries. Nothing weaker would do: an index
                 // is in range against the consuming file too, pointing at an unrelated token of it.
                 for tok in positions entry do
@@ -557,7 +557,7 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular i ->
                         Expect.equal
-                            (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
+                            (LexedFiles.tokenAt sources entry.Path (Anchor.ofToken tok))
                             tok
                             "an entry node resolves against the file its `AssemblyFilePath` names"
 
@@ -614,7 +614,7 @@ let tests =
                         (List.length other)
             }
 
-            test "a marked subtree keeps CONSUMER anchors while the body around it keeps PRODUCER anchors" {
+            test "a marked subtree keeps CONSUMER anchors while the body around it keeps DECLARING-file anchors" {
                 // The entire point of the node: `a && b` outlines as `if a then ⟨b⟩ else false`,
                 // where the `if`/`then`/`else` were written in `ops-std.fs` and `b` was written
                 // HERE. One entry, two anchor domains, told apart by the mark.
@@ -628,7 +628,7 @@ let tests =
                     | other -> failtestf "expected exactly one `(&&)` entry, got %d" (List.length other)
 
                 let value = entryValue entry
-                let sources = jsContract.Value.Sources
+                let sources = jsContract.Value.Retained
 
                 let markedIndices = callerMarked value |> List.collect exprPositions |> tokenIndices
 
@@ -651,12 +651,12 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular _ ->
                         Expect.equal
-                            (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
+                            (LexedFiles.tokenAt sources entry.Path (Anchor.ofToken tok))
                             tok
                             "an unmarked node resolves against the file the entry's `AssemblyFilePath` names"
 
                 // The discriminating half: the two sets cannot be one index space, because the
-                // producer's indices run past the end of a consuming file this short. Without it,
+                // declaring file's indices run past the end of a consuming file this short. Without it,
                 // both resolutions above could be reading one file twice.
                 Expect.isLessThan
                     (List.max markedIndices)
@@ -746,7 +746,7 @@ let tests =
             // The two halves of an outlined call sit in DIFFERENT files, and each node says
             // which. Without that, an anchor's meaning is a property of the descent that
             // reached it rather than of the node.
-            test "an edge and its mark point to the CALLING file; the entry to the producer" {
+            test "an edge and its mark point to the CALLING file; the entry to the declaring file" {
                 let src = "let a = true && false\n"
                 let expanded = expandedFor src
                 let compiling = compilingOrigin src
@@ -760,7 +760,7 @@ let tests =
                     | other -> failtestf "expected exactly one `(&&)` entry, got %d" other.Length
 
                 Expect.notEqual
-                    entry.Source
+                    entry.Path
                     compiling
                     "the fixture must reach a body from ANOTHER file, else every origin agrees and nothing is being tested"
 
@@ -768,7 +768,7 @@ let tests =
                     entryValue entry
                     |> TastWalk.chooseExpr (fun e ->
                         match e with
-                        | TExpr.CallerExpr(source = o) -> ValueSome o
+                        | TExpr.CallerExpr(path = o) -> ValueSome o
                         | _ -> ValueNone
                     )
 
@@ -786,7 +786,7 @@ let tests =
                                     value
                                     |> TastWalk.chooseExpr (fun e ->
                                         match e with
-                                        | TExpr.InlineCall(source = o) -> ValueSome o
+                                        | TExpr.InlineCall(path = o) -> ValueSome o
                                         | _ -> ValueNone
                                     )
                             | _ -> ()
@@ -820,7 +820,7 @@ let tests =
                     TExpr.InlineCall(
                         spec,
                         EqArray.empty,
-                        entry.Source,
+                        entry.Path,
                         TastWalk.exprTy (entryValue entry),
                         SyntaxToken.nowhere
                     )
@@ -842,7 +842,7 @@ let tests =
                 let input = "let b = true\nlet a = b |> not\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
-                let sources = jsContract.Value.Sources
+                let sources = jsContract.Value.Retained
 
                 let entry =
                     match entriesFor "op_PipeRight" expanded.Specializations with
@@ -864,7 +864,7 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular _ ->
                         Expect.equal
-                            (LexedFiles.tokenAt sources entry.Source (Anchor.ofToken tok))
+                            (LexedFiles.tokenAt sources entry.Path (Anchor.ofToken tok))
                             tok
                             "every unmarked node of the entry — the edge included — reads against its `AssemblyFilePath`"
 

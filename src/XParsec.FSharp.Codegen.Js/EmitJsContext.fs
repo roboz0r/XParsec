@@ -15,12 +15,12 @@ module EmitJsContext =
 
     /// What a node's anchor resolves through on the way to a source-map position. Both fields
     /// or neither: an anchor is an INDEX, meaningless without the `Lexed` that numbered it.
-    /// The pair is the CONSUMING file's, at source index 0; `Sources` is every producer file.
+    /// The pair is the COMPILING file's, at source index 0; `Retained` is every declaring file.
     type Resolution =
         {
             Lexed: Lexed
             Lines: LineIndex
-            Sources: LexedFiles
+            Retained: LexedFiles
         }
 
     /// `ValueNone` disables maps: no source text was supplied for an anchor to resolve against.
@@ -107,7 +107,7 @@ module EmitJsContext =
             /// Every node the expansion or this walk AUTHORED → the node it was authored from,
             /// which is what keeps `NodeOrigins` and every node-keyed table readable on it.
             Derivation: InlineExpand.Derivation
-            /// The producer files this emission published, read back by the driver building
+            /// The declaring files this emission published, read back by the driver building
             /// the map. Shared mutable state, like `Pool`.
             MapSources: MapSources
             /// The file's node pool with this emission's append-only overlay: nodes the walker
@@ -147,7 +147,7 @@ module EmitJsContext =
             Pool: PoolBuilder
             Provider: IExternalSymbolProvider
             Imports: JsImports
-            /// The producer files this emission publishes. Driver-owned shared mutable state,
+            /// The declaring files this emission publishes. Driver-owned shared mutable state,
             /// like `Pool` and `Imports`: the driver reads it back to build the map.
             MapSources: MapSources
             ExportTopLevel: bool
@@ -202,35 +202,33 @@ module EmitJsContext =
 
     /// Where a node lands in the source it was WRITTEN in, for the map. Takes the NODE, not its
     /// anchor: a node copied out of a specialization was MOVED onto the call site, so its own
-    /// anchor points to the consuming file; its producer position rides beside it in `NodeOrigins`.
+    /// anchor points to the compiling file; its declaring position rides beside it in `NodeOrigins`.
     let locOf (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsLoc voption =
         match ctx.Resolver with
         | ValueNone -> ValueNone
         | ValueSome r ->
-            let consuming () =
+            let compiling () =
                 match (TastAccessor.exprTok e).Index with
                 | ValueSome i -> ValueSome(LineIndex.resolve r.Lines 0 r.Lexed.Tokens.[i].StartIndex)
                 | ValueNone -> ValueNone
 
             match InlineExpand.Derivation.tryFind ctx.Derivation ctx.NodeOrigins e with
             | ValueSome origin ->
-                match MapSources.tryFind origin.File ctx.MapSources with
+                match MapSources.tryFind origin.Path ctx.MapSources with
                 | ValueNone ->
                     failwithf
-                        "EmitJs: the node's origin file %s (assembly %s) was reached but never published to the map, so its position is readable only against the consuming file, because the provider that served the body and the retained anchor domain are not the same contract"
-                        origin.File.Relative.Name
-                        origin.File.Assembly
-                | ValueSome producer ->
-                    // Faults on a producer file edited since the tree was anchored against it:
-                    // otherwise a well-formed position read against the wrong text.
-                    let tok = LexedFiles.tokenAt r.Sources origin.File origin.At
+                        "EmitJs: the node's origin file %s (assembly %s) was reached but never published to the map, so its position is readable only against the compiling file, because the provider that served the body and the retained anchor domain are not the same contract"
+                        origin.Path.Relative.Name
+                        origin.Path.Assembly
+                | ValueSome declaring ->
+                    let tok = LexedFiles.tokenAt r.Retained origin.Path origin.At
 
                     match tok.Index with
-                    | TokenIndex.Regular _ -> ValueSome(LineIndex.resolve producer.Lines producer.Slot tok.StartIndex)
+                    | TokenIndex.Regular _ -> ValueSome(LineIndex.resolve declaring.Lines declaring.Slot tok.StartIndex)
                     // A node no source spells keeps no position rather than borrowing the call
-                    // site's, which would put producer code on a caller line.
+                    // site's, which would put declaring-file code on a caller line.
                     | TokenIndex.Virtual -> ValueNone
-            | ValueNone -> consuming ()
+            | ValueNone -> compiling ()
 
     /// The inlinable-`let` reduction against the walk's own derivation: the splice re-authors
     /// every ancestor of a substituted `Var`, and `locOf` resolves origins along that chain.

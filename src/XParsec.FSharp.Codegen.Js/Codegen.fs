@@ -88,7 +88,7 @@ module Codegen =
                     {
                         Lexed = src.Lexed
                         Lines = JsMapSources.LineIndex.build src.Content
-                        Sources = contract.Sources
+                        Retained = contract.Retained
                     }
             | None -> ValueNone
 
@@ -126,18 +126,18 @@ module Codegen =
 
         let body = header + result.Source
 
-        // The consuming file must land at index 0: its own nodes were resolved against source
-        // index 0, and each published producer numbered itself from 1.
+        // The compiling file must land at index 0: its own nodes were resolved against source
+        // index 0, and each published declaring file numbered itself from 1.
         let map =
             project.Source
             |> Option.map (fun src ->
-                let consuming: JsMapSource =
+                let compiling: JsMapSource =
                     {
                         Path = src.Path
                         Content = src.Content
                     }
 
-                let sources = consuming :: JsMapSources.MapSources.published inputs.MapSources
+                let sources = compiling :: JsMapSources.MapSources.published inputs.MapSources
 
                 JsSourceMap.build jsFile sources mappings
             )

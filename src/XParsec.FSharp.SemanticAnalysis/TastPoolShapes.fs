@@ -368,8 +368,8 @@ module TastPoolShapes =
                     SupportTy = supportTy
                     MemberName = memberName
                 |}
-        | TExprG.InlineCall(spec = spec; source = source) -> ExprPayload.InlineCall {| Spec = spec; Source = source |}
-        | TExprG.CallerExpr(source = source) -> ExprPayload.CallerExpr source
+        | TExprG.InlineCall(spec = spec; path = path) -> ExprPayload.InlineCall {| Path = path; Spec = spec |}
+        | TExprG.CallerExpr(path = path) -> ExprPayload.CallerExpr path
 
     /// The residual payload of a frozen pattern node: its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids. `boundVar` is `NamedSimple`'s own bound variable, and no other case's.

@@ -12,7 +12,7 @@ module TastUnpool =
 
     /// Re-author one expression node from its columns and its ALREADY-REBUILT child
     /// subtrees, drawn in the order the pooling walk enumerated them. `tok` goes back
-    /// unchanged, because re-axising it would silently rebase a producer's indices onto this file.
+    /// unchanged, because re-axising it would silently rebase a declaring file's indices onto this file.
     let substituteExpr
         (widenBoundVar: BoundVarId -> 'id)
         (ty: FrozenType)
@@ -134,7 +134,7 @@ module TastUnpool =
             let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
-        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Source, ty, tok)
+        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Path, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =
                 clauseConstraints
@@ -307,7 +307,7 @@ module TastUnpool =
             |> Array.map (fun s ->
                 {
                     TSpecializationG.Key = s.Key
-                    Source = s.Source
+                    Path = s.Path
                     Decl = fromDecl s.Decl
                 }
             )

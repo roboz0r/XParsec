@@ -237,7 +237,7 @@ module FrozenCodec =
         | ExprPayload.InlineCall p ->
             w.Write 39uy
             writeSpecializationId w p.Spec
-            writeFilePathRef w p.Source
+            writeFilePathRef w p.Path
         | ExprPayload.CallerExpr source ->
             w.Write 40uy
             writeFilePathRef w source
@@ -359,12 +359,9 @@ module FrozenCodec =
                 |}
         | 39uy ->
             let spec = readSpecializationId r
+            let path = readFilePathRef r
 
-            ExprPayload.InlineCall
-                {|
-                    Spec = spec
-                    Source = readFilePathRef r
-                |}
+            ExprPayload.InlineCall {| Spec = spec; Path = path |}
         | 40uy -> ExprPayload.CallerExpr(readFilePathRef r)
         | 41uy -> ExprPayload.ArrayLit
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b

@@ -112,7 +112,7 @@ type NodeKind =
     /// other's bound names. Counter-minted; it has no source position.
     | SynthPreFreezeInline = 1007us
     /// BoundVar of a template UNPOOLED onto the cross-file wire, whose slot means nothing in the
-    /// consuming file and so is re-minted. Counter-minted, on its own counter.
+    /// compiling file and so is re-minted. Counter-minted, on its own counter.
     | SynthUnpooledBoundVar = 1008us
     /// The object argument and per-element bound variables a tupled member call's destructured
     /// argument needs. Counter-minted on its own counter: one construct mints several at one offset.

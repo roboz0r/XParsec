@@ -444,7 +444,7 @@ module TastAccessor =
     [<return: Struct>]
     let private (|EInlineCallSource|_|) (e: ExprId) : AssemblyFilePath voption =
         match payload e with
-        | ExprPayload.InlineCall p -> ValueSome p.Source
+        | ExprPayload.InlineCall p -> ValueSome p.Path
         | _ -> ValueNone
 
     /// The file an `InlineCall`'s own anchor is read against, and its arguments' too, they being
@@ -811,7 +811,7 @@ module TastAccessor =
 
         {
             Key = entry.Key
-            Source = entry.Source
+            Path = entry.Path
             Value =
                 match declKind decl with
                 | DeclShape.Let -> (declLet decl).Value

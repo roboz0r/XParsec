@@ -55,7 +55,7 @@ module InlineSpecTable =
 
     /// A RESERVED table slot: the entry once its body has been built, and the call site in the
     /// file being compiled whose expansion began building it. `Site` is kept because an entry's
-    /// own anchors index the PRODUCER's file, so nothing on it can position a diagnostic.
+    /// own anchors index the DECLARING file, so nothing on it can position a diagnostic.
     [<NoEquality; NoComparison>]
     type PendingEntry =
         {
@@ -69,7 +69,7 @@ module InlineSpecTable =
     type Outlining =
         {
             /// The call site in the file being compiled whose expansion began building this
-            /// entry; the entry's own anchors index the producer's file instead.
+            /// entry; the entry's own anchors index the declaring file instead.
             Site: SyntaxToken
             Grounding: Grounding
             /// May a LATER site at the same grounding reuse this same entry? False when the
@@ -78,12 +78,12 @@ module InlineSpecTable =
             Shareable: bool
             /// The file the entry's nodes stay anchored in: the template's, which for a
             /// template of this file is the file being compiled.
-            Source: AssemblyFilePath
+            Path: AssemblyFilePath
             /// The position, anchor domain and result type of the EDGE, taken from the call site
             /// and never read off the entry: a reused entry's types belong to the thaw that built
             /// it, where this node belongs to the material the call was written in.
             EdgeTok: SyntaxToken
-            EdgeSource: AssemblyFilePath
+            EdgePath: AssemblyFilePath
             EdgeTy: SemType
             /// The edge's arguments when an interned entry is REUSED. A thunk because walking
             /// them is an expansion in its own right; the minting path uses the survivors instead.
@@ -205,9 +205,9 @@ module InlineSpecTable =
             Entries: ResizeArray<PendingEntry>
             /// The entries a later call site may REUSE, keyed by the grounding they agree on.
             Interned: Dictionary<Grounding, SpecializationId>
-            /// Producer files a served body arrived with, retained for the whole run so that an
+            /// Declaring files a served body arrived with, retained for the whole run so that an
             /// entry's foreign anchors stay readable.
-            mutable Sources: LexedFiles
+            mutable Retained: LexedFiles
             Report: SyntaxToken -> Kind -> unit
             Mint: unit -> NodeKey
         }
@@ -219,17 +219,17 @@ module InlineSpecTable =
             {
                 Entries = ResizeArray()
                 Interned = Dictionary()
-                Sources = LexedFiles.empty
+                Retained = LexedFiles.empty
                 Report = report
                 Mint = mint
             }
 
-        /// Retain the producer file a served body arrived with, and hand back everything
+        /// Retain the declaring file a served body arrived with, and hand back everything
         /// retained so far, which is what a foreign anchor is READ through. Keyed by path, so a
         /// file serving many templates is retained once.
-        let retainSource (src: LexedFile) (t: SpecTable) : LexedFiles =
-            t.Sources <- LexedFiles.add src t.Sources
-            t.Sources
+        let retain (file: LexedFile) (t: SpecTable) : LexedFiles =
+            t.Retained <- LexedFiles.add file t.Retained
+            t.Retained
 
         /// The entry `grounding` is already interned at, if a previous site minted one. `shareable` is
         /// false when the reduction fused the site's own material, or when non-ground type
@@ -273,7 +273,7 @@ module InlineSpecTable =
                 ValueSome
                     {
                         Key = o.Grounding.Key
-                        Source = o.Source
+                        Path = o.Path
                         // Every consumer matches on the VALUE alone, so this bound variable is
                         // minted rather than taken from anything.
                         Decl =
@@ -299,7 +299,7 @@ module InlineSpecTable =
                     let spec, survivors = mintEntry o t
                     spec, [ for p in survivors -> p.Arg ]
 
-            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgeSource, o.EdgeTy, o.EdgeTok)
+            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgePath, o.EdgeTy, o.EdgeTok)
 
         /// Materialise the table, and discharge the two facts about it that no single entry can
         /// see: acyclicity, and that a fused entry is named by exactly one edge. `declExprs` is

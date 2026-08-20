@@ -293,18 +293,18 @@ type TExprG<'ty, 'tok, 'id> =
     /// never resolves. Inline expansion rewrites this to a `StaticMethodCall` on a nominal.
     | TraitCall of supportTy: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
     /// A call to the `spec`-th entry of the file's specialization table, applied to `args`.
-    /// The body stays in the table, so N call sites are one entry and N edges. `source`/`tok`
+    /// The body stays in the table, so N call sites are one entry and N edges. `path`/`tok`
     /// are the CALL SITE's; `args` are positional against the entry's SURVIVING parameters.
     | InlineCall of
         spec: SpecializationId *
         args: EqArray<TExprG<'ty, 'tok, 'id>> *
-        source: AssemblyFilePath *
+        path: AssemblyFilePath *
         ty: 'ty *
         tok: 'tok
     /// Marks a subtree a reduction FUSED into a specialization entry from a call site: its
-    /// nodes index `source`, not the file the entry's body was written in: `a && b` outlines
+    /// nodes index `path`, not the file the entry's body was written in: `a && b` outlines
     /// as `if a then ⟨CallerExpr b⟩ else false`. `ty`/`tok` are its body's; expansion unwraps it.
-    | CallerExpr of body: TExprG<'ty, 'tok, 'id> * source: AssemblyFilePath * ty: 'ty * tok: 'tok
+    | CallerExpr of body: TExprG<'ty, 'tok, 'id> * path: AssemblyFilePath * ty: 'ty * tok: 'tok
 
 /// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the pattern and the
 /// guard/body expressions are carried: either the trees themselves, or handles identifying them

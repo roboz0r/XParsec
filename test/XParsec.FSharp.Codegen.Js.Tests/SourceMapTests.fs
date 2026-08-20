@@ -21,9 +21,9 @@ let private compileWithMap (input: string) (outputPath: string option) : JsArtif
 
 // ─── Multi-source maps ───────────────────────────────────────────────────
 // A body served by another package splices onto the call site at emit, but its nodes keep
-// their index into the PRODUCER's tokens, so the map publishes that file beside this one.
+// their index into the DECLARING file's tokens, so the map publishes that file beside this one.
 
-/// Compile through the real JS contract stack, so the manifest set's producer files are
+/// Compile through the real JS contract stack, so the manifest set's declaring files are
 /// retained and a served body's positions are readable.
 let private compileMapped (name: string) (input: string) : JsArtifact =
     let project =
@@ -232,7 +232,7 @@ let tests =
                     "one source, one content, and a source-index delta of 0 in the one segment"
             }
 
-            test "an inlined body maps to the PRODUCER's own file and line" {
+            test "an inlined body maps to the DECLARING file's own and line" {
                 // `1 + 2` reaches Vesper.Core twice: the operator's own `let inline` in
                 // `ops-platform.js.fs`, whose trait call dispatches to `int`'s `(+)` in
                 // `prim-types-min.js.fs`, where the template text is. Both splice onto here.
@@ -242,7 +242,7 @@ let tests =
                 Expect.equal
                     m.Sources.[0]
                     "Add.fsx"
-                    "the consuming file keeps index 0; producers are published after it"
+                    "the consuming file keeps index 0; declaring files are published after it"
 
                 let sourceIndex (file: string) =
                     match m.Sources |> Array.tryFindIndex ((=) file) with
@@ -257,17 +257,18 @@ let tests =
                     let line = lineOf m.Contents.[seg.SrcIndex] seg.SrcLine
 
                     // Asserted against the CONTENT the map embeds, not against a line number,
-                    // because editing the producer may legitimately move which line it is.
-                    Expect.stringContains line "($0 + $1) | 0" "the producer line is `int`'s own `(+)` body"
+                    // because editing the declaring file may legitimately move which line it is.
+                    Expect.stringContains line "($0 + $1) | 0" "the declaring file line is `int`'s own `(+)` body"
 
                     Expect.stringStarts
                         (line.Substring seg.SrcCol)
                         "(#"
                         "…and the column is the intrinsic's own token, not the head of the line"
-                | other -> failtestf "exactly one emitted node is the producer's `(# … #)`; got %d" (List.length other)
+                | other ->
+                    failtestf "exactly one emitted node is the declaring file's `(# … #)`; got %d" (List.length other)
 
                 // The operands were written HERE and stay here, because a map that simply
-                // relabelled every segment onto the producer would pass the assertion above.
+                // relabelled every segment onto the declaring file would pass the assertion above.
                 Expect.equal
                     (m.Segments
                      |> List.filter (fun s -> s.SrcIndex = 0)
@@ -276,7 +277,7 @@ let tests =
                     "the two literals map back to where the caller wrote them"
             }
 
-            test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
+            test "an inlined MEMBER body maps to the declaring file too, not to the indexing site" {
                 // The member half of the same claim. `a.[i]` is `'T[]`'s `get_Item`, lifted off
                 // `prim-types-array.fs`, and its nodes map to the file the member was WRITTEN in,
                 // not to the line that merely INDEXES the array.
@@ -301,7 +302,7 @@ let tests =
                         "…on the member's own intrinsic line"
 
                 // The object argument and the index were written HERE and stay here, because a
-                // map relabelling the whole expansion onto the producer would pass the check.
+                // map relabelling the whole expansion onto the declaring file would pass the check.
                 Expect.contains
                     (attributions m |> List.map snd)
                     "Idx.fsx"
@@ -324,7 +325,7 @@ let tests =
                     Expect.stringContains
                         (lineOf m.Contents.[seg.SrcIndex] seg.SrcLine)
                         "if e1 then e2 else false"
-                        "every producer-attributed node sits on the line the entry was written on"
+                        "every declaring-file-attributed node sits on the line the entry was written on"
 
                 Expect.contains
                     (m.Segments
@@ -357,7 +358,7 @@ let tests =
                         (lineOf m.Contents.[seg.SrcIndex] seg.SrcLine)
                         "let inline not"
                         "…on `not`'s own definition line"
-                | other -> failtestf "one emitted node comes from a producer; got %d" (List.length other)
+                | other -> failtestf "one emitted node comes from a declaring file; got %d" (List.length other)
 
                 Expect.equal
                     (attributions m |> List.map snd |> List.sort)

@@ -113,7 +113,7 @@ type PooledInlineValue =
 type PooledSpecialization =
     {
         Key: Frozen.SpecializationKey
-        Source: AssemblyFilePath
+        Path: AssemblyFilePath
         Decl: DeclPoolId
     }
 

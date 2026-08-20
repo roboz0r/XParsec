@@ -117,5 +117,5 @@ module JsNativeSymbols =
     let jsNativeInlineBodies (packageDirs: string list) : Map<string, InlineBody> =
         (jsNativeContract packageDirs).InlineBodies |> InlineBodies.valuesByName
 
-    /// The producer files the contract's inline bodies were unpooled from, alone.
-    let jsNativeInlineSources (packageDirs: string list) : LexedFiles = (jsNativeContract packageDirs).Sources
+    /// The declaring files the contract's inline bodies were unpooled from, alone.
+    let jsNativeInlineRetained (packageDirs: string list) : LexedFiles = (jsNativeContract packageDirs).Retained

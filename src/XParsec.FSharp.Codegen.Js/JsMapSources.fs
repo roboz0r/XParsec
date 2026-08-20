@@ -3,7 +3,7 @@ namespace XParsec.FSharp.Codegen.Js
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-/// The char-offset → (line, column) index over a file's text, and the producer files one
+/// The char-offset → (line, column) index over a file's text, and the declaring files one
 /// emission attributed a node to: the entries after slot 0 of the emitted map's `"sources"`.
 module JsMapSources =
 
@@ -46,7 +46,7 @@ module JsMapSources =
             }
 
     /// `Slot` is this file's position in the emitted map's `"sources"`; `Lines` is over `Published.Content`.
-    type ProducerSource =
+    type DeclaringSource =
         {
             Slot: int
             Published: JsMapSource
@@ -56,8 +56,8 @@ module JsMapSources =
     type MapSources =
         private
             {
-                Ordered: ResizeArray<ProducerSource>
-                ByPath: Dictionary<AssemblyFilePath, ProducerSource>
+                Ordered: ResizeArray<DeclaringSource>
+                ByPath: Dictionary<AssemblyFilePath, DeclaringSource>
             }
 
     module MapSources =
@@ -71,24 +71,24 @@ module JsMapSources =
         /// The emitted map's `"sources"` opens with the file being compiled, so the first
         /// `publish` here takes slot 1: `["app.fs", "Vesper.Core/math/z.fs", …]`. Paths are
         /// package-qualified because two packages may each ship a `math/z.fs`.
-        let publish (src: LexedFile) (m: MapSources) : unit =
+        let publish (file: LexedFile) (m: MapSources) : unit =
             let entry =
                 {
                     Slot = m.Ordered.Count + 1
                     Published =
                         {
-                            Path = src.Path.Assembly + "/" + src.Path.Relative.Name
-                            Content = src.Input
+                            Path = file.Path.Assembly + "/" + file.Path.Relative.Name
+                            Content = file.Input
                         }
-                    Lines = LineIndex.build src.Input
+                    Lines = LineIndex.build file.Input
                 }
 
             m.Ordered.Add entry
-            m.ByPath.[src.Path] <- entry
+            m.ByPath.[file.Path] <- entry
 
         /// `ValueNone` is a broken invariant, not a position to fall back from: the caller
-        /// resolving a node's map position throws rather than reading the consuming file's text.
-        let tryFind (file: AssemblyFilePath) (m: MapSources) : ProducerSource voption =
+        /// resolving a node's map position throws rather than reading the compiling file's text.
+        let tryFind (file: AssemblyFilePath) (m: MapSources) : DeclaringSource voption =
             match m.ByPath.TryGetValue file with
             | true, entry -> ValueSome entry
             | _ -> ValueNone

@@ -97,7 +97,7 @@ let private sourceOf (src: string) : LexedFile =
     LexedFile.ofText lexed
 
 /// Realise a wire body against the file it was frozen from: a `Wire.TDecl`'s anchors index
-/// the producer's tokens, so without that file the indices mean nothing.
+/// the declaring file's tokens, so without that file the indices mean nothing.
 let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
     let source = sourceOf src
     InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
@@ -434,19 +434,19 @@ let tests =
                 // A `SchemeId` is an ordinal minted per frozen body, so two files' ids collide
                 // freely. These are DIFFERENT programs, each with one local scheme, so both
                 // land on the SAME `SchemeId`.
-                let producer =
+                let declaring =
                     String.concat "\n" [ "let a () ="; "    let p = fun x -> x"; "    (p, p)" ]
 
                 let consumer =
                     String.concat "\n" [ "let b () ="; "    let q = fun y -> y"; "    (q, q)" ]
 
-                let pDecl = frozenLetDecl producer
+                let pDecl = frozenLetDecl declaring
                 let cDecl = frozenLetDecl consumer
 
                 let pLeaves = collectTys pDecl |> List.collect localLeavesIn |> List.distinct
                 let cLeaves = collectTys cDecl |> List.collect localLeavesIn |> List.distinct
 
-                Expect.equal pLeaves.Length 1 "the producer file has one local scheme"
+                Expect.equal pLeaves.Length 1 "the declaring file has one local scheme"
                 Expect.equal cLeaves.Length 1 "the consumer file has one local scheme"
 
                 // Assert the collision is REAL, or the test proves nothing.
@@ -475,7 +475,7 @@ let tests =
                     |> distinctCells
 
                 let pCells =
-                    thawFrom store producer pDecl
+                    thawFrom store declaring pDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
@@ -492,7 +492,7 @@ let tests =
                 Expect.equal
                     pCells.Length
                     (distinctLeafCount pDecl)
-                    "the producer body thaws to exactly one fresh cell per distinct leaf"
+                    "the declaring file body thaws to exactly one fresh cell per distinct leaf"
 
                 Expect.equal
                     cCells.Length
@@ -505,7 +505,7 @@ let tests =
 
                 Expect.isEmpty
                     (disjointFrom consumerOwnCells pCells)
-                    "the producer's thawed cells are fresh: none is a cell of the consumer's own inference state, colliding id notwithstanding"
+                    "the declaring file's thawed cells are fresh: none is a cell of the consumer's own inference state, colliding id notwithstanding"
             }
 
             // ─── Cross-file EXPANSION: freeze in A, resolve in B ────────────────────────

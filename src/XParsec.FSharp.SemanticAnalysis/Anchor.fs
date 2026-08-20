@@ -43,9 +43,9 @@ module Anchor =
     let ofStored (raw: int) : Anchor =
         if raw < 0 then nowhere else { Raw = raw * 1<token> }
 
-/// One file's IDENTITY within its assembly, folded into the per-file input hash and never
-/// reopened: `math/z.fs`, relative and `/`-separated with no `.`/`..` left in it, so
-/// `D:\work\math\z.fs` cannot key a build to a checkout, nor `math\z.fs` to Windows.
+/// One file's IDENTITY within its assembly, never reopened: `math/z.fs`, relative and
+/// `/`-separated with no `.`/`..` left in it, so `D:\work\math\z.fs` cannot key a build to a
+/// checkout, nor `math\z.fs` to Windows.
 [<Struct>]
 type AssemblyFileId =
     private
@@ -110,6 +110,15 @@ module AssemblyFileId =
     /// canonicalised into.
     let ofStored (name: string) : AssemblyFileId = FileId name
 
+    /// UTF-8 so the digest is culture- and platform-independent.
+    let private contentHex (input: string) : string =
+        System.Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes input)).ToLowerInvariant()
+
+    /// The name of text handed over with no file behind it: a script fragment, a driver given
+    /// a string, a test. Two identical texts get one name.
+    let ofText (input: string) : AssemblyFileId =
+        ofStored (sprintf "<text:%s>" (contentHex input))
+
     /// `relative` named as the FILESYSTEM beneath `root` has it, a segment at a time: where it
     /// is case-insensitive, `foo.fs` and `Foo.fs` open ONE file and must not mint two
     /// identities for it. A segment it does not have is kept as asked, for the read to report.
@@ -158,22 +167,12 @@ module AssemblyFilePath =
             Relative = AssemblyFileId.nowhere
         }
 
-    let private contentHex (input: string) : string =
-        let bytes = XxHash128.Hash(Encoding.UTF8.GetBytes input)
-        let sb = StringBuilder(bytes.Length * 2)
-
-        for b in bytes do
-            sb.Append(b.ToString("x2")) |> ignore
-
-        sb.ToString()
-
-    /// The identity of text handed over with no file behind it: a script fragment, a driver
-    /// given a string, a test. A hash of the text stands in for the path, so two identical
-    /// texts share one identity and are retained once.
+    /// `AssemblyFileId.ofText` under no assembly. Where the assembly IS known, build the path
+    /// over that id instead.
     let ofText (input: string) : AssemblyFilePath =
         {
             Assembly = ""
-            Relative = AssemblyFileId.ofRelative (sprintf "<text:%s>" (contentHex input))
+            Relative = AssemblyFileId.ofText input
         }
 
 /// A declaring file RETAINED past the parse that produced it, so that anchors of a tree
@@ -191,7 +190,11 @@ module LexedFile =
 
     let inFile (path: AssemblyFilePath) (lexed: Lexed) : LexedFile = { Path = path; Lexed = lexed }
 
-    /// `inFile` under the identity `AssemblyFilePath.ofText` mints for the lexed text.
+    /// The identity every anchor and diagnostic of one file resolves against: the assembly it
+    /// is bucketed under, and the name it is known by within it.
+    let inAssembly (assembly: string) (id: AssemblyFileId) (lexed: Lexed) : LexedFile =
+        inFile { Assembly = assembly; Relative = id } lexed
+
     let ofText (lexed: Lexed) : LexedFile =
         inFile (AssemblyFilePath.ofText lexed.Input) lexed
 
@@ -213,8 +216,8 @@ module LexedFiles =
             ByPath = Map.add file.Path file files.ByPath
         }
 
-    let ofSeq (xs: LexedFile seq) : LexedFiles =
-        Seq.fold (fun acc file -> add file acc) empty xs
+    let ofSeq (files: LexedFile seq) : LexedFiles =
+        Seq.fold (fun acc file -> add file acc) empty files
 
     /// Every file of `added` retained over `files`; a path in both keeps `added`'s read.
     let addAll (added: LexedFiles) (files: LexedFiles) : LexedFiles =

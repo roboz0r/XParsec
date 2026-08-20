@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 /// A 0-based V3 source-map position: `Source` indexes the map's `sources[]` (a node copied out
-/// of an inline specialization belongs to the PRODUCER's file), `Column` counts UTF-16 units.
+/// of an inline specialization belongs to the DECLARING file), `Column` counts UTF-16 units.
 [<Struct>]
 type JsLoc = { Source: int; Line: int; Column: int }
 

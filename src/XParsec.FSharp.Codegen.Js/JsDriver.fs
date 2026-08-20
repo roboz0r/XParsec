@@ -118,14 +118,14 @@ module JsDriver =
         |> Result.bind (fun analysed ->
             // A spliced node reads only against its declaring file's own text, so the
             // assembly's own sources join the references' before any file is emitted.
-            let origins = LexedFiles.addAll analysed.Sources contract.Sources
+            let origins = LexedFiles.addAll analysed.Retained contract.Retained
 
             // Each file's compile keeps its source identity, which is both the module path it
             // emits to and the file a refusal is blamed on.
             let compiled =
                 [
                     for file in analysed.Files do
-                        let fileId = file.Source.Path.Relative
+                        let fileId = file.Retained.Path.Relative
                         let relative = fileId.Name
 
                         let project =
@@ -137,8 +137,8 @@ module JsDriver =
                                     Some
                                         {
                                             Path = relative
-                                            Content = file.Source.Input
-                                            Lexed = file.Source.Lexed
+                                            Content = file.Retained.Input
+                                            Lexed = file.Retained.Lexed
                                         }
                             }
 
@@ -149,7 +149,7 @@ module JsDriver =
                                 Codegen.compileWith
                                     { contract with
                                         Provider = file.Scoped
-                                        Sources = origins
+                                        Retained = origins
                                     }
                                     project
                                     file.Frozen

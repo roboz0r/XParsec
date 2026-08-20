@@ -77,7 +77,7 @@ let jsPackages: string list =
     ]
 
 /// The JS-target contract for `jsPackages`, BCL-free: the provider a program is analysed
-/// against, the producer files its served inline bodies are anchored in, and the manifest set
+/// against, the declaring files its served inline bodies are anchored in, and the manifest set
 /// backing its runtime imports.
 let jsContract: Lazy<PackageProviders.AnalyzedManifest> =
     lazy JsNativeSymbols.jsNativeContract jsPackages
@@ -465,7 +465,7 @@ let private jsEmissionInputs
                 {
                     Lexed = lexed
                     Lines = JsMapSources.LineIndex.build input
-                    Sources = contract.Sources
+                    Retained = contract.Retained
                 }
         | Result.Error _ -> ValueNone
 

@@ -115,7 +115,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
         | _ -> parsed.Lexed, parsed.File
 
 /// Realise a WIRE inline body against the file it was published from: the body carries the
-/// producer's own token indices, and only that file can resolve them.
+/// declaring file's own token indices, and only that file can resolve them.
 let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TDecl =
     InlineThaw.bodyAtPath store (LexedFiles.ofSeq [ source ]) source.Path decl
 
@@ -144,13 +144,7 @@ let testCompiling: CompilingAssembly = { Name = testAsm; Target = "clr" }
 let freezeWithOrigin (src: string) : LexedFile * FrozenPools =
     let lexed, file = parseFile src
 
-    let origin =
-        LexedFile.inFile
-            {
-                Assembly = testAsm
-                Relative = (AssemblyFilePath.ofText src).Relative
-            }
-            lexed
+    let origin = LexedFile.inAssembly testAsm (AssemblyFileId.ofText src) lexed
 
     origin, Pipeline.analyseFor testCompiling realProvider.Value origin file
 

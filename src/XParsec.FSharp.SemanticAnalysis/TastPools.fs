@@ -289,7 +289,7 @@ module TastPools =
             |> Array.map (fun s ->
                 {
                     Key = s.Key
-                    Source = s.Source
+                    Path = s.Path
                     Decl = poolDecl sink s.Decl
                 }
             )

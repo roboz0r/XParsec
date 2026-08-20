@@ -26,11 +26,11 @@ module PackageProviders =
             /// the types that would first-hit-shadow a peer package's same-named type.
             TypeHomes: Map<string, string>
             /// The splice templates in manifest then declaration order, so a later body
-            /// wins a clash, anchored in the producer files `Sources` retains.
+            /// wins a clash, anchored in the declaring files `Retained` holds.
             InlineBodies: InlineBodies.FileInlineBodies
-            /// The producer files the collected bodies were unpooled from, retained so their
+            /// The declaring files the collected bodies were unpooled from, retained so their
             /// anchors stay readable. Re-parsing to recover them would give a second answer.
-            Sources: LexedFiles
+            Retained: LexedFiles
             /// What resolving found: a manifest listing a file it has not got, a declaration
             /// a contract could not publish.
             Diagnostics: AssemblyFiles.AnchoredDiagnostic list
@@ -48,7 +48,7 @@ module PackageProviders =
                 Provider = ExternalSymbolProviders.nullProvider
                 TypeHomes = Map.empty
                 InlineBodies = InlineBodies.empty
-                Sources = LexedFiles.empty
+                Retained = LexedFiles.empty
                 Diagnostics = []
             }
 
@@ -59,7 +59,7 @@ module PackageProviders =
             }
 
         /// The manifest, refused if resolving it failed. Ungated, a set that publishes LESS
-        /// than its `.fsi` files say surfaces as an unresolved name in the CONSUMING file,
+        /// than its `.fsi` files say surfaces as an unresolved name in the COMPILING file,
         /// which blames the wrong file for it.
         let gate (m: AnalyzedManifest) : Result<AnalyzedManifest, AssemblyFiles.AnchoredDiagnostic list> =
             match m.Diagnostics |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error) with
@@ -87,8 +87,8 @@ module PackageProviders =
     /// error, rethrown naming the package and file with the analysis errors the freeze pruned,
     /// because those are usually its cause.
     let private analysePackageFile: AssemblyFiles.AnalyseFile =
-        fun assembly provider source file ->
-            let ctx, sem = Pipeline.analyseSemWithContextFor assembly provider source file
+        fun assembly provider retained impl ->
+            let ctx, sem = Pipeline.analyseSemWithContextFor assembly provider retained impl
 
             try
                 Freeze.run ctx sem
@@ -101,7 +101,7 @@ module PackageProviders =
                 failwithf
                     "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
                     assembly.Name
-                    source.Path.Relative.Name
+                    retained.Path.Relative.Name
                     e.Message
                     pruned
 
@@ -190,7 +190,7 @@ module PackageProviders =
                             for typeName in declaredTypeNames s -> typeName, manifest.Name
                     ]
             InlineBodies = InlineBodies.concat [ for u in analysed -> u.Bodies ]
-            Sources = LexedFiles.ofSeq [ for u in analysed -> u.File.Source ]
+            Retained = LexedFiles.ofSeq [ for u in analysed -> u.File.Retained ]
         }
 
     /// `buildProviderSeeded` with no platform metadata, over one already-composed dependency
@@ -291,9 +291,9 @@ module PackageProviders =
             TypeHomes = Map.ofSeq [ for KeyValue(typeName, home) in seenTypeHomes -> typeName, home ]
             InlineBodies = inlineBodies
             Diagnostics = List.ofSeq diagnostics
-            Sources =
+            Retained =
                 (LexedFiles.empty, builtPackages)
-                ||> Seq.fold (fun acc bp -> LexedFiles.addAll bp.Sources acc)
+                ||> Seq.fold (fun acc bp -> LexedFiles.addAll bp.Retained acc)
         }
 
     /// `composeOrdered` over a raw, unordered manifest set: the ordering is taken here and not

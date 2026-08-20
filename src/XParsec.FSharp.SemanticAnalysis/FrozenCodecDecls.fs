@@ -529,7 +529,7 @@ module FrozenCodecDecls =
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
         writeEqArrayWith w writeTypeRef s.Key.TypeArgs
-        writeFilePathRef w s.Source
+        writeFilePathRef w s.Path
         writeDeclPoolId w s.Decl
 
     and readSpecialization (r: FrozenReader) : PooledSpecialization =
@@ -544,7 +544,7 @@ module FrozenCodecDecls =
                     Template = template
                     TypeArgs = typeArgs
                 }
-            Source = origin
+            Path = origin
             Decl = decl
         }
 
