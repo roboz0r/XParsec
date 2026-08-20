@@ -113,7 +113,8 @@ let private returnOf (name: string) : FrozenType =
 let private analyse (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
-    let tast = Pipeline.analyseSem boxProvider (LexedFile.ofText lexed) file
+    let tast =
+        Pipeline.analyseSemFor testCompiling boxProvider (LexedFile.ofText lexed) file
 
     tast.Diagnostics |> Diagnostic.errors
 

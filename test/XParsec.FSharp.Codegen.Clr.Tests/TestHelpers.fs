@@ -47,9 +47,15 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 /// `project` as the compiling identity the pipeline takes; this suite always compiles clr.
 let compilingClr (project: ProjectInfo) : CompilingAssembly =
     {
-        Name = project.AssemblyName
+        Name = AssemblyName project.AssemblyName
         Target = Target.Clr
     }
+
+/// The assembly name a helper that builds no `ProjectInfo` of its own compiles under.
+let testAsm = AssemblyName "Test"
+
+/// `testAsm` compiled for the CLR target.
+let testCompiling: CompilingAssembly = { Name = testAsm; Target = Target.Clr }
 
 /// A frozen file's declarations as pool handles with the specialization graph expanded,
 /// which is the representation the backend starts from. Until this runs, an inline body
@@ -282,14 +288,22 @@ let defaultPackages: string list =
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultPackages) (LexedFile.ofText lexed) file
+    Pipeline.analyseSemFor
+        testCompiling
+        (ClrSymbolProviders.buildContract defaultPackages)
+        (LexedFile.ofText lexed)
+        file
 
 /// `analyse`, keeping the `PassContext`. `Freeze.run` reads `ctx.Bindings.Scheme` for the
 /// bound variable a residual typar root belongs to; the TAST alone does not carry it.
 let analyseWithCtx (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSemWithContext (ClrSymbolProviders.buildContract defaultPackages) (LexedFile.ofText lexed) file
+    Pipeline.analyseSemWithContextFor
+        testCompiling
+        (ClrSymbolProviders.buildContract defaultPackages)
+        (LexedFile.ofText lexed)
+        file
 
 /// Load context for the package-build harness. `Load` resolves a sibling `Vesper.*`
 /// package from the registry below, so a package binds against THIS harness's copy of its
@@ -469,7 +483,7 @@ let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifac
 
 /// `compileSource`'s front end alone, stopping before emission. For a source whose ERROR
 /// diagnostics are the subject: codegen refuses such a tree, so a test asserting on them
-/// must not ask for an artifact. `analyse` differs in carrying no home assembly, which
+/// must not ask for an artifact. `analyse` differs in compiling under `testAsm`, which
 /// changes how a locally declared type resolves.
 let analyseAs (assemblyName: string) (input: string) : TastFile =
     let project = ProjectInfo.defaults assemblyName
@@ -1011,7 +1025,10 @@ let private analysePackagesErrors (packages: string list) (src: string) : Diagno
     let provider = ClrSymbolProviders.buildContract (allPackages |> List.map srcPackage)
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
+
+    let tast =
+        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 /// The front-end-only probe: analyse `src` against `packages` and assert NO error
@@ -1050,7 +1067,10 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 let private analyseErrors (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
+
+    let tast =
+        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 /// Analyse `src`; assert an error diagnostic whose message contains `fragment`: bad input

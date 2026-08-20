@@ -383,7 +383,9 @@ type internal ClrEnv
         | ValueNone ->
             failwith
                 "ClrProvider: an external symbol carries no home assembly (project-local symbols are resolved before the provider)."
-        | ValueSome simpleName ->
+        | ValueSome home ->
+            let simpleName = home.Name
+
             let an =
                 match references.TryFind simpleName with
                 | Some an -> an

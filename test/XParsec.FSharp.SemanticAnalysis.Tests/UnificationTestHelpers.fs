@@ -6,8 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyseParsed (input: string) (lexed, file) =
-    let ctx =
-        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -125,7 +124,7 @@ let hasUnionExhaustivenessWarning (ctx: PassContext) =
 // from the pools the freeze produces.
 let freezeDecls (input: string) : Pooled.TastFile =
     let lexed, file = parseFile input
-    TastUnpool.ofPools (Pipeline.analyse realProvider.Value (LexedFile.ofText lexed) file)
+    TastUnpool.ofPools (Pipeline.analyseFor testCompiling realProvider.Value (LexedFile.ofText lexed) file)
 
 let frozenLetTy (file: Pooled.TastFile) : FrozenType =
     file.Decls

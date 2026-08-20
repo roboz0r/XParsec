@@ -219,7 +219,7 @@ module EmitJsContext =
                     failwithf
                         "EmitJs: the node's origin file %s (assembly %s) was reached but never published to the map, so its position is readable only against the compiling file, because the provider that served the body and the retained anchor domain are not the same contract"
                         origin.Path.Relative.Name
-                        origin.Path.Assembly
+                        (AssemblyName.toStored origin.Path.Assembly)
                 | ValueSome declaring ->
                     let tok = LexedFiles.tokenAt r.Retained origin.Path origin.At
 

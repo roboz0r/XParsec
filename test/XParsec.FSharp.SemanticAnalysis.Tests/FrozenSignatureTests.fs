@@ -302,12 +302,12 @@ module M =
                             realProvider.Value
                             (LexedFile.inFile
                                 {
-                                    Assembly = "P"
+                                    Assembly = ValueSome(AssemblyName "P")
                                     Relative = AssemblyFileId.ofRelative "p.fsi"
                                 }
                                 parsed.Lexed)
                             {
-                                Assembly = "P"
+                                Assembly = AssemblyName "P"
                                 Target = "none"
                                 Reprs = System.Collections.Generic.Dictionary()
                             }

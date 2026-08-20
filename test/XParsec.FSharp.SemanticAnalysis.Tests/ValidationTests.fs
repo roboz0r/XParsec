@@ -8,7 +8,7 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
 
     let ctx, _ =
-        Pipeline.analyseSemWithContext realProvider.Value (LexedFile.ofText lexed) file
+        Pipeline.analyseSemWithContextFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
     ctx
 

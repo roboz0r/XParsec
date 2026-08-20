@@ -131,6 +131,6 @@ Two conventions in `docs/` worth knowing:
 [`test/XParsec.FSharp.SemanticAnalysis.Tests`](../../test/XParsec.FSharp.SemanticAnalysis.Tests) —
 one file per concern (`NameResolutionTests`, `GeneralisationTests`,
 `RegionsTests`, `ValidationTests`, `ResolvedTypesTests`, …). They go through
-`Pipeline.analyseSemWithContext` so they can assert against the side tables, not
+`Pipeline.analyseSemWithContextFor` so they can assert against the side tables, not
 just the output tree. The end-to-end behavioural gates for anything that reaches
 codegen live in the `Codegen.Clr` / `Codegen.Js` test projects.

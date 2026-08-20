@@ -30,7 +30,7 @@ type private Analysed =
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
 
-    let ctx = PassContext(provider, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
     Desugar.run ctx file
     NameResolution.run ctx file

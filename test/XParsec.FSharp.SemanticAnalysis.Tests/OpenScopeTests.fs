@@ -9,8 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
     let label (e: ModuleElem<SyntaxToken>) : string =
         match e with

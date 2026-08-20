@@ -83,19 +83,15 @@ module ClrDriver =
                 let provider = contract.Provider
                 let symbols = CodegenSymbols.ofProvider provider
 
+                let home = AssemblyName inputs.Project.AssemblyName
+
                 let tast =
                     Pipeline.analyseFor
-                        {
-                            Name = inputs.Project.AssemblyName
-                            Target = Target.Clr
-                        }
+                        { Name = home; Target = Target.Clr }
                         provider
                         // No path was handed over, so the text names the file; the assembly IS
                         // known and is stamped rather than left blank.
-                        (LexedFile.inAssembly
-                            inputs.Project.AssemblyName
-                            (AssemblyFileId.ofText parsed.Lexed.Input)
-                            parsed.Lexed)
+                        (LexedFile.inAssembly home (AssemblyFileId.ofText parsed.Lexed.Input) parsed.Lexed)
                         parsed.File
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast
@@ -111,7 +107,7 @@ module ClrDriver =
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let assembly: CompilingAssembly =
             {
-                Name = project.AssemblyName
+                Name = AssemblyName project.AssemblyName
                 Target = Target.Clr
             }
 

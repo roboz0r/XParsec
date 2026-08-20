@@ -240,7 +240,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let filePath (f: AssemblyFilePath) =
         filePaths.Intern
             {
-                Assembly = str f.Assembly
+                Assembly = str (AssemblyName.toStored f.Assembly)
                 Relative = str f.Relative.Name
             }
 
@@ -411,7 +411,7 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 let row = rows.FilePaths.[i]
 
                 {
-                    Assembly = str row.Assembly
+                    Assembly = AssemblyName.ofStored (str row.Assembly)
                     Relative = AssemblyFileId.ofStored (str row.Relative)
                 }
             )

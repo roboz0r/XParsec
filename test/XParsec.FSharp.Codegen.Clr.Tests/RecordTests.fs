@@ -568,7 +568,8 @@ let interfaceImplTests =
                 let provider = ClrSymbolProviders.buildContract defaultPackages
                 let lexed, file = parseFile src
 
-                let _, tast = Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
+                let _, tast =
+                    Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
 
                 tast.Diagnostics |> Diagnostic.errors
 

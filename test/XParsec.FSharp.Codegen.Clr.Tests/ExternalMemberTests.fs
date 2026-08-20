@@ -15,20 +15,20 @@ let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
 let private analyseWith (provider: IExternalSymbolProvider) (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem provider (LexedFile.ofText lexed) file
+    Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
 
 /// `analyseWith` keeping the `PassContext`, so a test can zonk a live `TyVar` against
 /// the per-file `TypeStore`.
 let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext provider (LexedFile.ofText lexed) file
+    Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
 
 let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 
 /// The home assembly of the type `decl` identifies. A `SymbolKey` is a NOMINAL identity and
 /// carries no home, so the physical location has to be read back off the shape the
 /// provider resolves for that key.
-let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : string option =
+let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : AssemblyName option =
     match (provider :> IExternalSymbolStore).TryLookupType decl with
     | ValueSome(ExternalTypeShape.Class info) ->
         match info.Origin.Home.AssemblyOption with

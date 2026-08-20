@@ -28,7 +28,7 @@ let tests =
                 let tast =
                     Pipeline.analyseFor
                         {
-                            Name = "Vesper.List"
+                            Name = AssemblyName "Vesper.List"
                             Target = Target.Clr
                         }
                         analysisProvider
@@ -63,7 +63,7 @@ let tests =
                 let analysed =
                     AssemblyFiles.analyseAssembly
                         {
-                            Name = "Vesper.Core"
+                            Name = AssemblyName "Vesper.Core"
                             Target = Target.Clr
                         }
                         (ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) [])
@@ -147,7 +147,7 @@ let tests =
                 let tast =
                     Pipeline.analyseFor
                         {
-                            Name = "Vesper.Printf"
+                            Name = AssemblyName "Vesper.Printf"
                             Target = Target.Clr
                         }
                         analysisProvider

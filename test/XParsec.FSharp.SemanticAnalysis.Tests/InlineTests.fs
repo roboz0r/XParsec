@@ -8,14 +8,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (LexedFile.ofText lexed) file
+    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
 /// Resolving a trait call needs a `PassContext` to mint the dispatched operator's key.
 /// These expansions are all primitive-`int`, so no nominal dispatch reaches the minter and
 /// an empty context is never read.
 let private ctx0: PassContext =
     let lexed, _ = parseFile "module M"
-    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+    PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input
@@ -38,7 +38,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let lexed, file = parseFile input
     let source = LexedFile.ofText lexed
     // The vocabulary is a pool root array; unpooling it gives the DU form the wire speaks.
-    let pools = Pipeline.analyse realProvider.Value source file
+    let pools = Pipeline.analyseFor testCompiling realProvider.Value source file
 
     let pool = TastPoolBuilder.openOver pools
 
@@ -59,7 +59,7 @@ let private retainedSource (input: string) : LexedFile =
 
     LexedFile.inFile
         {
-            Assembly = "Declaring"
+            Assembly = ValueSome(AssemblyName "Declaring")
             Relative = AssemblyFileId.ofRelative "sq.fs"
         }
         lexed
@@ -112,7 +112,8 @@ let private expandedCore (tast: TastFile) (d: TDecl) : string =
 let private publishedTemplate () : Wire.TDecl =
     let lexed, file = parseFile declaringSrc
 
-    let pools = Pipeline.analyse realProvider.Value (LexedFile.ofText lexed) file
+    let pools =
+        Pipeline.analyseFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
     let pool = TastPoolBuilder.openOver pools
 
@@ -437,8 +438,8 @@ let tests =
 
                 let lexed, file = parseFile input
                 let source = LexedFile.ofText lexed
-                let sem = Pipeline.analyseSem realProvider.Value source file
-                let pools = Pipeline.analyse realProvider.Value source file
+                let sem = Pipeline.analyseSemFor testCompiling realProvider.Value source file
+                let pools = Pipeline.analyseFor testCompiling realProvider.Value source file
                 let pool = TastPoolBuilder.openOver pools
 
                 // `k` is the module's first decl; its published identity is the one its
@@ -498,8 +499,11 @@ let tests =
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
                 let source = LexedFile.ofText lexed
-                let sem = Pipeline.analyseSem realProvider.Value source file
-                let _, pools = Pipeline.analyseWithContext realProvider.Value source file
+                let sem = Pipeline.analyseSemFor testCompiling realProvider.Value source file
+
+                let _, pools =
+                    Pipeline.analyseWithContextFor testCompiling realProvider.Value source file
+
                 let frozen = TastUnpool.ofPools pools
 
                 Expect.isEmpty frozen.Diagnostics "no diagnostics — nothing is refused"
@@ -556,7 +560,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let _, pools =
-                    Pipeline.analyseWithContext realProvider.Value (LexedFile.ofText lexed) file
+                    Pipeline.analyseWithContextFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
                 let frozen = TastUnpool.ofPools pools
 

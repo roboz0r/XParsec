@@ -14,7 +14,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private asm: CompilingAssembly =
     {
-        Name = "MultiFileAsm"
+        Name = AssemblyName "MultiFileAsm"
         Target = "none"
     }
 

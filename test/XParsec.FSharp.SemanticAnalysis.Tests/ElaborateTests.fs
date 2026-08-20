@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (LexedFile.ofText lexed) file
+    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
@@ -354,7 +354,10 @@ let interfaceTests =
 
                 let tast =
                     Pipeline.analyseSemFor
-                        { Name = "Vesper.Core"; Target = "clr" }
+                        {
+                            Name = AssemblyName "Vesper.Core"
+                            Target = "clr"
+                        }
                         realProvider.Value
                         (LexedFile.ofText lexed)
                         file

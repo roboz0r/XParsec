@@ -109,7 +109,7 @@ module JsDriver =
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         let assembly: CompilingAssembly =
             {
-                Name = packageName
+                Name = AssemblyName packageName
                 Target = Target.Js
             }
 

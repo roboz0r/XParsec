@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // are pinned per backend, in each codegen suite's `RegionLayoutTests`.
 
 let private probe (input: string) =
-    RegionProbe.analyse realProvider.Value input
+    RegionProbe.analyse testCompiling realProvider.Value input
 
 /// Down to the pattern a parameter's parentheses and annotation wrap.
 let rec private unwrapPat (p: Pat<SyntaxToken>) : Pat<SyntaxToken> =

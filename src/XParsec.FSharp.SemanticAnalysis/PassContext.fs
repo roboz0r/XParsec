@@ -7,12 +7,7 @@ open XParsec.FSharp.Parser
 
 /// What one run of files compiles into: the assembly its local keys are homed in, and the
 /// target whose platform reprs a signature's `type t = extern` resolves against.
-type CompilingAssembly = { Name: string; Target: string }
-
-[<RequireQualifiedAccess>]
-module CompilingAssembly =
-    /// A front-end-only run that emits nothing: no home assembly, no target.
-    let none: CompilingAssembly = { Name = ""; Target = "" }
+type CompilingAssembly = { Name: AssemblyName; Target: string }
 
 [<Sealed>]
 type KeyedTable<'K, 'V when 'K: equality>() =
@@ -309,12 +304,12 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// this pass mints indexes.
     member val File: LexedFile = file
 
-    /// The simple name of the assembly this file emits into; `""` where nothing is emitted.
-    /// NOT part of any `SymbolKey`: nominal identity is the containment chain alone.
-    member val AssemblyName = assembly.Name with get
+    /// The simple name of the assembly this file emits into. NOT part of any `SymbolKey`:
+    /// nominal identity is the containment chain alone.
+    member val AssemblyName: AssemblyName = assembly.Name with get
 
-    /// The compiling target (`"clr"` / `"js"`); `""` for a front-end-only run. Names the
-    /// target when a language-known primitive the target does not declare is reported.
+    /// The compiling target (`"clr"` / `"js"`). Names the target when a language-known
+    /// primitive the target does not declare is reported.
     member val Target = assembly.Target with get
     member _.Diagnostics = diagnostics
 

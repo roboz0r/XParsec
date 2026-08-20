@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private provider = lazy (ClrSymbolProviders.buildContract defaultPackages)
 
 let private probe (input: string) =
-    RegionProbe.analyse provider.Value input
+    RegionProbe.analyse testCompiling provider.Value input
 
 [<Tests>]
 let tests =

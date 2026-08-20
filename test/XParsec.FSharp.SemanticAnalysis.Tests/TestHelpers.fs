@@ -133,7 +133,7 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
 /// The assembly name every freeze in these suites is taken under.
-let testAsm = "TestAsm"
+let testAsm = AssemblyName "TestAsm"
 
 /// `testAsm` as a compiling identity: `realProvider` is the clr contract stack.
 let testCompiling: CompilingAssembly = { Name = testAsm; Target = "clr" }
@@ -170,7 +170,7 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
 
-    let ctx = PassContext(provider, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file

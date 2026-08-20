@@ -13,7 +13,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private errorsOf (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
+
+    let tast =
+        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 let private clean (label: string) (src: string) : unit =
@@ -25,7 +28,9 @@ let private clean (label: string) (src: string) : unit =
 let private lastLetTy (src: string) : SemType =
     let provider = ClrSymbolProviders.buildContract defaultPackages
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
+
+    let tast =
+        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
 
     tast.Decls
     |> EqArray.toList

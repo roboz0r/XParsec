@@ -68,7 +68,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx, _ =
-                    Pipeline.analyseSemWithContext jsProvider.Value (LexedFile.ofText lexed) file
+                    Pipeline.analyseSemWithContextFor testCompiling jsProvider.Value (LexedFile.ofText lexed) file
 
                 let getItemAccesses =
                     [

@@ -255,9 +255,9 @@ module AssemblyFiles =
     /// came AFTER lexing, and at line 1, col 1 when there is no stream to anchor against.
     let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
         match e.Failure.Lexed with
-        // The `""` bucket: no file was analysed, so no assembly claims this one. The
-        // source exists only to resolve the positions the parser's diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (LexedFile.inAssembly "" e.Id lexed) e.Failure.Diagnostics
+        // No file was analysed, so no assembly claims this one. The source exists only to
+        // resolve the positions the parser's diagnostics carry.
+        | ValueSome lexed -> anchorDiagnostics (LexedFile.unclaimed e.Id lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
 
     /// A `.fsi` half's findings, anchored in its own text: recovery's first, then
@@ -315,7 +315,7 @@ module AssemblyFiles =
     /// all, and two halves resolved under different headers publish into different namespaces,
     /// which every finding below would then be about.
     let private conformanceDiagnostics
-        (assembly: string)
+        (assembly: AssemblyName)
         (signature: ParsedHalf<ParseChain.ParsedSignature>)
         (implementation: ParsedHalf<ParseChain.ParsedFile>)
         (surface: PublishedSurface)
@@ -323,7 +323,7 @@ module AssemblyFiles =
         (frozen: FrozenPools)
         : Diagnostic list =
         let verdict (v: ConformanceVerdict) =
-            Diagnostic.nowhere (Kind.Conformance(assembly, v))
+            Diagnostic.nowhere (Kind.Conformance(assembly.Name, v))
 
         let unimplemented (detail: string) =
             verdict (ConformanceVerdict.Unimplemented(signature.Id.Name, detail))

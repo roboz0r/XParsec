@@ -10,8 +10,7 @@ module Pipeline =
 
     /// Runs every pass through the `SemType` domain, returning the populated `PassContext`,
     /// what the region pass decided, and the pre-freeze `TastFile`. `assembly` is the
-    /// assembly this file emits into and the compiling target; `CompilingAssembly.none` for
-    /// the front-end-only paths that never emit.
+    /// assembly this file emits into and the compiling target.
     let analyseSemWithContextForCore
         (assembly: CompilingAssembly)
         (provider: IExternalSymbolProvider)
@@ -74,33 +73,6 @@ module Pipeline =
         let ctx, tast = analyseSemWithContextFor assembly provider file impl
         ctx, Freeze.run ctx tast
 
-    /// `analyseSemWithContextFor` with no home assembly, for the front-end-only entries
-    /// (side-table inspection tests, contract scrapes).
-    let analyseSemWithContext
-        (provider: IExternalSymbolProvider)
-        (file: LexedFile)
-        (impl: ImplementationFile<SyntaxToken>)
-        : PassContext * TastFile =
-        analyseSemWithContextFor CompilingAssembly.none provider file impl
-
-    /// `analyseSemWithContext` keeping what the region pass returned. The escape axis lands on
-    /// the context, but the representation axis has no side table to read it off — it is
-    /// `Regions.run`'s return value, and this is its only route out of the pipeline.
-    let analyseSemWithRegions
-        (provider: IExternalSymbolProvider)
-        (file: LexedFile)
-        (impl: ImplementationFile<SyntaxToken>)
-        : PassContext * RegionVerdicts * TastFile =
-        analyseSemWithContextForCore CompilingAssembly.none provider file impl
-
-    /// `analyseWithContextFor` with no home assembly.
-    let analyseWithContext
-        (provider: IExternalSymbolProvider)
-        (file: LexedFile)
-        (impl: ImplementationFile<SyntaxToken>)
-        : PassContext * FrozenPools =
-        analyseWithContextFor CompilingAssembly.none provider file impl
-
     /// The `SemType` (pre-freeze) production entry, discarding the `PassContext`.
     let analyseSemFor
         (assembly: CompilingAssembly)
@@ -121,17 +93,3 @@ module Pipeline =
         : FrozenPools =
         let _, tast = analyseWithContextFor assembly provider file impl
         tast
-
-    let analyseSem
-        (provider: IExternalSymbolProvider)
-        (file: LexedFile)
-        (impl: ImplementationFile<SyntaxToken>)
-        : TastFile =
-        analyseSemFor CompilingAssembly.none provider file impl
-
-    let analyse
-        (provider: IExternalSymbolProvider)
-        (file: LexedFile)
-        (impl: ImplementationFile<SyntaxToken>)
-        : FrozenPools =
-        analyseFor CompilingAssembly.none provider file impl

@@ -7,13 +7,6 @@ type tyVarId
 /// by it directly.
 type TyVarId = int<tyVarId>
 
-/// An assembly's SIMPLE name, with no version, culture or public key.
-[<Struct>]
-type AssemblyName =
-    | AssemblyName of name: string
-
-    member this.Name = let (AssemblyName n) = this in n
-
 /// Where a symbol PHYSICALLY lives, and never part of a key: nominal identity is the
 /// containment chain + namespace + name. `Unstamped` is "no home": the compilation being
 /// analysed, or a contract scrape.
@@ -25,11 +18,11 @@ type SymbolHome =
     /// `Assembly`, so the assembly is read off the file, not supplied a second time.
     | InFile of file: AssemblyFilePath
 
-    member this.AssemblyOption: string voption =
+    member this.AssemblyOption: AssemblyName voption =
         match this with
         | SymbolHome.Unstamped -> ValueNone
-        | SymbolHome.InAssembly a -> ValueSome a.Name
-        | SymbolHome.InFile f -> ValueSome f.Assembly
+        | SymbolHome.InAssembly a -> ValueSome a
+        | SymbolHome.InFile f -> f.Assembly
 
     /// `ValueNone` wherever the producer knew only the assembly: a contract view or
     /// a metadata scrape.

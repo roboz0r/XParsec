@@ -249,7 +249,7 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
     let lexed, file = parseFile src
 
     let tast =
-        TastUnpool.ofPools (Pipeline.analyse provider (LexedFile.ofText lexed) file)
+        TastUnpool.ofPools (Pipeline.analyseFor testCompiling provider (LexedFile.ofText lexed) file)
 
     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for:\n%s" src)
 

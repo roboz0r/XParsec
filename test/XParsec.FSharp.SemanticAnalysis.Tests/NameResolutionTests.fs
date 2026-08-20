@@ -8,8 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 let private analyse (input: string) =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -301,8 +300,7 @@ let tests =
                 let input = "type Box<'a> = { Value: 'a }"
                 let lexed, file = parseFile input
 
-                let ctx =
-                    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+                let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -342,8 +340,7 @@ let tests =
                 // types fires "Free type parameter".
                 let lexed, file = parseFile "type Bad = { X: 'a }"
 
-                let ctx =
-                    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+                let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -813,8 +810,7 @@ let tests =
 
                 let lexed, file = parseFile input
 
-                let ctx =
-                    PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+                let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file

@@ -99,7 +99,7 @@ module PackageProviders =
                     | errors -> errors |> List.map (fun d -> "\n  " + Kind.message d.Kind) |> String.concat ""
 
                 failwithf
-                    "internal error: freezing package '%s' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
+                    "internal error: freezing package '%O' impl file '%s' failed: %s\nits analysis errors, which the freeze pruned:%s"
                     assembly.Name
                     retained.Path.Relative.Name
                     e.Message
@@ -135,7 +135,7 @@ module PackageProviders =
             AssemblyFiles.foldUnits
                 analysePackageFile
                 {
-                    Name = manifest.Name
+                    Name = AssemblyName manifest.Name
                     Target = manifest.Target
                 }
                 (ExternalSymbolProviders.composite (depProviders @ platformMetadata depIntrinsics))

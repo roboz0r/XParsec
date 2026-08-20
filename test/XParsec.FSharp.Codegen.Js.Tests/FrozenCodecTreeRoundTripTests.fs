@@ -59,7 +59,7 @@ let private withSpecialization () : FrozenPools =
     // recovered it from the entry would still round-trip if the two agreed.
     let consumer =
         {
-            Assembly = "App"
+            Assembly = ValueSome(AssemblyName "App")
             Relative = AssemblyFileId.ofRelative "m.fs"
         }
 
@@ -88,7 +88,7 @@ let private withSpecialization () : FrozenPools =
                     // source is recoverable from the key. Synthetic: no anchor is resolved here.
                     Path =
                         {
-                            Assembly = "Lib"
+                            Assembly = ValueSome(AssemblyName "Lib")
                             Relative = AssemblyFileId.ofRelative "n.fs"
                         }
                     Decl = template.Decl

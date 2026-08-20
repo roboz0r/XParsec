@@ -27,7 +27,8 @@ let tests =
 
                 let lexed, file = parseFile "let v = hash 5"
 
-                let tast = Pipeline.analyseSem provider (LexedFile.ofText lexed) file
+                let tast =
+                    Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
 
                 Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "no errors"
 

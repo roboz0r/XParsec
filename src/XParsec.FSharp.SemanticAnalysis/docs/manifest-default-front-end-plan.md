@@ -1,10 +1,14 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-19. Everything under "Landed already" has landed; the staged plan has
-not started. This revision replaces the earlier gated/ungated pair with an `analyse` / `compile`
-split, and carries the type names the source-identity rename settled on.
+Status: revised 2026-08-19. Everything under "Landed already" has landed, and so has step 1 of
+the staged plan; steps 2-5 have not started. This revision replaces the earlier gated/ungated
+pair with an `analyse` / `compile` split, and carries the type names the source-identity rename
+settled on.
 
 ## Root cause
+
+The two subsections below are the state BEFORE step 1, kept for the reasoning steps 2-5 rest
+on. Step 1 has since deleted tier 3's no-assembly entries and typed the assembly name.
 
 There are three ways into the front end, and they disagree about what a compilation is.
 
@@ -161,13 +165,20 @@ a dependency chain analyses without any DLL existing, and DLLs enter at `emit`, 
 ### Where a pass-level entry survives
 
 `Pipeline.analyseSemWithContextFor` stays, as the single-file entry for a test inspecting a
-pass's side tables. It keeps its `CompilingAssembly` parameter and gains no default. The
-division is then: `analyse` / `compile` compiles, `analyseSemWithContextFor` inspects — not two
-tiers of the same job.
+pass's side tables, and `analyseSemWithContextForCore` beside it for the one that also needs the
+region verdicts (`RegionProbe`). Both keep their `CompilingAssembly` parameter and gain no
+default. The division is then: `analyse` / `compile` compiles, `analyseSemWithContextFor`
+inspects — not two tiers of the same job.
 
 ## Staged plan
 
-### 1. Delete the no-assembly entries and type the assembly name
+### 1. Delete the no-assembly entries and type the assembly name — LANDED 2026-08-19
+
+Every suite is green with no disposition to take: the tests that would have exercised
+`diagnoseExternalClaim` under a home assembly were already moved onto `analyseAs` /
+`compilingClr` by `a57405a4`, so naming an assembly at the remaining sites changed no verdict.
+`Manifest.Name`, `ProjectInfo.AssemblyName` and `Kind.Conformance`'s first field stay `string`
+and convert at their boundary; `JsHome.Assembly` reads through `AssemblyName.toStored`.
 
 `Pipeline.analyseSem`, `analyse`, `analyseSemWithContext`, `analyseWithContext`,
 `analyseSemWithRegions` (`Pipeline.fs:79-102, 125-137`) and `CompilingAssembly.none`
@@ -297,9 +308,9 @@ must cover all of them. (What survives of that file is `AssemblyFilePathTests.fs
 
 ## Scope and risk
 
-Step 1 is the bulk and carries the only real uncertainty: the count of tests that fail once they
-carry a home assembly is unknown, and each is a separate judgement. Steps 2, 3 and 5 are
-mechanical. Step 4 is bounded by how many tests are compile-shaped rather than pass-shaped.
+Step 1 was the bulk and carried the only real uncertainty: the count of tests failing once they
+carry a home assembly turned out to be zero. Steps 2, 3 and 5 are mechanical. Step 4 is bounded
+by how many tests are compile-shaped rather than pass-shaped.
 
 Nothing here changes emitted code. Step 3 changes diagnostic SHAPE on the assembly path twice: a
 codegen refusal stops being re-filed as `Kind.Driver` under `nowhere` (no current test asserts on

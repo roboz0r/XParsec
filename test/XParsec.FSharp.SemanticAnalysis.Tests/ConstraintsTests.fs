@@ -8,8 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 let private analyseNR (input: string) =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -18,8 +17,7 @@ let private analyseNR (input: string) =
 let private analyseUnif (input: string) =
     let lexed, file = parseFile input
 
-    let ctx =
-        PassContext(realProvider.Value, LexedFile.ofText lexed, CompilingAssembly.none)
+    let ctx = PassContext(realProvider.Value, LexedFile.ofText lexed, testCompiling)
 
     Desugar.run ctx file
     NameResolution.run ctx file
@@ -30,7 +28,7 @@ let private analyseFull (input: string) =
     let lexed, file = parseFile input
 
     let ctx, _ =
-        Pipeline.analyseSemWithContext realProvider.Value (LexedFile.ofText lexed) file
+        Pipeline.analyseSemWithContextFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
     ctx
 

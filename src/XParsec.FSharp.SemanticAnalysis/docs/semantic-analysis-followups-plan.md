@@ -549,13 +549,11 @@ both fields needed docs. `NoMatch | Unique of 'cand | Ambiguous of int` collapse
 
 ### `Anchor.fs:155` — `AssemblyFilePath.nowhere` is a sentinel, not a case
 
-Distinguished by `Assembly = ""` / `Relative = ""`. The "no file is spelled `""`" invariant
-is unchecked; `AssemblyFilePath` could be a DU, or the fields a non-empty-string type.
-
-The `Assembly` half is scheduled: step 1 of
-[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md) types it as
-`AssemblyName voption` alongside retiring `CompilingAssembly.none`, which is where the empty
-name originates. `Relative` is not covered there.
+The `Assembly` half landed with step 1 of
+[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md): it is
+`AssemblyName voption`, and `CompilingAssembly.none` is gone. What remains is `Relative`,
+distinguished by `AssemblyFileId.nowhere` = `""`. The "no file is spelled `""`" invariant is
+unchecked; `AssemblyFilePath` could be a DU, or `Relative` a non-empty-string type.
 
 ### `SymbolKeys.fs:110` — `TypeKey`'s capability duality is enforced by prose
 

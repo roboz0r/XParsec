@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // `TypeStore`'s union-find state, not on the `TypeVar` node.
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext realProvider.Value (LexedFile.ofText lexed) file
+    Pipeline.analyseSemWithContextFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with

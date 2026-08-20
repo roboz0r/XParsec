@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (LexedFile.ofText lexed) file
+    Pipeline.analyseSemFor testCompiling realProvider.Value (LexedFile.ofText lexed) file
 
 /// The body of the single top-level `let f () = _`, asserting the program froze clean.
 let private bodyOf (input: string) : TExpr =

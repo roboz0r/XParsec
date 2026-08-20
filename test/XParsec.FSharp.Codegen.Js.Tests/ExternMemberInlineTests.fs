@@ -46,12 +46,12 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * TypeK
             TestHelpers.jsProvider.Value
             (LexedFile.inFile
                 {
-                    Assembly = "Widgets"
+                    Assembly = ValueSome(AssemblyName "Widgets")
                     Relative = AssemblyFileId.ofRelative "widget.fsi"
                 }
                 parsed.Lexed)
             {
-                Assembly = "Widgets"
+                Assembly = AssemblyName "Widgets"
                 Target = Target.Js
                 Reprs = reprs
             }
@@ -560,7 +560,10 @@ let tests =
 
                 let lexed, file = TestHelpers.parseFile input
                 let source = LexedFile.ofText lexed
-                let tast = Pipeline.analyse TestHelpers.jsProvider.Value source file
+
+                let tast =
+                    Pipeline.analyseFor TestHelpers.testCompiling TestHelpers.jsProvider.Value source file
+
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))

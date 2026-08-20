@@ -148,15 +148,12 @@ module NameResolutionTypeRegistration =
         key
 
     /// The assembly whose already-declared type a resolved external shape WITNESSES.
-    /// `None` = not a competing claim: every package's `int` is THE `int`, and
+    /// `ValueNone` = not a competing claim: every package's `int` is THE `int`, and
     /// `Abbrev` / `Unmodelled` carry no `SymbolOrigin`.
-    let private externalClaimant (shape: ExternalTypeShape) : string option =
+    let private externalClaimant (shape: ExternalTypeShape) : AssemblyName voption =
         // A stamped home is a claim (its assembly name); an unstamped home makes none. A
         // prior file of this very compilation claims under the compilation's own name.
-        let homeName (o: SymbolOrigin) : string option =
-            match o.Home.AssemblyOption with
-            | ValueSome a -> Some a
-            | ValueNone -> None
+        let homeName (o: SymbolOrigin) = o.Home.AssemblyOption
 
         match shape with
         | ExternalTypeShape.Class info -> homeName info.Origin
@@ -166,7 +163,7 @@ module NameResolutionTypeRegistration =
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _
         | ExternalTypeShape.Abbrev _
-        | ExternalTypeShape.Unmodelled _ -> None
+        | ExternalTypeShape.Unmodelled _ -> ValueNone
 
     /// The CS0433 analogue: a `SymbolKey` carries no home assembly, so a declaration whose key a
     /// REFERENCED assembly already answers for is refused because equal keys would let the unifier
@@ -176,15 +173,15 @@ module NameResolutionTypeRegistration =
         | ValueNone -> ()
         | ValueSome shape ->
             match externalClaimant shape with
-            | Some asm when asm <> ctx.AssemblyName ->
+            | ValueSome asm when asm <> ctx.AssemblyName ->
                 ctx.Report(
                     declTok,
                     Kind.Message(
                         sprintf
                             "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation, so rename the type, or drop the reference to '%s'."
                             (SymbolKeyOps.typeMetaName key)
-                            asm
-                            asm
+                            asm.Name
+                            asm.Name
                     )
                 )
             | _ -> ()

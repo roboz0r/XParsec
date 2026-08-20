@@ -123,7 +123,7 @@ module JsHome =
         | SymbolHome.InFile f ->
             ValueSome
                 {
-                    Assembly = f.Assembly
+                    Assembly = AssemblyName.toStored f.Assembly
                     Where = JsHomeWhere.InFile f
                 }
 

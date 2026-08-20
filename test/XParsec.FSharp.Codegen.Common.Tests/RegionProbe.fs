@@ -18,12 +18,12 @@ type Probe =
         File: ImplementationFile<SyntaxToken>
     }
 
-let analyse (provider: IExternalSymbolProvider) (input: string) : Probe =
+let analyse (assembly: CompilingAssembly) (provider: IExternalSymbolProvider) (input: string) : Probe =
     match ParseChain.parseUnrecovered Set.empty input with
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed ->
         let ctx, regions, _ =
-            Pipeline.analyseSemWithRegions provider (LexedFile.ofText parsed.Lexed) parsed.File
+            Pipeline.analyseSemWithContextForCore assembly provider (LexedFile.ofText parsed.Lexed) parsed.File
 
         {
             Ctx = ctx

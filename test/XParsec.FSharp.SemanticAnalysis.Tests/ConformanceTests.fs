@@ -278,7 +278,11 @@ let tests =
 // The same pairs, resolved: every verdict is taken by identity, so a `[<CompiledName>]`, a
 // `ModuleSuffix` module and a shadowed attribute are settled before the comparison.
 
-let private analysedAsm: CompilingAssembly = { Name = "TestAsm"; Target = "clr" }
+let private analysedAsm: CompilingAssembly =
+    {
+        Name = AssemblyName "TestAsm"
+        Target = "clr"
+    }
 
 /// Every conformance verdict the in-assembly route reports for one `.fsi` / `.fs` pair.
 let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
@@ -846,7 +850,15 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
 /// typar order is inference's own rather than a hand-built `FrozenType`.
 let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
-    Pipeline.analyseFor { Name = "M"; Target = "clr" } realProvider.Value (LexedFile.ofText lexed) file
+
+    Pipeline.analyseFor
+        {
+            Name = AssemblyName "M"
+            Target = "clr"
+        }
+        realProvider.Value
+        (LexedFile.ofText lexed)
+        file
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType =

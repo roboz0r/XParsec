@@ -320,7 +320,7 @@ let tests =
                         // context finds a core assembly with `System.Object` in the facade.
                         Expect.equal
                             info.Origin.Home.AssemblyOption
-                            (ValueSome "System.Runtime")
+                            (ValueSome(AssemblyName "System.Runtime"))
                             "REF identity, not the impl"
                     | other -> failtestf "expected StringBuilder as a Class shape, got %A" other
             }

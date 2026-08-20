@@ -52,7 +52,7 @@ let resolveFsiWith
     let source =
         LexedFile.inFile
             {
-                Assembly = "App"
+                Assembly = ValueSome(AssemblyName "App")
                 Relative = AssemblyFileId.ofRelative relative
             }
             parsed.Lexed
@@ -62,7 +62,7 @@ let resolveFsiWith
             dependencies
             source
             {
-                Assembly = "App"
+                Assembly = AssemblyName "App"
                 Target = "none"
                 Reprs = reprTable reprs
             }

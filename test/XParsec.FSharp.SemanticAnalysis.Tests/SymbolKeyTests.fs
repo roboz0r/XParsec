@@ -216,7 +216,7 @@ let tests =
 
                 Expect.equal
                     (SymbolHome.InAssembly(AssemblyName "Vesper.Core")).AssemblyOption
-                    (ValueSome "Vesper.Core")
+                    (ValueSome(AssemblyName "Vesper.Core"))
                     "a stamped origin returns its home assembly name"
             }
         ]

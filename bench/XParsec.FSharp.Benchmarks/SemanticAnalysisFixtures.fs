@@ -126,7 +126,10 @@ let stagesFor (depth: ChainDepth) : Stage list =
 let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
     AssemblyFiles.analyseAssemblyWith
         analyse
-        { Name = s.Name; Target = Target.Clr }
+        {
+            Name = AssemblyName s.Name
+            Target = Target.Clr
+        }
         s.Provider
         Set.empty
         (s.Files |> List.map AssemblyFiles.SourceUnit.ofImplementation)

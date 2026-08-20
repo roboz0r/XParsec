@@ -20,6 +20,13 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
     | Result.Ok parsed -> parsed.Lexed, parsed.File
 
+/// The assembly name every compile in this suite is taken under, matching the
+/// `JsProjectInfo.defaults "Test"` the emit helpers pass.
+let testAsm = AssemblyName "Test"
+
+/// `testAsm` compiled for the JS target.
+let testCompiling: CompilingAssembly = { Name = testAsm; Target = Target.Js }
+
 /// `src/<pkg>` — the package DIRECTORY. The JS backend resolves it to `manifest.js.toml`;
 /// this suite passes only the directory, so it cannot reach another target's manifest.
 let srcPackage (pkg: string) : string =
@@ -141,11 +148,7 @@ let frozenOf (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor
-            { Name = ""; Target = Target.Js }
-            jsProvider.Value
-            (LexedFile.ofText lexed)
-            file
+        Pipeline.analyseSemWithContextFor testCompiling jsProvider.Value (LexedFile.ofText lexed) file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -177,11 +180,7 @@ let frozenOfJs (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor
-            { Name = ""; Target = Target.Js }
-            jsProvider.Value
-            (LexedFile.ofText lexed)
-            file
+        Pipeline.analyseSemWithContextFor testCompiling jsProvider.Value (LexedFile.ofText lexed) file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -251,8 +250,9 @@ let emitJsLibrary (input: string) : string =
     if idx >= 0 then src.Substring(0, idx) else src
 
 /// Deps-only JS contract for compiling a package impl. The package's own contract is absent
-/// because `compileLibrary` carries no home assembly, so its declarations would be a second
-/// claimant of the types the impl declares; `compileOwnLibrary` carries one and takes them both.
+/// because `compileLibrary` compiles under `testAsm` rather than the package's own name, so its
+/// declarations would be a second claimant of the types the impl declares; `compileOwnLibrary`
+/// names the package and takes them both.
 let coreDepsJsContract: Lazy<PackageProviders.AnalyzedManifest> =
     lazy JsNativeSymbols.jsNativeContract [ vesperCorePackage ]
 
@@ -273,7 +273,7 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor { Name = ""; Target = Target.Js } provider (LexedFile.ofText lexed) file
+        Pipeline.analyseSemWithContextFor testCompiling provider (LexedFile.ofText lexed) file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -291,7 +291,7 @@ let frozenOwnImplJs (assemblyName: string) (provider: IExternalSymbolProvider) (
     let frozen =
         Pipeline.analyseFor
             {
-                Name = assemblyName
+                Name = AssemblyName assemblyName
                 Target = Target.Js
             }
             provider
@@ -440,7 +440,7 @@ let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic
     let lexed, file = parseFile input
 
     let tast =
-        Pipeline.analyseSemFor { Name = ""; Target = Target.Js } provider (LexedFile.ofText lexed) file
+        Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
 
     tast.Diagnostics |> Diagnostic.errors
 
