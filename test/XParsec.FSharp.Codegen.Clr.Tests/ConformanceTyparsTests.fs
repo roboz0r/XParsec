@@ -61,26 +61,23 @@ let tests =
                     )
 
                 let analysed =
-                    CompileAssembly.analyseAssembly
-                        {
-                            Name = AssemblyName "Vesper.Core"
-                            Target = Target.Clr
-                        }
+                    AnalysedAssembly.analyse
+                        Pipeline.analyseFor
                         (ClrSymbolProviders.buildContractForSelf (Some vesperCorePackage) [])
-                        Set.empty
-                        units
+                        (AssemblySources.synthetic "Vesper.Core" Target.Clr Set.empty units)
 
                 let contract = ClrSymbolProviders.buildContract [ vesperCorePackage ]
 
                 let sweep (provider: IExternalSymbolProvider) =
                     [
-                        for result in analysed do
-                            match result with
-                            | Ok file -> yield! ConformanceTypars.checkFile provider file.Frozen
-                            | Error faults ->
+                        for outcome in analysed.Units do
+                            match outcome with
+                            | AssemblyAnalysis.UnitOutcome.Analysed u ->
+                                yield! ConformanceTypars.checkFile provider u.File.Frozen
+                            | AssemblyAnalysis.UnitOutcome.Failed(leading, rest) ->
                                 failwithf
                                     "Vesper.Core: %s did not parse"
-                                    (faults |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
+                                    (leading :: rest |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
                     ]
 
                 let mismatches = sweep contract

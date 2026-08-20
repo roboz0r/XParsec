@@ -51,6 +51,14 @@ module AssemblyAnalysis =
     let private prelude =
         ExternalSymbolProviders.stack ValueNone RuntimeNames.preludeNamespaces []
 
+    /// What a unit of an assembly resolves through: the views `published` so far, NEAREST
+    /// first, above the reference floor `external` and the language prelude.
+    let visibility
+        (external: IExternalSymbolProvider)
+        (published: IExternalSymbolProvider list)
+        : IExternalSymbolProvider =
+        ExternalSymbolProviders.composite (published @ [ external; prelude ])
+
     /// Short name ⇒ intrinsic repr, read off the unit's own implementation tree, so the
     /// `.fsi`'s `type t = extern` picks `Repr` over `Unsupported`.
     let private implementationReprs
@@ -157,6 +165,17 @@ module AssemblyAnalysis =
             | UnitOutcome.Analysed u -> u.Surfaced
             | UnitOutcome.Failed(leading, rest) -> List.collect failureDiagnostics (leading :: rest)
 
+    /// A unit list analysed in manifest order.
+    [<NoEquality; NoComparison>]
+    type AnalysedUnits =
+        {
+            Units: UnitOutcome list
+            /// Each analysed unit's published view, NEAREST first: the last unit's at the
+            /// head. Composing the whole list gives the assembly-wide domain; a unit itself
+            /// resolved only the views following its own.
+            Published: IExternalSymbolProvider list
+        }
+
     /// One implementation file analysed and frozen against `composed`, with its splice
     /// templates collected.
     [<NoEquality; NoComparison>]
@@ -233,13 +252,12 @@ module AssemblyAnalysis =
         (external: IExternalSymbolProvider)
         (publication: Publication)
         (units: AssemblyUnit list)
-        : UnitOutcome list =
+        : AnalysedUnits =
         // The units' published views so far, NEAREST first; `external` and the prelude are
         // the floor beneath them.
         let mutable own: IExternalSymbolProvider list = []
 
-        let signatureFloor () =
-            ExternalSymbolProviders.composite (own @ [ external; prelude ])
+        let signatureFloor () = visibility external own
 
         let resolveSignature (reprs: Dictionary<string, string>) (signature: ParsedFile<ParseChain.ParsedSignature>) =
             let retained, surface, diagnostics =
@@ -267,112 +285,114 @@ module AssemblyAnalysis =
                         | ValueNone -> own
                     )
 
-                ExternalSymbolProviders.composite (own @ [ bodyExternal axis; prelude ])
+                visibility (bodyExternal axis) own
 
-        [
-            for unit in units ->
-                match unit with
-                | AssemblyUnit.Faulted(leading, rest) -> UnitOutcome.Failed(leading, rest)
-                | AssemblyUnit.Analysable parsedUnit ->
-                    // The unit's `.fsi` resolves against the units BEFORE it, and is not
-                    // pushed until the body has analysed: neither half sees the other's
-                    // names.
-                    let resolvedSignature =
-                        parsedUnit.Signature
-                        |> ValueOption.map (
-                            resolveSignature (
-                                implementationReprs
-                                    parsedUnit.Implementation.Parsed.Lexed
-                                    parsedUnit.Implementation.Parsed.Tree
+        let outcomes =
+            [
+                for unit in units ->
+                    match unit with
+                    | AssemblyUnit.Faulted(leading, rest) -> UnitOutcome.Failed(leading, rest)
+                    | AssemblyUnit.Analysable parsedUnit ->
+                        // The unit's `.fsi` resolves against the units BEFORE it, and is not
+                        // pushed until the body has analysed: neither half sees the other's
+                        // names.
+                        let resolvedSignature =
+                            parsedUnit.Signature
+                            |> ValueOption.map (
+                                resolveSignature (
+                                    implementationReprs
+                                        parsedUnit.Implementation.Parsed.Lexed
+                                        parsedUnit.Implementation.Parsed.Tree
+                                )
                             )
-                        )
 
-                    let impl =
-                        analyseImplementation
-                            analyse
-                            assembly
-                            (bodyProvider (resolvedSignature |> ValueOption.map (fun r -> r.Published)))
-                            parsedUnit.Implementation
+                        let impl =
+                            analyseImplementation
+                                analyse
+                                assembly
+                                (bodyProvider (resolvedSignature |> ValueOption.map (fun r -> r.Published)))
+                                parsedUnit.Implementation
 
-                    let surface, published, signatureFile =
-                        match resolvedSignature with
-                        | ValueSome r ->
-                            // Homed in the IMPLEMENTATION file when compiling, so a later
-                            // file of the same assembly resolves it as a local; bare when
-                            // referencing, the caller stamping the assembly home once.
-                            let published, conformance =
-                                match publication with
-                                | Publication.InAssembly ->
-                                    let homed =
-                                        ExternalSymbolProviders.stack
-                                            (ValueSome(SymbolHome.InFile impl.Retained.Path))
-                                            []
-                                            [ r.Published ]
+                        let surface, published, signatureFile =
+                            match resolvedSignature with
+                            | ValueSome r ->
+                                // Homed in the IMPLEMENTATION file when compiling, so a later
+                                // file of the same assembly resolves it as a local; bare when
+                                // referencing, the caller stamping the assembly home once.
+                                let published, conformance =
+                                    match publication with
+                                    | Publication.InAssembly ->
+                                        let homed =
+                                            ExternalSymbolProviders.stack
+                                                (ValueSome(SymbolHome.InFile impl.Retained.Path))
+                                                []
+                                                [ r.Published ]
 
-                                    homed,
-                                    conformanceDiagnostics
-                                        assembly.Name
-                                        r.Signature
-                                        parsedUnit.Implementation
-                                        r.Surface
-                                        homed
-                                        impl.Frozen
-                                | Publication.AcrossAssemblies _ -> r.Published, []
+                                        homed,
+                                        conformanceDiagnostics
+                                            assembly.Name
+                                            r.Signature
+                                            parsedUnit.Implementation
+                                            r.Surface
+                                            homed
+                                            impl.Frozen
+                                    | Publication.AcrossAssemblies _ -> r.Published, []
 
-                            r.Surface,
-                            published,
-                            ValueSome
-                                {
-                                    Retained = r.Retained
-                                    ParseDiagnostics = r.Signature.Parsed.Diagnostics
-                                    Diagnostics = r.Diagnostics @ conformance
-                                }
-                        | ValueNone ->
-                            let surface = FrozenSignature.toSurface impl.Retained impl.Frozen
-                            surface, PublishedSurface.toProvider surface, ValueNone
-
-                    let view =
-                        ExternalSymbolProviders.withInlineBodies (InlineBodies.index impl.Bodies) published
-
-                    // Pushed on top of the units it may shadow; later units resolve through
-                    // it. The full view crosses only inside a compiling assembly: across the
-                    // boundary the surface alone does, with the splice templates beside it.
-                    let pushed =
-                        match publication with
-                        | Publication.InAssembly -> view
-                        | Publication.AcrossAssemblies _ -> published
-
-                    own <- pushed :: own
-
-                    let file =
-                        {
-                            Retained = impl.Retained
-                            ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
-                            Frozen = impl.Frozen
-                            Scoped = impl.Scoped
-                            View = view
-                            Signature = signatureFile
-                        }
-
-                    let surfaced =
-                        match publication with
-                        | Publication.InAssembly -> fileDiagnostics file
-                        | Publication.AcrossAssemblies _ ->
-                            match signatureFile with
-                            | ValueSome s -> signatureFileDiagnostics s
+                                r.Surface,
+                                published,
+                                ValueSome
+                                    {
+                                        Retained = r.Retained
+                                        ParseDiagnostics = r.Signature.Parsed.Diagnostics
+                                        Diagnostics = r.Diagnostics @ conformance
+                                    }
                             | ValueNone ->
-                                // The inferred surface IS what the unit publishes, so its
-                                // analysis errors are findings about it. A unit with a
-                                // `.fsi` keeps its tolerance: analysis feeds templates.
-                                implementationFileDiagnostics file
-                                |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error)
+                                let surface = FrozenSignature.toSurface impl.Retained impl.Frozen
+                                surface, PublishedSurface.toProvider surface, ValueNone
 
-                    UnitOutcome.Analysed
-                        {
-                            File = file
-                            Surface = surface
-                            Bodies = impl.Bodies
-                            Published = pushed
-                            Surfaced = surfaced
-                        }
-        ]
+                        let view =
+                            ExternalSymbolProviders.withInlineBodies (InlineBodies.index impl.Bodies) published
+
+                        // Pushed on top of the units it may shadow; later units resolve through
+                        // it. The full view crosses only inside a compiling assembly: across the
+                        // boundary the surface alone does, with the splice templates beside it.
+                        let pushed =
+                            match publication with
+                            | Publication.InAssembly -> view
+                            | Publication.AcrossAssemblies _ -> published
+
+                        own <- pushed :: own
+
+                        let file =
+                            {
+                                Retained = impl.Retained
+                                ParseDiagnostics = parsedUnit.Implementation.Parsed.Diagnostics
+                                Frozen = impl.Frozen
+                                Scoped = impl.Scoped
+                                View = view
+                                Signature = signatureFile
+                            }
+
+                        let surfaced =
+                            match publication with
+                            | Publication.InAssembly -> fileDiagnostics file
+                            | Publication.AcrossAssemblies _ ->
+                                match signatureFile with
+                                | ValueSome s -> signatureFileDiagnostics s
+                                | ValueNone ->
+                                    // The inferred surface IS what the unit publishes, so its
+                                    // analysis errors are findings about it. A unit with a
+                                    // `.fsi` keeps its tolerance: analysis feeds templates.
+                                    implementationFileDiagnostics file |> AnchoredDiagnostic.errors
+
+                        UnitOutcome.Analysed
+                            {
+                                File = file
+                                Surface = surface
+                                Bodies = impl.Bodies
+                                Published = pushed
+                                Surfaced = surfaced
+                            }
+            ]
+
+        { Units = outcomes; Published = own }

@@ -72,13 +72,13 @@ type FrozenCodecBenchmarks() =
         frozen <-
             [
                 for s in stagesFor this.Depth do
-                    for r in analyseStage Pipeline.analyseFor s do
-                        match r with
-                        | Ok u -> u.Frozen
+                    for outcome in analyseStage Pipeline.analyseFor s do
+                        match outcome with
+                        | AssemblyAnalysis.UnitOutcome.Analysed u -> u.File.Frozen
                         // A file that did not parse has no frozen tree to encode. The
                         // green-workload guard belongs to the analysis benchmark; here an
                         // unparsed file is simply not a codec input.
-                        | Error _ -> ()
+                        | AssemblyAnalysis.UnitOutcome.Failed _ -> ()
             ]
 
         // A codec benchmark over nothing measures nothing — fail loudly in setup rather

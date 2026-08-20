@@ -104,6 +104,12 @@ module AssemblyFiles =
             Col: int
         }
 
+    [<RequireQualifiedAccess>]
+    module AnchoredDiagnostic =
+
+        let errors (ds: AnchoredDiagnostic seq) : AnchoredDiagnostic list =
+            ds |> Seq.filter (fun a -> Diagnostic.isError a.Diagnostic) |> List.ofSeq
+
     /// The per-file front-end seam: analyse+freeze one parsed file against a composed
     /// provider, wrappable by a probe that times each file.
     type AnalyseFile =
@@ -273,3 +279,11 @@ module AssemblyFiles =
          | ValueSome s -> signatureFileDiagnostics s
          | ValueNone -> [])
         @ implementationFileDiagnostics f
+
+    /// Every analysed file's diagnostics, in manifest order, each anchored to ITS OWN file.
+    let consolidatedDiagnostics (files: FrozenFile list) : AnchoredDiagnostic list = List.collect fileDiagnostics files
+
+    /// The files' retained text as ONE anchor domain, so a node spliced out of one of them
+    /// resolves its positions against the file that declared it.
+    let retainedDomain (files: FrozenFile list) : LexedFiles =
+        LexedFiles.ofSeq [ for f in files -> f.Retained ]

@@ -1,7 +1,7 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-19. Everything under "Landed already" has landed, and so has step 1 of
-the staged plan; steps 2-5 have not started. This revision replaces the earlier gated/ungated
+Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have steps 1-3
+of the staged plan; steps 4-5 have not started. This revision replaces the earlier gated/ungated
 pair with an `analyse` / `compile` split, and carries the type names the source-identity rename
 settled on.
 
@@ -235,19 +235,44 @@ passes `.Units` on to the driver, which still derives its `CompilingAssembly` fr
 `sources.Assembly.Name`. `AssemblySourcesTests.fs` pins the name and target off the manifest,
 manifest file order, and that `synthetic` parses under the compilation defines it is given.
 
-### 3. Total `analyse`, `gate`, `EmittableAssembly`
+### 3. Total `analyse`, `gate`, `EmittableAssembly` — LANDED 2026-08-20
 
-`analyse` is `analyseUnits` with the two filters of `analyseGated:783-812` lifted out into `gate`.
-Today's `AnalysedAssembly` is renamed `EmittableAssembly`; the name `AnalysedAssembly` moves to
-the total result. `analyseGated`, `analyseWith`, `analyseAssemblyWith` and `analyseAssembly`
-collapse into `analyse`.
+`CompileAssembly.fs` is now `AnalysedAssembly.fs`, last in compile order because `analyse` takes
+an `AssemblySources`. `analyseGated`, `analyseWith`, `analyseAssemblyWith` and `analyseAssembly`
+collapsed into `analyse` + `gate`, and `consolidatedDiagnostics` moved into `AssemblyFiles`
+beside the `fileDiagnostics` it folds.
 
-`Codegen.compileFilesWithReferences` and the JS peer take `EmittableAssembly` and stop returning
-`Result`.
+`gate` returns every error-severity finding in manifest order, as
+`AnchoredDiagnostic.errors analysed.Diagnostics` — the same one-filter shape as
+`PackageProviders.AnalysedManifest.gate`. Every suite is green: the removed suppression changes
+which findings a refusal carries, and no test asserted on that.
 
-`gate` reports every error-severity finding, parse failures first in file order, and truncates
-nothing. The suppression at `analyseGated:791-794` goes: design time reads `analyse`, where a
-parse failure sits on its own file and the cascade it caused sits on the others.
+`analyseUnits` returns an `AnalysedUnits`, carrying the units' published views beside their
+outcomes, so the visibility stack it composed is the one every consumer uses.
+`AssemblyAnalysis.visibility` is that composition, shared by the signature floor, the
+across-assemblies body provider and `AnalysedAssembly.analyse`. `PackageProviders` reads
+`.Published` rather than reversing a `ResizeArray` it filled in parallel, and
+`AnalysedAssembly`/`EmittableAssembly` carry `Assembly` and `Visibility`.
+
+Both backends' multi-file emission is total. `Codegen.compileFilesWithReferences` became
+`Codegen.emitAssembly : string list -> ProjectInfo -> EmittableAssembly -> ClrArtifact`, since a
+function that neither takes files nor returns `Result` had outgrown the name; it composes its
+own `ICodegenSymbols` from `assembly.Visibility`, which deleted `ClrDriver.emit` along with
+`ClrDriver.reanchored` and its `AssemblyFileId.nowhere` filing. `Codegen.compileFiles` had no
+caller and is deleted. On the JS side `Codegen.emit` stays private under a new
+`Codegen.emitAssembly : AnalysedManifest -> EmittableAssembly -> (AssemblyFileId * JsArtifact)
+list`, which took the per-file project construction and the anchor-domain join out of
+`JsDriver` along with its staging list, second `Ok`-matching pass and `Kind.Driver` re-wrap;
+`compileWith` remains the gated single-file entry the tests use.
+
+Both drivers reach `AssemblySources` through `AssemblySources.ofUnits`, which `synthetic` now
+also builds on, so an assembly's name and target are minted in one place.
+
+`ClrDriver.compileAssemblyWith` / `compileAssembly` keep their names: the name `compile` is the
+single-file entry until step 5 deletes it, and only then can the pair be renamed onto it.
+
+The bench fixtures moved with the tests — `SemanticAnalysisFixtures.analyseStage` and
+`stageErrorCount` now speak `UnitOutcome` rather than `Result<FrozenFile, UnparsedFile list>`.
 
 ### 4. Migrate the compile-shaped tests
 

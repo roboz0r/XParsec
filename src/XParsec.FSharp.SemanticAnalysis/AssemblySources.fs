@@ -31,6 +31,17 @@ module AssemblySources =
         ReferencedProject.loadManifest mp
         |> Result.map (ParsedManifest.ofManifest >> ofParsedManifest)
 
+    /// Already-parsed units under a caller-supplied assembly name and target.
+    let ofUnits (name: string) (target: string) (units: AssemblyFiles.AssemblyUnit list) : AssemblySources =
+        {
+            Assembly =
+                {
+                    Name = AssemblyName name
+                    Target = target
+                }
+            Units = units
+        }
+
     /// Sources held as TEXT under a caller-supplied assembly: a driver handed a string, a
     /// test. A half with no tree faults its own unit alone.
     let synthetic
@@ -39,11 +50,4 @@ module AssemblySources =
         (compilationDefines: Set<string>)
         (units: AssemblyFiles.SourceUnit list)
         : AssemblySources =
-        {
-            Assembly =
-                {
-                    Name = AssemblyName name
-                    Target = target
-                }
-            Units = List.map (AssemblyFiles.AssemblyUnit.parse compilationDefines) units
-        }
+        ofUnits name target (List.map (AssemblyFiles.AssemblyUnit.parse compilationDefines) units)

@@ -196,11 +196,12 @@
     <Compile Include="Pipeline.fs" />
     <Compile Include="AssemblyFiles.fs" />
     <Compile Include="AssemblyAnalysis.fs" />
-    <Compile Include="CompileAssembly.fs" />
     <!-- After the `.fsi` front end and the per-file anchoring it shares with an assembly's
          units: a package is that same analysis over the files a manifest lists. -->
     <Compile Include="PackageProviders.fs" />
     <Compile Include="AssemblySources.fs" />
+    <!-- After the sources it takes: `analyse` runs the front end over an `AssemblySources`. -->
+    <Compile Include="AnalysedAssembly.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />

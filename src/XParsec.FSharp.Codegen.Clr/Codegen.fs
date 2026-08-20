@@ -77,27 +77,21 @@ module Codegen =
         | _ :: _ as errors -> Error errors
         | [] -> Ok(assemble referenceAssemblies symbols project tasts)
 
-    /// A SEQUENCE of frozen files → one in-memory PE artifact. `symbols` must already carry
-    /// every cross-file surface the files reference; the caller composes that view. Only the
-    /// LAST file may carry top-level expressions, so it alone owns `Main` and the entry point.
-    let compileFiles
-        (symbols: ICodegenSymbols)
-        (project: ProjectInfo)
-        (tasts: FrozenPools list)
-        : Result<ClrArtifact, Diagnostic list> =
-        assembleGated [] symbols project tasts
-
-    /// `compileFiles` with the compilation's own reference set threaded into the emitted
-    /// `AssemblyRef` identity map. `compileFiles` is this with `[]`.
-    let compileFilesWithReferences
+    /// A gated assembly → one in-memory PE artifact, so a cross-file reference is re-homed to
+    /// a local `MethodDef`. `referenceAssemblies` supplies the emitted `AssemblyRef` identities.
+    /// Only the LAST file may carry top-level expressions, so it alone owns `Main`.
+    let emitAssembly
         (referenceAssemblies: string list)
-        (symbols: ICodegenSymbols)
         (project: ProjectInfo)
-        (tasts: FrozenPools list)
-        : Result<ClrArtifact, Diagnostic list> =
-        assembleGated referenceAssemblies symbols project tasts
+        (assembly: EmittableAssembly)
+        : ClrArtifact =
+        assemble
+            referenceAssemblies
+            (CodegenSymbols.ofProvider assembly.Visibility)
+            project
+            [ for f in assembly.Files -> f.Frozen ]
 
-    /// TAST + symbol context → in-memory PE artifact; the single-file case of `compileFiles`.
+    /// TAST + symbol context → in-memory PE artifact; the single-file case of `emitAssembly`.
     /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
     /// class exist and whether the PE serialises with an entry point.
     let compile
@@ -105,7 +99,7 @@ module Codegen =
         (project: ProjectInfo)
         (tast: FrozenPools)
         : Result<ClrArtifact, Diagnostic list> =
-        compileFiles symbols project [ tast ]
+        assembleGated [] symbols project [ tast ]
 
     /// `compile` with the compilation's own reference set (a TFM ref pack + `<Reference>`s) in
     /// the emitted-`AssemblyRef` identity map, so `System.Runtime` / `System.Console` bind the
@@ -116,7 +110,7 @@ module Codegen =
         (project: ProjectInfo)
         (tast: FrozenPools)
         : Result<ClrArtifact, Diagnostic list> =
-        compileFilesWithReferences referenceAssemblies symbols project [ tast ]
+        assembleGated referenceAssemblies symbols project [ tast ]
 
     /// The test seam for a body written with no TAST: assembles a hand-written `Main` that
     /// drives the untyped `Il` surface directly.

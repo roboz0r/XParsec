@@ -63,14 +63,6 @@ module ClrDriver =
                     )
         ]
 
-    /// Codegen's own gate firing on a tree `analyseGated` already passed, which means the two
-    /// disagree. There is no file left to anchor to, so each finding is re-filed as a driver
-    /// refusal carrying the original message.
-    let private reanchored (diagnostics: Diagnostic list) : AssemblyFiles.AnchoredDiagnostic list =
-        AssemblyFiles.unpositionedDiagnostics
-            AssemblyFileId.nowhere
-            [ for d in diagnostics -> Diagnostic.nowhere (Kind.Driver d.Message) ]
-
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
     /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
     let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
@@ -96,36 +88,18 @@ module ClrDriver =
 
                 Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast
 
-    /// An ordered source-file list analysed as one assembly and emitted as ONE PE, so a
-    /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back
-    /// anchored to their own file rather than thrown.
+    /// An ordered source-file list analysed as one assembly and emitted as ONE PE.
+    /// Diagnostics come back anchored to their own file rather than thrown.
     let compileAssemblyWith
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
         (units: AssemblyFiles.AssemblyUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        let assembly: CompilingAssembly =
-            {
-                Name = AssemblyName project.AssemblyName
-                Target = Target.Clr
-            }
-
-        CompileAssembly.analyseGated Pipeline.analyseFor assembly external units
-        |> Result.bind (fun analysed ->
-            // The visibility stack analysis composed, rebuilt: `external` is the floor and
-            // `Files` is in file order, so each view pushes on top of the ones it may shadow.
-            let symbols =
-                ExternalSymbolProviders.composite (
-                    analysed.Files |> List.fold (fun stack f -> f.View :: stack) [ external ]
-                )
-                |> CodegenSymbols.ofProvider
-
-            let tasts = [ for f in analysed.Files -> f.Frozen ]
-
-            Codegen.compileFilesWithReferences referenceAssemblies symbols project tasts
-            |> Result.mapError reanchored
-        )
+        AssemblySources.ofUnits project.AssemblyName Target.Clr units
+        |> AnalysedAssembly.analyse Pipeline.analyseFor external
+        |> AnalysedAssembly.gate
+        |> Result.map (Codegen.emitAssembly referenceAssemblies project)
 
     /// The multi-file counterpart of `compile`, MSBuild-shaped: `ReferenceAssemblies` threaded
     /// into both the contract provider and `AssemblyRef` identity.

@@ -62,7 +62,7 @@ module PackageProviders =
         /// than its `.fsi` files say surfaces as an unresolved name in the COMPILING file,
         /// which blames the wrong file for it.
         let gate (m: AnalysedManifest) : Result<AnalysedManifest, AssemblyFiles.AnchoredDiagnostic list> =
-            match m.Diagnostics |> List.filter (fun d -> d.Diagnostic.Severity = Severity.Error) with
+            match AssemblyFiles.AnchoredDiagnostic.errors m.Diagnostics with
             | [] -> Ok m
             | errors -> Error errors
 
@@ -144,17 +144,15 @@ module PackageProviders =
 
         let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
         let surfaces = ResizeArray<PublishedSurface>()
-        let published = ResizeArray<IExternalSymbolProvider>()
         let analysed = ResizeArray<AssemblyAnalysis.AnalysedUnit>()
 
-        for unit in analysedUnits do
+        for unit in analysedUnits.Units do
             diagnostics.AddRange(AssemblyAnalysis.UnitOutcome.surfaced unit)
 
             match unit with
             | AssemblyAnalysis.UnitOutcome.Failed _ -> ()
             | AssemblyAnalysis.UnitOutcome.Analysed u ->
                 surfaces.Add u.Surface
-                published.Add u.Published
                 analysed.Add u
 
         // What a consumer resolves through: this package's `[<AutoOpen>]` modules (most
@@ -167,9 +165,6 @@ module PackageProviders =
             |> List.distinct
             |> (fun prefixes -> prefixes @ RuntimeNames.preludeNamespaces)
 
-        // The units' published views, NEAREST first, as the fold stacked them.
-        let own = List.rev (List.ofSeq published)
-
         {
             RuntimeAssets = ReferencedProject.runtimeModules [ manifest ]
             // Every resolved descriptor carries the package as its home: the surfaces record
@@ -178,7 +173,7 @@ module PackageProviders =
                 ExternalSymbolProviders.stack
                     (ValueSome(SymbolHome.InAssembly(AssemblyName manifest.Name)))
                     ambient
-                    [ ExternalSymbolProviders.composite own ]
+                    [ ExternalSymbolProviders.composite analysedUnits.Published ]
             Diagnostics = List.ofSeq diagnostics
             TypeHomes =
                 Map.ofList
@@ -187,7 +182,7 @@ module PackageProviders =
                             for typeName in declaredTypeNames s -> typeName, manifest.Name
                     ]
             InlineBodies = InlineBodies.concat [ for u in analysed -> u.Bodies ]
-            Retained = LexedFiles.ofSeq [ for u in analysed -> u.File.Retained ]
+            Retained = AssemblyFiles.retainedDomain [ for u in analysed -> u.File ]
         }
 
     /// `buildProviderSeeded` with no platform metadata, over one already-composed dependency

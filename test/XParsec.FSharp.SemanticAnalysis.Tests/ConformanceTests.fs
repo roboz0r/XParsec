@@ -278,29 +278,36 @@ let tests =
 // The same pairs, resolved: every verdict is taken by identity, so a `[<CompiledName>]`, a
 // `ModuleSuffix` module and a shadowed attribute are settled before the comparison.
 
-let private analysedAsm: CompilingAssembly =
-    {
-        Name = AssemblyName "TestAsm"
-        Target = "clr"
-    }
+/// Every analysed unit's findings, or a test failure citing the halves that did not parse.
+let private analysedDiagnostics
+    (what: string)
+    (units: AssemblyFiles.SourceUnit list)
+    : AssemblyFiles.AnchoredDiagnostic list =
+    let analysed =
+        AnalysedAssembly.analyse
+            Pipeline.analyseFor
+            realProvider.Value
+            (AssemblySources.synthetic "TestAsm" "clr" Set.empty units)
+
+    analysed.Units
+    |> List.collect (
+        function
+        | AssemblyAnalysis.UnitOutcome.Analysed u -> AssemblyFiles.fileDiagnostics u.File
+        | AssemblyAnalysis.UnitOutcome.Failed(leading, rest) ->
+            failtestf
+                "%s did not parse: %s"
+                what
+                (leading :: rest |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
+    )
 
 /// Every conformance verdict the in-assembly route reports for one `.fsi` / `.fs` pair.
 let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
-    CompileAssembly.analyseAssembly
-        analysedAsm
-        realProvider.Value
-        Set.empty
-        [
-            AssemblyFiles.SourceUnit.paired
-                (AssemblyFiles.SourceFile.ofText "pair.fsi" sigSrc)
-                (AssemblyFiles.SourceFile.ofText "pair.fs" implSrc)
-        ]
-    |> List.collect (
-        function
-        | Ok f -> AssemblyFiles.fileDiagnostics f
-        | Error faults ->
-            failtestf "the pair did not parse: %s" (faults |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
-    )
+    [
+        AssemblyFiles.SourceUnit.paired
+            (AssemblyFiles.SourceFile.ofText "pair.fsi" sigSrc)
+            (AssemblyFiles.SourceFile.ofText "pair.fs" implSrc)
+    ]
+    |> analysedDiagnostics "the pair"
     |> List.choose (fun a ->
         match a.Diagnostic.Kind with
         | Kind.Conformance _ -> Some a.Diagnostic.Message
@@ -310,21 +317,10 @@ let private conformAnalysed (sigSrc: string) (implSrc: string) : string list =
 /// The error-severity findings of ONE analysed implementation, so a fixture that fails for an
 /// unrelated reason says so rather than passing a conformance assertion vacuously.
 let private analysedErrors (implSrc: string) : string list =
-    CompileAssembly.analyseAssembly
-        analysedAsm
-        realProvider.Value
-        Set.empty
-        [
-            AssemblyFiles.SourceUnit.ofImplementation (AssemblyFiles.SourceFile.ofText "solo.fs" implSrc)
-        ]
-    |> List.collect (
-        function
-        | Ok f -> AssemblyFiles.fileDiagnostics f
-        | Error faults ->
-            failtestf
-                "the implementation did not parse: %s"
-                (faults |> List.map (fun e -> e.Id.Name) |> String.concat ", ")
-    )
+    [
+        AssemblyFiles.SourceUnit.ofImplementation (AssemblyFiles.SourceFile.ofText "solo.fs" implSrc)
+    ]
+    |> analysedDiagnostics "the implementation"
     |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
     |> List.map (fun a -> a.Diagnostic.Message)
 

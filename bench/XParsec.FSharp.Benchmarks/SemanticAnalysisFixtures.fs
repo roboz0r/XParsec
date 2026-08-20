@@ -121,35 +121,37 @@ let stagesFor (depth: ChainDepth) : Stage list =
         ]
     | other -> failwithf "SemanticAnalysisFixtures: unknown chain depth %A" other
 
-/// Analyse one stage, returning every file's result. `analyse` is a seam so the probe can
+/// Analyse one stage, returning every unit's outcome. `analyse` is a seam so the probe can
 /// inject a timing wrapper.
-let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
-    CompileAssembly.analyseAssemblyWith
-        analyse
-        {
-            Name = AssemblyName s.Name
-            Target = Target.Clr
-        }
-        s.Provider
-        Set.empty
-        (s.Files |> List.map AssemblyFiles.SourceUnit.ofImplementation)
+let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) : AssemblyAnalysis.UnitOutcome list =
+    let analysed =
+        AnalysedAssembly.analyse
+            analyse
+            s.Provider
+            (AssemblySources.synthetic
+                s.Name
+                Target.Clr
+                Set.empty
+                (s.Files |> List.map AssemblyFiles.SourceUnit.ofImplementation))
 
-/// Count error-severity diagnostics across a stage's results (parse failures + analysis
+    analysed.Units
+
+/// Count error-severity diagnostics across a stage's outcomes (parse failures + analysis
 /// errors). The green-workload guard: a bench on an erroring workload measures the error
 /// path, so a non-zero count is a setup crash, not a silent number.
-let stageErrorCount (results: Result<AssemblyFiles.FrozenFile, AssemblyFiles.UnparsedFile list> list) : int =
-    results
+let stageErrorCount (outcomes: AssemblyAnalysis.UnitOutcome list) : int =
+    outcomes
     |> List.sumBy (
         function
-        | Error faults ->
-            faults
+        | AssemblyAnalysis.UnitOutcome.Failed(leading, rest) ->
+            leading :: rest
             |> List.collect (fun e -> e.Failure.Diagnostics)
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
         // A file that parsed only because RECOVERY patched it is not a green workload
         // either, so its parse diagnostics count the same as the analysis residue.
-        | Ok u ->
-            u.ParseDiagnostics @ u.Frozen.Residue.Diagnostics
+        | AssemblyAnalysis.UnitOutcome.Analysed u ->
+            u.File.ParseDiagnostics @ u.File.Frozen.Residue.Diagnostics
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
     )

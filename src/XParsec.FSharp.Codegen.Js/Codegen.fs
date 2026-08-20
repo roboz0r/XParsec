@@ -158,6 +158,49 @@ module Codegen =
             IsEmpty = List.isEmpty program.Body
         }
 
+    /// Every file of a gated assembly lowered to its own module, in manifest order, each
+    /// against the provider it was analysed under.
+    let emitAssembly
+        (contract: PackageProviders.AnalysedManifest)
+        (assembly: EmittableAssembly)
+        : (AssemblyFileId * JsArtifact) list =
+        // A module is written into its own assembly's directory, which is what a sibling
+        // import's specifier resolves against.
+        let packageName = assembly.Assembly.Name.Name
+
+        // A spliced node resolves its positions against its declaring file's own text, so the
+        // assembly's sources join the references' before any file is emitted.
+        let origins = LexedFiles.addAll assembly.Retained contract.Retained
+
+        [
+            for file in assembly.Files do
+                let fileId = file.Retained.Path.Relative
+                let relative = fileId.Name
+
+                let project =
+                    { JsProjectInfo.defaults (JsModulePath.baseName relative) with
+                        Package = ValueSome packageName
+                        Kind = Library
+                        GeneratedFrom = Some relative
+                        Source =
+                            Some
+                                {
+                                    Path = relative
+                                    Content = file.Retained.Input
+                                    Lexed = file.Retained.Lexed
+                                }
+                    }
+
+                fileId,
+                emit
+                    { contract with
+                        Provider = file.Scoped
+                        Retained = origins
+                    }
+                    project
+                    file.Frozen
+        ]
+
     /// `emit`, GATED: a tree carrying an error-severity diagnostic has no defined lowering,
     /// so emission is refused and the findings come back.
     let compileWith

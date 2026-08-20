@@ -107,103 +107,43 @@ module JsDriver =
         (packageName: string)
         (units: AssemblyFiles.AssemblyUnit list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
-        let assembly: CompilingAssembly =
-            {
-                Name = AssemblyName packageName
-                Target = Target.Js
-            }
-
         PackageProviders.AnalysedManifest.gate contract
-        |> Result.bind (fun gated -> CompileAssembly.analyseGated Pipeline.analyseFor assembly gated.Provider units)
+        |> Result.bind (fun gated ->
+            AssemblySources.ofUnits packageName Target.Js units
+            |> AnalysedAssembly.analyse Pipeline.analyseFor gated.Provider
+            |> AnalysedAssembly.gate
+        )
         |> Result.bind (fun analysed ->
-            // A spliced node reads only against its declaring file's own text, so the
-            // assembly's own sources join the references' before any file is emitted.
-            let origins = LexedFiles.addAll analysed.Retained contract.Retained
-
-            // Each file's compile keeps its source identity, which is both the module path it
-            // emits to and the file a refusal is blamed on.
-            let compiled =
+            // Each module keeps its file's source identity, which is the path it writes to. A
+            // file that lowers to no statements writes no module, so it joins neither the
+            // barrel nor the collision check.
+            let emitted =
                 [
-                    for file in analysed.Files do
-                        let fileId = file.Retained.Path.Relative
-                        let relative = fileId.Name
-
-                        let project =
-                            { JsProjectInfo.defaults (JsModulePath.baseName relative) with
-                                Package = ValueSome packageName
-                                Kind = Library
-                                GeneratedFrom = Some relative
-                                Source =
-                                    Some
-                                        {
-                                            Path = relative
-                                            Content = file.Retained.Input
-                                            Lexed = file.Retained.Lexed
-                                        }
+                    for fileId, artifact in Codegen.emitAssembly contract analysed do
+                        if not artifact.IsEmpty then
+                            {
+                                Source = fileId
+                                Path = JsModulePath.ofSource packageName fileId.Name
+                                Artifact = artifact
                             }
-
-                        {|
-                            Source = fileId
-                            Path = JsModulePath.ofSource packageName relative
-                            Artifact =
-                                Codegen.compileWith
-                                    { contract with
-                                        Provider = file.Scoped
-                                        Retained = origins
-                                    }
-                                    project
-                                    file.Frozen
-                        |}
                 ]
 
-            // Codegen's gate firing on a tree `analyseGated` already passed means the two
-            // disagree; the finding is re-filed against the file that produced it.
-            let refusals =
-                [
-                    for c in compiled do
-                        match c.Artifact with
-                        | Error errors ->
-                            yield!
-                                AssemblyFiles.unpositionedDiagnostics
-                                    c.Source
-                                    [ for d in errors -> Diagnostic.nowhere (Kind.Driver d.Message) ]
-                        | Ok _ -> ()
-                ]
+            let assets =
+                emitted
+                |> List.collect (fun m -> m.Artifact.RuntimeModules)
+                |> List.distinctBy (fun (a: JsRuntimeModule) -> a.Path)
 
-            match refusals with
-            | _ :: _ -> Error refusals
+            match modulePathCollisions packageName emitted with
+            | _ :: _ as errors -> Error errors
             | [] ->
-                // A file that lowers to no statements writes no module, so it joins neither
-                // the barrel nor the collision check.
-                let emitted =
-                    [
-                        for c in compiled do
-                            match c.Artifact with
-                            | Ok artifact when not artifact.IsEmpty ->
-                                {
-                                    Source = c.Source
-                                    Path = c.Path
-                                    Artifact = artifact
-                                }
-                            | _ -> ()
-                    ]
+                checkResolvable packageName emitted assets
 
-                let assets =
-                    emitted
-                    |> List.collect (fun m -> m.Artifact.RuntimeModules)
-                    |> List.distinctBy (fun (a: JsRuntimeModule) -> a.Path)
-
-                match modulePathCollisions packageName emitted with
-                | _ :: _ as errors -> Error errors
-                | [] ->
-                    checkResolvable packageName emitted assets
-
-                    Ok
-                        {
-                            Name = packageName
-                            Modules = emitted
-                            RuntimeAssets = assets
-                        }
+                Ok
+                    {
+                        Name = packageName
+                        Modules = emitted
+                        RuntimeAssets = assets
+                    }
         )
 
     /// Write `package` under the output `root`: its modules and barrel into `<root>/<Name>/`,
