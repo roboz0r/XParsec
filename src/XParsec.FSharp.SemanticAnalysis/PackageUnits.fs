@@ -19,11 +19,3 @@ module PackageUnits =
                 | AssemblyFiles.ClassifiedUnit.Faulted(leading, _) -> Error leading
                 | AssemblyFiles.ClassifiedUnit.Unpaired _ -> ()
         ]
-
-    /// `ofPackage` for a caller holding only the path: it reads the package itself. Whether the
-    /// pairing conforms is the caller's own check.
-    let ofManifest
-        (mp: ReferencedProject.ManifestPath)
-        : Result<Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list, PackageSetFault> =
-        ReferencedProject.loadManifest mp
-        |> Result.map (PackageSource.readPackage >> ofPackage)

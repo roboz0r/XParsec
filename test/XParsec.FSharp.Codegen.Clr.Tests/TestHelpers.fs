@@ -216,9 +216,9 @@ let vesperCoreDll: Lazy<string> =
 
          // Each unit the manifest lists is analysed as its own file against the composed
          // prior-file views, so a primitive repr (`string`, …) resolves from Core's own `.fs`.
-         let files =
+         let sources =
              ReferencedProject.resolveManifest Target.Clr vesperCorePackage
-             |> Result.bind PackageUnits.ofManifest
+             |> Result.bind AssemblySources.ofManifest
              |> PackageFaults.okOrFail "vesperCoreDll"
 
          // Core defines its own primitives, so it references nothing and declares ITSELF as
@@ -227,7 +227,7 @@ let vesperCoreDll: Lazy<string> =
          let contract = gatedContractForSelf "vesperCoreDll" vesperCorePackage []
 
          let artifact =
-             match ClrDriver.compileAssemblyWith [] contract.Provider project files with
+             match ClrDriver.compileAssemblyWith [] contract.Provider project sources.Units with
              | Ok artifact -> artifact
              | Error diags ->
                  failwithf "vesperCoreDll: %d analysis error(s):\n%s" (List.length diags) (anchoredDiagText diags)
@@ -380,7 +380,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // Self-host front end, so a bare `[]` / `::` in a BCL-only package defaults
                  // to the Vesper cons-list rather than FSharp.Core's. The seam returns `Error`
                  // on any error-severity diagnostic instead of emitting a degraded DLL.
-                 let files = PackageUnits.ofPackage parsedPackage
+                 let sources = AssemblySources.ofPackage parsedPackage
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")
@@ -392,7 +392,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let artifact =
-                     match ClrDriver.compileAssemblyWith [] contract.Provider project files with
+                     match ClrDriver.compileAssemblyWith [] contract.Provider project sources.Units with
                      | Ok artifact -> artifact
                      | Error diags ->
                          failwithf
@@ -408,7 +408,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // A package with no `impl` files carries no runtime types, and `Vesper.Printf`
                  // is loaded into Default separately, so registering a second copy here would
                  // bind a driver's `Vesper.Formatter` to the wrong one. Throwaway ALC for both.
-                 if List.isEmpty files || manifest.Name = "Vesper.Printf" then
+                 if List.isEmpty sources.Units || manifest.Name = "Vesper.Printf" then
                      let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
 
                      throwaway.LoadFromStream ms, artifact

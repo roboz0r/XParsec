@@ -108,6 +108,8 @@ type AssemblySources =
 module AssemblySources =
     /// Name and target off the manifest, units in its file order.
     val ofPackage : PackageSource.ParsedPackage -> AssemblySources
+    /// `ofPackage` for a caller holding only the path.
+    val ofManifest : ReferencedProject.ManifestPath -> Result<AssemblySources, PackageSetFault>
     /// In-memory sources compiled under a caller-supplied name.
     val synthetic : name: string -> target: string -> Set<string> -> SourceUnit list -> AssemblySources
 
@@ -210,15 +212,26 @@ the fact:
 
 This step harvests the resolution findings without touching what any test asserts on.
 
-### 2. `AssemblySources`
+### 2. `AssemblySources` — LANDED 2026-08-19
 
-`ofPackage` over `PackageSource.ParsedPackage` (units via the existing `PackageUnits.ofPackage`),
-and `synthetic` for in-memory sources. `PackageUnits.ofManifest` becomes
-`resolveManifest >> loadManifest >> readPackage >> AssemblySources.ofPackage`.
+`AssemblySources.fs`, after `PackageUnits.fs`: `ofPackage` over `PackageSource.ParsedPackage`
+(units via the existing `PackageUnits.ofPackage`), `ofManifest` for a caller holding only the
+path, and `synthetic` for in-memory sources.
 
 `ManifestPath` is minted only by `resolveManifest`, which is what makes a manifest's files and
 its target agree. `synthetic` therefore mints an `AssemblySources` directly rather than a
 synthetic `Manifest`.
+
+`ofManifest` moved off `PackageUnits` and kept its `ManifestPath` parameter rather than taking
+target and package directory: `JsPackageTests` and `ConformanceTests` hold a resolved
+`ManifestPath` already, and re-resolving one from its parts would read the manifest twice.
+
+Every `PackageUnits.ofManifest` / `ofPackage` caller now goes through `AssemblySources` and
+passes `.Units` on to the driver, which still derives its `CompilingAssembly` from
+`ProjectInfo.AssemblyName` — step 3 is where the driver takes the pairing instead.
+`JsPackageTests` already drops its `loadManifest` and names the package from
+`sources.Assembly.Name`. `AssemblySourcesTests.fs` pins the name and target off the manifest,
+manifest file order, and that `synthetic` parses under the compilation defines it is given.
 
 ### 3. Total `analyse`, `gate`, `EmittableAssembly`
 

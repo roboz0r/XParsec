@@ -283,17 +283,16 @@ module Shim =
                     ReferencedProject.resolveManifest Target.Js vesperCorePackage
                     |> PackageFaults.okOrFail "Vesper.Core manifest"
 
-                let manifest =
-                    ReferencedProject.loadManifest manifestPath
-                    |> PackageFaults.okOrFail "Vesper.Core manifest"
-
-                let files =
-                    PackageUnits.ofManifest manifestPath
+                let sources =
+                    AssemblySources.ofManifest manifestPath
                     |> PackageFaults.okOrFail "Vesper.Core units"
 
                 let pkg =
                     match
-                        JsDriver.compileAssemblyWith (JsDriver.contractForSelf vesperCorePackage []) manifest.Name files
+                        JsDriver.compileAssemblyWith
+                            (JsDriver.contractForSelf vesperCorePackage [])
+                            sources.Assembly.Name.Name
+                            sources.Units
                     with
                     | Ok pkg -> pkg
                     | Error diags ->

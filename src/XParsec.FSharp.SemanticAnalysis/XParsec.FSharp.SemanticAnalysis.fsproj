@@ -198,6 +198,7 @@
          units: a package is that same fold over the files a manifest lists. -->
     <Compile Include="PackageProviders.fs" />
     <Compile Include="PackageUnits.fs" />
+    <Compile Include="AssemblySources.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />

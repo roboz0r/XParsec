@@ -1072,8 +1072,11 @@ let private unitPaths
 let private unitsOf
     (mp: ReferencedProject.ManifestPath)
     : Result<AssemblyFiles.ParsedUnit, AssemblyFiles.UnparsedFile> list =
-    PackageUnits.ofManifest mp
-    |> PackageFaults.okOrFail (sprintf "PackageUnits.ofManifest %s" mp.Path)
+    let sources =
+        AssemblySources.ofManifest mp
+        |> PackageFaults.okOrFail (sprintf "AssemblySources.ofManifest %s" mp.Path)
+
+    sources.Units
 
 [<Tests>]
 let packageUnitsTests =

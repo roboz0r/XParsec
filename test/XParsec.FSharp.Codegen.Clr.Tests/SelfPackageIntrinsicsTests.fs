@@ -22,12 +22,12 @@ module ConcatProbe =
 """
 
     let private coreFilesPlusProbe () =
-        let coreUnits =
+        let core =
             ReferencedProject.resolveManifest Target.Clr vesperCorePackage
-            |> Result.bind PackageUnits.ofManifest
+            |> Result.bind AssemblySources.ofManifest
             |> PackageFaults.okOrFail "cannot load Vesper.Core manifest"
 
-        coreUnits
+        core.Units
         @ [
             AssemblyFiles.parseUnit
                 Set.empty
