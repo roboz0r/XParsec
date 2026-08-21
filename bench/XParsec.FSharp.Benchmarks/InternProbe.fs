@@ -2,7 +2,7 @@
 /// NOT a shipped benchmark — a spike to measure the CEILINGS before any
 /// cache is built, so a cache that cannot be shown to pay never lands:
 ///
-///   * Pure analyse+freeze wall time per stage, ISOLATED from parse. `analyseAssemblyWith`
+///   * Pure analyse+freeze wall time per stage, ISOLATED from parse. `analyseWith`
 ///     parses each file before calling the front end, so wrapping the front-end seam
 ///     (`timed`) times SA only — the fair denominator for "how much could SA-internal
 ///     caching save".

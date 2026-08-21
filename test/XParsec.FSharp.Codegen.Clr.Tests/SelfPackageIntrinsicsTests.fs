@@ -44,11 +44,7 @@ module ConcatProbe =
         ClrSymbolProviders.contractForSelf selfManifest []
         |> PackageProviders.AnalysedManifest.gate
         |> Result.bind (fun contract ->
-            ClrDriver.compileAssemblyWith
-                []
-                contract.Provider
-                (ProjectInfo.library "Vesper.Core")
-                (coreFilesPlusProbe ())
+            ClrDriver.compileWith [] contract.Provider (ProjectInfo.library "Vesper.Core") (coreFilesPlusProbe ())
         )
 
     [<Tests>]

@@ -65,18 +65,6 @@ module Codegen =
         asm.WriteMethods()
         asm.Finalise()
 
-    /// `assemble`, GATED: a tree carrying an error-severity diagnostic has no defined
-    /// lowering, so emission is refused and the findings come back in file order.
-    let private assembleGated
-        (referenceAssemblies: string list)
-        (symbols: ICodegenSymbols)
-        (project: ProjectInfo)
-        (tasts: FrozenPools list)
-        : Result<ClrArtifact, Diagnostic list> =
-        match FrozenPools.blockingErrorsOfAll tasts with
-        | _ :: _ as errors -> Error errors
-        | [] -> Ok(assemble referenceAssemblies symbols project tasts)
-
     /// A gated assembly → one in-memory PE artifact, so a cross-file reference is re-homed to
     /// a local `MethodDef`. `referenceAssemblies` supplies the emitted `AssemblyRef` identities.
     /// Only the LAST file may carry top-level expressions, so it alone owns `Main`.
@@ -90,17 +78,6 @@ module Codegen =
             (CodegenSymbols.ofProvider assembly.Visibility)
             project
             [ for f in assembly.Files -> f.Frozen ]
-
-    /// The single-file case of `emitAssembly`, with the compilation's own reference set (a TFM
-    /// ref pack + `<Reference>`s) in the emitted-`AssemblyRef` identity map: `System.Runtime` /
-    /// `System.Console` bind the reference set rather than the host's `System.Private.CoreLib`.
-    let compileWithReferences
-        (referenceAssemblies: string list)
-        (symbols: ICodegenSymbols)
-        (project: ProjectInfo)
-        (tast: FrozenPools)
-        : Result<ClrArtifact, Diagnostic list> =
-        assembleGated referenceAssemblies symbols project [ tast ]
 
     /// The test seam for a body written with no TAST: assembles a hand-written `Main` that
     /// drives the untyped `Il` surface directly.

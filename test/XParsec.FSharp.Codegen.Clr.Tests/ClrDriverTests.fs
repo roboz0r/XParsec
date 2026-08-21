@@ -23,6 +23,19 @@ let private assemblyRefNames (path: string) : string list =
         for h in md.AssemblyReferences -> md.GetString((md.GetAssemblyReference h).Name)
     ]
 
+/// `source` as the one unit of an assembly, named for the compilation it belongs to.
+let private oneUnit (inputs: ClrCompilation) (source: string) : AssemblyFiles.SourceUnit list =
+    [
+        AssemblyFiles.SourceFile.ofText (inputs.Project.AssemblyName + ".fs") source
+        |> AssemblyFiles.SourceUnit.ofImplementation
+    ]
+
+/// Anchored findings as `file(line,col): message`, one per line.
+let private diagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
+    diags
+    |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
+    |> String.concat "\n"
+
 [<Tests>]
 let tests =
     testList
@@ -47,12 +60,11 @@ let tests =
                     ClrCompilation.consumer project [ vesperCorePackage ] referenceAssemblies Set.empty
 
                 let artifact =
-                    match ClrDriver.compileApp inputs "System.Console.WriteLine \"hello\"" with
+                    match ClrDriver.compile inputs (oneUnit inputs "System.Console.WriteLine \"hello\"") with
                     | Ok a -> a
-                    | Error ds ->
-                        failtestf
-                            "driver compile failed: %s"
-                            (ds |> List.map (fun d -> d.Message) |> String.concat "\n")
+                    | Error ds -> failtestf "driver compile failed:\n%s" (diagText ds)
+
+                Codegen.materialiseApp project artifact
 
                 let dllPath =
                     match artifact.OutputPath with
@@ -84,10 +96,14 @@ let tests =
                         Set.empty
 
                 // `1 + "x"`: an int/string operand mismatch the front end rejects.
-                match ClrDriver.compile inputs "let x = 1 + \"x\"" with
+                match ClrDriver.compile inputs (oneUnit inputs "let x = 1 + \"x\"") with
                 | Ok _ -> failtest "expected the type error to be returned as diagnostics"
                 | Error ds ->
                     Expect.isNonEmpty ds "at least one diagnostic"
-                    Expect.all ds Diagnostic.isError "all returned diagnostics are errors"
+
+                    Expect.all
+                        (ds |> List.map (fun d -> d.Diagnostic))
+                        Diagnostic.isError
+                        "all returned diagnostics are errors"
             }
         ]

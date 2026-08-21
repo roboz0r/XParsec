@@ -261,7 +261,3 @@ module FrozenPools =
     /// still carry warnings, and emits with them.
     let blockingErrors (pools: FrozenPools) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
         Diagnostic.errors pools.Residue.Diagnostics
-
-    /// `blockingErrors` over a whole assembly's files, in file order.
-    let blockingErrorsOfAll (tasts: FrozenPools list) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
-        List.collect blockingErrors tasts

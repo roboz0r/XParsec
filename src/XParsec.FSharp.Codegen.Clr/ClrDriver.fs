@@ -1,9 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
-open XParsec.FSharp.Lexer
-open XParsec.FSharp.Parser
-open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.SemanticAnalysis
 
 /// A single CLR compilation's inputs, MSBuild-shaped. `Packages` are the package DIRECTORIES
 /// this compilation resolves against; `SelfPackage` is the one it DEFINES. The driver resolves
@@ -39,9 +37,6 @@ module ClrCompilation =
 /// set, returning front-end errors rather than throwing.
 module ClrDriver =
 
-    let private driverDiagnostic (message: string) : Diagnostic =
-        Diagnostic.nowhere (Kind.Driver message)
-
     /// The compilation's reference set resolved, GATED on what resolving it found.
     let private contractFor
         (inputs: ClrCompilation)
@@ -49,49 +44,10 @@ module ClrDriver =
         ClrSymbolProviders.compilationContract inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
         |> PackageProviders.AnalysedManifest.gate
 
-    /// A gate refusal as the FLAT diagnostics a single-file entry returns. A positioned
-    /// diagnostic keeps its file and position, rendered into the message; a whole-set fault
-    /// has no file and passes through.
-    let private unanchored (diagnostics: AssemblyFiles.AnchoredDiagnostic list) : Diagnostic list =
-        [
-            for d in diagnostics ->
-                if d.Path = AssemblyFileId.nowhere then
-                    d.Diagnostic
-                else
-                    Diagnostic.nowhere (
-                        Kind.Driver(sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
-                    )
-        ]
-
-    /// Compile `source` to an in-memory PE against the compilation's own reference set. A
-    /// driver program is a package CONSUMER, so it runs the default (non-self-host) front end.
-    let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
-        match contractFor inputs |> Result.mapError unanchored with
-        | Error contractErrors -> Error contractErrors
-        | Ok contract ->
-            match ParseChain.parseUnrecovered inputs.CompilationDefines source with
-            | Error diagnostics -> Error diagnostics
-            | Ok parsed ->
-                let provider = contract.Provider
-                let symbols = CodegenSymbols.ofProvider provider
-
-                let home = AssemblyName inputs.Project.AssemblyName
-
-                let tast =
-                    Pipeline.analyseFor
-                        { Name = home; Target = Target.Clr }
-                        provider
-                        // No path was handed over, so the text names the file; the assembly IS
-                        // known and is stamped rather than left blank.
-                        (LexedFile.inAssembly home (AssemblyFileId.ofText parsed.Lexed.Input) parsed.Lexed)
-                        parsed.Tree
-
-                Codegen.compileWithReferences inputs.ReferenceAssemblies symbols inputs.Project tast
-
     /// An ordered source-file list analysed as one assembly under `assemblyName`, stopping
     /// before the gate. Every finding stays anchored to the file that produced it. Resolution
     /// comes from `external` alone.
-    let analyseAssemblyWith
+    let analyseWith
         (external: IExternalSymbolProvider)
         (assemblyName: string)
         (units: AssemblyFiles.AssemblyUnit list)
@@ -111,57 +67,26 @@ module ClrDriver =
 
     /// An ordered source-file list analysed as one assembly and emitted as ONE PE.
     /// Diagnostics come back anchored to their own file rather than thrown.
-    let compileAssemblyWith
+    let compileWith
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
         (units: AssemblyFiles.AssemblyUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        analyseAssemblyWith external project.AssemblyName units
+        analyseWith external project.AssemblyName units
         |> emitAnalysed referenceAssemblies project
 
-    /// The multi-file counterpart of `compile`, MSBuild-shaped: `ReferenceAssemblies` threaded
-    /// into both the contract provider and `AssemblyRef` identity.
-    let compileAssembly
+    /// `compileWith`, MSBuild-shaped: the reference set resolves the contract the units are
+    /// analysed against and supplies the emitted `AssemblyRef` identities.
+    let compile
         (inputs: ClrCompilation)
         (units: AssemblyFiles.SourceUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         contractFor inputs
         |> Result.bind (fun contract ->
-            compileAssemblyWith
+            compileWith
                 inputs.ReferenceAssemblies
                 contract.Provider
                 inputs.Project
                 (List.map (AssemblyFiles.AssemblyUnit.parse inputs.CompilationDefines) units)
         )
-
-    /// `compile`, then a runnable framework-dependent bundle when `Project.OutputPath` is
-    /// set. An in-memory compilation returns the artifact unwritten.
-    let compileApp (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
-        compile inputs source
-        |> Result.map (fun artifact ->
-            match inputs.Project.OutputPath with
-            | Some _ -> Materialise.materialiseApp inputs.Project artifact
-            | None -> ()
-
-            artifact
-        )
-
-    /// `compile` with `ReferenceAssemblies` resolved from `Project.TargetFramework`, the
-    /// no-MSBuild CONVENIENCE. Passing them explicitly remains the PRIMARY mechanism.
-    let compileForTfm (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
-        match inputs.Project.TargetFramework with
-        | None ->
-            Error
-                [
-                    driverDiagnostic "compileForTfm requires ProjectInfo.TargetFramework to be set"
-                ]
-        | Some tfm ->
-            match RefPack.resolve tfm with
-            | Result.Error msg -> Error [ driverDiagnostic msg ]
-            | Result.Ok dlls ->
-                compile
-                    { inputs with
-                        ReferenceAssemblies = dlls
-                    }
-                    source

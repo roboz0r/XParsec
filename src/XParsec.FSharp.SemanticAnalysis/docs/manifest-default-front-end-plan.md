@@ -1,9 +1,9 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have steps 1-4
-of the staged plan; step 5 has not started. This revision replaces the earlier gated/ungated
-pair with an `analyse` / `compile` split, and carries the type names the source-identity rename
-settled on.
+Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have all five
+steps of the staged plan. This revision replaces the earlier gated/ungated pair with an
+`analyse` / `compile` split, and carries the type names the source-identity rename settled on.
+What remains is the "Independent findings" section.
 
 ## Root cause
 
@@ -333,11 +333,26 @@ fails the same way: `resolveThroughProvider` reaches intrinsic and platform clas
 no arm for an ordinary class a prior file published. Records, interfaces and module functions
 all cross a file boundary. `CrossFileTests` carries the case as a `ptest`.
 
-### 5. Delete the single-file driver path
+### 5. Delete the single-file driver path — LANDED 2026-08-20
 
-`ClrDriver.compile`, `compileApp`, `compileForTfm`, and `Codegen.compileWithReferences` once
-nothing calls them (`Codegen.compile` went in step 4). `ClrDriver.compileAssembly` /
-`compileAssemblyWith` are subsumed by step 3's `compile`.
+`ClrDriver.compile`, `compileApp` and `compileForTfm` are gone, with the two private helpers
+only they reached — `driverDiagnostic` and `unanchored`, the latter being the flattening that
+rendered a file and position into a message. So every CLR entry now returns
+`AnchoredDiagnostic list`. `Codegen.compileWithReferences` went with them, and `assembleGated`
+under it, which leaves `Codegen.emitAssembly` as the only route into `assemble` and takes
+`FrozenPools.blockingErrorsOfAll` (its sole caller) with it: the error gate now lives once, in
+`AnalysedAssembly.gate`.
+
+With the single-file path gone every entry is assembly-shaped, so the suffix that distinguished
+them is dropped: `analyseAssemblyWith` → `analyseWith`, `compileAssemblyWith` → `compileWith`,
+`compileAssembly` → `compile`. `emitAnalysed` keeps its name. The JS driver's `compileWith`
+single-file entry is untouched.
+
+`ClrDriverTests` was the only caller of the deleted pair, and it is the acceptance gate for the
+`ClrCompilation` shape (an explicit `net8.0` ref pack rather than the host's runtime
+assemblies), so both tests moved onto `compile` of a one-unit `SourceUnit list`; the ref-pack
+test calls `Codegen.materialiseApp` itself, which is what `compileApp` added over `compile`.
+Every suite is green.
 
 ## Independent findings
 
@@ -396,7 +411,7 @@ must cover all of them. (What survives of that file is `AssemblyFilePathTests.fs
 ## Scope and risk
 
 Step 1 was the bulk and carried the only real uncertainty: the count of tests failing once they
-carry a home assembly turned out to be zero. Steps 2, 3 and 5 are mechanical. Step 4 turned out
+carry a home assembly turned out to be zero. Steps 2, 3 and 5 were mechanical. Step 4 turned out
 to be 343 call sites across 43 files, all of them compile-shaped.
 
 Step 3 changes diagnostic SHAPE on the assembly path twice: a codegen refusal stops being
@@ -410,8 +425,9 @@ member's declaring type.
 
 ## Assumptions for confirmation
 
-1. **The single-file path has no consumer this repo cannot see.** `ClrDriver.compile` and
-   friends have no `src/` caller; if an out-of-repo driver binds to them, step 5 is breaking.
+1. ~~**The single-file path has no consumer this repo cannot see.**~~ Taken as confirmed by step
+   5, which deleted it. An out-of-repo driver bound to `ClrDriver.compile` gets the
+   `SourceUnit list`-shaped `compile` in its place.
 2. **`gate` truncates nothing.** A missing early file can cascade into spurious unresolved-name
    errors across every later unit, and `analyseGated:791-794` exists to hide that cascade behind
    the parse failure. Under this plan `gate` returns all of them, parse failures first, and

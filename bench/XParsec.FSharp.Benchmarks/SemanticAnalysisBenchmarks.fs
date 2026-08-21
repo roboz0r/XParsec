@@ -27,7 +27,7 @@ type SemanticAnalysisBenchmarks() =
     [<GlobalSetup>]
     member this.Setup() =
         // Provider composition + source reads are heavy and MUST be out of the measured
-        // body — only the `analyseAssemblyWith` chain is timed.
+        // body — only the `analyseWith` chain is timed.
         stages <- stagesFor this.Depth
 
         // Green-workload guard: a bench on an erroring workload measures the error path.

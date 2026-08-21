@@ -192,7 +192,7 @@ let private emitted (label: string) (result: Result<ClrArtifact, AssemblyFiles.A
 /// Compile one in-memory source as a whole assembly against `external`, through the production
 /// driver. The emitted `AssemblyRef` identities come from `project.References` alone.
 let compileAgainst (external: IExternalSymbolProvider) (project: ProjectInfo) (input: string) : ClrArtifact =
-    ClrDriver.compileAssemblyWith [] external project (oneUnit project.AssemblyName input)
+    ClrDriver.compileWith [] external project (oneUnit project.AssemblyName input)
     |> emitted project.AssemblyName
 
 /// The self-package contract, GATED.
@@ -237,7 +237,7 @@ let vesperCoreDll: Lazy<string> =
          let contract = gatedContractForSelf "vesperCoreDll" vesperCorePackage []
 
          let artifact =
-             match ClrDriver.compileAssemblyWith [] contract.Provider project sources.Units with
+             match ClrDriver.compileWith [] contract.Provider project sources.Units with
              | Ok artifact -> artifact
              | Error diags ->
                  failwithf "vesperCoreDll: %d analysis error(s):\n%s" (List.length diags) (anchoredDiagText diags)
@@ -398,7 +398,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let artifact =
-                     match ClrDriver.compileAssemblyWith [] contract.Provider project sources.Units with
+                     match ClrDriver.compileWith [] contract.Provider project sources.Units with
                      | Ok artifact -> artifact
                      | Error diags ->
                          failwithf
@@ -465,10 +465,7 @@ let withCore (project: ProjectInfo) : ProjectInfo =
 /// built once and cached per manifest set: an `External(name)` whose body lives in a referenced
 /// `.fs` splices in pre-freeze. `[]` manifests ⇒ the .NET metadata reader alone.
 let private analyseContract (manifestPaths: string list) (assemblyName: string) (input: string) : AnalysedAssembly =
-    ClrDriver.analyseAssemblyWith
-        (ClrSymbolProviders.buildContract manifestPaths)
-        assemblyName
-        (oneUnit assemblyName input)
+    ClrDriver.analyseWith (ClrSymbolProviders.buildContract manifestPaths) assemblyName (oneUnit assemblyName input)
 
 /// What the front end may report about a compile.
 type private Expected =
