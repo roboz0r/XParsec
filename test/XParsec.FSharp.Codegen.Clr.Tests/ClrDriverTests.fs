@@ -23,18 +23,12 @@ let private assemblyRefNames (path: string) : string list =
         for h in md.AssemblyReferences -> md.GetString((md.GetAssemblyReference h).Name)
     ]
 
-/// `source` as the one unit of an assembly, named for the compilation it belongs to.
-let private oneUnit (inputs: ClrCompilation) (source: string) : AssemblyFiles.SourceUnit list =
-    [
-        AssemblyFiles.SourceFile.ofText (inputs.Project.AssemblyName + ".fs") source
-        |> AssemblyFiles.SourceUnit.ofImplementation
-    ]
-
-/// Anchored findings as `file(line,col): message`, one per line.
-let private diagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
-    diags
-    |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
-    |> String.concat "\n"
+/// The compilation `project` describes against the ref pack its own TFM names, or a test
+/// failure carrying why the pack could not be resolved.
+let private compilationFor (project: ProjectInfo) : ClrCompilation =
+    match ClrCompilation.forTfm project [ vesperCorePackage ] Set.empty with
+    | Ok inputs -> inputs
+    | Error ds -> failtestf "ref pack unavailable:\n%s" (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
 
 [<Tests>]
 let tests =
@@ -44,27 +38,23 @@ let tests =
             // No function value, list or printf, so the program has no Vesper runtime
             // dependency: a BCL-only static call, run on disk with its refs inspected.
             test "compiles + runs a program against the net8.0 ref pack, binding ref-pack AssemblyRefs" {
-                let referenceAssemblies =
-                    match RefPack.resolve "net8.0" with
-                    | Result.Ok dlls -> dlls
-                    | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e
-
                 let outDir = tmpDir "clr-driver-refpack"
 
-                let project =
-                    { ProjectInfo.app "ClrDriverRefPack" outDir with
-                        TargetFramework = Some "net8.0"
-                    }
-
                 let inputs =
-                    ClrCompilation.consumer project [ vesperCorePackage ] referenceAssemblies Set.empty
+                    compilationFor
+                        { ProjectInfo.app "ClrDriverRefPack" outDir with
+                            TargetFramework = Some "net8.0"
+                        }
+
+                let source =
+                    oneSource inputs.Project.AssemblyName "System.Console.WriteLine \"hello\""
 
                 let artifact =
-                    match ClrDriver.compile inputs (oneUnit inputs "System.Console.WriteLine \"hello\"") with
+                    match ClrDriver.compile inputs source with
                     | Ok a -> a
-                    | Error ds -> failtestf "driver compile failed:\n%s" (diagText ds)
+                    | Error ds -> failtestf "driver compile failed:\n%s" (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
 
-                Codegen.materialiseApp project artifact
+                Codegen.materialiseApp artifact
 
                 let dllPath =
                     match artifact.OutputPath with
@@ -87,23 +77,30 @@ let tests =
             // The driver is production surface, so it raises no exception of its own.
             test "a type error returns Error diagnostics (no exception)" {
                 let inputs =
-                    ClrCompilation.consumer
-                        (ProjectInfo.defaults "ClrDriverTypeError")
-                        [ vesperCorePackage ]
-                        (match RefPack.resolve "net8.0" with
-                         | Result.Ok dlls -> dlls
-                         | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e)
-                        Set.empty
+                    compilationFor
+                        { ProjectInfo.defaults "ClrDriverTypeError" with
+                            TargetFramework = Some "net8.0"
+                        }
 
                 // `1 + "x"`: an int/string operand mismatch the front end rejects.
-                match ClrDriver.compile inputs (oneUnit inputs "let x = 1 + \"x\"") with
+                let source = oneSource inputs.Project.AssemblyName "let x = 1 + \"x\""
+
+                match ClrDriver.compile inputs source with
                 | Ok _ -> failtest "expected the type error to be returned as diagnostics"
                 | Error ds ->
                     Expect.isNonEmpty ds "at least one diagnostic"
+                    Expect.all ds (fun d -> Diagnostic.isError d.Diagnostic) "all returned diagnostics are errors"
+            }
 
-                    Expect.all
-                        (ds |> List.map (fun d -> d.Diagnostic))
-                        Diagnostic.isError
-                        "all returned diagnostics are errors"
+            test "a compilation whose project sets no TargetFramework is refused" {
+                match ClrCompilation.forTfm (ProjectInfo.defaults "ClrDriverNoTfm") [] Set.empty with
+                | Ok _ -> failtest "expected the missing TFM to be refused"
+                | Error ds ->
+                    Expect.all ds (fun d -> Diagnostic.isError d.Diagnostic) "the refusal is an error"
+
+                    Expect.stringContains
+                        (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
+                        "TargetFramework"
+                        "the message names the field that was not set"
             }
         ]

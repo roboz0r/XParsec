@@ -221,11 +221,16 @@ module internal NominalMembers =
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =
     {
-        AssemblyName: string
-        OutputPath: string option
+        /// The project this was emitted for: where it writes, the TFM its
+        /// `runtimeconfig.json` names, and the paths a shipped reference is copied from.
+        Project: ProjectInfo
         /// The serialised PE image.
         Pe: BlobBuilder
         /// Simple names of every assembly the emitted PE binds against (its `AssemblyRef`
         /// table), which seed the ship set when materialising a runnable app.
         ReferencedAssemblies: string list
     }
+
+    member this.AssemblyName: string = this.Project.AssemblyName
+
+    member this.OutputPath: string option = this.Project.OutputPath

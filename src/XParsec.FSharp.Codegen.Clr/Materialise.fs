@@ -58,9 +58,11 @@ module Materialise =
     /// The PE, its `runtimeconfig.json` and a copy of every referenced assembly the
     /// shared framework does not carry, into the PE's directory, after which
     /// `dotnet <OutputPath>` runs the program. Requires `OutputPath`.
-    let materialiseApp (project: ProjectInfo) (artifact: ClrArtifact) : unit =
+    let materialiseApp (artifact: ClrArtifact) : unit =
+        let project = artifact.Project
+
         match artifact.OutputPath with
-        | None -> failwith "Codegen.materialiseApp: ProjectInfo.OutputPath must be set"
+        | None -> failwith "materialiseApp: ProjectInfo.OutputPath must be set"
         | Some dllPath ->
             let dir = Path.GetDirectoryName dllPath
             Directory.CreateDirectory dir |> ignore

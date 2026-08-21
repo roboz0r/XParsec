@@ -4,13 +4,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Layer-2 .NET metadata reader (System.Reflection.MetadataLoadContext) and the
-         CLR-side provider conveniences over the target-generic
-         `Codegen.Common.SymbolProviders`. .NET-specific, so they live here, not in Common. -->
-    <!-- TFM → reference-pack resolver: the no-MSBuild convenience over an explicit
-         `dllPaths` set. Depends on nothing else in Codegen.Clr, so it sorts first. -->
     <Compile Include="RefPack.fs" />
-    <!-- Ahead of the metadata source that classifies a tuple and the encoder that mints it. -->
     <Compile Include="ClrTuples.fs" />
     <Compile Include="MetadataSymbols.fs" />
     <Compile Include="ClrSymbolProviders.fs" />
@@ -57,21 +51,14 @@
     <Compile Include="Assembler.fs" />
     <Compile Include="NominalEmit.fs" />
     <Compile Include="Codegen.fs" />
-    <!-- The library-level production CLR driver: parse/analyse/gate/emit against an
-         explicit reference set. Sorts last — it composes everything above. -->
     <Compile Include="ClrDriver.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
-    <!-- Shared codegen symbol-resolution infra: `IntrinsicRepr` and the
-         target-generic `SymbolProviders` (the .NET metadata reader `MetadataSymbols`
-         is platform-specific and lives here in Codegen.Clr). -->
     <ProjectReference Include="..\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
-    <!-- Layer 2 of the symbol-resolution stack: read referenced assemblies'
-         metadata reflection-only (MetadataSymbols.fs). -->
     <PackageReference Include="System.Reflection.MetadataLoadContext" />
   </ItemGroup>
 </Project>

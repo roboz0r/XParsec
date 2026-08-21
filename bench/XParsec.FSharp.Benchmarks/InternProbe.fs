@@ -2,10 +2,10 @@
 /// NOT a shipped benchmark — a spike to measure the CEILINGS before any
 /// cache is built, so a cache that cannot be shown to pay never lands:
 ///
-///   * Pure analyse+freeze wall time per stage, ISOLATED from parse. `analyseWith`
-///     parses each file before calling the front end, so wrapping the front-end seam
-///     (`timed`) times SA only — the fair denominator for "how much could SA-internal
-///     caching save".
+///   * Pure analyse+freeze wall time per stage, ISOLATED from parse. `analyseStage` parses
+///     each file into its `AssemblySources` before the front end runs, so wrapping the
+///     front-end seam (`timed`) times SA only — the fair denominator for "how much could
+///     SA-internal caching save".
 ///   * Redundancy ceilings via shadow counters (`hit`) keyed EXACTLY as a real cache would
 ///     key. A query family's max hit-rate is `1 - distinct/total`; if that is low on this
 ///     workload, no cache implementation for it pays. The invasive `find`/`zonk`/`subsumes`/

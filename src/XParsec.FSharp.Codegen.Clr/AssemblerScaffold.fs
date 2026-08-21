@@ -128,8 +128,7 @@ module internal AssemblerScaffold =
         |> ignore
 
         {
-            AssemblyName = project.AssemblyName
-            OutputPath = project.OutputPath
+            Project = project
             Pe = ctx.Serialize(mainDef)
             ReferencedAssemblies = ctx.ReferencedAssemblyNames
         }

@@ -33,8 +33,30 @@ module ClrCompilation =
             CompilationDefines = compilationDefines
         }
 
-/// The production CLR driver: parse → analyse → gate → emit against an EXPLICIT reference
-/// set, returning front-end errors rather than throwing.
+    /// `consumer` with the reference set resolved from `Project.TargetFramework`, so the TFM
+    /// the emitted `runtimeconfig.json` names and the pack the compilation binds against are
+    /// the same one. A project with no TFM, or a TFM with no installed pack, is refused.
+    let forTfm
+        (project: ProjectInfo)
+        (packages: string list)
+        (compilationDefines: Set<string>)
+        : Result<ClrCompilation, AssemblyFiles.AnchoredDiagnostic list> =
+        let refuse (message: string) =
+            Error(
+                AssemblyFiles.unpositionedDiagnostics
+                    AssemblyFileId.nowhere
+                    [ Diagnostic.nowhere (Kind.Driver message) ]
+            )
+
+        match project.TargetFramework with
+        | None -> refuse (sprintf "'%s' sets no ProjectInfo.TargetFramework" project.AssemblyName)
+        | Some tfm ->
+            match RefPack.resolve tfm with
+            | Error message -> refuse message
+            | Ok referenceAssemblies -> Ok(consumer project packages referenceAssemblies compilationDefines)
+
+/// The production CLR driver: analyse → gate → emit against an EXPLICIT reference set,
+/// returning front-end errors rather than throwing.
 module ClrDriver =
 
     /// The compilation's reference set resolved, GATED on what resolving it found.
@@ -44,16 +66,13 @@ module ClrDriver =
         ClrSymbolProviders.compilationContract inputs.SelfPackage inputs.ReferenceAssemblies inputs.Packages
         |> PackageProviders.AnalysedManifest.gate
 
-    /// An ordered source-file list analysed as one assembly under `assemblyName`, stopping
-    /// before the gate. Every finding stays anchored to the file that produced it. Resolution
-    /// comes from `external` alone.
-    let analyseWith
-        (external: IExternalSymbolProvider)
-        (assemblyName: string)
-        (units: AssemblyFiles.AssemblyUnit list)
-        : AnalysedAssembly =
-        AssemblySources.ofUnits assemblyName Target.Clr units
-        |> AnalysedAssembly.analyse Pipeline.analyseFor external
+    /// Source text as one CLR assembly's inputs, under the emitted assembly's own name.
+    let sourcesFor
+        (project: ProjectInfo)
+        (compilationDefines: Set<string>)
+        (units: AssemblyFiles.SourceUnit list)
+        : AssemblySources =
+        AssemblySources.synthetic project.AssemblyName Target.Clr compilationDefines units
 
     /// An analysed assembly gated and emitted as ONE PE. `referenceAssemblies` and
     /// `project.References` together supply the emitted `AssemblyRef` identities.
@@ -62,31 +81,26 @@ module ClrDriver =
         (project: ProjectInfo)
         (analysed: AnalysedAssembly)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        AnalysedAssembly.gate analysed
-        |> Result.map (Codegen.emitAssembly referenceAssemblies project)
+        Frontend.emitAnalysed (Codegen.emitAssembly referenceAssemblies project) analysed
 
-    /// An ordered source-file list analysed as one assembly and emitted as ONE PE.
-    /// Diagnostics come back anchored to their own file rather than thrown.
+    /// An assembly's sources analysed and emitted as ONE PE. Diagnostics come back anchored to
+    /// their own file rather than thrown. Resolution comes from `external` alone.
     let compileWith
         (referenceAssemblies: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (units: AssemblyFiles.AssemblyUnit list)
+        (sources: AssemblySources)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        analyseWith external project.AssemblyName units
-        |> emitAnalysed referenceAssemblies project
+        Frontend.compile (Codegen.emitAssembly referenceAssemblies project) external sources
 
-    /// `compileWith`, MSBuild-shaped: the reference set resolves the contract the units are
-    /// analysed against and supplies the emitted `AssemblyRef` identities.
+    /// `compileWith` over source text, MSBuild-shaped: the reference set resolves the contract
+    /// the units are analysed against and supplies the emitted `AssemblyRef` identities.
     let compile
         (inputs: ClrCompilation)
         (units: AssemblyFiles.SourceUnit list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         contractFor inputs
         |> Result.bind (fun contract ->
-            compileWith
-                inputs.ReferenceAssemblies
-                contract.Provider
-                inputs.Project
-                (List.map (AssemblyFiles.AssemblyUnit.parse inputs.CompilationDefines) units)
+            sourcesFor inputs.Project inputs.CompilationDefines units
+            |> compileWith inputs.ReferenceAssemblies contract.Provider inputs.Project
         )

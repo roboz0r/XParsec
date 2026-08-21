@@ -415,7 +415,7 @@ let tests =
                 if File.Exists fsCoreDst then
                     File.Delete fsCoreDst
 
-                Codegen.materialiseApp project artifact
+                Codegen.materialiseApp artifact
 
                 Expect.isTrue (File.Exists(Path.Combine(outDir, "Vesper.Core.dll"))) "Vesper.Core.dll (Fun) shipped"
 
@@ -448,7 +448,7 @@ let tests =
                     if File.Exists p then
                         File.Delete p
 
-                Codegen.materialiseApp project artifact
+                Codegen.materialiseApp artifact
 
                 Expect.isTrue (File.Exists(Path.Combine(outDir, "Vesper.Printf.dll"))) "Vesper.Printf.dll shipped"
                 Expect.isFalse (File.Exists(Path.Combine(outDir, "FSharp.Core.dll"))) "no FSharp.Core.dll"

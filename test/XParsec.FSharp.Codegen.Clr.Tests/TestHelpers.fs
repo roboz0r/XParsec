@@ -151,11 +151,6 @@ let vesperCorePackage: string = srcPackage "Vesper.Core"
 let dependencyName (entry: string) : string =
     IO.Path.GetFileName(IO.Path.TrimEndingDirectorySeparator entry)
 
-/// A multi-file driver's anchored diagnostics as `path: message`, one per line.
-let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
-    diags
-    |> List.map (fun d -> sprintf "%s: %s" d.Path.Name d.Diagnostic.Message)
-    |> String.concat "\n"
 
 /// The contract, GATED, so a test that miswires its packages fails with the contract error
 /// and not an unresolved name three files later.
@@ -165,17 +160,21 @@ let private gatedContract
     : PackageProviders.AnalysedManifest =
     match PackageProviders.AnalysedManifest.gate contract with
     | Ok contract -> contract
-    | Error ds -> failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (anchoredDiagText ds)
+    | Error ds ->
+        failwithf "%s: %d contract error(s):\n%s" label (List.length ds) (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
 
 /// `input` as the ONE unit of an assembly named `assemblyName`. The unit carries that name as
 /// its file name, which is what a failure message prints beside each finding. Compilation
 /// defines are empty: a source here carries no `#if`.
-let private oneUnit (assemblyName: string) (input: string) : AssemblyFiles.AssemblyUnit list =
+let oneSource (assemblyName: string) (input: string) : AssemblyFiles.SourceUnit list =
     [
         AssemblyFiles.SourceFile.ofText (assemblyName + ".fs") input
         |> AssemblyFiles.SourceUnit.ofImplementation
-        |> AssemblyFiles.AssemblyUnit.parse Set.empty
     ]
+
+/// `oneSource` as a CLR assembly's inputs.
+let private oneSources (assemblyName: string) (input: string) : AssemblySources =
+    AssemblySources.synthetic assemblyName Target.Clr Set.empty (oneSource assemblyName input)
 
 /// The artifact, or a test failure carrying the findings that refused it. `label` identifies
 /// the compile in that message.
@@ -187,12 +186,12 @@ let private emitted (label: string) (result: Result<ClrArtifact, AssemblyFiles.A
             "%s: the front end refused the assembly over %d error diagnostic(s):\n%s"
             label
             (List.length diagnostics)
-            (anchoredDiagText diagnostics)
+            (AssemblyFiles.AnchoredDiagnostic.renderAll diagnostics)
 
 /// Compile one in-memory source as a whole assembly against `external`, through the production
 /// driver. The emitted `AssemblyRef` identities come from `project.References` alone.
 let compileAgainst (external: IExternalSymbolProvider) (project: ProjectInfo) (input: string) : ClrArtifact =
-    ClrDriver.compileWith [] external project (oneUnit project.AssemblyName input)
+    ClrDriver.compileWith [] external project (oneSources project.AssemblyName input)
     |> emitted project.AssemblyName
 
 /// The self-package contract, GATED.
@@ -237,10 +236,13 @@ let vesperCoreDll: Lazy<string> =
          let contract = gatedContractForSelf "vesperCoreDll" vesperCorePackage []
 
          let artifact =
-             match ClrDriver.compileWith [] contract.Provider project sources.Units with
+             match ClrDriver.compileWith [] contract.Provider project sources with
              | Ok artifact -> artifact
              | Error diags ->
-                 failwithf "vesperCoreDll: %d analysis error(s):\n%s" (List.length diags) (anchoredDiagText diags)
+                 failwithf
+                     "vesperCoreDll: %d analysis error(s):\n%s"
+                     (List.length diags)
+                     (AssemblyFiles.AnchoredDiagnostic.renderAll diags)
 
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
@@ -398,14 +400,14 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      }
 
                  let artifact =
-                     match ClrDriver.compileWith [] contract.Provider project sources.Units with
+                     match ClrDriver.compileWith [] contract.Provider project sources with
                      | Ok artifact -> artifact
                      | Error diags ->
                          failwithf
                              "buildPackage %s: %d analysis error(s):\n%s"
                              pkg
                              (List.length diags)
-                             (anchoredDiagText diags)
+                             (AssemblyFiles.AnchoredDiagnostic.renderAll diags)
 
                  Codegen.materialise artifact
 
@@ -465,7 +467,7 @@ let withCore (project: ProjectInfo) : ProjectInfo =
 /// built once and cached per manifest set: an `External(name)` whose body lives in a referenced
 /// `.fs` splices in pre-freeze. `[]` manifests ⇒ the .NET metadata reader alone.
 let private analyseContract (manifestPaths: string list) (assemblyName: string) (input: string) : AnalysedAssembly =
-    ClrDriver.analyseWith (ClrSymbolProviders.buildContract manifestPaths) assemblyName (oneUnit assemblyName input)
+    Frontend.analyse (ClrSymbolProviders.buildContract manifestPaths) (oneSources assemblyName input)
 
 /// What the front end may report about a compile.
 type private Expected =
@@ -508,7 +510,7 @@ let private compileContract
             "%s: the front end reported %d unexpected diagnostic(s):\n%s"
             project.AssemblyName
             (List.length diagnostics)
-            (anchoredDiagText diagnostics)
+            (AssemblyFiles.AnchoredDiagnostic.renderAll diagnostics)
 
 /// The default compile path: `int` / `hash` / the operators all resolve from the `Vesper.Core`
 /// contract, and the front end reports nothing.
@@ -561,7 +563,12 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let emittable =
         match AnalysedAssembly.gate (analyseContract defaultPackages assemblyName input) with
         | Ok emittable -> emittable
-        | Error ds -> failwithf "%s: %d error diagnostic(s):\n%s" assemblyName (List.length ds) (anchoredDiagText ds)
+        | Error ds ->
+            failwithf
+                "%s: %d error diagnostic(s):\n%s"
+                assemblyName
+                (List.length ds)
+                (AssemblyFiles.AnchoredDiagnostic.renderAll ds)
 
     let file = List.exactlyOne emittable.Files
     let cored = withCore project

@@ -110,6 +110,14 @@ module AssemblyFiles =
         let errors (ds: AnchoredDiagnostic seq) : AnchoredDiagnostic list =
             ds |> Seq.filter (fun a -> Diagnostic.isError a.Diagnostic) |> List.ofSeq
 
+        /// One finding as `file(line,col): message`.
+        let render (a: AnchoredDiagnostic) : string =
+            sprintf "%s(%d,%d): %s" a.Path.Name a.Line a.Col a.Diagnostic.Message
+
+        /// Findings as `render` per line, in the order given.
+        let renderAll (ds: AnchoredDiagnostic seq) : string =
+            ds |> Seq.map render |> String.concat "\n"
+
     /// The per-file front-end seam: analyse+freeze one parsed file against a composed
     /// provider, wrappable by a probe that times each file.
     type AnalyseFile =

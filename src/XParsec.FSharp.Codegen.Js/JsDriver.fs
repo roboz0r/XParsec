@@ -101,25 +101,22 @@ module JsDriver =
             for target in a.Imports do
                 check a.Path target
 
-    /// Compile an ordered source-file list as ONE assembly named `packageName`.
-    let compileAssemblyWith
+    /// An assembly's sources analysed and lowered to one `.mjs` per emitting file.
+    let compileWith
         (contract: PackageProviders.AnalysedManifest)
-        (packageName: string)
-        (units: AssemblyFiles.AssemblyUnit list)
+        (sources: AssemblySources)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
+        let packageName = sources.Assembly.Name.Name
+
         PackageProviders.AnalysedManifest.gate contract
-        |> Result.bind (fun gated ->
-            AssemblySources.ofUnits packageName Target.Js units
-            |> AnalysedAssembly.analyse Pipeline.analyseFor gated.Provider
-            |> AnalysedAssembly.gate
-        )
-        |> Result.bind (fun analysed ->
+        |> Result.bind (fun gated -> Frontend.compile (Codegen.emitAssembly contract) gated.Provider sources)
+        |> Result.bind (fun emittedFiles ->
             // Each module keeps its file's source identity, which is the path it writes to. A
             // file that lowers to no statements writes no module, so it joins neither the
             // barrel nor the collision check.
             let emitted =
                 [
-                    for fileId, artifact in Codegen.emitAssembly contract analysed do
+                    for fileId, artifact in emittedFiles do
                         if not artifact.IsEmpty then
                             {
                                 Source = fileId

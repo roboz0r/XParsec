@@ -44,7 +44,7 @@ let tests =
                     "let rec sumTo n =\n    match n with\n    | 0 -> 0\n    | _ -> n + sumTo (n - 1)\nprintfn \"%d\" (sumTo 5)"
 
                 let artifact = compileSourceTo project src
-                Codegen.materialiseApp project artifact
+                Codegen.materialiseApp artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecStaticApp.dll")
                 let exitCode, output = runOnDisk dllPath
@@ -60,7 +60,7 @@ let tests =
                 let project = withCore (ProjectInfo.app "XParsecListApp" outDir)
 
                 let artifact = compileSourceTo project "printfn \"%A\" [1; 2; 3]"
-                Codegen.materialiseApp project artifact
+                Codegen.materialiseApp artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecListApp.dll")
                 Expect.isTrue (IO.File.Exists dllPath) "PE written"

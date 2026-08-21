@@ -21,30 +21,36 @@ module ConcatProbe =
     let inline probeConcat (x: string) (y: string) : string = System.String.Concat(x, y)
 """
 
-    let private coreFilesPlusProbe () =
+    /// Vesper.Core's own sources with the probe appended to its `impl` list.
+    let private coreSourcesPlusProbe () : AssemblySources =
         let core =
             ReferencedProject.resolveManifest Target.Clr vesperCorePackage
             |> Result.bind AssemblySources.ofManifest
             |> PackageFaults.okOrFail "cannot load Vesper.Core manifest"
 
-        core.Units
-        @ [
-            AssemblyFiles.AssemblyUnit.parse
-                Set.empty
-                (AssemblyFiles.SourceUnit.ofImplementation (
-                    AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource
-                ))
-        ]
+        { core with
+            Units =
+                core.Units
+                @ [
+                    AssemblyFiles.AssemblyUnit.parse
+                        Set.empty
+                        (AssemblyFiles.SourceUnit.ofImplementation (
+                            AssemblyFiles.SourceFile.ofText "concat-probe.fs" probeSource
+                        ))
+                ]
+        }
 
-    /// Compiled AS Vesper.Core, the probe appended to Core's real `impl` list, so the probe's
-    /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds.
+    /// Compiled AS Vesper.Core, so the probe's `string` is the `TyConst Vesper.string` Core's
+    /// own `.fs` binds. The emitted assembly takes its name from the manifest.
     let private compileProbeAsCore (selfManifest: string option) =
         // GATED, so a contract that failed to resolve is reported as itself rather than as the
         // missing-overload verdict this test is about.
         ClrSymbolProviders.contractForSelf selfManifest []
         |> PackageProviders.AnalysedManifest.gate
         |> Result.bind (fun contract ->
-            ClrDriver.compileWith [] contract.Provider (ProjectInfo.library "Vesper.Core") (coreFilesPlusProbe ())
+            let sources = coreSourcesPlusProbe ()
+            let project = ProjectInfo.library sources.Assembly.Name.Name
+            ClrDriver.compileWith [] contract.Provider project sources
         )
 
     [<Tests>]

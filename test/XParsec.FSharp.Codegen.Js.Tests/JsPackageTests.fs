@@ -14,22 +14,17 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 let private packageName = "Test.Pkg"
 
+/// `units` as `packageName`'s JS sources. A source here carries no `#if`, so compilation
+/// defines are empty.
+let private testSources (units: AssemblyFiles.SourceUnit list) : AssemblySources =
+    AssemblySources.synthetic packageName Target.Js Set.empty units
+
 /// Compile `units` as one JS package through the production driver, failing the test on
 /// any front-end diagnostic (anchored to its own file, as the driver reports it).
 let private compileUnits (units: AssemblyFiles.SourceUnit list) : JsPackage =
-    match
-        JsDriver.compileAssemblyWith
-            jsContract.Value
-            packageName
-            (List.map (AssemblyFiles.AssemblyUnit.parse Set.empty) units)
-    with
+    match JsDriver.compileWith jsContract.Value (testSources units) with
     | Ok pkg -> pkg
-    | Error diags ->
-        failtestf
-            "package compile failed:\n%s"
-            (diags
-             |> List.map (fun d -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message)
-             |> String.concat "\n")
+    | Error diags -> failtestf "package compile failed:\n%s" (AssemblyFiles.AnchoredDiagnostic.renderAll diags)
 
 let private compilePackage (files: AssemblyFiles.SourceFile list) : JsPackage =
     compileUnits (files |> List.map AssemblyFiles.SourceUnit.ofImplementation)
@@ -217,12 +212,7 @@ type IShape =
                     ]
                     |> List.map AssemblyFiles.SourceUnit.ofImplementation
 
-                match
-                    JsDriver.compileAssemblyWith
-                        jsContract.Value
-                        packageName
-                        (List.map (AssemblyFiles.AssemblyUnit.parse Set.empty) files)
-                with
+                match JsDriver.compileWith jsContract.Value (testSources files) with
                 | Ok _ -> failtest "the collision must be refused"
                 | Error diags ->
                     Expect.equal
@@ -291,21 +281,12 @@ module Shim =
                     |> PackageFaults.okOrFail "Vesper.Core units"
 
                 let pkg =
-                    match
-                        JsDriver.compileAssemblyWith
-                            (JsDriver.contractForSelf vesperCorePackage [])
-                            sources.Assembly.Name.Name
-                            sources.Units
-                    with
+                    match JsDriver.compileWith (JsDriver.contractForSelf vesperCorePackage []) sources with
                     | Ok pkg -> pkg
                     | Error diags ->
                         failtestf
                             "Vesper.Core JS package compile failed:\n%s"
-                            (diags
-                             |> List.map (fun d ->
-                                 sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message
-                             )
-                             |> String.concat "\n")
+                            (AssemblyFiles.AnchoredDiagnostic.renderAll diags)
 
                 let root = tmpDir "js-package-core"
                 JsDriver.materialise root pkg

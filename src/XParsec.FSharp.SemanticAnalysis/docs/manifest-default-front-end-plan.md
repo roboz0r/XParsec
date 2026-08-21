@@ -1,6 +1,6 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have all five
+Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have all six
 steps of the staged plan. This revision replaces the earlier gated/ungated pair with an
 `analyse` / `compile` split, and carries the type names the source-identity rename settled on.
 What remains is the "Independent findings" section.
@@ -353,6 +353,27 @@ single-file entry is untouched.
 assemblies), so both tests moved onto `compile` of a one-unit `SourceUnit list`; the ref-pack
 test calls `Codegen.materialiseApp` itself, which is what `compileApp` added over `compile`.
 Every suite is green.
+
+### 6. Converge the two drivers on one seam — LANDED 2026-08-20
+
+Step 5's review found the drivers rebuilding an `AssemblySources` their callers had just taken
+apart: `compileWith` took `(project, AssemblyUnit list)` and re-derived name and target from
+`project.AssemblyName` + a hard-coded `Target.Clr`, while `TestHelpers`, `SelfPackageIntrinsics`
+and `JsPackageTests` all held one from `AssemblySources.ofManifest` and passed `.Units`. Both
+`compileWith` entries now take `AssemblySources` whole, so the manifest's name and target reach
+emission rather than being restated beside it.
+
+`Codegen.Common/Frontend.fs` carries the analyse → gate → emit chain both backends share,
+generic in the artifact each emits. `ClrDriver.analyseWith` was a pass-through over it once
+`AssemblySources` arrived whole and is gone; `JsDriver.compileAssemblyWith` → `compileWith`,
+matching its CLR counterpart again.
+
+`AnchoredDiagnostic.render` / `renderAll` moved the `file(line,col): message` rendering into
+`AssemblyFiles`, where step 5 had left four hand-rolled copies across three test projects and a
+fifth that dropped the position. `ClrCompilation.forTfm` gives `RefPack` back a `src/` consumer
+and ties the resolved pack to `Project.TargetFramework`, which `ClrDriverTests` had been
+spelling twice. `ClrArtifact` carries its `ProjectInfo` instead of copying two fields off it, so
+`materialiseApp` takes the artifact alone and cannot be handed a different project's.
 
 ## Independent findings
 

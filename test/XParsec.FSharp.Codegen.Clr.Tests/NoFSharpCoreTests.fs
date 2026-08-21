@@ -88,7 +88,7 @@ let tests =
                     IO.File.Delete coreDst
 
                 let artifact = compileSourceTo project "printfn \"%d\" 42"
-                Codegen.materialiseApp project artifact
+                Codegen.materialiseApp artifact
 
                 let dllPath = IO.Path.Combine(outDir, "XParsecNoCoreApp.dll")
                 Expect.isTrue (IO.File.Exists dllPath) "PE written"

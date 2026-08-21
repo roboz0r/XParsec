@@ -101,5 +101,4 @@ module Codegen =
 
     /// Materialise a *runnable* framework-dependent app (PE + `runtimeconfig.json`
     /// + the referenced assemblies the shared framework does not carry).
-    let materialiseApp (project: ProjectInfo) (artifact: ClrArtifact) : unit =
-        Materialise.materialiseApp project artifact
+    let materialiseApp (artifact: ClrArtifact) : unit = Materialise.materialiseApp artifact

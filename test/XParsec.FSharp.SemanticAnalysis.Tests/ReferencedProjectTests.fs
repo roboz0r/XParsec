@@ -130,10 +130,7 @@ let tests =
             test "every listed .fsi resolves clean" {
                 let _, diags = builtProvider.Value
 
-                let rendered =
-                    [
-                        for d in diags -> sprintf "%s(%d,%d): %s" d.Path.Name d.Line d.Col d.Diagnostic.Message
-                    ]
+                let rendered = [ for d in diags -> AssemblyFiles.AnchoredDiagnostic.render d ]
 
                 Expect.isEmpty rendered (sprintf "expected a clean contract, got: %A" rendered)
             }

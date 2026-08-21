@@ -1174,8 +1174,7 @@ type internal Assembler
                 ctx.SerializeLibrary()
 
         {
-            AssemblyName = project.AssemblyName
-            OutputPath = project.OutputPath
+            Project = project
             Pe = pe
             ReferencedAssemblies = ctx.ReferencedAssemblyNames
         }
