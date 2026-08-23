@@ -147,10 +147,9 @@ type WrittenTypeName =
 
     /// The name as the source spells it, for diagnostics.
     member this.Written: string =
-        if this.Path.Length = 0 then
-            this.Name
-        else
-            this.Path + "." + this.Name
+        match this.Path.Length with
+        | 0 -> this.Name
+        | _ -> this.Path + "." + this.Name
 
 module WrittenTypeName =
 

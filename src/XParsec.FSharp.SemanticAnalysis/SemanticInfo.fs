@@ -260,7 +260,7 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
 
     static member Empty = MeasureTerm([])
 
-    static member ofList(raw: (string * Rational) list) : MeasureTerm =
+    static member OfList(raw: (string * Rational) list) : MeasureTerm =
         raw
         |> List.groupBy fst
         |> List.map (fun (n, xs) -> n, xs |> List.fold (fun acc (_, r) -> acc + r) Rational.Zero)
@@ -348,10 +348,10 @@ module MeasureTerm =
     let empty = MeasureTerm.Empty
 
     let mul (a: MeasureTerm) (b: MeasureTerm) : MeasureTerm =
-        MeasureTerm.ofList (a.Exponents @ b.Exponents)
+        MeasureTerm.OfList(a.Exponents @ b.Exponents)
 
     let inv (m: MeasureTerm) : MeasureTerm =
-        m.Exponents |> List.map (fun (n, e) -> n, -e) |> MeasureTerm.ofList
+        m.Exponents |> List.map (fun (n, e) -> n, -e) |> MeasureTerm.OfList
 
     let div (a: MeasureTerm) (b: MeasureTerm) : MeasureTerm = mul a (inv b)
 
@@ -360,4 +360,4 @@ module MeasureTerm =
         if k.IsZero then
             empty
         else
-            m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.ofList
+            m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.OfList

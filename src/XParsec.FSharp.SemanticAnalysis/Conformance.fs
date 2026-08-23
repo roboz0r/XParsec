@@ -352,14 +352,14 @@ module Conformance =
         | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) -> ValueNone
 
     /// The name a `let` binding's pattern binds, unwrapping `Pat.EnclosedBlock` and
-    /// `Pat.Typed`. An operator applied to arguments (`let (+) a b`) is a
-    /// `Pat.OpNamed` and yields `ValueNone`.
+    /// `Pat.Typed`.
     let rec private boundName (lexed: Lexed) (p: Pat<SyntaxToken>) : string voption =
         match p with
         | Pat.NamedSimple ident -> ValueSome(SyntaxToken.nameIn lexed ident)
         | Pat.Named(longIdent = li) when li.Idents.Length > 0 ->
             ValueSome(SyntaxToken.nameIn lexed li.Idents.[li.Idents.Length - 1])
-        | Pat.Op io -> identOrOpRaw lexed io
+        | Pat.Op io
+        | Pat.OpNamed(ident = io) -> identOrOpRaw lexed io
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Typed(pat = inner) -> boundName lexed inner
         | _ -> ValueNone

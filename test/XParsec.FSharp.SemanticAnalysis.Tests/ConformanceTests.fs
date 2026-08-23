@@ -259,6 +259,15 @@ let tests =
                 Expect.isEmpty errors "a val paired with its let — plain and operator — conforms"
             }
 
+            test "operator let with parameters (Pat.OpNamed) conforms to its val" {
+                let errors =
+                    conform
+                        "namespace V\n\nval (+++): int -> int -> int"
+                        "namespace V\n\nlet (+++) (a: int) (b: int) = a"
+
+                Expect.isEmpty errors "an operator let taking parameters pairs with its val"
+            }
+
             test "module-nested val with no let → ValueMissingInImpl (flattened)" {
                 // Nested modules are flattened, so a `val` inside `module M` pairs with
                 // a `let` inside `module M` on the impl side.

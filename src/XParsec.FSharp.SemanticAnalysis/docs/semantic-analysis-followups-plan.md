@@ -12,20 +12,6 @@ subagent report.
 
 ## Defects
 
-### `Conformance.fs:352` — an operator `let` with parameters is reported as missing
-
-`PatternParsing.fs:547-550` parses `let (+) a b = …` as `Pat.OpNamed(ident, args)`, emitting
-the bare `Pat.Op` only when `args.IsEmpty`. `boundName` has arms for `Pat.Op`,
-`Pat.NamedSimple`, `Pat.Named`, `Pat.EnclosedBlock` and `Pat.Typed`, but none for
-`Pat.OpNamed`, so such a binding falls to `_ -> ValueNone` and `summariseImplVals` never
-records it. The `.fsi` side's `val ( + ) : …` IS recorded, via `identOrOpRaw`. Every operator
-declared with parameters in an implementation therefore raises a false `ValueMissingInImpl`.
-
-Fix: one arm forwarding `Pat.OpNamed(ident = io)` to the same `identOrOpRaw` path as `Pat.Op`.
-
-Deletes: the `boundName` doc clause "An operator applied to arguments (`let (+) a b`)
-is a `Pat.OpNamed` and yields `ValueNone`", which currently documents the bug as behaviour.
-
 ### `FrozenSignature.fs:419` vs `ConformanceTypars.fs:78` — two files disagree about a named binding missing from `ModuleMembers`
 
 Both loops destructure `TastAccessor.DLet { Binding = TastAccessor.PNamed boundVar }`, and `PNamed`
@@ -45,22 +31,6 @@ The surviving `FrozenSignature.fs:410-412` comment asserts the invariant this qu
 module binding rides `Decls` … and its identity is in `ModuleMembers`". A deleted clause excused
 the `_` arm as "a destructuring `let` … has nothing to export", which the `PNamed` guard makes
 impossible.
-
-### `TastPools.fs:320`, `:332`, `:354` — fault messages misattribute their entry point
-
-All three `failwithf`s live inside the private `fill` (`:181`) and hardcode the prefix
-`"TastPools.toPools: …"`. `fill` is shared by `toPools` (`:429`) and `rePool` (`:443`), so a
-fault raised through the re-pool direction names the wrong entry point. The test suite already
-shows the confusion: `test/…/TastPoolsTests.fs:580` is titled "a FunVerdicts key naming no
-pooled lambda faults in toPools" while `:600` calls `rePool injected`. A `label` parameter on
-`fill`, supplied by each entry point, fixes it.
-
-### `TastWalk.fs:549` — a field named for a type it no longer has
-
-`| TExpr.ExternalMember(r, k, n, isProp, ty, tok)` binds the field `storage: MemberStorage`
-(`TastExpr.fs:270-276`) to a local called `isProp`, and threads that name on at `:559` and
-`:567`. `MemberStorage` is `Field | Property | Method` (`SymbolKeys.fs:215-218`), not a bool —
-a leftover from the widening. Rename to `storage`.
 
 ### `TypeInfos.fs:1125` — an intrinsic abbrev's `interface … with` block is silently accepted
 
@@ -704,39 +674,12 @@ It defines `ForInEnumerator` only, so `FrozenCodecDecls.fs:131,142,152,164` spel
 `ForInGetEnumG<FrozenType>` / `ForInEnumMembersG<FrozenType>` longhand, against the
 alias-family convention `SideTypes.fs:106-108` follows on the `SemType` side. Two additive lines.
 
-### `Tast.fs:168` — a `failwithf` interpolates a whole declaration tree
-
-`failwithf "…: %A" i other` formats an entire `TDeclG` into the exception message. Narrowing it
-to the case name is cheap.
-
-### `SymbolKeys.fs:175` — length test written as an `if`
-
-`if this.Path.Length = 0 then` is the shape the repo prefers as
-`match this.Path.Length with | 0 -> … | _ -> …`.
-
 ### `TastPoolBuilder.fs:344`, `:263` — accessors that rebuild per call
 
 `moduleMembers` calls `DenseTable.index` on every invocation, building a fresh dictionary from
 `b.Base.ModuleMembers`; `roots` does an `Array.copy` per call. The single production caller
 (`Codegen.Js/EmitJs.fs:852`) binds `moduleMembers` once, so this is latent rather than live —
 but the accessor shape invites a per-decl call.
-
-### `SemanticInfo.fs:224`, `:226` — inconsistent static-member casing
-
-`MeasureTerm.Empty` / `MeasureTerm.ofList` mix PascalCase and camelCase on one type, while the
-neighbouring `UnionMembers.OfSeq` and `SemType.MkUnion` (`:191`) are PascalCase throughout.
-
-### `Passes/InlineReduction.fs:222`, `:305`, `:306` — three failures name the wrong module
-
-`resolveAt` and `classifyApplication` raise with messages prefixed `"InlineExpansion: …"`
-although both live in `InlineReduction`. A user seeing "InlineExpansion: over-application of an
-inline function" is pointed at the sibling file, which contains neither the peel nor the
-`TDecl.Let` test that raised.
-
-### `Passes/InlineReduction.fs:305` — a `failwithf` interpolates a whole pattern tree
-
-`failwithf "…: %A" param` formats an entire `TPat` into the exception message; the case name
-would carry the same information. Same shape as the `Tast.fs:168` item above.
 
 ### `Passes/InlineReduction.fs:167` — `ExternalFunction.Args = ValueNone` is documented as unreachable-by-shape, but is a `failwithf`
 

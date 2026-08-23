@@ -221,7 +221,7 @@ module InlineReduction =
                 // The grounding the specialization table keys on.
                 TypeArgs = typeArgs
             |}
-        | _ -> failwith "InlineExpansion: an inline body must be a TDecl.Let"
+        | _ -> failwith "InlineReduction: an inline body must be a TDecl.Let"
 
     /// Eta-reify an `External` used as a VALUE (`(+)` in `List.fold (+) 0 xs`) into the `App`
     /// `fun p0 p1 -> (+) p0 p1`. Arity is the reference's parameter count capped by the body's
@@ -304,8 +304,21 @@ module InlineReduction =
                      }
                      :: acc)
             | TExpr.Lambda(param, _, _, _), _ ->
-                failwithf "InlineExpansion: inline parameter destructuring is out of scope: %A" param
-            | _, _ :: _ -> failwith "InlineExpansion: over-application of an inline function"
+                let case =
+                    match param with
+                    | TPat.NamedSimple _ -> "NamedSimple"
+                    | TPat.Wildcard _ -> "Wildcard"
+                    | TPat.Tuple _ -> "Tuple"
+                    | TPat.Const _ -> "Const"
+                    | TPat.Record _ -> "Record"
+                    | TPat.Union(caseName = n) -> "Union " + n
+                    | TPat.TypeTestAs _ -> "TypeTestAs"
+                    | TPat.Null _ -> "Null"
+                    | TPat.EnumCase(caseName = n) -> "EnumCase " + n
+                    | TPat.Or _ -> "Or"
+
+                failwithf "InlineReduction: inline parameter destructuring is out of scope: %s" case
+            | _, _ :: _ -> failwith "InlineReduction: over-application of an inline function"
 
         let bindings, core = peel expanded args []
 

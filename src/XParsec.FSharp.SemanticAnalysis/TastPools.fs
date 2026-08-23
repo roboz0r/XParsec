@@ -170,7 +170,9 @@ module TastPools =
     /// Pool a tree, assigning each reachable node a dense id and recording its child edges
     /// as ids. `identOf` fills the two bound-variable columns, `anchor` narrows the tree's
     /// spelling of a position to the stored form, `path` is the file those indices index.
+    /// `entryPoint` prefixes fault messages with the public caller's name.
     let private fill
+        (entryPoint: string)
         (path: AssemblyFilePath)
         (identOf: BoundVarKeyG<'id> -> BoundVarIdent)
         (anchor: 'tok -> Anchor)
@@ -304,7 +306,8 @@ module TastPools =
             | ValueSome id -> id
             | ValueNone ->
                 failwithf
-                    "TastPools.toPools: %s key %O references a bound variable no definition site introduced"
+                    "%s: %s key %O references a bound variable no definition site introduced"
+                    entryPoint
                     referent
                     k
 
@@ -315,7 +318,8 @@ module TastPools =
             | ValueSome id -> id
             | ValueNone ->
                 failwithf
-                    "TastPools.toPools: %s entry %O names a bound variable no declaration in the frozen file introduces, so prune the entry where its declaration is pruned"
+                    "%s: %s entry %O names a bound variable no declaration in the frozen file introduces, so prune the entry where its declaration is pruned"
+                    entryPoint
                     referent
                     k
 
@@ -337,7 +341,7 @@ module TastPools =
 
             for KeyValue(k, _) in file.FunVerdicts do
                 if not (matched.Contains k) then
-                    failwithf "TastPools.toPools: FunVerdicts key %O does not resolve to a pooled lambda" k
+                    failwithf "%s: FunVerdicts key %O does not resolve to a pooled lambda" entryPoint k
 
             rows
 
@@ -410,7 +414,7 @@ module TastPools =
     /// Pool a source-shaped frozen file: its tokens become indices against `path`, and
     /// `idents` records how the source writes each bound variable's name, verbatim.
     let toPools (path: AssemblyFilePath) (idents: BoundVarKey -> BoundVarIdent) (file: Frozen.TastFile) : FrozenPools =
-        fill path idents Anchor.ofToken file
+        fill "TastPools.toPools" path idents Anchor.ofToken file
 
     /// Pool a tree that was UNPOOLED from `pools`: the names and the path come back off
     /// the pool it came out of, and its anchors are already in the stored form.
@@ -423,4 +427,4 @@ module TastPools =
                 At = pools.BoundVarToks.[i]
             }
 
-        fill pools.Path identOf id file
+        fill "TastPools.rePool" pools.Path identOf id file

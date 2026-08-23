@@ -39,7 +39,7 @@ let private measuredOf (store: TypeStore) (ty: SemType) : SemType * MeasureTerm 
     | _ -> failwithf "expected TyVar, got %A" ty
 
 let private measure (parts: (string * int) list) : MeasureTerm =
-    MeasureTerm.ofList [ for (n, e) in parts -> n, Rational.ofInt e ]
+    MeasureTerm.OfList [ for (n, e) in parts -> n, Rational.ofInt e ]
 
 [<Tests>]
 let tests =

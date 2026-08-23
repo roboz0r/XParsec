@@ -73,7 +73,7 @@ module internal UnificationTranslate =
     let rec translateMeasure (ctx: PassContext) (measureTok: SyntaxToken) (m: Measure<SyntaxToken>) : MeasureTerm =
         match m with
         | Measure.One _ -> MeasureTerm.empty
-        | Measure.Named li when li.Idents.Length = 1 -> MeasureTerm.ofList [ ctx.NameOf li.Idents.[0], Rational.One ]
+        | Measure.Named li when li.Idents.Length = 1 -> MeasureTerm.OfList [ ctx.NameOf li.Idents.[0], Rational.One ]
         | Measure.Power(inner, _, neg, expTok) ->
             let n = System.Numerics.BigInteger.Parse(ctx.NameOf expTok)
             let signed = if neg.IsSome then -n else n

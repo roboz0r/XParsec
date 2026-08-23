@@ -141,7 +141,14 @@ module TSpecializationG =
         | TDeclG.Let(pat, value, _, _) -> pat, value
         | other ->
             let (SpecializationId i) = spec
-            failwithf "TSpecialization: specialization %d is not a `TDecl.Let`: %A" i other
+
+            let case =
+                match other with
+                | TDeclG.Let _ -> "Let"
+                | TDeclG.Expression _ -> "Expression"
+                | TDeclG.Type _ -> "Type"
+
+            failwithf "TSpecialization: specialization %d is not a `TDecl.Let`: %s" i case
 
 [<RequireQualifiedAccess>]
 module TastFileG =

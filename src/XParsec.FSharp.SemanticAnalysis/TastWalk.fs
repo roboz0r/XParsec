@@ -546,7 +546,7 @@ module TastWalk =
                     e
                 else
                     TExpr.StaticFieldSet(k, n, v', ty', tok)
-            | TExpr.ExternalMember(r, k, n, isProp, widths, ty, tok) ->
+            | TExpr.ExternalMember(r, k, n, storage, widths, ty, tok) ->
                 // `r` is a struct `voption`, so the object argument's preservation is
                 // observed through the wrapped `TExpr`, not the wrapper.
                 match r with
@@ -556,7 +556,7 @@ module TastWalk =
                     if refEq ty' ty then
                         e
                     else
-                        TExpr.ExternalMember(ValueNone, k, n, isProp, widths, ty', tok)
+                        TExpr.ExternalMember(ValueNone, k, n, storage, widths, ty', tok)
                 | ValueSome x ->
                     let x' = pe x
                     let ty' = f ty
@@ -564,7 +564,7 @@ module TastWalk =
                     if refEq x' x && refEq ty' ty then
                         e
                     else
-                        TExpr.ExternalMember(ValueSome x', k, n, isProp, widths, ty', tok)
+                        TExpr.ExternalMember(ValueSome x', k, n, storage, widths, ty', tok)
             | TExpr.Format(sink, segs, ty, tok) ->
                 let sink =
                     match sink with
