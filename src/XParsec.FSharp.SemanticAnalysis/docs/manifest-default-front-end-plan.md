@@ -389,10 +389,9 @@ That deleted `resolveNullLiterals`' per-call set of re-`find`ed roots and its
 where the other primitive `SemType`s already live (`RuntimeNames` carries keys, not types).
 `checkOverrideConformance`'s four sibling locals went with it.
 
-**`tryClassChainMemberOrField` re-looks-up its class.** `InferRecordAccess.fs:297` has `info`
-bound and still uses it on the next line, but the new helper (`EngineCore.fs:326`) re-runs
-`TypeRegistry.tryClassByKey` internally. The extraction is right — `Engine.fs:400` needed it —
-but that call site pays a second registry lookup on the miss path.
+~~**`tryClassChainMemberOrField` re-looks-up its class.**~~ Fixed 2026-08-20:
+`tryClassChainMemberOrFieldOf` takes the `ClassTypeInfo`, and `InferRecordAccess` passes the one
+it already holds. The key-taking form composes the same `tryClassInstanceField` helper.
 
 ~~**`compileSourceTo` widened for the minority.**~~ Fixed by step 4: the whole `compileSource`
 family returns `ClrArtifact`, and the sites that read the tast only to assert its diagnostics

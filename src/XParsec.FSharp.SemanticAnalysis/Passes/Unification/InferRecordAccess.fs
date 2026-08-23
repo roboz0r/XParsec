@@ -297,7 +297,7 @@ module internal UnificationInferRecordAccess =
             | ValueSome info ->
                 // Derived members shadow inherited ones. On a total miss the diagnostic
                 // refers to the object argument's own class rather than some ancestor.
-                match tryClassChainMemberOrField ctx clsKey args memberName with
+                match tryClassChainMemberOrFieldOf ctx info args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
                     resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName

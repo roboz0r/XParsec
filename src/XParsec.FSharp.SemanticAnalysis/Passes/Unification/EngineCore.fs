@@ -321,10 +321,32 @@ module UnificationEngineCore =
         | ValueSome cm -> ValueSome cm.MemberTy
         | ValueNone -> ValueNone
 
+    /// A class's own explicit `val x: T` instance field of that name, instantiated at `args`.
+    let private tryClassInstanceField
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : SemType voption =
+        match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
+        | Some fld -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) fld.Type)
+        | None -> ValueNone
+
     /// `memberName` on a project-local class object argument: the `inherit` chain's members,
     /// then the class's own explicit `val x: T` instance fields, instantiated at `args`. This
     /// is what a `.member` access resolves against whether the object argument's type was known
     /// at the access or only settled later.
+    let tryClassChainMemberOrFieldOf
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : SemType voption =
+        match tryClassChainMember ctx info.TypeKey args memberName with
+        | ValueSome ty -> ValueSome ty
+        | ValueNone -> tryClassInstanceField ctx info args memberName
+
+    /// `tryClassChainMemberOrFieldOf` for a caller holding only the key.
     let tryClassChainMemberOrField
         (ctx: PassContext)
         (clsKey: TypeKey)
@@ -335,10 +357,7 @@ module UnificationEngineCore =
         | ValueSome ty -> ValueSome ty
         | ValueNone ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
-            | ValueSome info ->
-                match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
-                | Some fld -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) fld.Type)
-                | None -> ValueNone
+            | ValueSome info -> tryClassInstanceField ctx info args memberName
             | ValueNone -> ValueNone
 
     /// The flat `FunN` arity a matched `Fun`(k+1)` interface instantiation denotes.
