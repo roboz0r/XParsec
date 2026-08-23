@@ -59,7 +59,9 @@ module internal ElaborateResolve =
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueNone -> ValueNone
                 | ValueSome tv ->
-                    match Unification.zonk ctx.Store (TyVar tv) with
+                    let anchorTy = Unification.zonk ctx.Store (TyVar tv)
+
+                    match anchorTy with
                     | TyNominal(typeKey, _) ->
                         let memberName = ctx.NameOf li.Idents.[1]
 
@@ -67,7 +69,7 @@ module internal ElaborateResolve =
                         // (`Fun`2`/`Fun`3`) does not resolve by bare name, so a bare lookup
                         // would miss and `f.Invoke(a, b)` mis-lower to a function application.
                         match TypeRegistry.tryNominalMemberByKey ctx.Types typeKey memberName with
-                        | ValueSome nm -> ValueSome(rb.BindingSite, Unification.zonk ctx.Store (TyVar tv), nm.Member)
+                        | ValueSome nm -> ValueSome(rb.BindingSite, anchorTy, nm.Member)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
 

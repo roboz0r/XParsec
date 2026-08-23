@@ -63,9 +63,9 @@ module UnificationEngineCore =
         | TyUnit -> 0
         | _ -> 1
 
-    let tupleOrSingle (ctx: PassContext) (paramTys: SemType list) : SemType =
+    let tupleOrSingle (intrinsics: IntrinsicSet) (paramTys: SemType list) : SemType =
         match paramTys with
-        | [] -> ctx.Intrinsics.Unit
+        | [] -> intrinsics.Unit
         | [ t ] -> t
         | many -> TyTuple(EqArray.ofList many)
 

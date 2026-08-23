@@ -670,12 +670,14 @@ module UnificationEngine =
             let mutable remaining = []
 
             for c in cs do
-                // Dependent-typar inference: a bound `'a :> IFace<'b>` whose target carries
-                // free vars. Once `'a` grounds to a nominal implementing `IFace`, pin `'b`
-                // to the witnessed args, so `'S :> IStructSeq<'T,'E>` grounds its `'T` and `'E`.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match subtypeNominalOf ctx (zonk ctx.Store target) with
+                    let targetNominal = subtypeNominalOf ctx (zonk ctx.Store target)
+
+                    // Dependent-typar inference: a bound `'a :> IFace<'b>` whose target carries
+                    // free vars. Once `'a` grounds to a nominal implementing `IFace`, pin `'b`
+                    // to the witnessed args, so `'S :> IStructSeq<'T,'E>` grounds its `'T` and `'E`.
+                    match targetNominal with
                     | ValueSome(struct (tname, targs)) when
                         targs.Length > 0
                         && targs
@@ -691,14 +693,11 @@ module UnificationEngine =
                                 unify ctx tok wargs.[i] targs.[i]
                         | _ -> ()
                     | _ -> ()
-                | _ -> ()
 
-                // The INVERSE direction: a source lambda with STILL-FREE domains
-                // (`fun x y -> x + y`) coerced into a GROUND slot (`'TF :> Fun<int,int,int>`)
-                // grounds from the slot's args, so the body's SRTP operators can resolve.
-                match c.Kind with
-                | SemanticConstraintKind.Coercion target ->
-                    match subtypeNominalOf ctx (zonk ctx.Store target), resolveStep ctx.Store linkTarget with
+                    // The INVERSE direction: a source lambda with STILL-FREE domains
+                    // (`fun x y -> x + y`) coerced into a GROUND slot (`'TF :> Fun<int,int,int>`)
+                    // grounds from the slot's args, so the body's SRTP operators can resolve.
+                    match targetNominal, resolveStep ctx.Store linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
                         funSlotArityOfArgs tname targs.Length |> Option.isSome
                         ->

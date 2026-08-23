@@ -461,37 +461,37 @@ module internal UnificationTranslate =
             | ValueNone -> unresolvedRefTy ctx site name
 
     /// Build the annotation `SemType` from a resolved external shape addressed by the RESOLVED
-    /// identity `symKey`, shared by the stamped and by-name paths. `None` for an unmodelled
-    /// body, which has no kind a type annotation can take.
+    /// identity `symKey`, shared by the stamped and by-name paths. `ValueNone` for an
+    /// unmodelled body, which has no kind a type annotation can take.
     and private buildExternalTy
         (ctx: PassContext)
         (symKey: TypeKey)
         (shape: ExternalTypeShape)
         (translatedArgs: EqArray<SemType>)
-        : SemType option =
+        : SemType voption =
         match shape with
         // A referenced intrinsic (`exn = (# "System.Exception" #)`) is NON-transparent: its
         // identity is the shape's canon `TyConst` (`Vesper.exn`) whatever base/ctor surface it
         // carries, which is what keeps `exn.Message` routing to the platform type's members.
-        | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
-        | ExternalTypeShape.Class _ -> Some(externalClassTy ctx symKey translatedArgs)
+        | ExternalTypeShape.Intrinsic s -> ValueSome(TyConst(s.Id.Canon, translatedArgs))
+        | ExternalTypeShape.Class _ -> ValueSome(externalClassTy ctx symKey translatedArgs)
         // A capability interface (`disposable`) is a `TyClass` CONSTRAINT; the axis holds no
         // interface canons, so its identity is the resolved key directly.
-        | ExternalTypeShape.IntrinsicInterface _ -> Some(TyClass(symKey, translatedArgs))
-        | ExternalTypeShape.Record _ -> Some(TyRecord(symKey, translatedArgs))
-        | ExternalTypeShape.Union _ -> Some(TyUnion(symKey, translatedArgs))
+        | ExternalTypeShape.IntrinsicInterface _ -> ValueSome(TyClass(symKey, translatedArgs))
+        | ExternalTypeShape.Record _ -> ValueSome(TyRecord(symKey, translatedArgs))
+        | ExternalTypeShape.Union _ -> ValueSome(TyUnion(symKey, translatedArgs))
         // An external enum annotation `(x: E)` → `TyEnum key` (never generic), keyed off the
         // SAME identity an `E.Ci` use site mints, so the two unify. The enum is a DISTINCT
         // nominal, not its underlying int/string.
-        | ExternalTypeShape.Enum _ -> Some(TyEnum(symKey))
+        | ExternalTypeShape.Enum _ -> ValueSome(TyEnum(symKey))
         // A transparent abbreviation dealiases to its body: `int32 = int` resolves to the
         // `int` key the IL encoder encodes, never a nominal `int32`. The frozen RHS is
         // already kind-correct; the type args substitute into it.
         | ExternalTypeShape.Abbrev(_, frozen) ->
-            Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
+            ValueSome(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
         // No modelled body, so no kind a *type annotation* can resolve to. Declining routes
         // the reference to `unresolvedRefTy`, which records the gap.
-        | ExternalTypeShape.Unmodelled _ -> None
+        | ExternalTypeShape.Unmodelled _ -> ValueNone
 
     /// Fetch + build from an already-resolved external type identity. An arity mismatch is
     /// rejected: it is not this type.
@@ -499,10 +499,7 @@ module internal UnificationTranslate =
         let arity = translatedArgs.Length
 
         match ctx.Provider.TryLookupType symKey with
-        | ValueSome shape when shape.TyparArity = arity ->
-            match buildExternalTy ctx symKey shape translatedArgs with
-            | Some ty -> ValueSome ty
-            | None -> ValueNone
+        | ValueSome shape when shape.TyparArity = arity -> buildExternalTy ctx symKey shape translatedArgs
         | _ -> ValueNone
 
     /// The store-view read of a written external type reference: NameResolution resolved the

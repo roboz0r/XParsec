@@ -432,7 +432,12 @@ module internal UnificationInferExternalCall =
                                 | single -> [ single ]
 
                             let resultTy = TyVar(freshTyVar ctx)
-                            unifyAppliedSig ctx tok (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle ctx leading, ret))
+
+                            unifyAppliedSig
+                                ctx
+                                tok
+                                (TyFun(argTy, resultTy))
+                                (TyFun(tupleOrSingle ctx.Intrinsics leading, ret))
                             // The omitted defaults are the last `fullCount - suppliedCount`
                             // of the optional suffix; Elaborate appends them.
                             let omitted = optDefaults |> List.skip (suppliedCount - requiredCount)

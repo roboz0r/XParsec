@@ -39,12 +39,14 @@ module PrintfSpec =
         /// `bprintfn`, hence no newline flag.
         | Builder
 
-    let sinkOf (name: string) : PrintfSink voption =
-        let short =
-            let dot = name.LastIndexOf '.'
-            if dot < 0 then name else name.Substring(dot + 1)
+    /// The last `.`-separated segment: `Printf.printfn` and a bare `printfn` both
+    /// yield `printfn`.
+    let private lastSegment (name: string) : string =
+        let dot = name.LastIndexOf '.'
+        if dot < 0 then name else name.Substring(dot + 1)
 
-        match short with
+    let sinkOf (name: string) : PrintfSink voption =
+        match lastSegment name with
         | "printf" -> ValueSome(PrintfSink.StdOut false)
         | "printfn" -> ValueSome(PrintfSink.StdOut true)
         | "eprintf" -> ValueSome(PrintfSink.StdErr false)
@@ -231,11 +233,7 @@ module PrintfSpec =
     /// Keyed on the last `.`-separated segment so `Printf.printfn` and a bare
     /// `printfn` both hit.
     let tryFamily (name: string) : Family voption =
-        let short =
-            let dot = name.LastIndexOf '.'
-            if dot < 0 then name else name.Substring(dot + 1)
-
-        match Map.tryFind short families with
+        match Map.tryFind (lastSegment name) families with
         | Some f -> ValueSome f
         | None -> ValueNone
 

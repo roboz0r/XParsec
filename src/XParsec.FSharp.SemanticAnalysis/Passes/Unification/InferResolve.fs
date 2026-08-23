@@ -71,7 +71,7 @@ module internal UnificationInferResolve =
                 info.CtorParams
                 |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
                 |> Array.toList
-                |> tupleOrSingle ctx
+                |> tupleOrSingle ctx.Intrinsics
 
             ValueSome(TyFun(arg, ctorTy))
         | ValueNone -> ValueNone
@@ -404,17 +404,7 @@ module internal UnificationInferResolve =
         | ValueSome m ->
             let memberSig = ExternalSymbols.openSignature m (List.toArray typeArgs)
 
-            ctx.Resolution.ExternalAccess.Set(
-                key,
-                {
-                    Key = SymbolKey.Member m.Key
-                    IsStatic = m.IsStatic
-                    Storage = m.Storage
-                    Signature = memberSig
-                    ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
-                    OptionalDefaults = m.OptionalDefaults
-                }
-            )
+            ctx.Resolution.ExternalAccess.Set(key, ResolvedExternalMember.OfMember(m, memberSig))
 
             memberSig
         | ValueNone ->

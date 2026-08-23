@@ -60,7 +60,7 @@ module internal UnificationClassCtors =
                     unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 | Expr.App(argExprs = argExprs) ->
                     let argTys = [ for a in argExprs -> infer ctx a ]
-                    unifyArg ctx (CstKeys.firstTokenOfExpr e) (tupleOrSingle ctx argTys) expected
+                    unifyArg ctx (CstKeys.firstTokenOfExpr e) (tupleOrSingle ctx.Intrinsics argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
             // Explicit field-init `{ f = e; … }`: unify each initialiser against the named
@@ -93,7 +93,7 @@ module internal UnificationClassCtors =
                     info.CtorParams
                     |> Array.map (fun p -> p.Type)
                     |> Array.toList
-                    |> tupleOrSingle ctx
+                    |> tupleOrSingle ctx.Intrinsics
 
                 // Declared field types (ctor-param backing fields + explicit `val` fields)
                 // keyed by name. `val` fields win a name clash, because a positional ctor param
@@ -194,7 +194,7 @@ module internal UnificationClassCtors =
                         // No constructor of that arity: unify against the primary anyway, so
                         // the mismatch is reported at the arguments.
                         | ValueNone -> [ for p in baseInfo.CtorParams -> substituteWith ctx.Store subst p.Type ]
-                        |> tupleOrSingle ctx
+                        |> tupleOrSingle ctx.Intrinsics
 
                     unify ctx node.Tok argTy expected
 

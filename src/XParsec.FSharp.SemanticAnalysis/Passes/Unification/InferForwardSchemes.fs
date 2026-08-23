@@ -37,14 +37,8 @@ module internal UnificationInferForwardSchemes =
                             | ValueSome seed ->
                                 match seed.TryGetValue n with
                                 | true, proto -> proto
-                                | _ ->
-                                    let tv = ctx.NewTypeVar()
-                                    ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
-                                    tv
-                            | ValueNone ->
-                                let tv = ctx.NewTypeVar()
-                                ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
-                                tv
+                                | _ -> freshTyVar ctx
+                            | ValueNone -> freshTyVar ctx
 
                         ctx.Resolution.TyparScope.[n] <- tv
                 | Typar.Anon _ -> ()

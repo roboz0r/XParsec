@@ -68,7 +68,7 @@ module internal UnificationInferCtor =
                     // No constructor of that arity: unify against the primary anyway, so the
                     // mismatch is reported at the arguments rather than passing silently.
                     | ValueNone -> [ for p in info.CtorParams -> substituteWith ctx.Store subst p.Type ]
-                    |> tupleOrSingle ctx
+                    |> tupleOrSingle ctx.Intrinsics
 
                 unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 ctorTy
@@ -299,7 +299,7 @@ module internal UnificationInferCtor =
                 // taking it here would skip the function-application seam it is stamped at.
                 match pickLocalCtor ctx (substituteWith ctx.Store subst) info (argElemsOf ctx.Store argTy) with
                 | ValueSome(LocalCtorPick.Secondary paramTys) ->
-                    unify ctx node.Tok (tupleOrSingle ctx paramTys) argTy
+                    unify ctx node.Tok (tupleOrSingle ctx.Intrinsics paramTys) argTy
                     ValueSome(TyClass(info.TypeKey, args))
                 | ValueSome(LocalCtorPick.Primary _)
                 | ValueNone -> ValueNone

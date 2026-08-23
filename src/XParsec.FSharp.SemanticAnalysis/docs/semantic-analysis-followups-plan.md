@@ -572,11 +572,6 @@ would make it consistent.
 array, so pool corruption reports as an FSharp.Core `ArgumentException` rather than a message
 naming the node.
 
-### `FrozenTypeBridge.fs:201` — `pickInterfaceWitness` allocates an `option` to return a `voption`
-
-`Seq.tryPick` builds an `option` per call which is then matched into `ValueSome`/`ValueNone`,
-on a path whose whole signature is `voption`.
-
 ### `Passes/Unification/InferApp.fs:118` — one error path reports without minting an error type
 
 `tryAdmitLiteralConstArg` calls `ctx.Report` and then returns `true` (= handled), so the caller
@@ -596,28 +591,11 @@ unreachable. If that holds, the `expandingTemplate` wrapper at `:409` is pure ov
 `int A.T` falls to the `_ ->` catch-all and yields a free `TyVar` with no diagnostic, so
 unmodelled syntax is indistinguishable from an unresolvable type name for the user.
 
-### `Passes/Unification/Translate.fs:475` — `buildExternalTy` returns `option` in a `voption` file
-
-`tryExternalTypeOfKey` (`:490-497`) exists partly to convert it back. Cosmetic wart to excise.
-
 ### `Passes/NameResolution/Scope.fs:585` — the operator-form long-ident catch-all diagnoses rather than resolves
 
 `Expr.LongIdentOrOp` reports `OperatorFormQualifiedName` unconditionally for any operator-form
 long ident that is neither symbolic nor qualified, carrying an explicit `TODO`. Active-pattern
 and nil op-names used as values are rejected rather than resolved.
-
-### `Passes/Unification/Engine.fs:652` and `:675` — one scrutinee matched twice per constraint
-
-Two consecutive `match c.Kind with | SemanticConstraintKind.Coercion target -> … | _ -> ()`
-blocks sit in the same `for c in cs` iteration, and both open with
-`subtypeNominalOf ctx (zonk ctx.Store target)` on the same `target` (`:654`, `:678`). Every
-coercion constraint therefore pays two zonks and two nominal walks per discharge. One match with
-two guarded sub-arms.
-
-### `Passes/Unification/EngineCore.fs:88` — `tupleOrSingle` takes a `PassContext` to read one field
-
-It needs only `ctx.Intrinsics.Unit`, while its siblings in the module take a bare `TypeStore`.
-That forces `PassContext` onto callers that otherwise need only the store.
 
 ### `ExternalSymbolProviders.fs` — `KeyIndexedChannels` cannot publish index signatures
 
@@ -658,15 +636,6 @@ prose before the sweep; a named lookup type with a by-key-only API deletes the 3
 identical code, differing only in the type passed (`memberTy` vs `sigTy`) and the class-typar
 source (the `classTypars` parameter vs `fc.TypeParams`). The surviving comment at `:325` saying
 this arm has "the same shape as that function" is the tell; one helper deletes it.
-
-### `PrintfSpec.fs:48` and `:241` — the last-dotted-segment derivation is written twice
-
-`let dot = name.LastIndexOf '.'` and its follow-on are byte-identical in `sinkOf` (`:46`) and
-`tryFamily` (`:239`), both keyed on the same eight short names.
-
-Relatedly, `sinkOf` (a match, 8 arms) and `families` (a `Map`, 8 entries at `:224`) are two
-parallel tables over one key set, maintained separately: adding a family needs both edited and
-nothing ties them together.
 
 ### `Tast.fs:238` — the `Frozen` alias module is missing two ForIn aliases
 
@@ -712,23 +681,6 @@ form currently means finding all of them.
 which freshening policy each expresses. The 15 lines of prose cut from `:34` and the 12 from `:42`
 existed entirely to explain how they relate — a single "instantiation" record carrying the root,
 its fresh var and whether it was quantified would delete both blocks rather than shorten them.
-
-### `Passes/Unification/InferGeneralize.fs:115` — `collect` is `let rec` but never recurses
-
-Inside `applyDefaults`, `let rec collect (t: SemType)` only calls its own inner `let rec go`; the
-`rec` on the outer binding is inert. `visited` is also hoisted outside a function that is called
-exactly once.
-
-### `Passes/Unification/InferGeneralize.fs:200` — `tryListLiteralElem` linear-scans on every root
-
-It walks all of `ctx.ListLiterals` per call, and `prepareListLiterals` calls it once per unlinked
-TyVar root reached from the binding's type, so the pair is O(roots x literals) per generalisation.
-It also scans the whole list after a hit instead of stopping (`if result.IsNone && …`).
-
-### `Passes/Unification/InferGeneralize.fs:213` — count test written as an `if`
-
-`if ctx.ListLiterals.Count = 0 then () else …` is the shape the repo prefers as
-`match ctx.ListLiterals.Count with | 0 -> () | _ -> …`.
 
 ### `Inline.fs:35` — `quantifiedTypars` order disagrees with the canonical typar order
 
@@ -824,8 +776,7 @@ diagnostic rather than a mis-registration.
 `checkGroupStructFieldCycles`'s inner `walk` sets `cyclic <- true` and then relies on the guard
 `| ValueSome fieldKey when not cyclic ->` to make the remaining iterations no-ops: the `for
 fieldTy in inlineFieldTypes ctx id` loop still runs to completion at every frame of the recursion
-(and `inlineFieldTypes` re-reads the registry to build each sequence). Correct, but the same shape
-already recorded for `tryListLiteralElem` — the loop wants to stop at the hit.
+(and `inlineFieldTypes` re-reads the registry to build each sequence). Correct, but the loop wants to stop at the hit.
 
 ### `Passes/NameResolution/TypeRegistration.fs:815` — the intrinsic-vs-alias verdict is decided twice
 
@@ -900,13 +851,6 @@ and `(|StaticMember|_|)` (`:195`) are the same four lines each: call the `try*` 
 `StaticMethod` with the filter dropped. Two helpers parameterised by the wanted `ClassMemberKind`
 would collapse all four, and would put the `li.Idents.[li.Idents.Length - 1]` re-read in one place.
 
-### `Elaborate/Resolve.fs:90` — `tryLongIdentClassTail` zonks the same `TyVar` twice
-
-The object-argument type is computed as `Unification.zonk ctx.Store (TyVar tv)` in the match scrutinee
-(`:90`) and again, identically, when building the result (`:98`). Binding the first result and
-matching on it returns the same value with one traversal, and removes the possibility of the two
-reads drifting if the second is ever edited.
-
 ### `Passes/Regions.fs:6` — the pass contract lives in a `Pre:`/`Post:` prose header
 
 *Half landed 2026-08-13: `run` returns a `RegionVerdicts`, so the representation axis is no longer
@@ -962,24 +906,6 @@ case gets no box. Since inference coerces into such a slot (`InferCtor`'s `unify
 the same invalid-IL shape the record arm was added to fix. Found because
 `InferResolve.recordConstructionOf` carried a doc claiming BOTH were still `LocalRecord`-only;
 the record half of that claim is false and has been deleted.
-
-### `InferRecordAccess.fs:211` — the `ExternalAccess` payload literal is built at three sites
-
-The same five-field record (`Key = SymbolKey.Member m.Key`, `IsStatic`, `Storage`, `Signature`,
-`OptionalDefaults`) is written out at `commitExternalMember`, the `IntrinsicBclMember` arm and
-`InferResolve.inferExternalStaticMember`. All three derive every field from the same
-`ExternalMember m`, differing only in which signature function they call (`instantiateSignature`
-vs `openSignature`) and in the node key stamped. A constructor taking `(m, signature)` would say
-that, instead of leaving a reader to diff three literals. (The two indexer-accessor sites already
-share one, `indexerAccess`.)
-
-### `InferRecordAccess.fs:629` — `inferLongIdentPrefix` differs from `inferLongIdentFieldChain` by one loop bound
-
-Both (`:610` and `:629`) read `li.Idents.[0]`, look the anchor up in `ctx.Bindings.Binding`, fall
-back to a fresh var, and fold `resolveFieldStep` across the remaining segments. The only
-difference is `for i = 1 to li.Idents.Length - 1` versus `- 2`. One function taking the number
-of trailing segments to leave unresolved (0 or 1) collapses them, and makes the "stops one
-short so the last segment can be resolved arg-aware" fact a parameter rather than a doc line.
 
 ### `InferControlFlow.fs:118` — a ref-struct enumerator with a pattern `Dispose()` is silently never disposed
 
@@ -1234,14 +1160,6 @@ same `NamedSimple`-or-nothing shape, and there it is documented as best-effort a
 is fine for a source location and not obviously fine for a correctness check. I did not confirm
 that a non-`NamedSimple` binding can reach here holding a scheme — if it cannot, the invariant
 deserves to be in the type rather than in a fall-through arm.
-
-### `Passes/Unification/InferForwardSchemes.fs:33` — fresh-typevar-at-level is written twice inline
-
-`seedBindingTypars` repeats `let tv = ctx.NewTypeVar()` followed by
-`ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)` in both the seed-miss and the
-no-seed branches. `freshTyVar ctx` is already in scope (the same file uses it in
-`prebindModuleFunctionSchemes`); whether it applies the same level treatment is the thing to
-check before collapsing the two.
 
 ### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* boundVar key, not a detectable hole
 

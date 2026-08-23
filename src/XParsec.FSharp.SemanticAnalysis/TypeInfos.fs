@@ -446,6 +446,18 @@ type ResolvedExternalMember =
 
     member m.IsValueMember = m.Storage.IsValueMember
 
+    /// The access record for provider member `m`, with `signature` its instantiation at
+    /// the use site.
+    static member OfMember(m: ExternalMember, signature: SemType) : ResolvedExternalMember =
+        {
+            Key = SymbolKey.Member m.Key
+            IsStatic = m.IsStatic
+            Storage = m.Storage
+            Signature = signature
+            ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
+            OptionalDefaults = m.OptionalDefaults
+        }
+
 /// A member access on a *project-local* type that inference resolved, recorded per access
 /// node. Both halves are needed to emit the call: `Key` pins WHICH overload, `DeclaringTy`
 /// WHERE it lives.

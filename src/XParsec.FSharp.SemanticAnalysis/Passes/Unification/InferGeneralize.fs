@@ -168,9 +168,8 @@ module internal UnificationInferGeneralize =
         defaultFixpoint store (Seq.toArray vars)
 
     let applyDefaults (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : unit =
-        let visited = HashSet<TyVarId>()
-
-        let rec collect (t: SemType) : ResizeArray<TyVarId> =
+        let collect (t: SemType) : ResizeArray<TyVarId> =
+            let visited = HashSet<TyVarId>()
             let acc = ResizeArray<TyVarId>()
 
             let rec go (t: SemType) =
@@ -205,11 +204,15 @@ module internal UnificationInferGeneralize =
     /// `ctx.ListLiterals` (`ValueNone` if none). A look-up only: whether to flip the
     /// container to the Vesper or the FSharp.Core list stays with each caller.
     let tryListLiteralElem (ctx: PassContext) (root: TyVarId) : SemType voption =
+        let lits = ctx.ListLiterals
         let mutable result = ValueNone
+        let mutable i = 0
 
-        for lit in ctx.ListLiterals do
-            if result.IsNone && (UnionFind.find ctx.Store lit.Var).Id = root then
-                result <- ValueSome lit.Elem
+        while result.IsNone && i < lits.Count do
+            if (UnionFind.find ctx.Store lits.[i].Var).Id = root then
+                result <- ValueSome lits.[i].Elem
+
+            i <- i + 1
 
         result
 
@@ -217,9 +220,9 @@ module internal UnificationInferGeneralize =
     /// it generalises, so the bare container var is never quantified as `∀L. L`: `let xs = []`
     /// links the container now; `let nums = [1;2;3]` drops its level so quantification skips it.
     let prepareListLiterals (ctx: PassContext) (ty: SemType) (outerLevel: int) : unit =
-        if ctx.ListLiterals.Count = 0 then
-            ()
-        else
+        match ctx.ListLiterals.Count with
+        | 0 -> ()
+        | _ ->
             let seen = HashSet<TyVarId>()
 
             let rec walk (t: SemType) =

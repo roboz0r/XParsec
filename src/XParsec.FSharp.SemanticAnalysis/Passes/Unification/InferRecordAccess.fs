@@ -243,17 +243,7 @@ module internal UnificationInferRecordAccess =
             let memberSig =
                 ExternalSymbols.instantiateSignature ctx.Store m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
 
-            ctx.Resolution.ExternalAccess.Set(
-                access.Key,
-                {
-                    Key = SymbolKey.Member m.Key
-                    IsStatic = false
-                    Storage = m.Storage
-                    Signature = memberSig
-                    ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
-                    OptionalDefaults = m.OptionalDefaults
-                }
-            )
+            ctx.Resolution.ExternalAccess.Set(access.Key, ResolvedExternalMember.OfMember(m, memberSig))
 
             memberSig
 
@@ -406,17 +396,7 @@ module internal UnificationInferRecordAccess =
             if not m.IsStatic then
                 let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
 
-                ctx.Resolution.ExternalAccess.Set(
-                    access.Key,
-                    {
-                        Key = SymbolKey.Member m.Key
-                        IsStatic = false
-                        Storage = m.Storage
-                        Signature = memberSig
-                        ArgGroupWidths = ExternalSignature.argGroupWidths m.Signature
-                        OptionalDefaults = m.OptionalDefaults
-                    }
-                )
+                ctx.Resolution.ExternalAccess.Set(access.Key, ResolvedExternalMember.OfMember(m, memberSig))
 
                 memberSig
             else
@@ -626,24 +606,21 @@ module internal UnificationInferRecordAccess =
     /// anchor segment NameResolution resolved as a local binding; the remaining
     /// segments are a field-access chain.
     and inferLongIdentFieldChain (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
-        let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
-
-        let anchorTy =
-            match ctx.Bindings.Binding.TryGetValue anchorKey with
-            | ValueSome rb -> instantiateBinding ctx rb
-            | ValueNone -> TyVar(freshTyVar ctx)
-
-        let mutable currTy = anchorTy
-
-        for i = 1 to li.Idents.Length - 1 do
-            currTy <- resolveFieldStep ctx node li.Idents.[i] currTy
-
-        currTy
+        inferLongIdentChainTo ctx node li 0
 
     /// The type of a folded field chain MINUS its last segment, namely the object argument of a
     /// folded-LongIdent instance method call (`w.Write(arg)` parses with
     /// `fn = LongIdent [w; Write]`), so the last segment can be resolved arg-aware.
     and inferLongIdentPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
+        inferLongIdentChainTo ctx node li 1
+
+    /// The chain's type with the last `trailing` segments left unresolved.
+    and private inferLongIdentChainTo
+        (ctx: PassContext)
+        (node: NodeSite)
+        (li: LongIdent<SyntaxToken>)
+        (trailing: int)
+        : SemType =
         let anchorKey = NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent
 
         let anchorTy =
@@ -653,7 +630,7 @@ module internal UnificationInferRecordAccess =
 
         let mutable currTy = anchorTy
 
-        for i = 1 to li.Idents.Length - 2 do
+        for i = 1 to li.Idents.Length - 1 - trailing do
             currTy <- resolveFieldStep ctx node li.Idents.[i] currTy
 
         currTy
