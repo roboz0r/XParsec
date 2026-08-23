@@ -139,11 +139,26 @@ module internal ElaborateObjArgs =
             | _ -> ValueNone
 
     /// Field SemTypes of a union case, in declaration order, for boxing a value assigned to
-    /// an `obj` case field. Empty for an external union.
+    /// an `obj` case field. The external / cross-file arm instantiates the case's frozen
+    /// field types at the union's type arguments.
     let unionCaseFieldTys (ctx: PassContext) (unionTy: SemType) (caseName: string) : SemType list =
         match unionTy with
         | LocalUnion ctx info ->
             match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
             | Some c -> List.ofArray c.Fields
             | None -> []
-        | _ -> []
+        | _ ->
+            match Unification.zonk ctx.Store unionTy with
+            | TyUnion(key, args) ->
+                match ctx.Provider.TryLookupType key with
+                | ValueSome(ExternalTypeShape.Union(cases = caseShapes)) ->
+                    match caseShapes |> EqArray.tryFind (fun c -> c.Name = caseName) with
+                    | ValueSome c ->
+                        let declaringArgs = args.AsSpan().ToArray()
+
+                        [
+                            for ft in c.FrozenFieldTypes -> FrozenTypeBridge.instantiateDeclaring ft declaringArgs
+                        ]
+                    | ValueNone -> []
+                | _ -> []
+            | _ -> []

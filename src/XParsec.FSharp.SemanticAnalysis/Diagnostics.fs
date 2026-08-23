@@ -19,6 +19,8 @@ type DiagCode =
     /// This compiler's OWN published families: the `V24x` package-conformance codes, and the
     /// front-end/driver refusals that are about a file rather than about a program.
     | Vesper of code: string
+    /// A PARSER-owned code (`DiagnosticCode`), forwarded verbatim by `Kind.Parse`.
+    | Parse of code: string
     /// No published number, which is the case for most verdicts.
     | Unpublished
 
@@ -30,6 +32,7 @@ module DiagCode =
         match c with
         | DiagCode.FSharp n -> sprintf "FS%04d" n
         | DiagCode.Vesper code -> code
+        | DiagCode.Parse code -> code
         | DiagCode.Unpublished -> ""
 
 /// Which NOMINAL shape a type is: the axis a "no such type" verdict differs on.
@@ -441,7 +444,7 @@ module Kind =
         | Kind.PackageSet fault -> PackageSetFault.code fault
         | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
         | Kind.Driver _ -> DiagCode.Vesper "DRV"
-        | Kind.Parse c -> DiagCode.Vesper(DiagnosticCode.code c)
+        | Kind.Parse c -> DiagCode.Parse(DiagnosticCode.code c)
         // ── No published number: fsc has no analogue at all, or its counterpart is a
         // catch-all rather than a classification.
         | Kind.CyclicType(via = TypeCycle.Inheritance)

@@ -91,6 +91,21 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            test "explicit type application of the wrong arity diagnoses" {
+                let ctx =
+                    analyse "type Box<'a>(value: 'a) =\n    member this.Value = value\nlet b = Box<int, string>(1)"
+
+                let hasArity =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d ->
+                        match d.Kind with
+                        | Kind.TypeArgArity("Box", 1, 2) -> true
+                        | _ -> false
+                    )
+
+                Expect.isTrue hasArity "Box expects 1 type argument but was given 2"
+            }
+
             // A member signature may reference the enclosing class typar. The fresh typar scope
             // minted per binding must be seeded with the class typars first, else the
             // annotation hits an empty strict scope and falsely diagnoses "Free type parameter".

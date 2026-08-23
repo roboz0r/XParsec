@@ -12,6 +12,19 @@ subagent report.
 
 ## Defects
 
+### Cross-file resolution — a module-held union's case does not resolve from another file
+
+With file 1 declaring `module M` / `type Holder = Wrap of obj`, file 2 gets "Unresolved
+identifier: Wrap" both bare (after `open`) and as `Holder.Wrap`; the namespace-level
+declaration resolves. Found while testing the cross-file obj-box fix; the CrossFileTests
+case pins the namespace-level shape and notes the gap.
+
+### `TastPools.toPools` — a `match` on an unresolved case crashes instead of diagnosing
+
+In the module-held shape above, adding `match w with | Wrap v -> …` crashes analysis
+(`TastPools.toPools: ModuleMembers entry … names a bound variable no declaration in the
+frozen file introduces`) instead of surfacing the unresolved-identifier error. Freeze runs
+on a file whose analysis already failed; the diagnostics should gate it.
 ### `FrozenSignature.fs:419` vs `ConformanceTypars.fs:78` — two files disagree about a named binding missing from `ModuleMembers`
 
 Both loops destructure `TastAccessor.DLet { Binding = TastAccessor.PNamed boundVar }`, and `PNamed`
@@ -117,13 +130,6 @@ Related: `:307` clamps a literal precision with `if n <= 0 then 0 else n` while 
 sibling arms (`:342`, `:403`, `:419`, `:434`) and `precDim` (`:237`) take `int pr` raw. A
 digit-parsed `Literal` cannot be negative, so the clamp is inert but reads as though the others
 are missing a guard.
-
-### `Diagnostics.fs:372` — a parser-owned code is published under `DiagCode.Vesper`
-
-`| Kind.Parse c -> DiagCode.Vesper(DiagnosticCode.code c)` forwards a code the parser layer
-owns, while `DiagCode.Vesper`'s own doc (`:24-25`) defines that case as "this compiler's OWN
-published families". Forwarding rather than renumbering is deliberate, but the DU has no case
-for a code owned by another layer, so the string arrives under a label that misdescribes it.
 
 ### `SemanticScalars.fs:18` — `Rational`'s raw constructor breaks the type's own equality
 
@@ -574,13 +580,6 @@ would make it consistent.
 array, so pool corruption reports as an FSharp.Core `ArgumentException` rather than a message
 naming the node.
 
-### `Passes/Unification/InferApp.fs:118` — one error path reports without minting an error type
-
-`tryAdmitLiteralConstArg` calls `ctx.Report` and then returns `true` (= handled), so the caller
-unifies nothing and the argument's type var is left FREE. Every other error path in the file goes
-through `errorTy`, which mints a concrete error type. Whether the free var is deliberate is stated
-nowhere.
-
 ### `Passes/InlineExpansion.fs:398-412` — a re-entry branch that may be unreachable
 
 `outlineNullaryIntrinsic` is reached only through `expandingTemplate` with `Args = []`, and an
@@ -898,17 +897,6 @@ would carry the qualifier that the qualified arm currently filters on AFTER the 
 16-line header on `admitsBareExternalRecord` plus the `bareIndex` paragraph on
 `recordFieldSetVerdict` (both cut to 3 lines by the comment sweep, so the debt is now invisible).
 
-### `Elaborate/ObjArgs.fs:169` — `unionCaseFieldTys` returns `[]` for an external union, so `obj` case fields are never boxed
-
-Its sibling `recordFieldTy` (`:148`) grew an external arm that reads provider field shapes and
-instantiates them at the object argument's args, precisely so `wrapObjArg` boxes an `obj`-typed field
-of a cross-file record. `unionCaseFieldTys` immediately below still has only a `LocalUnion` arm
-and a `| _ -> []`, so a value assigned to an explicitly `obj`-typed field of an EXTERNAL union
-case gets no box. Since inference coerces into such a slot (`InferCtor`'s `unifyArg`), this is
-the same invalid-IL shape the record arm was added to fix. Found because
-`InferResolve.recordConstructionOf` carried a doc claiming BOTH were still `LocalRecord`-only;
-the record half of that claim is false and has been deleted.
-
 ### `InferControlFlow.fs:118` — a ref-struct enumerator with a pattern `Dispose()` is silently never disposed
 
 Both enumerator probes decide disposability by scanning for `System.IDisposable`, and the
@@ -920,15 +908,11 @@ precedent exists; the blocker is that `SemType` has no byref-like predicate to t
 that the descriptor's `dispose` field would have to become a member reference. Recorded from a
 14-line TODO cut to one line by the comment sweep.
 
-### `InferTypeOps.fs:43` — explicit type arguments of the wrong arity are silently discarded
+### `Passes/Unification/InferTypeOps.fs:25` — explicit type application on a bare generic function is a no-op
 
-`inferTypeApp` only unifies the supplied arguments when `freshArgs.Length = List.length
-explicit`; every other case falls to `| _ -> ()`, which is also the arm a bare generic function
-legitimately takes. So `ResizeArray<int, string>()` — right type constructor, wrong arity — types
-exactly as `ResizeArray<_>()` with no diagnostic, and the mistake surfaces later as an
-unresolved metavariable or not at all. Distinguishing "no nominal result" (intentionally a
-no-op) from "nominal result of a different arity" (a user error) needs the two conditions
-split; I did not check whether a later pass catches the arity independently.
+`inferTypeApp` only pins the explicit arguments through a nominal result: with no nominal
+result the explicit args are dropped, so `id<string> 3` type-checks. The fix instantiates the
+binding's scheme at the explicit args instead.
 
 ### `InferTypeOps.fs:187` — the type test does not strip a reference-`null` source, unlike the downcast
 
@@ -1153,17 +1137,6 @@ same footing as a union's. Separately, the hand-rolled match duplicates `TTypeKi
 `TTypeKindG.interfaceMembers` (`TastDecl.fs:300`, `:311`), which already name exactly "every
 member body under a type declaration"; routing through them would make the omission a visible
 filter rather than a missing match arm.
-
-### `ResolvedTypes.fs:48` — `pushScheme` silently ignores every non-`NamedSimple` binding
-
-`pushScheme` matches `TPat.NamedSimple` and returns an empty `added` for anything else, so a
-binding whose pattern is a tuple or a record pattern contributes no quantified roots to
-`allowed`. Any such binding that did carry a scheme would have its quantified typars counted as
-unresolved and reported as `InternalBreak.UnresolvedTyVars`. `declSite` immediately below has the
-same `NamedSimple`-or-nothing shape, and there it is documented as best-effort attribution, which
-is fine for a source location and not obviously fine for a correctness check. I did not confirm
-that a non-`NamedSimple` binding can reach here holding a scheme — if it cannot, the invariant
-deserves to be in the type rather than in a fall-through arm.
 
 ### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* boundVar key, not a detectable hole
 

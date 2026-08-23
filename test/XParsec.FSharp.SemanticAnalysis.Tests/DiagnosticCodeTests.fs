@@ -78,7 +78,7 @@ let tests =
             test "a forwarded parse verdict keeps the parser's own code" {
                 Expect.equal
                     (codeOf (Kind.Parse DiagnosticCode.MissingExpression))
-                    (DiagCode.Vesper "MissingExpression")
+                    (DiagCode.Parse "MissingExpression")
                     "forwarded, not renumbered"
             }
 

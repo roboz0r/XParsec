@@ -31,14 +31,14 @@ module ResolvedTypes =
 
         go t
 
-    /// Add this binding's scheme's quantified roots to `allowed`, returning the newly-added
-    /// ones for the caller to pop. Skip-if-already-present, so an inner `let` cannot pop an
-    /// outer scope's quantifieds.
+    /// Add the quantified roots of every scheme this binding pattern binds (each
+    /// `NamedSimple`, at any nesting) to `allowed`, returning the newly-added ones for the
+    /// caller to pop. Skip-if-already-present, so an inner `let` cannot pop an outer
+    /// scope's quantifieds.
     let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TyVarId>) : ResizeArray<TyVarId> =
         let added = ResizeArray<TyVarId>()
 
-        match binding with
-        | TPat.NamedSimple(key, _, _) ->
+        for key in TastWalk.boundVarsOfTPat binding do
             match ctx.Bindings.Scheme.TryGetValue key with
             | ValueSome scheme ->
                 for tv in scheme.Quantified do
@@ -47,7 +47,6 @@ module ResolvedTypes =
                     if allowed.Add root.Id then
                         added.Add root.Id
             | ValueNone -> ()
-        | _ -> ()
 
         added
 
@@ -104,11 +103,27 @@ module ResolvedTypes =
                     true
         }
 
-    /// Best-effort attribution for a decl-level diagnostic: the binding's own token where
-    /// the binding's pattern is a `NamedSimple`, and no place in the file otherwise.
+    /// Best-effort attribution for a decl-level diagnostic: the first `NamedSimple` bound
+    /// in the binding's pattern, and no place in the file otherwise.
     let declSite (d: TDecl) : Site =
+        let rec firstNamed (p: TPat) : Site option =
+            match p with
+            | TPat.NamedSimple(tok = tok) -> Some(Site.ofToken tok)
+            | TPat.Wildcard _
+            | TPat.Null _
+            | TPat.EnumCase _
+            | TPat.Const _ -> None
+            | TPat.Tuple(items, _, _)
+            | TPat.Union(_, items, _, _)
+            | TPat.Or(items, _, _) -> items |> Seq.tryPick firstNamed
+            | TPat.Record(fields, _, _) -> fields |> Seq.tryPick (fun (_, sub) -> firstNamed sub)
+            | TPat.TypeTestAs(_, inner, _, _) -> firstNamed inner
+
         match d with
-        | TDecl.Let(TPat.NamedSimple(tok = tok), _, _, _) -> Site.ofToken tok
+        | TDecl.Let(binding, _, _, _) ->
+            match firstNamed binding with
+            | Some site -> site
+            | None -> Site.Nowhere
         | _ -> Site.Nowhere
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =

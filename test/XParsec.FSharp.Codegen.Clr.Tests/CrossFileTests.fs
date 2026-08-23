@@ -209,6 +209,38 @@ printfn \"%d\" n
                 Expect.equal (output.Replace("\r", "").Trim()) "7" "the boxed int reads back cross-file"
             }
 
+            test "two files run: file 2 boxes a value into file 1's obj union case field (cross-file box)" {
+                // `Wrap 7` type-checks into file 1's `Wrap of obj` cross-file; codegen must
+                // then box it. A missing box is invalid IL that fails to load, so a clean
+                // unbox round-trip proves the cross-file box fires. Namespace-level, not
+                // module-held: a bare case of a module-held union does not yet resolve
+                // cross-file.
+                let file1 =
+                    "\
+namespace CrossFile
+
+type Holder = Wrap of obj
+"
+
+                let file2 =
+                    "\
+open CrossFile
+
+let w = Wrap 7
+
+let n =
+    match w with
+    | Wrap v -> v :?> int
+
+printfn \"%d\" n
+"
+
+                let bytes = compileTwoFiles "CrossFileObjUnionBox" file1 file2
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" (output.Replace("\r", "").Trim()))
+                Expect.equal (output.Replace("\r", "").Trim()) "7" "the boxed int reads back cross-file"
+            }
+
             test "two files run: file 2 reads a record FIELD declared in file 1 (ldfld re-homes local)" {
                 // File 1 declares a record and a factory; file 2 reads `.X` off the result. The
                 // read resolves through file 1's projected provider view (no local

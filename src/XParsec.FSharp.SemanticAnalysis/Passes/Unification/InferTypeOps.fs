@@ -21,7 +21,8 @@ module internal UnificationInferTypeOps =
 
     /// Explicit type application on a value or ctor (`Box<int>(x)`): the given args
     /// unify pairwise with the *nominal result* type args, so `ResizeArray<int>()`
-    /// pins. A bare generic function (`id<int>`) has no nominal result, so args are a no-op.
+    /// pins, and a wrong-arity application is reported. A bare generic function
+    /// (`id<int>`) has no nominal result, so args are a no-op.
     let rec inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
@@ -38,10 +39,14 @@ module internal UnificationInferTypeOps =
             | other -> other
 
         match resultOf innerTy with
-        | TyClass(_, freshArgs)
-        | TyUnion(_, freshArgs)
-        | TyRecord(_, freshArgs) when freshArgs.Length = List.length explicit ->
-            List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList freshArgs) explicit
+        | TyClass(key, freshArgs)
+        | TyUnion(key, freshArgs)
+        | TyRecord(key, freshArgs) ->
+            if freshArgs.Length = List.length explicit then
+                List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList freshArgs) explicit
+            else
+                let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
+                ctx.Report(tok, Kind.TypeArgArity(shown, freshArgs.Length, List.length explicit))
         | _ -> ()
 
         innerTy

@@ -138,6 +138,7 @@ module internal UnificationInferApp =
         (ctx: PassContext)
         (tok: SyntaxToken)
         (argExpr: Expr<SyntaxToken>)
+        (argTy: SemType)
         (dom: SemType)
         : bool =
         // Syntactic check FIRST: the peel is cheap, while the slot check ground-folds the
@@ -158,11 +159,13 @@ module internal UnificationInferApp =
                 else
                     let allowed = disjuncts |> List.map (fun v -> v.Render) |> String.concat " | "
 
-                    ctx.Report(
-                        tok,
-                        Kind.Message(sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
-                    )
+                    let err =
+                        errorTy
+                            ctx
+                            tok
+                            (Kind.Message(sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed))
 
+                    unify ctx tok argTy err
                     true
 
     let rec inferApp
@@ -189,7 +192,7 @@ module internal UnificationInferApp =
                     // A literal-union parameter consults the argument EXPRESSION for a syntactic
                     // constant; skip `unifyArg` when that handles the slot, as it rejects a
                     // `string`. It otherwise accepts a ground subtype upcast.
-                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] dom) then
+                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] argTy dom) then
                         unifyArg ctx node.Tok argTy dom
 
                     currTy <- cod
