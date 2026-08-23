@@ -12,6 +12,12 @@ subagent report.
 
 ## Defects
 
+### `Lexing.fs` — an interpolated string's escapes are never decoded
+
+`pSkipInterpolatedFragmentChars` folds a `\x` pair into the fragment without emitting
+`Token.EscapeSequence`, so `$""\n""` reaches every consumer with the two raw characters.
+Plain, verbatim and triple-quoted strings decode through `Lexing.decodeStringEscape`;
+the interpolated path bypasses it. Found while landing the shared escape decoder.
 ### Cross-file resolution — a module-held union's case does not resolve from another file
 
 With file 1 declaring `module M` / `type Holder = Wrap of obj`, file 2 gets "Unresolved
@@ -1026,31 +1032,6 @@ invisible. Note also that those deleted comments were wrong about both tables �
 `FunVerdicts` "node-keyed" (it is `Map<LambdaKey, FunVerdict>`) and attributed the decision to
 `inferApp` (it is `recordFunArityVerdicts`), which is the kind of drift a snapshot step that the
 type system does not name will keep producing.
-
-### `StringLiterals.fs:22` — `decodeEscape` throws on escapes the string lexer accepts
-
-`decodeEscape` handles the escape set of the lexer's `pCharChar` (`Lexing.fs:1206`) — `"`, `\`,
-`'`, `n`, `t`, `b`, `r`, `a`, `f`, `v`, `\uXXXX`, `\xHH`, `\DDD` — and every other shape hits its
-`failwithf`. But its actual feed is `foldStringParts`, whose tokens come from
-`pStringEscapeToken` (`Lexing.fs:1347`), which is strictly more permissive: it emits
-`Token.EscapeSequence` for `\UXXXXXXXX`, for a `\u`/`\x` truncated at end-of-input (it falls back
-to `SkipN 2`), for a lone trailing backslash (a ONE-char token, so `inner.[1]` is an index error),
-and for any unknown escape at all under its `// Unknown escape` arm. So `let s = "\U0001F600"`
-and `let s = "\q"` both lex clean and then crash the Elaborate pass with a `failwithf` rather than
-a diagnostic. The trigraph arm diverges more quietly: `pCharChar` flags a value over 255 as
-`CharChar.InvalidTrigraph`, while `decodeEscape` runs `char (Int32.Parse "999")` and silently
-yields U+03E7. I did not check whether the string lexer's permissiveness is deliberate error
-recovery — if it is, the fix is a `voption`/`Result` return here plus a diagnostic, not a wider
-match; if it is not, the two escape tables should be one.
-
-### `StringLiterals.fs:22` — the lexer already decodes each escape and throws the result away
-
-`pCharChar` computes the decoded character (`CharChar.Escaped '\n'`, `CharChar.UnicodeShort`,
-`CharChar.Trigraph`) and the token stream keeps only the source span, so `decodeEscape` re-derives
-from raw text what the lexer had in hand a moment earlier. That is why the escape table exists
-twice at all, and why the two can drift as they have. Carrying the decoded char on the token — or
-having the lexer publish its decoder — would delete this function and the divergence above with
-it.
 
 ### `Elaborate/Args.fs:57` — `peelOneArg` and `peelCtorArgs` disagree on `(())`
 

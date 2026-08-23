@@ -169,7 +169,7 @@ module SignatureResolution =
         for EnumTypeCase(ident = cid; constValue = v) in cases do
             let name = ctx.NameOf cid
 
-            match EnumCaseValues.tryResolve ctx.NameOf v with
+            match EnumCaseValues.tryResolve ctx.NameOf (fun t kind -> ctx.Report(t, kind)) v with
             | Ok(TEnumLiteral.Int n) ->
                 shapes.Add
                     {

@@ -1289,6 +1289,99 @@ module Lexing =
         | Trigraph of c: char
         | InvalidTrigraph of i: int
 
+    /// One string-context escape token, decoded. `Text` is the only case a well-formed
+    /// program produces; the other two denote no character and exist for the caller to
+    /// diagnose at the token.
+    [<RequireQualifiedAccess>]
+    type DecodedEscape =
+        /// The replacement text: the decoded character, a surrogate pair for an astral
+        /// `\UXXXXXXXX`, U+FFFD for a `\u`/`\U` in the surrogate range, or the raw text
+        /// verbatim for a malformed escape fsc keeps literally (`\q`, a truncated `\u12`).
+        | Text of text: string
+        /// `\DDD` above 255.
+        | TrigraphOutOfRange
+        /// `\UXXXXXXXX` above 0x10FFFF: fsc's error FS1245.
+        | NotUnicodeScalar
+
+    /// Decode one string-context escape token's text (`raw` starts with `\`). Total over
+    /// every token `pStringEscapeToken` emits, and matches fsc's string-literal decoding
+    /// except for the two non-`Text` cases, which fsc wraps (FS1252) or refuses (FS1245).
+    let decodeStringEscape (raw: string) : DecodedEscape =
+        let verbatim = DecodedEscape.Text raw
+
+        if raw.Length < 2 || raw.[0] <> '\\' then
+            verbatim
+        else
+            match raw.[1] with
+            | '"' -> DecodedEscape.Text "\""
+            | '\\' -> DecodedEscape.Text "\\"
+            | '\'' -> DecodedEscape.Text "'"
+            | 'n' -> DecodedEscape.Text "\n"
+            | 't' -> DecodedEscape.Text "\t"
+            | 'b' -> DecodedEscape.Text "\b"
+            | 'r' -> DecodedEscape.Text "\r"
+            | 'a' -> DecodedEscape.Text "\a"
+            | 'f' -> DecodedEscape.Text "\f"
+            | 'v' -> DecodedEscape.Text "\v"
+            | 'u' when raw.Length = 6 ->
+                match UInt16.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code when code >= 0xD800us && code <= 0xDFFFus ->
+                    // fsc substitutes U+FFFD for a lone surrogate in a string literal.
+                    DecodedEscape.Text "\uFFFD"
+                | true, code -> DecodedEscape.Text(string (char code))
+                | false, _ -> verbatim
+            | 'x' when raw.Length = 4 ->
+                match Byte.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code -> DecodedEscape.Text(string (char code))
+                | false, _ -> verbatim
+            | 'U' when raw.Length = 10 ->
+                match UInt32.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code when code > 0x10FFFFu -> DecodedEscape.NotUnicodeScalar
+                | true, code when code >= 0xD800u && code <= 0xDFFFu -> DecodedEscape.Text "\uFFFD"
+                | true, code -> DecodedEscape.Text(Char.ConvertFromUtf32(int code))
+                | false, _ -> verbatim
+            | d when isDigit d && raw.Length = 4 ->
+                match Int32.TryParse(raw.AsSpan 1, NumberStyles.None, CultureInfo.InvariantCulture) with
+                | true, code when code <= 255 -> DecodedEscape.Text(string (char code))
+                | true, _ -> DecodedEscape.TrigraphOutOfRange
+                | false, _ -> verbatim
+            | _ -> verbatim
+
+    /// Decode one CHAR-literal escape body (`raw` starts with `\`), `ValueNone` for a body
+    /// `pCharChar` refuses. A char literal keeps a lone surrogate (`'\uD800'` is U+D800),
+    /// unlike the string context's U+FFFD substitution.
+    let decodeCharEscape (raw: string) : char voption =
+        if raw.Length < 2 || raw.[0] <> '\\' then
+            ValueNone
+        else
+            match raw.[1] with
+            | _ when raw.Length = 2 ->
+                match raw.[1] with
+                | '"' -> ValueSome '"'
+                | '\\' -> ValueSome '\\'
+                | '\'' -> ValueSome '\''
+                | 'n' -> ValueSome '\n'
+                | 't' -> ValueSome '\t'
+                | 'b' -> ValueSome '\b'
+                | 'r' -> ValueSome '\r'
+                | 'a' -> ValueSome '\a'
+                | 'f' -> ValueSome '\f'
+                | 'v' -> ValueSome '\v'
+                | _ -> ValueNone
+            | 'u' when raw.Length = 6 ->
+                match UInt16.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code -> ValueSome(char code)
+                | false, _ -> ValueNone
+            | 'x' when raw.Length = 4 ->
+                match Byte.TryParse(raw.AsSpan 2, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+                | true, code -> ValueSome(char code)
+                | false, _ -> ValueNone
+            | d when isDigit d && raw.Length = 4 ->
+                match Int32.TryParse(raw.AsSpan 1, NumberStyles.None, CultureInfo.InvariantCulture) with
+                | true, code when code <= 255 -> ValueSome(char code)
+                | _ -> ValueNone
+            | _ -> ValueNone
+
     let pCharChar (reader: Reader<char, LexBuilder, ReadableString>) =
         let span = reader.PeekN(2)
 
@@ -1429,7 +1522,17 @@ module Lexing =
     let pTripleStringFragmentToken =
         pToken pSkipVerbatimStringFragmentChars Token.StringFragment
 
+    let private allHexDigits (span: ReadOnlySpan<char>) =
+        let mutable ok = true
+
+        for i in 0 .. span.Length - 1 do
+            ok <- ok && Char.IsAsciiHexDigit span.[i]
+
+        ok
+
     // Escape sequence inside a regular string: \n, \t, \xHH, \uXXXX, \UXXXXXXXX, \DDD, etc.
+    // A long form whose body is not all hex/decimal digits is lexed as the 2-char
+    // unknown-escape form, which `decodeStringEscape` keeps verbatim, matching fsc.
     let pStringEscapeToken (reader: Reader<char, LexBuilder, ReadableString>) =
         let pos = reader.Position
         let span = reader.PeekN(2)
@@ -1455,34 +1558,43 @@ module Lexing =
                 reader.SkipN(2)
                 updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
             | 'u' ->
-                // \uXXXX — try to consume 6 chars, fall back to 2
+                // \uXXXX — consume when 4 hex digits follow, else the 2-char unknown-escape form
                 let full = reader.PeekN(6)
 
-                if full.Length = 6 then reader.SkipN(6) else reader.SkipN(2)
+                if full.Length = 6 && allHexDigits (full.Slice(2)) then
+                    reader.SkipN(6)
+                else
+                    reader.SkipN(2)
 
                 updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
             | 'x' ->
-                // \xHH — try to consume 4 chars, fall back to 2
+                // \xHH — consume when 2 hex digits follow, else the 2-char unknown-escape form
                 let full = reader.PeekN(4)
 
-                if full.Length = 4 then reader.SkipN(4) else reader.SkipN(2)
+                if full.Length = 4 && allHexDigits (full.Slice(2)) then
+                    reader.SkipN(4)
+                else
+                    reader.SkipN(2)
 
                 updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
             | 'U' ->
-                // \UXXXXXXXX — try to consume 10 chars, fall back to 2
+                // \UXXXXXXXX — consume when 8 hex digits follow, else the 2-char unknown-escape form
                 let full = reader.PeekN(10)
 
-                if full.Length = 10 then
+                if full.Length = 10 && allHexDigits (full.Slice(2)) then
                     reader.SkipN(10)
                 else
                     reader.SkipN(2)
 
                 updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
             | c when isDigit c ->
-                // \DDD trigraph — try to consume 4 chars, fall back to 2
+                // \DDD trigraph — consume when 3 decimal digits follow, else the 2-char unknown-escape form
                 let full = reader.PeekN(4)
 
-                if full.Length = 4 then reader.SkipN(4) else reader.SkipN(2)
+                if full.Length = 4 && isDigit full.[2] && isDigit full.[3] then
+                    reader.SkipN(4)
+                else
+                    reader.SkipN(2)
 
                 updateUserState (LexBuilder.append Token.EscapeSequence pos CtxOp.NoOp) reader
             | _ ->

@@ -23,8 +23,6 @@ type internal ConstRejection =
 
 module internal ElaborateLiterals =
 
-    let private decodeEscape = StringLiterals.decodeEscape
-
     /// A char literal that reaches here already lexed clean; decode its (possibly escaped)
     /// single character.
     let private parseCharLiteral (text: string) : char =
@@ -32,10 +30,10 @@ module internal ElaborateLiterals =
 
         if inner.Length = 1 then
             inner.[0]
-        elif inner.Length >= 2 && inner.[0] = '\\' then
-            decodeEscape inner
         else
-            failwithf "Elaborate.parseCharLiteral: unexpected char literal text %s" text
+            match Lexing.decodeCharEscape inner with
+            | ValueSome c -> c
+            | ValueNone -> failwithf "Elaborate.parseCharLiteral: unexpected char literal text %s" text
 
     /// Projection of a constant literal onto `TConstValue`, never a truncation. Bool / char
     /// / well-formed primitive numeric literals always resolve; a consumer that can report a
@@ -79,10 +77,12 @@ module internal ElaborateLiterals =
 
     /// Concatenate the literal text of every string part, rendering an interpolation hole
     /// (`StringPart.Expr`) through `onHole`, the only thing the IL-intrinsic and
-    /// literal-string stitchers differ in.
-    let foldStringParts = StringLiterals.foldStringParts
+    /// literal-string stitchers differ in. Reports an escape denoting no character
+    /// (`"\256"`, `"\U00110000"`) at its token.
+    let foldStringParts (ctx: PassContext) (onHole: unit -> string) parts : string =
+        StringLiterals.foldStringParts ctx.NameOf onHole (fun t kind -> ctx.Report(t, kind)) parts
 
     /// Stitch a value-level `Expr.ILIntrinsic` instruction string, trimming surrounding
     /// whitespace: `(# "ceq" … #)` → `"ceq"`.
     let stitchIlInstruction (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
-        (foldStringParts ctx.NameOf (fun () -> "") parts).Trim()
+        (foldStringParts ctx (fun () -> "") parts).Trim()

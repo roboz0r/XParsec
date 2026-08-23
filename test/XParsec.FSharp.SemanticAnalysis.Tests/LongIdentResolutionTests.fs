@@ -35,7 +35,7 @@ let private analyse (units: SourceUnit list) : FrozenFile list =
         function
         | UnitOutcome.Analysed u -> u.File
         | UnitOutcome.Failed(leading, rest) ->
-            failtestf "unit failed to parse: %A" [ for e in leading :: rest -> e.Id.Name, e.Failure.Diagnostics ]
+            failtestf "unit failed to parse: %A" [ for e in leading :: rest -> e.Id.Name, FileFault.diagnostics e.Fault ]
     )
 
 let private errorsOf (f: FrozenFile) : Diagnostic list =

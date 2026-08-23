@@ -10,61 +10,40 @@ open XParsec.FSharp.Parser
 
 module internal StringLiterals =
 
-    /// Decode one backslash escape body (`inner` starts with `\`) to its char. The set is the
-    /// CHAR-literal one; the string lexer also admits `\UXXXXXXXX`, a truncated `\uXX` and any
-    /// unknown escape, and each of those reaches the `failwithf` below.
-    let decodeEscape (inner: string) : char =
-        match inner.[1] with
-        | '"' -> '"'
-        | '\\' -> '\\'
-        | '\'' -> '\''
-        | 'n' -> '\n'
-        | 't' -> '\t'
-        | 'b' -> '\b'
-        | 'r' -> '\r'
-        | 'a' -> '\a'
-        | 'f' -> '\f'
-        | 'v' -> '\v'
-        | 'u' ->
-            char (
-                System.UInt16.Parse(
-                    inner.Substring(2, 4),
-                    System.Globalization.NumberStyles.AllowHexSpecifier,
-                    System.Globalization.CultureInfo.InvariantCulture
-                )
-            )
-        | 'x' ->
-            char (
-                System.Byte.Parse(
-                    inner.Substring(2, 2),
-                    System.Globalization.NumberStyles.AllowHexSpecifier,
-                    System.Globalization.CultureInfo.InvariantCulture
-                )
-            )
-        | d when System.Char.IsDigit d ->
-            // Trigraph `\DDD` (decimal byte).
-            char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
-        | other -> failwithf "StringLiterals.decodeEscape: unsupported escape '\\%c' in %s" other inner
-
     /// Concatenate the literal text of every string part via `nameOf`, rendering an
-    /// interpolation hole (`StringPart.Expr`) through `onHole`.
+    /// interpolation hole (`StringPart.Expr`) through `onHole`. An escape denoting no
+    /// character (`Lexing.decodeStringEscape`'s non-`Text` cases) is surfaced through
+    /// `onInvalid` at its token and kept verbatim in the fold.
     let foldStringParts
         (nameOf: SyntaxToken -> string)
         (onHole: unit -> string)
+        (onInvalid: SyntaxToken -> Kind -> unit)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         : string =
         let sb = System.Text.StringBuilder()
 
+        let appendEscape (t: SyntaxToken) =
+            // The raw source span of the token: backslash then `n`, two chars. Decoding it
+            // here is what makes a literal `"\n"` a newline instead of two characters.
+            let raw = nameOf t
+
+            match Lexing.decodeStringEscape raw with
+            | Lexing.DecodedEscape.Text text -> sb.Append text |> ignore
+            | Lexing.DecodedEscape.TrigraphOutOfRange ->
+                onInvalid t (Kind.EscapeTrigraphOutOfRange raw)
+                sb.Append raw |> ignore
+            | Lexing.DecodedEscape.NotUnicodeScalar ->
+                onInvalid t (Kind.EscapeNotUnicodeScalar raw)
+                sb.Append raw |> ignore
+
         for part in parts do
             match part with
-            // A `Text` part can carry an escape-sequence TOKEN, whose `nameOf` is the
-            // raw source span: backslash then `n`, two chars. Decoding it here is what
-            // makes a literal `"\n"` a newline instead of two characters.
+            // A `Text` part can carry an escape-sequence TOKEN.
             | StringPart.Text t ->
                 match t.Token with
-                | Token.EscapeSequence -> sb.Append(decodeEscape (nameOf t)) |> ignore
+                | Token.EscapeSequence -> appendEscape t
                 | _ -> sb.Append(nameOf t) |> ignore
-            | StringPart.EscapeSequence t -> sb.Append(decodeEscape (nameOf t)) |> ignore
+            | StringPart.EscapeSequence t -> appendEscape t
             | StringPart.FormatSpecifier t
             | StringPart.EscapePercent t
             | StringPart.VerbatimEscapeQuote t

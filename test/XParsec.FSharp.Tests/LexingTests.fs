@@ -278,6 +278,82 @@ let tests =
                 testLexed snippet expected
             }
 
+            testList
+                "EscapeDecoding"
+                [
+                    test "Ordinary escapes decode to their characters" {
+                        let cases =
+                            [
+                                "\\\"", "\""
+                                "\\\\", "\\"
+                                "\\'", "'"
+                                "\\n", "\n"
+                                "\\t", "\t"
+                                "\\b", "\b"
+                                "\\r", "\r"
+                                "\\a", "\a"
+                                "\\f", "\f"
+                                "\\v", "\v"
+                                "\\u0041", "A"
+                                "\\x41", "A"
+                                "\\065", "A"
+                                "\\255", "\u00FF"
+                            ]
+
+                        for raw, expected in cases do
+                            Expect.equal
+                                (decodeStringEscape raw)
+                                (DecodedEscape.Text expected)
+                                $"%A{raw} decodes to %A{expected}"
+                    }
+
+                    test "An astral \\U escape decodes to a surrogate pair" {
+                        Expect.equal
+                            (decodeStringEscape "\\U0001F600")
+                            (DecodedEscape.Text "\U0001F600")
+                            "U+1F600 is two UTF-16 code units"
+                    }
+
+                    test "A surrogate code point decodes to U+FFFD, as fsc's string context does" {
+                        Expect.equal (decodeStringEscape "\\uD800") (DecodedEscape.Text "\uFFFD") "\\uD800"
+                        Expect.equal (decodeStringEscape "\\U0000DFFF") (DecodedEscape.Text "\uFFFD") "\\U0000DFFF"
+                    }
+
+                    test "An unknown or truncated escape stays raw text verbatim" {
+                        for raw in [ "\\q"; "\\u12"; "\\u"; "\\x2"; "\\U0001F60"; "\\12"; "\\" ] do
+                            Expect.equal (decodeStringEscape raw) (DecodedEscape.Text raw) $"%A{raw} stays verbatim"
+                    }
+
+                    test "A trigraph above 255 and a \\U beyond the scalar range are refused" {
+                        Expect.equal (decodeStringEscape "\\256") DecodedEscape.TrigraphOutOfRange "\\256"
+                        Expect.equal (decodeStringEscape "\\999") DecodedEscape.TrigraphOutOfRange "\\999"
+                        Expect.equal (decodeStringEscape "\\U00110000") DecodedEscape.NotUnicodeScalar "\\U00110000"
+                        Expect.equal (decodeStringEscape "\\UFFFFFFFF") DecodedEscape.NotUnicodeScalar "\\UFFFFFFFF"
+                    }
+
+                    test "A char-literal escape keeps a lone surrogate" {
+                        Expect.equal (decodeCharEscape "\\uD800") (ValueSome '\uD800') "'\\uD800' is U+D800"
+                        Expect.equal (decodeCharEscape "\\n") (ValueSome '\n') "'\\n'"
+                        Expect.equal (decodeCharEscape "\\q") ValueNone "'\\q' is refused by the char lexer"
+                    }
+
+                    test "A malformed long-form escape lexes as the 2-char unknown escape, keeping the close quote" {
+                        // "\u12" — fsc keeps the four chars verbatim; the escape token must
+                        // not swallow the closing quote.
+                        let expected =
+                            [
+                                0, Token.StringOpen
+                                1, Token.EscapeSequence
+                                3, Token.StringFragment
+                                5, Token.StringClose
+                                6, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "\"\\u12\"" expected
+                    }
+                ]
+
             for file in testData.Value do
                 let name = IO.Path.GetFileName file
 

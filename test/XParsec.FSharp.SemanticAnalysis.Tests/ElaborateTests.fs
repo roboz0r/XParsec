@@ -1250,3 +1250,53 @@ let propertySetterTests =
                 Expect.equal kinds [ Kind.RangeNotFirstClassValue ] "one diagnostic, the range one"
             }
         ]
+
+[<Tests>]
+let stringEscapeTests =
+    testList
+        "StringEscapes"
+        [
+            test "ordinary escapes round-trip through a string literal" {
+                let tast = analyse "let s = \"a\\tb\\u0041\\x41\\065\\U0001F600\""
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "a\tbAAA\U0001F600" "escapes decode, the astral \\U to a surrogate pair"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            test "an unknown and a truncated escape stay verbatim, no diagnostics" {
+                let tast = analyse "let s = \"\\q \\u12\""
+                Expect.isEmpty tast.Diagnostics "fsc keeps both verbatim without a warning"
+
+                match tast.Decls.[0] with
+                | TDecl.Let(_, TExpr.Const(TConstValue.String s, _, _), _, _) ->
+                    Expect.equal s "\\q \\u12" "raw text, backslashes included"
+                | other -> failtestf "expected a string const let, got %A" other
+            }
+
+            test "a decimal trigraph above 255 is a hard ERROR" {
+                let tast = analyse "let s = \"\\256\""
+                let kinds = tast.Diagnostics |> Seq.map (fun d -> d.Kind) |> Seq.toList
+
+                Expect.equal kinds [ Kind.EscapeTrigraphOutOfRange "\\256" ] "one diagnostic, the trigraph one"
+            }
+
+            test "a \\U beyond the Unicode scalar range is a hard ERROR" {
+                let tast = analyse "let s = \"\\U00110000\""
+                let kinds = tast.Diagnostics |> Seq.map (fun d -> d.Kind) |> Seq.toList
+
+                Expect.equal kinds [ Kind.EscapeNotUnicodeScalar "\\U00110000" ] "one diagnostic, fsc's FS1245"
+            }
+
+            test "a trigraph above 255 in an enum case value reports at the escape token" {
+                let tast = analyse "type E = | A = \"\\256\""
+
+                let hasTrigraph =
+                    tast.Diagnostics
+                    |> List.exists (fun d -> d.Kind = Kind.EscapeTrigraphOutOfRange "\\256")
+
+                Expect.isTrue hasTrigraph "the enum-case value projection surfaces the verdict"
+            }
+        ]

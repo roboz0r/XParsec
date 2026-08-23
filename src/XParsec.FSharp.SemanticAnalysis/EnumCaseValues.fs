@@ -26,13 +26,17 @@ type internal EnumCaseRejection =
 
 module internal EnumCaseValues =
 
+    /// `onInvalid` receives a string-escape verdict (`Kind.EscapeTrigraphOutOfRange` /
+    /// `Kind.EscapeNotUnicodeScalar`) at its token; a caller whose pass re-reads the same
+    /// declaration later passes an ignore to keep the report single.
     let rec tryResolve
         (nameOf: SyntaxToken -> string)
+        (onInvalid: SyntaxToken -> Kind -> unit)
         (v: Expr<SyntaxToken>)
         : Result<TEnumLiteral, EnumCaseRejection> =
         match v with
         // A value-grouping paren (`| C = (1)`) is not itself the constant; peel it.
-        | Expr.EnclosedBlock(expr = inner) -> tryResolve nameOf inner
+        | Expr.EnclosedBlock(expr = inner) -> tryResolve nameOf onInvalid inner
         | Expr.Const c ->
             let t =
                 match c with
@@ -51,13 +55,13 @@ module internal EnumCaseValues =
         // Plain / verbatim / triple-quoted strings are constants; `$"…"` is the one `String`
         // kind that is not.
         | Expr.String(kind = (StringKind.String _ | StringKind.VerbatimString _ | StringKind.String3 _); parts = parts) ->
-            Ok(TEnumLiteral.String(StringLiterals.foldStringParts nameOf (fun () -> "") parts))
+            Ok(TEnumLiteral.String(StringLiterals.foldStringParts nameOf (fun () -> "") onInvalid parts))
         | Expr.String _ -> Error EnumCaseRejection.InterpolatedString
         // The lexer merges `-` into an ADJACENT numeric when what precedes it cannot be a left
         // operand, so `| A = -1` arrives above as one literal. This arm is what the merge
         // misses: the spaced `| A = - 1` and `| A = -(1)`.
         | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
-            match tryResolve nameOf operand with
+            match tryResolve nameOf onInvalid operand with
             // Negation wraps AT THE WIDTH: `-(-128y)` stays `-128y`.
             | Ok(TEnumLiteral.Int(TConstValue.Integral(k, bits))) when IntKind.isSigned k ->
                 Ok(TEnumLiteral.Int(TConstValue.Integral(k, IntKind.negate k bits)))

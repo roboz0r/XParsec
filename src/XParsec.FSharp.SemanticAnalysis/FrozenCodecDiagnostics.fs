@@ -420,6 +420,12 @@ module FrozenCodecDiagnostics =
         | Kind.PackageSet fault ->
             w.Write 49uy
             writePackageSetFault w fault
+        | Kind.EscapeTrigraphOutOfRange raw ->
+            w.Write 51uy
+            w.Write raw
+        | Kind.EscapeNotUnicodeScalar raw ->
+            w.Write 52uy
+            w.Write raw
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -538,6 +544,8 @@ module FrozenCodecDiagnostics =
         | 50uy ->
             let unionName = r.ReadString()
             Kind.RequireQualifiedAccessCase(unionName, r.ReadString())
+        | 51uy -> Kind.EscapeTrigraphOutOfRange(r.ReadString())
+        | 52uy -> Kind.EscapeNotUnicodeScalar(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

@@ -206,7 +206,7 @@ module internal ElaborateTypeDecls =
         (idTok: SyntaxToken)
         (v: Expr<SyntaxToken>)
         : TEnumLiteral voption =
-        match EnumCaseValues.tryResolve ctx.NameOf v with
+        match EnumCaseValues.tryResolve ctx.NameOf (fun t kind -> ctx.Report(t, kind)) v with
         | Ok lit -> ValueSome lit
         | Error e ->
             let kind =

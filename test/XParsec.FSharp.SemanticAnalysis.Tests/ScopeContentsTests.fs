@@ -33,7 +33,7 @@ let private publishedViewsOfUnits (units: SourceUnit list) : IExternalSymbolProv
         function
         | UnitOutcome.Analysed u -> u.File.View
         | UnitOutcome.Failed(leading, rest) ->
-            failtestf "unit failed to parse: %A" [ for e in leading :: rest -> e.Id.Name, e.Failure.Diagnostics ]
+            failtestf "unit failed to parse: %A" [ for e in leading :: rest -> e.Id.Name, FileFault.diagnostics e.Fault ]
     )
 
 /// `publishedViewsOfUnits` over implementation-only files.

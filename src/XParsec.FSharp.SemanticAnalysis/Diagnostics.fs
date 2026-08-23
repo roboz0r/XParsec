@@ -339,6 +339,13 @@ type Kind =
     | EnumCaseNotConstant
     | RangeNotFirstClassValue
 
+    // ── String literals ────────────────────────────────────────────────────────
+    /// A `\DDD` escape above 255 (`"\256"`). fsc wraps the value to a byte under warning
+    /// FS1252 and deprecates the wrap; this compiler refuses it outright.
+    | EscapeTrigraphOutOfRange of raw: string
+    /// A `\UXXXXXXXX` escape above 0x10FFFF, which denotes no Unicode scalar value.
+    | EscapeNotUnicodeScalar of raw: string
+
     // ── Equality / comparison attribute legality ───────────────────────────────
     | CustomEqualityOnRecordOrUnion
     | StructuralEqualityAttributeOnWrongKind
@@ -422,6 +429,10 @@ module Kind =
         | Kind.NullaryConstructorPattern _ -> DiagCode.FSharp 19 // UnionCaseWrongArguments
         | Kind.ImmutableFieldAssignment _ -> DiagCode.FSharp 5 // FieldNotMutable
         | Kind.EnumCaseNotConstant -> DiagCode.FSharp 886 // tcInvalidEnumerationLiteral
+        // ── String-literal escapes: fsc's numbers, though fsc files 1252 as a warning
+        // (wrapping the value) where this compiler refuses.
+        | Kind.EscapeTrigraphOutOfRange _ -> DiagCode.FSharp 1252
+        | Kind.EscapeNotUnicodeScalar _ -> DiagCode.FSharp 1245
         // ── Measures reconcile through the type equation, which is where fsc reports them.
         | Kind.MeasureMismatch _
         | Kind.DimensionlessMeasureMismatch _ -> DiagCode.FSharp 1 // ErrorFromAddingTypeEquation
@@ -525,6 +536,9 @@ module Kind =
             "An enum case value must be a literal integer or string constant, not an expression"
         | Kind.RangeNotFirstClassValue ->
             "a range expression is only supported as the source of a 'for i in a..b do' counted loop; it has no first-class value"
+        | Kind.EscapeTrigraphOutOfRange raw ->
+            sprintf "'%s' is not a valid character literal; a decimal escape must be in the range \\000–\\255" raw
+        | Kind.EscapeNotUnicodeScalar raw -> sprintf "%s is not a valid Unicode character escape sequence" raw
         | Kind.CustomEqualityOnRecordOrUnion ->
             "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler, so wrap the type in a class that implements IEquatable<_>/IComparable<_>."
         | Kind.StructuralEqualityAttributeOnWrongKind ->
@@ -620,6 +634,8 @@ module Kind =
         | Kind.ImmutableFieldAssignment _
         | Kind.EnumCaseNotConstant
         | Kind.RangeNotFirstClassValue
+        | Kind.EscapeTrigraphOutOfRange _
+        | Kind.EscapeNotUnicodeScalar _
         | Kind.CustomEqualityOnRecordOrUnion
         | Kind.StructuralEqualityAttributeOnWrongKind
         | Kind.CustomEqualityAttributeOnInterface

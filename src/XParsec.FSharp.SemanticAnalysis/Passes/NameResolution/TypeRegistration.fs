@@ -973,7 +973,9 @@ module NameResolutionTypeRegistration =
             let vals =
                 [|
                     for EnumTypeCase(constValue = v) in cases do
-                        match EnumCaseValues.tryResolve ctx.NameOf v with
+                        // Elaborate re-resolves each case value and reports there, so an
+                        // escape verdict here would be a duplicate.
+                        match EnumCaseValues.tryResolve ctx.NameOf (fun _ _ -> ()) v with
                         | Ok(TEnumLiteral.String s) -> yield s
                         | _ -> ()
                 |]
