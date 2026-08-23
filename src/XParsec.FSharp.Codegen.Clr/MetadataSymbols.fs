@@ -88,19 +88,19 @@ module private MetadataMapping =
         else
             0
 
-    /// The `IntWidth` a BCL integral primitive's name denotes. `System.IntPtr` /
+    /// The `IntKind` a BCL integral primitive's name denotes. `System.IntPtr` /
     /// `System.UIntPtr` are absent: neither a parameter default nor a metadata `Constant`
     /// row can carry one.
-    let private intWidthOfClrName (fullName: string) : IntWidth voption =
+    let private intKindOfClrName (fullName: string) : IntKind voption =
         match fullName with
-        | "System.SByte" -> ValueSome IntWidth.SByte
-        | "System.Byte" -> ValueSome IntWidth.Byte
-        | "System.Int16" -> ValueSome IntWidth.Int16
-        | "System.UInt16" -> ValueSome IntWidth.UInt16
-        | "System.Int32" -> ValueSome IntWidth.Int32
-        | "System.UInt32" -> ValueSome IntWidth.UInt32
-        | "System.Int64" -> ValueSome IntWidth.Int64
-        | "System.UInt64" -> ValueSome IntWidth.UInt64
+        | "System.SByte" -> ValueSome IntKind.SByte
+        | "System.Byte" -> ValueSome IntKind.Byte
+        | "System.Int16" -> ValueSome IntKind.Int16
+        | "System.UInt16" -> ValueSome IntKind.UInt16
+        | "System.Int32" -> ValueSome IntKind.Int32
+        | "System.UInt32" -> ValueSome IntKind.UInt32
+        | "System.Int64" -> ValueSome IntKind.Int64
+        | "System.UInt64" -> ValueSome IntKind.UInt64
         | _ -> ValueNone
 
     /// `default(T)` as a `TConstValue` for primitive value types; `None` otherwise.
@@ -108,8 +108,8 @@ module private MetadataMapping =
         if not t.IsValueType then
             None
         else
-            match intWidthOfClrName t.FullName with
-            | ValueSome w -> Some(TConstValue.Integral(w, 0L))
+            match intKindOfClrName t.FullName with
+            | ValueSome k -> Some(TConstValue.Integral(k, 0L))
             | ValueNone ->
                 match t.FullName with
                 | "System.Boolean" -> Some(TConstValue.Bool false)
@@ -118,23 +118,23 @@ module private MetadataMapping =
                 | "System.Double" -> Some(TConstValue.Float 0.0)
                 | _ -> None
 
-    /// Boxed `RawDefaultValue` → `TConstValue`. The box's runtime type is the only width
-    /// witness metadata gives, so each arm spells its own `IntWidth`; widening to `bits`
+    /// Boxed `RawDefaultValue` → `TConstValue`. The box's runtime type is the only kind
+    /// witness metadata gives, so each arm spells its own `IntKind`; widening to `bits`
     /// sign-extends the signed cases, zero-extends the unsigned (`uint64` reinterprets).
     let private constOfBoxed (v: obj) : TConstValue option =
-        let inline integral (w: IntWidth) (bits: int64) = Some(TConstValue.Integral(w, bits))
+        let inline integral (k: IntKind) (bits: int64) = Some(TConstValue.Integral(k, bits))
 
         match v with
         | :? bool as b -> Some(TConstValue.Bool b)
         | :? char as c -> Some(TConstValue.Char c)
-        | :? sbyte as n -> integral IntWidth.SByte (int64 n)
-        | :? byte as n -> integral IntWidth.Byte (int64 n)
-        | :? int16 as n -> integral IntWidth.Int16 (int64 n)
-        | :? uint16 as n -> integral IntWidth.UInt16 (int64 n)
-        | :? int as n -> integral IntWidth.Int32 (int64 n)
-        | :? uint32 as n -> integral IntWidth.UInt32 (int64 n)
-        | :? int64 as n -> integral IntWidth.Int64 n
-        | :? uint64 as n -> integral IntWidth.UInt64 (int64 n)
+        | :? sbyte as n -> integral IntKind.SByte (int64 n)
+        | :? byte as n -> integral IntKind.Byte (int64 n)
+        | :? int16 as n -> integral IntKind.Int16 (int64 n)
+        | :? uint16 as n -> integral IntKind.UInt16 (int64 n)
+        | :? int as n -> integral IntKind.Int32 (int64 n)
+        | :? uint32 as n -> integral IntKind.UInt32 (int64 n)
+        | :? int64 as n -> integral IntKind.Int64 n
+        | :? uint64 as n -> integral IntKind.UInt64 (int64 n)
         | :? single as f -> Some(TConstValue.Float32 f)
         | :? double as f -> Some(TConstValue.Float f)
         | :? string as s -> Some(TConstValue.String s)

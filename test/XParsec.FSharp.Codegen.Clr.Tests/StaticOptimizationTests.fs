@@ -34,7 +34,7 @@ let tests =
                 | EqList [ TDecl.Let(TPat.NamedSimple _,
                                      TExpr.Lambda(_,
                                                   TExpr.StaticOptimization(clauses,
-                                                                           TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                           TExpr.Const(TConstValue.Integral(IntKind.Int32,
                                                                                                             -1L),
                                                                                        _,
                                                                                        _),
@@ -48,7 +48,7 @@ let tests =
 
                     if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then
                         match clauses.[0].Body with
-                        | TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _) -> ()
+                        | TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) -> ()
                         | other -> failtestf "unexpected first clause body: %A" other
                     else
                         failtestf "unexpected first clause: %A" clauses.[0]

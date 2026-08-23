@@ -163,9 +163,9 @@ Corrected: there is no `Freeze.parseConst` (it is `ElaborateLiterals.parseConst`
 `Elaborate/Literals.fs:102`, throwing `"Elaborate.parseConst: non-representable literal …"`
 — the width is `%A` of the token, not a literal `NumSByte` string); there is no
 `Lexing.tryParseNumericLiteral` (the producer is `NumericLiterals.parseNumericLiteral` →
-`IntWidth.parseBits`, `NumericLiterals.fs:168`); and there is no blanket `Convert.ToUInt64`
+`IntKind.parseBits`, `NumericLiterals.fs:168`); and there is no blanket `Convert.ToUInt64`
 — `parseBits` uses a **per-width** `Convert.To*` as that width's range check. Values carry an
-`IntWidth` witness (`TConstValue.Integral(w, bits)`); there is **no** `TConstValue.Int` case,
+`IntKind` witness (`TConstValue.Integral(w, bits)`); there is **no** `TConstValue.Int` case,
 so the "`uint64`/`nativeint`/`unativeint` fold to `TConstValue.Int`" story is stale — it also
 appears verbatim in `ArithmeticOperatorTests.fs:44-46` and should be corrected there too.
 And `-56y` almost certainly **does** project: the lexer merges the sign into one `SByte`

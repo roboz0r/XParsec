@@ -52,7 +52,7 @@ currently prevents.
 file resolves `(x: E)` / `E.Ci` against it instead of falling back to a nominal `TyConst`. The
 shape is exactly what the consuming side already reads (`NameResolutionTypeRefStamp.tryExternalEnumCaseKey`
 scans shapes — no case index needed). Numeric cases carry their `int64` value, string cases
-their text; the integral width is dropped (`ExternalEnumCaseValue` has none — external enums
+their text; the integral kind is dropped (`ExternalEnumCaseValue` has none — external enums
 are a JS-target feature and never reach CLR codegen). An unresolved case (`ValueNone`) is
 dropped, matching the TS-manifest arm and `TEnumCases.classify`. Tested in
 `FrozenSignatureTests` (numeric + string projection); the consuming stamp path is covered by

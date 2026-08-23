@@ -6,11 +6,11 @@ open XParsec.FSharp.Lexer
 // cluster (a function's SOURCE arity and the flat signature derived from it). Every node
 // carries its inferred type inline.
 
-/// A compile-time constant. `Integral` carries its width beside its value, and `bits` is
-/// that value extended to 64 bits at the width's signedness.
+/// A compile-time constant. `Integral` carries its kind beside its value, and `bits` is that
+/// value extended to 64 bits at the kind's signedness.
 [<RequireQualifiedAccess>]
 type TConstValue =
-    | Integral of width: IntWidth * bits: int64
+    | Integral of kind: IntKind * bits: int64
     | Float of double
     | Float32 of single
     | Bool of bool

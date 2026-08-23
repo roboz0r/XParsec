@@ -323,8 +323,8 @@ and [<RequireQualifiedAccess>] SemanticConstraintKind =
     /// `when 'e :> exn` — `target` is the required supertype, checked by `subsumes`.
     | Coercion of target: SemType
     /// The metavar ranges over a fixed set of arity-0 primitives, listed in the order a
-    /// diagnostic names them. Printf's flexible format families are its only source: `%d`
-    /// accepts any integer width, `%f` any float width.
+    /// diagnostic lists them. Printf's flexible format families are its only source: `%d`
+    /// accepts any integer type, `%f` any float type.
     | OneOf of choices: EqArray<TypeKey>
 
 and [<Struct>] SemanticConstraint =

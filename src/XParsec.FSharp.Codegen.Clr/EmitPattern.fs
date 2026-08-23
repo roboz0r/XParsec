@@ -186,9 +186,9 @@ module EmitPattern =
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
-            // The load carries the constant's own width, including the pointer-width
+            // The load carries the constant's own kind, including the pointer-width
             // conversion a `nativeint` needs before `bne.un` compares it.
-            | TConstValue.Integral(w, bits) -> pushIntConst b w bits
+            | TConstValue.Integral(k, bits) -> pushIntConst b k bits
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
             | other -> failwithf "Emit: match on constant %A is out of scope" other

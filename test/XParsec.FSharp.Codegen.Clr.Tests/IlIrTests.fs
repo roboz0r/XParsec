@@ -29,7 +29,7 @@ let private coreProvider: Lazy<IExternalSymbolProvider> =
 /// branch-merge on a real `TExpr`.
 let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
     match e with
-    | TExpr.Const(TConstValue.Integral(w, bits), _, _) -> b.Add(EmitTypes.intConstLoad w bits)
+    | TExpr.Const(TConstValue.Integral(k, bits), _, _) -> b.Add(EmitTypes.intConstLoad k bits)
     | TExpr.Const(TConstValue.Bool v, _, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
     | TExpr.IfThenElse(c, t, f, _, _) ->
         let elseL = b.Label()
@@ -86,7 +86,7 @@ let tests =
     let tyBool = TyConst(RuntimeNames.boolKey, EqArray.empty)
 
     let cInt (n: int) =
-        TExpr.Const(TConstValue.Integral(IntWidth.Int32, int64 n), tyInt, dummyTok)
+        TExpr.Const(TConstValue.Integral(IntKind.Int32, int64 n), tyInt, dummyTok)
 
     let ceq a b =
         TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool, dummyTok)

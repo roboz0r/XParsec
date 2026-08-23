@@ -31,10 +31,10 @@ let tests =
                     """printfn "%M" 42M""", "42"
                 ] -> test src { runs expected src }
 
-            // `%d` types its argument over the integer family, so every width prints
+            // `%d` types its argument over the integer family, so every integral kind prints
             // through the one specifier.
             yield
-                test """`printfn "%d"` takes every integer width""" {
+                test """`printfn "%d"` takes every integral kind""" {
                     runs "200" """printfn "%d" 200uy"""
                     runs "-1" """printfn "%d" -1y"""
                     runs "70000" """printfn "%d" 70000L"""

@@ -35,15 +35,15 @@ let private opSym =
 
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
-/// A constant's source form, carrying the AUTHORED WIDTH as its F# suffix, so a `10us` silently
+/// A constant's source form, carrying the AUTHORED KIND as its F# suffix, so a `10us` silently
 /// arriving as an `int` is visible in every snapshot. Both halves of an integral constant come
-/// off its `IntWidth`, so a new width renders here with no edit.
+/// off its `IntKind`, so a new kind renders with no edit.
 let private constText (v: TConstValue) : string =
     let inv (x: 'a :> System.IFormattable) =
         x.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
 
     match v with
-    | TConstValue.Integral(w, bits) -> IntWidth.render w bits + IntWidth.suffix w
+    | TConstValue.Integral(k, bits) -> IntKind.render k bits + IntKind.suffix k
     | TConstValue.Float n -> inv n
     | TConstValue.Float32 n -> inv n + "f"
     | TConstValue.Decimal d -> inv d + "M"

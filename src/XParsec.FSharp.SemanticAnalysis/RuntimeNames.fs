@@ -275,8 +275,8 @@ module RuntimeNames =
     let float32Key: TypeKey = primitiveKey "float32"
     let decimalKey: TypeKey = primitiveKey "decimal"
     /// The arbitrary-precision integer (CLR `System.Numerics.BigInteger`, JS `bigint`),
-    /// the type a `NumBigInteger*` literal token pins to. Outside `numericKeys`: it is not
-    /// a fixed-width scalar, so none of the width-driven classifications admit it.
+    /// the type a `NumBigInteger*` literal token pins to. Outside `numericKeys`, since it is
+    /// not a fixed-width scalar.
     let bigintKey: TypeKey = primitiveKey "bigint"
     let undefinedKey: TypeKey = primitiveKey undefinedTypeName
     let byrefKey: TypeKey = primitiveKey SymbolKeyOps.byrefName
@@ -296,33 +296,33 @@ module RuntimeNames =
         | LiteralConst.String _ -> stringKey
         | LiteralConst.Int _ -> intKey
 
-    /// THE width → type projection: the elaborator gives an enum its underlying type by it,
+    /// THE kind → type projection: the elaborator gives an enum its underlying type by it,
     /// `freeze` types an integral constant by it, and the CLR backend types the constant it
-    /// loads by it, so a constant's width and the type it freezes at cannot disagree.
-    let intWidthKey (w: IntWidth) : TypeKey =
-        match w with
-        | IntWidth.SByte -> sbyteKey
-        | IntWidth.Byte -> byteKey
-        | IntWidth.Int16 -> int16Key
-        | IntWidth.UInt16 -> uint16Key
-        | IntWidth.Int32 -> intKey
-        | IntWidth.UInt32 -> uint32Key
-        | IntWidth.Int64 -> int64Key
-        | IntWidth.UInt64 -> uint64Key
-        | IntWidth.NativeInt -> nativeintKey
-        | IntWidth.UNativeInt -> unativeintKey
+    /// loads by it, so a constant's kind and the type it freezes at cannot disagree.
+    let intKindKey (k: IntKind) : TypeKey =
+        match k with
+        | IntKind.SByte -> sbyteKey
+        | IntKind.Byte -> byteKey
+        | IntKind.Int16 -> int16Key
+        | IntKind.UInt16 -> uint16Key
+        | IntKind.Int32 -> intKey
+        | IntKind.UInt32 -> uint32Key
+        | IntKind.Int64 -> int64Key
+        | IntKind.UInt64 -> uint64Key
+        | IntKind.NativeInt -> nativeintKey
+        | IntKind.UNativeInt -> unativeintKey
 
-    /// The inverse of `intWidthKey`: the width an integral primitive's identity denotes,
+    /// The inverse of `intKindKey`: the kind an integral primitive's identity denotes,
     /// `ValueNone` for every other type.
-    let intWidthOfKey: TypeKey -> IntWidth voption =
-        let byKey = Dictionary<TypeKey, IntWidth>()
+    let intKindOfKey: TypeKey -> IntKind voption =
+        let byKey = Dictionary<TypeKey, IntKind>()
 
-        for w in IntWidth.all do
-            byKey.[intWidthKey w] <- w
+        for k in IntKind.all do
+            byKey.[intKindKey k] <- k
 
-        fun k ->
-            match byKey.TryGetValue k with
-            | true, w -> ValueSome w
+        fun key ->
+            match byKey.TryGetValue key with
+            | true, k -> ValueSome k
             | _ -> ValueNone
 
     // --- Built-in primitive classification -------------------------------------------
@@ -359,8 +359,8 @@ module RuntimeNames =
             decimalKey
         ]
 
-    /// The widths an INTEGER printf specifier (`%d` `%i` `%u` `%x` `%X` `%o` `%B`) accepts,
-    /// in the order a diagnostic names them. `int` is the default, so it leads.
+    /// The types an INTEGER printf specifier (`%d` `%i` `%u` `%x` `%X` `%o` `%B`) accepts,
+    /// in the order a diagnostic lists them. `int` is the default, so it leads.
     let integerFormatKeys: EqArray<TypeKey> =
         EqArray.ofList
             [
@@ -376,7 +376,7 @@ module RuntimeNames =
                 unativeintKey
             ]
 
-    /// The widths a FLOAT printf specifier (`%f` `%e` `%E` `%g` `%G`) accepts. `float` is
+    /// The types a FLOAT printf specifier (`%f` `%e` `%E` `%g` `%G`) accepts. `float` is
     /// the default, so it leads. `%M` is `decimal` alone and takes no family.
     let floatFormatKeys: EqArray<TypeKey> =
         EqArray.ofList [ floatKey; float32Key; decimalKey ]

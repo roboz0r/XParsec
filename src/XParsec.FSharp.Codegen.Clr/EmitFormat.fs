@@ -9,34 +9,34 @@ open EmitTypes
 open EmitLower
 
 module EmitFormat =
-    /// The opcode that truncates an `int32`-slot value to `w`'s own bits, `ValueNone` where
+    /// The opcode that truncates an `int32`-slot value to `k`'s own bits, `ValueNone` where
     /// the slot is already exactly the width. A narrower value's upper bits carry whatever
     /// the producing opcode left: `%u` of `~~~200uy` is `55`, not `4294967095`.
-    let private truncateToOwnWidth (w: IntWidth) : ILOpCode voption =
-        match w with
-        | IntWidth.SByte
-        | IntWidth.Byte -> ValueSome ILOpCode.Conv_u1
-        | IntWidth.Int16
-        | IntWidth.UInt16 -> ValueSome ILOpCode.Conv_u2
-        | IntWidth.Int32
-        | IntWidth.UInt32
-        | IntWidth.Int64
-        | IntWidth.UInt64
-        | IntWidth.NativeInt
-        | IntWidth.UNativeInt -> ValueNone
+    let private truncateToOwnWidth (k: IntKind) : ILOpCode voption =
+        match k with
+        | IntKind.SByte
+        | IntKind.Byte -> ValueSome ILOpCode.Conv_u1
+        | IntKind.Int16
+        | IntKind.UInt16 -> ValueSome ILOpCode.Conv_u2
+        | IntKind.Int32
+        | IntKind.UInt32
+        | IntKind.Int64
+        | IntKind.UInt64
+        | IntKind.NativeInt
+        | IntKind.UNativeInt -> ValueNone
 
     /// Widen the integer on the stack to its own-width bits zero-extended to 64, the normal
     /// form `%u` and `%o` render. `conv.u8` zero-extends from `int32` and from a native int.
     let private widenToUnsigned64 (b: IlBuilder) (ty: FrozenType) =
         let width =
             match ty with
-            | FTConst(k, _) -> RuntimeNames.intWidthOfKey k
+            | FTConst(k, _) -> RuntimeNames.intKindOfKey k
             | _ -> ValueNone
 
         match width with
         | ValueNone -> failwithf "Emit: %%u/%%o hole at the non-integer type %A (invariant broken)" ty
-        | ValueSome w ->
-            match truncateToOwnWidth w with
+        | ValueSome k ->
+            match truncateToOwnWidth k with
             | ValueSome op -> b.Add(ILInstr.Un op)
             | ValueNone -> ()
 

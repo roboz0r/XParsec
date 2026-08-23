@@ -42,8 +42,8 @@ module internal UnificationInferLiterals =
             | ValueNone -> unknown ()
             | ValueSome kind ->
 
-                match IntWidth.ofNumericKind kind with
-                | ValueSome w -> ctx.Intrinsics.OfIntWidth w
+                match IntKind.ofNumericKind kind with
+                | ValueSome w -> ctx.Intrinsics.OfIntKind w
                 | ValueNone ->
 
                     match kind with
@@ -190,28 +190,27 @@ module internal UnificationInferLiterals =
         | _ -> ValueNone
 
     /// The metavar a printf placeholder's value argument types as. A family hole carries the
-    /// widths its specifier accepts as a `OneOf` constraint, plus the width it settles on
-    /// where nothing else pins it: `%d` takes any integer, and `printfn "%d"` alone is
-    /// `int -> unit`.
+    /// types its specifier accepts as a `OneOf` constraint, plus the one it settles on where
+    /// nothing else pins it: `%d` takes any integer, and `printfn "%d"` alone is `int -> unit`.
     let freshHoleTy (ctx: PassContext) (declKey: NodeKey) (h: PrintfSpec.FormatHoleTy) : SemType =
         let tv = freshTyVar ctx
         let root = UnionFind.find ctx.Store tv
 
-        let family (widths: EqArray<TypeKey>) =
+        let family (keys: EqArray<TypeKey>) =
             ctx.Store.Constraints.Append(
                 root,
                 {
-                    Kind = SemanticConstraintKind.OneOf widths
+                    Kind = SemanticConstraintKind.OneOf keys
                     DeclKey = declKey
                 }
             )
 
-            ctx.Store.Defaults.Append(root, TyConst(PrintfSpec.familyDefault widths, EqArray.empty))
+            ctx.Store.Defaults.Append(root, TyConst(PrintfSpec.familyDefault keys, EqArray.empty))
             ctx.FormatHoles.Add tv
 
-        match PrintfSpec.familyWidths h with
+        match PrintfSpec.familyKeys h with
         | ValueNone -> ()
-        | ValueSome widths -> family widths
+        | ValueSome keys -> family keys
 
         TyVar tv
 

@@ -17,7 +17,7 @@ type internal ConstRejection =
     /// A custom numeric literal (`52I`): a call into a `NumericLiteral<suffix>` module, so
     /// there is no constant to project, by construction.
     | CustomLiteral
-    /// The magnitude or sign does not fit the authored width: `300uy`, or the negative
+    /// The magnitude or sign does not fit the authored kind: `300uy`, or the negative
     /// unsigned `-1uy` the lexer's negative-literal merge forms.
     | OutOfRange
 
@@ -51,9 +51,9 @@ module internal ElaborateLiterals =
             | _ ->
                 // `Constant.Literal` admits only numeric / bool / char, so a `NotNumeric`
                 // here is a producer bug and throws rather than reaching the result type.
-                // The reader hands the width back as an `IntWidth`, so none is re-mapped.
+                // The reader hands the kind back as an `IntKind`, which rides through unmapped.
                 match NumericLiterals.parseNumericLiteral t.Token text with
-                | Ok(NumericLiteralValue.Integral(w, bits)) -> Ok(TConstValue.Integral(w, bits))
+                | Ok(NumericLiteralValue.Integral(k, bits)) -> Ok(TConstValue.Integral(k, bits))
                 | Ok(NumericLiteralValue.Float n) -> Ok(TConstValue.Float n)
                 | Ok(NumericLiteralValue.Float32 n) -> Ok(TConstValue.Float32 n)
                 | Ok(NumericLiteralValue.Decimal n) -> Ok(TConstValue.Decimal n)

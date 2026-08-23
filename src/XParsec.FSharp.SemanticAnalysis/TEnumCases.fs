@@ -28,21 +28,21 @@ module TEnumCases =
         | false, true -> ValueSome TEnumVariant.String
         | false, false -> ValueNone
 
-    let integralValue (v: TConstValue) : IntWidth * int64 =
+    let integralValue (v: TConstValue) : IntKind * int64 =
         match v with
-        | TConstValue.Integral(w, bits) when IntWidth.isEnumBase w -> w, bits
+        | TConstValue.Integral(k, bits) when IntKind.isEnumBase k -> k, bits
         | other -> failwithf "TEnumCases.integralValue: non-integral enum literal %A" other
 
-    let integralWidth (v: TConstValue) : IntWidth = fst (integralValue v)
+    let integralKind (v: TConstValue) : IntKind = fst (integralValue v)
 
-    /// Unsuffixed `int` (`IntWidth.Int32`) is NOT explicit: it adopts whatever explicit
-    /// width the enum has, else stays `int`.
-    let private isExplicitWidth (v: TConstValue) : bool =
+    /// Unsuffixed `int` (`IntKind.Int32`) is NOT explicit: it adopts whatever explicit
+    /// kind the enum has, else stays `int`.
+    let private isExplicitKind (v: TConstValue) : bool =
         match v with
-        | TConstValue.Integral(IntWidth.Int32, _) -> false
+        | TConstValue.Integral(IntKind.Int32, _) -> false
         | _ -> true
 
-    /// The underlying primitive TYPE: all-numeric → the first explicit width if any,
+    /// The underlying primitive TYPE: all-numeric → the first explicit kind if any,
     /// else `int`; all-string → `string`; mixed → `obj`; no resolved case → `ValueNone`.
     let underlyingTypeKey (cases: EqArray<TEnumCaseG<'tok>>) : TypeKey voption =
         match classify cases with
@@ -54,42 +54,42 @@ module TEnumCases =
 
             for c in cases do
                 match c.Value with
-                | ValueSome(TEnumLiteral.Int v) when isExplicitWidth v ->
+                | ValueSome(TEnumLiteral.Int v) when isExplicitKind v ->
                     if explicit.IsNone then
-                        explicit <- ValueSome(RuntimeNames.intWidthKey (integralWidth v))
+                        explicit <- ValueSome(RuntimeNames.intKindKey (integralKind v))
                 | _ -> ()
 
             match explicit with
-            | ValueSome w -> ValueSome w
+            | ValueSome key -> ValueSome key
             | ValueNone -> ValueSome RuntimeNames.intKey
 
-    /// How a width is SPELLED to the user, off the same identity the enum is typed by, so
+    /// How a kind is SPELLED to the user, off the same identity the enum is typed by, so
     /// the message cannot cite a type the enum was not given.
-    let private widthDisplayName (v: TConstValue) : string =
+    let private kindDisplayName (v: TConstValue) : string =
         let (DisplayName n) =
-            SymbolKeyOps.typeSimpleName (RuntimeNames.intWidthKey (integralWidth v))
+            SymbolKeyOps.typeSimpleName (RuntimeNames.intKindKey (integralKind v))
 
         n
 
-    /// The first case whose explicit width disagrees with an earlier one's.
-    type WidthConflict<'tok> =
+    /// The first case whose explicit kind disagrees with an earlier one's.
+    type KindConflict<'tok> =
         {
             Tok: 'tok
-            /// The width the earlier explicitly-suffixed case established.
+            /// The kind the earlier explicitly-suffixed case established.
             Established: string
-            /// The width the offending case carries instead.
+            /// The kind the offending case carries instead.
             Offending: string
         }
 
     /// A `System.Enum` has exactly ONE underlying type, so `| A = 1uy | B = 2L` is illegal.
-    let firstWidthConflict (cases: EqArray<TEnumCaseG<'tok>>) : WidthConflict<'tok> voption =
+    let firstKindConflict (cases: EqArray<TEnumCaseG<'tok>>) : KindConflict<'tok> voption =
         let mutable seen = ValueNone
         let mutable result = ValueNone
 
         for c in cases do
             match c.Value with
-            | ValueSome(TEnumLiteral.Int v) when isExplicitWidth v && result.IsNone ->
-                let w = widthDisplayName v
+            | ValueSome(TEnumLiteral.Int v) when isExplicitKind v && result.IsNone ->
+                let w = kindDisplayName v
 
                 match seen with
                 | ValueNone -> seen <- ValueSome w

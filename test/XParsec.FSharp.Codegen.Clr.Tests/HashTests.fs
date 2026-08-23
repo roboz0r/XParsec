@@ -38,7 +38,7 @@ let tests =
                 | [ TDecl.Let(TPat.NamedSimple _,
                               TExpr.InlineCall(
                                   spec = spec
-                                  args = EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _) ]),
+                                  args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _) ]),
                               false,
                               _) ] ->
                     match specializationValue tast spec with

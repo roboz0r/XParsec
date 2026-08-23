@@ -7,7 +7,7 @@ open XParsec.FSharp.Parser
 /// different answers: `52I` is not an out-of-range magnitude.
 [<RequireQualifiedAccess>]
 type internal EnumCaseRejection =
-    /// The magnitude or sign does not fit the authored width (`| A = 300uy`).
+    /// The magnitude or sign does not fit the authored kind (`| A = 300uy`).
     | NotRepresentable
     /// `| A = 52I`: a call into a `NumericLiteral` module, so there is no constant.
     | CustomLiteral
@@ -16,7 +16,7 @@ type internal EnumCaseRejection =
     | NotAnEnumConstant of spelling: string
     /// `| A = $"…"`: an interpolated string has no constant value.
     | InterpolatedString
-    /// `| A = - 1uy`: negation is defined on the signed widths only.
+    /// `| A = - 1uy`: negation is defined on the signed kinds only.
     | NegativeUnsigned
     /// `| A = 1 + 1`, `| A = B`: not a literal at all.
     | NotConstant
@@ -41,8 +41,8 @@ module internal EnumCaseValues =
 
             match NumericLiterals.parseNumericLiteral t.Token (nameOf t) with
             // `isEnumBase` excludes exactly the pointer pair.
-            | Ok(NumericLiteralValue.Integral(w, bits)) when IntWidth.isEnumBase w ->
-                Ok(TEnumLiteral.Int(TConstValue.Integral(w, bits)))
+            | Ok(NumericLiteralValue.Integral(k, bits)) when IntKind.isEnumBase k ->
+                Ok(TEnumLiteral.Int(TConstValue.Integral(k, bits)))
             | Error NumericLiteralRejection.CustomLiteral -> Error EnumCaseRejection.CustomLiteral
             | Error NumericLiteralRejection.OutOfRange -> Error EnumCaseRejection.NotRepresentable
             // `NotNumeric` is the bool / char token `Constant.Literal` also admits.
@@ -59,8 +59,8 @@ module internal EnumCaseValues =
         | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
             match tryResolve nameOf operand with
             // Negation wraps AT THE WIDTH: `-(-128y)` stays `-128y`.
-            | Ok(TEnumLiteral.Int(TConstValue.Integral(w, bits))) when IntWidth.isSigned w ->
-                Ok(TEnumLiteral.Int(TConstValue.Integral(w, IntWidth.negate w bits)))
+            | Ok(TEnumLiteral.Int(TConstValue.Integral(k, bits))) when IntKind.isSigned k ->
+                Ok(TEnumLiteral.Int(TConstValue.Integral(k, IntKind.negate k bits)))
             | Ok(TEnumLiteral.Int(TConstValue.Integral _)) -> Error EnumCaseRejection.NegativeUnsigned
             // `-"abc"` or a deeper non-int form: nothing negatable came back.
             | Ok(TEnumLiteral.String _)

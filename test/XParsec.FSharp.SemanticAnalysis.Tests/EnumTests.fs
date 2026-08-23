@@ -64,9 +64,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics for a well-formed numeric enum"
             }
 
-            test "numeric enum preserves the authored integral width (suffix)" {
-                // `1uy` → `IntWidth.Byte`: the authored width rides through on the
-                // constant's `IntWidth` and is never defaulted, so the renderer
+            test "numeric enum preserves the authored integral kind (suffix)" {
+                // `1uy` → `IntKind.Byte`: the authored kind rides through on the
+                // constant's `IntKind` and is never defaulted, so the renderer
                 // re-prints the `uy` suffix.
                 let tast = analyse "type Widths = | A = 1uy | B = 2uy"
 
@@ -154,19 +154,19 @@ let tests =
                 Expect.equal (List.length (errors tast)) 1 "exactly one error for the negative unsigned case"
             }
 
-            // --- underlying-type derivation (where width lives) ------------------
+            // --- underlying-type derivation (where the kind lives) ------------------
 
             test "underlying type: unsuffixed numeric cases default to int (≡ I32)" {
                 Expect.equal (underlying "type C = | A = 0 | B = 1") (ValueSome RuntimeNames.intKey) "unsuffixed → int"
             }
 
-            test "underlying type: an explicit byte width yields byte" {
-                Expect.equal (underlying "type W = | A = 1uy | B = 2uy") (ValueSome RuntimeNames.byteKey) "byte width"
+            test "underlying type: an explicit byte kind yields byte" {
+                Expect.equal (underlying "type W = | A = 1uy | B = 2uy") (ValueSome RuntimeNames.byteKey) "byte"
             }
 
-            test "underlying type: unsuffixed cases adopt the single explicit width" {
-                // The rule: all explicit widths must agree; unsuffixed `Int` cases
-                // adopt the explicit width if present (here `2L` → int64), else int.
+            test "underlying type: unsuffixed cases adopt the single explicit kind" {
+                // The rule: all explicit kinds must agree; unsuffixed `Int` cases
+                // adopt the explicit kind if present (here `2L` → int64), else int.
                 Expect.equal (underlying "type E = | A = 0 | B = 2L") (ValueSome RuntimeNames.int64Key) "adopts int64"
             }
 
@@ -181,22 +181,22 @@ let tests =
                 Expect.equal (underlying "type M = | A = 1 | B = \"x\"") (ValueSome RuntimeNames.objKey) "mixed → obj"
             }
 
-            test "uniform-width invariant: differing explicit widths are a hard ERROR" {
+            test "uniform-kind invariant: differing explicit kinds are a hard ERROR" {
                 // `1uy` (byte) and `2L` (int64) are two distinct explicit integral
-                // widths — a CLR enum has a single underlying type, so this is illegal.
+                // kinds — a CLR enum has a single underlying type, so this is illegal.
                 let tast = analyse "type Bad = | A = 1uy | B = 2L"
 
-                Expect.equal (List.length (errors tast)) 1 "exactly one uniform-width error"
+                Expect.equal (List.length (errors tast)) 1 "exactly one uniform-kind error"
 
                 Expect.stringContains
                     (List.head (errors tast)).Message
                     "single underlying type"
-                    "error explains the uniform-width invariant"
+                    "error explains the uniform-kind invariant"
             }
 
-            test "uniform-width invariant: unsuffixed + one explicit width is NOT a conflict" {
-                // Only a mismatch of *explicit* widths fires; an unsuffixed `Int`
-                // adopts the lone explicit width, so this is well-formed.
+            test "uniform-kind invariant: unsuffixed + one explicit kind is NOT a conflict" {
+                // Only a mismatch of *explicit* kinds fires; an unsuffixed `Int`
+                // adopts the lone explicit kind, so this is well-formed.
                 let tast = analyse "type Ok = | A = 0 | B = 2L | C = 3L"
 
                 Expect.isEmpty (errors tast) "no width conflict — unsuffixed adopts int64"

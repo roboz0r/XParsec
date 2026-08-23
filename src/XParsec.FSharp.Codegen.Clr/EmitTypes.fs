@@ -401,8 +401,8 @@ module EmitTypes =
     /// The `ldc` for an integral constant. `sbyte` … `uint32` all have int32 as their CIL
     /// stack type, so `ldc.i4` of the low 32 bits is the whole load; signedness is a
     /// type-level distinction the verifier reads off the slot. Wider widths push `ldc.i8`.
-    let intConstLoad (w: IntWidth) (bits: int64) : ILInstr =
-        if IntWidth.isWide w then
+    let intConstLoad (k: IntKind) (bits: int64) : ILInstr =
+        if IntKind.isWide k then
             ILInstr.LdcI8 bits
         else
             ILInstr.LdcI4(int32 bits)
@@ -410,13 +410,13 @@ module EmitTypes =
     /// `intConstLoad` plus, for `nativeint` / `unativeint` alone, the `conv.i` / `conv.u`
     /// their signedness calls for: `native int` is a distinct CIL stack type, and without
     /// the conversion an int64 lands in a `native int` slot and the IL is unverifiable.
-    let pushIntConst (b: IlBuilder) (w: IntWidth) (bits: int64) : unit =
-        b.Add(intConstLoad w bits)
+    let pushIntConst (b: IlBuilder) (k: IntKind) (bits: int64) : unit =
+        b.Add(intConstLoad k bits)
 
-        if IntWidth.isNative w then
+        if IntKind.isNative k then
             b.Add(
                 ILInstr.Un(
-                    if IntWidth.isSigned w then
+                    if IntKind.isSigned k then
                         ILOpCode.Conv_i
                     else
                         ILOpCode.Conv_u

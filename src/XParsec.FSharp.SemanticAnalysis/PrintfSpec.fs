@@ -70,7 +70,7 @@ module PrintfSpec =
     type FormatHoleTy =
         /// `%A` / `%O`, and a `%a` callback's own value: unconstrained.
         | Free
-        /// `%d` `%i` `%u` `%x` `%X` `%o` `%B`: any integer width, `int` by default.
+        /// `%d` `%i` `%u` `%x` `%X` `%o` `%B`: any integer type, `int` by default.
         | IntegerFamily
         /// `%f` `%e` `%E` `%g` `%G`: `float`, `float32` or `decimal`, `float` by default.
         | FloatFamily
@@ -96,16 +96,16 @@ module PrintfSpec =
         | FormatType.FormatFunction
         | FormatType.Text -> ValueNone
 
-    /// The widths a family admits, the DEFAULT leading; `ValueNone` for the unconstrained
+    /// The types a family admits, the DEFAULT leading; `ValueNone` for the unconstrained
     /// `Free` hole.
-    let familyWidths (h: FormatHoleTy) : EqArray<TypeKey> voption =
+    let familyKeys (h: FormatHoleTy) : EqArray<TypeKey> voption =
         match h with
         | FormatHoleTy.Free -> ValueNone
         | FormatHoleTy.IntegerFamily -> ValueSome RuntimeNames.integerFormatKeys
         | FormatHoleTy.FloatFamily -> ValueSome RuntimeNames.floatFormatKeys
 
-    /// The width a family settles on where nothing else pins it.
-    let familyDefault (widths: EqArray<TypeKey>) : TypeKey = widths.Underlying.[0]
+    /// The type a family settles on where nothing else pins it.
+    let familyDefault (keys: EqArray<TypeKey>) : TypeKey = keys.Underlying.[0]
 
     /// The SemType of the VALUE argument a plain-value letter consumes.
     let private argType (mint: FormatHoleTy -> SemType) (t: FormatType) : SemType =

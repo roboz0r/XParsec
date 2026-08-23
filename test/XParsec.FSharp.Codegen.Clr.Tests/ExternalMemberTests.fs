@@ -65,7 +65,7 @@ let tests =
 
                 match value with
                 | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, _, ghTy, _),
-                            TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
+                            TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _),
                             resultTy,
                             _) ->
                     match Unification.zonk ctx.Store ghTy with
@@ -193,7 +193,7 @@ let tests =
                                                            _,
                                                            ghTy,
                                                            _),
-                                      TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
+                                      TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _),
                                       resultTy,
                                       _)) ->
                     match Unification.zonk ctx.Store ghTy with

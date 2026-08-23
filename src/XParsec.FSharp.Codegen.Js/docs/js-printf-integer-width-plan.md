@@ -16,7 +16,7 @@ unsigned coercion:
 - `%u` → `(v >>> 0).toString()`
 
 Every integer specifier types its argument over `RuntimeNames.integerFormatKeys` — the ten
-widths from `sbyte` to `unativeint` — so `v` is only sometimes a 32-bit quantity.
+integral kinds from `sbyte` to `unativeint` — so `v` is only sometimes a 32-bit quantity.
 
 **Narrower than 32 bits: wrong digits.** F# reinterprets the bits at the value's OWN width, which
 the CLR oracle confirms: `%x` of `-1y` is `ff` and of `-1s` is `ffff`; `%u` of `-1y` is `255` and

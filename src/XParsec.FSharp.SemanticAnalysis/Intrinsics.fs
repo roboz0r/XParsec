@@ -69,7 +69,7 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
     member _.NativeInt = get RuntimeNames.nativeintKey
     member _.UNativeInt = get RuntimeNames.unativeintKey
 
-    member _.OfIntWidth(w: IntWidth) : SemType = get (RuntimeNames.intWidthKey w)
+    member _.OfIntKind(k: IntKind) : SemType = get (RuntimeNames.intKindKey k)
 
     member _.Float = get RuntimeNames.floatKey
     member _.Float32 = get RuntimeNames.float32Key

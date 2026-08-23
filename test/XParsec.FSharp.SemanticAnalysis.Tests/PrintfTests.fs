@@ -186,23 +186,23 @@ let tests =
                     Expect.isEmpty requested (sprintf "%A mints no metavar" t)
             }
 
-            test "familyWidths: the default LEADS the choices" {
+            test "familyKeys: the default LEADS the choices" {
                 Expect.equal
-                    (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.IntegerFamily
+                    (PrintfSpec.familyKeys PrintfSpec.FormatHoleTy.IntegerFamily
                      |> ValueOption.map PrintfSpec.familyDefault)
                     (ValueSome RuntimeNames.intKey)
                     "integer family defaults to int"
 
                 Expect.equal
-                    (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.FloatFamily
+                    (PrintfSpec.familyKeys PrintfSpec.FormatHoleTy.FloatFamily
                      |> ValueOption.map PrintfSpec.familyDefault)
                     (ValueSome RuntimeNames.floatKey)
                     "float family defaults to float"
 
-                Expect.equal (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.Free) ValueNone "%A takes no family"
+                Expect.equal (PrintfSpec.familyKeys PrintfSpec.FormatHoleTy.Free) ValueNone "%A takes no family"
 
                 Expect.equal
-                    (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.FloatFamily)
+                    (PrintfSpec.familyKeys PrintfSpec.FormatHoleTy.FloatFamily)
                     (ValueSome(
                         EqArray.ofList [ RuntimeNames.floatKey; RuntimeNames.float32Key; RuntimeNames.decimalKey ]
                     ))
@@ -607,7 +607,7 @@ let tests =
                     Expect.equal ty tyUnit "printfn result is unit"
 
                     match EqArray.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
 
                         // `%d` carries no flags, so its classified `Source` is a
@@ -657,7 +657,7 @@ let tests =
                 match lastDeclValue tast with
                 | TExpr.Format(FormatSink.ToString, segs, _, _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _))
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))
                         FormatSeg.Lit "!" ] -> Expect.equal hole.Ty tyInt "the %d hole types as int"
                     | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "expected a native string-sink Format, got: %A" other

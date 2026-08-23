@@ -463,7 +463,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member val NullLiterals = ResizeArray<NullLiteral>() with get
 
     /// Each printf hole typed over a numeric FAMILY (`%d`, `%f`): the argument drives it,
-    /// otherwise it settles at the family's default width.
+    /// otherwise it settles at the family's default type.
     member val FormatHoles = ResizeArray<TyVarId>() with get
 
     /// Whether the cons-list an unpinned literal defaults to is reachable at all: declared by

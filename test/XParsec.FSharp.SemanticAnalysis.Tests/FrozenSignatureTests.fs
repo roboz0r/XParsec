@@ -382,7 +382,7 @@ module M =
 
             // --- enum projection: a frozen enum's case→literal table projects to an `Enum`
             // shape under its nominal key, so a later file resolves `(x: E)` / `E.Ci`. The
-            // numeric width is dropped — `ExternalEnumCaseValue` is `int64` or `string`.
+            // numeric kind is dropped — `ExternalEnumCaseValue` is `int64` or `string`.
 
             test "numeric enum projects its cases with int64 values under home origin" {
                 let src =

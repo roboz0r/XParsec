@@ -30,16 +30,16 @@ let tests =
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole,
                                        TExpr.UnionCons("Cons",
-                                                       EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L),
+                                                       EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L),
                                                                             _,
                                                                             _)
                                                                 TExpr.UnionCons("Cons",
-                                                                                EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32,
                                                                                                                           2L),
                                                                                                      _,
                                                                                                      _)
                                                                                          TExpr.UnionCons("Cons",
-                                                                                                         EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                                         EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32,
                                                                                                                                                    3L),
                                                                                                                               _,
                                                                                                                               _)

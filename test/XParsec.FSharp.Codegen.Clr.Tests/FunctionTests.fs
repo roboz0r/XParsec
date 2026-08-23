@@ -61,7 +61,7 @@ let tests =
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.InlineCall(
-                                               args = EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L),
+                                               args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 41L),
                                                                            _,
                                                                            _) ])) ] -> ()
                         | other -> failtestf "unexpected segments: %A" other

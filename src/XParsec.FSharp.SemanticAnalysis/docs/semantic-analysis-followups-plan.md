@@ -582,10 +582,10 @@ Deletes: "The scan is quadratic — member counts are tiny".
 
 ### `TEnumCases.fs:56`, `:70` — underlying-type names are spelled literally
 
-`:70` returns the bare `"int"` where `IntWidth.name IntWidth.Int32` is the width→name
+`:70` returns the bare `"int"` where `IntKind.name IntKind.Int32` is the kind→name
 projection (`XParsec.FSharp/NumericLiterals.fs:63`), and `:56` spells `"string"` literally
 while the adjacent `:57` goes through `RuntimeNames.objAbbrevName`. Two of the three names
-bypass the constants. `NumericLiterals.fs:53-56` states that spelling a width name twice is how
+bypass the constants. `NumericLiterals.fs:53-56` states that spelling a kind name twice is how
 the elaborator and the CLR backend come to disagree about an enum's underlying type.
 
 ### `Cache.fs:61` — `CodeVersion = 28` is a hand-bumped literal

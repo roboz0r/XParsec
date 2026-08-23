@@ -175,12 +175,12 @@ let tests =
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.App(TExpr.App(TExpr.Var(kUse, _, _),
-                                                               TExpr.Const(TConstValue.Integral(IntWidth.Int32, 40L),
+                                                               TExpr.Const(TConstValue.Integral(IntKind.Int32, 40L),
                                                                            _,
                                                                            _),
                                                                _,
                                                                _),
-                                                     TExpr.Const(TConstValue.Integral(IntWidth.Int32, 2L), _, _),
+                                                     TExpr.Const(TConstValue.Integral(IntKind.Int32, 2L), _, _),
                                                      _,
                                                      _)) ] ->
                             Expect.equal kUse kAdd "the call site references the (+) binding"

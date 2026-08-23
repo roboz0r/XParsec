@@ -399,19 +399,19 @@ family returns `ClrArtifact`, and the sites that read the tast only to assert it
 were empty went onto the `…Clean` variants.
 
 ~~**Two printf specifier gaps are now hard failures.**~~ Fixed 2026-08-20, per assumption 4:
-`%d` `%i` `%u` `%x` `%X` `%o` `%B` type their argument over the integer widths and `%f` `%e`
-`%E` `%g` `%G` over `float` / `float32` / `decimal`, each defaulting to the width that LEADS its
+`%d` `%i` `%u` `%x` `%X` `%o` `%B` type their argument over the integral kinds and `%f` `%e`
+`%E` `%g` `%G` over `float` / `float32` / `decimal`, each defaulting to the type that LEADS its
 family (`RuntimeNames.integerFormatKeys` / `floatFormatKeys`). Both `ptest`s are now tests, over
-every width. The mechanism is in the plumbing below.
+every kind. The mechanism is in the plumbing below.
 
 ### The printf family typars
 
 `PrintfSpec.argTypes` takes a `mint : FormatPlaceholder -> FormatHoleTy -> SemType` where it
 took a `unit -> SemType`, so the caller — which holds a `PassContext` — attaches the constraint
-and the default. `holeTyOf` is the one letter → family map, and `familyWidths` / `familyDefault`
-the one family → widths map, the default being the head of the choices.
+and the default. `holeTyOf` is the one letter → family map, and `familyKeys` / `familyDefault`
+the one family → types map, the default being the head of the choices.
 
-`SemanticConstraintKind.OneOf` carries those widths: the metavar ranges over a fixed set of
+`SemanticConstraintKind.OneOf` carries those types: the metavar ranges over a fixed set of
 arity-0 primitives, and anything else is refused where the argument links. So `printfn "%d" "hi"`
 reports "The type 'string' does not support the 'one of int, sbyte, …' constraint" rather than a
 plain unify mismatch, which is what the F# oracle refuses it as too.
@@ -441,8 +441,8 @@ Per TYPE rather than per width, the residual was three problems and none of them
   width, zero-extended to 64, prints the same digits as the narrow value (oracle: `%u` of `-1y`
   is `255`, of `-1` is `4294967295`, of `-1L` is `18446744073709551615`), so `uint64` is a
   lossless normal form and the ten widths collapse to one handler. `EmitFormat.widenToUnsigned64`
-  emits the `conv` pair off `hole.Ty`, reading its width through `RuntimeNames.intWidthOfKey` —
-  the inverse of `intWidthKey` — so `truncateToOwnWidth` is an exhaustive match on `IntWidth`
+  emits the `conv` pair off `hole.Ty`, reading its width through `RuntimeNames.intKindOfKey` —
+  the inverse of `intKindKey` — so `truncateToOwnWidth` is an exhaustive match on `IntKind`
   and a new width is a compile error rather than a run-time `failwith`. The octal members take
   `int64`, because `Convert.ToString` has no unsigned overload and the 64-bit two's complement
   has the same octal digits.
@@ -454,7 +454,7 @@ Per TYPE rather than per width, the residual was three problems and none of them
 - **`%0*d` / `%0*A`.** Still residual. They have no static width at all, which is unrelated to
   type.
 
-A runtime DU of tagged widths was considered and rejected: the only thing it adds is closing the
+A runtime DU of tagged kinds was considered and rejected: the only thing it adds is closing the
 set of accepted types, which `SemanticConstraintKind.OneOf integerFormatKeys / floatFormatKeys`
 already guarantees before codegen sees the hole.
 

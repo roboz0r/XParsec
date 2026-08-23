@@ -158,8 +158,8 @@ and TUnionCaseG<'ty> =
 /// A resolved enum-case literal. Only `Int` / `String` are representable; the elaborator
 /// records `ValueNone` for any other constant it rejects.
 and [<RequireQualifiedAccess>] TEnumLiteral =
-    /// Always a `TConstValue.Integral` whose width satisfies `IntWidth.isEnumBase` (never
-    /// pointer-width), carrying the AUTHORED width, so an unsuffixed `int` becomes `I32` at
+    /// Always a `TConstValue.Integral` whose kind satisfies `IntKind.isEnumBase` (never
+    /// pointer-width), carrying the AUTHORED kind, so an unsuffixed `int` becomes `I32` at
     /// freeze, not here.
     | Int of value: TConstValue
     /// A string enum-case value: the stitched literal text, escapes decoded.

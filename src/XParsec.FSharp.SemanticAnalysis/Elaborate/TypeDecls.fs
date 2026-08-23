@@ -268,7 +268,7 @@ module internal ElaborateTypeDecls =
             ctx.Report(firstId, Kind.HeterogeneousEnum name)
         | _ -> ()
 
-        match TEnumCases.firstWidthConflict tcases with
+        match TEnumCases.firstKindConflict tcases with
         | ValueSome conflict ->
             ctx.Report(
                 conflict.Tok,

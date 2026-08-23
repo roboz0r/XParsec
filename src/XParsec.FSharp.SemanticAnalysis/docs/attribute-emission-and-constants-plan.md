@@ -29,7 +29,7 @@ So the metadata plumbing is present and proven; what is absent is anything that 
 SOURCE attribute into a row, and any encoding of arguments.
 
 **Constant evaluation does not exist.** A compile-time constant is REPRESENTABLE — the
-TAST carries one, with integral width as a witness — but nothing folds an expression down
+TAST carries one, with the integral kind as a witness — but nothing folds an expression down
 to one. There is no fold pass, no constant-expression evaluator, no arm that turns
 `1 <<< 3` into a constant.
 

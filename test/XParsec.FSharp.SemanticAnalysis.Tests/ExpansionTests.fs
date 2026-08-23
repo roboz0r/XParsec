@@ -304,7 +304,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyInt64 "big : int64"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int64, 1L), _, _), _, _) -> ()
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntKind.Int64, 1L), _, _), _, _) -> ()
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -313,7 +313,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyByte "b : byte"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Byte, 255L), _, _), _, _) -> ()
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntKind.Byte, 255L), _, _), _, _) -> ()
                 | other -> failtestf "unexpected: %A" other
             }
 

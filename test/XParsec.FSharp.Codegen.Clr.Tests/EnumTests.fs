@@ -199,7 +199,7 @@ let enumTests =
                 Expect.isTrue ty.IsSealed "a string enum struct is sealed"
             }
 
-            // A mixed enum wraps `obj`, so both widths ride one backing field.
+            // A mixed enum wraps `obj`, so the integer and string cases ride one backing field.
             test "a mixed enum match distinguishes int and string cases at runtime" {
                 runsLinesWarning
                     "mixes integer and string case values"

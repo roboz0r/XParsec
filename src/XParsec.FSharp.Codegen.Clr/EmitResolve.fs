@@ -310,11 +310,11 @@ module EmitResolve =
         | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%A'" declKey
 
     /// The integral enum-case load: the `ldc` pushing the literal's raw value, paired with the
-    /// primitive type it boxes to. `TEnumCases.integralValue` rejects any width a `System.Enum`
+    /// primitive type it boxes to. `TEnumCases.integralValue` rejects any kind a `System.Enum`
     /// cannot be based on, `nativeint` included, so the bare load needs no width conversion.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
-        let w, bits = TEnumCases.integralValue v
-        EmitTypes.intConstLoad w bits, FTConst(RuntimeNames.intWidthKey w, EqArray.empty)
+        let k, bits = TEnumCases.integralValue v
+        EmitTypes.intConstLoad k bits, FTConst(RuntimeNames.intKindKey k, EqArray.empty)
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single argument: a
     /// string case is `ldstr` (a ref, assignable to a `string` or `obj` field unboxed); a

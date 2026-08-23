@@ -25,7 +25,7 @@ module internal ElaborateApply =
         // value: emit an honest `undefined`, not a `unit` `Const` riding its JS repr.
         // JS-only, because `undefined` has no CLR contract and only the TS provider mints it.
         | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
-        | TConstValue.Integral(w, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntWidth w, tok)
+        | TConstValue.Integral(k, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntKind k, tok)
         | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
         | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
         | TConstValue.Bool _ -> TExpr.Const(cv, ctx.Intrinsics.Bool, tok)
