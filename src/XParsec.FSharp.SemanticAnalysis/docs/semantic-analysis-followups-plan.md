@@ -872,6 +872,9 @@ proven bug.
 
 ### `InferTypeOps.fs:82` — static-optimization clause bodies are never checked against the declared result
 
+Pinned by the skipped GAP ptest in UnificationBasicsTests; deferred because honest checking
+means unifying each clause body under its own constraint substitution.
+
 `inferLibraryOnlyStaticOptimization` types each `OptimizedExpr` only to solve its own subtrees
 and deliberately never unifies it with anything: F#'s rule is per-clause ("assume the
 constraint, then check the body against the return type"), and a blanket unify would wrongly

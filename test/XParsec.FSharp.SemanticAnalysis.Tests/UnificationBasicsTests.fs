@@ -389,4 +389,16 @@ let tests =
                 let patKey = NodeKey.ofSource 50 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyUnion("R2", EqArray.empty)) "x : R2"
             }
+
+            ptest "GAP: a static-optimization clause body is never checked against the declared result" {
+                // fsc checks each clause under its constraint substitution (^T := int here), so a
+                // clause returning a string where the declared result is bool is FS0001. This
+                // compiler types the clause body only to solve its own subtrees
+                // (inferLibraryOnlyStaticOptimization), and honest checking means unifying under
+                // each clause's substitution, so no diagnostic surfaces today.
+                let ctx =
+                    analyse "let inline eq (x: ^T) (y: ^T) : bool =\n    true\n    when ^T: int = \"not a bool\""
+
+                Expect.isNonEmpty (errors ctx) "the ill-typed clause body should be diagnosed"
+            }
         ]
