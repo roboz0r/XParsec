@@ -109,40 +109,7 @@ module internal UnificationInferGeneralize =
     /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs two passes,
     /// hence the fixpoint. Defaults walked here are *consumed*: once one fires (or all
     /// candidates fail) the list is cleared, so later passes don't re-walk dead targets.
-    let applyDefaults (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : unit =
-        let visited = HashSet<TyVarId>()
-
-        let rec collect (t: SemType) : ResizeArray<TyVarId> =
-            let acc = ResizeArray<TyVarId>()
-
-            let rec go (t: SemType) =
-                match t with
-                | TyVar tv ->
-                    let root = UnionFind.find store tv
-
-                    if visited.Add root.Id then
-                        if
-                            store.Level root > outerLevel
-                            && (store.Link root).IsNone
-                            && not (store.Defaults.IsEmpty root)
-                        then
-                            acc.Add root.Id
-                            // Follow the default-target graph: `default ^T3 : ^T1` references
-                            // another TyVar that may be an *intermediate* result var (the
-                            // inner `a + b` of `a + b + c`), off the binding's surface type.
-                            for target in store.Defaults.Items root do
-                                go target
-
-                        match store.Link root with
-                        | ValueSome target -> go target
-                        | ValueNone -> ()
-                | t -> SemType.iterChildren go t
-
-            go t
-            acc
-
-        let candidates = collect zonkedTy
-
+    let private defaultFixpoint (store: TypeStore) (candidates: TyVarId[]) : unit =
         let rec resolveTarget (t: SemType) : SemType voption =
             match t with
             | TyVar tv ->
@@ -193,6 +160,46 @@ module internal UnificationInferGeneralize =
                 if (store.Link root).IsNone && not (store.Defaults.IsEmpty root) then
                     if tryDefault tv then
                         changed <- true
+
+    /// Settle the defaults on `vars`, whatever their level. For the metavars a
+    /// generalisation never walks: a value-restricted binding and a bare module-level
+    /// expression both reach the end of the file with theirs still pending.
+    let applyDefaultsTo (store: TypeStore) (vars: TyVarId seq) : unit =
+        defaultFixpoint store (Seq.toArray vars)
+
+    let applyDefaults (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : unit =
+        let visited = HashSet<TyVarId>()
+
+        let rec collect (t: SemType) : ResizeArray<TyVarId> =
+            let acc = ResizeArray<TyVarId>()
+
+            let rec go (t: SemType) =
+                match t with
+                | TyVar tv ->
+                    let root = UnionFind.find store tv
+
+                    if visited.Add root.Id then
+                        if
+                            store.Level root > outerLevel
+                            && (store.Link root).IsNone
+                            && not (store.Defaults.IsEmpty root)
+                        then
+                            acc.Add root.Id
+                            // Follow the default-target graph: `default ^T3 : ^T1` references
+                            // another TyVar that may be an *intermediate* result var (the
+                            // inner `a + b` of `a + b + c`), off the binding's surface type.
+                            for target in store.Defaults.Items root do
+                                go target
+
+                        match store.Link root with
+                        | ValueSome target -> go target
+                        | ValueNone -> ()
+                | t -> SemType.iterChildren go t
+
+            go t
+            acc
+
+        defaultFixpoint store (collect zonkedTy |> Seq.toArray)
 
     /// The element type of the bare list-literal registered against union-find `root` in
     /// `ctx.ListLiterals` (`ValueNone` if none). A look-up only: whether to flip the

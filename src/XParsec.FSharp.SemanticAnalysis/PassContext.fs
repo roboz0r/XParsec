@@ -462,6 +462,10 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// settles at `obj`.
     member val NullLiterals = ResizeArray<NullLiteral>() with get
 
+    /// Each printf hole typed over a numeric FAMILY (`%d`, `%f`): the argument drives it,
+    /// otherwise it settles at the family's default width.
+    member val FormatHoles = ResizeArray<TyVarId>() with get
+
     /// Whether the cons-list an unpinned literal defaults to is reachable at all: declared by
     /// this compilation (`Vesper.List`'s own sources) or carried by the reference set.
     member _.ConsListInScope: bool =

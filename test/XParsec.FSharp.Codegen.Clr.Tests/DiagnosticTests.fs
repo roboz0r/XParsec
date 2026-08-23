@@ -17,8 +17,8 @@ let tests =
                 [
                     // an unbound name
                     "Unresolved identifier", "printfn \"%d\" missing"
-                    // a string where an int is expected (the %d hole)
-                    "Type mismatch", "printfn \"%d\" \"hi\""
+                    // a string against the %d hole's integer family
+                    "one of int", "printfn \"%d\" \"hi\""
                     // assigning a string to an int-bound value
                     "Type mismatch", "let x : int = \"hi\"\nprintfn \"%d\" x"
                     // assigning to an immutable record field

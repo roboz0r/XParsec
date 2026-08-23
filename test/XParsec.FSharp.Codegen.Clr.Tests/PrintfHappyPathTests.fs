@@ -1181,10 +1181,13 @@ let tests =
                 runParity "PHpGWP" "printfn \"%12.3g\" 1234.5" (sprintf "%12.3g" 1234.5)
             }
 
-            // GAP: `%g` types its argument as exactly `float`. F# types it as a typar over
-            // `float32`/`float`/`decimal`, so a float32 needs no widening at the call.
-            ptest "gap: `%g` on a float32 — %g is not flexible over the float family" {
+            // `%g` types its argument over `float`/`float32`/`decimal`, so a float32 needs
+            // no widening at the call.
+            test "`%g` takes every float width" {
                 runParity "PHpGF32" "printfn \"%g\" 1.5f" (sprintf "%g" 1.5f)
+                runParity "PHpGDec" "printfn \"%g\" 1.5M" (sprintf "%g" 1.5M)
+                runParity "PHpFF32" "printfn \"%.2f\" 1.5f" (sprintf "%.2f" 1.5f)
+                runParity "PHpEDec" "printfn \"%e\" 2.5M" (sprintf "%e" 2.5M)
             }
 
             test "`%-5d` left-justifies in a width-5 field" {

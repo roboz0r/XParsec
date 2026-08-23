@@ -123,6 +123,8 @@ module UnificationEngine =
         | SemanticConstraintKind.Nullness -> "null"
         | SemanticConstraintKind.NotNull -> "not null"
         | SemanticConstraintKind.Coercion target -> sprintf "subtype of %A" target
+        | SemanticConstraintKind.OneOf choices ->
+            "one of " + String.concat ", " [ for k in choices.Underlying -> k.Name ]
 
     let isObjType (t: SemType) : bool =
         match t with
@@ -457,7 +459,10 @@ module UnificationEngine =
         | SemanticConstraintKind.ReferenceType
         | SemanticConstraintKind.Nullness
         | SemanticConstraintKind.NotNull
-        | SemanticConstraintKind.Coercion _ -> ValueNone
+        | SemanticConstraintKind.Coercion _
+        // Membership is decided against the choice list by `checkConstraint`, which never
+        // reaches this table.
+        | SemanticConstraintKind.OneOf _ -> ValueNone
 
     /// `Violated` is sticky (once any element fails, the whole compound fails);
     /// `Defer` propagates when no element failed but at least one is still pending.
@@ -583,6 +588,10 @@ module UnificationEngine =
         // A structural literal erases to its base primitive, so re-entering with it judges
         // every kind, `Coercion` included, exactly as the base primitive would be.
         | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
+        | SemanticConstraintKind.OneOf choices, ty ->
+            match ty with
+            | TyConst(k, targs) when targs.IsEmpty && EqArray.exists (fun c -> c = k) choices -> Satisfied
+            | _ -> Violated
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: `subsumes` walks user and BCL `inherit` chains, so a thrown
             // `InvalidOperationException` reaches `exn`. Past the `TyVar _` guard above,

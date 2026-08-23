@@ -44,6 +44,20 @@ let private ph (t: FormatType) : FormatPlaceholder =
         TypeChar = ' '
     }
 
+/// The `n`th metavar a `recordingMint` hands back, distinct per mint so a test can pin
+/// which slot got which.
+let private tyHole (n: int) : SemType =
+    TyConst(RuntimeNames.opaqueKey ("FRESH" + string n), EqArray.empty)
+
+/// A `PrintfSpec.argTypes` mint that appends every family it is asked for to `requested`,
+/// so a test reads the seam rather than the type a real mint would produce.
+let private recordingMint
+    (requested: ResizeArray<PrintfSpec.FormatHoleTy>)
+    : FormatPlaceholder -> PrintfSpec.FormatHoleTy -> SemType =
+    fun _ h ->
+        requested.Add h
+        tyHole requested.Count
+
 /// Assert `src` analyses to an error diagnostic citing `fragment` — a specifier
 /// the printf gate re-errors rather than lowering.
 let private rejectsResidual (fragment: string) (src: string) =
@@ -114,10 +128,7 @@ let tests =
                 Expect.isTrue (Lexing.parseFormatSpecifier "%*").IsNone "%* has no type letter"
             }
 
-            test "argTypes: every integer base types as one int" {
-                let fresh () =
-                    TyConst(RuntimeNames.opaqueKey "FRESH", EqArray.empty)
-
+            test "argTypes: every integer letter mints one integer-family metavar" {
                 for t in
                     [
                         FormatType.DecimalInt
@@ -126,104 +137,150 @@ let tests =
                         FormatType.UnsignedOctal
                         FormatType.UnsignedBinary
                     ] do
+                    let requested = ResizeArray()
+
                     Expect.equal
-                        (PrintfSpec.argTypes fresh tyUnit tyUnit (ph t))
-                        (ValueSome [ tyInt ])
-                        (sprintf "%A : int" t)
+                        (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
+                        (ValueSome [ tyHole 1 ])
+                        (sprintf "%A : one minted arg" t)
+
+                    Expect.sequenceEqual
+                        requested
+                        [ PrintfSpec.FormatHoleTy.IntegerFamily ]
+                        (sprintf "%A : integer family" t)
             }
 
-            test "argTypes: %A and %O both consume one fresh (polymorphic) arg" {
-                let fresh () =
-                    TyConst(RuntimeNames.opaqueKey "FRESH", EqArray.empty)
+            test "argTypes: every float letter mints one float-family metavar" {
+                for t in
+                    [
+                        FormatType.FloatDecimal
+                        FormatType.FloatExponential
+                        FormatType.FloatCompact
+                    ] do
+                    let requested = ResizeArray()
+
+                    Expect.equal
+                        (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
+                        (ValueSome [ tyHole 1 ])
+                        (sprintf "%A : one minted arg" t)
+
+                    Expect.sequenceEqual
+                        requested
+                        [ PrintfSpec.FormatHoleTy.FloatFamily ]
+                        (sprintf "%A : float family" t)
+            }
+
+            test "argTypes: the letters that fix their own type mint nothing" {
+                for t, expected in
+                    [
+                        FormatType.String, tyString
+                        FormatType.Char, BuiltinTypes.tyChar
+                        FormatType.Bool, BuiltinTypes.tyBool
+                        FormatType.Decimal, BuiltinTypes.tyDecimal
+                    ] do
+                    let requested = ResizeArray()
+
+                    Expect.equal
+                        (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
+                        (ValueSome [ expected ])
+                        (sprintf "%A : fixed" t)
+
+                    Expect.isEmpty requested (sprintf "%A mints no metavar" t)
+            }
+
+            test "familyWidths: the default LEADS the choices" {
+                Expect.equal
+                    (PrintfSpec.familyDefault PrintfSpec.FormatHoleTy.IntegerFamily)
+                    (ValueSome RuntimeNames.intKey)
+                    "integer family defaults to int"
 
                 Expect.equal
-                    (PrintfSpec.argTypes fresh tyUnit tyUnit (ph FormatType.Structured))
-                    (ValueSome [ TyConst(RuntimeNames.opaqueKey "FRESH", EqArray.empty) ])
-                    "%A poly"
+                    (PrintfSpec.familyDefault PrintfSpec.FormatHoleTy.FloatFamily)
+                    (ValueSome RuntimeNames.floatKey)
+                    "float family defaults to float"
+
+                Expect.equal (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.Free) ValueNone "%A takes no family"
 
                 Expect.equal
-                    (PrintfSpec.argTypes fresh tyUnit tyUnit (ph FormatType.Object))
-                    (ValueSome [ TyConst(RuntimeNames.opaqueKey "FRESH", EqArray.empty) ])
-                    "%O poly"
+                    (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.FloatFamily)
+                    (ValueSome(
+                        EqArray.ofList [ RuntimeNames.floatKey; RuntimeNames.float32Key; RuntimeNames.decimalKey ]
+                    ))
+                    "float, float32, decimal"
+            }
+
+            test "argTypes: %A and %O both consume one unconstrained arg" {
+                for t in [ FormatType.Structured; FormatType.Object ] do
+                    let requested = ResizeArray()
+
+                    Expect.equal
+                        (PrintfSpec.argTypes (recordingMint requested) tyUnit tyUnit (ph t))
+                        (ValueSome [ tyHole 1 ])
+                        (sprintf "%A poly" t)
+
+                    Expect.sequenceEqual requested [ PrintfSpec.FormatHoleTy.Free ] (sprintf "%A unconstrained" t)
             }
 
             test "argTypes: %a consumes printer + value sharing one fresh typar; %t consumes just the printer" {
-                let mutable n = 0
-
-                let fresh () =
-                    n <- n + 1
-                    TyConst(RuntimeNames.opaqueKey ("FRESH" + string n), EqArray.empty)
-
+                let requested = ResizeArray()
                 let state = tyString
                 let residue = tyInt
 
                 // %a : the printer `state -> tv -> residue` and the value `tv` — the
-                // SAME typar node in both slots, so exactly one fresh is minted.
-                match PrintfSpec.argTypes fresh state residue (ph FormatType.FormatFunction) with
+                // SAME typar node in both slots, so exactly one metavar is minted.
+                match PrintfSpec.argTypes (recordingMint requested) state residue (ph FormatType.FormatFunction) with
                 | ValueSome [ TyFun(s, TyFun(tv1, r)); tv2 ] ->
                     Expect.equal s state "printer's state arg"
                     Expect.equal r residue "printer's residue result"
                     Expect.equal tv1 tv2 "value arg is the same typar as the printer's inner arg"
-                    Expect.equal n 1 "%a mints exactly one fresh typar"
+
+                    Expect.sequenceEqual
+                        requested
+                        [ PrintfSpec.FormatHoleTy.Free ]
+                        "%a mints exactly one unconstrained typar"
                 | other -> failtestf "unexpected %%a shape: %A" other
 
-                // %t : just the printer `state -> residue`, no value, no fresh.
-                n <- 0
+                // %t : just the printer `state -> residue`, no value, nothing minted.
+                let requested = ResizeArray()
 
                 Expect.equal
-                    (PrintfSpec.argTypes fresh state residue (ph FormatType.Text))
+                    (PrintfSpec.argTypes (recordingMint requested) state residue (ph FormatType.Text))
                     (ValueSome [ TyFun(state, residue) ])
                     "%t printer"
 
-                Expect.equal n 0 "%t mints no fresh typar"
+                Expect.isEmpty requested "%t mints no typar"
             }
 
             test "argTypes: star dims prepend an int per star, width before precision" {
-                let fresh () =
-                    TyConst(RuntimeNames.opaqueKey "FRESH", EqArray.empty)
-
-                let tyFloat = BuiltinTypes.tyFloat
-
                 let star (w: FormatDim) (p: FormatDim) (t: FormatType) = { ph t with Width = w; Precision = p }
 
-                // %*d : width int, then value int.
+                // The star dimensions are `int` outright; only the VALUE is minted, so it is
+                // the one hole a family constrains.
+                let argTypesOf (p: FormatPlaceholder) =
+                    PrintfSpec.argTypes (recordingMint (ResizeArray())) tyUnit tyUnit p
+
+                // %*d : width int, then the minted value.
                 Expect.equal
-                    (PrintfSpec.argTypes
-                        fresh
-                        tyUnit
-                        tyUnit
-                        (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
-                    (ValueSome [ tyInt; tyInt ])
+                    (argTypesOf (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
+                    (ValueSome [ tyInt; tyHole 1 ])
                     "%*d"
 
-                // %.*f : precision int, then value float.
+                // %.*f : precision int, then the minted value.
                 Expect.equal
-                    (PrintfSpec.argTypes
-                        fresh
-                        tyUnit
-                        tyUnit
-                        (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
-                    (ValueSome [ tyInt; tyFloat ])
+                    (argTypesOf (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
+                    (ValueSome [ tyInt; tyHole 1 ])
                     "%.*f"
 
-                // %*.*f : width int, precision int, value float.
+                // %*.*f : width int, precision int, then the minted value.
                 Expect.equal
-                    (PrintfSpec.argTypes
-                        fresh
-                        tyUnit
-                        tyUnit
-                        (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
-                    (ValueSome [ tyInt; tyInt; tyFloat ])
+                    (argTypesOf (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
+                    (ValueSome [ tyInt; tyInt; tyHole 1 ])
                     "%*.*f"
 
                 // A literal width consumes no extra argument.
                 Expect.equal
-                    (PrintfSpec.argTypes
-                        fresh
-                        tyUnit
-                        tyUnit
-                        (star (FormatDim.Literal(bigint 5)) FormatDim.Absent FormatType.DecimalInt))
-                    (ValueSome [ tyInt ])
+                    (argTypesOf (star (FormatDim.Literal(bigint 5)) FormatDim.Absent FormatType.DecimalInt))
+                    (ValueSome [ tyHole 1 ])
                     "%5d"
             }
 
@@ -322,13 +379,49 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "%x with a non-int argument mismatches" {
+            test "an integer specifier takes any width of the family" {
+                for src in
+                    [
+                        "let r = sprintf \"%d\" 200uy"
+                        "let r = sprintf \"%d\" 200L"
+                        "let r = sprintf \"%x\" 255uy"
+                        "let r = sprintf \"%d\" -1y"
+                    ] do
+                    let tast = analyse src
+                    Expect.equal (lastDeclType tast) tyString (sprintf "%s : string" src)
+                    Expect.isEmpty tast.Diagnostics (sprintf "%s : no diagnostics" src)
+            }
+
+            test "a float specifier takes any width of the family" {
+                for src in
+                    [
+                        "let r = sprintf \"%g\" 1.5f"
+                        "let r = sprintf \"%f\" 1.5f"
+                        "let r = sprintf \"%e\" 2.5M"
+                    ] do
+                    let tast = analyse src
+                    Expect.equal (lastDeclType tast) tyString (sprintf "%s : string" src)
+                    Expect.isEmpty tast.Diagnostics (sprintf "%s : no diagnostics" src)
+            }
+
+            test "%x outside the integer family is refused against the choices" {
                 let tast = analyse "let r = printfn \"%x\" true"
 
-                let hasMismatch =
-                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> Seq.exists (fun d ->
+                         Diagnostic.isError d
+                         && d.Message.Contains "'bool'"
+                         && d.Message.Contains "one of int"
+                     ))
+                    (sprintf "expected the family refusal, got: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
+            }
 
-                Expect.isTrue hasMismatch "type-mismatch diagnostic emitted"
+            test "a one-width form is a residual outside its default width" {
+                // `%05u` and `%08.2f` reach a fixed-width handler, so a wider argument is a
+                // cold residual rather than a type error.
+                rejectsResidual "%05u" "let r = printfn \"%05u\" 200uy"
+                rejectsResidual "%08.2f" "let r = printfn \"%08.2f\" 1.5f"
             }
 
             test "%A and %O arguments unify with the supplied value" {
@@ -344,10 +437,21 @@ let tests =
             test "format / argument mismatch emits a diagnostic" {
                 let tast = analyse "let r = printfn \"%d\" true"
 
-                let hasMismatch =
-                    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> Seq.exists (fun d ->
+                         Diagnostic.isError d
+                         && d.Message.Contains "'bool'"
+                         && d.Message.Contains "one of int"
+                     ))
+                    (sprintf "expected the family refusal, got: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
 
-                Expect.isTrue hasMismatch "type-mismatch diagnostic emitted"
+                // `%s` fixes its type outright, so it is still a plain unify mismatch.
+                let tastS = analyse "let r = printfn \"%s\" 42"
+
+                Expect.isTrue
+                    (tastS.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch"))
+                    "type-mismatch diagnostic emitted"
             }
 
             test "fprintf takes the writer first, then the format" {

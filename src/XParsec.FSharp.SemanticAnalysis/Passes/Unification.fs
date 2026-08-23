@@ -1030,6 +1030,7 @@ module Unification =
         // `AmbientOpenScope` seed (not the per-element `OpenScope` the walk mutates).
         walkElems ctx (CstModuleTree.walkImpl ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx
+        UnificationInferGeneralize.applyDefaultsTo ctx.Store ctx.FormatHoles
         resolveNullLiterals ctx
         validateCustomEqCompImpls ctx
         checkDuplicateMembers ctx

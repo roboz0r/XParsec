@@ -189,6 +189,33 @@ module internal UnificationInferLiterals =
             if ok then ValueSome(List.ofSeq acc) else ValueNone
         | _ -> ValueNone
 
+    /// The metavar a printf placeholder's value argument types as. A family hole carries the
+    /// widths its specifier accepts as a `OneOf` constraint, plus the width it settles on
+    /// where nothing else pins it: `%d` takes any integer, and `printfn "%d"` alone is
+    /// `int -> unit`.
+    let freshHoleTy (ctx: PassContext) (declKey: NodeKey) (h: PrintfSpec.FormatHoleTy) : SemType =
+        let tv = freshTyVar ctx
+        let root = UnionFind.find ctx.Store tv
+
+        let family (choices: EqArray<TypeKey>) (dflt: SemType) =
+            ctx.Store.Constraints.Append(
+                root,
+                {
+                    Kind = SemanticConstraintKind.OneOf choices
+                    DeclKey = declKey
+                }
+            )
+
+            ctx.Store.Defaults.Append(root, dflt)
+            ctx.FormatHoles.Add tv
+
+        match h with
+        | PrintfSpec.FormatHoleTy.Free -> ()
+        | PrintfSpec.FormatHoleTy.IntegerFamily -> family RuntimeNames.integerFormatKeys BuiltinTypes.tyInt
+        | PrintfSpec.FormatHoleTy.FloatFamily -> family RuntimeNames.floatFormatKeys BuiltinTypes.tyFloat
+
+        TyVar tv
+
     /// Whether every specifier is one the inline lowering handles; a `false` keeps the
     /// FSharp.Core cold path. A `%%` escape is its own string part, never a placeholder.
     let lowerablePlaceholders (placeholders: FormatPlaceholder list) : bool =
@@ -208,9 +235,10 @@ module internal UnificationInferLiterals =
         | TyClass(fmtKey, args) when fmtKey = RuntimeNames.printfFormatKey && args.Length = 4 ->
             match formatSpecifiers ctx litExpr with
             | ValueSome specs ->
-                let fresh () = TyVar(freshTyVar ctx)
+                let mint _ =
+                    freshHoleTy ctx (CstKeys.ofExpr litExpr)
 
-                match PrintfSpec.printerFromSlots fresh specs args.[1] args.[2] args.[3] with
+                match PrintfSpec.printerFromSlots mint specs args.[1] args.[2] args.[3] with
                 | ValueSome printer ->
                     unify ctx tok printer args.[0]
                     ValueSome expected

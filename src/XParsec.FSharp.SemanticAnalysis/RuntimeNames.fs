@@ -346,6 +346,28 @@ module RuntimeNames =
             decimalKey
         ]
 
+    /// The widths an INTEGER printf specifier (`%d` `%i` `%u` `%x` `%X` `%o` `%B`) accepts,
+    /// in the order a diagnostic names them. `int` is the default, so it leads.
+    let integerFormatKeys: EqArray<TypeKey> =
+        EqArray.ofList
+            [
+                intKey
+                sbyteKey
+                byteKey
+                int16Key
+                uint16Key
+                uint32Key
+                int64Key
+                uint64Key
+                nativeintKey
+                unativeintKey
+            ]
+
+    /// The widths a FLOAT printf specifier (`%f` `%e` `%E` `%g` `%G`) accepts. `float` is
+    /// the default, so it leads. `%M` is `decimal` alone and takes no family.
+    let floatFormatKeys: EqArray<TypeKey> =
+        EqArray.ofList [ floatKey; float32Key; decimalKey ]
+
     /// The non-numeric built-in primitive identities. `objnull` is deliberately absent: it is
     /// the `obj | null` union, and must EXPAND to `FTOr [obj; null]` rather than dealias to
     /// bare `obj`.

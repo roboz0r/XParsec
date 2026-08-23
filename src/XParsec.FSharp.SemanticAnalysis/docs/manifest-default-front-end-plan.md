@@ -1,9 +1,10 @@
 # Manifest-driven analysis as the only front end
 
 Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have all six
-steps of the staged plan. This revision replaces the earlier gated/ungated pair with an
-`analyse` / `compile` split, and carries the type names the source-identity rename settled on.
-What remains is the "Independent findings" section.
+steps of the staged plan and every independent finding. This revision replaces the earlier
+gated/ungated pair with an `analyse` / `compile` split, and carries the type names the
+source-identity rename settled on. The one residual is the printf one-width handler members,
+recorded at the end of "Independent findings".
 
 ## Root cause
 
@@ -377,7 +378,7 @@ spelling twice. `ClrArtifact` carries its `ProjectInfo` instead of copying two f
 
 ## Independent findings
 
-These came out of the `a57405a4` review and do not depend on the migration.
+These came out of the `a57405a4` review and do not depend on the migration. All four are fixed.
 
 ~~**`TypeStore.Quantified` is not arena-shaped**~~ Fixed 2026-08-20. It is a `bool[]`
 authoritative on the root, beside `level` / `link` / `units`, OR'd onto the survivor in
@@ -397,12 +398,44 @@ it already holds. The key-taking form composes the same `tryClassInstanceField` 
 family returns `ClrArtifact`, and the sites that read the tast only to assert its diagnostics
 were empty went onto the `…Clean` variants.
 
-**Two printf specifier gaps are now hard failures.** `printfn "%d" 200uy` and `%g` on a
-`float32` compiled and printed correctly before the gate; they are `ptest`s as of `a57405a4`
-(`LiteralTests.fs`, `PrintfHappyPathTests.fs`). `%d` types its argument as exactly `int` and
-`%g` as exactly `float`, where F# types each as a typar over its numeric family. The standing
-state is that a printf specifier outside its default width is uncompilable, which wants a fix
-rather than two disabled tests.
+~~**Two printf specifier gaps are now hard failures.**~~ Fixed 2026-08-20, per assumption 4:
+`%d` `%i` `%u` `%x` `%X` `%o` `%B` type their argument over the integer widths and `%f` `%e`
+`%E` `%g` `%G` over `float` / `float32` / `decimal`, each defaulting to the width that LEADS its
+family (`RuntimeNames.integerFormatKeys` / `floatFormatKeys`). Both `ptest`s are now tests, over
+every width. The mechanism is in the plumbing below.
+
+### The printf family typars
+
+`PrintfSpec.argTypes` takes a `mint : FormatPlaceholder -> FormatHoleTy -> SemType` where it
+took a `unit -> SemType`, so the caller — which holds a `PassContext` — attaches the constraint
+and the default. `holeTyOf` is the one letter → family map, and `familyWidths` / `familyDefault`
+the one family → widths map, the default being the head of the choices.
+
+`SemanticConstraintKind.OneOf` carries those widths: the metavar ranges over a fixed set of
+arity-0 primitives, and anything else is refused where the argument links. So `printfn "%d" "hi"`
+reports "The type 'string' does not support the 'one of int, sbyte, …' constraint" rather than a
+plain unify mismatch, which is what the F# oracle refuses it as too.
+
+Two consequences the plan did not anticipate:
+
+**Defaults needed a sweep for the metavars generalisation never walks.** `applyDefaults` runs
+inside `generalise`, so a value-restricted binding (`let f = printfn "%d"`, expansive RHS) and a
+bare module-level expression (`printfn "%d" (Unchecked.defaultof<int>)`) both reached Elaborate
+with the hole still free — rigidified to `TyTypar(Method, 0)` in the first case and left as an
+unresolved TyVar in the second. `ctx.FormatHoles` records every family hole and
+`applyDefaultsTo` settles them at the end of the pass, beside `resolveNullLiterals`. A general
+sweep over every root carrying a default was tried first and is wrong: it grounds a CLASS typar,
+which turned `Box<'T>.Plus`'s "does not support the operator '+'" into silent `int` arithmetic.
+
+**A one-width handler is a cold residual, not a type error.** `%u` and `%o` have no .NET format
+string, and the zero-pad and runtime-precision floats compose their own text, so each is lowered
+by a handler of ONE width; every other form hands its value to a general formatter, which
+renders any width. `PrintfHoleForm.rendersAnyWidth` states that split target-neutrally and
+`rendersWidth` applies it to the settled hole type, so `%05u` of a `byte` joins `%0*d` on the
+existing "cannot be lowered on this target" residual instead of emitting a handler call its
+argument does not fit. Closing that residual means per-width handler members on
+`Vesper.Formatter` (a `uint64` octal and unsigned decimal, and generic `'T` float zero-pads —
+`decimal` must not be widened to `float`, which the F# oracle confirms formats at its own type).
 
 ## Determinants of a compiled file
 
@@ -452,5 +485,6 @@ member's declaring type.
    in the interim and steps 1-5 need not preserve a caching seam. This now also covers the
    deleted content hash: if the dormant wire axis is revived, a per-file stamp comes back with
    it, and the "Determinants" list above is what such a stamp has to cover.
-4. **The printf specifier gaps are front-end work**, not codegen work — i.e. the fix is to type
-   `%d`/`%g` over a numeric-family typar rather than to widen at the call.
+4. ~~**The printf specifier gaps are front-end work**~~ Taken as confirmed: `%d`/`%g` now type
+   over a numeric-family typar and nothing widens at the call. The one-width handler members
+   are the codegen residual left behind, listed above.

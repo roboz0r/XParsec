@@ -94,42 +94,78 @@ module PrintfSpec =
         | FormatType.Text -> true
         | _ -> false
 
-    /// The SemType of the VALUE argument a plain-value letter consumes; `%A`/`%O`
-    /// both give a fresh type variable.
-    let private argType (fresh: unit -> SemType) (t: FormatType) : SemType =
+    /// A metavar a placeholder's value argument needs, where the type letter alone does not
+    /// fix the type. The caller mints it, so the constraint and the default that make a
+    /// family flexible are attached where a `PassContext` is available.
+    [<RequireQualifiedAccess>]
+    type FormatHoleTy =
+        /// `%A` / `%O`, and a `%a` callback's own value: unconstrained.
+        | Free
+        /// `%d` `%i` `%u` `%x` `%X` `%o` `%B`: any integer width, `int` by default.
+        | IntegerFamily
+        /// `%f` `%e` `%E` `%g` `%G`: `float`, `float32` or `decimal`, `float` by default.
+        | FloatFamily
+
+    /// The metavar a type letter's value argument needs; `ValueNone` where the letter fixes
+    /// the type outright (`%s`, `%c`, `%b`, `%M`) or consumes no standalone value.
+    let holeTyOf (t: FormatType) : FormatHoleTy voption =
         match t with
-        | FormatType.Bool -> TyConst(RuntimeNames.boolKey, EqArray.empty)
-        | FormatType.String -> tyString
-        | FormatType.Char -> TyConst(RuntimeNames.charKey, EqArray.empty)
         | FormatType.DecimalInt
         | FormatType.UnsignedDecimalInt
         | FormatType.UnsignedHex
         | FormatType.UnsignedOctal
-        | FormatType.UnsignedBinary -> tyInt
+        | FormatType.UnsignedBinary -> ValueSome FormatHoleTy.IntegerFamily
         | FormatType.FloatExponential
         | FormatType.FloatDecimal
-        | FormatType.FloatCompact -> TyConst(RuntimeNames.floatKey, EqArray.empty)
-        | FormatType.Decimal -> TyConst(RuntimeNames.decimalKey, EqArray.empty)
+        | FormatType.FloatCompact -> ValueSome FormatHoleTy.FloatFamily
         | FormatType.Object
-        | FormatType.Structured -> fresh ()
+        | FormatType.Structured -> ValueSome FormatHoleTy.Free
+        | FormatType.Bool
+        | FormatType.String
+        | FormatType.Char
+        | FormatType.Decimal
         | FormatType.FormatFunction
-        | FormatType.Text -> failwith "PrintfSpec.argType: %a/%t are typed by argTypes, never here"
+        | FormatType.Text -> ValueNone
+
+    /// The widths a family admits, the DEFAULT leading; `ValueNone` for the unconstrained
+    /// `Free` hole.
+    let familyWidths (h: FormatHoleTy) : EqArray<TypeKey> voption =
+        match h with
+        | FormatHoleTy.Free -> ValueNone
+        | FormatHoleTy.IntegerFamily -> ValueSome RuntimeNames.integerFormatKeys
+        | FormatHoleTy.FloatFamily -> ValueSome RuntimeNames.floatFormatKeys
+
+    /// The width a family settles on where nothing else pins it.
+    let familyDefault (h: FormatHoleTy) : TypeKey voption =
+        familyWidths h |> ValueOption.map (fun ks -> ks.Underlying.[0])
+
+    /// The SemType of the VALUE argument a plain-value letter consumes.
+    let private argType (mint: FormatHoleTy -> SemType) (t: FormatType) : SemType =
+        match holeTyOf t with
+        | ValueSome h -> mint h
+        | ValueNone ->
+            match t with
+            | FormatType.Bool -> TyConst(RuntimeNames.boolKey, EqArray.empty)
+            | FormatType.String -> tyString
+            | FormatType.Char -> TyConst(RuntimeNames.charKey, EqArray.empty)
+            | FormatType.Decimal -> TyConst(RuntimeNames.decimalKey, EqArray.empty)
+            | _ -> failwith "PrintfSpec.argType: %a/%t are typed by argTypes, never here"
 
     /// Every argument a placeholder consumes, in APPLICATION order: one `int` per `Star`
     /// dimension (width before precision, `sprintf "%*.*f" w p v`), then the value.
     let argTypes
-        (fresh: unit -> SemType)
+        (mint: FormatPlaceholder -> FormatHoleTy -> SemType)
         (state: SemType)
         (residue: SemType)
         (p: FormatPlaceholder)
         : SemType list voption =
         match p.Type with
         | FormatType.FormatFunction ->
-            let tv = fresh ()
+            let tv = mint p FormatHoleTy.Free
             ValueSome [ TyFun(state, TyFun(tv, residue)); tv ]
         | FormatType.Text -> ValueSome [ TyFun(state, residue) ]
         | _ ->
-            let value = argType fresh p.Type
+            let value = argType (mint p) p.Type
 
             let starDim d =
                 match d with
@@ -292,11 +328,11 @@ module PrintfSpec =
 
     /// Curried arguments the placeholders consume: the sum of per-hole `argTypes` lengths,
     /// NOT the hole count, since a star hole consumes 2–3. Only the count is read, so the dummy
-    /// `fresh` and `tyUnit` state/residue below never surface.
+    /// `mint` and `tyUnit` state/residue below never surface.
     let totalArity (specs: FormatPlaceholder list) : int =
         specs
         |> List.sumBy (fun p ->
-            match argTypes (fun () -> tyUnit) tyUnit tyUnit p with
+            match argTypes (fun _ _ -> tyUnit) tyUnit tyUnit p with
             | ValueSome ts -> ts.Length
             | ValueNone -> 0
         )
@@ -305,7 +341,7 @@ module PrintfSpec =
     /// type computed on the way. Star dimensions fold their leading `int`s in, so the
     /// printer curries width and precision ahead of the value.
     let appliedTypeOf
-        (fresh: unit -> SemType)
+        (mint: FormatPlaceholder -> FormatHoleTy -> SemType)
         (specs: FormatPlaceholder list)
         (fam: Family)
         : (SemType * SemType * SemType) voption =
@@ -313,7 +349,7 @@ module PrintfSpec =
             match specs with
             | [] -> ValueSome(List.rev acc)
             | p :: rest ->
-                match argTypes fresh fam.State fam.Residue p with
+                match argTypes mint fam.State fam.Residue p with
                 | ValueSome ts -> mapAll (List.rev ts @ acc) rest
                 | ValueNone -> ValueNone
 
@@ -332,7 +368,7 @@ module PrintfSpec =
     /// annotation rather than an application, where the position already fixes
     /// `state`/`residue`/`result`. The printer alone: the caller keeps its own format type.
     let printerFromSlots
-        (fresh: unit -> SemType)
+        (mint: FormatPlaceholder -> FormatHoleTy -> SemType)
         (specs: FormatPlaceholder list)
         (state: SemType)
         (residue: SemType)
@@ -349,6 +385,6 @@ module PrintfSpec =
                 ScratchSink = tyUnit
             }
 
-        match appliedTypeOf fresh specs fam with
+        match appliedTypeOf mint specs fam with
         | ValueSome(_, _, printer) -> ValueSome printer
         | ValueNone -> ValueNone

@@ -31,10 +31,13 @@ let tests =
                     """printfn "%M" 42M""", "42"
                 ] -> test src { runs expected src }
 
-            // GAP: `%d` types its argument as exactly `int`. F# types it as a typar over the
-            // integer family, so every width prints through one specifier.
+            // `%d` types its argument over the integer family, so every width prints
+            // through the one specifier.
             yield
-                ptest """gap: `printfn "%d" 200uy` — %d is not flexible over the integer family""" {
+                test """`printfn "%d"` takes every integer width""" {
                     runs "200" """printfn "%d" 200uy"""
+                    runs "-1" """printfn "%d" -1y"""
+                    runs "70000" """printfn "%d" 70000L"""
+                    runs "ff" """printfn "%x" 255uy"""
                 }
         ]
