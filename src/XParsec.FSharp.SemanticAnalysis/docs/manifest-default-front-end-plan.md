@@ -389,9 +389,9 @@ exactly what re-`find`ing every id computes today, so the change is behaviour-pr
 deletes the temp set, the guard, and the doc comment's instruction to read through
 `UnionFind.find`.
 
-**`obj` is minted in three places.** `TyConst(RuntimeNames.objKey, EqArray.empty)` at
-`Unification.fs:606`, `Unification.fs:945` and `Elaborate/ObjArgs.fs:12`. Add `tyObj` to
-`RuntimeNames` beside `objKey`.
+~~**`obj` is minted in three places.**~~ Fixed 2026-08-20 as `BuiltinTypes.tyObj`, which is
+where the other primitive `SemType`s already live (`RuntimeNames` carries keys, not types).
+`checkOverrideConformance`'s four sibling locals went with it.
 
 **`tryClassChainMemberOrField` re-looks-up its class.** `InferRecordAccess.fs:297` has `info`
 bound and still uses it on the next line, but the new helper (`EngineCore.fs:326`) re-runs

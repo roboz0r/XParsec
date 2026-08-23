@@ -21,3 +21,4 @@ module BuiltinTypes =
     let tyDecimal: SemType = TyConst(RuntimeNames.decimalKey, EqArray.empty)
     let tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
     let tyString: SemType = TyConst(RuntimeNames.stringKey, EqArray.empty)
+    let tyObj: SemType = TyConst(RuntimeNames.objKey, EqArray.empty)

@@ -9,8 +9,6 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
 module internal ElaborateObjArgs =
 
-    let objTy: SemType = TyConst(RuntimeNames.objKey, EqArray.empty)
-
     let private isObjTy (store: TypeStore) (t: SemType) : bool =
         UnificationEngine.isObjType (Unification.zonk store t)
 
@@ -29,7 +27,7 @@ module internal ElaborateObjArgs =
                 )
             | _ -> arg
         | zParam when UnificationEngine.isObjType zParam && not (isObjTy store (TastWalk.exprTy arg)) ->
-            TExpr.Upcast(arg, objTy, TastWalk.exprTok arg)
+            TExpr.Upcast(arg, BuiltinTypes.tyObj, TastWalk.exprTok arg)
         | _ -> arg
 
     /// Positions past the supplied `paramTys`, and every position when it is empty (an

@@ -603,12 +603,6 @@ module Unification =
     /// `bool Equals<M0>(!!0)`. A base class declaring the name owns the slot; where none
     /// does, the slot is `System.Object`'s.
     let private checkOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
-        let boolTy = TyConst(RuntimeNames.boolKey, EqArray.empty)
-        let intTy = TyConst(RuntimeNames.intKey, EqArray.empty)
-        let unitTy = TyConst(RuntimeNames.unitKey, EqArray.empty)
-        let stringTy = TyConst(RuntimeNames.stringKey, EqArray.empty)
-
         for mInfo in info.Members do
             if mInfo.IsOverride && mInfo.Kind = ClassMemberKind.Method then
                 let expected =
@@ -618,9 +612,9 @@ module Unification =
                     // type is `unit -> ret`, a 1-arg method's `arg -> ret`.
                     | ValueNone ->
                         match mInfo.Name with
-                        | "Equals" -> ValueSome(TyFun(objTy, boolTy))
-                        | "GetHashCode" -> ValueSome(TyFun(unitTy, intTy))
-                        | "ToString" -> ValueSome(TyFun(unitTy, stringTy))
+                        | "Equals" -> ValueSome(TyFun(BuiltinTypes.tyObj, BuiltinTypes.tyBool))
+                        | "GetHashCode" -> ValueSome(TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyInt))
+                        | "ToString" -> ValueSome(TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyString))
                         | _ -> ValueNone
 
                 match expected with
