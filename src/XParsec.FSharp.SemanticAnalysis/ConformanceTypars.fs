@@ -91,20 +91,17 @@ module ConformanceTypars =
     /// (`Vesper.ArithmeticOperators.op_Addition`, the name a `.fsi` in a namespace publishes),
     /// then the module-qualified one (`ListModule.fold`), then the bare one, which covers a
     /// top-level binding.
-    let private lookupNames (info: ModuleBindingInfo option) (name: string) : string list =
-        match info with
-        | Some mi ->
-            [
-                SymbolKeyOps.qualifiedName mi.Key
+    let private lookupNames (mi: ModuleBindingInfo) : string list =
+        [
+            SymbolKeyOps.qualifiedName mi.Key
 
-                match mi.DeclaringModule with
-                | ValueSome m -> m.Name + "." + mi.Name
-                | ValueNone -> ()
+            match mi.DeclaringModule with
+            | ValueSome m -> m.Name + "." + mi.Name
+            | ValueNone -> ()
 
-                mi.Name
-            ]
-            |> List.distinct
-        | None -> [ name ]
+            mi.Name
+        ]
+        |> List.distinct
 
     /// Check every generic module binding of a frozen implementation file against the contract
     /// `provider`, in source-declaration order. A binding the provider does not publish, or a
@@ -125,40 +122,30 @@ module ConformanceTypars =
                                     } ->
                     let info =
                         match moduleMembers.TryGetValue boundVar with
-                        | true, mi -> Some mi
-                        | _ -> None
+                        | true, mi -> mi
+                        | _ ->
+                            failwithf
+                                "ConformanceTypars: root binding %O has no ModuleMembers entry; Elaborate records one for every named root binding, so prune the decl where its entry is pruned"
+                                boundVar
 
-                    // A binding inside a named module publishes under its COMPILED name
-                    // (`[<CompiledName>]`), which only the member table knows.
-                    let nameOpt =
-                        match info with
-                        | Some mi -> Some mi.Name
-                        | None ->
-                            match TastPoolBuilder.boundVarNaming pool boundVar with
-                            | BoundVarNaming.Source n -> Some n
-                            | BoundVarNaming.Minted _ -> None
+                    let resolved =
+                        lookupNames info
+                        |> List.tryPick (fun n ->
+                            match provider.TryLookup n with
+                            | ValueSome s -> Some(n, s)
+                            | ValueNone -> None
+                        )
 
-                    match nameOpt with
-                    | None -> ()
-                    | Some name ->
-                        let resolved =
-                            lookupNames info name
-                            |> List.tryPick (fun n ->
-                                match provider.TryLookup n with
-                                | ValueSome s -> Some(n, s)
-                                | ValueNone -> None
-                            )
-
-                        match resolved with
-                        | Some(n, sym) when sym.TyparArity > 0 ->
-                            if not (schemesAgree sym.Scheme ty) then
-                                yield
-                                    {
-                                        Name = n
-                                        Declared = normAxis sym.Scheme
-                                        Inferred = normAxis ty
-                                    }
-                        | _ -> ()
+                    match resolved with
+                    | Some(n, sym) when sym.TyparArity > 0 ->
+                        if not (schemesAgree sym.Scheme ty) then
+                            yield
+                                {
+                                    Name = n
+                                    Declared = normAxis sym.Scheme
+                                    Inferred = normAxis ty
+                                }
+                    | _ -> ()
                 | _ -> ()
         ]
 

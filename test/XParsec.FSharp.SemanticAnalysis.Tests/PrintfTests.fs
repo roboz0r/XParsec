@@ -560,6 +560,58 @@ let tests =
                 | ValueNone -> failtest "expected a placeholder"
             }
 
+            // ---- `%+-08.2f`: sign + `-` + `0` together is a compile-time error ----
+            // F# accepts it (sign, then RIGHT-zero-pad); this compiler rejects the flag
+            // combination as unintelligible.
+
+            test "`%+-08.2f` (sign + left-align + zero-pad) is a diagnosed error" {
+                let tast = analyse "let r = printfn \"%+-08.2f\" 1234.5"
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> List.exists (fun d ->
+                         Diagnostic.isError d
+                         && d.Message.Contains "%+-08.2f"
+                         && d.Message.Contains "sign flag"
+                     ))
+                    (sprintf
+                        "expected a sign/'-'/'0' flag-conflict error naming %%+-08.2f, got: %A"
+                        (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
+                match Lexing.parseFormatSpecifier "%+-08.2f" with
+                | ValueSome ph -> Expect.isTrue (PrintfHoleForm.tryClassify ph).IsNone "tryClassify declines the combo"
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
+            test "`%+-8.2f` (no zero-pad) still lowers with left alignment" {
+                let tast = analyse "let r = printfn \"%+-8.2f\" 1234.5"
+                Expect.isEmpty tast.Diagnostics "no diagnostics — %+-8.2f lowers natively"
+
+                match Lexing.parseFormatSpecifier "%+-8.2f" with
+                | ValueSome ph ->
+                    match PrintfHoleForm.tryClassify ph with
+                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                    PrintfHoleForm.Prec.Const 2,
+                                                                                                    'f',
+                                                                                                    None),
+                                                              PrintfHoleForm.Alignment.Const(-8))) -> ()
+                    | other -> failtestf "expected ForcedSign(+, .2, 'f', no pad) left-aligned to 8, got: %A" other
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
+            test "`%-05.2f` (no sign) still lowers as a right-zero-pad fixed float" {
+                let tast = analyse "let r = printfn \"%-05.2f\" 3.14159"
+                Expect.isEmpty tast.Diagnostics "no diagnostics — %-05.2f lowers natively"
+
+                match Lexing.parseFormatSpecifier "%-05.2f" with
+                | ValueSome ph ->
+                    match PrintfHoleForm.tryClassify ph with
+                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.FixedRightZeroPad(2, 5),
+                                                              PrintfHoleForm.Alignment.None)) -> ()
+                    | other -> failtestf "expected FixedRightZeroPad(2, 5), got: %A" other
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
             // ---- `%-*A` / `%+*A`: the `-`/`+` flags are no-ops on `%A` ----
             // A flagged star-`%A` renders byte-identically to a bare `%*A`, so it lowers
             // to the same `PrintWidth.Star` hole — unlike the declined `%0*A` above.

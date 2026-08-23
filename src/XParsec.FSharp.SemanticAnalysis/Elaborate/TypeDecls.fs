@@ -511,7 +511,7 @@ module internal ElaborateTypeDecls =
                     info.InstancePreamble
 
             let secondaryCtors =
-                EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx sc })
+                EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx info.Name sc })
 
             // The parent's resolved `TyClass` carries THIS class's declaring typars as
             // roots, so a generic parent encodes against this class's own generic

@@ -256,6 +256,29 @@ let tests =
                 Expect.isTrue diagnosed (sprintf "the constructor diagnostic fired; got %A" tast.Diagnostics)
             }
 
+            test "an `interface … with` block on an intrinsic host is rejected" {
+                let bad =
+                    "module Widgets\n\
+                     \n\
+                     type IPoke =\n\
+                     \x20   abstract member Poke: int -> int\n\
+                     \n\
+                     type widget =\n\
+                     \x20   (# \"object\" #)\n\
+                     \x20   with\n\
+                     \x20       interface IPoke with\n\
+                     \x20           member _.Poke (x: int) : int = x\n\
+                     \x20   end\n"
+
+                let tast = analyse bad
+
+                let diagnosed =
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "cannot declare an 'interface")
+
+                Expect.isTrue diagnosed (sprintf "the interface-impl diagnostic fired; got %A" tast.Diagnostics)
+            }
+
             // `type bad = int` is a transparent alias: an ILIntrinsic RHS is what admits members.
             test "a transparent-alias abbrev with members is rejected" {
                 let bad =

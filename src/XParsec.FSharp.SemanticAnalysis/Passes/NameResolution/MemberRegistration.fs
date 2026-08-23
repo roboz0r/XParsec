@@ -702,10 +702,11 @@ module NameResolutionMemberRegistration =
                             diagnose tok (IntrinsicHost.memberNeedsInline hostName)
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = newTok)) ->
                 diagnose newTok (IntrinsicHost.cannotDeclare hostName IntrinsicHost.Construct.Constructor)
-            // `val` declares storage, not a body; `interface`/`inherit` are not member
-            // declarations.
+            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(interfaceToken = tok)) ->
+                diagnose tok (IntrinsicHost.cannotDeclare hostName IntrinsicHost.Construct.InterfaceImpl)
+            // `val` declares storage, not a body; a bare `interface` spec and `inherit` are
+            // not member declarations.
             | TypeDefnElement.Member(MemberDefn.Value _)
-            | TypeDefnElement.InterfaceImpl _
             | TypeDefnElement.InterfaceSpec _
             | TypeDefnElement.Inherit _ -> ()
 
@@ -748,7 +749,9 @@ module NameResolutionMemberRegistration =
                 requireInlineMembers ctx id.Name elems
                 let x = extract info.DeclSite.Key info.TypeParams elems
                 info.Members <- x.Members
-                info.InterfaceImpls <- x.InterfaceImpls
+                // `interface … with` on an intrinsic host is diagnosed by
+                // `requireInlineMembers`, never stamped: the host has no representation
+                // to carry the interface slots.
                 info.ThisKey <- x.ThisKey
             | ValueNone -> ()
         | _ -> ()

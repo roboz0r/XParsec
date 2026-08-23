@@ -170,9 +170,18 @@ module PrintfHoleForm =
 
         "%" + p.Flags + dim p.Width + prec + string p.TypeChar
 
+    /// True iff the flags combine a forced sign (`+` or space) with BOTH `-` and `0`
+    /// (`%+-08.2f`). Rejected as a compile-time error rather than classified: F# renders
+    /// the sign then right-zero-pads, which this compiler treats as unintelligible.
+    let hasSignLeftAlignZeroPad (p: FormatPlaceholder) : bool =
+        let has (c: char) = p.Flags.IndexOf c >= 0
+        (has '+' || has ' ') && has '-' && has '0'
+
     /// Classify a placeholder into its target-neutral `HoleForm`, or `ValueNone` for a
     /// specifier no backend renders faithfully, so the caller keeps the generic printf
     /// call shape. Parity with F# `printf` under `InvariantCulture` is the bar for accepting.
+    /// A sign + `-` + `0` flag combination (`hasSignLeftAlignZeroPad`) is `ValueNone`: the
+    /// analysis diagnoses it as an error before classification is consulted.
     let tryClassify (p: FormatPlaceholder) : HoleForm voption =
         let precIsStar = p.Precision = FormatDim.Star
 
@@ -231,7 +240,9 @@ module PrintfHoleForm =
             | FormatDim.Literal pr -> PrintSize.Cols(int pr)
             | FormatDim.Absent -> PrintSize.Default
 
-        if p.Type = FormatType.Structured then
+        if hasSignLeftAlignZeroPad p then
+            ValueNone
+        elif p.Type = FormatType.Structured then
             // `%A`: the `0` flag forces flat (width 0) ahead of any explicit width, and
             // `+`/`-`/` ` are no-ops. `%0*A` is declined: in F# the `0` flag also discards
             // the runtime column budget, so the hole would consume a star argument and ignore it.

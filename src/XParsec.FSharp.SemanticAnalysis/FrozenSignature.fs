@@ -369,7 +369,10 @@ module FrozenSignature =
                     match info.Key with
                     | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey boundVar ty
                     | _ -> ()
-                | _ -> ()
+                | _ ->
+                    failwithf
+                        "FrozenSignature: root binding %O has no ModuleMembers entry; Elaborate records one for every named root binding, so prune the decl where its entry is pruned"
+                        boundVar
             | _ -> ()
 
         // --- intrinsic / primitive type shapes ----------------------------------------

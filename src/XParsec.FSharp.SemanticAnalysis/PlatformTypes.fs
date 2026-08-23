@@ -147,9 +147,7 @@ module PlatformTypes =
         | TDecl.Type td ->
             addDeclSurface ctx acc td.Kind
 
-            // Member bodies a backend lowers alongside the type. Class members are NOT
-            // walked: a backend that does not emit them would make flagging a type they
-            // reference a premature reject.
+            // Member bodies a backend lowers alongside the type.
             match td.Kind with
             | TTypeKindG.Record(_, members, interfaces, _)
             | TTypeKindG.Union(_, members, interfaces) ->
@@ -157,6 +155,13 @@ module PlatformTypes =
                     TastWalk.iterExpr iter m.Body
 
                 for (_, ifaceMembers) in interfaces do
+                    for m in ifaceMembers do
+                        TastWalk.iterExpr iter m.Body
+            | TTypeKindG.Class c ->
+                for m in c.Members do
+                    TastWalk.iterExpr iter m.Body
+
+                for (_, ifaceMembers) in c.Interfaces do
                     for m in ifaceMembers do
                         TastWalk.iterExpr iter m.Body
             | _ -> ()

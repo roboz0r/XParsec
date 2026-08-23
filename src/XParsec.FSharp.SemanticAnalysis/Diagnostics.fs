@@ -85,6 +85,9 @@ module IntrinsicHost =
         /// `.fsi` `new: … -> T` on a heritable primitive merely NAMES a target-provided one,
         /// and does not hit this case.
         | Constructor
+        /// An `interface … with` implementation needs a real type to carry the interface
+        /// slots, which an intrinsic host does not have.
+        | InterfaceImpl
 
     let memberNeedsInline (hostName: string) : string =
         sprintf
@@ -97,6 +100,7 @@ module IntrinsicHost =
             match construct with
             | Construct.Override -> "an 'override' or 'default' member"
             | Construct.Constructor -> "a constructor with a body"
+            | Construct.InterfaceImpl -> "an 'interface … with' implementation"
 
         sprintf
             "Intrinsic type '%s' cannot declare %s: the type carries no representation in the output, so only a spliced 'member inline' is admissible on it"

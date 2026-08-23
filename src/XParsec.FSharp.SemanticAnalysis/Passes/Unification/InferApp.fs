@@ -330,9 +330,30 @@ module internal UnificationInferApp =
                                             "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
                                     )
 
+                                // `%+-08.2f`: a forced sign combined with both `-` and `0`
+                                // is a compile-time error, not a residual — F# renders the
+                                // sign then right-zero-pads, which this compiler rejects.
+                                match specs |> List.tryFind PrintfHoleForm.hasSignLeftAlignZeroPad with
+                                | Some p ->
+                                    ctx.Report(
+                                        node.Tok,
+                                        Kind.Message(
+                                            sprintf
+                                                "printf format specifier %s combines a sign flag ('+'/' ') with both '-' and '0'; remove one of the flags"
+                                                (PrintfHoleForm.renderPlaceholder p)
+                                        )
+                                    )
+                                | None -> ()
+
                                 // Cold residuals: a specifier no backend renders faithfully,
                                 // such as the runtime-width zero-pads (`%0*d`, `%0*A`).
-                                match specs |> List.tryFind (fun p -> (PrintfHoleForm.tryClassify p).IsNone) with
+                                match
+                                    specs
+                                    |> List.tryFind (fun p ->
+                                        not (PrintfHoleForm.hasSignLeftAlignZeroPad p)
+                                        && (PrintfHoleForm.tryClassify p).IsNone
+                                    )
+                                with
                                 | Some p ->
                                     ctx.Report(
                                         node.Tok,

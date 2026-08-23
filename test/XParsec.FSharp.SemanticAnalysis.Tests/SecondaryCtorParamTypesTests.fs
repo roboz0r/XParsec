@@ -78,4 +78,61 @@ let tests =
 
                 Expect.isTrue (isCtorArgShapeError tast) "non-simple secondary-ctor arg pattern is rejected"
             }
+
+            // The TAST keeps only the constructor chain; a statement it would drop is
+            // diagnosed as unsupported rather than silently lost.
+
+            // `do printfn "hi"` (explicit `do`) parses as `Expr.ControlFlow`, which
+            // `CstKeys.firstTokenOfExpr` cannot token-ize yet, so the statement form here
+            // is the bare one fsi equally accepts.
+            test "a statement before the ctor chain is diagnosed, not dropped" {
+                let tast =
+                    analyse
+                        "type C(x: int) =\n    member this.X = x\n    new(a: int) =\n        printfn \"hi\"\n        C(a)"
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> Seq.exists (fun d ->
+                         match d.Kind with
+                         | Kind.NotYetSupported feature ->
+                             feature.Contains "secondary constructor of 'C'"
+                             && feature.Contains "before the constructor chain"
+                         | _ -> false
+                     ))
+                    (sprintf "expected a dropped-statement diagnostic naming C, got %A" (diagnostics tast))
+            }
+
+            test "a `then` statement after the ctor chain is diagnosed, not dropped" {
+                let tast =
+                    analyse
+                        "type C(x: int) =\n    member this.X = x\n    new(a: int) =\n        C(a)\n        then printfn \"made\""
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> Seq.exists (fun d ->
+                         match d.Kind with
+                         | Kind.NotYetSupported feature ->
+                             feature.Contains "secondary constructor of 'C'"
+                             && feature.Contains "after the constructor chain"
+                         | _ -> false
+                     ))
+                    (sprintf "expected a dropped-then diagnostic naming C, got %A" (diagnostics tast))
+            }
+
+            test "a conditional ctor chain is diagnosed (condition and else branch dropped)" {
+                let tast =
+                    analyse
+                        "type C(x: int) =\n    member this.X = x\n    new(a: int, b: int) =\n        if a > b then C(a) else C(b)"
+
+                Expect.isTrue
+                    (tast.Diagnostics
+                     |> Seq.exists (fun d ->
+                         match d.Kind with
+                         | Kind.NotYetSupported feature ->
+                             feature.Contains "secondary constructor of 'C'"
+                             && feature.Contains "conditional"
+                         | _ -> false
+                     ))
+                    (sprintf "expected a conditional-chain diagnostic naming C, got %A" (diagnostics tast))
+            }
         ]

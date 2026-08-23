@@ -25,40 +25,6 @@ In the module-held shape above, adding `match w with | Wrap v -> …` crashes an
 (`TastPools.toPools: ModuleMembers entry … names a bound variable no declaration in the
 frozen file introduces`) instead of surfacing the unresolved-identifier error. Freeze runs
 on a file whose analysis already failed; the diagnostics should gate it.
-### `FrozenSignature.fs:419` vs `ConformanceTypars.fs:78` — two files disagree about a named binding missing from `ModuleMembers`
-
-Both loops destructure `TastAccessor.DLet { Binding = TastAccessor.PNamed boundVar }`, and `PNamed`
-matches `PatPayload.NamedSimple` alone (`TastAccessor.fs:691-695`) — so a destructuring
-`let (a, b) = …` never reaches either lookup. What each does on a `moduleMembers` miss then
-differs:
-
-- `FrozenSignature.fs:419` — `| _ -> ()`. The binding is dropped from the published signature.
-- `ConformanceTypars.fs:78-84` — recovers the name from the boundVar column
-  (`TastPoolBuilder.boundVarNaming` → `BoundVarNaming.Source n`) and checks it.
-
-Either that fallback is dead or `FrozenSignature` has an export hole; both cannot be right. The
-writer is `recordExportedBinding` (`Elaborate.fs:146-160`), which records only when
-`memberNameOfBinding` (`Elaborate/Members.fs:37-50`) answers `ValueSome`.
-
-The surviving `FrozenSignature.fs:410-412` comment asserts the invariant this questions — "EVERY
-module binding rides `Decls` … and its identity is in `ModuleMembers`". A deleted clause excused
-the `_` arm as "a destructuring `let` … has nothing to export", which the `PNamed` guard makes
-impossible.
-
-### `TypeInfos.fs:1125` — an intrinsic abbrev's `interface … with` block is silently accepted
-
-`IntrinsicAbbrevInfo.InterfaceImpls` IS populated from source
-(`Passes/NameResolution/MemberRegistration.fs:1125` assigns it exactly as the union and record
-arms do), and the kind-agnostic host consumers iterate it
-(`Passes/Unification/Infer.fs:220`, `Passes/Unification/InferControlFlow.fs:496`,
-`Elaborate/Members.fs:222`, `Passes/NameResolution.fs:513`). So
-`type X = (# "object" #) with interface IFoo with …` takes the nominal interface-impl path on a
-`TyConst` host with no diagnostic. `requireInlineMembers` (`:1071`) already rejects `override`,
-`new` and non-`inline` members and explicitly does nothing for `InterfaceImpl` — either
-diagnose it there or handle it.
-
-The doc claiming "`interface … with` blocks are out of scope for the intrinsic host; always
-empty" has been deleted as false.
 
 ### `TastLower.fs:149-150` — loop bound and array length come from different parameters
 
@@ -114,22 +80,6 @@ at all nine sites, and `BigInteger → Int32` throws `OverflowException`. So
 `%99999999999999999999d` lexes cleanly and then throws out of the classifier instead of
 producing a diagnostic. `renderPlaceholder`'s `string n` is safe; only the numeric conversions
 are exposed.
-
-### `PrintfHoleForm.fs:273` vs `:334` — the forced-sign arm discards a left-align flag
-
-`elif plusSign || spaceSign` is tested BEFORE `elif leftAlign && zeroPad && isFloatLike`, so
-`%+-05.2f` lands in the forced-sign arm, reaches `FloatDecimal` at `:297` and yields
-`ForcedSign(space, prec, 'f', zoPad = Some 5)` with `Alignment.None` (`:311`) — the `-` flag is
-silently dropped. That contradicts the right-zero-pad rule the file states at `:209-210`.
-
-Either decline `%+-0w.Nf` as the other unhandled sign+zero-pad combinations are declined, or
-give it its own form. Check F#'s actual output with a `dotnet fsi` script before choosing —
-do not settle it from memory.
-
-Related: `:307` clamps a literal precision with `if n <= 0 then 0 else n` while the four
-sibling arms (`:342`, `:403`, `:419`, `:434`) and `precDim` (`:237`) take `int pr` raw. A
-digit-parsed `Literal` cannot be negative, so the clamp is inert but reads as though the others
-are missing a guard.
 
 ### `SemanticScalars.fs:18` — `Rational`'s raw constructor breaks the type's own equality
 
@@ -990,16 +940,6 @@ rather than at the invocation. Carrying a candidate set on the node is what woul
 is a genuine semantic gap rather than a comment defect; the note claiming it was the surviving
 half of a twelve-line doc, so it is recorded here before being shortened.
 
-### `Elaborate/ClassMembers.fs:252` — a secondary ctor's `go` silently discards the non-chain half of every non-`LetIn` form
-
-`AdditionalConstrExpr` carries `SequenceAfter(stmt, _, rest)`, `SequenceBefore(before, _, expr)`
-and `Conditional(_, cond, _, thenBranch, _, elseBranch)`, and `go` recurses into `rest`,
-`before` and `thenBranch` respectively. So a leading `do` statement, F#'s post-construction
-`then <expr>` block, and BOTH the condition and the else branch of a conditional chain call are
-dropped without a diagnostic — `new(x) = if c then C(x) else C(0)` always emits the `then`
-arguments. I did not check whether a consumer treats the truncation as intended; the code
-carries no diagnostic for it, and the doc line now states the drop rather than excusing it.
-
 ### `Elaborate/TypeDecls.fs:618` — the intrinsic-abbrev host reuses `TTypeKind.Class` as a never-emitted lift-only carrier
 
 `tryIntrinsicAbbrevType` builds a full `TClass` with every non-member facet empty (no ctor,
@@ -1124,19 +1064,6 @@ is wrong; I did not determine which, since it depends on whether an explicitly-w
 argument should reach a constructor as a value. Either way the fix is to make `peelCtorArgs`'
 single-argument branch call `peelOneArg`, which is what the doc already claims the relationship
 is.
-
-### `PlatformTypes.fs:151` — a class's member bodies and interface impls escape the platform check
-
-`walkDecl` walks augmentation and interface-impl member bodies for `Record` and `Union` only; the
-`Class` arm falls to `| _ -> ()`, so neither `c.Members` nor the member bodies inside
-`c.Interfaces` are ever scanned for an intrinsic the target cannot represent. The comment that
-was cut here justified skipping class members on the grounds that a backend may not emit them,
-but it gave the opposite justification for interface impls — that backends DO lower them, so an
-unrepresentable type in one is a real reject — and a class's interface impls are lowered on the
-same footing as a union's. Separately, the hand-rolled match duplicates `TTypeKindG.members` and
-`TTypeKindG.interfaceMembers` (`TastDecl.fs:300`, `:311`), which already name exactly "every
-member body under a type declaration"; routing through them would make the omission a visible
-filter rather than a missing match arm.
 
 ### `TypeInfos.fs:176` — an unset `ThisKey` is a *valid* boundVar key, not a detectable hole
 

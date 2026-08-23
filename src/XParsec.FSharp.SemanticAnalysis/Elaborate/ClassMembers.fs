@@ -162,9 +162,10 @@ module internal ElaborateClassMembers =
         }
 
     /// Each `let`-preamble binding becomes a `TCtorLet`, the final chain call's arguments
-    /// become `PrimaryArgs`. Sequencing / conditional preambles recurse to the chain and
-    /// DROP the statements they pass over.
-    let translateSecondaryCtor (ctx: PassContext) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
+    /// become `PrimaryArgs`. The TAST keeps only the chain (`rest` / `before` /
+    /// `thenBranch`); a discarded statement, condition, or else branch is diagnosed as
+    /// unsupported rather than silently lost.
+    let translateSecondaryCtor (ctx: PassContext) (className: string) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
             EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.BoundVar, Unification.zonk ctx.Store p.Type) })
 
@@ -193,6 +194,15 @@ module internal ElaborateClassMembers =
                             Init = translateExpr ctx e
                         }
 
+        let diagnoseDropped (tok: SyntaxToken) (what: string) =
+            ctx.Report(tok, Kind.NotYetSupported(sprintf "%s in a secondary constructor of '%s'" what className))
+
+        // `()` alone stays silent: dropping it loses nothing.
+        let isUnitConst (e: Expr<SyntaxToken>) =
+            match e with
+            | Expr.EmptyBlock(lParen = ParenKind.Paren _) -> true
+            | _ -> false
+
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
@@ -212,9 +222,19 @@ module internal ElaborateClassMembers =
                 | ValueNone -> ()
 
                 go body
-            | AdditionalConstrExpr.SequenceAfter(rest = rest) -> go rest
-            | AdditionalConstrExpr.SequenceBefore(before = before) -> go before
-            | AdditionalConstrExpr.Conditional(thenBranch = t) -> go t
+            | AdditionalConstrExpr.SequenceAfter(stmt = stmt; rest = rest) ->
+                if not (isUnitConst stmt) then
+                    diagnoseDropped (CstKeys.siteOfExpr stmt).Tok "a statement before the constructor chain call"
+
+                go rest
+            | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
+                if not (isUnitConst e) then
+                    diagnoseDropped (CstKeys.siteOfExpr e).Tok "a 'then' statement after the constructor chain call"
+
+                go before
+            | AdditionalConstrExpr.Conditional(ifToken = ifTok; thenBranch = t) ->
+                diagnoseDropped ifTok "a conditional constructor chain"
+                go t
             | AdditionalConstrExpr.Init initExpr ->
                 match initExpr with
                 | AdditionalConstrInitExpr.Expression e
