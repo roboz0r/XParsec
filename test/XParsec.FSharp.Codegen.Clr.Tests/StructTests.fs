@@ -575,7 +575,7 @@ let structTests =
 
             // Three same-name `G` overloads, each with its own method typar `'T`.
             // Matching by name alone would share the first overload's typars and
-            // freeze the others' `'T` as `?free-typar`.
+            // freeze the others' `'T` as `?unresolved-typar`.
             test "same-name overloaded generic members each generalise their own 'T" {
                 runsDataLines [ "42" ] "overloaded-generic-members-own-typar"
             }

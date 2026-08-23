@@ -12,62 +12,6 @@ subagent report.
 
 ## Defects
 
-### `Passes/Unification/EngineCore.fs:526` — a surfaced external interface takes the local-registry path — DONE
-
-The recorded diagnosis was wrong twice over. Corrected, and fixed at the producer.
-
-**The defect was that `ExternalClassShape.FrozenInterfaces` was `(string * FrozenType[])[]`.**
-Every other layer already models an interface reference as a `FrozenType` — `CodegenTypes`,
-`TastDecl`, `FrozenCodecDecls`, `LayoutNodes`, `EmitJsTypes` — and the extractors HELD one and
-threw the key away: `VesperLib.nominalInterface` and `FrozenSignature.ifaceOf` both took an
-`FTClass(k, args)` and replaced `k` with `typeMetaName k`. That rendering cannot be re-cut: a
-module-held `App.M+IBox` re-parses as CLR-nested `InType`, an unequal identity the provider
-cannot answer for, so the subtype walk stopped one level in. Three sites state that rule
-(`TypeRefStamp.useSiteTypeKey`, `VesperLib/TypeTranslate.mkNominal`,
-`ExternalRecordCandidate.TypeKey`); the field made every consumer break it.
-
-The field, `ExternalTypeShape.Union`'s `interfaces` and `IntrinsicInterfaceShape.Interfaces` are
-now `FrozenType[]`. That deleted both downgrades, a third copy in `EmitResolve`, the erased-name
-workaround in `JsNativeSymbols` ("A provider makes a foreign type enumerable by adding this NAME,
-never a key"), and the name→key re-resolution each consumer had grown.
-`FrozenTypeBridge.pickInterfaceWitness` now matches on the KEY.
-
-**The local-registry worry was unfounded.** An interface carries no `ClassTypeInfo`
-(`MemberRegistration.fs`), so `tryInterfaceImplHostByKey` probed with an interface key can only
-miss. What remains is one wasted dictionary probe per level, left alone.
-
-**The `TyConst` claim in the deleted comment is not the design and must not be restored.** A key
-carries no home by construction — `Origin` is "never part of a key" (`SymbolKeys.fs`), which is
-why `TypeRegistration.diagnoseExternalClaim` exists as the CS0433 analogue. External-vs-local is
-carried by the SHAPE, not by the `SemType` case: `buildExternalTy` maps `Class → TyClass`,
-`Record → TyRecord`, `Union → TyUnion`, the same cases their project-local counterparts get.
-
-Covered by `SubtypeExternalInterfaceKeyTests` (a module-held interface, a namespace-held control,
-and the re-cut spelling failing to reach it) and by `SignatureExtractorTests`, which now asserts
-the published `IBox` identity is `InModule` rather than that its rendering ends in `` IBox`1 ``.
-
-### `Passes/Unification.fs:600` — `checkObjectOverrideConformance` pins EVERY override to the `System.Object` slot — DONE
-
-The pin now asks which slot the `override` targets. `checkOverrideConformance` (renamed, since the
-Object slot is no longer the whole story) reads the nearest same-named instance member up the
-`inherit` chain — `tryBaseSlotType`, over the existing `tryClassChainMember` — and unifies against
-THAT. The three `System.Object` signatures are the fallback for a chain declaring none, which
-covers both the `inherit`-less class and a base that never names `Equals` / `GetHashCode` /
-`ToString`.
-
-The fallback shape also widens the pin past those three names: `override this.Store x = ()`
-against a base `abstract Store : int -> unit` now types `x` as `int` rather than generalising it
-into a method typar — the same defect the pass existed to prevent, one name-space wider.
-
-Covered by three rows in `UnificationInheritanceTests`, two of which fail without the change: a
-base-declared `Equals : B -> bool` (previously "Type mismatch: B vs obj"), an unannotated
-parameter taking the base slot's type, and the Object fallback still applying under an `inherit`.
-
-Two limits stand, both pre-existing and neither spurious-error-free: the base member is found by
-NAME, so an overloaded slot picks the first match — what every `tryClassChainMember` caller does —
-and an EXTERNAL base's slots are not read, so `inherit`ing a BCL class and overriding one of its
-non-Object `Equals` overloads still meets the Object slot.
-
 ### `Conformance.fs:352` — an operator `let` with parameters is reported as missing
 
 `PatternParsing.fs:547-550` parses `let (+) a b = …` as `Pat.OpNamed(ident, args)`, emitting
@@ -102,13 +46,6 @@ module binding rides `Decls` … and its identity is in `ModuleMembers`". A dele
 the `_` arm as "a destructuring `let` … has nothing to export", which the `PNamed` guard makes
 impossible.
 
-### `ConformancePass.fs:208` — `externs` under-reports the decls that made the file bodiless
-
-`externs` collects `SigShape.Extern` / `ExternClass` only, while `bodiless` (`:217`) also accepts
-`SigShape.Abbrev`. `externs` feeds the `Unrepresentable` arm (`:201`), reachable only when
-`bodiless` holds — so a `.fsi` made bodiless by transparent abbreviations names none of them in
-the diagnostic's type list.
-
 ### `TastPools.fs:320`, `:332`, `:354` — fault messages misattribute their entry point
 
 All three `failwithf`s live inside the private `fill` (`:181`) and hardcode the prefix
@@ -125,21 +62,6 @@ pooled lambda faults in toPools" while `:600` calls `rePool injected`. A `label`
 `:567`. `MemberStorage` is `Field | Property | Method` (`SymbolKeys.fs:215-218`), not a bool —
 a leftover from the widening. Rename to `storage`.
 
-### `VesperLib.fs:1174-1185` — a tagged `extern` with members drops its intrinsic identity on a repr miss
-
-The `ValueSome tag` branch looks up `ctx.IntrinsicReprs.TryGetValue short` and, on a miss, falls
-to `| _ -> ()` (`:1185`) — recording nothing, so the type keeps the plain `Class` shape
-`extractBodiedClassLike` wrote at `:1162`. Both sibling paths handle the same miss by calling
-`registerIntrinsic ()`: the untagged arm (`:1172`) and the no-member arm (`:1191`). And
-`registerIntrinsic` is written to tolerate a missing repr, via
-`IntrinsicPlatform.Unsupported ctx.Target` (`:1147`).
-
-So `isIntrinsic` is honoured on two of the three paths and dropped on the third. A deleted
-comment asserted this was deliberate ("a target whose `.fs` omits the repr (JS) records nothing,
-so the capability stays the plain canon-only interface `Class`") — but that is exactly the
-agent-written prose this sweep treats as unverified, and it contradicts the sibling arms'
-stated reason for existing. Needs a decision either way.
-
 ### `TypeInfos.fs:1125` — an intrinsic abbrev's `interface … with` block is silently accepted
 
 `IntrinsicAbbrevInfo.InterfaceImpls` IS populated from source
@@ -155,11 +77,6 @@ diagnose it there or handle it.
 The doc claiming "`interface … with` blocks are out of scope for the intrinsic host; always
 empty" has been deleted as false.
 
-### `ExternalSymbolProviders.fs:467-471` — a capability interface's inherited args are not variance-mapped — DONE
-
-The `IntrinsicInterface` arm now maps `Interfaces` like its `Class` and `Union` siblings. Found
-again while retyping `FrozenInterfaces`, this time by the compiler.
-
 ### `TastLower.fs:149-150` — loop bound and array length come from different parameters
 
 `for j in 0 .. instArr.Length - 1 do match holes.[j] with`, where `holes` is
@@ -169,20 +86,20 @@ throws `IndexOutOfRangeException`. Not live — both callers pass a matching pai
 (`EmitCall.fs:217`+`:237`, `ClrRecipes.fs:389`+`:391-395`) — which is also the argument for
 dropping `typarCount` and using `instArr.Length`.
 
-### `ReferencedProject.fs:418-433` — `runtimeModules` discards every error path silently
+### `ReferencedProject.fs:489` — a manifest-declared runtime asset that is missing on disk is silently skipped
 
-`| Error _ -> Map.empty` (a failed closure), `| Error _ -> ()` (an unparseable manifest) and a
-missing `File.Exists abs` all produce "no runtime asset", indistinguishable from "the package
-declares none". The backend then emits a program importing a `.mjs` that was never
-materialised. Every sibling entry point — `buildProvider`, `composeContract`, `buildClosure` —
-returns a `Result` or faults; this one is the outlier.
+`runtimeModules` now takes an already-resolved `Manifest list`, so the two `Error`-swallowing
+arms are gone. The remaining hole: `if File.Exists abs then` has no `else`, so a declared but
+missing runtime asset is indistinguishable from "the package declares none", and the backend
+emits a program importing a `.mjs` that was never materialised. Plumbing a fault out of the
+`Map`-returning function is the small design choice.
 
-### `VesperLib/TypeTranslate.fs:57` — culture-sensitive `EndsWith` on a source identifier
+### `SourceFileKind.fs:14`, `Elaborate/Strings.fs:47` — culture-sensitive string comparisons on source text
 
-`name.EndsWith "Attribute"` uses the culture-sensitive overload, while `ReferencedProject.fs:141`
-uses `EndsWith(suffix, StringComparison.Ordinal)` for the same class of test. Same latent
-inconsistency at `VesperLib/Manifest.fs:49` (`.EndsWith ".fsi"`) and `Elaborate/Strings.fs:53`
-(`.StartsWith ":"`).
+The original `VesperLib/TypeTranslate.fs` site is gone, but the inconsistency class survives:
+`SourceFileKind.fs:14,16` (`.EndsWith ".fsi"` / `".fs"`) and `Elaborate/Strings.fs:47`
+(`.StartsWith ":"`) use culture-sensitive overloads while `ReferencedProject.fs:143` uses
+`EndsWith(suffix, StringComparison.Ordinal)` for the same class of test.
 
 ### `CstKeys.fs:105`, `CstKeys.fs:127` — unimplemented shapes fail at runtime
 
@@ -230,10 +147,6 @@ Related: `:307` clamps a literal precision with `if n <= 0 then 0 else n` while 
 sibling arms (`:342`, `:403`, `:419`, `:434`) and `precDim` (`:237`) take `int pr` raw. A
 digit-parsed `Literal` cannot be negative, so the clamp is inert but reads as though the others
 are missing a guard.
-
-### `SymbolKeyOps.fs:20` — `isEscapedName` does not test what its name says **[LANDED]**
-
-`isEscapedName` is deleted; see the same entry in `semantic-analysis-followups-plan-2.md`.
 
 ### `Diagnostics.fs:372` — a parser-owned code is published under `DiagCode.Vesper`
 
@@ -393,11 +306,6 @@ writes `not a.IsDefault` and is consistent with the code.)
 the `TyVar` payload deletes the arm; the `failwithf` is honest, so the fix is the signature, not
 the message.
 
-### `SemanticInfo.fs` — `FTLocalTypar` and `FTUnknown` share a name space
-
-"Bound by a local scheme" and "unexplained metavar" are distinguished only by a string. The
-63-line essay in `Freeze.fs` was almost entirely about keeping those two apart by convention.
-
 ### `TypeInfos.fs:427` — `AbbreviationInfo` encodes one state machine in two mutable fields
 
 `Body : SemType voption` and `Status : AbbreviationStatus` vary independently, so `Filled` with
@@ -471,9 +379,10 @@ A classifier returning a named admission verdict deletes all three blocks.
 
 ### `Passes/Unification/Engine.fs:140`, `:348`, `:363`, `:828` — the no-pin absorption set is spelled at two seams
 
-`obj`, `TyOr` and the numeric family are one "accept without unifying" rule, written out with
-near-duplicate prose at each seam. A single `absorbs` predicate deletes four blocks. Where that
-predicate's DATA comes from is codegen-js's call (it owns assignability); the factoring is not.
+Partially landed: `absorbsAsObj` (`Engine.fs:134-137`) now covers the `obj` case at both seams.
+The `TyOr` and numeric-family absorption checks are still duplicated at the two call sites
+(`:347-349` and `:852-856`, via `numericFamilyOr`); folding them into the shared predicate
+finishes the job.
 
 ### `Passes/Unification/Engine.fs:62` — `DotSource.ClassChain`'s doc exists to explain a shape mismatch
 
@@ -487,14 +396,6 @@ constructed. The three live call sites are class `(true, true)` (`:819-820`), in
 `(false, false)` (`:741`, `:744`), union/record host `(false, true)` (`:846-847`). A three-case
 DU deletes the `Generalise` field's three-line doc, which currently has to explain in prose that a
 generalised `Equals` emits as arity-1 and no longer matches the arity-0 interface slot.
-
-### `ConformanceTypars.fs:63-99` — "a checkable module binding" is three scattered guards
-
-The 49-line header this sweep cut was standing in for a predicate the code never names:
-`IsInline = false` (`:63-72`), a resolvable name (`:80-87`), and `sym.TyparArity > 0` (`:99`). An
-active pattern yielding name + scheme + arity would put "non-inline, published, generic" in the
-type and delete the surviving inline comments at `:64-66` and `:77-79`. `checkMembers` has the
-same shape at `:161-172`.
 
 ### `PassContext.fs:192` — `ResolvedType` is three tables sharing one key space
 
@@ -580,20 +481,6 @@ Deletes: "The scan is quadratic — member counts are tiny".
 
 ## Unenforced conventions
 
-### `TEnumCases.fs:56`, `:70` — underlying-type names are spelled literally
-
-`:70` returns the bare `"int"` where `IntKind.name IntKind.Int32` is the kind→name
-projection (`XParsec.FSharp/NumericLiterals.fs:63`), and `:56` spells `"string"` literally
-while the adjacent `:57` goes through `RuntimeNames.objAbbrevName`. Two of the three names
-bypass the constants. `NumericLiterals.fs:53-56` states that spelling a kind name twice is how
-the elaborator and the CLR backend come to disagree about an enum's underlying type.
-
-### `Cache.fs:61` — `CodeVersion = 28` is a hand-bumped literal
-
-The protocol ("bump when the wire format changes") is carried by nothing but the prose that
-used to sit on it. A codec-shape hash, or a golden test that fails when the encoding moves,
-would enforce it.
-
 ### `CstKeys.fs` — the CST does not retain the `type` / `and` keyword
 
 Verified: `TypeDefn` (`Expr.fs:725`+) carries `typeName`/`equals` but no keyword token, and
@@ -645,87 +532,6 @@ describe the same declaration. The sole call site derives both from one `TypeNam
 single argument carrying both would be sound and would delete the doc clause explaining why
 the name is passed alongside the key.
 
-### `SemanticInfo.fs:57` vs `:143` — the canonical-set invariant is enforced on one side only
-
-`TyOr of members: UnionMembers` wraps a private constructor, so a non-canonical value cannot
-exist. The frozen twin `FTOr of members: EqSet<FrozenType>` takes a raw payload with no such
-gate — which is what lets `FrozenTypeTable.fs:610-612` build an `FTOr` without routing through
-`MkUnion`. Legitimate today, but canonicalisation on the frozen side is a convention rather
-than an invariant.
-
-## A rename that left a name trail
-
-### `?free-typar` is minted nowhere, but six comments still name it
-
-`Freeze.fs:47` mints `FTUnknown "?unresolved-typar"`. A repo-wide grep finds NO `src/` site
-minting `"?free-typar"` — yet these comments still describe it as the value a leaked metavar
-freezes to:
-
-- `Elaborate/Typars.fs:119` — still ahead in the sweep
-- `Passes/Unification/InferGeneralize.fs:323` — still ahead in the sweep
-- ~~`Passes/Unification.fs:104`~~ — swept, deleted
-- ~~`Passes/Unification/Engine.fs:863`~~ — swept, deleted
-- `test/…/Codegen.Clr.Tests/StructTests.fs:593`
-- `test/…/Codegen.Clr.Tests/InlineFreezeThawTests.fs:163` (reads as history, so arguably fine)
-
-Separately, `test/…/Codegen.Js.Tests/FrozenCodecRoundTripTests.fs:273` constructs
-`FTUnknown "?free-typar"` as round-trip fixture data — valid as bytes, but it names nothing the
-compiler produces.
-
-All four `src/` files are still ahead in this sweep; whoever takes them must know the string is
-dead, because the comments read plausibly on their own. This is the "a migration leaves a name
-trail" mode: the rename touched declarations and no comment.
-
-### `Freeze.fs:47` — `FTUnknown` carries an unstructured string, so the leak is untyped
-
-`"?unresolved-typar"` occurs exactly once in `src/` and `test/`, at the mint site; nothing
-matches on it. `FTUnknown` holds a bare `string` (`FrozenTypeTable.fs:333`), so a leaked metavar
-is indistinguishable downstream from any other unknown type. An over-wide type standing in as a
-string key.
-
-## Carry-forward for the remaining sweep batches
-
-### `§n.n` citations point at a plan doc that is not in the repo
-
-Two different things share the `§` sigil, and only one is legitimate:
-
-- **Keep** — F# spec citations, which name an external published document:
-  `Passes/NameResolution.fs:99`, `:198`, `:241` (`F# spec §8.7`),
-  `Passes/Unification/InferControlFlow.fs:100` (`§14.6`).
-- **Delete** — bare section numbers citing a design/plan artefact that exists nowhere in the
-  repo: `ElaborateExpr.fs:444` (`§4.2`), `Passes/Unification/Infer.fs:147` (`§5.0`), `:324`
-  (`§4.3`), `Passes/Unification/InferControlFlow.fs:363`, `:457` (`§4.4`), `:651`, `:653`,
-  `Passes/Unification.fs:1202` (`§5.4`), `Passes/Validation.fs:214` (`§3.2/§9`).
-  These are the milestone-label mode: state the fact the section number stands for, or cut.
-
-### The `Diagnostic` alias note is cloned across three files
-
-`AssemblyFiles.fs:27-28` and `Pipeline.fs:9-10` carry the same two lines — "the alias binds
-`Diagnostic` to the SemanticAnalysis one throughout this module; see that type's declaration for
-why the bare name would otherwise be the parser's" — and `Diagnostics.fs:560-562` already states
-the collision at the type. Backward re-narration; delete both when those files are swept. (The
-third copy, in `ConformancePass.fs`, is gone.)
-
-A third form quotes a design doc by phrase rather than number (`Engine.fs:1152`,
-`InferApp.fs:158`, `Subsume.fs:59`, `:236`, `:273`, `:283`) — same disposition, since the quoted
-document is equally absent.
-
-All of these files are still ahead in the sweep.
-
-## A stale architecture doc
-
-### `docs/core-lib-architecture.md:216-232` describes a manifest schema the code never had
-
-It documents suffixed override keys (`impl-<t>`, `sig-only-<t>`, `files-<t>`, `runtime-<t>`)
-with REPLACES-the-base-list semantics, plus resolvers `resolveInlineBodies`, `resolveExtraFiles`
-and a `collectOverrides`. None of those three identifiers exists anywhere in `src/` or `test/`.
-The real schema is `[targets.<t>]` tables (`ReferencedProject.fs:44-59`) and every target list
-APPENDS (`:110-125`). Every line reference in that table (`:112-125`, `:130`, `:138`, `:147`,
-`:156`, `:165`, `:409`) is also stale.
-
-This is not a `*-plan.md`, so the plan-doc lifecycle will not retire it. Either correct it or
-delete it — a doc describing the opposite merge semantics from the code is worse than none.
-
 ## Allocation on the per-node walk and emit paths
 
 Found while reading `TastAccessor.fs` against its comments. None of these is a hot-frame
@@ -746,14 +552,6 @@ already exist beside them.
 ### `Conformance.fs` — `SigDecl` and `ImplDecl` are one shape twice
 
 Structurally identical apart from the shape type, and could share one generic record.
-
-### `FrozenSignature.fs:75-84` — module containers are keyed by the COMPILED chain
-
-`SymbolKeyOps.moduleFullName` gives a `[<CompilationRepresentation(ModuleSuffix)>]` or
-name-collision module its `…Module` spelling, while the `.fsi` extractor keys the source path — so
-a cross-file dotted name for a type in such a module does not resolve. An `InType`-nested type
-contributes no module container at all (`:199-200`). The deleted prose hedged this; the honest form
-is a failing test, and there is none.
 
 ### `SemanticScalars.fs:73-127` — the ref-safety tiers have no production consumer
 
@@ -783,12 +581,6 @@ changed. `| TyOr members -> members.Map f` routes through `UnionMembers.Map` →
 which always builds a fresh `EqSet`, so a ground `TyOr` re-allocates on every `zonk` /
 `substitute` walk. The doc has been qualified to match the code rather than assert the
 invariant the code does not hold.
-
-### `TastExpr.fs:210` — `Range.step` is the sole reference `option` in the TAST
-
-Every other optional child is a struct `voption` — `ExternalMember.objArg` (`:271`),
-`FormatSegG.DynHole.Width`/`Precision`, `ExprRow.VarBoundVar`. This one forces `Some`/`None`
-handling and is the only `Option.iter` in either walker (`TastWalk.fs:422-438`, `:830`).
 
 ### `TastPoolBuilder.fs:238`, `:249` — the boundVar space has no `readBoundVar` resolver
 
@@ -852,24 +644,10 @@ blocks sit in the same `for c in cs` iteration, and both open with
 coercion constraint therefore pays two zonks and two nominal walks per discharge. One match with
 two guarded sub-arms.
 
-### `Passes/Unification/Engine.fs:680` — one predicate, two spellings of its key
-
-`funSlotArityOfArgs` is fed `SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tname)` here, but
-`bareName (typeMetaName tk)` at `Engine.fs:31` and `Subsume.fs:295`. The two agree only because
-`qualifiedName` delegates to `typeMetaName` for `SymbolKey.Type` (`SymbolKeyOps.fs:325`) — it
-takes different branches for `Binding` and `Member`. Three call sites of one predicate should
-derive the name once.
-
 ### `Passes/Unification/EngineCore.fs:88` — `tupleOrSingle` takes a `PassContext` to read one field
 
 It needs only `ctx.Intrinsics.Unit`, while its siblings in the module take a bare `TypeStore`.
 That forces `PassContext` onto callers that otherwise need only the store.
-
-### `ExternalSymbolProviders.fs:217`, `:233` — over-wide parameter type
-
-`mergeReverseCanon` / `mergeForwardRepr` take `IExternalSymbolProvider seq` but read only
-`IntrinsicReverseCanon` / `IntrinsicForwardRepr`. The narrower sink is the intrinsic axes
-themselves.
 
 ### `ExternalSymbolProviders.fs` — `KeyIndexedChannels` cannot publish index signatures
 
@@ -878,13 +656,6 @@ The record has no index-signature channel, so `ofKeyIndexes` builds its `Named` 
 then answers every index-signature query from that constant `fun _ -> []`. A producer that
 acquires index signatures and holds `InModule` keys has no way to publish them and gets no
 compile error. The fix is a channel on `KeyIndexedChannels`, not a comment.
-
-### `CstWalk.fs:988` — `walkModuleTreeWith`'s `onScope` is unused at 4 of 5 call sites
-
-`CstWalk.fs:1151`, `Elaborate.fs:273`, `Passes/NameResolution.fs:802` and
-`Passes/Unification.fs:1270` all pass the literal `(fun _ _ -> ())`; only
-`Passes/Validation.fs:238` supplies a real hook. The `walkModuleTree` wrapper that exists to
-hide the parameter has two callers (`VesperLib.fs:1848`, `test/…/OpenScopeTests.fs:30`).
 
 ### `FrozenTypeBridge.fs:131` — `localTyparInTemplate` takes a hand-written site string
 
@@ -927,12 +698,6 @@ Relatedly, `sinkOf` (a match, 8 arms) and `families` (a `Map`, 8 entries at `:22
 parallel tables over one key set, maintained separately: adding a family needs both edited and
 nothing ties them together.
 
-### `AttributeDecode.fs:69` and `:97` — the attribute-set traversal is duplicated verbatim
-
-The same nested `for AttributeSet(attributes = entries) … for Attribute(construction = …)`
-walk with the same `ObjectConstruction` / `InterfaceConstruction` unwrap appears twice,
-differing only in what the inner match does. One `foldAttributeShortNames` would carry both.
-
 ### `Tast.fs:238` — the `Frozen` alias module is missing two ForIn aliases
 
 It defines `ForInEnumerator` only, so `FrozenCodecDecls.fs:131,142,152,164` spell
@@ -956,11 +721,6 @@ to the case name is cheap.
 (`Codegen.Js/EmitJs.fs:852`) binds `moduleMembers` once, so this is latent rather than live —
 but the accessor shape invites a per-decl call.
 
-### `SymbolKeys.fs:19`, `:219` — two unannotated members among annotated siblings
-
-`.Name` and `IsValueMember` carry no return-type annotation; every other member in the file
-(`.Dotted`, `.Depth`, `.Namespace`, `.Offset`, `.Written`, `.AssemblyOption`) does.
-
 ### `SemanticInfo.fs:224`, `:226` — inconsistent static-member casing
 
 `MeasureTerm.Empty` / `MeasureTerm.ofList` mix PascalCase and camelCase on one type, while the
@@ -978,14 +738,6 @@ inline function" is pointed at the sibling file, which contains neither the peel
 `failwithf "…: %A" param` formats an entire `TPat` into the exception message; the case name
 would carry the same information. Same shape as the `Tast.fs:168` item above.
 
-### `Passes/InlineReduction.fs:113` — `Descent.top` had a false consumer claim
-
-Its doc said `top` is "what [the walk] returns to for every call-site argument it walks". It is
-not: arguments are walked under `inFlight.Caller` (`InlineExpansion.fs:270`, `:274`), the
-enclosing descent, and `Descent.top` has exactly one use — `InlineExpansion.fs:487`, the
-compiling file's own declarations. The clause has been cut; noted here because the same
-"returns to `top`" reading would be a real bug if anyone acted on it.
-
 ### `Passes/InlineReduction.fs:167` — `ExternalFunction.Args = ValueNone` is documented as unreachable-by-shape, but is a `failwithf`
 
 The field doc claimed a non-opening argument means "the function cannot be a template". The consumer
@@ -997,12 +749,10 @@ arm with it.
 
 ### `Passes/Unification/Subsume.fs:213` — the `TyFun` ↔ `Fun<…>` recognizer is spelled twice
 
-The guard `funSlotArityOfArgs (SymbolKeyOps.bareName …) targs.Length |> Option.isSome` followed by
-`peelFunDomains ctx.Store (targs.Length - 1) a b` appears here and at `Engine.fs:678-687`, once as
-a read-only check and once as the grounding `unify`. The two differ only in what they do per peeled
-type — and in how they get the name (`typeMetaName` off a `TypeKey` vs `qualifiedName` off a
-`SymbolKey`), which is the kind of difference that goes stale silently. One `tryFunSlotPeel`
-returning the aligned `k+1` types would carry both.
+The `funSlotArityOfArgs` guard followed by `peelFunDomains` appears here and at
+`Engine.fs:700-706`, once as a read-only check and once as the grounding `unify`. The
+name-spelling divergence is fixed (both sites now pass a `TypeKey`), but the duplication
+remains: one `tryFunSlotPeel` returning the aligned `k+1` types would carry both.
 
 ### `Passes/Unification/Subsume.fs:132`, `:142` — the carrier-node triple is enumerated at six sites
 
@@ -1142,25 +892,6 @@ already recorded for `tryListLiteralElem` — the loop wants to stop at the hit.
 same `rhs` (`:815`) to choose which side table to write, never reading `id.Kind`. One
 classification, two spellings of it, and nothing makes the second agree with the first.
 
-### `Passes/NameResolution/TypeRegistration.fs:772` — `ilIntrinsicString` exists three times
-
-The `StringBuilder`-over-`StringPart` loop that stitches `(# "System.Int32" #)` into
-`"System.Int32"` is written identically in three places: `ilIntrinsicString` here,
-`Conformance.fs:121 ilReprString`, and `VesperLib.fs:1490 ilIntrinsicReprString`. All three carry
-the same seven-case `StringPart` match, the same `| StringPart.Expr _ -> ()` drop, and (before the
-comment sweep) the same doc line. They differ only in how a token becomes text — `ctx.NameOf` vs
-`nameOfTok lexed` — so one function over a `SyntaxToken -> string` would serve all three.
-
-### `Passes/NameResolution/TypeRegistration.fs:817` — `IntrinsicReprTypes` and `IntrinsicReprKeys` are one fact in two tables
-
-Two consecutive statements write the same `repr` string into `IntrinsicReprTypes` (keyed by bare
-NAME) and into `IntrinsicReprKeys` (keyed by the arity-qualified `SymbolKey`, as an
-`IntrinsicReprInfo` that also carries `Heritable`). Nothing structural keeps them in step, and the
-name-keyed side cannot distinguish two intrinsics that differ only in arity — `IntrinsicKeys` and
-`IntrinsicAbbrevHost` are name-keyed the same way. Not observed to break anything (a namesake pair
-of intrinsics at different arities may simply not occur in practice), but the name axis looks
-redundant given every consumer downstream already holds a resolved key.
-
 ### `Passes/NameResolution/TypeRegistration.fs:580`, `:723` — the index-bucket prepend is copied verbatim
 
 `registerRecordDecl`'s `FieldIndex` fill (`:578-588`) and `registerUnionDecl`'s `CtorIndex`
@@ -1217,14 +948,6 @@ Six of the twelve fields (`BaseKey`, `CtorParams`, `InstanceFields`, `StaticPrea
 record host, and `walkTypeBodies` then loops over the empties. Each field needed a doc line saying
 "empty for unions". A DU of two cases — a class body and a nominal-host body — would delete those
 lines and stop the host path from having to name fields it does not have.
-
-### `Passes/NameResolution.fs:204` — the class preamble deliberately cannot name the object
-
-The instance-preamble scope (`:204-208`) holds the ctor params, the static boundVars and the instance
-boundVars above it, but never `this` / `base` / the type-level `as` alias, so an F# program that
-writes `type T() as self = let x = self.M()` gets "Unresolved identifier" here where fsc compiles it
-(and throws at run time on initialisation-soundness grounds). That divergence was recorded only in a
-comment; a named failing test would be the honest form, since nothing else states it.
 
 ### `Elaborate/Resolve.fs:174` — four active patterns differ only by the `ClassMemberKind` tested
 
@@ -1389,15 +1112,6 @@ the question
 never has to be re-derived from a `Var`. Recorded because the six-line header justifying the
 cost (citing a "gap doc" no reader of this repo can open) was cut to three by the sweep.
 
-### `Elaborate/Access.fs:91` — `fieldStep` demands a `chainKey` its assignment caller can never use
-
-`translateAssignment`'s LongIdent arm mints `liKey` purely to satisfy `fieldStep`'s signature:
-the key exists only so the `TyArray _ when segName = "Length"` arm can read
-`ctx.Resolution.IntrinsicKey`, and a read-only `.Length` can never be an intermediate segment of
-an assignment OBJECT ARGUMENT, so the value is dead on this path. Splitting the array-length arm out of
-`fieldStep`, or taking the resolved intrinsic key as a `voption` the caller supplies only when it
-has one, removes the unusable parameter and the three lines now explaining it.
-
 ### `ElaborateExpr.fs:568` — the `StaticOpt` side table is positionally aligned with `clauses` by convention only
 
 `translateStaticOptimization` pairs `resolved.[i]` with `clauses.[i]` and silently substitutes
@@ -1504,16 +1218,6 @@ comment. A `Zonked` wrapper — or taking the `TypeStore` and resolving at each 
 sibling walks in this project do — would make it structural. I did not check whether any future
 caller is planned that would pass an unzonked type.
 
-### `Passes/Unification/InferIdentExpr.fs:96` — the static-member lookup and its class-then-union cascade are written twice
-
-`inferIdent`'s `tryStaticMember` (`:96`) and `tryLocalTypeAppStaticMember`'s `resolve` (`:254`)
-are the same four lines — `Array.tryFind (fun m -> m.IsStatic && m.Name = …)`, then
-`freshNamedInstance` + `substituteWith` — differing only in which local holds the member name.
-Each is then driven by an identical `TypeRegistry.tryClass … | ValueNone -> tryUnionBare …`
-cascade over the same use site. One helper taking the name and the use site collapses both, and
-would remove the second site's need to explain that it "mirrors" the first (that cross-reference
-deleted by the comment sweep).
-
 ### `Pipeline.fs:138` — closure verdicts reach codegen only by a hand-written side-table snapshot
 
 `analyseSemWithContextForCore` copies two verdict tables onto the `TastFile` by hand
@@ -1525,31 +1229,6 @@ invisible. Note also that those deleted comments were wrong about both tables �
 `FunVerdicts` "node-keyed" (it is `Map<LambdaKey, FunVerdict>`) and attributed the decision to
 `inferApp` (it is `recordFunArityVerdicts`), which is the kind of drift a snapshot step that the
 type system does not name will keep producing.
-
-### `Pipeline.fs:115` — `selfHostList: bool` is a flag parameter threaded through five wrappers
-
-`analyseSemWithContextForCore` takes a bare `bool` whose only use is `ctx.DefaultListIsVesper <-
-selfHostList`, and the five public entry points differ from each other in nothing but that
-literal `true`/`false` plus whether they freeze and whether they keep the context. The result is
-that "which list representation does a bare `[]` default to" is answered by reading a call site's
-positional `true`. A two-case type named for the choice (FSharp.Core list vs Vesper cons-list)
-would make the entry points readable without their docs and would delete the sentence each of
-those five docs currently spends restating it.
-
-### `AssemblyFiles.fs:452` — the cross-file "same assembly" waiver is an untyped string round-trip
-
-The fold lands `assembly.Name` in `AssemblyFilePath.Assembly` (`:452`/`:478`); the duplicate-type
-check reads it back out via `SymbolHome.AssemblyOption` and compares it to `ctx.AssemblyName`
-(`TypeRegistration.fs:179`) as a plain string. Nothing connects the two ends, so a driver passing
-a differently-spelled assembly name to `analyse` than to the fold turns every prior file's export
-into a spurious "already exists in the referenced assembly" error. The deleted header comment got
-this wrong in a way that shows the coupling is not readable: it claimed the view stamps
-`SymbolHome.InAssembly`, when the code stamps `SymbolHome.InFile` and relies on the path to carry
-the assembly.
-
-Scheduled as step 1 of
-[manifest-default-front-end-plan.md](manifest-default-front-end-plan.md), which types both ends
-as `AssemblyName`.
 
 ### `StringLiterals.fs:22` — `decodeEscape` throws on escapes the string lexer accepts
 
@@ -1656,17 +1335,13 @@ means nothing. An `EqArray<string * TyVarId>` plus a separate `int` cannot enfor
 reading — a type splitting the declared prefix from the implicit tail would settle which one is
 true and remove the need for the sentence.
 
-### `PassContext.fs:155` — `ExternalStaticQualifier` / `ExternalUnionRecordQualifier` are `SymbolKey` sinks that only ever hold a `TypeKey`
+### `PassContext.fs:178` — `ExternalUnionRecordQualifier` is a `SymbolKey` sink that only ever holds a `TypeKey`
 
-Every writer of both tables wraps a type key on the way in: `Scope.fs:501/526` call
-`SymbolKeyOps.externalTypeKey`, which exists only to `SymbolKey.Type` the result of
-`externalTypeKeyOf : … -> TypeKey`, and `Scope.fs:509/607` write `SymbolKey.Type canon` by hand.
-The sibling stamps in the same record — `ResolvedType`,
-`ExternalEnumCaseStamp` — are already `SideTable<TypeKey>`, so the two wide ones make a reader
-ask which of the three can hold a member key (none can). `TypeRegistry.recordKeyOrigin` and
-`PassContextTypes.SymbolKeyOrigins` (`TypeRegistry.fs:125`) have the same shape: the sole caller
-passes `SymbolKey.Type key`, and the doc calls the domain "each minted type `TypeKey`".
-Narrowing the three sinks to `TypeKey` would delete `externalTypeKey` and the hand-written wraps.
+Half landed: `ExternalStaticQualifier` is now `SideTable<TypeKey>`. `ExternalUnionRecordQualifier`
+(`PassContext.fs:178`) is still `SideTable<SymbolKey>`, and `Scope.fs:499-502` still wraps via
+`SymbolKeyOps.externalTypeKey` (→ `SymbolKey.Type`) though only ever a type key.
+`externalTypeKeyOf`/`externalTypeKey` (`SymbolKeyOps.fs:365-372`) both survive only for that wrap.
+Narrowing the remaining sink to `TypeKey` deletes them.
 
 ### `TypeRegistry.fs:548` — three `IInterfaceImplHost` resolvers repeat one cascade
 

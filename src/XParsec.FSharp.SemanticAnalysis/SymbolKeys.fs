@@ -186,4 +186,4 @@ type MemberStorage =
     | Property
     | Method
 
-    member s.IsValueMember = s <> MemberStorage.Method
+    member s.IsValueMember: bool = s <> MemberStorage.Method
