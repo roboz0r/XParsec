@@ -148,7 +148,7 @@ let tests =
 
                 match resolver.TryLookupUnionCase "Just" with
                 | ValueSome uc ->
-                    Expect.equal uc.TyparArity 1 "Just's declaring union arity"
+                    Expect.equal uc.UnionKey.TyparArity 1 "Just's declaring union arity"
                     Expect.equal uc.Case.Name "Just" "matched case name"
                 | ValueNone -> failtest "union case 'Just' did not resolve"
 

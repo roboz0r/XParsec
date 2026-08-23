@@ -41,7 +41,7 @@ module NameResolutionTypeRefStamp =
                 | ExternalTypeShape.Enum(cases = cases) when
                     cases |> EqArray.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName)
                     ->
-                    ValueSome(useSiteTypeKey hit)
+                    ValueSome hit.UseSiteKey
                 | _ -> ValueNone
             )
             anchorName

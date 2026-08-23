@@ -124,7 +124,7 @@ module internal ElaborateCalls =
         TExpr.New(
             className,
             ctx.Resolution.ExternalCtor.TryGetValue key,
-            wrapObjArgsEq ctx.Store (ctorParamTys ctx ty args.Length) args,
+            wrapObjArgsEq ctx.Store (ctorParamTys ctx ty [ for a in args -> TastWalk.exprTy a ]) args,
             ty,
             tok
         )

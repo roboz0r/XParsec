@@ -430,15 +430,18 @@ module internal NominalEmit =
                         | BaseShape.Generic(FTClass(n, xs)) -> n, EqArray.toList xs
                         | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
+                    // `inherit Base(args)` reaches any of the base's ctors, so the chain target
+                    // is picked on the same two axes a `TExpr.New` is.
                     let baseCtorHandle =
                         match classes.TryGetValue baseKey with
-                        | true, bc when List.isEmpty bc.Typars -> bc.Ctor
-                        | true, _ ->
-                            icodegen.UserGenericMemberRef(
-                                baseKey,
-                                baseArgs,
-                                UserMemberKind.ClassMember ClassMember.Ctor
-                            )
+                        | true, bc ->
+                            let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
+                            let kind, handle = EmitResolve.pickLocalCtor td.Name bc baseArgs argTypes
+
+                            if List.isEmpty bc.Typars then
+                                handle
+                            else
+                                icodegen.UserGenericMemberRef(baseKey, baseArgs, kind)
                         | false, _ ->
                             failwithf
                                 "Emit: base class '%A' of '%s' is not an emitted project-local class"

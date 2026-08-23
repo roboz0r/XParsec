@@ -327,12 +327,57 @@ body. `ClrExternalMembers` routes its FIELD declaring type through `ClassOrigin`
 kept the old foreign-only lookup under the same failure message — and `externalCtor` /
 `externalParameterlessBaseCtor` now say `Foreign` where they used to reach past the DU.
 
-**Second finding, NOT fixed:** the multi-file half of that bug is unreachable, because a CLASS
-declared by a prior file resolves from no position in a later one. `inherit Shape(t)` reports
-"Cannot inherit from unknown type 'Shape'" (`MemberRegistration.fs:797`) and a bare `Shape(42)`
-fails the same way: `resolveThroughProvider` reaches intrinsic and platform classes only, with
-no arm for an ordinary class a prior file published. Records, interfaces and module functions
-all cross a file boundary. `CrossFileTests` carries the case as a `ptest`.
+~~**Second finding, NOT fixed:** the multi-file half of that bug is unreachable, because a CLASS
+declared by a prior file resolves from no position in a later one.~~ Fixed 2026-08-23, in four
+layers, none of which was the one the finding named. `CrossFileTests` now runs construction
+(primary and secondary ctors), generic construction, and `inherit` + inherited-member read.
+
+- **The stamped key was re-cut from the dotted spelling.** `Scope.fs` minted
+  `ResolvedType` / `ExternalStaticQualifier` / `ExternalEnumCaseStamp` /
+  `ExternalUnionRecordQualifier` through `SymbolKeyOps.externalTypeKeyOf origin compiled n`,
+  which flattens an `InModule` containment into the namespace, so `CrossFile.Lib.Shape` keyed as
+  `InNamespace ["CrossFile"; "Lib"]` where the provider registered
+  `InModule { InNamespace ["CrossFile"], "Lib" }`. The store missed, `tryInferExternalCtorApp`
+  declined SILENTLY, and the generic-application fallback typed the class name as a function:
+  `Shape(42)` reported no resolution error at all, only a downstream member miss and an
+  unresolved-TyVar ICE. `ExternalTypeProbe.useSiteTypeKey` was already the answer and already
+  documented this hazard; five sites reached past it. This was never class-specific — it is
+  every cross-file type declared inside a `module` and reached through an expression-position
+  name.
+- **A published class carried no `.ctor`.** `FrozenSignature` projected `Members` alone, so
+  every construction of a prior file's class reported "has no accessible constructor".
+  `ctorsOf` projects the primary constructor (when `HasPrimaryCtor`) and each secondary from
+  the frozen `CtorParams` / `SecondaryCtors` already in hand.
+- **`inherit` admitted intrinsics only.** `resolveThroughProvider`'s pick was
+  `ExternalSymbols.intrinsicClassOf`, so a plain `ExternalTypeShape.Class` was skipped and the
+  scan fell through to "Cannot inherit from unknown type". It now answers a `ProviderBase`,
+  `Class` or `Heritable`, and `fillBaseCtorCall` gained the matching arm: a non-local base's
+  ctor overload is picked from the provider catalogue and stamped where
+  `TBaseCtorCall.ChosenCtor` reads it. An EMPTY catalogue stays silent, because a metadata
+  class's protected ctors are not modelled and `System.Attribute` is one.
+- **The inherited-member walk stopped at the assembly's own file boundary.**
+  `classChainLevels` walks `TypeRegistry` only, so `c.Raw` on a class deriving from a prior
+  file's base missed. `InferRecordAccess` now falls through to `tryExternalInheritedMember`,
+  which the external-class arm beside it already used.
+
+`Assembler`'s `classes` / `records` / `unions` are assembly-wide, so `EmitConstruct.buildNew`
+takes the local `newobj`, and step 4's `ClassOrigin` already re-homes a base and a member ref.
+Each test asserts the emitted PE carries no self-`AssemblyRef`.
+
+~~Codegen needed no change.~~ Corrected 2026-08-23. Taking the local `newobj` is exactly where
+it broke: that arm selected the overload by ARITY while the front end had selected it by
+argument TYPE, so a class declaring `Shape(x: int)` beside `new(s: string)` compiled
+`Shape("…")` to a `newobj` of the int overload and the runtime rejected the program.
+`EmitResolve.pickLocalCtor` now selects on both axes and `NominalEmit`'s base-ctor chain shares
+it, so `inherit` reaches a secondary too. The front-end side is
+`UnificationInferOverload.pickLocalCtor`, the one seam `new T(…)`, ctor sugar, `inherit` and
+Elaborate's object-argument wrapping all resolve through.
+
+Also corrected: the `useSiteTypeKey` sweep left `ExternalTypeHit.Compiled` reachable, so the
+re-cut could recur. The hit now carries a precomputed `UseSiteKey` and nothing else a key can be
+minted from. `ExternalUnionCase` carried the same hazard one type over — a union declared inside
+a `module` failed to resolve across a file boundary — and now carries the registered `TypeKey`,
+which retired `SymbolKeyOps.externalTypeKeyOf` entirely.
 
 ### 5. Delete the single-file driver path — LANDED 2026-08-20
 

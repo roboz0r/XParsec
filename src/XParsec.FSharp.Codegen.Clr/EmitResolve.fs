@@ -29,6 +29,50 @@ module EmitResolve =
         else
             env.Provider.UserGenericMemberRef(key, tyArgs, kind)
 
+    /// A project-local class's constructors as `(declared parameter types, the member kind
+    /// reaching it, its handle)`: the emitted primary first when the class has one, then each
+    /// secondary in declaration order — the catalogue Unification ranks and
+    /// `FrozenSignature.ctorsOf` publishes.
+    let localCtors (c: EmittedClass) : (FrozenType list * UserMemberKind * EntityHandle) list =
+        [
+            if c.HasPrimaryCtor then
+                [ for (_, _, t) in c.Fields -> t ], UserMemberKind.ClassMember ClassMember.Ctor, c.Ctor
+
+            for (_, paramTys, h) in c.SecondaryCtors do
+                paramTys, UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys), h
+        ]
+
+    /// The constructor of `c` a construction selected: by ARITY, and where the class declares
+    /// two of the same arity (`Shape(x: int)` beside `new(s: string)`), by the argument types,
+    /// which the front end has already unified against the overload it chose. `site` names the
+    /// construction in the failure message.
+    let pickLocalCtor
+        (site: string)
+        (c: EmittedClass)
+        (tyArgs: FrozenType list)
+        (argTypes: FrozenType list)
+        : UserMemberKind * EntityHandle =
+        let argCount = List.length argTypes
+
+        match localCtors c |> List.filter (fun (ps, _, _) -> List.length ps = argCount) with
+        | [] -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount site
+        | [ (_, kind, h) ] -> kind, h
+        | sameArity ->
+            let declaringArgs = List.toArray tyArgs
+
+            let admits (ps: FrozenType list) =
+                List.forall2 (fun p a -> FrozenTypeBridge.substituteDeclaring declaringArgs p = a) ps argTypes
+
+            match sameArity |> List.filter (fun (ps, _, _) -> admits ps) with
+            | [ (_, kind, h) ] -> kind, h
+            | _ ->
+                failwithf
+                    "Emit: class '%s' declares %d constructors of arity %d, and argument types %A select none of them uniquely"
+                    site
+                    (List.length sameArity)
+                    argCount
+                    argTypes
+
     /// Recover a generic member's instantiation by structurally matching its declared
     /// OPEN curried signature (declaring-/method-axis markers) against the call's
     /// INSTANTIATED argument + result types: the parent `TypeSpec`'s args, then the `MethodSpec`'s.

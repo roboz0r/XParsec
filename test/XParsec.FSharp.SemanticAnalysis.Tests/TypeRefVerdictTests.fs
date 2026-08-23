@@ -218,8 +218,8 @@ let tests =
             }
 
             // End to end: the minted key round-trips through the store view. Pinning the
-            // resulting `TyClass(externalTypeKey …)` is what excludes the opaque residue a
-            // missed stamp would mint; a diagnostics-only assertion would not.
+            // resulting `TyClass` KEY is what excludes the opaque residue a missed stamp
+            // would mint; a diagnostics-only assertion would not.
             test "external verdicts resolve through the store view during inference" {
                 let ctx, file = analyse "let f (x: Widget) : Widget = x"
                 Unification.run ctx file
@@ -230,7 +230,7 @@ let tests =
                 // `SemType.TyClass`, not TestHelpers' string-keyed `TyClass` shim — the KEY
                 // the resolver minted, not a name.
                 let expected =
-                    SemType.TyClass(SymbolKeyOps.externalTypeKeyOf SymbolOrigin.Empty "Tests.Widget" 0, EqArray.empty)
+                    SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOf "Tests.Widget" 0, EqArray.empty)
 
                 Expect.equal
                     (typeOf ctx patKey)

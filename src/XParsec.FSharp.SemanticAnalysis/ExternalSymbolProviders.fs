@@ -342,20 +342,6 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Unmodelled _ -> shape
 
-        // A published surface records a declaring union with `SymbolOrigin.Empty`, so a case
-        // reverse-looked-up off it must be re-homed to agree with its union's shape.
-        let stampUnionCase =
-            match stampHome with
-            | ValueNone -> id
-            | ValueSome h -> fun (uc: ExternalUnionCase) -> { uc with Origin = home uc.Origin h }
-
-        // Likewise for the reverse FIELD index: a candidate comes off a `Record` shape
-        // recorded with `SymbolOrigin.Empty`.
-        let stampRecordCandidate =
-            match stampHome with
-            | ValueNone -> id
-            | ValueSome h -> fun (c: ExternalRecordCandidate) -> { c with Origin = home c.Origin h }
-
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
@@ -370,7 +356,6 @@ module ExternalSymbolProviders =
 
               member _.TryLookupUnionCase caseName =
                   firstHit (fun s -> s.TryLookupUnionCase caseName)
-                  |> ValueOption.map stampUnionCase
 
               // UNION, not first-hit-wins: a field name can recur across records in
               // DIFFERENT packages, and unqualified record resolution must intersect over
@@ -379,8 +364,7 @@ module ExternalSymbolProviders =
                   EqArray.ofSeq
                       [
                           for s in providers do
-                              for c in s.TryRecordsWithField fieldName do
-                                  stampRecordCandidate c
+                              yield! s.TryRecordsWithField fieldName
                       ]
 
               member _.AmbientOpenPrefixes = ambient

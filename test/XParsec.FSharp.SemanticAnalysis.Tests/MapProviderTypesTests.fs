@@ -30,7 +30,6 @@ let private candidate: ExternalRecordCandidate =
     {
         TypeKey = clsKey
         TyparArity = 0
-        Origin = origin
         FieldNames = EqArray.singleton "f"
         IsRequireQualifiedAccess = false
     }
@@ -115,9 +114,7 @@ let private fake: IExternalSymbolProvider =
                     if caseName = "C" then
                         ValueSome
                             {
-                                UnionName = "Uni"
-                                TyparArity = 1
-                                Origin = origin
+                                UnionKey = SymbolKeyOps.typeKeyOfArity origin.Namespace.Dotted "Uni" 1
                                 Case = markerCase
                                 IsRequireQualifiedAccess = false
                             }

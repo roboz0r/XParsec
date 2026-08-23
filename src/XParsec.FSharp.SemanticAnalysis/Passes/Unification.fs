@@ -29,18 +29,6 @@ module Unification =
         | ModuleElem.Expression e -> infer ctx e |> ignore
         | _ -> ()
 
-    /// Rebuild a type definition's typar scope from the registry entry's
-    /// `TypeParams`, so a field type containing `'name` resolves to the same
-    /// root the registry already holds.
-    let private scopeOfTypeParams (typeParams: EqArray<string * TyVarId>) : Dictionary<string, TyVarId> =
-        let d = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
-
-        for (n, tv) in typeParams do
-            if not (d.ContainsKey n) then
-                d.[n] <- tv
-
-        d
-
     /// Fold a curried member signature into a `TyFun` chain (a multi-arg group `a * b` is
     /// a tuple parameter), under the caller's typar scope.
     let private curriedSigToSemType (ctx: PassContext) (CurriedSig(args = args; returnType = ret)) : SemType =
@@ -203,7 +191,7 @@ module Unification =
         let savedScope = ctx.Resolution.TyparScope
         let savedStrict = ctx.Resolution.TyparScopeStrict
         let savedEnclosing = ctx.Resolution.EnclosingTypars
-        let classScope = scopeOfTypeParams fc.TypeParams
+        let classScope = UnificationClassCtors.scopeOfTypeParams fc.TypeParams
         ctx.Resolution.TyparScope <- classScope
         ctx.Resolution.TyparScopeStrict <- true
         // Keep the class typars in scope across each member body's `inferBinding`
@@ -382,169 +370,6 @@ module Unification =
             ctx.Resolution.TyparScopeStrict <- savedStrict
             ctx.Resolution.EnclosingTypars <- savedEnclosing
 
-    /// Type a secondary ctor body (`new(args) = …; SelfType(primaryArgs)`).
-    /// `expected` is the primary ctor's tupled parameter type; the chain call's
-    /// arguments unify against it, and its function position is never inferred.
-    let rec private inferSecondaryCtorBody
-        (ctx: PassContext)
-        (expected: SemType)
-        (fieldTypes: Map<string, SemType>)
-        (ace: AdditionalConstrExpr<SyntaxToken>)
-        : unit =
-        match ace with
-        | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
-            inferBinding ctx b
-            inferSecondaryCtorBody ctx expected fieldTypes body
-        | AdditionalConstrExpr.SequenceAfter(stmt = s; rest = rest) ->
-            infer ctx s |> ignore
-            inferSecondaryCtorBody ctx expected fieldTypes rest
-        | AdditionalConstrExpr.SequenceBefore(before = before; expr = e) ->
-            inferSecondaryCtorBody ctx expected fieldTypes before
-            infer ctx e |> ignore
-        | AdditionalConstrExpr.Conditional(cond = c; thenBranch = t; elseBranch = el) ->
-            infer ctx c |> ignore
-            inferSecondaryCtorBody ctx expected fieldTypes t
-            inferSecondaryCtorBody ctx expected fieldTypes el
-        | AdditionalConstrExpr.Init initExpr ->
-            match initExpr with
-            | AdditionalConstrInitExpr.Expression e ->
-                match e with
-                | Expr.HighPrecedenceApp(argExpr = argExpr) ->
-                    let argTy = infer ctx argExpr
-                    // Chain call to the primary ctor, admitting an implicit class→interface
-                    // upcast: `new() = Set(Comparer<'T>.Default, …)` into an `IComparer<'T>`
-                    // primary-ctor param.
-                    unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
-                | Expr.App(argExprs = argExprs) ->
-                    let argTys = [ for a in argExprs -> infer ctx a ]
-                    unifyArg ctx (CstKeys.firstTokenOfExpr e) (tupleOrSingle ctx argTys) expected
-                | _ -> infer ctx e |> ignore
-            | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
-            // Explicit field-init `{ f = e; … }`: unify each initialiser against the named
-            // field's declared type, so a literal (`0`) or a generic field (`'T`) pins.
-            | AdditionalConstrInitExpr.Explicit(initializers = inits) ->
-                for FieldInitializer(longIdent = li; expr = e) in inits do
-                    let initTy = infer ctx e
-
-                    if not li.Idents.IsEmpty then
-                        let fieldName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-
-                        match Map.tryFind fieldName fieldTypes with
-                        | Some fieldTy -> unify ctx (CstKeys.firstTokenOfExpr e) initTy fieldTy
-                        | None -> ()
-
-    /// Type every secondary ctor of a class under its typar scope: seed the param
-    /// binding-site TyVars, then infer each body.
-    let private fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        if info.SecondaryCtors.Length > 0 then
-            let savedScope = ctx.Resolution.TyparScope
-            let savedStrict = ctx.Resolution.TyparScopeStrict
-            let savedEnclosing = ctx.Resolution.EnclosingTypars
-            let classScope = scopeOfTypeParams info.TypeParams
-            ctx.Resolution.TyparScope <- classScope
-            ctx.Resolution.TyparScopeStrict <- true
-            ctx.Resolution.EnclosingTypars <- ValueSome classScope
-
-            try
-                let expected =
-                    info.CtorParams
-                    |> Array.map (fun p -> p.Type)
-                    |> Array.toList
-                    |> tupleOrSingle ctx
-
-                // Declared field types (ctor-param backing fields + explicit `val` fields)
-                // keyed by name. `val` fields win a name clash, because a positional ctor param
-                // sharing a name is the backing store.
-                let fieldTypes =
-                    Map.ofSeq (
-                        seq {
-                            for p in info.CtorParams -> p.Name, p.Type
-                            for f in info.InstanceFields -> f.Name, f.Type
-                        }
-                    )
-
-                for sc in info.SecondaryCtors do
-                    for p in sc.Params do
-                        match p.Type with
-                        | TyVar tv -> ctx.Bindings.TypeVar.Set(BoundVarKey.identity p.DeclSite.BoundVar, tv)
-                        | _ -> ()
-
-                    enterLevel ctx
-
-                    try
-                        inferSecondaryCtorBody ctx expected fieldTypes sc.Body
-                    finally
-                        exitLevel ctx
-            finally
-                ctx.Resolution.TyparScope <- savedScope
-                ctx.Resolution.TyparScopeStrict <- savedStrict
-                ctx.Resolution.EnclosingTypars <- savedEnclosing
-
-    /// Type the `inherit Base(args)` invocation against the parent's primary-ctor
-    /// signature, its param types substituted with the args `inherit Base<…>` supplied
-    /// (read off `info.BaseType`). No-op for a parent with no registered type info.
-    let private fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        match info.BaseType, info.BaseCtorArgs with
-        | ValueSome(TyClass(baseKey, baseArgs)), ValueSome argExpr ->
-            match TypeRegistry.tryClassByKey ctx.Types baseKey with
-            | ValueSome baseInfo ->
-                let subst = mkNamedTypeSubst ctx.Store baseInfo.TypeParams baseArgs
-
-                let expected =
-                    baseInfo.CtorParams
-                    |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
-                    |> Array.toList
-                    |> tupleOrSingle ctx
-
-                enterLevel ctx
-
-                try
-                    let argTy = infer ctx argExpr
-                    unify ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
-                finally
-                    exitLevel ctx
-            | ValueNone -> ()
-        // An intrinsic-class base (`inherit exn(m)`): check the args against the provider
-        // shape's `.ctor` surface, so `inherit exn(42)` is a source diagnostic. A shape
-        // miss is a silent no-op, because a self-host build has no shape.
-        | ValueSome(TyConst(canonKey, canonArgs)), ValueSome argExpr ->
-            match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
-            | ValueSome(struct (_, surface)) ->
-                enterLevel ctx
-
-                try
-                    let (DisplayName shown) = SymbolKeyOps.typeSimpleName canonKey
-
-                    match
-                        UnificationInferCtor.inferIntrinsicClassCtorCall
-                            infer
-                            ctx
-                            (canonArgs.AsSpan().ToArray())
-                            surface
-                            (Kind.Message(
-                                sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown
-                            ))
-                            argExpr
-                    with
-                    | ValueSome chosen ->
-                        ctx.Resolution.ExternalCtor.Set(CstKeys.ofExpr argExpr, SymbolKey.Member chosen.Key)
-                    | ValueNone -> ()
-                finally
-                    exitLevel ctx
-            | ValueNone -> ()
-        | _ -> ()
-
-    /// Mint the `base` TyVar pre-linked to the parent's instantiated `TyClass` and seed
-    /// `ctx.Bindings.TypeVar` at `info.BaseKey`.
-    let private mintBaseTyVar (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        match info.BaseType with
-        | ValueSome parentTy ->
-            let baseTv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(UnionFind.find ctx.Store baseTv, ctx.CurrentLevel)
-            ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, ValueSome parentTy)
-            ctx.Bindings.TypeVar.Set(BoundVarKey.identity info.BaseKey, baseTv)
-        | ValueNone -> ()
-
     /// Conform one resolved `interface IFace with member …` block: unify each impl
     /// member's already-inferred signature with the same-named `ExternalMember`, under
     /// the impl's interface type-args. A missing member diagnoses at the interface name.
@@ -696,7 +521,7 @@ module Unification =
             let resolved =
                 let savedScope = ctx.Resolution.TyparScope
                 let savedStrict = ctx.Resolution.TyparScopeStrict
-                ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
+                ctx.Resolution.TyparScope <- UnificationClassCtors.scopeOfTypeParams info.TypeParams
                 ctx.Resolution.TyparScopeStrict <- true
 
                 try
@@ -774,8 +599,8 @@ module Unification =
 
                             // Both no-op for parent-less classes. AFTER the ctor-param
                             // seeding: an `inherit Base(p)` arg reads `p`'s declared type.
-                            fillBaseCtorCall ctx info
-                            mintBaseTyVar ctx info
+                            UnificationClassCtors.fillBaseCtorCall ctx info
+                            UnificationClassCtors.mintBaseTyVar ctx info
 
                             // Seed the registered placeholder first, so a preamble-bound
                             // name used elsewhere in the class types through the same cell.
@@ -817,7 +642,7 @@ module Unification =
                         // Before the impls: an interface-impl `Equals` reads the same-named
                         // override's typars, so pin the override non-generic first.
                         checkOverrideConformance ctx info
-                        fillSecondaryCtors ctx info
+                        UnificationClassCtors.fillSecondaryCtors ctx info
                         fillInterfaceImpls ctx (info :> IInterfaceImplHost)
                     | ValueNone -> ()
                 | ValueNone -> ()

@@ -61,27 +61,13 @@ module internal UnificationInferCtor =
             | ValueSome info ->
                 let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
                 let argTy = infer ctx argExpr
-                let argArity = argArityOf ctx.Store argTy
-
-                // Prefer the primary constructor when its arity matches; else a secondary
-                // `new(...)` of the right arity. A type whose ONLY constructor is an explicit
-                // `new(...)` has an empty `CtorParams` and resolves through `SecondaryCtors`.
-                let secondary =
-                    if argArity = info.CtorParams.Length then
-                        None
-                    else
-                        info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argArity)
 
                 let expected =
-                    match secondary with
-                    | Some sc ->
-                        sc.Params
-                        |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
-                        |> Array.toList
-                    | None ->
-                        info.CtorParams
-                        |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
-                        |> Array.toList
+                    match pickLocalCtor ctx (substituteWith ctx.Store subst) info (argElemsOf ctx.Store argTy) with
+                    | ValueSome pick -> pick.Parameters
+                    // No constructor of that arity: unify against the primary anyway, so the
+                    // mismatch is reported at the arguments rather than passing silently.
+                    | ValueNone -> [ for p in info.CtorParams -> substituteWith ctx.Store subst p.Type ]
                     |> tupleOrSingle ctx
 
                 unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
@@ -263,9 +249,10 @@ module internal UnificationInferCtor =
                 | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Construction of a *local* generic class/struct through a **secondary** constructor. The
-    /// ctor-as-function path builds from the PRIMARY ctor's params only, leaving the type args
-    /// ungrounded; this unifies the arity-matched secondary's params, which carry them.
+    /// Construction of a *local* class/struct through a **secondary** constructor. The
+    /// ctor-as-function path builds from the PRIMARY ctor's params only, so it can neither
+    /// ground a generic class's type args nor reach a secondary that shares the primary's
+    /// arity; this unifies the selected secondary's params, which carry both.
     and tryInferLocalCtorApp
         (infer: Infer)
         (ctx: PassContext)
@@ -299,27 +286,20 @@ module internal UnificationInferCtor =
             | ValueNone -> ValueNone
             | ValueSome info ->
                 let argTy = infer ctx argExpr
-                let argArity = argArityOf ctx.Store argTy
+                let args, subst = freshNamedInstance ctx info.TypeParams
 
-                if argArity = info.CtorParams.Length then
-                    ValueNone
-                else
-                    match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argArity) with
-                    | None -> ValueNone
-                    | Some sc ->
-                        let args, subst = freshNamedInstance ctx info.TypeParams
-                        let ctorTy = TyClass(info.TypeKey, args)
+                // Explicit type args (`Box<int>(x)`) pin the instantiation before the pick, so
+                // a generic class's parameters rank at the written instantiation.
+                match explicitTyArgs with
+                | ValueSome ex when ex.Length = args.Length ->
+                    List.iter2 (fun a e -> unify ctx node.Tok a e) (EqArray.toList args) ex
+                | _ -> ()
 
-                        // Explicit type args (`Box<int>(x)`) pin the instantiation up front.
-                        match explicitTyArgs with
-                        | ValueSome ex when ex.Length = args.Length ->
-                            List.iter2 (fun a e -> unify ctx node.Tok a e) (EqArray.toList args) ex
-                        | _ -> ()
-
-                        let paramTys =
-                            sc.Params
-                            |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
-                            |> Array.toList
-
-                        unify ctx node.Tok (tupleOrSingle ctx paramTys) argTy
-                        ValueSome ctorTy
+                // The PRIMARY declines: `classCtorAsFunction` already types that spelling, and
+                // taking it here would skip the function-application seam it is stamped at.
+                match pickLocalCtor ctx (substituteWith ctx.Store subst) info (argElemsOf ctx.Store argTy) with
+                | ValueSome(LocalCtorPick.Secondary paramTys) ->
+                    unify ctx node.Tok (tupleOrSingle ctx paramTys) argTy
+                    ValueSome(TyClass(info.TypeKey, args))
+                | ValueSome(LocalCtorPick.Primary _)
+                | ValueNone -> ValueNone

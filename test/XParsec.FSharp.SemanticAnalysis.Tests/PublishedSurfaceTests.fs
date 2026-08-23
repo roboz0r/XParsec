@@ -28,9 +28,7 @@ let private surfaceOf (names: string list) : PublishedSurface =
         PublishedSurfaceBuilder.addUnionCase
             b
             {
-                UnionName = SymbolKeyOps.typeMetaName k
-                TyparArity = 0
-                Origin = SymbolOrigin.Empty
+                UnionKey = k
                 Case =
                     {
                         Name = "Case" + n

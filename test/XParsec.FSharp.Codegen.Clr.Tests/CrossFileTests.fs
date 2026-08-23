@@ -285,10 +285,223 @@ printfn \"%d\" (r.X + r.Y)
                 Expect.equal actual "42" "cross-file record construction builds and reads the record"
             }
 
-            // gap: name resolution reaches intrinsic and platform classes only, so a prior
-            // file's CLASS resolves from neither `inherit Shape(t)` nor a bare `Shape(42)`.
-            // Records, interfaces and module functions cross a file boundary; classes do not.
-            ptest "two files run: file 2 INHERITS a class declared in file 1 (extends re-homes local)" {
+            // A module-held UNION reached across a file boundary, which is the `InModule`
+            // containment an `ExternalUnionCase` keyed by compiled NAME would flatten: the case
+            // resolves, but the union it types as is a different identity from the registered one.
+            test "two files run: file 2 uses a UNION file 1 declared inside a module" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Shape =
+        | Sq of int
+        | Tri of int
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let s = Sq 42
+printfn \"%d\" (match s with | Sq n -> n | Tri n -> n)
+"
+
+                let asmName = "CrossFileUnionInModule"
+                let bytes = compileTwoFiles asmName file1 file2
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the case constructed and matched at the union's registered identity"
+            }
+
+            // Same-arity ctor overloads are separated by ARGUMENT TYPE, and the front end and
+            // codegen must separate them the same way: an arity-only pick in either emits a
+            // `newobj` of the wrong overload, which the verifier rejects.
+            test "two files run: file 2 picks between file 1's SAME-ARITY ctor overloads" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Shape(x: int) =
+        new(s: string) = Shape(s.Length)
+
+        member this.Raw = x
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let a = Shape(31)
+let b = Shape(\"abcdefghijk\")
+printfn \"%d\" (a.Raw + b.Raw)
+"
+
+                let asmName = "CrossFileCtorOverload"
+                let bytes = compileTwoFiles asmName file1 file2
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "31 from the int overload plus 11 from the string one"
+            }
+
+            test "two files run: file 2 declares the class and picks between its SAME-ARITY ctors" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    let seed (u: int) : int = u + 30
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+type Shape(x: int) =
+    new(s: string) = Shape(s.Length)
+
+    member this.Raw = x
+
+let a = Shape(seed 1)
+let b = Shape(\"abcdefghijk\")
+printfn \"%d\" (a.Raw + b.Raw)
+"
+
+                let bytes = compileTwoFiles "SameFileCtorOverload" file1 file2
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the same-file pick agrees with the cross-file one"
+            }
+
+            // `inherit` reaches any of the base's constructors, not only the primary.
+            test "two files run: file 2 INHERITS through a SECONDARY ctor of a class it declares" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    let seed (u: int) : int = u + 10
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+type Base(x: int) =
+    new(s: string) = Base(s.Length)
+
+    member this.Raw = x
+
+type Derived() =
+    inherit Base(\"abcdefghijklmnopqrstuvwxyzabcde\")
+
+printfn \"%d\" ((Derived()).Raw + seed 1)
+"
+
+                let bytes = compileTwoFiles "InheritSecondaryCtor" file1 file2
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the base-ctor chain called the string overload"
+            }
+
+            // A prior file's class is published with its `.ctor` overloads, and the ctor-sugar
+            // application resolves through the REGISTERED key, which keeps the `InModule`
+            // containment a re-cut from `CrossFile.Lib.Shape` would flatten.
+            test "two files run: file 2 CONSTRUCTS a class declared in file 1, primary and secondary" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Shape(x: int) =
+        new() = Shape(11)
+
+        member this.Raw = x
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let s = Shape(31)
+let d = Shape()
+printfn \"%d\" (s.Raw + d.Raw)
+"
+
+                let asmName = "CrossFileCtor"
+                let bytes = compileTwoFiles asmName file1 file2
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "both ctor overloads resolved and the inherited member read back"
+            }
+
+            test "two files run: file 2 CONSTRUCTS a GENERIC class declared in file 1" {
+                let file1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Box<'T>(v: 'T) =
+        member this.Value = v
+"
+
+                let file2 =
+                    "\
+open CrossFile.Lib
+
+let b = Box<int>(42)
+printfn \"%d\" b.Value
+"
+
+                let asmName = "CrossFileGenericCtor"
+                let bytes = compileTwoFiles asmName file1 file2
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the type argument pins the ctor parameter and the member read"
+            }
+
+            test "two files run: file 2 INHERITS a class declared in file 1 (extends re-homes local)" {
                 let file1 =
                     "\
 namespace CrossFile

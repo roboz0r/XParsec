@@ -215,6 +215,18 @@ module SymbolKeyOps =
             if d = "" then m.Name else d + "." + m.Name
         | ModuleContainer.InModule parent -> moduleFullName parent + "." + m.Name
 
+    /// The dotted spelling SOURCE writes for a type (`CrossFile.Lib.Shape`): every containment
+    /// segment joined by `.`, with no `+` mangling and no `` `N `` suffix. This is what an
+    /// `open` prefix qualifies, and what a written qualifier is compared against.
+    let rec typeSourceName (t: TypeKey) : string =
+        let prefix =
+            match t.Container with
+            | TypeContainer.InNamespace ns -> ns.Dotted
+            | TypeContainer.InModule m -> moduleFullName m
+            | TypeContainer.InType outer -> typeSourceName outer
+
+        if prefix = "" then t.Name else prefix + "." + t.Name
+
     /// Containment is a `ModuleContainer` chain, never a dotted string: only the producer knows which
     /// segments are namespace and which are module.
     let moduleKeyOf (container: ModuleContainer) (name: string) : ModuleKey = { Container = container; Name = name }
@@ -359,17 +371,6 @@ module SymbolKeyOps =
     /// into `TyparArity`, giving the same key as the bare name plus the count.
     let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey =
         SymbolKey.Type(qualifiedTypeKeyOf compiled arity)
-
-    /// The namespace comes from `compiled` itself whenever `compiled` is qualified; `origin`
-    /// supplies it only for a BARE name.
-    let externalTypeKeyOf (origin: SymbolOrigin) (compiled: string) (arity: int) : TypeKey =
-        if compiled.IndexOf '.' >= 0 then
-            qualifiedTypeKeyOf compiled arity
-        else
-            withArity arity (typeKeyOf origin.Namespace.Dotted compiled)
-
-    let externalTypeKey (origin: SymbolOrigin) (compiled: string) (arity: int) : SymbolKey =
-        SymbolKey.Type(externalTypeKeyOf origin compiled arity)
 
     /// The contract-sourced canon key for a published intrinsic: the key of its COMPILED name,
     /// spelled arity-suffixed (`` Vesper.Collections.seq`1 ``) so `` `1 `` parses into arity.

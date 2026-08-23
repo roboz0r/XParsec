@@ -103,11 +103,8 @@ module internal UnificationInferResolve =
     /// declaring union's typars fresh (one TyVar per declared arity). The union is the
     /// pattern's own type; the field types are what its sub-patterns unify against.
     let externalCasePattern (ctx: PassContext) (uc: ExternalUnionCase) : SemType * SemType[] =
-        let freshArgs = Array.init uc.TyparArity (fun _ -> TyVar(freshTyVar ctx))
-
-        let unionTy =
-            TyUnion(SymbolKeyOps.externalTypeKeyOf uc.Origin uc.UnionName uc.TyparArity, EqArray.ofArray freshArgs)
-
+        let freshArgs = Array.init uc.UnionKey.TyparArity (fun _ -> TyVar(freshTyVar ctx))
+        let unionTy = TyUnion(uc.UnionKey, EqArray.ofArray freshArgs)
         let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
         unionTy, fields
 

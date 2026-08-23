@@ -4,12 +4,6 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let private originIn (asm: string) (ns: string) : SymbolOrigin =
-    {
-        Home = SymbolHome.InAssembly(AssemblyName asm)
-        Namespace = SymbolKeyOps.namespaceKey ns
-    }
-
 // Unification compares nominal types by full `SymbolKey` equality, so two mint paths that
 // disagreed would fail to unify with no diagnostic.
 [<Tests>]
@@ -17,63 +11,36 @@ let tests =
     testList
         "SymbolKey mint-path invariant"
         [
-            test "cons-list: every mint path yields the canonical key, whatever the home" {
-                let viaOrigin =
-                    SymbolKeyOps.externalTypeKeyOf
-                        (originIn "Vesper.List" "Vesper.Collections")
-                        "Vesper.Collections.List"
-                        1
-
-                // No assembly in hand at all: the compiled name alone.
-                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.List" 1
-
-                let viaOtherHome =
-                    SymbolKeyOps.externalTypeKeyOf
-                        (originIn "Other.Asm" "Vesper.Collections")
-                        "Vesper.Collections.List"
-                        1
-
+            // A compiled name is the whole input: no mint path takes a declaring assembly or a
+            // package origin, so the same name from any source yields the one canonical key.
+            test "cons-list: the compiled name mints the canonical key" {
                 // A local definition in namespace `Vesper.Collections` mints this literal too.
-                Expect.equal viaOrigin RuntimeNames.vesperListKey "origin mint = canonical"
-                Expect.equal viaQualified RuntimeNames.vesperListKey "qualified mint = canonical"
-                Expect.equal viaOrigin viaQualified "both external mint paths agree"
-                Expect.equal viaOtherHome viaOrigin "a differing home assembly does NOT change the identity"
+                Expect.equal
+                    (SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.List" 1)
+                    RuntimeNames.vesperListKey
+                    "qualified mint = canonical"
             }
 
-            test "ref cell: every mint path yields the canonical key, whatever the home" {
-                let viaOrigin =
-                    SymbolKeyOps.externalTypeKeyOf (originIn "Vesper.Core" "Vesper") "Vesper.Ref" 1
-
-                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Ref" 1
-
-                let viaOtherHome =
-                    SymbolKeyOps.externalTypeKeyOf (originIn "Other.Asm" "Vesper") "Vesper.Ref" 1
-
-                Expect.equal viaOrigin RuntimeNames.vesperRefKey "origin mint = canonical"
-                Expect.equal viaQualified RuntimeNames.vesperRefKey "qualified mint = canonical"
-                Expect.equal viaOrigin viaQualified "both external mint paths agree"
-                Expect.equal viaOtherHome viaOrigin "a differing home assembly does NOT change the identity"
+            test "ref cell: the compiled name mints the canonical key" {
+                Expect.equal
+                    (SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Ref" 1)
+                    RuntimeNames.vesperRefKey
+                    "qualified mint = canonical"
             }
 
             // A package origin is a BLANKET fact (`Vesper`), but a type in it can live DEEPER
-            // (`Vesper.Collections.seq`). Stripping the origin off the compiled name would
-            // mis-cut that into ns=`Vesper` / name=`Collections.seq`.
-            test "blanket package origin does not mis-cut a deeper compiled name" {
-                let blanket = originIn "Vesper.Core" "Vesper"
-
-                let viaOrigin = SymbolKeyOps.externalTypeKeyOf blanket "Vesper.Collections.seq" 1
-
-                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.seq" 1
-
-                Expect.equal viaOrigin viaQualified "both external mint paths agree"
+            // (`Vesper.Collections.seq`). Cutting the namespace at a blanket origin would
+            // mis-segment that into ns=`Vesper` / name=`Collections.seq`.
+            test "a deeper compiled name segments at its own last dot" {
+                let key = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.seq" 1
 
                 Expect.equal
-                    (List.ofSeq viaOrigin.Namespace.Path.Underlying)
+                    (List.ofSeq key.Namespace.Path.Underlying)
                     [ "Vesper"; "Collections" ]
-                    "the namespace is segmented from the name, not cut at the blanket origin"
+                    "the namespace is segmented from the name"
 
-                Expect.equal viaOrigin.Name "seq" "the simple name is the last segment, PLAIN — no `` `N ``"
-                Expect.equal viaOrigin.TyparArity 1 "the arity is an int field, not a suffix in the name"
+                Expect.equal key.Name "seq" "the simple name is the last segment, PLAIN — no `` `N ``"
+                Expect.equal key.TyparArity 1 "the arity is an int field, not a suffix in the name"
             }
 
             // Parsing `` List`1+Enumerator `` lands the nesting in the containment chain and

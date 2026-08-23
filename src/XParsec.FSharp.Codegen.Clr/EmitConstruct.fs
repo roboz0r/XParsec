@@ -25,8 +25,9 @@ module EmitConstruct =
             | FTClass(_, xs) -> EqArray.toList xs
             | _ -> []
 
-        // The external-ctor path filters candidates by arity off these; `chosenCtor`
-        // then disambiguates a same-arity set.
+        // Both ctor paths filter candidates by arity off these, then disambiguate a same-arity
+        // set by type: the external one through `chosenCtor`, the local one through
+        // `pickLocalCtor`.
         let argTypes = [ for a in args -> typeOfExpr a ]
 
         // A project-local class is the `FTClass` key that `env.Classes` knows; anything
@@ -64,29 +65,9 @@ module EmitConstruct =
             let emitNewobj =
                 match localClass with
                 | ValueSome(classKey, c) ->
-                    // The primary ctor's arity equals its field count; any other arg count
-                    // selects a secondary by arity. F# forbids two ctors of the same
-                    // signature, so arity is a key. `type T = val …; new(…)` has no primary.
-                    if c.HasPrimaryCtor && argCount = List.length c.Fields then
-                        let ctorRef =
-                            memberRef env c.Typars classKey tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
-
-                        fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
-                    else
-                        match c.SecondaryCtors |> List.tryFind (fun (a, _, _) -> a = argCount) with
-                        | Some(_, _, h) when List.isEmpty c.Typars -> fun () -> b.Add(ILInstr.Newobj(h, argCount))
-                        | Some(_, paramTys, h) ->
-                            let ctorRef =
-                                memberRef
-                                    env
-                                    c.Typars
-                                    classKey
-                                    tyArgs
-                                    (UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys))
-                                    h
-
-                            fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
-                        | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
+                    let kind, handle = pickLocalCtor className c tyArgs argTypes
+                    let ctorRef = memberRef env c.Typars classKey tyArgs kind handle
+                    fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
                 | ValueNone ->
                     // An external ctor is identified by the construction's result-type key;
                     // `className` survives only for the error message.

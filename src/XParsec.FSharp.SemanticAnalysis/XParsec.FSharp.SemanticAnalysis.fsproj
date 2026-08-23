@@ -138,6 +138,7 @@
     <Compile Include="Passes\Unification\Translate.fs" />
     <Compile Include="Passes\NameResolution\Scope.fs" />
     <Compile Include="Passes\NameResolution\TypeRegistration.fs" />
+    <Compile Include="Passes\NameResolution\InheritParent.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
     <Compile Include="Passes\NameResolution.fs" />
     <Compile Include="Passes\Unification\InferGeneralize.fs" />
@@ -157,6 +158,7 @@
     <Compile Include="Passes\Unification\InferIdentExpr.fs" />
     <Compile Include="Passes\Unification\InferApp.fs" />
     <Compile Include="Passes\Unification\Infer.fs" />
+    <Compile Include="Passes\Unification\ClassCtors.fs" />
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />

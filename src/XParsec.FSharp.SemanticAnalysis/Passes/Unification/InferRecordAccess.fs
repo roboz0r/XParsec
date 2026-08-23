@@ -292,61 +292,73 @@ module internal UnificationInferRecordAccess =
             // Lookups below go by the arity-qualified key: an arity-overloaded object argument
             // (`Fun\`2`/`Fun\`3`) does not resolve by bare name. `clsSimple` is diagnostics-only.
             let (DisplayName clsSimple) = SymbolKeyOps.typeSimpleName clsKey
+            let localInfo = TypeRegistry.tryClassByKey ctx.Types clsKey
 
-            match TypeRegistry.tryClassByKey ctx.Types clsKey with
-            | ValueSome info ->
-                // Derived members shadow inherited ones. On a total miss the diagnostic
-                // refers to the object argument's own class rather than some ancestor.
-                match tryClassChainMemberOrFieldOf ctx info args memberName with
-                | ValueSome ty -> ty
+            // The class's OWN members: for a project-local class its `inherit` chain and `val`
+            // fields, so a derived member shadows an inherited one; for any other class the
+            // provider's member table (a BCL `TyClass("…EqualityComparer\`1", [int])` from a
+            // prior static access).
+            let ownMember () : SemType voption =
+                match localInfo with
+                | ValueSome info -> tryClassChainMemberOrFieldOf ctx info args memberName
                 | ValueNone ->
+                    match ctx.Provider.TryLookupMember(clsKey, memberName) with
+                    | ValueSome m when not m.IsStatic -> ValueSome(commitExternalMember m args)
+                    | _ -> ValueNone
+
+            // Neither the class nor any supertype declares the name. A project-local class
+            // diagnoses against its own declaration, so the message names the object argument's
+            // class rather than some ancestor.
+            let noSuchMember () : SemType =
+                match localInfo with
+                | ValueSome info ->
                     resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
-            | ValueNone ->
-                // Not project-local, so the class is the provider's (a BCL
-                // `TyClass("…EqualityComparer\`1", [int])` from a prior static access).
-                let clsQual = SymbolKeyOps.typeMetaName clsKey
+                | ValueNone ->
+                    // An object argument typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`) is an
+                    // `IntrinsicInterface`: it identifies a platform type but carries no member
+                    // table, so retry there. A non-capability key comes back unchanged.
+                    let platformKey = capabilityPlatformKey ctx clsKey
 
-                match ctx.Provider.TryLookupMember(clsKey, memberName) with
-                | ValueSome m when not m.IsStatic -> commitExternalMember m args
-                | _ ->
+                    match
+                        (if platformKey = clsKey then
+                             ValueNone
+                         else
+                             ctx.Provider.TryLookupMember(platformKey, memberName))
+                    with
+                    | ValueSome m when not m.IsStatic -> commitExternalMember m args
+                    | _ ->
+                        // The provider stack has NO shape for this key at all, because the
+                        // package that minted it never had its HOME manifest stacked. Name
+                        // the NAMESPACE; the owning package is a fact of a shape, and none resolved.
+                        let clsNs = clsKey.Namespace.Dotted
 
-                    // The TS-manifest provider stores heritage un-flattened (the CLR metadata
-                    // layer already flattens), so an own-member miss may still resolve on a
-                    // supertype. That commits at the SUPERTYPE's args, so `Base<int>.value` types as `int`.
-                    match tryExternalInheritedMember ctx rTy memberName with
-                    | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
-                    | ValueNone ->
-
-                        // An object argument typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`) is an
-                        // `IntrinsicInterface`: it identifies a platform type but carries no member
-                        // table, so retry there. A non-capability key comes back unchanged.
-                        let platformKey = capabilityPlatformKey ctx clsKey
-
-                        match
-                            (if platformKey = clsKey then
-                                 ValueNone
-                             else
-                                 ctx.Provider.TryLookupMember(platformKey, memberName))
-                        with
-                        | ValueSome m when not m.IsStatic -> commitExternalMember m args
+                        match ctx.Provider.TryLookupType clsKey, clsNs with
+                        | ValueNone, ns when ns <> "" ->
+                            errorTy
+                                ctx
+                                memberTok
+                                (Kind.Message(
+                                    sprintf
+                                        "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
+                                        clsSimple
+                                        ns
+                                ))
                         | _ ->
-                            // The provider stack has NO shape for this key at all, because the
-                            // package that minted it never had its HOME manifest stacked. Name
-                            // the NAMESPACE; the owning package is a fact of a shape, and none resolved.
-                            let clsNs = clsKey.Namespace.Dotted
+                            errorTy
+                                ctx
+                                memberTok
+                                (Kind.UnknownNominalType(NominalKind.Class, SymbolKeyOps.typeMetaName clsKey))
 
-                            match ctx.Provider.TryLookupType clsKey, clsNs with
-                            | ValueNone, ns when ns <> "" ->
-                                errorTy
-                                    ctx
-                                    memberTok
-                                    (Kind.Message(
-                                        sprintf
-                                            "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
-                                            clsSimple
-                                            ns
-                                    ))
-                            | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Class, clsQual))
+            match ownMember () with
+            | ValueSome ty -> ty
+            | ValueNone ->
+                // A supertype a PROVIDER owns: the local chain walk reaches project-local
+                // ancestors only, and the TS-manifest provider stores heritage un-flattened
+                // (the CLR metadata layer already flattens). Commits at the SUPERTYPE's args,
+                // so `Base<int>.value` types as `int`.
+                match tryExternalInheritedMember ctx rTy memberName with
+                | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
+                | ValueNone -> noSuchMember ()
         | TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->

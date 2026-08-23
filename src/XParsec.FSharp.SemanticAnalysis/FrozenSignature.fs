@@ -129,6 +129,34 @@ module FrozenSignature =
 
             acc
 
+        /// A class's `.ctor` overloads: the primary constructor when the class declares one,
+        /// then each `new(…)` secondary in declaration order.
+        let ctorsOf (declKey: TypeKey) (declArity: int) (c: TastAccessor.Class) : ResizeArray<ExternalMember> =
+            let acc = ResizeArray<ExternalMember>()
+
+            let selfTy =
+                FTClass(declKey, EqArray.ofSeq [ for i in 0 .. declArity - 1 -> FTTypar(TyparAxis.Declaring, i) ])
+
+            let addCtor (paramTys: EqArray<FrozenType>) =
+                let parameters = ExternalSignature.tupledParams paramTys
+
+                acc.Add(
+                    ExternalMember.ctor
+                        declKey
+                        (ExternalSignature.make (declArity, 0, parameters, selfTy))
+                        (ExternalSignature.argSigOfParameters parameters)
+                        (originIn declKey.Namespace)
+                        []
+                )
+
+            if c.HasPrimaryCtor then
+                addCtor (EqArray.ofSeq [ for p in c.CtorParams -> p.Type ])
+
+            for sc in c.SecondaryCtors do
+                addCtor (EqArray.ofSeq [ for (_, ty) in sc.Params -> ty ])
+
+            acc
+
         // --- union case shape ---------------------------------------------------------
         let caseShapeOf (c: Frozen.TUnionCase) : ExternalCaseShape =
             {
@@ -171,9 +199,7 @@ module FrozenSignature =
                         PublishedSurfaceBuilder.addUnionCase
                             surface
                             {
-                                UnionName = SymbolKeyOps.typeMetaName typeKey
-                                TyparArity = arity
-                                Origin = origin
+                                UnionKey = typeKey
                                 Case = shape
                                 IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                             }
@@ -203,7 +229,6 @@ module FrozenSignature =
                         {
                             TypeKey = typeKey
                             TyparArity = arity
-                            Origin = origin
                             FieldNames = EqArray.ofSeq [ for f in fields -> f.Name ]
                             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                         }
@@ -219,6 +244,7 @@ module FrozenSignature =
 
                 | TTypeKindG.Class c ->
                     let members = membersOf typeKey arity c.Members
+                    members.AddRange(ctorsOf typeKey arity c)
 
                     let shape: ExternalClassShape =
                         {

@@ -18,9 +18,7 @@ let private provider: IExternalSymbolProvider =
                     let mk union name =
                         ValueSome
                             {
-                                UnionName = union
-                                TyparArity = 0
-                                Origin = SymbolOrigin.Empty
+                                UnionKey = SymbolKeyOps.qualifiedTypeKeyOf union 0
                                 Case = ExternalCaseShape.create (name, EqArray.empty)
                                 IsRequireQualifiedAccess = false
                             }

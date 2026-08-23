@@ -435,6 +435,73 @@ module UnificationInferOverload =
             | PickResult.NoneApplicable -> MemberPick.NoneApplicable
             | PickResult.Ambiguous ms -> MemberPick.Ambiguous ms
 
+    // --- Project-local constructor overload resolution -----------------------
+    // ONE catalogue and ONE pick, shared by `new T(args)`, the ctor-sugar application and
+    // Elaborate's object-argument wrapping, so the three agree on which overload a
+    // construction selected. Codegen's `EmitConstruct.pickLocalCtor` selects on the same two
+    // axes over the emitted handles.
+
+    /// Which constructor of a project-local class a construction selected, with the declared
+    /// parameter types it was picked at, substituted for the call.
+    [<RequireQualifiedAccess>]
+    type LocalCtorPick =
+        | Primary of parameters: SemType list
+        | Secondary of parameters: SemType list
+
+        member this.Parameters: SemType list =
+            match this with
+            | LocalCtorPick.Primary ps
+            | LocalCtorPick.Secondary ps -> ps
+
+    /// The constructor `argElems` selects on `info`: by ARITY, and where the class declares two
+    /// of the same arity (`Shape(x: int)` beside `new(s: string)`), by argument type.
+    /// `substitute` maps a declared parameter type into the call's instantiation. A same-arity
+    /// set that no argument type separates — one argument still an unresolved metavar — falls
+    /// to declaration order, which is the primary when the class declares one.
+    /// `ValueNone` when the class declares no constructor of that arity.
+    let pickLocalCtor
+        (ctx: PassContext)
+        (substitute: SemType -> SemType)
+        (info: ClassTypeInfo)
+        (argElems: SemType list)
+        : LocalCtorPick voption =
+        let arity = List.length argElems
+
+        let ofArity (ps: SemType list) (mk: SemType list -> LocalCtorPick) : LocalCtorPick list =
+            match List.length ps = arity with
+            | true -> [ mk (List.map substitute ps) ]
+            | false -> []
+
+        // The primary first, then each secondary in declaration order: the catalogue
+        // `FrozenSignature.ctorsOf` publishes and `NominalEmit` emits.
+        let candidates =
+            [
+                if info.HasPrimaryCtor then
+                    yield! ofArity [ for p in info.CtorParams -> p.Type ] LocalCtorPick.Primary
+
+                for sc in info.SecondaryCtors do
+                    yield! ofArity [ for p in sc.Params -> p.Type ] LocalCtorPick.Secondary
+            ]
+
+        match candidates with
+        | [] -> ValueNone
+        | [ only ] -> ValueSome only
+        | first :: _ ->
+            let rcs =
+                [|
+                    for c in candidates ->
+                        {
+                            Params = c.Parameters
+                            MethodTyparArity = 0
+                            Item = c
+                        }
+                |]
+
+            match rankCandidates ctx rcs argElems with
+            | PickResult.One c -> ValueSome c
+            | PickResult.NoneApplicable
+            | PickResult.Ambiguous _ -> ValueSome first
+
     /// A parameter-shape rendering for an overload diagnostic: each named type's simple name
     /// (`int`), and `_` for anything else.
     let showParams (ctx: PassContext) (ps: SemType list) : string =

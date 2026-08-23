@@ -108,17 +108,14 @@ module internal ElaborateObjArgs =
             | ValueNone -> []
         | _ -> []
 
-    /// The primary ctor when `argCount` matches its parameter count, else the secondary
-    /// ctor of that arity. Empty for an external ctor, which has no local param model.
-    let ctorParamTys (ctx: PassContext) (classTy: SemType) (argCount: int) : SemType list =
+    /// The declared parameter types of the constructor `argTys` selects, through the same pick
+    /// Unification made. Empty for an external ctor, which has no local param model.
+    let ctorParamTys (ctx: PassContext) (classTy: SemType) (argTys: SemType list) : SemType list =
         match classTy with
         | LocalClass ctx info ->
-            if argCount = info.CtorParams.Length then
-                [ for p in info.CtorParams -> p.Type ]
-            else
-                match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argCount) with
-                | Some sc -> [ for p in sc.Params -> p.Type ]
-                | None -> []
+            match UnificationInferOverload.pickLocalCtor ctx id info argTys with
+            | ValueSome pick -> pick.Parameters
+            | ValueNone -> []
         | _ -> []
 
     /// The declared SemType of a record field, for boxing a value assigned to an `obj`

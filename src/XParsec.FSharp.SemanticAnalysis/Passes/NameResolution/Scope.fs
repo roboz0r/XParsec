@@ -19,12 +19,10 @@ module NameResolutionScope =
     /// only when its declaring union's namespace is opened or auto-opened. Mirror that,
     /// so a union in the root namespace always matches, its bare candidate being itself.
     let private bareCaseNamespaceOpen (scope: OpenScope) (uc: ExternalUnionCase) : bool =
-        // `UnionName`, not the case's own origin: the reverse index stamps the blanket
-        // PACKAGE origin, whose namespace can differ. `bareName` strips the arity
-        // suffix, so ``Vesper.Choice`2`` qualifies as `Vesper.Choice`.
-        let qualified = SymbolKeyOps.bareName uc.UnionName
-        let short = SymbolKeyOps.shortName uc.UnionName
-        (OpenScope.tryQualify scope (fun c -> c = qualified) short).IsSome
+        // The SOURCE spelling of the declaring union, so `` Vesper.Choice`2 `` qualifies as
+        // `Vesper.Choice` and a module-held `CrossFile.Lib+Shape` as `CrossFile.Lib.Shape`.
+        let qualified = SymbolKeyOps.typeSourceName uc.UnionKey
+        (OpenScope.tryQualify scope (fun c -> c = qualified) uc.UnionKey.Name).IsSome
 
     /// The external union case a reference resolves to. `qualifier` is the written
     /// declaring type (`Option.Some` ⇒ `ValueSome "Option"`), `ValueNone` for a bare
@@ -105,10 +103,7 @@ module NameResolutionScope =
                     | ValueSome hit ->
                         match hit.Shape with
                         | ExternalTypeShape.Class info when info.TyparArity = 0 ->
-                            ctx.Resolution.ResolvedType.Set(
-                                useKey,
-                                SymbolKeyOps.externalTypeKeyOf info.Origin hit.Compiled 0
-                            )
+                            ctx.Resolution.ResolvedType.Set(useKey, hit.UseSiteKey)
                         | _ -> ()
                     | ValueNone -> ()
                 // Each disjunct suppresses the unresolved diagnostic for a name a later
@@ -438,17 +433,13 @@ module NameResolutionScope =
                         // enum's nominal key, so the node types as `TyEnum key` by key read.
                         if li.Idents.Length = 2 then
                             match prefixHit with
-                            | ValueSome {
-                                            Compiled = compiled
-                                            Shape = ExternalTypeShape.Enum(cases, origin)
-                                        } when
+                            | ValueSome({
+                                            Shape = ExternalTypeShape.Enum(cases = cases)
+                                        } as hit) when
                                 (let caseName = ctx.NameOf li.Idents.[1]
                                  cases |> EqArray.exists (fun c -> c.Name = caseName))
                                 ->
-                                ctx.Resolution.ExternalEnumCaseStamp.Set(
-                                    CstKeys.ofExpr e,
-                                    SymbolKeyOps.externalTypeKeyOf origin compiled 0
-                                )
+                                ctx.Resolution.ExternalEnumCaseStamp.Set(CstKeys.ofExpr e, hit.UseSiteKey)
                             | _ -> ()
 
                         // The whole name as an external class (`System.Exception "x"`, a
@@ -456,25 +447,15 @@ module NameResolutionScope =
                         // (`System.Console` in `System.Console.Out`, class or intrinsic).
                         if not (ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)) then
                             match qualHit with
-                            | ValueSome {
-                                            Compiled = compiled
-                                            Shape = ExternalTypeShape.Class info
-                                        } when info.TyparArity = 0 ->
-                                ctx.Resolution.ResolvedType.Set(
-                                    CstKeys.ofExpr e,
-                                    SymbolKeyOps.externalTypeKeyOf info.Origin compiled 0
-                                )
+                            | ValueSome({ Shape = ExternalTypeShape.Class info } as hit) when info.TyparArity = 0 ->
+                                ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr e, hit.UseSiteKey)
                             | _ ->
                                 match prefixHit with
-                                | ValueSome {
-                                                Compiled = compiled
+                                | ValueSome({
                                                 ProbedTyparArity = 0
                                                 Shape = ExternalTypeShape.Class info
-                                            } when info.TyparArity = 0 ->
-                                    ctx.Resolution.ExternalStaticQualifier.Set(
-                                        CstKeys.ofExpr e,
-                                        SymbolKeyOps.externalTypeKeyOf info.Origin compiled 0
-                                    )
+                                            } as hit) when info.TyparArity = 0 ->
+                                    ctx.Resolution.ExternalStaticQualifier.Set(CstKeys.ofExpr e, hit.UseSiteKey)
                                 | ValueSome {
                                                 ProbedTyparArity = 0
                                                 Shape = ExternalTypeShape.Intrinsic { Id = { Canon = canon } }
@@ -486,19 +467,11 @@ module NameResolutionScope =
                         // unresolved last segment is a genuine member miss, so stamp its key to be
                         // diagnosed. A class qualifier is not: it stays a fresh TyVar.
                         match prefixHit with
-                        | ValueSome {
-                                        Compiled = compiled
-                                        ProbedTyparArity = a
-                                        Shape = ExternalTypeShape.Union(origin = origin)
-                                    }
-                        | ValueSome {
-                                        Compiled = compiled
-                                        ProbedTyparArity = a
-                                        Shape = ExternalTypeShape.Record(origin = origin)
-                                    } ->
+                        | ValueSome({ Shape = ExternalTypeShape.Union _ } as hit)
+                        | ValueSome({ Shape = ExternalTypeShape.Record _ } as hit) ->
                             ctx.Resolution.ExternalUnionRecordQualifier.Set(
                                 CstKeys.ofExpr e,
-                                SymbolKeyOps.externalTypeKey origin compiled a
+                                SymbolKey.Type(hit.UseSiteKey)
                             )
                         | _ -> ()
 
@@ -570,7 +543,7 @@ module NameResolutionScope =
                 ->
                 match tryClassifyExternalType ctx (arityProbes types.Length) written.Written with
                 | ValueSome hit when hit.Shape.TyparArity = types.Length ->
-                    let key = useSiteTypeKey hit
+                    let key = hit.UseSiteKey
                     ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr expr, key)
 
                     match hit.Shape with

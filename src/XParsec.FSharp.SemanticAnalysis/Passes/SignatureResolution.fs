@@ -26,8 +26,7 @@ module SignatureResolution =
 
     let private publishUnionCases
         (sctx: SigCtx)
-        (unionName: string)
-        (arity: int)
+        (unionKey: TypeKey)
         (rqa: bool)
         (cases: EqArray<ExternalCaseShape>)
         : unit =
@@ -35,9 +34,7 @@ module SignatureResolution =
             PublishedSurfaceBuilder.addUnionCase
                 sctx.Surface
                 {
-                    UnionName = unionName
-                    TyparArity = arity
-                    Origin = SymbolOrigin.Empty
+                    UnionKey = unionKey
                     Case = case
                     IsRequireQualifiedAccess = rqa
                 }
@@ -104,7 +101,6 @@ module SignatureResolution =
                 {
                     TypeKey = key
                     TyparArity = arity
-                    Origin = SymbolOrigin.Empty
                     FieldNames = fields |> EqArray.map (fun f -> f.Name)
                     IsRequireQualifiedAccess = info.IsRequireQualifiedAccess
                 }
@@ -155,7 +151,7 @@ module SignatureResolution =
             // A list is written only as `[]` / `::`, so indexing the cons-list's case names
             // would only shadow a user union declaring a case of the same name.
             if not (RuntimeNames.isVesperListName (SymbolKeyOps.typeMetaName key)) then
-                publishUnionCases sctx (SymbolKeyOps.typeMetaName key) arity info.IsRequireQualifiedAccess cases
+                publishUnionCases sctx key info.IsRequireQualifiedAccess cases
 
             publishMembers sctx key (resolveBodyMembers sctx key info.TypeParams extensionElems)
 

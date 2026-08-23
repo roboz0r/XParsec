@@ -154,13 +154,10 @@ type ExternalEnumCaseShape =
 /// case shape.
 type ExternalUnionCase =
     {
-        /// The declaring union's compiled (arity-suffixed) name (`Vesper.Option`,
-        /// `Vesper.Choice`2`).
-        UnionName: string
-        TyparArity: int
-        /// Where the union is declared. `SymbolOrigin.Empty` for providers that don't model
-        /// origins.
-        Origin: SymbolOrigin
+        /// The exact `TypeKey` the declaring producer registered: a module-held union's
+        /// `InModule` containment chain cannot be recut from a compiled-name string, which
+        /// yields the same metadata NAME under an unequal identity.
+        UnionKey: TypeKey
         Case: ExternalCaseShape
         IsRequireQualifiedAccess: bool
     }
@@ -170,7 +167,7 @@ type ExternalUnionCase =
     member uc.ResolvesWith(qualifier: string voption) : bool =
         match qualifier with
         | ValueNone -> not uc.IsRequireQualifiedAccess
-        | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q
+        | ValueSome q -> uc.UnionKey.Name = q
 
 /// One hit from the per-field reverse index: a record declaring the queried field. Field
 /// TYPES are not here, because they come from the shape.
@@ -181,9 +178,6 @@ type ExternalRecordCandidate =
         /// metadata NAME under an unequal identity.
         TypeKey: TypeKey
         TyparArity: int
-        /// Where the record is declared. `SymbolOrigin.Empty` for providers that don't model
-        /// origins.
-        Origin: SymbolOrigin
         /// EVERY declared field name, not only the queried one.
         FieldNames: EqArray<string>
         /// `[<RequireQualifiedAccess>]`: a consumer excludes such a record from bare
