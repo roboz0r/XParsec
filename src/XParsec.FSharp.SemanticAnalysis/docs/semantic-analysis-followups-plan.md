@@ -141,6 +141,8 @@ canonical values match."
 
 ### `TastExpr.fs:317` — `TraitCall` can only search the LEFT operand's support set
 
+Superseded: the staged change is docs/trait-call-support-set-plan.md; delete this entry when it lands.
+
 It carries a single `supportTy: 'ty`, so F#'s `(^T1 or ^T2)` cannot be honoured: a member
 declared solely on the right operand — `static member (+) (i: int, v: Vector)` — is
 unreachable. The exemplar the deleted TODO named is
@@ -993,6 +995,8 @@ by the clause's own node key rather than the construct's) would make the misalig
 unrepresentable and delete the eight-line header the sweep cut to three.
 
 ### `Elaborate/Apply.fs:224` — SRTP trait calls search the left operand only
+
+Superseded: the staged change is docs/trait-call-support-set-plan.md; delete this entry when it lands.
 
 `TExpr.TraitCall` carries one support type, so `translateStaticMemberInvocation` takes
 `args.[0]`'s type and the `(^T1 or ^T2)` support set is never searched on the right. A member
