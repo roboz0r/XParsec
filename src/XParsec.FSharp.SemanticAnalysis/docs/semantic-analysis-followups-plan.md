@@ -15,9 +15,10 @@ subagent report.
 ### `Lexing.fs` — an interpolated string's escapes are never decoded
 
 `pSkipInterpolatedFragmentChars` folds a `\x` pair into the fragment without emitting
-`Token.EscapeSequence`, so `$""\n""` reaches every consumer with the two raw characters.
+`Token.EscapeSequence`, so `$"\n"` reaches every consumer with the two raw characters.
 Plain, verbatim and triple-quoted strings decode through `Lexing.decodeStringEscape`;
 the interpolated path bypasses it. Found while landing the shared escape decoder.
+
 ### Cross-file resolution — a module-held union's case does not resolve from another file
 
 With file 1 declaring `module M` / `type Holder = Wrap of obj`, file 2 gets "Unresolved
@@ -852,17 +853,6 @@ would carry the qualifier that the qualified arm currently filters on AFTER the 
 (`resolvedRecordDisplayName r = typeName`), fold both decisions into one place, and delete the
 16-line header on `admitsBareExternalRecord` plus the `bareIndex` paragraph on
 `recordFieldSetVerdict` (both cut to 3 lines by the comment sweep, so the debt is now invisible).
-
-### `InferControlFlow.fs:118` — a ref-struct enumerator with a pattern `Dispose()` is silently never disposed
-
-Both enumerator probes decide disposability by scanning for `System.IDisposable`, and the
-`Pattern` descriptor carries the verdict as a bare bool, so it cannot name WHICH `Dispose` to
-call. A `[<IsByRefLike>]` enumerator cannot be boxed to `IDisposable`, so a ref struct exposing
-a public `Dispose()` gets no `finally` at all — a silent resource leak rather than an error.
-The `use`-boundVar path already prefers a type's own `Dispose` before the interface slot, so the
-precedent exists; the blocker is that `SemType` has no byref-like predicate to test with, and
-that the descriptor's `dispose` field would have to become a member reference. Recorded from a
-14-line TODO cut to one line by the comment sweep.
 
 ### `Passes/Unification/InferTypeOps.fs:25` — explicit type application on a bare generic function is a no-op
 

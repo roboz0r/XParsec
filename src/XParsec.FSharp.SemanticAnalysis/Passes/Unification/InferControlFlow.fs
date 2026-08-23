@@ -110,7 +110,8 @@ module internal UnificationInferControlFlow =
             match inst mn.Type with
             | TyFun(_, TyBool) ->
                 // A ref-struct `E` with a pattern `Dispose()` but no `IDisposable` is not
-                // disposed at all: the descriptor carries a bool, not which member to call.
+                // disposed at all, matching fsc: a probe confirmed F# runs no pattern-based
+                // disposal on a byref-like enumerator (C#'s foreach does).
                 let disposable =
                     enumInfo.InterfaceImpls
                     |> Array.exists (fun impl ->
