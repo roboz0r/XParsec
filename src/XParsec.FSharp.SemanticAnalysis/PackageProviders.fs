@@ -140,7 +140,7 @@ module PackageProviders =
                 }
                 (ExternalSymbolProviders.composite (depProviders @ platformMetadata depIntrinsics))
                 (AssemblyAnalysis.Publication.AcrossAssemblies bodyExternal)
-                (parsed.Units |> List.map (AssemblyFiles.AssemblyUnit.ofReadUnit manifest.Name))
+                (parsed.Units |> List.map AssemblyFiles.AssemblyUnit.ofReadUnit)
 
         let diagnostics = ResizeArray<AssemblyFiles.AnchoredDiagnostic>()
         let surfaces = ResizeArray<PublishedSurface>()

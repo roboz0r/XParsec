@@ -21,9 +21,7 @@ type ParsingBenchmarks() =
     member this.Setup() =
         source <- Fixtures.load this.Size
 
-        match Lexing.lexString source with
-        | Ok l -> lexed <- l
-        | Error e -> failwithf "Lexing failed during setup: %A" e
+        lexed <- Lexing.lexString source
 
     [<Benchmark>]
     member _.XParsec() =

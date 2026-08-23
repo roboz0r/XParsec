@@ -5,26 +5,23 @@ open System.IO
 /// Why a path the manifest lists yielded no tree.
 [<RequireQualifiedAccess>]
 type FileFault =
-    /// The manifest lists a path that is not on disk.
-    | Missing
+    /// The manifest lists a path that is not on disk. The read has no text, so the fault is
+    /// exhausted by the diagnostic naming it.
+    | Missing of Diagnostic
     /// The file is there and the parser got no tree out of it.
     | Unparsed of ParseChain.ParseFailure
 
 [<RequireQualifiedAccess>]
 module FileFault =
 
-    /// The fault rendered as a parse failure, with no token stream to anchor against.
-    let toFailure (package: string) (relative: string) (fault: FileFault) : ParseChain.ParseFailure =
+    /// The diagnostic naming a path the manifest lists and disk does not hold.
+    let missing (package: string) (relative: string) : FileFault =
+        FileFault.Missing(Diagnostic.nowhere (Kind.PackageSet(PackageSetFault.FileMissing(package, relative))))
+
+    let diagnostics (fault: FileFault) : Diagnostic list =
         match fault with
-        | FileFault.Unparsed failure -> failure
-        | FileFault.Missing ->
-            {
-                Lexed = ValueNone
-                Diagnostics =
-                    [
-                        Diagnostic.nowhere (Kind.PackageSet(PackageSetFault.FileMissing(package, relative)))
-                    ]
-            }
+        | FileFault.Missing d -> [ d ]
+        | FileFault.Unparsed failure -> failure.Diagnostics
 
 /// A path the manifest lists and what reading it produced. A diagnostic must echo the path
 /// whether or not a tree came out.
@@ -69,7 +66,7 @@ module ParsedManifest =
                 Id = AssemblyFileId.ofPathUnder manifest.Dir relative
                 Outcome =
                     if not (File.Exists absolute) then
-                        Error FileFault.Missing
+                        Error(FileFault.missing manifest.Name relative)
                     else
                         parse (File.ReadAllText absolute) |> Result.mapError FileFault.Unparsed
             }

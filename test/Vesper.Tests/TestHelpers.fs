@@ -35,22 +35,20 @@ let private testParseFileWithParser
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
 
-    let actual =
-        match Lexing.lexString input with
-        | Error e -> failwithf "Lexing failed: %A" e
-        | Ok lexed ->
-            let reader =
-                XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines definedSymbols)
+    let lexed = Lexing.lexString input
 
-            match parseFn reader with
-            | Error e ->
-                failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
-            | Ok ast ->
-                let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
-                XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
-                XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
-                ctx.FlushToString()
+    let actual =
+        let reader =
+            XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines definedSymbols)
+
+        match parseFn reader with
+        | Error e -> failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+        | Ok ast ->
+            let ctx = XParsec.FSharp.Debug.PrintContext(2)
+            XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
+            XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
+            XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
+            ctx.FlushToString()
 
     if updateSnapshots || not (File.Exists expectedPath) then
         File.WriteAllText(expectedPath, actual)

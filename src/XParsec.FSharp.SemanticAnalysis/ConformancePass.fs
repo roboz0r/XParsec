@@ -72,8 +72,8 @@ module ConformancePass =
         |> Set.remove ""
 
     /// Why a manifest-named path yielded no tree, in the FAULT's own words.
-    let private faultDetail (package: string) (relative: string) (fault: FileFault) : string =
-        (FileFault.toFailure package relative fault).Diagnostics
+    let private faultDetail (fault: FileFault) : string =
+        FileFault.diagnostics fault
         |> List.map (fun d -> d.Message)
         |> String.concat "; "
 
@@ -130,12 +130,12 @@ module ConformancePass =
             let fsiRel = signatureFile.Relative
 
             match signatureFile.Outcome with
-            | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name fsiRel fault)
+            | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail fault)
             | Ok signature ->
                 match implementationFile.Outcome with
                 // Fails the PAIR: calling it a signature without an implementation would
                 // blame the `.fsi` for the `.fs`'s defect.
-                | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail m.Name implementationFile.Relative fault)
+                | Error fault -> PairOutcome.ParseFailed(fsiRel, faultDetail fault)
                 | Ok implementation ->
                     let verdict =
                         Conformance.checkUnit signature.Lexed signature.Tree implementation.Lexed implementation.Tree

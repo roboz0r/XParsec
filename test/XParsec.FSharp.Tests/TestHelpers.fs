@@ -179,17 +179,14 @@ let testLexed (input: string) (expected: _ list) =
     // Run multiple times to catch any state issues
     let input = input.Replace("\r\n", "\n")
 
-    match lexString input with
-    | Ok lexed ->
-        try
-            "" |> Expect.equal (lexed.Tokens |> List.ofSeq) expected
-        with ex ->
-            printfn "An error occurred: %s" (ex.Message)
-            printLexed lexed
-            reraise ()
-    | Error err ->
-        printfn "Lexing failed: %A" err
-        failwith "Lexing failed"
+    let lexed = lexString input
+
+    try
+        "" |> Expect.equal (lexed.Tokens |> List.ofSeq) expected
+    with ex ->
+        printfn "An error occurred: %s" (ex.Message)
+        printLexed lexed
+        reraise ()
 
 /// When true, golden files are overwritten with fresh output rather than compared.
 /// Activate by setting the UPDATE_SNAPSHOTS environment variable to any non-empty value,
@@ -230,25 +227,19 @@ let testLexFile (filePath: string) =
     let input = input.Replace("\r\n", "\n")
     let expectedPath = filePath + ".lexed"
 
-    match lexString input with
-    | Error err ->
-        let pos = err.Position
-        printLexed (LexBuilder.complete pos.Index pos.State)
-        ErrorFormatting.formatStringError input err |> printfn "%s"
-        failwith "Lexing failed"
-    | Ok lexed ->
-        if updateSnapshots || not (File.Exists expectedPath) then
-            writeLexed expectedPath lexed
+    let lexed = lexString input
 
-            if not updateSnapshots then
-                if isCi then
-                    skiptest
-                        $"Golden file created at {Path.GetFileName expectedPath}; commit it to enable this test in CI"
-                else
-                    failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
-        else
-            let expected = readLexed expectedPath
-            testLexed input expected
+    if updateSnapshots || not (File.Exists expectedPath) then
+        writeLexed expectedPath lexed
+
+        if not updateSnapshots then
+            if isCi then
+                skiptest $"Golden file created at {Path.GetFileName expectedPath}; commit it to enable this test in CI"
+            else
+                failtestf "Created expected lexed file at %s, please verify it is correct" expectedPath
+    else
+        let expected = readLexed expectedPath
+        testLexed input expected
 
 
 /// Shared core for golden-file parser tests. Parses the source via `parseFn`,
@@ -264,22 +255,20 @@ let private testParseFileWithParser
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
 
-    let actual =
-        match Lexing.lexString input with
-        | Error e -> failwithf "Lexing failed: %A" e
-        | Ok lexed ->
-            let reader =
-                XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines definedSymbols)
+    let lexed = Lexing.lexString input
 
-            match parseFn reader with
-            | Error e ->
-                failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
-            | Ok ast ->
-                let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
-                XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
-                XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
-                ctx.FlushToString()
+    let actual =
+        let reader =
+            XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines definedSymbols)
+
+        match parseFn reader with
+        | Error e -> failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+        | Ok ast ->
+            let ctx = XParsec.FSharp.Debug.PrintContext(2)
+            XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
+            XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
+            XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
+            ctx.FlushToString()
 
     if updateSnapshots || not (File.Exists expectedPath) then
         File.WriteAllText(expectedPath, actual)
@@ -388,111 +377,109 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
         if File.Exists p then
             File.Delete p
 
-    match Lexing.lexString input with
-    | Error e -> failwithf "Lexing failed: %A" e
-    | Ok lexed ->
-        writeLexed (filePath + ".lexed") lexed
+    let lexed = Lexing.lexString input
+    writeLexed (filePath + ".lexed") lexed
 
-        let mutable maxDepth = 0
-        let mutable deepestTrace: System.Diagnostics.StackTrace option = None
-        let stackProbes = ResizeArray<struct (string * nativeint)>()
-        let events = ResizeArray<string>()
-        let traceWriter = new StreamWriter(filePath + ".trace", false)
-        traceWriter.AutoFlush <- true
+    let mutable maxDepth = 0
+    let mutable deepestTrace: System.Diagnostics.StackTrace option = None
+    let stackProbes = ResizeArray<struct (string * nativeint)>()
+    let events = ResizeArray<string>()
+    let traceWriter = new StreamWriter(filePath + ".trace", false)
+    traceWriter.AutoFlush <- true
 
-        let traceCallback =
-            { new XParsec.FSharp.Parser.WriterTraceCallback(lexed, traceWriter) with
-                override this.Write(line) =
-                    traceWriter.WriteLine(line)
-                    events.Add(line)
+    let traceCallback =
+        { new XParsec.FSharp.Parser.WriterTraceCallback(lexed, traceWriter) with
+            override this.Write(line) =
+                traceWriter.WriteLine(line)
+                events.Add(line)
 
-                override this.ContextPush(ctx, indent, token, depth) =
-                    let mutable marker = 0
-                    let sp = NativePtr.toNativeInt &&marker
-                    stackProbes.Add(struct ($"PUSH {ctx} indent={indent} depth={depth}", sp))
+            override this.ContextPush(ctx, indent, token, depth) =
+                let mutable marker = 0
+                let sp = NativePtr.toNativeInt &&marker
+                stackProbes.Add(struct ($"PUSH {ctx} indent={indent} depth={depth}", sp))
 
-                    if depth > maxDepth then
-                        maxDepth <- depth
-                        deepestTrace <- Some(System.Diagnostics.StackTrace(true))
+                if depth > maxDepth then
+                    maxDepth <- depth
+                    deepestTrace <- Some(System.Diagnostics.StackTrace(true))
 
-                        writeStackProbe
-                            (filePath + ".stack")
-                            {
-                                MaxDepth = maxDepth
-                                DeepestTrace = deepestTrace
-                                StackProbes = stackProbes.ToArray()
-                            }
+                    writeStackProbe
+                        (filePath + ".stack")
+                        {
+                            MaxDepth = maxDepth
+                            DeepestTrace = deepestTrace
+                            StackProbes = stackProbes.ToArray()
+                        }
 
-                    base.ContextPush(ctx, indent, token, depth)
+                base.ContextPush(ctx, indent, token, depth)
 
-                override this.ContextPop(ctx, depth) =
-                    let mutable marker = 0
-                    let sp = NativePtr.toNativeInt &&marker
-                    stackProbes.Add(struct ($"POP {ctx} depth={depth}", sp))
-                    base.ContextPop(ctx, depth)
-            }
+            override this.ContextPop(ctx, depth) =
+                let mutable marker = 0
+                let sp = NativePtr.toNativeInt &&marker
+                stackProbes.Add(struct ($"POP {ctx} depth={depth}", sp))
+                base.ContextPop(ctx, depth)
+        }
 
-        let reader =
-            XParsec.FSharp.Parser.Reader.ofParseInputWithTracing (lexed.WithDefines Set.empty) traceCallback
+    let reader =
+        XParsec.FSharp.Parser.Reader.ofParseInputWithTracing (lexed.WithDefines Set.empty) traceCallback
 
-        let mutable taskResult = Unchecked.defaultof<_>
+    let mutable taskResult = Unchecked.defaultof<_>
 
-        let thread =
-            System.Threading.Thread(
-                System.Threading.ThreadStart(fun () ->
-                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
-                    | Error e -> taskResult <- Error e
-                    | Ok ast -> taskResult <- Ok ast
-                ),
-                stackSize
-            )
+    let thread =
+        System.Threading.Thread(
+            System.Threading.ThreadStart(fun () ->
+                match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                | Error e -> taskResult <- Error e
+                | Ok ast -> taskResult <- Ok ast
+            ),
+            stackSize
+        )
 
-        thread.Start()
+    thread.Start()
 
-        if not (thread.Join(timeout)) then
-            let stuckIdx = reader.Index
-            let tok = lexed.Tokens.[stuckIdx * 1<token>]
-            let pos = tok.StartIndex
-            let lines = input.Substring(0, min (int pos) input.Length).Split('\n')
-            let line = lines.Length
+    if not (thread.Join(timeout)) then
+        let stuckIdx = reader.Index
+        let tok = lexed.Tokens.[stuckIdx * 1<token>]
+        let pos = tok.StartIndex
+        let lines = input.Substring(0, min (int pos) input.Length).Split('\n')
+        let line = lines.Length
 
-            let context =
-                if int pos + 40 < input.Length then
-                    input.Substring(int pos, 40)
-                else
-                    input.Substring(int pos)
+        let context =
+            if int pos + 40 < input.Length then
+                input.Substring(int pos, 40)
+            else
+                input.Substring(int pos)
 
-            let lastEvents =
-                lock events (fun () -> events.ToArray())
-                |> Array.rev
-                |> Array.truncate 80
-                |> Array.rev
-                |> String.concat "\n  "
+        let lastEvents =
+            lock events (fun () -> events.ToArray())
+            |> Array.rev
+            |> Array.truncate 80
+            |> Array.rev
+            |> String.concat "\n  "
 
-            failwithf
-                "Parsing stuck at reader index %d, token %A at line %d: '%s'\n\nLast trace events:\n  %s"
-                stuckIdx
-                tok
-                line
-                (context.Replace("\n", "\\n"))
-                lastEvents
+        failwithf
+            "Parsing stuck at reader index %d, token %A at line %d: '%s'\n\nLast trace events:\n  %s"
+            stuckIdx
+            tok
+            line
+            (context.Replace("\n", "\\n"))
+            lastEvents
 
-        traceWriter.Dispose()
+    traceWriter.Dispose()
 
-        match taskResult with
-        | Error e -> ()
-        | Ok ast ->
-            let parseOutput =
-                let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
-                XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
-                XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
-                ctx.FlushToString()
+    match taskResult with
+    | Error e -> ()
+    | Ok ast ->
+        let parseOutput =
+            let ctx = XParsec.FSharp.Debug.PrintContext(2)
+            XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
+            XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
+            XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
+            ctx.FlushToString()
 
-            let expectedPath = filePath + ".parsed"
-            File.WriteAllText(expectedPath, parseOutput)
+        let expectedPath = filePath + ".parsed"
+        File.WriteAllText(expectedPath, parseOutput)
 
-        taskResult
+    taskResult
 
 /// Returns paths of golden files (`.parsed`, `.lexed`, `.lexedblocks`) in `dataDir` that have
 /// no corresponding `.fs` / `.fsi` source file — i.e. orphans left behind after a source
@@ -518,7 +505,6 @@ let findOrphanedGoldenFiles (dataDir: string) : string array =
     |> Array.sort
 
 type CorpusParseResult =
-    | LexError of string
     | ParseError of string
     | ParseException of exn
     | Timeout
@@ -533,44 +519,42 @@ let private tryParseCorpusFileWith
     let input = File.ReadAllText filePath
     let input = input.Replace("\r\n", "\n")
 
-    match Lexing.lexString input with
-    | Error e -> LexError(ErrorFormatting.formatStringError input e)
-    | Ok lexed ->
-        let mutable result = Timeout
+    let lexed = Lexing.lexString input
+    let mutable result = Timeout
 
-        let thread =
-            System.Threading.Thread(
-                System.Threading.ThreadStart(fun () ->
-                    try
-                        let reader = XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines Set.empty)
+    let thread =
+        System.Threading.Thread(
+            System.Threading.ThreadStart(fun () ->
+                try
+                    let reader = XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines Set.empty)
 
-                        match parseFn reader with
-                        | Error e ->
-                            result <- ParseError(XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
-                        | Ok _ ->
-                            let diagCount = reader.State.Diagnostics.Length
+                    match parseFn reader with
+                    | Error e ->
+                        result <- ParseError(XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                    | Ok _ ->
+                        let diagCount = reader.State.Diagnostics.Length
 
-                            let formatted =
-                                if diagCount = 0 then
-                                    ""
-                                else
-                                    let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                                    XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
-                                    ctx.FlushToString()
+                        let formatted =
+                            if diagCount = 0 then
+                                ""
+                            else
+                                let ctx = XParsec.FSharp.Debug.PrintContext(2)
+                                XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
+                                ctx.FlushToString()
 
-                            result <- Success(diagCount, formatted)
-                    with ex ->
-                        result <- ParseException ex
-                ),
-                0x200000 // 2MB stack
-            )
+                        result <- Success(diagCount, formatted)
+                with ex ->
+                    result <- ParseException ex
+            ),
+            0x200000 // 2MB stack
+        )
 
-        thread.Start()
+    thread.Start()
 
-        if not (thread.Join(System.TimeSpan.FromSeconds 30.0)) then
-            Timeout
-        else
-            result
+    if not (thread.Join(System.TimeSpan.FromSeconds 30.0)) then
+        Timeout
+    else
+        result
 
 let tryParseCorpusFile (filePath: string) : CorpusParseResult =
     tryParseCorpusFileWith XParsec.FSharp.Parser.FSharpAst.parse filePath

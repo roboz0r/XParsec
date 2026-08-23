@@ -1604,10 +1604,9 @@ module Lexing =
     let pInterpolatedStringEndToken =
         pTokenPopCtx (pchar '"') Token.InterpolatedStringClose LexContext.InterpolatedString
 
-    // Non-verbatim interpolated strings support escape sequences like \".
-    // A backslash consumes itself and the next character as an escape pair;
-    // a bare backslash at EOF causes the whole fragment to fail (matches the
-    // old `pchar '\\' >>. anyChar` behaviour).
+    /// Skips the text of a non-verbatim interpolated string fragment, stopping before `"`, `{`,
+    /// `}` or `%`. A backslash takes the following character with it, or ends the fragment when
+    /// it is the last character of the input.
     let private pSkipInterpolatedFragmentChars (reader: Reader<char, LexBuilder, ReadableString>) =
         let mutable more = true
         let mutable consumedAny = false
@@ -1617,12 +1616,9 @@ module Lexing =
             | ValueSome '\\' ->
                 let span = reader.PeekN(2)
 
-                if span.Length >= 2 then
-                    reader.SkipN(2)
-                    consumedAny <- true
-                else
-                    // lone \ at EOF — stop without consuming
-                    more <- false
+                if span.Length >= 2 then reader.SkipN(2) else reader.Skip()
+
+                consumedAny <- true
             | ValueSome c when c <> '"' && c <> '{' && c <> '}' && c <> '%' ->
                 reader.Skip()
                 consumedAny <- true
@@ -2201,36 +2197,38 @@ module Lexing =
         let private expectedOneDigit = Message "Expected at least one digit"
 
         [<TailCall>]
-        let rec private pManyIntCharsWithBaseLoop
-            success
+        let rec private skipIntCharsLoop
+            consumedDigit
             isDigitInBase
             backtrackTo
             (reader: Reader<char, LexBuilder, ReadableString>)
-            =
+            : bool =
             match reader.Peek() with
             | ValueSome '_' ->
                 // Ignore underscores
                 reader.Skip()
-                pManyIntCharsWithBaseLoop success isDigitInBase backtrackTo reader
+                skipIntCharsLoop consumedDigit isDigitInBase backtrackTo reader
             | ValueSome c when isDigitInBase c ->
                 reader.Skip()
-                pManyIntCharsWithBaseLoop true isDigitInBase reader.Position reader
+                skipIntCharsLoop true isDigitInBase reader.Position reader
             | _ ->
-                if success then
+                if consumedDigit then
                     // We must backtrack to the last valid position
                     // to avoid consuming trailing '_'
                     reader.Position <- backtrackTo
-                    preturn () reader
-                else
-                    fail expectedOneDigit reader
 
-        let private pManyIntCharsWithBase isDigitInBase (reader: Reader<char, LexBuilder, ReadableString>) =
-            pManyIntCharsWithBaseLoop false isDigitInBase reader.Position reader
+                consumedDigit
 
-        let pIntBase = pManyIntCharsWithBase isDecimalDigit
-        let pHexBase = pManyIntCharsWithBase isHexDigit
-        let pOctalBase = pManyIntCharsWithBase isOctalDigit
-        let pBinaryBase = pManyIntCharsWithBase isBinaryDigit
+        /// Skips digits in the base along with the `_` separators among them, stopping before a
+        /// trailing `_`. Returns whether a digit was consumed.
+        let private skipIntChars isDigitInBase (reader: Reader<char, LexBuilder, ReadableString>) : bool =
+            skipIntCharsLoop false isDigitInBase reader.Position reader
+
+        let pIntBase (reader: Reader<char, LexBuilder, ReadableString>) =
+            if skipIntChars isDecimalDigit reader then
+                preturn () reader
+            else
+                fail expectedOneDigit reader
 
         let pXIntBase (reader: Reader<char, LexBuilder, ReadableString>) =
             // Parses an integer with optional base prefix
@@ -2249,40 +2247,33 @@ module Lexing =
             | 2 ->
                 if isDecimalDigit span[0] then
                     // We need at least 3 chars to have a base prefix
-                    match pIntBase reader with
-                    | Ok() -> preturn NumericBase.Decimal reader
-                    | Error e -> invalidOp $"Unreachable error parsing decimal number: {e}"
+                    skipIntChars isDecimalDigit reader |> ignore
+                    preturn NumericBase.Decimal reader
                 else
                     fail expectedBasePrefix reader
             | _ ->
-                // Check for base prefix and at least one digit in that base
+                // Check for base prefix and at least one digit in that base. Each guard below
+                // matches that digit, so the skip that follows it consumes at least one char.
                 match span[0], span[1], span[2] with
-                | '0', ('x' | 'X' as c), c2 when isHexDigit c2 ->
+                | '0', ('x' | 'X'), c2 when isHexDigit c2 ->
                     reader.SkipN(2)
+                    skipIntChars isHexDigit reader |> ignore
+                    preturn NumericBase.Hex reader
 
-                    match pHexBase reader with
-                    | Ok() -> preturn NumericBase.Hex reader
-                    | Error e -> invalidOp $"Unreachable error parsing hexadecimal number: {e}"
-
-                | '0', ('o' | 'O' as c), c2 when isOctalDigit c2 ->
+                | '0', ('o' | 'O'), c2 when isOctalDigit c2 ->
                     reader.SkipN(2)
+                    skipIntChars isOctalDigit reader |> ignore
+                    preturn NumericBase.Octal reader
 
-                    match pOctalBase reader with
-                    | Ok() -> preturn NumericBase.Octal reader
-                    | Error e -> invalidOp $"Unreachable error parsing octal number: {e}"
-
-                | '0', ('b' | 'B' as c), c2 when isBinaryDigit c2 ->
+                | '0', ('b' | 'B'), c2 when isBinaryDigit c2 ->
                     reader.SkipN(2)
-
-                    match pBinaryBase reader with
-                    | Ok() -> preturn NumericBase.Binary reader
-                    | Error e -> invalidOp $"Unreachable error parsing binary number: {e}"
+                    skipIntChars isBinaryDigit reader |> ignore
+                    preturn NumericBase.Binary reader
 
                 | c, _, _ when isDecimalDigit c ->
                     // Decimal base
-                    match pIntBase reader with
-                    | Ok() -> preturn NumericBase.Decimal reader
-                    | Error e -> invalidOp $"Unreachable error parsing decimal number: {e}"
+                    skipIntChars isDecimalDigit reader |> ignore
+                    preturn NumericBase.Decimal reader
 
                 | _ -> fail expectedBasePrefix reader
 
@@ -3098,11 +3089,11 @@ module Lexing =
                 pOtherToken
 
     [<TailCall>]
-    let rec lex (reader: Reader<char, LexBuilder, ReadableString>) =
+    let rec private lex (reader: Reader<char, LexBuilder, ReadableString>) : Lexed =
         let state = reader.State
 
         match reader.Peek() with
-        | ValueNone -> Ok(LexBuilder.complete reader.Position.Index reader.State)
+        | ValueNone -> LexBuilder.complete reader.Position.Index reader.State
 
         | ValueSome c ->
             let ctx = LexBuilder.currentContext state
@@ -3183,8 +3174,10 @@ module Lexing =
 
             match p reader with
             | Ok() -> lex reader
-            | Error e -> Error e
+            // Each dispatched parser is total for its precondition
+            | Error e -> invalidOp $"Unreachable lex failure at index {reader.Position.Index}: {e}"
 
-    let lexString (input: string) =
+    /// Lexes `input` into a token stream. Total over `string`.
+    let lexString (input: string) : Lexed =
         let reader = Reader.ofString input (LexBuilder.init input)
         lex reader

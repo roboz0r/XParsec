@@ -495,7 +495,6 @@ let tests =
                         Kind.IncompleteAnonUnionMatch []
                         Kind.UnrelatedTypeTest("int", "string")
                         Kind.RedundantDowncast "int"
-                        Kind.LexFailure "unexpected character"
                         Kind.ParseFailure "unexpected token"
                         Kind.Driver "no target framework"
                         Kind.Message "an un-migrated sentence"

@@ -20,7 +20,7 @@ let private parsedNames (sources: AssemblySources) : string list =
             match u with
             | AssemblyUnit.Analysable u -> u.Implementation.Id.Name
             | AssemblyUnit.Faulted(leading, _) ->
-                failtestf "unit %s yielded no tree: %A" leading.Id.Name leading.Failure.Diagnostics
+                failtestf "unit %s yielded no tree: %A" leading.Id.Name (FileFault.diagnostics leading.Fault)
     ]
 
 /// A body inside `#if FOO` that the parser has to recover from, so the branch taken shows in

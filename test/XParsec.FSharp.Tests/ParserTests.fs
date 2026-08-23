@@ -88,7 +88,6 @@ let fsharpCoreCorpusTests =
                     match tryParseSignatureCorpusFile path with
                     | Success(0, _) -> ()
                     | Success(n, diag) -> failtestf "Parsed with %d diagnostic(s):\n%s" n diag
-                    | LexError msg -> failtestf "Lex failed: %s" msg
                     | ParseError msg -> failtestf "Parse failed:\n%s" msg
                     | ParseException ex -> failtestf "Exception %s: %s" (ex.GetType().Name) ex.Message
                     | Timeout -> failtest "Timed out (>30s)"
@@ -119,48 +118,36 @@ let tracingTests =
         "TracingTests"
         [
             test "Tracing emits ContextPush events" {
-                let input = "let x = 1"
+                let lexed = XParsec.FSharp.Lexer.Lexing.lexString "let x = 1"
+                let mutable pushCount = 0
+                let mutable consumeCount = 0
 
-                match XParsec.FSharp.Lexer.Lexing.lexString input with
-                | Error e -> failtestf "Lexing failed: %A" e
-                | Ok lexed ->
-                    let mutable pushCount = 0
-                    let mutable consumeCount = 0
+                let traceCallback =
+                    { new XParsec.FSharp.Parser.TraceCallback() with
+                        override _.ContextPush(_, _, _, _) = pushCount <- pushCount + 1
+                        override _.TokenConsumed(_, _, _) = consumeCount <- consumeCount + 1
+                    }
 
-                    let traceCallback =
-                        { new XParsec.FSharp.Parser.TraceCallback() with
-                            override _.ContextPush(_, _, _, _) = pushCount <- pushCount + 1
-                            override _.TokenConsumed(_, _, _) = consumeCount <- consumeCount + 1
-                        }
+                let reader =
+                    XParsec.FSharp.Parser.Reader.ofParseInputWithTracing (lexed.WithDefines Set.empty) traceCallback
 
-                    let reader =
-                        XParsec.FSharp.Parser.Reader.ofParseInputWithTracing (lexed.WithDefines Set.empty) traceCallback
-
-                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
-                    | Error e ->
-                        failtestf
-                            "Parsing failed:\n%s"
-                            (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
-                    | Ok _ ->
-                        Expect.isGreaterThan pushCount 0 "Expected at least one ContextPush event"
-                        Expect.isGreaterThan consumeCount 0 "Expected at least one TokenConsumed event"
+                match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                | Error e ->
+                    failtestf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                | Ok _ ->
+                    Expect.isGreaterThan pushCount 0 "Expected at least one ContextPush event"
+                    Expect.isGreaterThan consumeCount 0 "Expected at least one TokenConsumed event"
             }
 
             test "Tracing is off by default" {
-                let input = "let x = 1"
+                let lexed = XParsec.FSharp.Lexer.Lexing.lexString "let x = 1"
+                let reader = XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines Set.empty)
 
-                match XParsec.FSharp.Lexer.Lexing.lexString input with
-                | Error e -> failtestf "Lexing failed: %A" e
-                | Ok lexed ->
-                    let reader = XParsec.FSharp.Parser.Reader.ofParseInput (lexed.WithDefines Set.empty)
-
-                    // Should parse successfully with default (no-op) tracing
-                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
-                    | Error e ->
-                        failtestf
-                            "Parsing failed:\n%s"
-                            (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
-                    | Ok _ -> ()
+                // Should parse successfully with default (no-op) tracing
+                match XParsec.FSharp.Parser.FSharpAst.parse reader with
+                | Error e ->
+                    failtestf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
+                | Ok _ -> ()
             }
         ]
 
@@ -171,53 +158,51 @@ let testSlicedParsing (filePath: string) =
     let input = input.Replace("\r\n", "\n")
 
     // Get token boundaries from the full lex
-    match XParsec.FSharp.Lexer.Lexing.lexString input with
-    | Error _ -> () // If lexing the full file fails, skip (lexer errors are out of scope)
-    | Ok lexed ->
-        // Collect unique character positions at token boundaries (StartIndex of each token)
-        let boundaries =
-            [|
-                yield 0 // empty input
-                for i in 0 .. lexed.Tokens.Length - 1 do
-                    let tok = lexed.Tokens.[i * 1<XParsec.FSharp.Lexer.token>]
-                    let startIdx = tok.StartIndex
+    let lexed = XParsec.FSharp.Lexer.Lexing.lexString input
 
-                    if startIdx > 0 && startIdx <= input.Length then
-                        yield startIdx
-            |]
-            |> Array.distinct
-            |> Array.sort
+    // Collect unique character positions at token boundaries (StartIndex of each token)
+    let boundaries =
+        [|
+            yield 0 // empty input
+            for i in 0 .. lexed.Tokens.Length - 1 do
+                let tok = lexed.Tokens.[i * 1<XParsec.FSharp.Lexer.token>]
+                let startIdx = tok.StartIndex
 
-        let mutable failures = ResizeArray<string>()
+                if startIdx > 0 && startIdx <= input.Length then
+                    yield startIdx
+        |]
+        |> Array.distinct
+        |> Array.sort
 
-        for boundary in boundaries do
-            let slice = input.[.. boundary - 1] // Take first `boundary` characters
+    let mutable failures = ResizeArray<string>()
 
-            match XParsec.FSharp.Lexer.Lexing.lexString slice with
-            | Error _ -> () // Skip lexer failures (incomplete strings, etc.)
-            | Ok slicedLexed ->
-                let reader =
-                    XParsec.FSharp.Parser.Reader.ofParseInput (slicedLexed.WithDefines Set.empty)
+    for boundary in boundaries do
+        let slice = input.[.. boundary - 1] // Take first `boundary` characters
 
-                try
-                    match XParsec.FSharp.Parser.FSharpAst.parse reader with
-                    | Error e ->
-                        failures.Add(
-                            $"  length={boundary}: Error - {XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e}"
-                        )
-                    | Ok _ -> ()
-                with ex ->
-                    failures.Add($"  length={boundary}: Exception - {ex.GetType().Name}: {ex.Message}")
+        let reader =
+            XParsec.FSharp.Parser.Reader.ofParseInput (
+                (XParsec.FSharp.Lexer.Lexing.lexString slice).WithDefines Set.empty
+            )
 
-        if failures.Count > 0 then
-            let details = String.Join("\n", failures)
+        try
+            match XParsec.FSharp.Parser.FSharpAst.parse reader with
+            | Error e ->
+                failures.Add(
+                    $"  length={boundary}: Error - {XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e}"
+                )
+            | Ok _ -> ()
+        with ex ->
+            failures.Add($"  length={boundary}: Exception - {ex.GetType().Name}: {ex.Message}")
 
-            failtestf
-                "Sliced parsing failed for %d of %d boundaries in %s:\n%s"
-                failures.Count
-                boundaries.Length
-                (Path.GetFileName filePath)
-                details
+    if failures.Count > 0 then
+        let details = String.Join("\n", failures)
+
+        failtestf
+            "Sliced parsing failed for %d of %d boundaries in %s:\n%s"
+            failures.Count
+            boundaries.Length
+            (Path.GetFileName filePath)
+            details
 
 [<Tests>]
 let recoveryTests =

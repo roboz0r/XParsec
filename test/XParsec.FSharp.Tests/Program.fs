@@ -30,10 +30,6 @@ let private parseFileMain (path: string) =
             printfn "DIAG %d" n
             testParseFile path
             1
-        | LexError e ->
-            printfn "LEXERR"
-            eprintfn "%s" e
-            2
         | ParseError e ->
             printfn "PARSERR"
             eprintfn "%s" e
@@ -131,7 +127,6 @@ let private corpusMain subDir =
                                     | true, count -> CorpusReport.WithDiagnostics count
                                     | _ -> CorpusReport.WithDiagnostics 0
                                 | _ -> CorpusReport.WithDiagnostics 0
-                            | 2 -> CorpusReport.LexError
                             | 3 -> CorpusReport.ParseError
                             | 4 -> CorpusReport.Timeout
                             | 5 ->

@@ -28,10 +28,7 @@ let private parseDepth (arg: string) =
 let private runTraceChild (size: Fixtures.FixtureSize) (iterations: int) =
     let source = Fixtures.load size
 
-    let lexed =
-        match Lexing.lexString source with
-        | Ok l -> l
-        | Error e -> failwithf "Lexing failed: %A" e
+    let lexed = Lexing.lexString source
 
     // Warm-up so JIT / tiered compilation settles before the trace window.
     for _ in 1..5 do

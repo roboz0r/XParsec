@@ -122,15 +122,13 @@ let thawPublished (store: TypeStore) (source: LexedFile) (decl: Wire.TDecl) : TD
 /// Lex + parse a signature (`.fsi`) source string and return Lexed + a
 /// SignatureFile. Raises on failure.
 let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
-    match Lexing.lexString input with
-    | Result.Error e -> failwithf "lex failed: %A" e
-    | Result.Ok lexed ->
-        let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
+    let lexed = Lexing.lexString input
+    let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
 
-        match FSharpAst.parseSignature reader with
-        | Result.Error e -> failwithf "parse failed: %A" e
-        | Result.Ok(FSharpAst.SignatureFile f) -> lexed, f
-        | Result.Ok ast -> failwithf "unexpected AST: %A" ast
+    match FSharpAst.parseSignature reader with
+    | Result.Error e -> failwithf "parse failed: %A" e
+    | Result.Ok(FSharpAst.SignatureFile f) -> lexed, f
+    | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
 /// The assembly name every freeze in these suites is taken under.
 let testAsm = AssemblyName "TestAsm"

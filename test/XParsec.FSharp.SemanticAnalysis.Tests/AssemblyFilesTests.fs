@@ -49,7 +49,9 @@ let private files (outcomes: UnitOutcome list) : FrozenFile list =
         function
         | UnitOutcome.Analysed u -> u.File
         | UnitOutcome.Failed(leading, rest) ->
-            failtestf "unit failed to parse: %A" [ for e in leading :: rest -> e.Id.Name, e.Failure.Diagnostics ]
+            failtestf
+                "unit failed to parse: %A"
+                [ for e in leading :: rest -> e.Id.Name, FileFault.diagnostics e.Fault ]
     )
 
 /// A file's unresolved-symbol errors — both the bare and the qualified miss say "Unresolved".

@@ -21,10 +21,7 @@ let private dummyTok: Anchor = Anchor.nowhere
 let private nowhereSource: LexedFile =
     {
         Path = AssemblyFilePath.nowhere
-        Lexed =
-            match Lexing.lexString "" with
-            | Result.Ok l -> l
-            | Result.Error e -> failwithf "lex failed: %A" e
+        Lexed = Lexing.lexString ""
     }
 
 /// A provider carrying a `widget` signature file whose `extern` intrinsic declares

@@ -34,14 +34,12 @@ type EndToEndBenchmarks() =
 
     [<Benchmark(Baseline = true)>]
     member _.XParsec() =
-        match Lexing.lexString source with
-        | Error _ -> false
-        | Ok lexed ->
-            let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
+        let lexed = Lexing.lexString source
+        let reader = Reader.ofParseInput (lexed.WithDefines Set.empty)
 
-            match FSharpAst.parse reader with
-            | Ok _ -> true
-            | Error _ -> false
+        match FSharpAst.parse reader with
+        | Ok _ -> true
+        | Error _ -> false
 
     [<Benchmark>]
     member _.FCS() =

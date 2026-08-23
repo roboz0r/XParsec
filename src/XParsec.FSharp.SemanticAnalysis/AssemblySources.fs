@@ -20,9 +20,7 @@ module AssemblySources =
                     Name = AssemblyName parsed.Manifest.Name
                     Target = parsed.Manifest.Target
                 }
-            Units =
-                parsed.Units
-                |> List.map (AssemblyFiles.AssemblyUnit.ofReadUnit parsed.Manifest.Name)
+            Units = parsed.Units |> List.map AssemblyFiles.AssemblyUnit.ofReadUnit
         }
 
     /// `ofParsedManifest` for a caller holding only the path: it reads the manifest itself.

@@ -22,10 +22,7 @@ type LexingBenchmarks() =
         sourceText <- SourceText.ofString source
 
     [<Benchmark(Baseline = true)>]
-    member _.XParsec() =
-        match Lexing.lexString source with
-        | Ok lexed -> lexed.Tokens.Length
-        | Error _ -> -1
+    member _.XParsec() = (Lexing.lexString source).Tokens.Length
 
     [<Benchmark>]
     member _.FCS() =

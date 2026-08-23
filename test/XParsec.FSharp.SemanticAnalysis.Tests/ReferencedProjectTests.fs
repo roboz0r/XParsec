@@ -172,13 +172,7 @@ let tests =
                 // Each `ctx.Intrinsics.*` resolves its name through the provider's ambient
                 // `open Vesper` (no hardcoded namespace) and must equal its `BuiltinTypes.ty*`.
                 let provider, _ = builtProvider.Value
-                let input = ""
-
-                let lexed =
-                    match XParsec.FSharp.Lexer.Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
+                let lexed = XParsec.FSharp.Lexer.Lexing.lexString ""
                 let ctx = PassContext(provider, LexedFile.ofText lexed, testCompiling)
 
                 Expect.equal ctx.Intrinsics.Int BuiltinTypes.tyInt "int"

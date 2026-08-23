@@ -148,16 +148,12 @@ let tests =
             }
 
             // Built by hand: the top-level parser recovers to a tree rather than failing, so
-            // no source produces a failed file. A file with no `Lexed` FAULTS on a positioned
+            // no source produces a failed file. A `Missing` file FAULTS on a positioned
             // diagnostic, so a mistake in the plumbing is a crash, not a plausible bad line.
             test "a failed file's diagnostics resolve against its own token stream" {
                 // No trailing newline, so the end of the file is a column on line 1.
                 let source = "let f () = (1 + 2"
-
-                let lexed =
-                    match Lexing.lexString source with
-                    | Result.Ok lexed -> lexed
-                    | Result.Error e -> failtestf "lex failed: %A" e
+                let lexed = Lexing.lexString source
 
                 let recovered =
                     match ParseChain.parse Set.empty source with
@@ -168,11 +164,12 @@ let tests =
                     AssemblyFiles.failureDiagnostics
                         {
                             Id = AssemblyFileId.ofRelative "broken.fs"
-                            Failure =
-                                {
-                                    Lexed = ValueSome lexed
-                                    Diagnostics = recovered
-                                }
+                            Fault =
+                                FileFault.Unparsed
+                                    {
+                                        Lexed = lexed
+                                        Diagnostics = recovered
+                                    }
                         }
 
                 Expect.isNonEmpty anchored "the failed file's diagnostics came out"
@@ -186,21 +183,19 @@ let tests =
                     (sprintf "resolved against the file's own text: %A" anchored)
             }
 
-            test "a file with no token stream renders its diagnostics at the file head" {
+            // A path the manifest lists but disk does not hold is the one failure carrying no
+            // token stream, lexing being total over the text of anything that is there.
+            test "a file that is not on disk renders its diagnostic at the file head" {
                 let anchored =
                     AssemblyFiles.failureDiagnostics
                         {
-                            Id = AssemblyFileId.ofRelative "unlexable.fs"
-                            Failure =
-                                {
-                                    Lexed = ValueNone
-                                    Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure "unreadable") ]
-                                }
+                            Id = AssemblyFileId.ofRelative "absent.fs"
+                            Fault = FileFault.missing "Pkg" "absent.fs"
                         }
 
                 match anchored with
                 | [ a ] ->
-                    Expect.equal a.Path.Name "unlexable.fs" "anchored to the file"
+                    Expect.equal a.Path.Name "absent.fs" "anchored to the file"
                     Expect.equal (a.Line, a.Col) (1, 1) "the file head"
                 | other -> failtestf "expected one anchored diagnostic, got %A" other
             }

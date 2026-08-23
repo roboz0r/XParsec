@@ -6,7 +6,6 @@ open System.Text
 type CorpusResult =
     | Clean
     | WithDiagnostics of count: int
-    | LexError
     | ParseError
     | Exception of name: string
     | Timeout
@@ -29,13 +28,6 @@ let printReport corpusDir (results: (string * CorpusResult) array) (totalFiles: 
         categorize (
             function
             | WithDiagnostics _ -> true
-            | _ -> false
-        )
-
-    let lexErrors =
-        categorize (
-            function
-            | LexError -> true
             | _ -> false
         )
 
@@ -77,20 +69,11 @@ let printReport corpusDir (results: (string * CorpusResult) array) (totalFiles: 
     w $"Total files:       {totalFiles}"
     w $"Clean (0 diag):    {clean.Length}"
     w $"With diagnostics:  {withDiagnostics.Length}"
-    w $"Lex errors:        {lexErrors.Length}"
     w $"Parse errors:      {parseErrors.Length}"
     w $"Exceptions:        {exceptions.Length}"
     w $"Timeouts:          {timeouts.Length}"
     w $"Crashed:           {crashed.Length}"
     w ""
-
-    if lexErrors.Length > 0 then
-        w "--- Lex Errors ---"
-
-        for (name, _) in lexErrors do
-            w $"  LEXERR  {name}"
-
-        w ""
 
     if parseErrors.Length > 0 then
         w "--- Parse Errors ---"

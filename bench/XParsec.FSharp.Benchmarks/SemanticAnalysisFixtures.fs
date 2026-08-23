@@ -145,7 +145,7 @@ let stageErrorCount (outcomes: AssemblyAnalysis.UnitOutcome list) : int =
         function
         | AssemblyAnalysis.UnitOutcome.Failed(leading, rest) ->
             leading :: rest
-            |> List.collect (fun e -> e.Failure.Diagnostics)
+            |> List.collect (fun (e: AssemblyFiles.UnparsedFile) -> FileFault.diagnostics e.Fault)
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
         // A file that parsed only because RECOVERY patched it is not a green workload

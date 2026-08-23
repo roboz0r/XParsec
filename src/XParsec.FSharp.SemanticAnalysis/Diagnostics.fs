@@ -380,7 +380,6 @@ type Kind =
     | Conformance of assembly: string * verdict: ConformanceVerdict
     /// A fault in the package SET, which has no place in any file being compiled to point at.
     | PackageSet of fault: PackageSetFault
-    | LexFailure of detail: string
     | ParseFailure of detail: string
     /// A refusal by the DRIVER rather than a verdict about the code: a missing target
     /// framework, an unreadable project.
@@ -440,7 +439,6 @@ module Kind =
         // ── This compiler's own published families.
         | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
         | Kind.PackageSet fault -> PackageSetFault.code fault
-        | Kind.LexFailure _ -> DiagCode.Vesper "LEX"
         | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
         | Kind.Driver _ -> DiagCode.Vesper "DRV"
         | Kind.Parse c -> DiagCode.Vesper(DiagnosticCode.code c)
@@ -576,7 +574,6 @@ module Kind =
         | Kind.RedundantDowncast ty -> sprintf "Downcast is redundant, because the static type '%s' already matches" ty
         | Kind.Conformance(assembly, verdict) -> sprintf "%s: %s" assembly (ConformanceVerdict.describe verdict)
         | Kind.PackageSet fault -> PackageSetFault.describe fault
-        | Kind.LexFailure detail -> sprintf "lex error: %s" detail
         | Kind.ParseFailure detail -> sprintf "parse error: %s" detail
         | Kind.Driver message -> message
         | Kind.Parse c -> DiagnosticCode.message c
@@ -633,7 +630,6 @@ module Kind =
         | Kind.IntrinsicNotInScope _
         | Kind.Conformance _
         | Kind.PackageSet _
-        | Kind.LexFailure _
         | Kind.ParseFailure _
         | Kind.Driver _
         | Kind.Parse _

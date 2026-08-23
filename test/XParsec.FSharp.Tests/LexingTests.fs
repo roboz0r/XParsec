@@ -4,6 +4,7 @@ open System
 open System.IO
 
 open Expecto
+open FsCheck
 
 open XParsec
 open XParsec.Parsers
@@ -11,11 +12,106 @@ open XParsec.CharParsers
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 
+/// The lexemes that open, close or escape a lexer context. A source drawn from these reaches
+/// the string, interpolation, comment, directive and numeric contexts, at the depths and in the
+/// truncations a generator over ordinary text would take astronomically long to produce.
+let private lexemes =
+    [|
+        // String and interpolation openers, closers and escapes.
+        "\""
+        "\"\"\""
+        "@\""
+        "$\""
+        "$@\""
+        "@$\""
+        "$\"\"\""
+        "\"B"
+        "\\"
+        "\\n"
+        "\\u0041"
+        "\\x41"
+        "\\065"
+        "{"
+        "}"
+        "{{"
+        "}}"
+        "%d"
+        "%s"
+        "%*d"
+        "%A"
+        "%%"
+        // Comments and directives.
+        "(*"
+        "*)"
+        "//"
+        "#if"
+        "#else"
+        "#endif"
+        "#nowarn"
+        // Identifiers, type parameters and literals.
+        "`"
+        "``"
+        "'"
+        "'a"
+        "0x1F"
+        "0b01"
+        "0o7"
+        "1e"
+        "1.0"
+        "1UL"
+        "let"
+        "a"
+        "A"
+        "1"
+        "_"
+        // Whitespace and delimiters.
+        " "
+        "\n"
+        "\r\n"
+        "\t"
+        "("
+        ")"
+        "["
+        "]"
+        "[|"
+        "|]"
+        "{|"
+        "|}"
+        "->"
+        "<-"
+        "|>"
+        ":"
+        ";"
+        ","
+        "."
+        "|"
+        "&&"
+        "!"
+        "?"
+        "$"
+        "@"
+        "^"
+    |]
 
-let private lexOrFail (source: string) =
-    match lexString source with
-    | Ok lexed -> lexed
-    | Error e -> failtestf "Lexing failed: %A" e
+/// A source string concatenated from `lexemes`.
+type LexerSource = | LexerSource of string
+
+/// Generates from `lexemes` and shrinks as an ordinary string, so a counterexample reduces to
+/// the shortest text that still reproduces it whether or not that text is a whole lexeme.
+let private arbLexerSource =
+    Arb.fromGenShrink (Gen.listOf (Gen.elements lexemes) |> Gen.map (String.concat ""), Arb.shrink)
+    |> Arb.convert LexerSource (fun (LexerSource source) -> source)
+
+/// FsCheck discovers registered generators by reflecting over public static members.
+type LexerArbitraries =
+    static member LexerSource() = arbLexerSource
+
+let private lexerConfig =
+    { FsCheckConfig.defaultConfig with
+        arbitrary = [ typeof<LexerArbitraries> ]
+        maxTest = 2000
+    }
+
 
 [<Tests>]
 let tests =
@@ -26,7 +122,7 @@ let tests =
                 "MentionedDefines"
                 [
                     test "A source without #if mentions nothing" {
-                        let lexed = lexOrFail "let x = 1"
+                        let lexed = lexString "let x = 1"
 
                         Expect.isEmpty lexed.MentionedDefines "No #if line, so no symbol to mention"
 
@@ -37,7 +133,7 @@ let tests =
                     }
 
                     test "Every symbol on a #if line is mentioned" {
-                        let lexed = lexOrFail "#if A || B && !C\n1\n#endif\n"
+                        let lexed = lexString "#if A || B && !C\n1\n#endif\n"
 
                         Expect.equal lexed.MentionedDefines (set [ "A"; "B"; "C" ]) "All three are terms"
                     }
@@ -45,7 +141,7 @@ let tests =
                     test "A symbol only reachable through a skipped branch is mentioned" {
                         // `#if B` sits inside a branch that is never active, so a parse-time
                         // collection would never read it.
-                        let lexed = lexOrFail "#if A\n#if B\n1\n#endif\n#endif\n"
+                        let lexed = lexString "#if A\n#if B\n1\n#endif\n#endif\n"
 
                         Expect.equal lexed.MentionedDefines (set [ "A"; "B" ]) "Lexing sees the whole file"
 
@@ -56,7 +152,7 @@ let tests =
                     }
 
                     test "A symbol the file never references is dropped" {
-                        let lexed = lexOrFail "#if A\n1\n#endif\n"
+                        let lexed = lexString "#if A\n1\n#endif\n"
 
                         Expect.equal
                             (lexed.WithDefines(set [ "A"; "Z" ]))
@@ -65,16 +161,87 @@ let tests =
                     }
 
                     test "A trailing comment on the #if line stays comment text" {
-                        let lexed = lexOrFail "#if A //B\n1\n#endif\n"
+                        let lexed = lexString "#if A //B\n1\n#endif\n"
 
                         Expect.equal lexed.MentionedDefines (set [ "A" ]) "B is comment text"
                     }
 
                     test "A #if inside a block comment stays comment text" {
-                        let lexed = lexOrFail "(*\n#if A\n*)\n"
+                        let lexed = lexString "(*\n#if A\n*)\n"
 
                         Expect.isEmpty lexed.MentionedDefines "The directive's tokens are flagged in-comment"
                     }
+                ]
+
+            testList
+                "Totality"
+                [
+                    // `lexString` returns a `Lexed` for any string, so every truncation of a
+                    // source file is a token stream. A parser that must not fail on a prefix
+                    // rests on this, and so does every caller that holds a `Lexed` without a
+                    // failure arm.
+                    test "A backslash ending an interpolated string closes it as unterminated" {
+                        let expected =
+                            [
+                                0, Token.InterpolatedStringOpen
+                                2, Token.InterpolatedStringFragment
+                                3, Token.UnterminatedInterpolatedString
+                                3, Token.EOF
+                            ]
+                            |> List.map (fun (pos, tok) -> PositionedToken.Create(tok, pos))
+
+                        testLexed "$\"\\" expected
+                    }
+
+                    test "Every prefix of a source using each string form lexes" {
+                        let source =
+                            [
+                                "let a = \"plain \\n \\u0041\""
+                                "let b = @\"verbatim \"\" tail\""
+                                "let c = \"\"\"triple \" tail\"\"\""
+                                "let d = $\"{a}: %d{1} \\\" tail\""
+                                "let e = $@\"{a} tail\""
+                                "let f = $\"\"\"{a} tail\"\"\""
+                                "let g = 'x'"
+                                "let h = ``quoted name``"
+                                "// %s trailing comment"
+                                "(* %d block comment *)"
+                                "#if A"
+                                "let i = 0x1F"
+                                "#endif"
+                            ]
+                            |> String.concat "\n"
+
+                        for i in 0 .. source.Length do
+                            let prefix = source.Substring(0, i)
+                            let lexed = lexString prefix
+                            Expect.equal lexed.Input prefix $"the prefix of length {i} lexed"
+                    }
+
+                    // Every prefix, because truncation is what puts EOF inside each lexer
+                    // context, and a context that cannot end is how totality breaks.
+                    testPropertyWithConfig lexerConfig "Every prefix of any source lexes to a stream ending at EOF"
+                    <| fun (LexerSource source) ->
+                        for i in 0 .. source.Length do
+                            let prefix = source.Substring(0, i)
+                            let lexed = lexString prefix
+                            let tokens = List.ofSeq lexed.Tokens
+
+                            Expect.equal lexed.Input prefix "the stream carries the source it was built from"
+
+                            match tokens with
+                            | [] -> failtestf "%A lexed to no tokens, not even EOF" prefix
+                            | _ ->
+                                let last = List.last tokens
+
+                                Expect.equal last.TokenWithoutCommentFlags Token.EOF $"%A{prefix} ends at EOF"
+                                Expect.equal (int last.StartIndex) i $"%A{prefix} puts EOF at its end"
+
+                                Expect.isTrue
+                                    (tokens
+                                     |> List.pairwise
+                                     |> List.forall (fun (a, b) -> a.StartIndex <= b.StartIndex))
+                                    $"%A{prefix} runs its start indices forward"
                 ]
 
             test "Index" {

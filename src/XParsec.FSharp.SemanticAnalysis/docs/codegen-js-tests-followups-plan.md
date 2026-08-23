@@ -55,19 +55,22 @@ was written from memory rather than from the code.
 `ExternalTypeShape`, that is already correct-by-construction and no action is needed beyond
 the deletion — worth confirming.
 
-## A2. `TestHelpers.jsWalkCtx` swallows a lex failure **[verified]**
+## A2. A lex failure swallowed into `Resolver = ValueNone` **[LANDED]**
 
-```fsharp
-match Lexing.lexString input with
-| Result.Ok lexed -> ValueSome { ... }
-| Result.Error _ -> ValueNone
-```
+`jsWalkCtx` was deleted by interim changes, but the same shape survived in
+`emitWithResolverFor`, and the whole class of defect is now unexpressible: `Lexing.lexString`
+returns a `Lexed` rather than a `Result`.
 
-`jsSource` in the same file does `failwithf "lex failed: %A"`; so does `parseFile`. Here a
-lex failure silently yields `Resolver = ValueNone`, and a test whose input does not lex then
-emits without a source map instead of failing. This is exactly the broken state a deleted
-comment described as a bug a previous hand-built test copy had. Make it `failwithf`, matching
-its two siblings.
+Lexing was total but for one input — a backslash ending a non-verbatim interpolated string
+(`$"\`), where `pSkipInterpolatedFragmentChars` stopped without consuming and then failed the
+whole file. It now consumes the backslash and the string closes as
+`UnterminatedInterpolatedString`, matching the plain-string sibling `"\`. Every other `fail`
+in the lexer sits behind a precondition its dispatcher establishes, so `lex`'s `Error` arm is
+an `invalidOp`.
+
+The 22 call sites lost their failure arms, `Kind.LexFailure` and
+`CorpusParseResult`/`CorpusReport`'s `LexError` are gone, and `ParserTests.testSlicedParsing`
+no longer skips boundaries whose slice would not lex.
 
 ## A3. The `(&&)` anchor test named the wrong producer file, and asserts no file at all **[verified]**
 

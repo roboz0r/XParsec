@@ -192,14 +192,11 @@ let frozenOfJs (input: string) : FrozenPools =
 /// The map's view of a source: its text plus the tokens a frozen node's anchor indexes into.
 /// A test that only has the text re-lexes here; production hands over the front end's `Lexed`.
 let jsSource (path: string) (input: string) : JsSource =
-    match Lexing.lexString input with
-    | Result.Error e -> failwithf "lex failed: %A" e
-    | Result.Ok lexed ->
-        {
-            Path = path
-            Content = input
-            Lexed = lexed
-        }
+    {
+        Path = path
+        Content = input
+        Lexed = Lexing.lexString input
+    }
 
 /// Emit a named program's JS from an ALREADY-frozen tree, through the project shape the
 /// byte-identity gates pin (assembly `name`, `name + ".fsx"` source), stripping the trailing
@@ -459,15 +456,12 @@ let private jsEmissionInputs
     (frozen: FrozenPools)
     : EmitJsContext.EmissionInputs =
     let resolver: EmitJsContext.Resolver =
-        match Lexing.lexString input with
-        | Result.Ok lexed ->
-            ValueSome
-                {
-                    Lexed = lexed
-                    Lines = JsMapSources.LineIndex.build input
-                    Retained = contract.Retained
-                }
-        | Result.Error _ -> ValueNone
+        ValueSome
+            {
+                Lexed = Lexing.lexString input
+                Lines = JsMapSources.LineIndex.build input
+                Retained = contract.Retained
+            }
 
     EmitJsContext.EmissionInputs.create
         resolver

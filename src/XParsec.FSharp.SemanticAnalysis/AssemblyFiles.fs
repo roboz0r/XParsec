@@ -86,13 +86,10 @@ module AssemblyFiles =
             Signature: FrozenSignatureFile voption
         }
 
-    /// A file that never reached analysis: a lex/parse failure, surfaced as a file-level
-    /// error rather than thrown. Later files compose over the ones that did parse.
+    /// A file that never reached analysis, surfaced as a file-level error rather than thrown.
+    /// Later files compose over the ones that did parse.
     type UnparsedFile =
-        {
-            Id: AssemblyFileId
-            Failure: ParseChain.ParseFailure
-        }
+        { Id: AssemblyFileId; Fault: FileFault }
 
     /// A diagnostic anchored to the file it came from: its source path plus a (line, col)
     /// resolved against THAT file's own text.
@@ -179,30 +176,29 @@ module AssemblyFiles =
                 : Result<ParsedFile<'Tree>, UnparsedFile> =
                 match parse compilationDefines file.Text with
                 | Ok parsed -> Ok { Id = file.Id; Parsed = parsed }
-                | Error failure -> Error { Id = file.Id; Failure = failure }
+                | Error failure ->
+                    Error
+                        {
+                            Id = file.Id
+                            Fault = FileFault.Unparsed failure
+                        }
 
             ofHalves
                 (unit.Signature |> ValueOption.map (half ParseChain.parseSignature))
                 (half ParseChain.parse unit.Implementation)
 
         /// A unit of a manifest read, whose halves were parsed when the manifest was read.
-        /// `package` is the compilation name a faulted file's failure message carries.
-        let ofReadUnit (package: string) (unit: ReadSourceUnit) : AssemblyUnit =
+        let ofReadUnit (unit: ReadSourceUnit) : AssemblyUnit =
             let half (file: ReadFile<'Tree>) : Result<ParsedFile<'Tree>, UnparsedFile> =
                 match file.Outcome with
                 | Ok parsed -> Ok { Id = file.Id; Parsed = parsed }
-                | Error fault ->
-                    Error
-                        {
-                            Id = file.Id
-                            Failure = FileFault.toFailure package file.Relative fault
-                        }
+                | Error fault -> Error { Id = file.Id; Fault = fault }
 
             ofHalves (ValueOption.map half unit.Signature) (half unit.Implementation)
 
-    /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so nothing
-    /// resolves a token index against it and they render at line 1, col 1. A POSITIONED
-    /// diagnostic here is unverifiable, so it faults rather than printing a plausible line.
+    /// Diagnostics from a path that yielded no text: nothing resolves a token index against
+    /// it, so they render at line 1, col 1. A POSITIONED diagnostic here is unverifiable, so
+    /// it faults rather than printing a plausible line.
     let unpositionedDiagnostics (path: AssemblyFileId) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         [
             for d in diagnostics do
@@ -216,7 +212,7 @@ module AssemblyFiles =
                     }
                 | positioned ->
                     failwithf
-                        "internal error: %s produced no `Lexed`, so a diagnostic cannot carry a position, but got %A (%s)"
+                        "internal error: %s yielded no text, so a diagnostic cannot carry a position, but got %A (%s)"
                         path.Name
                         positioned
                         d.Message
@@ -262,14 +258,14 @@ module AssemblyFiles =
                 }
         ]
 
-    /// A failed file's diagnostics, anchored against its own token stream when the failure
-    /// came AFTER lexing, and at line 1, col 1 when there is no stream to anchor against.
+    /// A failed file's diagnostics, anchored against its own token stream, and at line 1,
+    /// col 1 for a path that never yielded one.
     let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
-        match e.Failure.Lexed with
+        match e.Fault with
         // No file was analysed, so no assembly claims this one. The source exists only to
         // resolve the positions the parser's diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (LexedFile.unclaimed e.Id lexed) e.Failure.Diagnostics
-        | ValueNone -> unpositionedDiagnostics e.Id e.Failure.Diagnostics
+        | FileFault.Unparsed f -> anchorDiagnostics (LexedFile.unclaimed e.Id f.Lexed) f.Diagnostics
+        | FileFault.Missing d -> unpositionedDiagnostics e.Id [ d ]
 
     /// A `.fsi` half's findings, anchored in its own text: recovery's first, then
     /// resolution's and conformance's.

@@ -29,12 +29,11 @@ module ParseChain =
     /// A parsed signature file: the tree the `.fsi` front end walks.
     type ParsedSignature = Parsed<SignatureFile<SyntaxToken>>
 
-    /// A file no tree came out of. `Lexed` is present iff LEXING succeeded, so the recovery
-    /// diagnostics raised before the parser gave up still have the token stream their
-    /// positions resolve against.
+    /// A file that lexed and got no tree out of the parser. The recovery diagnostics raised
+    /// before the parser gave up resolve their positions against `Lexed`.
     type ParseFailure =
         {
-            Lexed: Lexed voption
+            Lexed: Lexed
             Diagnostics: Diagnostic list
         }
 
@@ -72,7 +71,7 @@ module ParseChain =
 
     /// The parse chain shared by both entry points, lex → reader → AST: `run` is the parser
     /// and `accept` projects the AST case the caller wants, any other case failing as a
-    /// parse failure. Lex/parse failures surface as `Diagnostic`s (never exceptions), and
+    /// parse failure. Parse failures surface as `Diagnostic`s (never exceptions), and
     /// the parser's recovery diagnostics ride out on BOTH arms.
     let private parseAs
         run
@@ -80,36 +79,28 @@ module ParseChain =
         (compilationDefines: Set<string>)
         (source: string)
         : Result<Parsed<'Tree>, ParseFailure> =
-        match Lexing.lexString source with
-        | Result.Error e ->
+        let lexed = Lexing.lexString source
+        let reader = Reader.ofParseInput (lexed.WithDefines compilationDefines)
+
+        let failed (kind: Kind) =
             Error
                 {
-                    Lexed = ValueNone
-                    // A whole-file lex failure has no place in the file to point at.
-                    Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
+                    Lexed = lexed
+                    Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
                 }
-        | Result.Ok lexed ->
-            let reader = Reader.ofParseInput (lexed.WithDefines compilationDefines)
 
-            let failed (kind: Kind) =
-                Error
+        match run reader with
+        | Result.Error e -> failed (Kind.ParseFailure(sprintf "%A" e))
+        | Result.Ok ast ->
+            match accept ast with
+            | ValueSome file ->
+                Ok
                     {
-                        Lexed = ValueSome lexed
-                        Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
+                        Lexed = lexed
+                        Tree = file
+                        Diagnostics = ofParseDiagnostics reader.State.Diagnostics
                     }
-
-            match run reader with
-            | Result.Error e -> failed (Kind.ParseFailure(sprintf "%A" e))
-            | Result.Ok ast ->
-                match accept ast with
-                | ValueSome file ->
-                    Ok
-                        {
-                            Lexed = lexed
-                            Tree = file
-                            Diagnostics = ofParseDiagnostics reader.State.Diagnostics
-                        }
-                | ValueNone -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" ast))
+            | ValueNone -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" ast))
 
     /// The front-end parse chain for an implementation file: a bare-expression
     /// `ScriptFragment` wraps as an `AnonymousModule`. `compilationDefines` are the symbols

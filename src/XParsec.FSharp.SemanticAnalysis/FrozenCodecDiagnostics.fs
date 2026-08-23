@@ -396,9 +396,6 @@ module FrozenCodecDiagnostics =
             w.Write 41uy
             w.Write package
             writeConformanceVerdict w verdict
-        | Kind.LexFailure detail ->
-            w.Write 42uy
-            w.Write detail
         | Kind.ParseFailure detail ->
             w.Write 43uy
             w.Write detail
@@ -529,7 +526,6 @@ module FrozenCodecDiagnostics =
         | 41uy ->
             let package = r.ReadString()
             Kind.Conformance(package, readConformanceVerdict r)
-        | 42uy -> Kind.LexFailure(r.ReadString())
         | 43uy -> Kind.ParseFailure(r.ReadString())
         | 44uy -> Kind.Driver(r.ReadString())
         | 45uy -> Kind.Message(r.ReadString())
