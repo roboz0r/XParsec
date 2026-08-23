@@ -379,15 +379,11 @@ spelling twice. `ClrArtifact` carries its `ProjectInfo` instead of copying two f
 
 These came out of the `a57405a4` review and do not depend on the migration.
 
-**`TypeStore.Quantified` is not arena-shaped** (`TypeStore.fs:183`). Every other per-var fact is
-a parallel array authoritative on the root (`level`, `link`, `units`, `:89-91`) or a rep-keyed
-payload joined in `MergePayloads` (`:185-189`). A bare `HashSet<TyVarId>` is neither, is not
-migrated on union, and forces its only reader to rebuild a set of re-`find`ed roots per call
-(`Unification.fs:947-948`) — which is the only reason `resolveNullLiterals` guards on
-`NullLiterals.Count = 0`. Replace with a `bool[]` set on the root and OR'd on union; the OR is
-exactly what re-`find`ing every id computes today, so the change is behaviour-preserving, and it
-deletes the temp set, the guard, and the doc comment's instruction to read through
-`UnionFind.find`.
+~~**`TypeStore.Quantified` is not arena-shaped**~~ Fixed 2026-08-20. It is a `bool[]`
+authoritative on the root, beside `level` / `link` / `units`, OR'd onto the survivor in
+`UnionFind.union`. `MarkQuantified` is the only writer, so the fact is monotone by construction.
+That deleted `resolveNullLiterals`' per-call set of re-`find`ed roots and its
+`NullLiterals.Count = 0` guard.
 
 ~~**`obj` is minted in three places.**~~ Fixed 2026-08-20 as `BuiltinTypes.tyObj`, which is
 where the other primitive `SemType`s already live (`RuntimeNames` carries keys, not types).

@@ -85,10 +85,11 @@ type TypeStore() =
     let mutable parent: int[] = Array.empty
     let mutable rank: int[] = Array.empty
     // Authoritative ON THE ROOT (a `Rep` from `UnionFind.find`): Rémy level, the
-    // solution link, and the measure carrier.
+    // solution link, the measure carrier, and the quantified flag.
     let mutable level: int[] = Array.empty
     let mutable link: SemType voption[] = Array.empty
     let mutable units: MeasureTerm voption[] = Array.empty
+    let mutable quantified: bool[] = Array.empty
     // Write-once region id, NOT migrated on union, so it stays a per-node cell keyed by
     // raw `TyVarId`.
     let mutable region: RegionId[] = Array.empty
@@ -108,6 +109,7 @@ type TypeStore() =
             level <- growStore level capacity newCap 0
             link <- growStore link capacity newCap ValueNone
             units <- growStore units capacity newCap ValueNone
+            quantified <- growStore quantified capacity newCap false
             region <- growStore region capacity newCap RegionId.Unknown
             capacity <- newCap
 
@@ -119,6 +121,7 @@ type TypeStore() =
         level.[id] <- 0
         link.[id] <- ValueNone
         units.[id] <- ValueNone
+        quantified.[id] <- false
         region.[id] <- RegionId.Unknown
         nextId <- nextId + 1
         LanguagePrimitives.Int32WithMeasure<tyVarId> id
@@ -158,6 +161,12 @@ type TypeStore() =
     member _.Units(r: Rep) : MeasureTerm voption = units.[int r.Id]
     member _.SetUnits(r: Rep, v: MeasureTerm voption) : unit = units.[int r.Id] <- v
 
+    /// True once some binding's `TypeScheme` quantifies this class. Such a class is a type
+    /// PARAMETER of the enclosing signature, so a later pass that settles leftover inference
+    /// vars must leave it free. A union carries the flag onto the surviving root.
+    member _.Quantified(r: Rep) : bool = quantified.[int r.Id]
+    member _.MarkQuantified(r: Rep) : unit = quantified.[int r.Id] <- true
+
     member _.Region(tv: TyVarId) : RegionId = region.[int tv]
     member _.SetRegion(tv: TyVarId, r: RegionId) : unit = region.[int tv] <- r
 
@@ -175,12 +184,6 @@ type TypeStore() =
     /// Default-constraint chains (`default ^T : …`), keyed by representative. A chain is
     /// consumed WHOLESALE, so this family clears per-tv through `Set`.
     member val Defaults = PayloadList<SemType>(fun winner loser -> winner @ loser) with get
-
-    /// Every TyVar some binding's `TypeScheme` quantifies. A member of this set is a type
-    /// PARAMETER of the enclosing signature, so a later pass that settles leftover inference
-    /// vars must leave it free. Roots move under later unions, so read it through
-    /// `UnionFind.find` rather than by identity.
-    member val Quantified = System.Collections.Generic.HashSet<TyVarId>() with get
 
     member this.MergePayloads(winner: Rep, loser: Rep) : unit =
         this.Constraints.Join(winner, loser)
@@ -215,13 +218,15 @@ module UnionFind =
         Rep root
 
     /// Merges the two classes only: `Link` / `Units` / payload are the caller's business.
-    /// The surviving root inherits the `min` of the two roots' levels.
+    /// The surviving root inherits the `min` of the two roots' levels, and is quantified
+    /// when either root was.
     let union (store: TypeStore) (a: TyVarId) (b: TyVarId) : unit =
         let rootA = find store a
         let rootB = find store b
 
         if rootA <> rootB then
             let mergedLevel = min (store.Level rootA) (store.Level rootB)
+            let mergedQuantified = store.Quantified rootA || store.Quantified rootB
 
             let survivor =
                 if store.Rank rootA.Id < store.Rank rootB.Id then
@@ -236,6 +241,9 @@ module UnionFind =
                     rootA
 
             store.SetLevel(survivor, mergedLevel)
+
+            if mergedQuantified then
+                store.MarkQuantified survivor
 
     let inSameClass (store: TypeStore) (a: TyVarId) (b: TyVarId) : bool = find store a = find store b
 

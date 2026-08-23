@@ -268,7 +268,7 @@ module internal UnificationInferGeneralize =
             i <- i + 1
 
         for tv in quantified do
-            store.Quantified.Add tv |> ignore
+            store.MarkQuantified(UnionFind.find store tv)
 
         // `instantiate` swaps these onto fresh substitutions per use site
         // so satisfaction is re-evaluated independently.

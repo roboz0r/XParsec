@@ -933,19 +933,11 @@ module Unification =
     /// A `null` that a scheme quantifies stays free: `let n = null` is `'a when 'a: null`, and
     /// `isNull`'s `null` merged with its own `'T`.
     let private resolveNullLiterals (ctx: PassContext) : unit =
-        match ctx.NullLiterals.Count with
-        | 0 -> ()
-        | _ ->
-            let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
+        for lit in ctx.NullLiterals do
+            let root = UnionFind.find ctx.Store lit.Var
 
-            let quantifiedRoots =
-                HashSet<TyVarId>([ for tv in ctx.Store.Quantified -> (UnionFind.find ctx.Store tv).Id ])
-
-            for lit in ctx.NullLiterals do
-                let root = UnionFind.find ctx.Store lit.Var
-
-                if (ctx.Store.Link root).IsNone && not (quantifiedRoots.Contains root.Id) then
-                    unify ctx lit.Tok (TyVar root.Id) objTy
+            if (ctx.Store.Link root).IsNone && not (ctx.Store.Quantified root) then
+                unify ctx lit.Tok (TyVar root.Id) BuiltinTypes.tyObj
 
     /// For a class, union or record: `EqualitySupport = Custom` ⇒ it must implement the
     /// equatable capability over Self; `ComparisonSupport = Custom` ⇒ the comparable
