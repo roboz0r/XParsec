@@ -83,29 +83,21 @@ type Formatter =
         else
             this.GrowThenCopyString(value)
 
-    /// A `null` value appends `""`, never the word `null`; a field width then pads that
-    /// to all spaces.
-    member this.AppendFormatted(value: 'T) =
+    /// A hole's text under `format` (`null` ⇒ the type's own default), in the invariant
+    /// culture. A `null` value is `""`, never the word `null`.
+    member private _.Formatted(value: 'T, format: string) : string =
         let o = box value
 
-        let s =
-            match o with
-            | :? IFormattable as f -> f.ToString(null, provider)
-            | null -> ""
-            | _ -> o.ToString()
+        match o with
+        | :? IFormattable as f -> f.ToString(format, provider)
+        | null -> ""
+        | _ -> o.ToString()
 
-        this.AppendLiteral(s)
+    member this.AppendFormatted(value: 'T) =
+        this.AppendLiteral(this.Formatted(value, null))
 
     member this.AppendFormatted(value: 'T, format: string) =
-        let o = box value
-
-        let s =
-            match o with
-            | :? IFormattable as f -> f.ToString(format, provider)
-            | null -> ""
-            | _ -> o.ToString()
-
-        this.AppendLiteral(s)
+        this.AppendLiteral(this.Formatted(value, format))
 
     member this.AppendFormatted(value: 'T, alignment: int) =
         let startingPos = this.Pos
@@ -129,35 +121,60 @@ type Formatter =
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    /// 32-bit two's-complement octal. Dedicated because .NET has no octal format string.
-    member this.AppendOctal(value: int, alignment: int) =
+    /// Two's-complement octal. `value` carries the source integer's bits at its own width,
+    /// zero-extended to 64, so the 64-bit two's complement has the digits of the unsigned
+    /// value. Dedicated because .NET has no octal format string.
+    member this.AppendOctal(value: int64, alignment: int) =
         let startingPos = this.Pos
         this.AppendLiteral(Convert.ToString(value, 8))
 
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    member this.AppendUnsigned(value: uint, alignment: int) = this.AppendFormatted(value, alignment)
+    member this.AppendUnsigned(value: uint64, alignment: int) = this.AppendFormatted(value, alignment)
 
-    /// Zero-pads the text written since `startingPos` to a total field of `width`,
-    /// inserting the zeros AFTER any leading sign: `%+08.2f` of `-1.5` ⇒ `-0001.50`.
+    /// F#'s forced-sign prefix (`%+…` / `% …`): a `+` (or ` ` when `space`) ahead of text
+    /// that starts with a digit. A negative value carries its own `-`, and `NaN` /
+    /// `Infinity` take no sign (FSharp.Core's `isNumber`, `printf.fs:966`).
+    member private _.ForceSign(str: string, space: bool) : string =
+        if str.Length > 0 && Char.IsDigit str.[0] then
+            (if space then " " else "+") + str
+        else
+            str
+
+    /// The offset past a leading `-`, `+` or space in the text written since
+    /// `startingPos`. A zero-pad fills after it: `%+08.2f` of `-1.5` ⇒ `-0001.50`.
+    member private this.SignOffset(startingPos: int) : int =
+        if startingPos < this.Pos then
+            match this.Chars.[startingPos] with
+            | '-'
+            | '+'
+            | ' ' -> 1
+            | _ -> 0
+        else
+            0
+
+    /// Whether the text written since `startingPos` is a number: a digit, after an optional
+    /// leading sign. `NaN` and `±Infinity` are not, and F# space-pads those ahead of the
+    /// whole text where a number takes the zero-pad (`%012.2f` of `-infinity` ⇒ `   -Infinity`).
+    member private this.WroteNumber(startingPos: int) : bool =
+        let digitPos = startingPos + this.SignOffset(startingPos)
+        digitPos < this.Pos && Char.IsDigit this.Chars.[digitPos]
+
+    /// Pads the text written since `startingPos` to a total field of `width`: zeros after
+    /// any leading sign for a number, spaces ahead of the whole text otherwise.
     /// Overflow (already ≥ `width`) is a no-op; F# never truncates a zero-pad field.
     member private this.ZeroPadAfterSign(startingPos: int, width: int) =
-        let charsWritten = this.Pos - startingPos
-        let paddingNeeded = width - charsWritten
+        let paddingNeeded = width - (this.Pos - startingPos)
 
         if paddingNeeded > 0 then
-            let signOffset =
-                if charsWritten > 0 then
-                    match this.Chars.[startingPos] with
-                    | '-'
-                    | '+'
-                    | ' ' -> 1
-                    | _ -> 0
-                else
-                    0
+            let isNumber = this.WroteNumber(startingPos)
 
-            let insertAt = startingPos + signOffset
+            let insertAt =
+                if isNumber then
+                    startingPos + this.SignOffset(startingPos)
+                else
+                    startingPos
 
             this.EnsureCapacityForAdditionalChars(paddingNeeded)
 
@@ -165,11 +182,13 @@ type Formatter =
                 .Slice(insertAt, this.Pos - insertAt)
                 .CopyTo(this.Chars.Slice(insertAt + paddingNeeded, this.Chars.Length - (insertAt + paddingNeeded)))
 
-            this.Chars.Slice(insertAt, paddingNeeded).Fill('0')
+            this.Chars.Slice(insertAt, paddingNeeded).Fill(if isNumber then '0' else ' ')
             this.Pos <- this.Pos + paddingNeeded
 
-    /// Dedicated because no .NET float format zero-pads to a total width.
-    member this.AppendZeroPaddedFloat(value: float, format: string, width: int) =
+    /// Dedicated because no .NET float format zero-pads to a total width. `float32` and
+    /// `decimal` format at their own type: widening either to `float` renders different
+    /// digits.
+    member this.AppendZeroPaddedFloat(value: 'T, format: string, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value, format) // the "F<prec>" body, no padding
         this.ZeroPadAfterSign(startingPos, width)
@@ -177,49 +196,36 @@ type Formatter =
     /// `%+0w.pf` / `% 0w.pf`: a forced `+` (or space) on a non-negative number, then a
     /// zero-pad after it. The section format that could do both (`"+0.00;-0.00"`) rounds
     /// half-away, where the `"F<prec>"` body rounds half-to-even.
-    member this.AppendForcedSignZeroPaddedFloat(value: float, format: string, width: int, space: bool) =
+    member this.AppendForcedSignZeroPaddedFloat(value: 'T, format: string, width: int, space: bool) =
         let startingPos = this.Pos
-
-        let str =
-            match box value with
-            | :? IFormattable as f -> f.ToString(format, provider)
-            | _ -> value.ToString()
-
-        let isNumber = not (Double.IsNaN value) && not (Double.IsInfinity value)
-        let isNegative = str.Length > 0 && str.[0] = '-'
-
-        let prefixed =
-            if isNumber && not isNegative then
-                (if space then " " else "+") + str
-            else
-                str
-
-        this.AppendLiteral(prefixed)
+        this.AppendLiteral(this.ForceSign(this.Formatted(value, format), space))
         this.ZeroPadAfterSign(startingPos, width)
 
     /// Dedicated because F#'s left-align + zero-pad fills the RIGHT with zeros
     /// (`%-08.2f` of `1.5` ⇒ `1.500000`), which no .NET format or alignment reproduces.
-    member this.AppendRightZeroPaddedFloat(value: float, format: string, width: int) =
+    /// `NaN` and `±Infinity` take spaces instead (`%-012.2f` of `nan` ⇒ `NaN         `).
+    member this.AppendRightZeroPaddedFloat(value: 'T, format: string, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value, format) // the "F<prec>" body, no padding
         let paddingNeeded = width - (this.Pos - startingPos)
 
         // Overflow (already ≥ width) is a no-op — F# never truncates a zero-pad field.
         if paddingNeeded > 0 then
+            let fill = if this.WroteNumber(startingPos) then '0' else ' '
             this.EnsureCapacityForAdditionalChars(paddingNeeded)
-            this.Chars.Slice(this.Pos, paddingNeeded).Fill('0')
+            this.Chars.Slice(this.Pos, paddingNeeded).Fill(fill)
             this.Pos <- this.Pos + paddingNeeded
 
     /// `%o` output carries no sign, so the pad is a plain left-fill; digits past `width`
     /// are not truncated (`%08o` of `-1` ⇒ 11 digits).
-    member this.AppendZeroPaddedOctal(value: int, width: int) =
+    member this.AppendZeroPaddedOctal(value: int64, width: int) =
         let startingPos = this.Pos
         this.AppendLiteral(Convert.ToString(value, 8))
         this.ZeroPadAfterSign(startingPos, width)
 
     /// `%u` output carries no sign, so the pad is a plain left-fill; digits past `width`
     /// are not truncated (`%05u` of `-1` ⇒ 10 digits).
-    member this.AppendZeroPaddedUnsigned(value: uint, width: int) =
+    member this.AppendZeroPaddedUnsigned(value: uint64, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value)
         this.ZeroPadAfterSign(startingPos, width)
@@ -230,33 +236,17 @@ type Formatter =
     /// The .NET format string is `typeChar.ToString() + precision.ToString()`, as
     /// FSharp.Core's `getFormatForFloat` (`printf.fs:606`), so a garbage precision falls
     /// to .NET's custom-format path byte-for-byte: `%.*f` with `-1` ⇒ `"f-1"`.
-    member this.AppendDynamicPrecisionFloat(value: float, typeChar: char, precision: int, alignment: int) =
+    member this.AppendDynamicPrecisionFloat(value: 'T, typeChar: char, precision: int, alignment: int) =
         this.AppendFormatted(value, alignment, typeChar.ToString() + precision.ToString())
 
     /// A forced-sign float (`%+.*f` / `% .*f` / `%+*.*f`): a non-negative number gets a
     /// leading `+` (or ` ` when `space`) before justification. The section format that
     /// would do it (`"+0.000;-0.000"`) cannot take a runtime precision.
     member this.AppendDynamicPrecisionSignedFloat
-        (value: float, typeChar: char, precision: int, alignment: int, space: bool)
+        (value: 'T, typeChar: char, precision: int, alignment: int, space: bool)
         =
         let fmt = typeChar.ToString() + precision.ToString()
-
-        let str =
-            match box value with
-            | :? IFormattable as f -> f.ToString(fmt, provider)
-            | _ -> value.ToString()
-
-        // NaN / ±∞ take no sign prefix (FSharp.Core's `isNumber`, `printf.fs:966`), and a
-        // negative value already carries its own `-` — read off the formatted text, since
-        // the `>=` operator is int-only here.
-        let isNumber = not (Double.IsNaN value) && not (Double.IsInfinity value)
-        let isNegative = str.Length > 0 && str.[0] = '-'
-
-        let prefixed =
-            if isNumber && not isNegative then
-                (if space then " " else "+") + str
-            else
-                str
+        let prefixed = this.ForceSign(this.Formatted(value, fmt), space)
 
         let startingPos = this.Pos
         this.AppendLiteral(prefixed)

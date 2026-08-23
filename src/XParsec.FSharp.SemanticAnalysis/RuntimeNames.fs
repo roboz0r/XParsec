@@ -312,6 +312,19 @@ module RuntimeNames =
         | IntWidth.NativeInt -> nativeintKey
         | IntWidth.UNativeInt -> unativeintKey
 
+    /// The inverse of `intWidthKey`: the width an integral primitive's identity denotes,
+    /// `ValueNone` for every other type.
+    let intWidthOfKey: TypeKey -> IntWidth voption =
+        let byKey = Dictionary<TypeKey, IntWidth>()
+
+        for w in IntWidth.all do
+            byKey.[intWidthKey w] <- w
+
+        fun k ->
+            match byKey.TryGetValue k with
+            | true, w -> ValueSome w
+            | _ -> ValueNone
+
     // --- Built-in primitive classification -------------------------------------------
     //
     // The shared cores that the consumers classifying a primitive union their own extras

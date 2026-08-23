@@ -93,7 +93,7 @@ module internal UnificationInferLiteralExpr =
                         else
                             match
                                 PrintfSpec.argTypes
-                                    (fun _ -> freshHoleTy ctx (CstKeys.ofExpr e))
+                                    (freshHoleTy ctx (CstKeys.ofExpr e))
                                     ctx.Intrinsics.Unit
                                     ctx.Intrinsics.Unit
                                     p

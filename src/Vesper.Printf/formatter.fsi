@@ -40,33 +40,40 @@ type Formatter =
     /// Dedicated because <c>bool.ToString()</c> capitalises.
     member AppendBool: value: bool * alignment: int -> unit
 
-    /// Append an F# <c>%o</c> hole as 32-bit two's-complement octal in a field of
-    /// <c>alignment</c> chars. Dedicated because .NET has no octal format string.
-    member AppendOctal: value: int * alignment: int -> unit
+    /// Append an F# <c>%o</c> hole as two's-complement octal in a field of <c>alignment</c>
+    /// chars. <c>value</c> is the source integer's bits at its own width, zero-extended to
+    /// 64. Dedicated because .NET has no octal format string.
+    member AppendOctal: value: int64 * alignment: int -> unit
 
-    /// Append an F# <c>%u</c> hole as unsigned decimal in a field of
-    /// <c>alignment</c> chars (the source <c>int</c> bits reinterpreted as <c>uint</c>).
-    member AppendUnsigned: value: uint * alignment: int -> unit
+    /// Append an F# <c>%u</c> hole as unsigned decimal in a field of <c>alignment</c> chars.
+    /// <c>value</c> is the source integer's bits at its own width, reinterpreted unsigned
+    /// and zero-extended to 64 (<c>-1y</c> ⇒ <c>255</c>, <c>-1</c> ⇒ <c>4294967295</c>).
+    member AppendUnsigned: value: uint64 * alignment: int -> unit
 
-    /// Append an F# <c>%08o</c> hole: 32-bit two's-complement octal, zero-padded to a
-    /// total field of <c>width</c> chars. Dedicated because .NET has no octal format
-    /// string; overflowing digits are not truncated (<c>%08o</c> -1 ⇒ 11 digits).
-    member AppendZeroPaddedOctal: value: int * width: int -> unit
+    /// Append an F# <c>%08o</c> hole: two's-complement octal, zero-padded to a total
+    /// field of <c>width</c> chars. Overflowing digits are not truncated
+    /// (<c>%08o</c> -1 ⇒ 11 digits).
+    member AppendZeroPaddedOctal: value: int64 * width: int -> unit
 
     /// Append an F# <c>%05u</c> hole: unsigned decimal, zero-padded to a total field
-    /// of <c>width</c> chars (the source <c>int</c> bits reinterpreted as <c>uint</c>).
-    /// Overflowing digits are not truncated (<c>%05u</c> -1 ⇒ 10 digits, no pad).
-    member AppendZeroPaddedUnsigned: value: uint * width: int -> unit
+    /// of <c>width</c> chars. Overflowing digits are not truncated (<c>%05u</c> -1 ⇒
+    /// 10 digits, no pad).
+    member AppendZeroPaddedUnsigned: value: uint64 * width: int -> unit
 
-    /// Append an F# <c>%0w.pf</c> hole: format the float via <c>format</c> (an
-    /// <c>"F&lt;prec&gt;"</c> string), then zero-pad — after any sign — to a field of
-    /// <c>width</c> chars. Dedicated because no .NET float format zero-pads to a total width.
-    member AppendZeroPaddedFloat: value: float * format: string * width: int -> unit
+    /// Append an F# <c>%0w.pf</c> hole: format <c>value</c> at its own type via
+    /// <c>format</c> (an <c>"F&lt;prec&gt;"</c> string), then zero-pad, after any sign, to a
+    /// field of <c>width</c> chars. <c>NaN</c> and <c>±Infinity</c> space-pad the whole text.
+    member AppendZeroPaddedFloat: value: 'T * format: string * width: int -> unit
 
     /// Append an F# <c>%-0w.pf</c> hole: F#'s left-align + zero-pad fills the RIGHT with
     /// zeros, past the digits, to a field of <c>width</c> chars (<c>%-08.2f</c> of
-    /// <c>1.5</c> ⇒ <c>1.500000</c>). Overflow is a no-op; no truncation.
-    member AppendRightZeroPaddedFloat: value: float * format: string * width: int -> unit
+    /// <c>1.5</c> ⇒ <c>1.500000</c>). <c>NaN</c> and <c>±Infinity</c> take spaces instead.
+    member AppendRightZeroPaddedFloat: value: 'T * format: string * width: int -> unit
+
+    /// Append an F# <c>%+0w.pf</c> / <c>% 0w.pf</c> hole: a forced <c>+</c> (or <c> </c>
+    /// when <c>space</c>) on a non-negative number, then a zero-pad after it to a field of
+    /// <c>width</c> chars. <c>NaN</c> and <c>±Infinity</c> take neither, and space-pad.
+    member AppendForcedSignZeroPaddedFloat: value: 'T * format: string * width: int * space: bool -> unit
 
     /// Append an F# <c>%A</c> hole as copy-pasteable Vesper source, within a column
     /// budget of <c>width</c> chars (0 ⇒ never break — the <c>%0A</c> flat mode) and a
@@ -76,13 +83,13 @@ type Formatter =
     /// Append a float hole with a runtime precision (<c>%.*f</c>/<c>%*.*f</c>/<c>%.*e</c>/
     /// <c>%.*g</c>), justified in a field of <c>alignment</c> chars. <c>typeChar</c> is the
     /// source type letter (<c>'f'</c>/<c>'e'</c>/<c>'E'</c>/<c>'g'</c>/<c>'G'</c>).
-    member AppendDynamicPrecisionFloat: value: float * typeChar: char * precision: int * alignment: int -> unit
+    member AppendDynamicPrecisionFloat: value: 'T * typeChar: char * precision: int * alignment: int -> unit
 
     /// A forced-sign float with a runtime precision (<c>%+.*f</c>/<c>% .*f</c>): a
     /// non-negative number gets a leading <c>+</c> (or <c> </c> when <c>space</c>)
     /// before justification.
     member AppendDynamicPrecisionSignedFloat:
-        value: float * typeChar: char * precision: int * alignment: int * space: bool -> unit
+        value: 'T * typeChar: char * precision: int * alignment: int * space: bool -> unit
 
     /// Guard a <c>%*d</c>-style runtime field width: a negative width throws
     /// <c>ArgumentOutOfRangeException</c> (<c>ParamName = "totalWidth"</c>), as F#'s

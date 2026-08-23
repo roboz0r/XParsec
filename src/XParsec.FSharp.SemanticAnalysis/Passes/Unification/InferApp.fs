@@ -277,21 +277,7 @@ module internal UnificationInferApp =
                         match formatSpecifiers ctx formatArg with
                         | ValueNone -> ValueNone
                         | ValueSome specs ->
-                            // Each family hole's metavar, kept beside its placeholder: once
-                            // the arguments are unified, the pair decides whether the
-                            // placeholder's lowering renders the width it settled on.
-                            let familyHoles = ResizeArray<Lexer.FormatPlaceholder * SemType>()
-
-                            let mint p h =
-                                let ty = freshHoleTy ctx node.Key h
-
-                                match h with
-                                | PrintfSpec.FormatHoleTy.Free -> ()
-                                | _ -> familyHoles.Add(p, ty)
-
-                                ty
-
-                            match PrintfSpec.appliedTypeOf mint specs fam with
+                            match PrintfSpec.appliedTypeOf (freshHoleTy ctx node.Key) specs fam with
                             | ValueNone -> ValueNone
                             | ValueSome(fnTy, fmtTy, _) ->
                                 // Stamp the function node so Elaborate threads the
@@ -355,37 +341,9 @@ module internal UnificationInferApp =
                                     )
                                 | None -> ()
 
-                                // The other cold residual: a one-width form handed a width
-                                // its handler does not take (`%05u` of a `byte`).
-                                let unrenderedWidth =
-                                    familyHoles
-                                    |> Seq.tryFind (fun (p, ty) ->
-                                        not (PrintfHoleForm.rendersWidth p (zonk ctx.Store ty))
-                                    )
-
-                                match unrenderedWidth with
-                                | Some(p, ty) ->
-                                    ctx.Report(
-                                        node.Tok,
-                                        Kind.Message(
-                                            sprintf
-                                                "printf format specifier %s cannot be lowered for %s on this target; it renders %s alone"
-                                                (PrintfHoleForm.renderPlaceholder p)
-                                                (shown ctx.Store ty)
-                                                (match
-                                                    PrintfSpec.holeTyOf p.Type
-                                                    |> ValueOption.bind PrintfSpec.familyDefault
-                                                 with
-                                                 | ValueSome k -> k.Name
-                                                 | ValueNone -> "its own width")
-                                        )
-                                    )
-                                | None -> ()
-
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
                                     not rejectCallback
-                                    && unrenderedWidth.IsNone
                                     && args.Length = PrintfSpec.totalArity specs + idx + 1
                                     && lowerablePlaceholders specs
                                     && (idx = 0
@@ -438,7 +396,6 @@ module internal UnificationInferApp =
                                     && not formatRecovered
                                     && args.Length = idx + 1
                                     && specs.Length >= 1
-                                    && unrenderedWidth.IsNone
                                     && lowerablePlaceholders specs
                                     && specs |> List.forall PrintfSpec.isUnaryConcreteHole
                                     ->

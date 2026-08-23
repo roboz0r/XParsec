@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
@@ -478,113 +479,86 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(eFormatter.Value, name, s))
 
         let appendBool = appendMember "AppendBool" (fun te -> te.Boolean())
-        let appendOctal = appendMember "AppendOctal" (fun te -> te.Int32())
-        let appendUnsigned = appendMember "AppendUnsigned" (fun te -> te.UInt32())
+        // `%o` / `%u` take the argument's own-width bits widened to 64. The octal members
+        // take `int64`, since `Convert.ToString` has no unsigned overload.
+        let appendOctal = appendMember "AppendOctal" (fun te -> te.Int64())
+        let appendUnsigned = appendMember "AppendUnsigned" (fun te -> te.UInt64())
         // `%08o` / `%05u`: same `(value, int32 width)` shape as the space-pad members.
         let appendZeroPaddedOctal =
-            appendMember "AppendZeroPaddedOctal" (fun te -> te.Int32())
+            appendMember "AppendZeroPaddedOctal" (fun te -> te.Int64())
 
         let appendZeroPaddedUnsigned =
-            appendMember "AppendZeroPaddedUnsigned" (fun te -> te.UInt32())
+            appendMember "AppendZeroPaddedUnsigned" (fun te -> te.UInt64())
 
-        // `instance void AppendZeroPaddedFloat(float64, string, int32)` — `%0w.pf`
-        // (value, "F<prec>" body, field width).
-        let appendZeroPaddedFloat =
-            let s = BlobBuilder()
+        // Every generic append member's metadata name and the parameters that follow its
+        // leading `!!0` value. The signature blob is encoded from this table.
+        let genericAppendSig (m: GenericAppend) : string * (SignatureTypeEncoder -> unit) list =
+            let tInt (te: SignatureTypeEncoder) = te.Int32()
+            let tString (te: SignatureTypeEncoder) = te.String()
+            let tChar (te: SignatureTypeEncoder) = te.Char()
+            let tBool (te: SignatureTypeEncoder) = te.Boolean()
 
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    3,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().Double()
-                        pars.AddParameter().Type().String()
-                        pars.AddParameter().Type().Int32()
+            match m with
+            | GenericAppend.Formatted(hasAlignment, hasFormat) ->
+                "AppendFormatted",
+                [
+                    if hasAlignment then
+                        tInt
+                    if hasFormat then
+                        tString
+                ]
+            | GenericAppend.ZeroPaddedFloat -> "AppendZeroPaddedFloat", [ tString; tInt ]
+            | GenericAppend.RightZeroPaddedFloat -> "AppendRightZeroPaddedFloat", [ tString; tInt ]
+            | GenericAppend.ForcedSignZeroPaddedFloat -> "AppendForcedSignZeroPaddedFloat", [ tString; tInt; tBool ]
+            | GenericAppend.DynamicPrecisionFloat -> "AppendDynamicPrecisionFloat", [ tChar; tInt; tInt ]
+            | GenericAppend.DynamicPrecisionSignedFloat ->
+                "AppendDynamicPrecisionSignedFloat", [ tChar; tInt; tInt; tBool ]
+            | GenericAppend.Structured -> "AppendStructured", [ tInt; tInt ]
+
+        // `MemberRef` and `MethodSpec` rows are appended rather than deduplicated, so both
+        // tokens are memoised: one open member ref per member, and one `MethodSpec` per
+        // (member, value type), however many holes call it.
+        let openGenericAppends = Dictionary<GenericAppend, EntityHandle>()
+
+        let genericAppendSpecs =
+            Dictionary<struct (GenericAppend * FrozenType), EntityHandle>()
+
+        let openGenericAppend (m: GenericAppend) : EntityHandle =
+            match openGenericAppends.TryGetValue m with
+            | true, handle -> handle
+            | _ ->
+                let name, tail = genericAppendSig m
+                let s = BlobBuilder()
+
+                BlobEncoder(s)
+                    .MethodSignature(genericParameterCount = 1, isInstanceMethod = true)
+                    .Parameters(
+                        1 + List.length tail,
+                        (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                        (fun (pars: ParametersEncoder) ->
+                            pars.AddParameter().Type().GenericMethodTypeParameter(0)
+
+                            for encodeParam in tail do
+                                encodeParam (pars.AddParameter().Type())
+                        )
                     )
-                )
 
-            toEntity (ctx.MemberRef(eFormatter.Value, "AppendZeroPaddedFloat", s))
+                let handle = toEntity (ctx.MemberRef(eFormatter.Value, name, s))
+                openGenericAppends.[m] <- handle
+                handle
 
-        // `instance void AppendRightZeroPaddedFloat(float64, string, int32)` — `%-0w.pf`
-        // (value, "F<prec>" body, field width).
-        let appendRightZeroPaddedFloat =
-            let s = BlobBuilder()
+        let appendGeneric (m: GenericAppend, ty: FrozenType) : EntityHandle =
+            let key = struct (m, ty)
 
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    3,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().Double()
-                        pars.AddParameter().Type().String()
-                        pars.AddParameter().Type().Int32()
-                    )
-                )
-
-            toEntity (ctx.MemberRef(eFormatter.Value, "AppendRightZeroPaddedFloat", s))
-
-        // `instance void AppendForcedSignZeroPaddedFloat(float64, string, int32, bool)` —
-        // `%+0w.pf`/`% 0w.pf` (value, "F<prec>" body, field width, space flag).
-        let appendForcedSignZeroPaddedFloat =
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    4,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().Double()
-                        pars.AddParameter().Type().String()
-                        pars.AddParameter().Type().Int32()
-                        pars.AddParameter().Type().Boolean()
-                    )
-                )
-
-            toEntity (ctx.MemberRef(eFormatter.Value, "AppendForcedSignZeroPaddedFloat", s))
-
-        // `instance void AppendDynamicPrecisionFloat(float64, char, int32, int32)` —
-        // `%.*f`/`%*.*f`/`%.*e`/`%.*g` (value, type letter, runtime precision, field width).
-        let appendDynamicPrecisionFloat =
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    4,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().Double()
-                        pars.AddParameter().Type().Char()
-                        pars.AddParameter().Type().Int32()
-                        pars.AddParameter().Type().Int32()
-                    )
-                )
-
-            toEntity (ctx.MemberRef(eFormatter.Value, "AppendDynamicPrecisionFloat", s))
-
-        // `instance void AppendDynamicPrecisionSignedFloat(float64, char, int32, int32, bool)` —
-        // `%+.*f`/`% .*f`/`%+*.*f` (value, 'f', runtime precision, field width, space flag).
-        let appendDynamicPrecisionSignedFloat =
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    5,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().Double()
-                        pars.AddParameter().Type().Char()
-                        pars.AddParameter().Type().Int32()
-                        pars.AddParameter().Type().Int32()
-                        pars.AddParameter().Type().Boolean()
-                    )
-                )
-
-            toEntity (ctx.MemberRef(eFormatter.Value, "AppendDynamicPrecisionSignedFloat", s))
+            match genericAppendSpecs.TryGetValue key with
+            | true, handle -> handle
+            | _ ->
+                let inst = BlobBuilder()
+                let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
+                encodeType (specEnc.AddArgument()) ty
+                let handle = toEntity (ctx.MethodSpec(openGenericAppend m, inst))
+                genericAppendSpecs.[key] <- handle
+                handle
 
         let consoleGetter (name: string) : EntityHandle =
             let s = BlobBuilder()
@@ -598,58 +572,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 )
 
             toEntity (ctx.MemberRef(eConsole.Value, name, s))
-
-        // The overload is selected by which optional params are present (alignment before format,
-        // matching the C# declaration), then `<T>` is bound.
-        let appendFormatted (ty: FrozenType, hasAlignment: bool, hasFormat: bool) : EntityHandle =
-            let paramCount = 1 + (if hasAlignment then 1 else 0) + (if hasFormat then 1 else 0)
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(genericParameterCount = 1, isInstanceMethod = true)
-                .Parameters(
-                    paramCount,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().GenericMethodTypeParameter(0)
-
-                        if hasAlignment then
-                            pars.AddParameter().Type().Int32()
-
-                        if hasFormat then
-                            pars.AddParameter().Type().String()
-                    )
-                )
-
-            let memberRef = ctx.MemberRef(eFormatter.Value, "AppendFormatted", s)
-            let inst = BlobBuilder()
-            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
-            encodeType (specEnc.AddArgument()) ty
-            toEntity (ctx.MethodSpec(toEntity memberRef, inst))
-
-        // `instance void AppendStructured<T>(!!0, int32, int32)` — `%A`. A member ref to the
-        // open generic method + a `MethodSpec` binding `<T = ty>` per hole; the two `int32`s
-        // are the print-width then the print-size budget the walker pushes.
-        let appendStructured (ty: FrozenType) : EntityHandle =
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(genericParameterCount = 1, isInstanceMethod = true)
-                .Parameters(
-                    3,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                    (fun (pars: ParametersEncoder) ->
-                        pars.AddParameter().Type().GenericMethodTypeParameter(0)
-                        pars.AddParameter().Type().Int32()
-                        pars.AddParameter().Type().Int32()
-                    )
-                )
-
-            let memberRef = ctx.MemberRef(eFormatter.Value, "AppendStructured", s)
-            let inst = BlobBuilder()
-            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
-            encodeType (specEnc.AddArgument()) ty
-            toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
         // `static int32 M(int32)` — the star-width guard / clamp helpers.
         let staticIntToInt (name: string) : EntityHandle =
@@ -675,22 +597,20 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             ToStringAndClear = toStringAndClear
             ConsoleOut = consoleGetter "get_Out"
             ConsoleError = consoleGetter "get_Error"
-            AppendFormatted = appendFormatted
+            AppendGeneric = appendGeneric
             AppendBool = appendBool
             AppendOctal = appendOctal
             AppendUnsigned = appendUnsigned
             AppendZeroPaddedOctal = appendZeroPaddedOctal
             AppendZeroPaddedUnsigned = appendZeroPaddedUnsigned
-            AppendZeroPaddedFloat = appendZeroPaddedFloat
-            AppendRightZeroPaddedFloat = appendRightZeroPaddedFloat
-            AppendForcedSignZeroPaddedFloat = appendForcedSignZeroPaddedFloat
-            AppendDynamicPrecisionFloat = appendDynamicPrecisionFloat
-            AppendDynamicPrecisionSignedFloat = appendDynamicPrecisionSignedFloat
-            AppendStructured = appendStructured
             GuardTotalWidth = staticIntToInt "GuardTotalWidth"
             ClampWidth = staticIntToInt "ClampWidth"
             NormalizePrecision = staticIntToInt "NormalizePrecision"
         }
+
+    /// One set per assembly. A `MemberRef` row is appended rather than deduplicated, so a
+    /// rebuild per `TExpr.Format` node would emit the whole handler ABI again for each one.
+    let formatHandles = lazy (buildFormatHandles ())
 
     // Resolved per call: Core's own `TypeDef` when compiling Core, else the `TypeRef`
     // through Core's `AssemblyRef`.
@@ -898,7 +818,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.FlatFunInterfaceSpecN(tys) = flatFunInterfaceSpecN tys
     member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(binding, fnTy) = emitExternalCall binding fnTy
-    member _.BuildFormatHandles() = buildFormatHandles ()
+    member _.BuildFormatHandles() = formatHandles.Value
     member _.FormatSinkHandles = formatSinkHandles.Value
     member _.StructuralFormatSignature() = structuralFormatSignature ()
     member _.StructuralFormattableInterface = eStructuralFormattable ()

@@ -55,37 +55,6 @@ module PrintfSpec =
         | "sprintf" -> ValueSome PrintfSink.StringResult
         | _ -> ValueNone
 
-    /// The CLR `Vesper.Formatter` handler member a hole dispatches to. A hole's
-    /// type alone can't pick one (`%o` and `%u` are both `int`-typed).
-    [<RequireQualifiedAccess>]
-    type HoleKind =
-        /// `AppendFormatted<Ty>(v [,alignment] [,format])`.
-        | Formatted
-        /// `AppendBool(v, alignment)` — lowercase `true`/`false`; `bool.ToString`
-        /// capitalises, so `Formatted` cannot produce it.
-        | BoolText
-        /// `AppendUnsigned(v, alignment)` — the `int` argument's bits
-        /// reinterpreted as `uint` (F# `%u`).
-        | Unsigned
-        /// `AppendOctal(v, alignment)` — `Convert.ToString(v, 8)` (.NET has no
-        /// octal format string); two's-complement for negatives, matching F#.
-        | Octal
-        /// `AppendZeroPaddedUnsigned(v, width)` — F# `%05u`: unsigned decimal,
-        /// zero-padded to a total field of `width` (which rides in the alignment slot).
-        | UnsignedZeroPad
-        /// `AppendZeroPaddedOctal(v, width)` — F# `%08o`: two's-complement octal,
-        /// zero-padded to a total field of `width` (which rides in the alignment slot).
-        | OctalZeroPad
-        /// `AppendZeroPaddedFloat(v, format, width)` — F# `%0w.pf`: format via an
-        /// `"F<prec>"` string, then zero-pad AFTER ANY SIGN to a total field of `width`.
-        | ZeroPaddedFloat
-        /// `AppendRightZeroPaddedFloat(v, format, width)` — F# `%-0w.Nf`: F#'s
-        /// left-align plus zero-pad fills the RIGHT, past the digits, out to `width`.
-        | RightZeroPaddedFloat
-        /// `AppendStructured<v>(v, widthBudget, sizeBudget)` — F# `%A`: a runtime engine
-        /// renders the value as copy-pasteable source, the two budgets off the placeholder.
-        | Structured
-
     /// `%a` and `%t` — the only letters typed from the family's `'State`/`'Residue`
     /// rather than from a standalone value.
     let isCallbackHole (t: FormatType) : bool =
@@ -136,8 +105,7 @@ module PrintfSpec =
         | FormatHoleTy.FloatFamily -> ValueSome RuntimeNames.floatFormatKeys
 
     /// The width a family settles on where nothing else pins it.
-    let familyDefault (h: FormatHoleTy) : TypeKey voption =
-        familyWidths h |> ValueOption.map (fun ks -> ks.Underlying.[0])
+    let familyDefault (widths: EqArray<TypeKey>) : TypeKey = widths.Underlying.[0]
 
     /// The SemType of the VALUE argument a plain-value letter consumes.
     let private argType (mint: FormatHoleTy -> SemType) (t: FormatType) : SemType =
@@ -154,18 +122,18 @@ module PrintfSpec =
     /// Every argument a placeholder consumes, in APPLICATION order: one `int` per `Star`
     /// dimension (width before precision, `sprintf "%*.*f" w p v`), then the value.
     let argTypes
-        (mint: FormatPlaceholder -> FormatHoleTy -> SemType)
+        (mint: FormatHoleTy -> SemType)
         (state: SemType)
         (residue: SemType)
         (p: FormatPlaceholder)
         : SemType list voption =
         match p.Type with
         | FormatType.FormatFunction ->
-            let tv = mint p FormatHoleTy.Free
+            let tv = mint FormatHoleTy.Free
             ValueSome [ TyFun(state, TyFun(tv, residue)); tv ]
         | FormatType.Text -> ValueSome [ TyFun(state, residue) ]
         | _ ->
-            let value = argType (mint p) p.Type
+            let value = argType mint p.Type
 
             let starDim d =
                 match d with
@@ -332,7 +300,7 @@ module PrintfSpec =
     let totalArity (specs: FormatPlaceholder list) : int =
         specs
         |> List.sumBy (fun p ->
-            match argTypes (fun _ _ -> tyUnit) tyUnit tyUnit p with
+            match argTypes (fun _ -> tyUnit) tyUnit tyUnit p with
             | ValueSome ts -> ts.Length
             | ValueNone -> 0
         )
@@ -341,7 +309,7 @@ module PrintfSpec =
     /// type computed on the way. Star dimensions fold their leading `int`s in, so the
     /// printer curries width and precision ahead of the value.
     let appliedTypeOf
-        (mint: FormatPlaceholder -> FormatHoleTy -> SemType)
+        (mint: FormatHoleTy -> SemType)
         (specs: FormatPlaceholder list)
         (fam: Family)
         : (SemType * SemType * SemType) voption =
@@ -368,7 +336,7 @@ module PrintfSpec =
     /// annotation rather than an application, where the position already fixes
     /// `state`/`residue`/`result`. The printer alone: the caller keeps its own format type.
     let printerFromSlots
-        (mint: FormatPlaceholder -> FormatHoleTy -> SemType)
+        (mint: FormatHoleTy -> SemType)
         (specs: FormatPlaceholder list)
         (state: SemType)
         (residue: SemType)

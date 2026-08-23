@@ -51,10 +51,8 @@ let private tyHole (n: int) : SemType =
 
 /// A `PrintfSpec.argTypes` mint that appends every family it is asked for to `requested`,
 /// so a test reads the seam rather than the type a real mint would produce.
-let private recordingMint
-    (requested: ResizeArray<PrintfSpec.FormatHoleTy>)
-    : FormatPlaceholder -> PrintfSpec.FormatHoleTy -> SemType =
-    fun _ h ->
+let private recordingMint (requested: ResizeArray<PrintfSpec.FormatHoleTy>) : PrintfSpec.FormatHoleTy -> SemType =
+    fun h ->
         requested.Add h
         tyHole requested.Count
 
@@ -190,12 +188,14 @@ let tests =
 
             test "familyWidths: the default LEADS the choices" {
                 Expect.equal
-                    (PrintfSpec.familyDefault PrintfSpec.FormatHoleTy.IntegerFamily)
+                    (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.IntegerFamily
+                     |> ValueOption.map PrintfSpec.familyDefault)
                     (ValueSome RuntimeNames.intKey)
                     "integer family defaults to int"
 
                 Expect.equal
-                    (PrintfSpec.familyDefault PrintfSpec.FormatHoleTy.FloatFamily)
+                    (PrintfSpec.familyWidths PrintfSpec.FormatHoleTy.FloatFamily
+                     |> ValueOption.map PrintfSpec.familyDefault)
                     (ValueSome RuntimeNames.floatKey)
                     "float family defaults to float"
 
@@ -417,11 +417,21 @@ let tests =
                     (sprintf "expected the family refusal, got: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
             }
 
-            test "a one-width form is a residual outside its default width" {
-                // `%05u` and `%08.2f` reach a fixed-width handler, so a wider argument is a
-                // cold residual rather than a type error.
-                rejectsResidual "%05u" "let r = printfn \"%05u\" 200uy"
-                rejectsResidual "%08.2f" "let r = printfn \"%08.2f\" 1.5f"
+            test "the zero-pad forms take any width of their family" {
+                for src in
+                    [
+                        "let r = sprintf \"%05u\" 200uy"
+                        "let r = sprintf \"%05u\" -1L"
+                        "let r = sprintf \"%08o\" -1y"
+                        "let r = sprintf \"%08.2f\" 1.5f"
+                        "let r = sprintf \"%08.2f\" 1.5M"
+                        "let r = sprintf \"%-08.2f\" 1.5f"
+                        "let r = sprintf \"%+08.2f\" 1.5M"
+                        "let r = sprintf \"%.*f\" 2 1.5f"
+                    ] do
+                    let tast = analyse src
+                    Expect.equal (lastDeclType tast) tyString (sprintf "%s : string" src)
+                    Expect.isEmpty tast.Diagnostics (sprintf "%s : no diagnostics" src)
             }
 
             test "%A and %O arguments unify with the supplied value" {

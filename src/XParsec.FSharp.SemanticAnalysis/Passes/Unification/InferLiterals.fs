@@ -197,22 +197,21 @@ module internal UnificationInferLiterals =
         let tv = freshTyVar ctx
         let root = UnionFind.find ctx.Store tv
 
-        let family (choices: EqArray<TypeKey>) (dflt: SemType) =
+        let family (widths: EqArray<TypeKey>) =
             ctx.Store.Constraints.Append(
                 root,
                 {
-                    Kind = SemanticConstraintKind.OneOf choices
+                    Kind = SemanticConstraintKind.OneOf widths
                     DeclKey = declKey
                 }
             )
 
-            ctx.Store.Defaults.Append(root, dflt)
+            ctx.Store.Defaults.Append(root, TyConst(PrintfSpec.familyDefault widths, EqArray.empty))
             ctx.FormatHoles.Add tv
 
-        match h with
-        | PrintfSpec.FormatHoleTy.Free -> ()
-        | PrintfSpec.FormatHoleTy.IntegerFamily -> family RuntimeNames.integerFormatKeys BuiltinTypes.tyInt
-        | PrintfSpec.FormatHoleTy.FloatFamily -> family RuntimeNames.floatFormatKeys BuiltinTypes.tyFloat
+        match PrintfSpec.familyWidths h with
+        | ValueNone -> ()
+        | ValueSome widths -> family widths
 
         TyVar tv
 
@@ -235,8 +234,7 @@ module internal UnificationInferLiterals =
         | TyClass(fmtKey, args) when fmtKey = RuntimeNames.printfFormatKey && args.Length = 4 ->
             match formatSpecifiers ctx litExpr with
             | ValueSome specs ->
-                let mint _ =
-                    freshHoleTy ctx (CstKeys.ofExpr litExpr)
+                let mint = freshHoleTy ctx (CstKeys.ofExpr litExpr)
 
                 match PrintfSpec.printerFromSlots mint specs args.[1] args.[2] args.[3] with
                 | ValueSome printer ->

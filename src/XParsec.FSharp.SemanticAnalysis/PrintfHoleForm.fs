@@ -38,9 +38,9 @@ module PrintfHoleForm =
     type Radix =
         /// `%x` / `%X`: the `upper` flag is the digit case (`'a'` vs `'A'`).
         | Hex of upper: bool
-        /// `%B`: .NET 8 binary; two's-complement for negatives.
+        /// `%B`: binary; two's-complement for negatives.
         | Binary
-        /// `%o`: `Convert.ToString(v, 8)`; two's-complement for negatives.
+        /// `%o`: base 8; two's-complement for negatives.
         | Octal
 
     /// A non-`%A` hole's per-value formatting, semantically.
@@ -54,8 +54,9 @@ module PrintfHoleForm =
         /// `%x`/`%X`/`%B`/`%o`: unsigned integer in `radix`. `zeroPad = Some w`
         /// zero-pads to a total field of `w` (F# zero-pads octal too, e.g. `%08o`).
         | IntRadix of radix: Radix * zeroPad: int option
-        /// `%u`: the source `int`'s bits reinterpreted unsigned. `zeroPad = Some w`
-        /// zero-pads to a total field of `w` (`%05u`; overflowing digits are not truncated).
+        /// `%u`: the source integer's bits, at its own width, reinterpreted unsigned.
+        /// `zeroPad = Some w` zero-pads to a total field of `w` (`%05u`; overflowing digits
+        /// are not truncated).
         | Unsigned of zeroPad: int option
         /// `%b`: lowercase `true` / `false`.
         | Bool
@@ -448,48 +449,3 @@ module PrintfHoleForm =
             // provider-resolved sink type.
             | FormatType.FormatFunction -> ValueSome(HoleForm.Callback true)
             | FormatType.Text -> ValueSome(HoleForm.Callback false)
-
-    /// Whether a form hands its value to a general formatter, which renders every width the
-    /// value's family admits. The rest compose their own text — octal and unsigned decimal
-    /// have no format string, and the zero-pad and runtime-precision floats pad or splice
-    /// around one — so each is lowered by a handler of ONE width.
-    let rendersAnyWidth (form: HoleForm) : bool =
-        match form with
-        | HoleForm.PercentA _
-        | HoleForm.Callback _ -> true
-        | HoleForm.Field(fmt, _) ->
-            match fmt with
-            | FieldFormat.Verbatim
-            | FieldFormat.DecimalZeroPad _
-            | FieldFormat.Bool
-            | FieldFormat.IntRadix((Radix.Hex _ | Radix.Binary), _)
-            | FieldFormat.Fixed(Prec.Const _)
-            | FieldFormat.Exponential(Prec.Const _, _)
-            | FieldFormat.Compact(Prec.Const _, _) -> true
-            // `%+d` / `% d` / `%+05d` ride a .NET section format; the float sign forms reach
-            // the dynamic-precision handler instead.
-            | FieldFormat.ForcedSign(_, _, typeChar, _) -> typeChar = 'd'
-            | FieldFormat.IntRadix(Radix.Octal, _)
-            | FieldFormat.Unsigned _
-            | FieldFormat.FixedZeroPad _
-            | FieldFormat.FixedRightZeroPad _
-            | FieldFormat.ExpCompactZeroPad _
-            | FieldFormat.Fixed Prec.Star
-            | FieldFormat.Exponential(Prec.Star, _)
-            | FieldFormat.Compact(Prec.Star, _) -> false
-
-    /// Whether `p`'s lowering renders a value of type `valueTy` (zonked). A one-width form
-    /// renders its family's default alone, so `%05u` on a `byte` and `%08.2f` on a `float32`
-    /// are refused where `%u` and `%.2f` take either. A still-free metavar will settle on
-    /// that same default.
-    let rendersWidth (p: FormatPlaceholder) (valueTy: SemType) : bool =
-        match tryClassify p with
-        | ValueNone -> true
-        | ValueSome form ->
-            rendersAnyWidth form
-            || match PrintfSpec.holeTyOf p.Type |> ValueOption.bind PrintfSpec.familyDefault with
-               | ValueNone -> true
-               | ValueSome dflt ->
-                   match valueTy with
-                   | TyConst(k, args) -> args.IsEmpty && k = dflt
-                   | _ -> true

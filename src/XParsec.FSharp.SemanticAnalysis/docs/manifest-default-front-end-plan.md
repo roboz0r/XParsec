@@ -1,10 +1,10 @@
 # Manifest-driven analysis as the only front end
 
-Status: revised 2026-08-20. Everything under "Landed already" has landed, and so have all six
+Status: revised 2026-08-23. Everything under "Landed already" has landed, and so have all six
 steps of the staged plan and every independent finding. This revision replaces the earlier
 gated/ungated pair with an `analyse` / `compile` split, and carries the type names the
-source-identity rename settled on. The one residual is the printf one-width handler members,
-recorded at the end of "Independent findings".
+source-identity rename settled on. The printf one-width residual is closed, recorded at the end
+of "Independent findings"; what it left behind is a JS-only finding with its own doc.
 
 ## Root cause
 
@@ -427,15 +427,62 @@ unresolved TyVar in the second. `ctx.FormatHoles` records every family hole and
 sweep over every root carrying a default was tried first and is wrong: it grounds a CLASS typar,
 which turned `Box<'T>.Plus`'s "does not support the operator '+'" into silent `int` arithmetic.
 
-**A one-width handler is a cold residual, not a type error.** `%u` and `%o` have no .NET format
-string, and the zero-pad and runtime-precision floats compose their own text, so each is lowered
-by a handler of ONE width; every other form hands its value to a general formatter, which
-renders any width. `PrintfHoleForm.rendersAnyWidth` states that split target-neutrally and
-`rendersWidth` applies it to the settled hole type, so `%05u` of a `byte` joins `%0*d` on the
-existing "cannot be lowered on this target" residual instead of emitting a handler call its
-argument does not fit. Closing that residual means per-width handler members on
-`Vesper.Formatter` (a `uint64` octal and unsigned decimal, and generic `'T` float zero-pads —
-`decimal` must not be widened to `float`, which the F# oracle confirms formats at its own type).
+~~**A one-width handler is a cold residual, not a type error.**~~ Fixed 2026-08-23, by deleting
+the residual rather than by widening the gate. `PrintfHoleForm.rendersAnyWidth` / `rendersWidth`
+and the `InferApp` diagnostic under them are gone, and so is `PrintfSpec.HoleKind`, which moved
+into `ClrHoleFormat` (and became `HoleCall`, below) where its only consumers live. All three
+stated a CLR handler table from inside the target-neutral project, and the JS backend's table
+differs — see
+[js-printf-integer-width-plan.md](../../XParsec.FSharp.Codegen.Js/docs/js-printf-integer-width-plan.md).
+
+Per TYPE rather than per width, the residual was three problems and none of them wanted a tag:
+
+- **`%u` / `%o`.** The type picks a CONVERSION. The unsigned reinterpretation at the value's own
+  width, zero-extended to 64, prints the same digits as the narrow value (oracle: `%u` of `-1y`
+  is `255`, of `-1` is `4294967295`, of `-1L` is `18446744073709551615`), so `uint64` is a
+  lossless normal form and the ten widths collapse to one handler. `EmitFormat.widenToUnsigned64`
+  emits the `conv` pair off `hole.Ty`, reading its width through `RuntimeNames.intWidthOfKey` —
+  the inverse of `intWidthKey` — so `truncateToOwnWidth` is an exhaustive match on `IntWidth`
+  and a new width is a compile error rather than a run-time `failwith`. The octal members take
+  `int64`, because `Convert.ToString` has no unsigned overload and the 64-bit two's complement
+  has the same octal digits.
+- **The composing float forms.** Their bodies never read the type — each is
+  `value.ToString(fmt, invariant)` plus text manipulation — so all five became generic `'T`, as
+  `AppendFormatted<'T>` and `AppendStructured<'T>` already were. `decimal` and `float32` format
+  at their own type; the `Double.IsNaN`/`IsInfinity` sign guard became `Formatter.ForceSign`,
+  which reads the formatted text.
+- **`%0*d` / `%0*A`.** Still residual. They have no static width at all, which is unrelated to
+  type.
+
+A runtime DU of tagged widths was considered and rejected: the only thing it adds is closing the
+set of accepted types, which `SemanticConstraintKind.OneOf integerFormatKeys / floatFormatKeys`
+already guarantees before codegen sees the hole.
+
+All seven generic append members — the five float ones plus `AppendFormatted` and
+`AppendStructured` — are keyed by `GenericAppend`, a DU naming the member, so `FormatHandles`
+carries one `AppendGeneric: GenericAppend * FrozenType -> EntityHandle` in place of seven
+function-typed fields. `ClrRecipes.genericAppendSig` is the single name-and-parameters table the
+signature blob is encoded from, so the parameter count cannot drift from the parameters.
+
+`MetadataBuilder.AddMemberReference` and `AddMethodSpecification` append a row rather than
+deduplicating, so both tokens are memoised and `buildFormatHandles` itself runs once per
+assembly: an assembly carries one row per member and one `MethodSpec` per (member, value type),
+however many holes call it. Before that it rebuilt the whole handler ABI per `TExpr.Format` node
+and minted a generic member ref per hole. The byte-identity goldens are opaque hashes and cannot
+see either, so `PrintfHappyPathTests` pins the row counts through
+`MetadataStructure.memberRefRowCount`.
+
+**One dispatch, in the backend that owns the ABI.** `ClrHoleFormat` projects a `FieldFormat` to
+`HoleCall`, a DU whose payload is the operands the chosen member takes, and `EmitFormat` pushes
+them in one flat match. Before that the decision was split: `EmitFormat` peeled the three float
+special cases off a `FieldFormat` and `toDotNetFormat` handled the rest, returning a
+`HoleKind * string option * Alignment` triple whose third slot meant a total width for the
+zero-pad kinds and a field alignment for the others. The consumer paid for that by re-matching
+`Alignment.Const`, re-matching the format `Some`, and rejecting a `HoleKind.Structured` no
+producer emitted; `toDotNetFormat` in turn threw when a forced-sign float reached it, an
+invariant enforceable only by reading the other file. `HoleCall` carries a static precision as
+the same `Prec` a runtime one uses, so every arm is total and the projection has no `failwith`
+at all.
 
 ## Determinants of a compiled file
 
@@ -487,4 +534,4 @@ member's declaring type.
    it, and the "Determinants" list above is what such a stamp has to cover.
 4. ~~**The printf specifier gaps are front-end work**~~ Taken as confirmed: `%d`/`%g` now type
    over a numeric-family typar and nothing widens at the call. The one-width handler members
-   are the codegen residual left behind, listed above.
+   that followed are also done, listed above.

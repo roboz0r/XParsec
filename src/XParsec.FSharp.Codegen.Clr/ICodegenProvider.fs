@@ -116,6 +116,36 @@ type UserMemberKind =
         paramTys: FrozenType list *
         retTy: FrozenType
 
+/// A `Vesper.Formatter` append member generic in the value: one open generic method, to be
+/// instantiated at the hole's type. `float32` and `decimal` format at their own type, since
+/// widening either to `float` renders different digits.
+[<RequireQualifiedAccess>]
+type GenericAppend =
+    /// `%d`, `%x`, `%s`, an interpolation hole — anything a general formatter renders.
+    /// The overload is chosen by which optional parameters are present, in the C#
+    /// declaration order (alignment before format).
+    | Formatted of hasAlignment: bool * hasFormat: bool
+    /// `%0w.pf`: zero-pad after the sign, which no .NET float format does. Signature
+    /// `(value: T, format: string, width: int)`.
+    | ZeroPaddedFloat
+    /// `%-0w.pf`: zero-pad on the RIGHT (left-align + zero-pad float). Neither a .NET
+    /// float format nor field alignment fills the right with zeros.
+    | RightZeroPaddedFloat
+    /// `%+0w.pf`/`% 0w.pf`: forced sign, then zero-pad after it to a total field.
+    /// Signature `(value: T, format: string, width: int, space: bool)`. The `"F<prec>"`
+    /// body rounds half-to-even and the sign is composed in-handler.
+    | ForcedSignZeroPaddedFloat
+    /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature
+    /// `(value: T, typeChar: char, precision: int, alignment: int)`, because the .NET
+    /// format string is built in-handler from `typeChar` + `precision`.
+    | DynamicPrecisionFloat
+    /// `%+.*f`/`% .*f`/`%+*.*f`: runtime-precision forced-sign float. Signature
+    /// `(value: T, typeChar: char, precision: int, alignment: int, space: bool)`.
+    | DynamicPrecisionSignedFloat
+    /// `%A`: the structural-format engine. Signature `(value: T, width: int, size: int)` —
+    /// the print-width budget and the print-size budget.
+    | Structured
+
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through handler
 /// (`Vesper.Formatter`). The walker owns the call *sequence*: literals and lazily-evaluated
 /// args interleaved around a ref-struct local. The provider supplies only the handles.
@@ -131,42 +161,23 @@ type FormatHandles =
         ToStringAndClear: EntityHandle
         ConsoleOut: EntityHandle
         ConsoleError: EntityHandle
-        /// Instantiates `<T = ty>` and picks the overload from
-        /// `(hasAlignment, hasFormat)`. The handle's signature must match the
-        /// push order (value, alignment, format = the C# parameter order).
-        AppendFormatted: FrozenType * bool * bool -> EntityHandle
+        /// The append member instantiated at the hole's value type. The handle's signature
+        /// matches the walker's push order: the value, then the member's own operands.
+        AppendGeneric: GenericAppend * FrozenType -> EntityHandle
         /// Alignment is always passed (0 ⇒ no padding).
         AppendBool: EntityHandle
+        /// `%o`: signature `(value: int64, alignment: int)`. The walker widens the
+        /// argument to the 64-bit two's complement of its own-width bits.
         AppendOctal: EntityHandle
-        /// `%u`: the `int` argument's bits reinterpreted as `uint`.
+        /// `%u`: signature `(value: uint64, alignment: int)`. The walker widens the
+        /// argument to its own-width bits, reinterpreted unsigned.
         AppendUnsigned: EntityHandle
-        /// `%08o`: zero-padded two's-complement octal, signature `(value: int, width: int)`.
+        /// `%08o`: zero-padded two's-complement octal, signature `(value: int64, width: int)`.
         /// A dedicated handler because .NET has no octal format that zero-pads to a total width.
         AppendZeroPaddedOctal: EntityHandle
-        /// `%05u`: zero-padded unsigned decimal. Signature `(value: uint, width: int)`.
+        /// `%05u`: zero-padded unsigned decimal. Signature `(value: uint64, width: int)`.
         /// Overflowing digits are not truncated, matching F#.
         AppendZeroPaddedUnsigned: EntityHandle
-        /// `%0w.pf`: zero-pad after the sign, which no .NET float format does.
-        AppendZeroPaddedFloat: EntityHandle
-        /// `%-0w.pf`: zero-pad on the RIGHT (left-align + zero-pad float). Neither a .NET
-        /// float format nor field alignment fills the right with zeros, so this handler does it.
-        AppendRightZeroPaddedFloat: EntityHandle
-        /// `%+0w.pf`/`% 0w.pf`: forced sign, then zero-pad after it to a total field.
-        /// Signature `(value: float, format: string, width: int, space: bool)`. The
-        /// `"F<prec>"` body rounds half-to-even and the sign is composed in-handler.
-        AppendForcedSignZeroPaddedFloat: EntityHandle
-        /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature
-        /// `(value: float, typeChar: char, precision: int, alignment: int)`, because the
-        /// .NET format string is built in-handler from `typeChar` + `precision`.
-        AppendDynamicPrecisionFloat: EntityHandle
-        /// `%+.*f`/`% .*f`/`%+*.*f`: runtime-precision forced-sign float. Signature
-        /// `(value: float, typeChar: char, precision: int, alignment: int, space: bool)`.
-        /// The sign is composed in-handler.
-        AppendDynamicPrecisionSignedFloat: EntityHandle
-        /// `%A`: instantiates the generic `AppendStructured<T = ty>` for the
-        /// structural-format engine. Signature `(value: T, width: int, size: int)` —
-        /// the print-width budget and the print-size budget.
-        AppendStructured: FrozenType -> EntityHandle
         /// `%*d`/`%-*d` runtime width guard, `static int32 GuardTotalWidth(int32)` —
         /// throws `ArgumentOutOfRangeException("totalWidth")` on a negative width
         /// (F# `PadLeft` parity), identity otherwise.

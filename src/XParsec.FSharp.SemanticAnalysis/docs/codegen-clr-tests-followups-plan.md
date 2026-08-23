@@ -647,19 +647,15 @@ constructible from a source name and comparable, removes both.
 Would delete: the surviving 2-line doc on `topLevelNameMatches`, and the need for any comment
 explaining why the match is a prefix match.
 
-## B3. `triple` puns the `%A` format and alignment slots
+## ~~B3. `triple` puns the `%A` format and alignment slots~~
 
-`PrintfHappyPathTests.triple : HoleSpecG<_,_> -> PrintfSpec.HoleKind * string option * int option`
-rebuilds a retired `HoleSpec.{Kind,Format,Alignment}` projection from the classified
-`HoleForm`, and to make `%A` fit it puns the slots: **print width goes in the alignment slot,
-print size goes in the format slot as a decimal string**, which `sizeBudgetOf` parses back
-with `int s`. It is also a 3-tuple threaded through four accessors.
-
-Candidate: an assertion-facing DU over `HoleForm` with named `WidthBudget` / `SizeBudget`
-cases for `%A` and a `Field` case for the rest.
-
-Would delete: the surviving 3-line doc on `triple` stating the punning, and the round-trip
-note on `sizeBudgetOf`.
+Done 2026-08-23, by deleting the projection the tuple came from rather than by reshaping the
+test helper. `ClrHoleFormat.toDotNetFormat` returned `HoleKind * string option * Alignment`
+whose third slot held a total WIDTH for the zero-pad kinds and a field alignment otherwise;
+it now returns `ClrHoleFormat.HoleCall`, a DU whose payload is the operands each
+`Vesper.Formatter` member takes. `triple` and `kindOf` are gone with it: a non-`%A` hole is
+asserted as one `callOf hole` value, and `%A` reads `widthBudgetOf` / `sizeBudgetOf` off its
+`PercentA` form, so neither budget passes through a format slot.
 
 ## B4. `Closure.Repr` and `IsValueStruct` are two fields whose relationship is prose
 

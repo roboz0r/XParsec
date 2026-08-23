@@ -282,6 +282,16 @@ let emittedTypes (bytes: byte[]) : EmittedType list =
     use pe = openPe bytes
     readTypes (pe.GetMetadataReader())
 
+/// How many `MemberRef` rows carry `name`. The table is appended to rather than
+/// deduplicated, so a count above one is a member ref minted more than once.
+let memberRefRowCount (bytes: byte[]) (name: string) : int =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+
+    md.MemberReferences
+    |> Seq.filter (fun mh -> md.GetString((md.GetMemberReference mh).Name) = name)
+    |> Seq.length
+
 let assertWellFormed (label: string) (bytes: byte[]) : unit =
     use pe = openPe bytes
     assertWellFormedMetadata label (pe.GetMetadataReader())
