@@ -35,14 +35,7 @@ type BoundVarTable<'V> = KeyedTable<BoundVarKey, 'V>
 
 type LambdaTable<'V> = KeyedTable<LambdaKey, 'V>
 
-[<AutoOpen>]
-module SideTablePatterns =
-
-    /// Conjoin with `&` to bind a stamp while the match still selects on shape:
-    /// `Pat.Named _ & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc -> …`.
-    [<return: Struct>]
-    let (|Stamped|_|) (table: SideTable<'V>) (key: NodeKey) (_scrutinee: 'a) : 'V voption = table.TryGetValue key
-
+/// Projections of the `Resolved` stamp at a use-site key.
 [<RequireQualifiedAccess>]
 module ResolvedStamps =
 
@@ -51,6 +44,59 @@ module ResolvedStamps =
         match stamps.TryGetValue key with
         | ValueSome(ResolvedItem.UnionCase(case, _)) -> ValueSome case
         | _ -> ValueNone
+
+    /// The referenced-assembly union case stamped at `key`.
+    let tryExternalUnionCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : ExternalUnionCase voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.UnionCase(ResolvedUnionCase.External uc, _)) -> ValueSome uc
+        | _ -> ValueNone
+
+    /// The referenced-assembly enum an `E.C1` access stamped at `key` is a case of: its
+    /// nominal key at arity 0, equal to the key an `(x: E)` annotation mints.
+    let tryExternalEnumCase (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.EnumCase(ResolvedTypeRef.External(enumKey, _), _)) -> ValueSome enumKey
+        | _ -> ValueNone
+
+    /// The non-generic referenced-assembly type a static access `T.member` stamped at `key`
+    /// is qualified by: a class by its key, an intrinsic by its canon.
+    let tryStaticQualifier (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.StaticMember(ResolvedTypeRef.External(typeKey, shape), _)) ->
+            match shape with
+            | ExternalTypeShape.Class info when info.TyparArity = 0 -> ValueSome typeKey
+            | ExternalTypeShape.Intrinsic { Id = { Canon = canon } } when canon.TyparArity = 0 -> ValueSome canon
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The referenced-assembly union or record a `Q.member` stamped at `key` is qualified by.
+    /// Such a type declares no static field, so a member it does not declare is a miss.
+    let tryUnionRecordQualifier (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
+        let qualifier (owner: ResolvedTypeRef) : TypeKey voption =
+            match owner with
+            | ResolvedTypeRef.External(typeKey, (ExternalTypeShape.Union _ | ExternalTypeShape.Record _)) ->
+                ValueSome typeKey
+            | _ -> ValueNone
+
+        match stamps.TryGetValue key with
+        | ValueSome(ResolvedItem.StaticMember(owner, _))
+        | ValueSome(ResolvedItem.Unresolved { Within = ResolutionScope.Type owner }) -> qualifier owner
+        | _ -> ValueNone
+
+[<AutoOpen>]
+module ResolvedStampPatterns =
+
+    /// Conjoin with `&` to bind a `ResolvedStamps` projection of the stamp at `key` while the
+    /// match still selects on shape:
+    /// `Pat.Named _ & Resolves ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved key enumKey -> …`.
+    [<return: Struct>]
+    let (|Resolves|_|)
+        (project: SideTable<ResolvedItem> -> NodeKey -> 'V voption)
+        (stamps: SideTable<ResolvedItem>)
+        (key: NodeKey)
+        (_scrutinee: 'a)
+        : 'V voption =
+        project stamps key
 
 type PassContextBindings =
     {
@@ -154,12 +200,6 @@ type PassContextResolution =
         /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
         /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
         ExternalSymbolStamp: SideTable<ExternalSymbol>
-        /// Keyed by an external union-case ctor, in pattern (`Some x`) or expression
-        /// (`None`, `Option.Some`) position. Absent ⇒ a bound variable, a local ctor, an RQA case.
-        ExternalUnionCaseStamp: SideTable<ExternalUnionCase>
-        /// Keyed by an external enum-case access `E.C1`'s anchor: the enum's nominal key, minted
-        /// at arity 0 and so equal to the key an `(x: E)` annotation mints, letting them unify.
-        ExternalEnumCaseStamp: SideTable<TypeKey>
         /// Keyed by an expression splicing a cross-package `let inline` body (an operator, `x?f`,
         /// `arr.[i]`, `arr.Length`): the intrinsic's key, so the splice is by KEY.
         IntrinsicKey: SideTable<SymbolKey>
@@ -174,26 +214,14 @@ type PassContextResolution =
         ResolvedType: SideTable<TypeKey>
         /// Keyed by a written type reference, anchored on `li.Idents.[0]`.
         TypeRefVerdicts: SideTable<TypeRefVerdict>
-        /// A static-access qualifier's external type key: the PREFIX of a folded `Expr.LongIdent`
-        /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` target.
-        ExternalStaticQualifier: SideTable<TypeKey>
-        /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
-        /// RECORD: such a type bears no static fields, so an unresolved last segment is a real miss.
-        ExternalUnionRecordQualifier: SideTable<SymbolKey>
         /// Keyed by a written attribute's type-ref site. Written only under the walk's ambient
         /// scope (`EnterElement`): the external half of attribute resolution reads `OpenScope`,
         /// so the first resolution of a site must run inside the walk that owns it.
         AttributeVerdicts: SideTable<AttributeVerdict>
-        /// A local module's short name (`SetTree`) → its directly-declared `let` bindings.
-        /// Whole-file, so a reader MUST honour `VisibleFrom`.
-        LocalModules: Dictionary<string, Dictionary<string, LocalModuleMember>>
         /// A scope's dotted SOURCE path (`N.SetTree`; the namespace path alone for its direct
         /// declarations; `""` under no namespace) → its directly-declared `let` bindings.
         /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModulePaths: Dictionary<string, Dictionary<string, LocalModuleMember>>
-        /// A local TYPE's short name (`SetIterator`) → the short name of the module it is
-        /// declared inside (`SetTree`). Absent for a type at namespace / file top level.
-        TypeEnclosingModule: Dictionary<string, string>
     }
 
 module PassContextResolution =
@@ -214,20 +242,14 @@ module PassContextResolution =
             Resolved = SideTable<_>()
             ExternalValue = SideTable<_>()
             ExternalSymbolStamp = SideTable<_>()
-            ExternalUnionCaseStamp = SideTable<_>()
-            ExternalEnumCaseStamp = SideTable<_>()
             IntrinsicKey = SideTable<_>()
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
             TypeRefVerdicts = SideTable<_>()
-            ExternalStaticQualifier = SideTable<_>()
-            ExternalUnionRecordQualifier = SideTable<_>()
             AttributeVerdicts = SideTable<_>()
-            LocalModules = Dictionary<_, _>()
             LocalModulePaths = Dictionary<_, _>(System.StringComparer.Ordinal)
-            TypeEnclosingModule = Dictionary<_, _>()
         }
 
 /// An `x?name` site whose result var (`Root`) may escape `dynamic` through context; for

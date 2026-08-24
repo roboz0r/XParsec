@@ -33,7 +33,7 @@ let private isExternalTypeName (ctx: PassContext) (nameKey: NodeKey) : bool =
     | _ -> false
 
 let private isStaticQualifier (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
-    ctx.Resolution.ExternalStaticQualifier.ContainsKey(CstKeys.ofExpr e)
+    (ResolvedStamps.tryStaticQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome
 
 [<Tests>]
 let tests =

@@ -354,10 +354,28 @@ Each step leaves the tree green and is a separate review.
    (`SignatureResolution.fs:672-684`), pinned in `ScopeContentsTests`. An implementation-
    published surface (`FrozenSignature.addValue`) has no source name to alias by; the frozen
    file would have to carry a module's source name beside its compiled one.
-4. **Consumers read `Resolved`.** `InferIdentExpr.fs:56-110`, `InferPat.fs:59-210`,
-   `Elaborate/Patterns.fs:52-155`, `Elaborate/Idents.fs`, `InferResolve.fs:115`,
-   `InheritParent.fs`. Exit: no reader of `ExternalUnionCaseStamp`, `ExternalStaticQualifier`,
-   `ExternalEnumCaseStamp`, `LocalModules`; delete them.
+4. **Consumers read `Resolved` — LANDED.** Every reader of a per-kind external stamp now
+   projects `ctx.Resolution.Resolved`, through `ResolvedStamps.tryExternalUnionCase` /
+   `tryExternalEnumCase` / `tryStaticQualifier` / `tryUnionRecordQualifier`, bound in a
+   match arm by the `Resolves` pattern (which replaces the generic `Stamped`): `InferIdentExpr`, `InferPat`,
+   `InferResolve`, `Elaborate/Patterns`, `Elaborate/Resolve`. `ExternalUnionCaseStamp`,
+   `ExternalEnumCaseStamp`, `ExternalStaticQualifier` and `ExternalUnionRecordQualifier` are
+   deleted with the `stampItem` arms that fed them; `stampItem` feeds only an external
+   value's symbol (`ExternalValue` / `ExternalSymbolStamp`) and a constructible external
+   class's key (`ResolvedType`). `LocalModules` and `TypeEnclosingModule` are deleted too: a
+   nominal's `EnclosingModuleScope` reads `LocalModulePaths` under the container the walk
+   stands in (`ctx.CurrentContainer` → `LocalContainerPaths`), the path
+   `registerLocalModules` files the module's `let`s under, so the `$top` sentinel went with
+   them. `Elaborate/Idents` reads `ExternalValue` and `InheritParent` probes types, so
+   neither read a per-kind stamp and neither changed. The four stamp test files assert
+   through the projections. Suites: 1426 / 1548 / 666.
+
+   Carried forward, unchanged in behaviour: `tryStaticQualifier` answers only for a
+   NON-generic class or intrinsic, as the deleted table did, so a generic class's static
+   reached without type arguments (`Set.Empty`) still falls to the TyVar fallback; and a
+   static member an external union or record DECLARES resolves (`inType`) but is typed by no
+   consumer, so Unification reports it as a member miss through `tryUnionRecordQualifier`,
+   as it did through the deleted table.
 5. **Delete the speculation.** `TryLookupUnionCase`, `ResolvesWith`, `localQualifiedCase`,
    `isCaseName`/`casesNamed` (as global reverse lookups), `tryDottedInModule`, `arityProbes`'
    per-prefix loop, `ExternalUnionCase.UnionKey`-by-name checks. Score by the runtime checks

@@ -60,7 +60,7 @@ module internal UnificationInferIdentExpr =
         // An EXTERNAL enum-case access `E.C1`, whose anchor resolves to a provider enum, not a
         // project-local one. Types as the nominal `TyEnum key`, the same key an `(x: E)`
         // annotation resolves to, so the two unify.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp node.Key enumKey when
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Resolves ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved node.Key enumKey when
             not (ctx.Bindings.Binding.ContainsKey node.Key)
             ->
             TyEnum enumKey

@@ -50,7 +50,7 @@ module internal ElaboratePatterns =
 
         match p with
         | Pat.NamedSimple t when
-            ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
+            (ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key).IsSome
             || (let n = ctx.NameOf t
 
                 n.Length > 0
@@ -140,7 +140,6 @@ module internal ElaboratePatterns =
             TPat.EnumCase(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             (ResolvedStamps.tryUnionCase ctx.Resolution.Resolved key).IsSome
-            || ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
             || (li.Idents.Length >= 1
                 && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 

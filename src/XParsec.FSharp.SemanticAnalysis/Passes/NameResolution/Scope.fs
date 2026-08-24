@@ -10,15 +10,16 @@ open NameResolutionTypeRefStamp
 
 // Scope tracking and ident-use resolution for NameResolution. Every name not lexically bound
 // is resolved once by `NameResolutionLongIdent` and stamped into `ctx.Resolution.Resolved`
-// keyed by the use-site `NodeKey`; the per-kind side tables are derived from that one stamp
-// for the passes still reading them. Later passes read the stamps, never the spelling again.
+// keyed by the use-site `NodeKey`. Later passes read the stamps, never the spelling again; an
+// external value's symbol and a constructible external class's key are also stamped into
+// `ExternalValue` / `ExternalSymbolStamp` and `ResolvedType`.
 
 module NameResolutionScope =
 
     type Scope = Map<string, NodeKey * bool>
 
-    /// The per-kind stamps a resolution feeds. A local module value keyed at `key` binds it
-    /// as a plain local ident is bound.
+    /// The stamps a resolution feeds beside `Resolved`. A local module value keyed at `key`
+    /// binds it as a plain local ident is bound.
     let private stampItem (ctx: PassContext) (key: NodeKey) (item: ResolvedItem) : unit =
         match item with
         | ResolvedItem.Value(ResolvedValue.External sym) ->
@@ -35,9 +36,6 @@ module NameResolutionScope =
                     IsMutable = false
                 }
             )
-        | ResolvedItem.UnionCase(ResolvedUnionCase.External uc, _) -> ctx.Resolution.ExternalUnionCaseStamp.Set(key, uc)
-        | ResolvedItem.EnumCase(ResolvedTypeRef.External(enumKey, _), _) ->
-            ctx.Resolution.ExternalEnumCaseStamp.Set(key, enumKey)
         // An external CLASS name in expression position is a ctor-sugar application
         // (`InvalidOperationException "x"`, `System.Exception "x"`). A generic one was
         // stamped at its exact arity by the enclosing `TypeApp` visit.
@@ -45,21 +43,6 @@ module NameResolutionScope =
             info.TyparArity = 0 && not (ctx.Resolution.ResolvedType.ContainsKey key)
             ->
             ctx.Resolution.ResolvedType.Set(key, typeKey)
-        | ResolvedItem.StaticMember(ResolvedTypeRef.External(typeKey, shape), _) ->
-            match shape with
-            | ExternalTypeShape.Class info when info.TyparArity = 0 ->
-                ctx.Resolution.ExternalStaticQualifier.Set(key, typeKey)
-            | ExternalTypeShape.Intrinsic { Id = { Canon = canon } } when canon.TyparArity = 0 ->
-                ctx.Resolution.ExternalStaticQualifier.Set(key, canon)
-            | ExternalTypeShape.Union _
-            | ExternalTypeShape.Record _ -> ctx.Resolution.ExternalUnionRecordQualifier.Set(key, SymbolKey.Type typeKey)
-            | _ -> ()
-        // An external UNION or RECORD qualifier has no static fields, so an unresolved last
-        // segment is a member miss Unification diagnoses by this key.
-        | ResolvedItem.Unresolved {
-                                      Within = ResolutionScope.Type(ResolvedTypeRef.External(typeKey,
-                                                                                             (ExternalTypeShape.Union _ | ExternalTypeShape.Record _)))
-                                  } -> ctx.Resolution.ExternalUnionRecordQualifier.Set(key, SymbolKey.Type typeKey)
         | ResolvedItem.Value _
         | ResolvedItem.UnionCase _
         | ResolvedItem.EnumCase _
@@ -432,13 +415,9 @@ module NameResolutionScope =
 
                 match resolveType ctx (ctx.UseSiteAt key) written types.Length with
                 | ResolvedItem.Type(ResolvedTypeRef.Local _) as item -> ctx.Resolution.Resolved.Set(key, item)
-                | ResolvedItem.Type(ResolvedTypeRef.External(typeKey, shape)) as item ->
+                | ResolvedItem.Type(ResolvedTypeRef.External(typeKey, _)) as item ->
                     ctx.Resolution.Resolved.Set(key, item)
                     ctx.Resolution.ResolvedType.Set(key, typeKey)
-
-                    match shape with
-                    | ExternalTypeShape.Class _ -> ctx.Resolution.ExternalStaticQualifier.Set(key, typeKey)
-                    | _ -> ()
                 | _ -> ()
             | ValueNone -> ()
         | Expr.InfixApp _

@@ -45,7 +45,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isTrue
-                    (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Colour.Nope — union qualifier stamped"
             }
 
@@ -54,7 +54,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isTrue
-                    (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Widget.Nope — record qualifier stamped"
             }
 
@@ -65,7 +65,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isFalse
-                    (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Gadget.Nope — class qualifier not stamped"
             }
 
@@ -74,7 +74,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isFalse
-                    (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Unknown.Nope — unknown qualifier not stamped"
             }
 
@@ -83,7 +83,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isFalse
-                    (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Palette.Nope — namespace Other unopened, not stamped"
             }
 
@@ -92,7 +92,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isTrue
-                    (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Palette.Nope — stamped under open Other"
             }
 

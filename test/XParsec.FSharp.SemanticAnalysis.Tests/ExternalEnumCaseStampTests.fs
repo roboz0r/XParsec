@@ -72,7 +72,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isTrue
-                    (ctx.Resolution.ExternalEnumCaseStamp.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Direction.Up enum key stamped in expression position"
             }
 
@@ -84,7 +84,7 @@ let tests =
 
                 for h in arms do
                     Expect.isTrue
-                        (ctx.Resolution.ExternalEnumCaseStamp.ContainsKey(CstKeys.ofPat h))
+                        ((ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved (CstKeys.ofPat h)).IsSome)
                         "Direction.Up enum key stamped in pattern position"
             }
 
@@ -94,7 +94,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isFalse
-                    (ctx.Resolution.ExternalEnumCaseStamp.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Direction.Sideways (no such case) is not stamped"
             }
 
@@ -104,7 +104,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isFalse
-                    (ctx.Resolution.ExternalEnumCaseStamp.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Mode.On is not stamped with Other unopened"
             }
 
@@ -113,7 +113,7 @@ let tests =
                 let e = firstBindingExpr file
 
                 Expect.isTrue
-                    (ctx.Resolution.ExternalEnumCaseStamp.ContainsKey(CstKeys.ofExpr e))
+                    ((ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved (CstKeys.ofExpr e)).IsSome)
                     "Mode.On is stamped under open Other"
             }
         ]

@@ -112,7 +112,7 @@ module internal UnificationInferResolve =
     /// `field… → TyUnion(union, freshArgs)`, built from the case NameResolution
     /// stamped at the applied function's `key`.
     let tryExternalCtorType (ctx: PassContext) (key: NodeKey) : SemType voption =
-        match ctx.Resolution.ExternalUnionCaseStamp.TryGetValue key with
+        match ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key with
         | ValueNone -> ValueNone
         | ValueSome uc ->
             let unionTy, fields = externalCasePattern ctx uc
@@ -362,21 +362,21 @@ module internal UnificationInferResolve =
     let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : QualifiedMemberMiss voption =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
-            match ctx.Resolution.ExternalUnionRecordQualifier.TryGetValue(CstKeys.ofExpr e) with
+            match ResolvedStamps.tryUnionRecordQualifier ctx.Resolution.Resolved (CstKeys.ofExpr e) with
             | ValueSome qualifierKey ->
                 // `bareName` drops the arity suffix a generic union's key carries
                 // (`Vesper.Option`1` reads as `Vesper.Option` in a user diagnostic).
                 ValueSome
                     {
-                        Qualifier = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName qualifierKey)
+                        Qualifier = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName (SymbolKey.Type qualifierKey))
                         MemberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
                     }
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
     /// Split a folded static-member LongIdent (`System.Console.Out`) into the qualifier
-    /// PREFIX's resolved type identity and the trailing member token, reading the key
-    /// NameResolution stamped in `ExternalStaticQualifier` rather than re-resolving here.
+    /// PREFIX's resolved type identity and the trailing member token, reading the qualifier
+    /// NameResolution stamped rather than re-resolving here.
     let splitExternalStaticPrefix
         (ctx: PassContext)
         (key: NodeKey)
@@ -384,7 +384,7 @@ module internal UnificationInferResolve =
         : (TypeKey * SyntaxToken) voption =
         let lastTok = li.Idents.[li.Idents.Length - 1]
 
-        match ctx.Resolution.ExternalStaticQualifier.TryGetValue key with
+        match ResolvedStamps.tryStaticQualifier ctx.Resolution.Resolved key with
         | ValueSome declTypeKey -> ValueSome(declTypeKey, lastTok)
         | ValueNone -> ValueNone
 
@@ -437,9 +437,11 @@ module internal UnificationInferResolve =
             match fn with
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _)
             | Expr.Ident _ ->
-                match ctx.Resolution.ExternalStaticQualifier.TryGetValue(CstKeys.ofExpr fn) with
-                | ValueSome declTypeKey -> ValueSome(declTypeKey, List.ofSeq typeArgs)
-                | ValueNone -> ValueNone
+                // The `TypeApp` visit stamped the applied name at its exact arity.
+                match ctx.Resolution.Resolved.TryGetValue(CstKeys.ofExpr fn) with
+                | ValueSome(ResolvedItem.Type(ResolvedTypeRef.External(declTypeKey, ExternalTypeShape.Class _))) ->
+                    ValueSome(declTypeKey, List.ofSeq typeArgs)
+                | _ -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
 

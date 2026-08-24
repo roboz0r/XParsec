@@ -96,10 +96,10 @@ module internal ElaborateResolve =
         else
             // A local *or* external union declares this node's name as a case; the external
             // leg is the stamp's presence. A bare reference to an RQA external case is never
-            // stamped; only its qualified form is, in the length-2 arms below.
+            // stamped; only its qualified form is, in the LongIdent arm below.
             let isCase (n: string) =
                 TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
-                || ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
+                || (ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key).IsSome
 
             match e with
             | Expr.Ident t ->
@@ -126,14 +126,6 @@ module internal ElaborateResolve =
                 // `localQualifiedCase` already confirmed the case belongs to the
                 // qualifier's union (arity-safe over `Choice\`2`…`Choice\`7`).
                 ValueSome(ctx.NameOf li.Idents.[1])
-            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 ->
-                // Qualified external union case (`Option.Some`). The node is stamped only
-                // when the resolved union's short name matched the written qualifier, so
-                // the stamp's presence is the acceptance test.
-                if ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key then
-                    ValueSome(ctx.NameOf li.Idents.[1])
-                else
-                    ValueNone
             | _ -> ValueNone
 
     [<return: Struct>]

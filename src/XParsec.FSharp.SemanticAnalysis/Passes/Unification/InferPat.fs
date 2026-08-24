@@ -56,7 +56,7 @@ module internal UnificationInferPat =
 
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
-        | Pat.NamedSimple t & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
+        | Pat.NamedSimple t & Resolves ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key uc ->
             // Nullary case of an *external* (referenced-package) union (`None`), stamped
             // upstream and read here by node key. A bare RQA case is NOT stamped, so it
             // falls to the bound variable arm below, as in F#, where it is a fresh variable.
@@ -76,7 +76,7 @@ module internal UnificationInferPat =
             // An operator-named binding (`let (=) x y = …`) introduces a single name,
             // exactly like a `Pat.NamedSimple`.
             TyVar(tvOf ctx key)
-        | Pat.Named(argumentPats = args) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey ->
+        | Pat.Named(argumentPats = args) & Resolves ResolvedStamps.tryExternalEnumCase ctx.Resolution.Resolved key enumKey ->
             // `| E.C1` external enum-case pattern, stamped upstream and read by node key.
             // Types as `TyEnum key`, the same key an `E.C1` expression and an `(x: E)`
             // annotation carry, so the scrutinee unifies. Nullary; sub-patterns are ill-formed.
@@ -182,7 +182,7 @@ module internal UnificationInferPat =
                 let nodeTv = freshTv ctx key
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
                 ty
-        | Pat.Named(longIdent = li; argumentPats = args) & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
+        | Pat.Named(longIdent = li; argumentPats = args) & Resolves ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key uc ->
             // A case WITH FIELDS of an *external* union (`Some x`, `Result.Ok x`), bare or
             // qualified, stamped upstream and read by node key. Sub-patterns unify against
             // the case's declared field types in the union's fresh instantiation.

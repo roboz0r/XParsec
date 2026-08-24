@@ -104,7 +104,7 @@ let private assertPatStamped (input: string) (caseName: string) (expected: int) 
 
     for h in ctors do
         Expect.isTrue
-            (ctx.Resolution.ExternalUnionCaseStamp.ContainsKey(CstKeys.ofPat h))
+            ((ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved (CstKeys.ofPat h)).IsSome)
             (sprintf "external case '%s' stamped at its ctor pattern in: %s" caseName input)
 
 /// Assert every `caseName` ctor in `input` is NOT stamped: its declaring namespace is
@@ -116,7 +116,7 @@ let private assertPatNotStamped (input: string) (caseName: string) (expected: in
 
     for h in ctors do
         Expect.isFalse
-            (ctx.Resolution.ExternalUnionCaseStamp.ContainsKey(CstKeys.ofPat h))
+            ((ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved (CstKeys.ofPat h)).IsSome)
             (sprintf "bare case '%s' in a non-opened namespace is NOT stamped in: %s" caseName input)
 
 let private hasUnresolved (input: string) : bool =
