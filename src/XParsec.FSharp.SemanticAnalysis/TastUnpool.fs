@@ -283,7 +283,7 @@ module TastUnpool =
 
             d
 
-        let decls = pools.Roots |> Array.map fromDecl |> EqArray.ofArray
+        let decls = pools.Roots |> EqArray.map fromDecl
 
         let inlineBodies =
             pools.InlineTemplates

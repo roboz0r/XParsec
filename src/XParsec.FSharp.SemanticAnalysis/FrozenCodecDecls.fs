@@ -102,7 +102,7 @@ module FrozenCodecDecls =
             ForInEnumeratorG.Pattern(enumeratorTy, getEnumerator, members, isValueType, dispose)
         | b -> failwithf "FrozenCodec: unknown ForInEnumerator tag %d" b
 
-    and private writeForInGetEnum (w: FrozenWriter) (g: ForInGetEnumG<FrozenType>) =
+    and private writeForInGetEnum (w: FrozenWriter) (g: Frozen.ForInGetEnum) =
         match g with
         | ForInGetEnumG.External getEnumerator ->
             w.Write 0uy
@@ -113,7 +113,7 @@ module FrozenCodecDecls =
             writeTypeKeyRef w iface
             writeEqArrayWith w writeTypeRef ifaceArgs
 
-    and private readForInGetEnum (r: FrozenReader) : ForInGetEnumG<FrozenType> =
+    and private readForInGetEnum (r: FrozenReader) : Frozen.ForInGetEnum =
         match r.ReadByte() with
         | 0uy -> ForInGetEnumG.External(readSymbolRef r)
         | 1uy -> ForInGetEnumG.Local
@@ -123,7 +123,7 @@ module FrozenCodecDecls =
             ForInGetEnumG.ConstrainedInterface(iface, ifaceArgs)
         | b -> failwithf "FrozenCodec: unknown ForInGetEnum tag %d" b
 
-    and private writeForInEnumMembers (w: FrozenWriter) (m: ForInEnumMembersG<FrozenType>) =
+    and private writeForInEnumMembers (w: FrozenWriter) (m: Frozen.ForInEnumMembers) =
         match m with
         | ForInEnumMembersG.External(moveNext, current) ->
             w.Write 0uy
@@ -135,7 +135,7 @@ module FrozenCodecDecls =
             writeTypeKeyRef w iface
             writeEqArrayWith w writeTypeRef ifaceArgs
 
-    and private readForInEnumMembers (r: FrozenReader) : ForInEnumMembersG<FrozenType> =
+    and private readForInEnumMembers (r: FrozenReader) : Frozen.ForInEnumMembers =
         match r.ReadByte() with
         | 0uy ->
             let moveNext = readSymbolRef r

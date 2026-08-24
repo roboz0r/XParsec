@@ -121,8 +121,11 @@ module FrozenTypeBridge =
 
     /// An `FTLocalTypar` arises only inside a decl's BODY (a body-local `let`'s own
     /// generalized scheme), so one in a SIGNATURE / type-shape template is a producer bug.
-    let localTyparInTemplate (site: string) (scheme: SchemeId) (k: int) : SemType =
-        failwithf "%s: unexpected body-local typar %d of scheme %O in a signature template" site k scheme
+    let localTyparInTemplate (scheme: SchemeId) (k: int) : SemType =
+        failwithf
+            "FrozenTypeBridge.localTyparInTemplate: unexpected body-local typar %d of scheme %O in a signature template"
+            k
+            scheme
 
     /// `FTTypar(Declaring,i)` → `declaringArgs.[i]`, for a type-shape descriptor:
     /// record field, union-case field, interface arg, base type, abbreviation body.
@@ -140,7 +143,7 @@ module FrozenTypeBridge =
                     "FrozenTypeBridge.instantiateDeclaring: unexpected method typar %d in a type-shape template"
                     j
             )
-            (localTyparInTemplate "FrozenTypeBridge.instantiateDeclaring")
+            localTyparInTemplate
             template
 
     /// Contract extraction bakes EVERY typar on the `Declaring` axis, numbering the

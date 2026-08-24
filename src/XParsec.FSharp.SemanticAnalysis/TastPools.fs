@@ -267,7 +267,7 @@ module TastPools =
                         | PooledEvent.LambdaPooled(anchor, id) -> lambdaSlots.Add(struct (id, LambdaKey anchor))
             }
 
-        let roots = file.Decls |> EqArray.toArray |> Array.map (poolDecl sink)
+        let roots = file.Decls |> EqArray.map (poolDecl sink)
 
         // The inline vocabulary, pooled as its OWN roots: a template is a different tree from
         // the emitted function of the same name. Ordinary pooled decls, so the walk reaches a

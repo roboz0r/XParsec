@@ -168,6 +168,7 @@ let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
 
     let namedLetRoots =
         pools.Roots
+        |> EqArray.toArray
         |> Array.filter (fun (DeclPoolId d) ->
             DeclPayload.shape pools.DeclPayloads.[d] = DeclShape.Let
             && (let (PatPoolId pattern) = ChildColumn.item pools.DeclPatChildren d 0
@@ -208,7 +209,7 @@ let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
     let duDecls = EqArray.toArray frozen.Decls
     Expect.equal pools.Roots.Length duDecls.Length "one root per emittable decl"
-    Array.iter2 (checkDecl pools) pools.Roots duDecls
+    Array.iter2 (checkDecl pools) (EqArray.toArray pools.Roots) duDecls
     checkIdResolution pools frozen
     checkValReprPatsAreLambdaParams pools
 

@@ -268,7 +268,17 @@ module TastAccessor =
     [<return: Struct>]
     let private (|ERecordCons|_|) (e: ExprId) : (string * ExprId)[] voption =
         match payload e with
-        | ExprPayload.RecordCons fieldNames -> ValueSome(Array.map2 (fun n v -> (n, v)) fieldNames (exprChildren e))
+        | ExprPayload.RecordCons fieldNames ->
+            let values = exprChildren e
+
+            if fieldNames.Length <> values.Length then
+                failwithf
+                    "TastAccessor: RecordCons node %A carries %d field names but %d value children"
+                    e.Id
+                    fieldNames.Length
+                    values.Length
+
+            ValueSome(Array.map2 (fun n v -> (n, v)) fieldNames values)
         | _ -> ValueNone
 
     /// The labels `exprChildren` drops, paired back with their value expressions.
@@ -695,7 +705,17 @@ module TastAccessor =
     [<return: Struct>]
     let private (|PRecord|_|) (p: PatId) : (string * PatId)[] voption =
         match patPayload p with
-        | PatPayload.Record fieldNames -> ValueSome(Array.map2 (fun n sub -> (n, sub)) fieldNames (patChildren p))
+        | PatPayload.Record fieldNames ->
+            let subs = patChildren p
+
+            if fieldNames.Length <> subs.Length then
+                failwithf
+                    "TastAccessor: Record pattern %A carries %d field names but %d sub-patterns"
+                    p.Id
+                    fieldNames.Length
+                    subs.Length
+
+            ValueSome(Array.map2 (fun n sub -> (n, sub)) fieldNames subs)
         | _ -> ValueNone
 
     /// The labels `patChildren` drops, paired back with their sub-patterns.
@@ -800,7 +820,8 @@ module TastAccessor =
 
     /// The file's declarations, in source order: the pool roots as handles.
     let roots (pool: PoolBuilder) : DeclId[] =
-        TastPoolBuilder.roots pool |> Array.map (fun id -> { Pool = pool; Id = id })
+        let ids = TastPoolBuilder.roots pool
+        Array.init ids.Length (fun i -> { Pool = pool; Id = ids.[i] })
 
     /// The resolved-specialization entry an `InlineCall`'s `SpecializationId` identifies, its
     /// abstraction as a handle. Reached from the pool, not from a node: several call sites

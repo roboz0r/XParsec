@@ -20,7 +20,7 @@ module OpenSignature =
             FrozenTypeBridge.instantiateWith
                 (fun i -> TyTypar(TyparAxis.Method, i))
                 (fun j -> TyTypar(TyparAxis.Method, j))
-                (FrozenTypeBridge.localTyparInTemplate "OpenSignature.ofSymbol")
+                FrozenTypeBridge.localTyparInTemplate
                 sym.Scheme
 
         let constraints =
@@ -32,7 +32,7 @@ module OpenSignature =
                             FrozenTypeBridge.instantiateWith
                                 (fun k -> TyTypar(TyparAxis.Method, k))
                                 (fun k -> TyTypar(TyparAxis.Method, k))
-                                (FrozenTypeBridge.localTyparInTemplate "OpenSignature.ofSymbol")
+                                FrozenTypeBridge.localTyparInTemplate
                                 target
 
                         FrozenConstraint.Coercion(i, toFrozen openTarget)

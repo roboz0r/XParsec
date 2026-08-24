@@ -243,11 +243,12 @@ module TastPoolShapes =
     /// The dense id of the bound variable the node being pooled INTRODUCES, at `NamedSimple` and
     /// `ForTo` and no other case. A miss is the pooling walk and the payload projection
     /// disagreeing about which node binds, not a defect of the tree.
-    let private introducedBoundVar (site: string) (boundVar: BoundVarId voption) : BoundVarId =
+    let private introducedBoundVar (boundVar: BoundVarId voption) : BoundVarId =
         match boundVar with
         | ValueSome id -> id
         | ValueNone ->
-            failwithf "TastPoolShapes.%s: the node's payload names a bound variable the walk interned none for" site
+            failwith
+                "TastPoolShapes.introducedBoundVar: the node's payload names a bound variable the walk interned none for"
 
     /// The residual payload of a frozen expression node: its fields MINUS `ty`/`tok`, the
     /// child expr and owned pat ids, and the `Var` bound variable id. `anchor` narrows a walked
@@ -283,7 +284,7 @@ module TastPoolShapes =
         | TExprG.ForTo(identTok = identTok) ->
             ExprPayload.ForTo
                 {|
-                    Var = introducedBoundVar "exprPayload" boundVar
+                    Var = introducedBoundVar boundVar
                     IdentTok = anchor identTok
                 |}
         | TExprG.ForIn(enumerator = enumerator) -> ExprPayload.ForIn enumerator
@@ -375,7 +376,7 @@ module TastPoolShapes =
     /// child sub-pat ids. `boundVar` is `NamedSimple`'s own bound variable, and no other case's.
     let patPayload (boundVar: BoundVarId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
         match p with
-        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBoundVar "patPayload" boundVar)
+        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBoundVar boundVar)
         | TPatG.Wildcard _ -> PatPayload.Wildcard
         | TPatG.Null _ -> PatPayload.Null
         | TPatG.Tuple _ -> PatPayload.Tuple

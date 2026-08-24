@@ -392,7 +392,7 @@ module ExternalSymbols =
 
         let methodVar = methodFreshener store cache level
         let decl i = declaringArgs.[i]
-        let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureWith"
+        let noLocal = localTyparInTemplate
         instantiateWith decl methodVar noLocal (ExternalSignature.openTemplate m.Signature)
 
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
@@ -407,7 +407,7 @@ module ExternalSymbols =
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
-        let noLocal = localTyparInTemplate "ExternalSymbols.openSignature"
+        let noLocal = localTyparInTemplate
         instantiateWith decl methodOpen noLocal (ExternalSignature.openTemplate m.Signature)
 
     /// A member's method-typar BOUNDS at a use site, one per index.
@@ -416,7 +416,7 @@ module ExternalSymbols =
     let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : EqArray<SemType voption> =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
-        let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureBounds"
+        let noLocal = localTyparInTemplate
 
         m.Signature.MethodTyparBounds
         |> EqArray.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen noLocal ft))

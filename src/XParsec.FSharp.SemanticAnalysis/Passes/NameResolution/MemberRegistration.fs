@@ -810,25 +810,23 @@ module NameResolutionMemberRegistration =
         for KeyValue(startKey, startId) in members do
             let visited = HashSet<TypeKey>()
             visited.Add startKey |> ignore
-            let mutable cyclic = false
 
-            let rec walk (id: TypeIdentity) =
-                for fieldTy in inlineFieldTypes ctx id do
+            // Whether an inline field path from `id` reaches `startKey`; stops at the first hit.
+            let rec reachesStart (id: TypeIdentity) : bool =
+                inlineFieldTypes ctx id
+                |> Seq.exists (fun fieldTy ->
                     match directNominal ctx.Store fieldTy with
-                    | ValueSome fieldKey when not cyclic ->
-                        if fieldKey = startKey then
-                            cyclic <- true
-                        elif visited.Add fieldKey then
-                            match members.TryGetValue fieldKey with
-                            | true, next -> walk next
-                            // A struct field of a type OUTSIDE the group cannot lead back
-                            // into it: mutual reference needs `and`, so a cycle stays in one group.
-                            | false, _ -> ()
-                    | _ -> ()
+                    | ValueSome fieldKey when fieldKey = startKey -> true
+                    | ValueSome fieldKey when visited.Add fieldKey ->
+                        match members.TryGetValue fieldKey with
+                        | true, next -> reachesStart next
+                        // A struct field of a type OUTSIDE the group cannot lead back
+                        // into it: mutual reference needs `and`, so a cycle stays in one group.
+                        | false, _ -> false
+                    | _ -> false
+                )
 
-            walk startId
-
-            if cyclic then
+            if reachesStart startId then
                 ctx.Report(startId.DeclSite.Tok, Kind.CyclicType(startId.Name, TypeCycle.Immediate))
 
     /// Register one accepted declaration's kind-specific DETAIL (fields, cases, enum case

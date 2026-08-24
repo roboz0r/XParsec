@@ -172,7 +172,7 @@ type FrozenPools =
         /// there being no node-level `ty` column.
         DeclPayloads: DeclPayload[]
         /// The pool ids of the file's `Decls`, in source order.
-        Roots: DeclPoolId[]
+        Roots: EqArray<DeclPoolId>
         /// The inline vocabulary's roots: one per published template, in publication order.
         InlineTemplates: PooledInlineValue[]
         /// The resolved-specialization table's roots, indexed by the `SpecializationId` an
@@ -224,7 +224,7 @@ module FrozenPools =
             DeclExprChildren = ChildColumn.empty
             DeclPatChildren = ChildColumn.empty
             DeclPayloads = [||]
-            Roots = [||]
+            Roots = EqArray.empty
             InlineTemplates = [||]
             Specializations = [||]
             BoundVarNames = [||]

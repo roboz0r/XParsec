@@ -704,6 +704,19 @@ module NameResolutionTypeRegistration =
             ctx.Resolution.TyparScope <- savedScope
             ctx.Resolution.TyparScopeStrict <- savedStrict
 
+    /// File `v` at the FRONT of `index.[name]`'s bucket: the newest declaration wins the slot.
+    let private prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T) : unit =
+        match index.TryGetValue name with
+        | true, existing ->
+            let buf = ResizeArray(existing.Length + 1)
+            buf.Add v
+
+            for i in existing do
+                buf.Add i
+
+            index.[name] <- EqArray.ofResizeArray buf
+        | false, _ -> index.[name] <- EqArray.singleton v
+
     let registerRecordDecl
         (ctx: PassContext)
         (id: TypeIdentity)
@@ -788,16 +801,7 @@ module NameResolutionTypeRegistration =
         ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
         for fi in fieldInfos do
-            match ctx.Types.FieldIndex.TryGetValue fi.Name with
-            | true, infos ->
-                let buf = ResizeArray(infos.Length + 1)
-                buf.Add info
-
-                for i in infos do
-                    buf.Add i
-
-                ctx.Types.FieldIndex.[fi.Name] <- EqArray.ofResizeArray buf
-            | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
+            prependToIndex ctx.Types.FieldIndex fi.Name info
 
     /// A union case's ctor name: `([])` → `Empty`, `(::)` → `Cons`, an ordinary case its
     /// own text. A case with no name (`(*)`, range / active-pattern ops) yields `""`, which
@@ -933,16 +937,7 @@ module NameResolutionTypeRegistration =
         ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
         for c in caseInfos do
-            match ctx.Types.CtorIndex.TryGetValue c.Name with
-            | true, infos ->
-                let buf = ResizeArray(infos.Length + 1)
-                buf.Add c
-
-                for i in infos do
-                    buf.Add i
-
-                ctx.Types.CtorIndex.[c.Name] <- EqArray.ofResizeArray buf
-            | false, _ -> ctx.Types.CtorIndex.[c.Name] <- EqArray.singleton c
+            prependToIndex ctx.Types.CtorIndex c.Name c
 
     /// Register an enum's nominal identity + case-name set, so a `(x: E)` annotation resolves
     /// to `TyEnum Key` and a qualified `E.C1` can validate the case name. Enums are non-generic
@@ -1021,8 +1016,10 @@ module NameResolutionTypeRegistration =
                 ctx.Types.IntrinsicAbbrevHost.[selfKey] <-
                     IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, key, selfKey)
 
-        match rhs with
-        | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
+        // The claim classified the RHS once, onto `id.Kind`; the RHS match here only extracts
+        // the intrinsic payload, and a disagreement between the two is a claim-phase fault.
+        match id.Kind, rhs with
+        | TypeDeclKind.IntrinsicRepr, Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
             let repr = IntrinsicReprs.ilString ctx.NameOf parts
             // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
             // never has to project it back to a name. The `class` tag rides the same entry:
@@ -1056,7 +1053,20 @@ module NameResolutionTypeRegistration =
                             name
                     )
                 )
-        | _ ->
+        | TypeDeclKind.IntrinsicRepr, _ ->
+            failwithf
+                "TypeRegistration.registerAbbreviationDecl: type '%s' is claimed IntrinsicRepr over a non-intrinsic RHS"
+                name
+        | TypeDeclKind.Abbreviation, Type.ILIntrinsic _ ->
+            failwithf
+                "TypeRegistration.registerAbbreviationDecl: type '%s' is claimed Abbreviation over an intrinsic RHS"
+                name
+        | (TypeDeclKind.Record | TypeDeclKind.Union | TypeDeclKind.Class | TypeDeclKind.Enum), _ ->
+            failwithf
+                "TypeRegistration.registerAbbreviationDecl: type '%s' is claimed %A, not an abbreviation"
+                name
+                id.Kind
+        | TypeDeclKind.Abbreviation, _ ->
             // An alias renames one type as another and declares nothing of its own, so
             // every posture and `[<AllowNullLiteral>]` belongs on the type it abbreviates.
             Attributes.validateTypeDefnAttributes

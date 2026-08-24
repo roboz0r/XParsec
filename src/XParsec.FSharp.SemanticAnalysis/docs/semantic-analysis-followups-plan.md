@@ -502,13 +502,6 @@ which matches `| ReturnOnly, _ | _, ReturnOnly -> ReturnOnly` — pass-through o
 producer the lub cannot yield it either; only the tests construct one directly. Same for
 `SafeContext.ReturnOnly`.
 
-### `TastPoolShapes.fs:244` — `introducedBoundVar` takes a stringly-typed caller tag
-
-`site: string` exists only to interpolate the caller's name into a `failwithf`, and both call
-sites pass a literal equal to their enclosing function: `introducedBoundVar "exprPayload"` inside
-`exprPayload` (`:282`) and `introducedBoundVar "patPayload"` inside `patPayload` (`:372`). It goes
-stale silently on rename. Same shape as `FrozenTypeBridge.fs:131`.
-
 ### `SemTypeWalks.fs:280` — `mapChildren`'s `TyOr` arm defeats the sharing the others preserve
 
 Every other arm uses `EqArray.mapPreserve` / `refEq` and returns `t` itself when nothing
@@ -517,12 +510,6 @@ which always builds a fresh `EqSet`, so a ground `TyOr` re-allocates on every `z
 `substitute` walk. The doc has been qualified to match the code rather than assert the
 invariant the code does not hold.
 
-### `TastPoolBuilder.fs:238`, `:249` — the boundVar space has no `readBoundVar` resolver
-
-Both sites open-code the `i < b.BoundVarBase` layer test and its two branches, while the expr,
-pat and decl spaces route through `readExpr` / `readPat` / `readDecl` (`:129`, `:140`, `:151`).
-Two sites is small, but it is the one part of the stacking invariant written more than once.
-
 ### `TastAccessor.fs:457-477` — two recognizers over one payload case
 
 `(|EInlineCall|_|)` and `(|EInlineCallOrigin|_|)` both destructure `ExprPayload.InlineCall`, so a
@@ -530,12 +517,6 @@ consumer needing both pays two payload fetches and two matches —
 `Codegen.Common/InlineExpand.fs:274` and `:280` do exactly that on one node. `New` and
 `ILIntrinsic` solve this with a single recognizer returning a whole view; an `InlineCallView`
 would make it consistent.
-
-### `TastAccessor.fs:282`, `:733` — a length mismatch surfaces as a raw `ArgumentException`
-
-`(|ERecordCons|_|)` and `(|PRecord|_|)` use `Array.map2` over the label array and the child
-array, so pool corruption reports as an FSharp.Core `ArgumentException` rather than a message
-naming the node.
 
 ### `Passes/InlineExpansion.fs:398-412` — a re-entry branch that may be unreachable
 
@@ -563,14 +544,6 @@ then answers every index-signature query from that constant `fun _ -> []`. A pro
 acquires index signatures and holds `InModule` keys has no way to publish them and gets no
 compile error. The fix is a channel on `KeyIndexedChannels`, not a comment.
 
-### `FrozenTypeBridge.fs:131` — `localTyparInTemplate` takes a hand-written site string
-
-The `site: string` parameter exists only to interpolate into that function's own `failwithf`,
-and all seven callers pass a module-qualified literal — `"ExternalSymbols.openSignature"`,
-`"FrozenTypeBridge.instantiateDeclaring"`, `"OpenSignature.ofSymbol"`, and one in
-`test/…/InlineFreezeThawTests.fs:222`. These rot on rename exactly as the comment cross-refs
-this sweep is deleting do, and nothing checks them.
-
 ### `Passes/Unification/EngineCore.fs:321` and `:354` — the two capability-key chains are one function
 
 `capabilityCanonKey` and `capabilityPlatformKey` are structurally identical five-way match chains
@@ -594,19 +567,6 @@ prose before the sweep; a named lookup type with a by-key-only API deletes the 3
 identical code, differing only in the type passed (`memberTy` vs `sigTy`) and the class-typar
 source (the `classTypars` parameter vs `fc.TypeParams`). The surviving comment at `:325` saying
 this arm has "the same shape as that function" is the tell; one helper deletes it.
-
-### `Tast.fs:238` — the `Frozen` alias module is missing two ForIn aliases
-
-It defines `ForInEnumerator` only, so `FrozenCodecDecls.fs:131,142,152,164` spell
-`ForInGetEnumG<FrozenType>` / `ForInEnumMembersG<FrozenType>` longhand, against the
-alias-family convention `SideTypes.fs:106-108` follows on the `SemType` side. Two additive lines.
-
-### `TastPoolBuilder.fs:344`, `:263` — accessors that rebuild per call
-
-`moduleMembers` calls `DenseTable.index` on every invocation, building a fresh dictionary from
-`b.Base.ModuleMembers`; `roots` does an `Array.copy` per call. The single production caller
-(`Codegen.Js/EmitJs.fs:852`) binds `moduleMembers` once, so this is latent rather than live —
-but the accessor shape invites a per-decl call.
 
 ### `Passes/InlineReduction.fs:167` — `ExternalFunction.Args = ValueNone` is documented as unreachable-by-shape, but is a `failwithf`
 
@@ -728,30 +688,6 @@ those separately via `extractSecondaryCtors`. For an augmentation there is no su
 written in a `type U with … new(…) = …` block is parsed and then silently discarded. Not verified
 whether some earlier pass rejects the shape; if none does, this is a missing "not supported here"
 diagnostic rather than a mis-registration.
-
-### `Passes/NameResolution/MemberRegistration.fs:1009` — the struct-field cycle walk keeps scanning after it finds the cycle
-
-`checkGroupStructFieldCycles`'s inner `walk` sets `cyclic <- true` and then relies on the guard
-`| ValueSome fieldKey when not cyclic ->` to make the remaining iterations no-ops: the `for
-fieldTy in inlineFieldTypes ctx id` loop still runs to completion at every frame of the recursion
-(and `inlineFieldTypes` re-reads the registry to build each sequence). Correct, but the loop wants to stop at the hit.
-
-### `Passes/NameResolution/TypeRegistration.fs:815` — the intrinsic-vs-alias verdict is decided twice
-
-`tryDeclaredTypeName` (`:212`) matches the abbreviation RHS against `Type.ILIntrinsic` to choose
-`TypeDeclKind.IntrinsicRepr` over `TypeDeclKind.Abbreviation`, and that kind rides the claim onto
-`TypeIdentity.Kind`. `registerAbbreviationDecl` is then handed that `id` and re-matches the very
-same `rhs` (`:815`) to choose which side table to write, never reading `id.Kind`. One
-classification, two spellings of it, and nothing makes the second agree with the first.
-
-### `Passes/NameResolution/TypeRegistration.fs:580`, `:723` — the index-bucket prepend is copied verbatim
-
-`registerRecordDecl`'s `FieldIndex` fill (`:578-588`) and `registerUnionDecl`'s `CtorIndex`
-fill (`:721-731`) are the same eleven lines twice: `TryGetValue`, a `ResizeArray(infos.Length + 1)`
-seeded with the new entry, a copy loop, `EqArray.ofResizeArray`, and a `false, _` arm building an
-`EqArray.singleton`. Only the dictionary and the element type differ. A
-`prependToIndex (index: Dictionary<string, EqArray<'T>>) (name: string) (v: 'T)` helper removes
-both, and gives the "newest declaration wins the slot" ordering one place to live.
 
 ### `Elaborate/Typars.fs:86` — the dependent-typar fixpoint is duplicated in `InferGeneralize.generalise`
 

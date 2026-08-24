@@ -29,6 +29,8 @@ type PoolBuilder =
             /// bound variables and must key them alike.
             UnpooledBoundVarKeys: Dictionary<BoundVarId, NodeKey>
             mutable UnpoolCount: int
+            /// The base pool's `ModuleMembers` by bound variable, indexed on first read.
+            ModuleMemberIndex: Lazy<IReadOnlyDictionary<BoundVarId, ModuleBindingInfo>>
         }
 
 /// A node HANDLE: a dense pool id together with the pool that resolves it. Equality is the
@@ -52,6 +54,7 @@ module TastPoolBuilder =
             OvBoundVarCount = 0
             UnpooledBoundVarKeys = Dictionary()
             UnpoolCount = 0
+            ModuleMemberIndex = lazy (DenseTable.index pools.ModuleMembers)
         }
 
     /// A builder over no base at all, for nodes belonging to no frozen tree: an EXTERNAL
@@ -59,7 +62,7 @@ module TastPoolBuilder =
     let openEmpty () : PoolBuilder = openOver FrozenPools.empty
 
     // ── the stacked read surface: one accessor per column ───────────────────
-    // The layer arithmetic lives in the three `read*` resolvers below and nowhere else.
+    // The layer arithmetic lives in the four `read*` resolvers below and nowhere else.
 
     let inline private readExpr
         (b: PoolBuilder)
@@ -93,6 +96,17 @@ module TastPoolBuilder =
             ofBase b.Base i
         else
             ofRow b.OvDecls.[i - b.DeclBase]
+
+    /// The bound-variable resolver. An overlay bound variable has no row, only its id, so
+    /// `ofMinted` receives the id itself.
+    let inline private readBoundVar
+        (b: PoolBuilder)
+        (id: BoundVarId)
+        ([<InlineIfLambda>] ofBase: FrozenPools -> int -> 'a)
+        ([<InlineIfLambda>] ofMinted: BoundVarId -> 'a)
+        : 'a =
+        let (BoundVarId i) = id
+        if i < b.BoundVarBase then ofBase b.Base i else ofMinted id
 
     /// The node's type. The BASE column holds a row id of the base pool's type table; an
     /// OVERLAY row holds the type itself, a retyped node minting types the base never had.
@@ -212,22 +226,12 @@ module TastPoolBuilder =
     /// How a bound variable id is SPELLED: the base pool's naming column, or `Minted` for a bound variable
     /// this overlay handed out, which no source spells.
     let boundVarNaming (b: PoolBuilder) (id: BoundVarId) : BoundVarNaming =
-        let (BoundVarId i) = id
-
-        if i < b.BoundVarBase then
-            FrozenPools.boundVarNaming b.Base id
-        else
-            BoundVarNaming.Minted id
+        readBoundVar b id (fun p i -> FrozenPools.boundVarNaming p (BoundVarId i)) BoundVarNaming.Minted
 
     /// Where a bound variable's name is spelled. `Anchor.nowhere` where no node spells it: an
     /// overlay-minted bound variable, or a declaration's pattern-less key slot.
     let boundVarTok (b: PoolBuilder) (id: BoundVarId) : Anchor =
-        let (BoundVarId i) = id
-
-        if i < b.BoundVarBase then
-            b.Base.BoundVarToks.[i]
-        else
-            Anchor.nowhere
+        readBoundVar b id (fun p i -> p.BoundVarToks.[i]) (fun _ -> Anchor.nowhere)
 
     // The size of the expr and bound variable id spaces: the next append takes the count itself.
 
@@ -236,8 +240,7 @@ module TastPoolBuilder =
 
     /// The file's decl roots, in source order. They are the BASE pool's: a whole-decl rewrite
     /// returns the derived id for its caller to carry rather than repointing this array.
-    /// Copied, so a caller cannot reach into the immutable base through it.
-    let roots (b: PoolBuilder) : DeclPoolId[] = Array.copy b.Base.Roots
+    let roots (b: PoolBuilder) : EqArray<DeclPoolId> = b.Base.Roots
 
     // ── append primitives ───────────────────────────────────────────────────
 
@@ -310,9 +313,9 @@ module TastPoolBuilder =
     let globalValueKeys (b: PoolBuilder) : IReadOnlySet<SymbolKey> = b.Base.Residue.GlobalValueKeys
 
     /// This file's module-level bindings by bound variable: the SYMBOL identity behind a `let` decl's
-    /// name, which the columns address only positionally. Indexes on each call.
+    /// name, which the columns address only positionally. Indexed once per builder.
     let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BoundVarId, ModuleBindingInfo> =
-        DenseTable.index b.Base.ModuleMembers
+        b.ModuleMemberIndex.Force()
 
     /// The bound on every `SpecializationId` an edge can carry.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length

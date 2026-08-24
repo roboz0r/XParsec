@@ -109,7 +109,7 @@ let private frozenLetDecl (src: string) : Wire.TDecl =
     let pool = TastPoolBuilder.openOver pools
 
     pools.Roots
-    |> Array.tryPick (fun r ->
+    |> Seq.tryPick (fun r ->
         match TastPoolBuilder.declTree pool r with
         | TDeclG.Let(TPatG.NamedSimple _, _, _, _) as d -> Some d
         | _ -> None
@@ -170,7 +170,7 @@ let private asSymbolScheme (ft: FrozenType) : FrozenType =
     FrozenTypeBridge.instantiateWith
         (fun i -> TyTypar(TyparAxis.Declaring, i))
         (fun j -> TyTypar(TyparAxis.Declaring, j))
-        (FrozenTypeBridge.localTyparInTemplate "InlineFreezeThawTests.asSymbolScheme")
+        FrozenTypeBridge.localTyparInTemplate
         ft
     |> toFrozen
 

@@ -474,7 +474,7 @@ module FrozenCodec =
         writeChildColumn w writeExprPoolId p.DeclExprChildren
         writeChildColumn w writePatPoolId p.DeclPatChildren
         writeArrayWith w writeDeclPayload p.DeclPayloads
-        writeArrayWith w writeDeclPoolId p.Roots
+        writeEqArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
         writeArrayWith w writeSpecialization p.Specializations
         writeArrayWith w (fun w (s: string) -> w.Write s) p.BoundVarNames
@@ -516,7 +516,7 @@ module FrozenCodec =
         let declExprChildren = readChildColumn r readExprPoolId
         let declPatChildren = readChildColumn r readPatPoolId
         let declPayloads = readArrayWith r readDeclPayload
-        let roots = readArrayWith r readDeclPoolId
+        let roots = readEqArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
         let specializations = readArrayWith r readSpecialization
         let boundVarNames = readArrayWith r (fun r -> r.ReadString())

@@ -75,7 +75,9 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 /// half of id preservation. The unpool is deterministic within one builder (its re-minted bound
 /// variable keys are the builder's), so two unpools are directly comparable.
 let private unpoolRoots (b: PoolBuilder) : Wire.TDecl[] =
-    TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
+    TastPoolBuilder.roots b
+    |> EqArray.toArray
+    |> Array.map (TastPoolBuilder.declTree b)
 
 // Programs spanning the domains the stack has to keep straight: a bound variable reference across
 // decls, a composite expr with swappable children, a sub-patterned pattern, a `for` loop variable.
